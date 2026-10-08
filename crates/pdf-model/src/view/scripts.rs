@@ -266,6 +266,12 @@ pub(super) struct Scripting {
     /// Every run the runner answered as held — waiting on a person, or queued behind one that is —
     /// in the order handed over, until its outcome arrives ([`ViewState::apply_resumed`]).
     pending: Vec<Pending>,
+    /// The timers scripts set and the sounds they asked for, until a host's ticks run the one and
+    /// a host takes the other (ADR 1702).
+    pub(super) timers: super::script_timers::Timers,
+    /// The document's annotations as a realm was told of them, and what scripts set on them (ADR
+    /// 1700).
+    pub(super) annotations: super::script_annotations::Annotations,
 }
 
 /// A run its runner held rather than finished, and what its late outcome needs to be applied.
@@ -305,6 +311,10 @@ struct Saved {
     unfiled: Vec<Vec<u8>>,
     /// The properties scripts set that a save writes.
     drawn: BTreeMap<ObjectId, Vec<Property>>,
+    /// The `hidden` scripts set on annotations, which a save writes.
+    annotations_hidden: BTreeMap<ObjectId, bool>,
+    /// The popups scripts opened or closed, which a save writes.
+    popups_opened: BTreeMap<ObjectId, bool>,
 }
 
 /// The statements about field values and visibility the realm was last told of: what the delta of
@@ -329,6 +339,8 @@ struct Told {
     overrides: BTreeMap<String, Overrides>,
     /// §8.11's states, which the realm's layers are read from.
     optional_content: Option<crate::optional_content::OptionalContent>,
+    /// The annotations, as the realm was last told of them (ADR 1700).
+    annotations: Vec<super::AnnotationState>,
     /// Every field name the realm has been told of: a table read for one page at the open names
     /// fewer fields than one read for the whole document later, and a field first met in the
     /// wider one is told then (ADR 1653 section 4).
@@ -813,6 +825,13 @@ impl ViewState {
         Some((result, applied))
     }
 
+    /// Every page's zero-based index by its object, walked once (ADR 1640).
+    pub(super) fn page_indices(&mut self, document: &Document) -> &BTreeMap<ObjectId, usize> {
+        self.scripting
+            .pages
+            .get_or_insert_with(|| crate::page::Pages::new(document).indices())
+    }
+
     /// The zero-based page Table 166's `/P` names for a field's first widget: the page a person is
     /// on when they type into the field, and so what `this.pageNum` reads at its own events, which
     /// a script's page turn counts from (ADR 1640). `None` where the widget names no page.
@@ -842,9 +861,18 @@ impl ViewState {
         document: &Document,
         table: &BTreeMap<String, Vec<ObjectId>>,
     ) -> (Vec<FieldState>, Option<DocumentState>) {
+        let annotations = self.annotation_states(document);
         let whole = match self.scripting.told.as_deref() {
-            Some(told) if told.optional_content == self.optional_content => None,
-            _ => Some(self.document_state(document)),
+            Some(told)
+                if told.optional_content == self.optional_content
+                    && told.annotations == annotations =>
+            {
+                None
+            }
+            _ => Some(DocumentState {
+                annotations: annotations.clone(),
+                ..self.document_state(document)
+            }),
         };
         let names: BTreeSet<&String> = match self.scripting.told.as_deref() {
             None => table.keys().collect(),
@@ -899,6 +927,7 @@ impl ViewState {
             shown: self.shown.clone(),
             overrides: self.scripting.overrides.clone(),
             optional_content: self.optional_content.clone(),
+            annotations,
             names: told_names,
         }));
         (states, whole)
@@ -964,6 +993,18 @@ impl ViewState {
                     generation,
                     on,
                 } => self.switch_layer(document, *number, *generation, *on),
+                ScriptEdit::Annotation {
+                    number,
+                    generation,
+                    change,
+                } => {
+                    let annotation = ObjectId {
+                        number: *number,
+                        generation: *generation,
+                    };
+                    self.change_annotation(document, annotation, change);
+                    applied.values = true;
+                }
                 ScriptEdit::GoTo { page } => {
                     let pages = crate::page::Pages::new(document).len();
                     match usize::try_from(*page) {
@@ -975,6 +1016,18 @@ impl ViewState {
                         )),
                     }
                 }
+                ScriptEdit::Timer {
+                    id,
+                    script,
+                    period,
+                    repeat,
+                } => {
+                    if let Err(refused) = self.scripting.timers.set(*id, script, *period, *repeat) {
+                        self.report(refused);
+                    }
+                }
+                ScriptEdit::ClearTimer { id } => self.scripting.timers.clear(*id),
+                ScriptEdit::Beep { sound } => self.scripting.timers.beep(*sound),
             }
         }
         applied
@@ -1737,6 +1790,8 @@ impl ViewState {
             filed: self.filed.clone(),
             unfiled: self.unfiled.clone(),
             drawn: self.scripting.drawn.clone(),
+            annotations_hidden: self.scripting.annotations.hidden.clone(),
+            popups_opened: self.scripting.annotations.opened.clone(),
         }
     }
 
@@ -1756,6 +1811,8 @@ impl ViewState {
                     || saved.filed != self.filed
                     || saved.unfiled != self.unfiled
                     || saved.drawn != self.scripting.drawn
+                    || saved.annotations_hidden != self.scripting.annotations.hidden
+                    || saved.popups_opened != self.scripting.annotations.opened
             }
             None => {
                 !(self.edited.is_empty()
@@ -1765,7 +1822,9 @@ impl ViewState {
                     && self.retyped.is_empty()
                     && self.filed.is_empty()
                     && self.unfiled.is_empty()
-                    && self.scripting.drawn.is_empty())
+                    && self.scripting.drawn.is_empty()
+                    && self.scripting.annotations.hidden.is_empty()
+                    && self.scripting.annotations.opened.is_empty())
             }
         }
     }

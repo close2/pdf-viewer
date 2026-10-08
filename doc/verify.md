@@ -633,7 +633,8 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # because it was never in it.
 #
 # **A seeded corpus also goes stale with nothing failing** (trap 107), so before a campaign ask:
-# `tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh check <target>` seeds the
+# `tools/bounded.sh --lock --round <session> --tree 6 -- fuzz/seeds.sh check <target>` (`--tree 12`
+# for `jbig2` and `jpx`, as `fuzz/seeds.sh`'s header says, ADR 1710) seeds the
 # target afresh into a scratch directory beside the build output, prints libFuzzer's `INITED cov`
 # over the disk corpus and over the fresh seeds — a `-runs=0` pass each, under the limits this
 # file's line gives — and says `STALE` when the fresh seeds lead by more than the margin the script
@@ -1087,7 +1088,8 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # for when a dependency's crash needs its stack. Give each run a scratch corpus as its *first*
 # directory and the seeded one second, so that what the run finds is written to the scratch one
 # and a worktree's linked `fuzz/corpus` is read rather than grown (ADR 1423):
-#   cargo +nightly fuzz build -O -s none
+#   tools/bounded.sh --lock --round <session> --tree 6 -- \
+#     bash -c 'cd fuzz && cargo +nightly fuzz build -O -s none'
 #   RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 4 --tree 4 -- \
 #     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
 #     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-

@@ -31,16 +31,19 @@ use crate::action::{
 use crate::destination::Destination;
 use crate::forms_data::Import;
 
+mod script_annotations;
 mod script_model;
 mod script_sites;
+mod script_timers;
 mod scripts;
 
 use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
-    Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, Face,
-    FieldState, FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag,
-    WidgetState,
+    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, CommitKey, Display,
+    DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property,
+    ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
 };
+pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
 pub use scripts::{
     Committed, Displayed, FocusRequest, Resumed, ScriptEvent, ScriptResult, ScriptRunner,
 };
@@ -3050,6 +3053,7 @@ impl ViewState {
         }
         self.write_imported_values(document, &mut update, &mut withheld);
         self.write_scripted(document, &mut update);
+        self.write_scripted_annotations(document, &mut update);
         // Table 224's flag is written only for what this program could not write itself. §12.7.2
         // states what setting it admits — "[i]f such an object defines an appearance stream, the
         // appearance shall be consistent with the object's current value as a field" — so a

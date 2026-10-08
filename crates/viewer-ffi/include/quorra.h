@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 25u
+#define QUORRA_EVENT_KIND_COUNT 26u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -120,6 +120,10 @@ extern "C" {
  * answered as a closed dialogue answers. Not sent to a caller of this ABI, for the kinds above's
  * reason; named for the default arm of a switch (ADR 1643). */
 #define QUORRA_EVENT_SCRIPT_QUESTION_WITHDRAWN 24u
+
+/* A document's script asked for a sound: app.beep. Not sent to a caller of this ABI, for the kinds
+ * above's reason; named for the default arm of a switch (ADR 1702). */
+#define QUORRA_EVENT_BEEP 25u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
@@ -1097,6 +1101,10 @@ int32_t quorra_frame_info(const quorra_viewer *viewer, size_t frame, quorra_fram
 int32_t quorra_frame_copy(const quorra_viewer *viewer, size_t frame, uint8_t *into, size_t cap,
                         size_t *written);
 int32_t quorra_dirty(const quorra_viewer *viewer, bool *dirty);
+/* How many milliseconds of quorra_tick may pass before a script's timer is owed: *held is false
+ * where no document holds one, which is every session, since a session supplies no script runner
+ * (ADR 1702). */
+int32_t quorra_timer_due(const quorra_viewer *viewer, bool *held, uint32_t *millis);
 /* §12.5.6.5: whether activating here would follow a link. Asked on every pointer move. */
 int32_t quorra_link_at(const quorra_viewer *viewer, float x, float y, bool *link);
 /* What the pages on the screen could not draw — the same sentences a REPORTED carried, kept so a

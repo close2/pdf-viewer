@@ -26,6 +26,7 @@
 //! calls back into script, growth through an operator, and a realm's heap across its lifetime — is
 //! the process's to bound, and ADRs 1590 and 1602 name each.
 
+mod annotations;
 mod bridge;
 mod guard;
 mod members;
@@ -353,6 +354,12 @@ pub(crate) struct Table {
     pub(crate) dirty: bool,
     /// The document as a whole, as last told.
     pub(crate) document: DocumentState,
+    /// The number the realm gives the next timer a script sets, counted for the realm's lifetime
+    /// so that no two of one document's timers share one (ADR 1702).
+    pub(crate) next_timer: u32,
+    /// The key an interval or timeout object holds its number under: a symbol of the realm's, so
+    /// that no property a script adds to the object can meet it (ADR 1702).
+    pub(crate) timer_key: Option<boa_engine::JsSymbol>,
 }
 
 /// One run's record.
@@ -375,6 +382,8 @@ pub(crate) struct Record {
     touched: BTreeMap<String, FieldState>,
     /// The groups as they were before the run's first switch of one, for the same reason.
     pub(crate) layers_before: Option<Vec<pdf_model::view::Layer>>,
+    /// The annotations as they were before the run's first change of one, for the same reason.
+    pub(crate) annotations_before: Option<Vec<pdf_model::view::AnnotationState>>,
     /// The budget a guard stopped the script on.
     pub(crate) exceeded: Option<Exceeded>,
     /// The notes the run owes a report.
@@ -453,12 +462,14 @@ impl State {
         let budget = record.budget;
         let touched = std::mem::take(&mut record.touched);
         let layers_before = record.layers_before.take();
+        let annotations_before = record.annotations_before.take();
         std::mem::replace(
             &mut *record,
             Record {
                 budget,
                 touched,
                 layers_before,
+                annotations_before,
                 ..Record::default()
             },
         )
@@ -479,6 +490,9 @@ impl State {
         }
         if let Some(layers) = record.layers_before.take() {
             table.document.layers = layers;
+        }
+        if let Some(annotations) = record.annotations_before.take() {
+            table.document.annotations = annotations;
         }
     }
 

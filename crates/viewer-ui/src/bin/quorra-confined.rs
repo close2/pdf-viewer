@@ -944,6 +944,18 @@ impl Host {
             // A question is answered the moment it arrives, so none stands for a withdrawal to
             // take down; the arm says so rather than receiving a newer worker's event in silence
             // (ADR 1643).
+            // Pinned to `off`, this window's worker runs no script that could ask for a sound; the
+            // arm says so rather than receiving a newer worker's event in silence (ADR 1702).
+            Event::Beep { document, sound } => {
+                eprintln!(
+                    "note: {}",
+                    viewer_host::script_timers::unplayed(
+                        &format!("document {}", document.0),
+                        sound,
+                        "this window has no sound for a document's script"
+                    )
+                );
+            }
             Event::ScriptQuestionWithdrawn { .. } => {
                 eprintln!(
                     "note: a script's question was withdrawn, and this window had answered it \

@@ -240,9 +240,13 @@ command, put on `quorra`'s card and on GTK's and Qt's dialogues titled with the 
 with the script's buttons or an entry holding its default, the window's thread never waiting
 while the script is held in its worker and what it does once answered applied late (ADRs 1627,
 1628), an answer only ever the question's the window took (ADR 1641), and a script's write to
-`this.pageNum` a page turn the window makes (ADR 1640), `getField("name.N")` one widget of a
-field whose widget members are its own and whose value is the field's (ADR 1664), and
-`Field.style` a check box's glyph redrawn (ADR 1665) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+`this.pageNum` a page turn the window makes (ADR 1640), `app.setInterval` and `app.setTimeOut`
+counted down in the ticks every window sends only while a document holds one, and `app.beep` a
+sound GTK and Qt play and `quorra` refuses by name (ADR 1702), `getField("name.N")` one widget of a
+field whose widget members are its own and whose value is the field's (ADR 1664),
+`Field.style` a check box's glyph redrawn (ADR 1665), and `this.getAnnots` the document's markup
+annotations, whose `hidden`, `popupOpen` and free-text `contents` a script sets as a reader's edit
+and a save writes (ADR 1700) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
 `pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
 nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text

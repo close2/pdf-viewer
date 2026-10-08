@@ -651,6 +651,9 @@ pub struct Host {
     /// frame every sixtieth of a second and a still page wants a tick every tenth, and a repeating
     /// source cannot change its mind.
     armed: Option<glib::SourceId>,
+    /// When this window last told the core that time passed for a document's script timers, which
+    /// [`Self::armed`] also wakes for while no presentation does (ADR 1702).
+    script_ticker: viewer_host::script_timers::Ticker,
     /// A transition named by the core, waiting for the page it moves *to* to be rendered.
     ///
     /// §12.4.4.1's transition is one *to* a page, and the core settles after the command that
@@ -810,6 +813,7 @@ impl Host {
                 presenting: viewer_host::Presenting::default(),
                 clock: None,
                 armed: None,
+                script_ticker: viewer_host::script_timers::Ticker::default(),
                 arming: None,
                 shown: None,
                 viewport: (1, 1),
@@ -1092,6 +1096,23 @@ impl Host {
             });
         });
         self.script_dialogue = Some((document, dialog, Rc::clone(&answered_flag)));
+    }
+
+    /// [`Event::Beep`]: the display's one system sound, and the line that says which of the
+    /// reference's five was asked for — or, with no display, the line that says none was played
+    /// (ADR 1702).
+    fn beep(&self, document: DocumentId, sound: pdf_model::view::Sound) {
+        let name = self.documents.label_of(document);
+        if let Some(display) = gtk4::gdk::Display::default() {
+            display.beep();
+            self.say(&viewer_host::script_timers::played(&name, sound, "GDK"));
+        } else {
+            self.say(&viewer_host::script_timers::unplayed(
+                &name,
+                sound,
+                "GDK has no display to sound",
+            ));
+        }
     }
 
     /// [`Event::ScriptQuestionWithdrawn`]: the dialogue of that document's question comes down,
@@ -2077,6 +2098,9 @@ impl Host {
             // The question's wait ran out and the runner answered it as a closed dialogue does, so
             // the dialogue comes down without answering again (ADR 1643).
             Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
+            // `app.beep`: the display's one system sound, whichever of the five was asked for
+            // (ADR 1702).
+            Event::Beep { document, sound } => self.beep(document, sound),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -3723,8 +3747,11 @@ impl Host {
             self.shown = None;
         }
         let Some(interval) = self.clock.as_ref().map(viewer_host::Clock::interval) else {
+            self.arm_script_timers();
             return;
         };
+        // The presentation's clock carries the time, and a second clock would count it twice.
+        self.script_ticker.stand_down();
         let me = self.me.clone();
         self.armed = Some(glib::timeout_add_local_once(interval, move || {
             with(&me, |host| {
@@ -3732,6 +3759,33 @@ impl Host {
                 host.turn_the_clock();
             });
         }));
+    }
+
+    /// Arms the one-shot for the soonest timer a document's script set, or nothing where none is
+    /// held, which is every window whose documents set none (ADR 1702).
+    fn arm_script_timers(&mut self) {
+        let Some(wait) = self
+            .script_ticker
+            .wake(&self.viewer, std::time::Instant::now())
+        else {
+            return;
+        };
+        let me = self.me.clone();
+        self.armed = Some(glib::timeout_add_local_once(wait, move || {
+            with(&me, |host| {
+                host.armed = None;
+                host.tick_the_scripts();
+            });
+        }));
+    }
+
+    /// Tells the core how much time passed for the script timers, and reacts to what the runs
+    /// that came due did; [`Self::pump`] arms the next one.
+    fn tick_the_scripts(&mut self) {
+        match self.script_ticker.tick(std::time::Instant::now()) {
+            Some(millis) => self.dispatch(Command::Tick { millis }),
+            None => self.pump_presentation(),
+        }
     }
 
     /// One turn of §12.4.4.1's clock: tell the core how much time passed, and draw what is due.

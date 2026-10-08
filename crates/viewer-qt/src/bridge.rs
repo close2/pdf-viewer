@@ -566,6 +566,9 @@ pub mod ffi {
         /// the window asks `place_window` with its own extents and resizes or moves itself by the
         /// answer, because Rust never calls a Qt object (ADR 1429).
         placement: bool,
+        /// A document's script asked for a sound, `app.beep`: `QApplication::beep` is owed, for
+        /// `clipboard`'s reason (ADR 1702).
+        beep: bool,
     }
 
     /// A print job, as a `QPrintDialog` opens on it — §12.2's Table 147 and §7.6.4.2's bit 12.
@@ -1024,7 +1027,10 @@ pub mod ffi {
         /// Asked after every pump rather than set once, because the interval a transition wants
         /// and the interval a still page wants are different numbers — `viewer_host::Clock`
         /// decides both, so all three hosts wake at the same rate for the same reason.
-        fn presentation_wait(self: &Host) -> i32;
+        ///
+        /// It is also the window's clock for a document's script timers while nothing presents
+        /// (ADR 1702): one clock per window, so the core is never told the same time twice.
+        fn presentation_wait(self: &mut Host) -> i32;
         /// One turn of that clock. Called from a `QTimer`.
         fn presentation_tick(self: &mut Host);
         /// What the title bar should say.

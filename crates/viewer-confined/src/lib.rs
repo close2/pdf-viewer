@@ -553,6 +553,8 @@ pub enum Reply {
     Highlighted(Vec<[f32; 8]>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// [`viewer_core::Answer::TimerDue`]'s milliseconds, or `None` where no timer is held.
+    TimerDue(Option<u32>),
     /// The focused annotation and the quadrilateral covering it.
     Focus {
         /// The annotation itself.

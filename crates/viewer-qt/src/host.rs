@@ -527,6 +527,9 @@ pub struct Host {
     /// it has nothing to advance. The decision inside it — how often, what a tick carries, when
     /// Table 164's `/D` has run out — is `viewer_host::Clock`, shared with the other two hosts.
     clock: Option<viewer_host::Clock>,
+    /// When this window last told the core that time passed for a document's script timers, which
+    /// the same `QTimer` wakes for while no presentation does (ADR 1702).
+    script_ticker: viewer_host::script_timers::Ticker,
     /// A transition named by the core, waiting for the page it moves *to* to be rendered.
     arming: Option<pdf_model::navigation::Transition>,
     /// The page on the screen, as the list that drew it and where a whole-viewport draw would
@@ -695,6 +698,7 @@ impl Host {
             zoom_wheel: viewer_host::ZoomWheel::default(),
             fit_magnification: None,
             clock: None,
+            script_ticker: viewer_host::script_timers::Ticker::default(),
             arming: None,
             shown: None,
             playing: None,
@@ -1298,10 +1302,20 @@ impl Host {
     /// `-1` where nothing is presenting, which is what stops the timer. Asked after every pump
     /// rather than set once, because the interval a transition wants and the interval a still
     /// page wants are not the same number.
-    pub(crate) fn presentation_wait(&self) -> i32 {
-        self.clock.as_ref().map_or(-1, |clock| {
-            i32::try_from(clock.interval().as_millis()).unwrap_or(i32::MAX)
-        })
+    ///
+    /// **And a document's script timers, while nothing presents** (ADR 1702): one clock per
+    /// window, because two clocks each counting from their own last tick would tell the core twice
+    /// the time that passed. `-1` while no document holds a timer, so a still window has no timer.
+    pub(crate) fn presentation_wait(&mut self) -> i32 {
+        if let Some(clock) = self.clock.as_ref() {
+            self.script_ticker.stand_down();
+            return i32::try_from(clock.interval().as_millis()).unwrap_or(i32::MAX);
+        }
+        self.script_ticker
+            .wake(&self.viewer, std::time::Instant::now())
+            .map_or(-1, |wait| {
+                i32::try_from(wait.as_millis()).unwrap_or(i32::MAX)
+            })
     }
 
     /// One turn of §12.4.4.1's clock: tell the core how much time passed, and draw what is due.
@@ -1312,6 +1326,13 @@ impl Host {
     /// number, and flags no update at all.
     pub(crate) fn presentation_tick(&mut self) {
         let now = std::time::Instant::now();
+        // No presentation: the timer woke for a document's script timers (ADR 1702).
+        if self.clock.is_none() {
+            if let Some(millis) = self.script_ticker.tick(now) {
+                self.pump(vec![Command::Tick { millis }]);
+            }
+            return;
+        }
         // §12.6.4.15's clock exists for one effect; `Clock::spent` is the turn after it ended, and
         // dropping it here is what leaves a window that is not presenting with no timer at all —
         // `presentation_wait` answers -1 the moment this is `None` (ADR 1216).
@@ -2252,6 +2273,14 @@ impl Host {
                 password: false,
             },
         }
+    }
+
+    /// [`Event::Beep`]: `QApplication::beep` flagged for C++, and the line that says which of the
+    /// reference's five was asked for (ADR 1702).
+    fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound) {
+        self.update.beep = true;
+        let name = self.documents.label_of(document);
+        self.say(&viewer_host::script_timers::played(&name, sound, "Qt"));
     }
 
     /// [`Event::ScriptQuestionWithdrawn`]: that document's question is taken, so the dialogue's
@@ -4103,6 +4132,9 @@ impl Host {
             // taken here, so the dialogue's `poll_script_question` sees it gone and closes, and the
             // answer it then sends reaches nothing (ADR 1643).
             Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
+            // `app.beep`: `QApplication::beep`, the one system sound, whichever of the five was
+            // asked for — a flag for `clipboard`'s reason, since Rust never calls Qt (ADR 1702).
+            Event::Beep { document, sound } => self.beep(document, sound),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.
@@ -4668,6 +4700,7 @@ fn nothing_changed() -> QtUpdate {
         documents: false,
         choose_document: false,
         placement: false,
+        beep: false,
     }
 }
 

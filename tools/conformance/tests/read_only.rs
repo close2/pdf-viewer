@@ -400,17 +400,18 @@ fn findings(script: &str, root: &Path) -> (Vec<String>, usize) {
 }
 
 /// The index of the command word: past assignments and the wrappers this script runs a command
-/// through (`run` and `prose_line` with their quoted title and filter, `env`, `walk` and its kind,
-/// and `tools/bounded.sh` with its options up to `--`).
+/// through (`run` and `prose_line` with their quoted title and filter, `env`, and `walk` and
+/// `tools/bounded.sh` each with its options up to `--`; a `walk` with none is its kind alone).
 fn first_command(words: &[String]) -> usize {
     let mut index = 0;
     while let Some(word) = words.get(index) {
         let skipped = match word.as_str() {
-            "walk" => 2,
-            "tools/bounded.sh" => words
+            "walk" | "tools/bounded.sh" => words
                 .get(index..)
                 .and_then(|rest| rest.iter().position(|word| word == "--"))
-                .map_or(1, |end| end.saturating_add(1)),
+                .map_or(if word == "walk" { 2 } else { 1 }, |end| {
+                    end.saturating_add(1)
+                }),
             "Q" | "env" | "run" | "prose_line" | "command" | "--" => 1,
             assignment if assignment.contains('=') => 1,
             _ => return index,
@@ -479,6 +480,7 @@ section_x() {
     rm -f \"$sorted\"
     rm -f doc/keep.md
     run \"walk\" '.' walk small -- rm -f doc/walked.md
+    run \"walk\" '.' walk small --build '-p x --bins' -- rm -f doc/built.md
     tools/bounded.sh --lock --round 1 --tree 6 -- cp a doc/b
     python3 tools/comment-history.py
     PYTHONDONTWRITEBYTECODE=1 python3 tools/main-checkout.py
@@ -496,6 +498,7 @@ TEXT
         "a redirection into `doc/out.txt`",
         "`rm -f doc/keep.md` writes",
         "`run Q Q walk small -- rm -f doc/walked.md` writes",
+        "`run Q Q walk small --build Q -- rm -f doc/built.md` writes",
         "`tools/bounded.sh --lock --round 1 --tree 6 -- cp a doc/b` writes",
         "`python3 tools/comment-history.py` may write __pycache__ (trap 69)",
         "`git -C $main status --porcelain` takes index.lock",

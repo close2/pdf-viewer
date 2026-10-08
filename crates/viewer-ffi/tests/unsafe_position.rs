@@ -129,9 +129,9 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // pairs that let a caller print a number this build does not define are the example
     // (ADR 0576). Which entry points serve which clause is each one's ADR — 0357, 0519, 0576,
     // 0737, 0814, 1090, 1101, 1106, 1144, 1145, 1167, 1168, 1180, 1191, 1203, 1204, 1228, 1251,
-    // 1252, 1263, 1335, 1553, 1602, 1604, 1655 and 1667.
-    assert_eq!(no_mangle, 222, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 208, "206 `unsafe` entry points and two helpers");
+    // 1252, 1263, 1335, 1553, 1602, 1604, 1655, 1667 and 1702.
+    assert_eq!(no_mangle, 223, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 209, "207 `unsafe` entry points and two helpers");
 }
 
 #[test]

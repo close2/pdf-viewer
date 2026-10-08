@@ -441,6 +441,9 @@ pub(crate) struct App {
     /// up: the loop wakes then and sends a tick of no time, so that the viewer asks and the card
     /// is dropped as the wait runs out rather than at the person's next key (ADR 1643).
     pub(crate) script_wait: Option<std::time::Instant>,
+    /// When this window last told the core that time passed for a document's script timers, while
+    /// no presentation's clock does (ADR 1702).
+    pub(crate) script_ticker: viewer_host::script_timers::Ticker,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
     /// leaves. **Held rather than a `std::process::exit(1)`**, so that this host says the sentence
     /// and stays up as the other two do (ADR 0564).

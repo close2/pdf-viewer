@@ -248,6 +248,24 @@ other policy it has, and `doc/todo/38`'s user interface is still not to be built
 supplies nothing gets exactly the answers it got before, which is ADR 1039's decision unchanged.
 ADR 1076.
 
+**And a script's timers added a `Query` and an `Answer`, and its sound an `Event`** (ADR 1702).
+`app.setInterval` and `app.setTimeOut` need a clock, and rule 3 below gives this crate none: so a
+timer is counted down in the milliseconds `Command::Tick` carries, and `Query::TimerDue` answers
+how long a window may sleep before one is owed — `Answer::TimerDue(None)` for every window whose
+documents set none, which is what keeps a still window from waking at all. It is a question rather
+than an event because the answer is a fact about *now* that every command can move, which is the
+shape `Query::Dirty` already has, and it is asked of every document because a timer ends with its
+document and not when another is brought to the front. **One clock per window**: a presentation's
+`viewer_host::Clock` already ticks the core, so while one runs the timers ride on it, and
+`viewer_host::script_timers::Ticker` is the shared rest. `app.beep` is `Event::Beep { document,
+sound }`, a host's act as a dialogue is: GTK's display and Qt's application play their one system
+sound, and `quorra`, whose toolkit has none, says none was played. Every consumer that matches the
+enumerations failed to compile — the wire (event kind 25, query and answer kind 36), the trace line,
+both toolkits and the confined window — `QUORRA_EVENT_KIND_COUNT` moved 25 → **26**, and the C ABI
+gained `quorra_timer_due` and `QUORRA_EVENT_BEEP`; `QUORRA_ABI_VERSION` did not move. And because
+a window now ticks while a person reads, a tick advances §12.4.4.1's `/Dur` only under
+`Command::Present(On)`, the clause's own condition.
+
 **And the one-thousand-and-eighty-seventh added one `Command` and one entry point, on exactly that
 pattern, for §8.10.4's reference `XObject`s.** The clause writes a `shall` for a processor that
 imports the referenced page and a `shall` for one that draws the proxy instead, and which of the two

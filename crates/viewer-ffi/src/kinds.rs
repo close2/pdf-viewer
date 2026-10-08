@@ -104,6 +104,9 @@ pub enum EventKind {
     /// its wait run out. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason (ADR
     /// 1643).
     ScriptQuestionWithdrawn = 24,
+    /// [`viewer_core::Event::Beep`] — a document's script asked for a sound. Sent to no caller of
+    /// this ABI, for [`Self::ScriptAsking`]'s reason: a session supplies no runner (ADR 1702).
+    Beep = 25,
 }
 
 impl EventKind {
@@ -112,7 +115,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 25;
+    pub const COUNT: u32 = 26;
 
     /// Which kind an event is.
     ///
@@ -147,6 +150,7 @@ impl EventKind {
             Event::AskingToRunScripts { .. } => Self::AskingToRunScripts,
             Event::ScriptAsking { .. } => Self::ScriptAsking,
             Event::ScriptQuestionWithdrawn { .. } => Self::ScriptQuestionWithdrawn,
+            Event::Beep { .. } => Self::Beep,
         }
     }
 
@@ -183,6 +187,7 @@ impl EventKind {
             Self::AskingToRunScripts => "AskingToRunScripts\0",
             Self::ScriptAsking => "ScriptAsking\0",
             Self::ScriptQuestionWithdrawn => "ScriptQuestionWithdrawn\0",
+            Self::Beep => "Beep\0",
         }
     }
 
@@ -219,6 +224,7 @@ impl EventKind {
             22 => Self::AskingToRunScripts,
             23 => Self::ScriptAsking,
             24 => Self::ScriptQuestionWithdrawn,
+            25 => Self::Beep,
             _ => return None,
         })
     }

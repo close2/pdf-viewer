@@ -162,6 +162,9 @@ impl ApplicationHandler for App {
             self.script_wait = None;
             self.dispatch(Command::Tick { millis: 0 });
         }
+        // A document's script timers, while no presentation's clock is telling the core the time:
+        // one clock per window, or the core would be told the same time twice (ADR 1702).
+        let script_timer = self.script_timers();
         // The next document named beside this one, outside every pump: a document that settles
         // does so inside one, and starting the next from there would nest a second (ADR 1275).
         if std::mem::take(&mut self.arrival_due) {
@@ -208,10 +211,11 @@ impl ApplicationHandler for App {
             // the turn after it ran out, which is what makes this a *transition* rather than a
             // second presentation mode (ADR 1216).
             let Some(effect) = self.effect.as_mut() else {
-                event_loop.set_control_flow(
-                    self.script_wait
-                        .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
-                );
+                let wake = match (self.script_wait, script_timer) {
+                    (Some(question), Some(timer)) => Some(question.min(timer)),
+                    (question, timer) => question.or(timer),
+                };
+                event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
                 return;
             };
             // Armed and not yet begun is not spent: the effect is drawn when the page it moves
@@ -833,6 +837,29 @@ fn character(text: &str) -> Option<viewer_host::Key> {
         '?' => Stated::Question,
         _ => return None,
     })
+}
+
+impl App {
+    /// Sends the tick a document's script timers are owed, where one is due, and answers when the
+    /// next is: `None` while no document holds a timer, or while a presentation's clock carries
+    /// the time or §12.6.4.15's one effect is drawn — the two toolkit windows keep one clock for
+    /// both and wait the effect out, and this one does as they do — so a still window waits for
+    /// an event and nothing else (ADR 1702).
+    fn script_timers(&mut self) -> Option<std::time::Instant> {
+        if self.presentation.is_some() || self.effect.is_some() {
+            self.script_ticker.stand_down();
+            return None;
+        }
+        let now = std::time::Instant::now();
+        if self.script_ticker.wake(&self.viewer, now)?.is_zero()
+            && let Some(millis) = self.script_ticker.tick(now)
+        {
+            self.dispatch(Command::Tick { millis });
+        }
+        let now = std::time::Instant::now();
+        let wait = self.script_ticker.wake(&self.viewer, now)?;
+        now.checked_add(wait)
+    }
 }
 
 #[cfg(test)]

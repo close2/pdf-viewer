@@ -805,3 +805,26 @@ Round 1428's first version kept a drain's lent threads until no exact meet was l
 the Type 3 page it targeted improved (ADR 1692). A change that moves where work happens around a
 join is measured on a page whose walk continues past that join as well as on the page it is for; the
 targeted page alone shows only the gain.
+
+## 76. A build is not a walk, and a walk declared large is not queued before its tree is built
+
+Round 1428's `cargo build --release`, left at the wrapper's default large kind, queued 2 239.5 s
+behind the arms export for a hold of 1.1 s, and `cargo test -p conformance`, which the rule line says
+is not a walk, waited 1 820.8 s under the lock in the same batch (round 1435, ADR 1706). A build
+runs outside the lock or as a small walk, and a walk declared large is asked only once its tree is
+built, so the lane it waits for is spent on the walk and not on the compile.
+
+## 77. The drain sequence is printed before anything is designed around "the work after the drain"
+
+A brief placed `bug1721218_reduced.pdf`'s 232 exact meets "in the 11 ms of walk after the drain"; a
+probe that printed each drain's jobs, weight, thread count and the backtrace of what forced it showed
+them in a second drain's commit, forced at a layer boundary and run on the walk's thread (round 1434,
+ADR 1704). The probe took two minutes; the design it would have saved took an hour. Where a frame's
+work is split by drains, the sequence is printed first and the design follows what it says.
+
+## 78. A tick that carries whole milliseconds keeps the fraction it drops
+
+GTK's script-timer clock reset to `now` on every tick and told the core 299 of 300 ms, then 0 ms
+for ever — 184 173 ticks of nothing, seen only by the drive (round 1433, ADR 1702). A ticker that
+hands out whole units keeps the remainder and rounds its waits up; a test that ticks a known span
+and counts the ticks is the one that would have caught it before the drive did.

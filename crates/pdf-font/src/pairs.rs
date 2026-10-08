@@ -21,8 +21,9 @@
 //! - **The feature is the one the run's script selects** (ADR 1696), as OpenType's layout selects
 //!   a feature set: the script table registered for the script the run's characters resolve to
 //!   ([`scripts`]), the `DFLT` table where the program registers none for it or the run has no
-//!   specific script, and in either the default language system — a PDF names no language system
-//!   for a field's text. Its `kern` lookups apply in lookup-list order. Two glyphs of different
+//!   specific script, and in either the language system the text's natural language selects
+//!   ([`Language`], ADR 1708), the default one where the table registers none for it or the text
+//!   names no language. Its `kern` lookups apply in lookup-list order. Two glyphs of different
 //!   scripts are not a pair: text is laid out one script at a time.
 //! - **Only pair adjustment is read** (ADR 1696). A contextual lookup under the same feature —
 //!   `ContextPos` or `ChainContextPos`, even one reaching a pair adjustment — positions a pair by
@@ -89,42 +90,143 @@ impl NoPairs {
 /// Where a program's pairs come from.
 #[derive(Debug, Clone)]
 enum Source {
-    /// `GPOS`'s `kern` feature, as each script table's default language system reaches it.
+    /// `GPOS`'s `kern` feature, as each script table's language systems reach it.
     Positioning(Scripted),
     /// The legacy `kern` table.
     Kerning,
 }
 
-/// `GPOS`'s script tables, each with the pair-adjustment lookups its default language system's
-/// `kern` feature reaches, ascending — empty where it reaches none.
+/// `GPOS`'s script tables, each with the pair-adjustment lookups its language systems' `kern`
+/// features reach, ascending — empty where one reaches none.
 #[derive(Debug, Clone)]
 struct Scripted {
-    tables: Vec<(Tag, Vec<u16>)>,
+    tables: Vec<ScriptTable>,
+}
+
+/// One script table's language systems, as far as pair kerning reads them.
+#[derive(Debug, Clone)]
+struct ScriptTable {
+    tag: Tag,
+    /// The default language system's lookups; empty where the table has none.
+    default: Vec<u16>,
+    /// Each language-specific system's tag and lookups, in the table's own order.
+    languages: Vec<(Tag, Vec<u16>)>,
 }
 
 impl Scripted {
-    /// The lookups OpenType's layout selects for a run of `script`: the table registered for it,
-    /// and `DFLT`'s where none is or the run has no specific script — "[a]n application should
-    /// use a DFLT script table if there is not a script table associated with the specific script
-    /// of the text being formatted, or if the text does not have a specific script" (ISO/IEC
-    /// 14496-22, *OpenType Layout common table formats*, `ScriptList` table). A program
-    /// registering neither gives the run no lookups.
-    fn lookups(&self, script: Script) -> &[u16] {
-        let find = |tag: Tag| {
-            self.tables
-                .iter()
-                .find(|(registered, _)| *registered == tag)
-                .map(|(_, lookups)| lookups.as_slice())
-        };
-        script
+    /// The lookups OpenType's layout selects for a run of `script` in `language`.
+    ///
+    /// The script table is the one registered for the script, and `DFLT`'s where none is or the
+    /// run has no specific script — "[a]n application should use a DFLT script table if there is
+    /// not a script table associated with the specific script of the text being formatted, or if
+    /// the text does not have a specific script" (ISO/IEC 14496-22, *OpenType Layout common table
+    /// formats*, `ScriptList` table). Within it, the language system registered for the first of
+    /// the language's tags the table registers, and the default one where it registers none of
+    /// them: a run is laid out under one or the other and never both, so a language system's
+    /// lookups replace the default's rather than adding to them (the `Script` table and its
+    /// Example 3, ADR 1708). A program registering neither script table gives the run no lookups.
+    fn lookups(&self, script: Script, language: Language) -> &[u16] {
+        let find = |tag: Tag| self.tables.iter().find(|table| table.tag == tag);
+        let Some(table) = script
             .0
             .into_iter()
             .flat_map(tags)
             .flatten()
             .find_map(find)
             .or_else(|| find(Tag::new(b"DFLT")))
-            .unwrap_or_default()
+        else {
+            return &[];
+        };
+        language
+            .tags()
+            .find_map(|wanted| {
+                table
+                    .languages
+                    .iter()
+                    .find(|(registered, _)| registered.to_be_bytes() == wanted)
+            })
+            .map_or(table.default.as_slice(), |(_, lookups)| lookups.as_slice())
     }
+}
+
+/// The OpenType language systems a run's natural language selects, in the order they are tried.
+///
+/// The language is §14.9.2's — a BCP 47 language tag — and the tags are the ones OpenType's
+/// registry (*Language system tags*, OpenType 1.9.1) gives the tag's language by its ISO 639
+/// code: `TRK ` for `tr`, `URD ` for `ur`. Only the language subtag decides, with the
+/// extended-language subtag under it tried first where there is one: RFC 5646 section 2.2.2
+/// writes a language of a macrolanguage as the macrolanguage's subtag and its own (`ar-arz`), and
+/// the registry often lists the macrolanguage alone (`ARA ` for `ara`). Script, region and
+/// variant subtags select nothing here, because the registry's codes are languages' alone, so a
+/// code it gives several tags (Chinese's five) tries them in the registry's order (ADR 1708). An
+/// unknown language — none stated, an empty tag, a private-use or grandfathered tag, a code the
+/// registry gives no tag — selects none, and the default language system is used, which is the
+/// one OpenType has a script laid out under where there is no language-specific information.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Language {
+    /// The extended-language subtag's tags.
+    extended: &'static [[u8; 4]],
+    /// The language subtag's tags.
+    language: &'static [[u8; 4]],
+}
+
+impl Language {
+    /// The language systems a BCP 47 language tag selects.
+    #[must_use]
+    pub fn of(tag: &str) -> Self {
+        let mut subtags = tag.split('-');
+        let primary = subtags.next().unwrap_or_default().to_ascii_lowercase();
+        if !(2..=3).contains(&primary.len()) {
+            return Self::default();
+        }
+        let extended = subtags
+            .next()
+            .filter(|next| next.len() == 3 && next.bytes().all(|byte| byte.is_ascii_alphabetic()))
+            .map_or(&[][..], |extended| {
+                registered(&extended.to_ascii_lowercase())
+            });
+        Self {
+            extended,
+            language: registered(&primary),
+        }
+    }
+
+    /// The language system tags, in the order they are tried; none for an unknown language.
+    pub fn tags(self) -> impl Iterator<Item = [u8; 4]> {
+        self.extended.iter().chain(self.language).copied()
+    }
+}
+
+/// The registry's tags for one ISO 639 code, two letters or three; none for a code it lists
+/// under no tag.
+fn registered(code: &str) -> &'static [[u8; 4]] {
+    let three: Option<[u8; 3]> = match code.as_bytes() {
+        &[first, second] => languages::TWO_LETTER
+            .binary_search_by_key(&[first, second], |(two, _)| *two)
+            .ok()
+            .and_then(|at| languages::TWO_LETTER.get(at))
+            .map(|(_, three)| *three),
+        three => <[u8; 3]>::try_from(three).ok(),
+    };
+    three
+        .filter(|code| code.iter().all(u8::is_ascii_lowercase))
+        .and_then(|three| {
+            languages::LANGUAGES
+                .binary_search_by_key(&three, |(code, _, _)| *code)
+                .ok()
+        })
+        .and_then(|at| languages::LANGUAGES.get(at))
+        .and_then(|(_, first, count)| {
+            let first = usize::from(*first);
+            languages::LANGUAGE_TAGS.get(first..first.checked_add(usize::from(*count))?)
+        })
+        .unwrap_or_default()
+}
+
+/// The tables `build.rs` writes from `data/opentype/language-tags.txt` and
+/// `data/iso639/ISO-639-2_utf-8.txt`.
+mod languages {
+    include!(concat!(env!("OUT_DIR"), "/languages.rs"));
 }
 
 /// The script a character is set in, as far as choosing a program's script table goes: the ISO
@@ -279,14 +381,16 @@ impl Pairs {
     }
 
     /// The adjustments of a run of glyphs in logical order; `scripts` gives, per glyph, the
-    /// script its character resolves to ([`scripts`]) and `right_to_left` whether it reads right
-    /// to left. A `None` glyph — a code reaching none of the program's — pairs with nothing, and
-    /// two glyphs of different directions or of different scripts are not a pair.
+    /// script its character resolves to ([`scripts`]), `language` the run's natural language
+    /// ([`Language`]), and `right_to_left` whether each glyph reads right to left. A `None`
+    /// glyph — a code reaching none of the program's — pairs with nothing, and two glyphs of
+    /// different directions or of different scripts are not a pair.
     #[must_use]
     pub fn adjust(
         &self,
         glyphs: &[Option<u16>],
         scripts: &[Script],
+        language: Language,
         right_to_left: &[bool],
     ) -> Adjusted {
         let mut out = Adjusted {
@@ -309,7 +413,7 @@ impl Pairs {
         match &self.source {
             Source::Positioning(scripted) => {
                 let chosen: Vec<&[u16]> = (0..glyphs.len())
-                    .map(|at| scripted.lookups(script(at)))
+                    .map(|at| scripted.lookups(script(at), language))
                     .collect();
                 self.positioned(&font, &chosen, &pair, &mut out);
             }
@@ -549,13 +653,57 @@ fn pair_values(subtables: &[PairPos], first: u16, second: u16) -> Option<Matched
     None
 }
 
-/// `GPOS`'s script tables with the pair-adjustment lookups each one's default language system
-/// reaches through its `kern` feature; `None` where no script table's default language system
+/// The lookup indices one language system's `kern` features reach.
+type Reached = std::collections::BTreeSet<u16>;
+
+/// One script table's language systems and every lookup each reaches, before the lookups that
+/// are not pair adjustment are set aside.
+struct Reaching {
+    tag: Tag,
+    default: Reached,
+    languages: Vec<(Tag, Reached)>,
+}
+
+/// The lookups a language system's `kern` features reach, the required feature among them.
+fn kern_lookups_of(
+    system: &skrifa::raw::tables::layout::LangSys,
+    features: &skrifa::raw::tables::layout::FeatureList,
+) -> Reached {
+    let kern = Tag::new(b"kern");
+    let required = system.required_feature_index();
+    let named = system
+        .feature_indices()
+        .iter()
+        .map(skrifa::raw::types::BigEndian::get)
+        .chain((required != 0xFFFF).then_some(required));
+    let mut indices = Reached::new();
+    for feature_index in named {
+        let Some(record) = features.feature_records().get(usize::from(feature_index)) else {
+            continue;
+        };
+        if record.feature_tag() != kern {
+            continue;
+        }
+        let Ok(feature) = record.feature(features.offset_data()) else {
+            continue;
+        };
+        indices.extend(
+            feature
+                .lookup_list_indices()
+                .iter()
+                .map(skrifa::raw::types::BigEndian::get),
+        );
+    }
+    indices
+}
+
+/// `GPOS`'s script tables with the pair-adjustment lookups each of their language systems
+/// reaches through its `kern` feature; `None` where no language system of any script table
 /// reaches one.
 ///
 /// A language system names its features by index, the required feature among them, and OpenType
 /// applies those and no others; a `kern` feature record no selected language system names is
-/// not applied. The budget is over every pair subtable any script reaches.
+/// not applied. The budget is over every pair subtable any language system reaches.
 fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     let Ok(gpos) = font.gpos() else {
         return Ok(None);
@@ -565,47 +713,43 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     else {
         return Err(NoPairs::Unreadable);
     };
-    let kern = Tag::new(b"kern");
-    let mut reached: Vec<(Tag, std::collections::BTreeSet<u16>)> = Vec::new();
+    let mut reached: Vec<Reaching> = Vec::new();
     for record in scripts.script_records() {
-        let mut indices = std::collections::BTreeSet::new();
-        let language = record
-            .script(scripts.offset_data())
-            .ok()
-            .and_then(|script| script.default_lang_sys())
-            .and_then(Result::ok);
-        if let Some(language) = language {
-            let required = language.required_feature_index();
-            let named = language
-                .feature_indices()
-                .iter()
-                .map(skrifa::raw::types::BigEndian::get)
-                .chain((required != 0xFFFF).then_some(required));
-            for feature_index in named {
-                let Some(feature_record) =
-                    features.feature_records().get(usize::from(feature_index))
-                else {
-                    continue;
-                };
-                if feature_record.feature_tag() != kern {
-                    continue;
-                }
-                let Ok(feature) = feature_record.feature(features.offset_data()) else {
-                    continue;
-                };
-                indices.extend(
-                    feature
-                        .lookup_list_indices()
-                        .iter()
-                        .map(skrifa::raw::types::BigEndian::get),
-                );
-            }
-        }
-        reached.push((record.script_tag(), indices));
+        let table = record.script(scripts.offset_data()).ok();
+        let default = table
+            .as_ref()
+            .and_then(skrifa::raw::tables::layout::Script::default_lang_sys)
+            .and_then(Result::ok)
+            .map(|system| kern_lookups_of(&system, &features))
+            .unwrap_or_default();
+        let languages = table
+            .as_ref()
+            .map(|table| {
+                table
+                    .lang_sys_records()
+                    .iter()
+                    .filter_map(|language| {
+                        let system = language.lang_sys(table.offset_data()).ok()?;
+                        Some((language.lang_sys_tag(), kern_lookups_of(&system, &features)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        reached.push(Reaching {
+            tag: record.script_tag(),
+            default,
+            languages,
+        });
     }
-    let every: std::collections::BTreeSet<u16> = reached
+    let every: Reached = reached
         .iter()
-        .flat_map(|(_, indices)| indices.iter().copied())
+        .flat_map(|table| {
+            table
+                .default
+                .iter()
+                .chain(table.languages.iter().flat_map(|(_, indices)| indices))
+                .copied()
+        })
         .collect();
     let mut subtables = 0_usize;
     let mut pairs = std::collections::BTreeSet::new();
@@ -625,11 +769,22 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     if pairs.is_empty() {
         return Ok(None);
     }
+    let kept = |indices: Reached| -> Vec<u16> {
+        indices
+            .into_iter()
+            .filter(|index| pairs.contains(index))
+            .collect()
+    };
     let tables = reached
         .into_iter()
-        .map(|(tag, indices)| {
-            let lookups = indices.into_iter().filter(|index| pairs.contains(index));
-            (tag, lookups.collect())
+        .map(|table| ScriptTable {
+            tag: table.tag,
+            default: kept(table.default),
+            languages: table
+                .languages
+                .into_iter()
+                .map(|(language, indices)| (language, kept(indices)))
+                .collect(),
         })
         .collect();
     Ok(Some(Scripted { tables }))
@@ -690,7 +845,7 @@ mod tests {
     //! in, so every expected value below is the table this test wrote, divided by the face's
     //! 2048 units per em (trap 8).
 
-    use super::{Adjustment, NoPairs, Pairs, Script, scripts};
+    use super::{Adjustment, Language, NoPairs, Pairs, Script, scripts};
     use skrifa::MetadataProvider as _;
     use std::sync::Arc;
 
@@ -835,7 +990,12 @@ mod tests {
     ) -> Vec<Adjustment> {
         let glyphs: Vec<Option<u16>> = glyphs.iter().copied().map(Some).collect();
         pairs
-            .adjust(&glyphs, &scripts(text), &vec![right_to_left; glyphs.len()])
+            .adjust(
+                &glyphs,
+                &scripts(text),
+                Language::default(),
+                &vec![right_to_left; glyphs.len()],
+            )
             .glyphs
     }
 
@@ -1052,6 +1212,7 @@ mod tests {
         let adjusted = pairs.adjust(
             &[Some(a), Some(v)],
             &[Script::default(); 2],
+            Language::default(),
             &[false, false],
         );
         assert!(adjusted.vertical);
@@ -1091,6 +1252,34 @@ mod tests {
             // defaultLangSysOffset 4, no language-specific systems; the LangSys names one feature.
             script_list.extend(words(&[4, 0, 0, 0xFFFF, 1, *feature]));
         }
+        gpos_of(script_list, features, lookups)
+    }
+
+    /// A `GPOS` table of one script table holding a default language system, where `default`
+    /// names a feature, and one language system `language` naming the feature given by index.
+    fn gpos_language(
+        script: [u8; 4],
+        default: Option<u16>,
+        language: (&[u8; 4], u16),
+        features: &[&[u16]],
+        lookups: &[(u16, Vec<u8>)],
+    ) -> Vec<u8> {
+        let mut script_list = words(&[1]);
+        script_list.extend(script);
+        script_list.extend(words(&[8]));
+        // The Script table: its default LangSys at 10 (or none), one LangSysRecord to the
+        // language's LangSys at 18; each LangSys names one feature.
+        script_list.extend(words(&[if default.is_some() { 10 } else { 0 }, 1]));
+        script_list.extend(language.0.as_slice());
+        script_list.extend(words(&[18]));
+        script_list.extend(words(&[0, 0xFFFF, 1, default.unwrap_or(0)]));
+        script_list.extend(words(&[0, 0xFFFF, 1, language.1]));
+        gpos_of(script_list, features, lookups)
+    }
+
+    /// A `GPOS` table of the given script list, a `kern` feature per entry of `features` naming
+    /// its lookups, and the lookups, each `(type, subtable)`.
+    fn gpos_of(script_list: Vec<u8>, features: &[&[u16]], lookups: &[(u16, Vec<u8>)]) -> Vec<u8> {
         let f = u16::try_from(features.len()).expect("few");
         let mut feature_list = words(&[f]);
         let mut at = 2 + 6 * f;
@@ -1248,6 +1437,121 @@ mod tests {
         ));
         let across = written(&pairs, &[a, v], &['A', 'Ω'], false);
         assert!(across[0].advance.abs() < 1e-9, "{across:?}");
+    }
+
+    #[test]
+    fn a_language_tag_selects_the_registry_s_language_systems() {
+        let tags = |tag: &str| Language::of(tag).tags().collect::<Vec<_>>();
+        assert_eq!(
+            tags("tr"),
+            [*b"TRK "],
+            "ISO 639-1, through the three-letter code"
+        );
+        assert_eq!(
+            tags("TR-tr"),
+            [*b"TRK "],
+            "case is not significant (§14.9.2.2)"
+        );
+        assert_eq!(
+            tags("ur-Arab-PK"),
+            [*b"URD "],
+            "script and region select nothing"
+        );
+        assert_eq!(tags("deu"), [*b"DEU "], "a three-letter code as it stands");
+        assert_eq!(tags("de-1996"), [*b"DEU "]);
+        // An extended-language subtag is tried before its macrolanguage, which the registry
+        // often lists alone: Egyptian Arabic has no tag, Arabic has `ARA `.
+        assert_eq!(tags("ar-arz"), [*b"ARA "]);
+        assert_eq!(tags("arz"), [] as [[u8; 4]; 0]);
+        // The registry's deprecated `DHV ` comes after `DIV `.
+        assert_eq!(tags("dv"), [*b"DIV ", *b"DHV "]);
+        // Chinese has five tags, tried in the registry's order.
+        assert_eq!(tags("zh-Hant").len(), 5);
+        for unknown in ["", "x-private", "i-klingon", "zxx", "qaa", "language", "e"] {
+            assert!(tags(unknown).is_empty(), "{unknown:?}");
+        }
+    }
+
+    #[test]
+    fn every_registered_code_is_reached_by_its_own_tag() {
+        // Every row of the registry naming a code is selected by that code: the table the
+        // build compiled is the registry, read in full.
+        let registry = include_str!("../../../data/opentype/language-tags.txt");
+        let mut rows = 0;
+        for line in registry.lines().filter(|line| !line.starts_with('#')) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let tag: [u8; 4] = fields[0]
+                .trim_matches('\'')
+                .as_bytes()
+                .try_into()
+                .expect("a four-byte tag");
+            for code in fields[1].split(',').filter(|code| !code.is_empty()) {
+                assert!(
+                    Language::of(code).tags().any(|reached| reached == tag),
+                    "{code} does not reach {}",
+                    String::from_utf8_lossy(&tag)
+                );
+                rows += 1;
+            }
+        }
+        assert!(rows > 600, "{rows} codes");
+    }
+
+    #[test]
+    fn a_language_system_replaces_the_default_one() {
+        let (a, v, t, o) = (glyph('A'), glyph('V'), glyph('T'), glyph('o'));
+        // latn's default system kerns A V by -100; its TRK system kerns T o by -200 alone.
+        let program = face(&[(
+            *b"GPOS",
+            gpos_language(
+                *b"latn",
+                Some(0),
+                (b"TRK ", 1),
+                &[&[0], &[1]],
+                &[kerns((a, v), -100), kerns((t, o), -200)],
+            ),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("read");
+        let glyphs = [Some(a), Some(v), Some(t), Some(o)];
+        let latin = scripts(&['A', 'V', 'T', 'o']);
+        let laid =
+            |language: &str| pairs.adjust(&glyphs, &latin, Language::of(language), &[false; 4]);
+        let turkish = laid("tr").glyphs;
+        assert!(turkish[0].advance.abs() < 1e-9, "{turkish:?}");
+        assert!(close(turkish[2], -200.0), "{turkish:?}");
+        // A language the table registers no system for, and no language, take the default.
+        for other in ["de", ""] {
+            let default = laid(other).glyphs;
+            assert!(close(default[0], -100.0), "{other:?}: {default:?}");
+            assert!(default[2].advance.abs() < 1e-9, "{other:?}: {default:?}");
+        }
+    }
+
+    #[test]
+    fn a_program_kerning_only_in_a_language_system_kerns_that_language() {
+        let (a, v) = (glyph('A'), glyph('V'));
+        // No default system at all: only Urdu text is kerned, and the program still reads as
+        // `GPOS` rather than falling to a `kern` table.
+        let program = face(&[(
+            *b"GPOS",
+            gpos_language(
+                *b"arab",
+                None,
+                (b"URD ", 0),
+                &[&[0]],
+                &[kerns((a, v), -150)],
+            ),
+        )]);
+        let pairs = Pairs::read(program, EM).expect("read");
+        let arabic = scripts(&['ب', 'ت']);
+        let glyphs = [Some(a), Some(v)];
+        let urdu = pairs.adjust(&glyphs, &arabic, Language::of("ur"), &[true; 2]);
+        assert!(close(urdu.glyphs[0], -150.0), "{urdu:?}");
+        let arabic_only = pairs.adjust(&glyphs, &arabic, Language::of("ar"), &[true; 2]);
+        assert!(
+            arabic_only.glyphs[0].advance.abs() < 1e-9,
+            "{arabic_only:?}"
+        );
     }
 
     #[test]

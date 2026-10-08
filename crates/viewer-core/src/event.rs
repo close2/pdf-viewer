@@ -277,6 +277,17 @@ pub enum Event {
         /// Which document's question.
         document: DocumentId,
     },
+    /// A document's script asked for a sound: `app.beep`, one of the reference's five (ADR 1702).
+    ///
+    /// The sound is the host's to play, as a dialogue is the host's to draw. A host whose toolkit
+    /// plays one system sound plays it for all five; a host with none says so by name — never
+    /// silence, which would leave a script that signals a person by sound signalling nobody.
+    Beep {
+        /// Which document's script.
+        document: DocumentId,
+        /// Which sound it asked for.
+        sound: pdf_model::view::Sound,
+    },
     /// An operation the document restricts was performed, and this is what the document said —
     /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
     /// of `CLAUDE.md`'s four.

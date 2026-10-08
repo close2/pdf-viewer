@@ -753,6 +753,17 @@ impl Session {
         }
     }
 
+    /// How many milliseconds of [`Self::tick`] may pass before a script's timer is owed, or `None`
+    /// where no document holds one — every session's answer, since a session supplies no runner
+    /// (ADR 1702). Asked of every open document, so it is never refused for want of a focused one.
+    #[must_use]
+    pub fn timer_due(&self) -> Option<u32> {
+        match self.viewer.query(Query::TimerDue) {
+            Answer::TimerDue(due) => due,
+            _ => None,
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     // Bytes out: §7.5.6's incremental update and §7.11.4's embedded files.
     // ---------------------------------------------------------------------------------------

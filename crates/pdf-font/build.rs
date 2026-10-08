@@ -41,6 +41,7 @@ fn grouped(value: usize) -> String {
 fn main() {
     unicode_tables();
     script_table();
+    language_table();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/cmaps");
     println!("cargo::rerun-if-changed={}", root.display());
 
@@ -566,4 +567,131 @@ fn script_table() {
         std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for a build script"),
     );
     std::fs::write(target.join("scripts.rs"), out).expect("the table is writable");
+}
+
+/// The OpenType language system tags each ISO 639 code selects, from the registry's list
+/// (`data/opentype/language-tags.txt`), and BCP 47's two-letter codes as the three-letter codes
+/// the registry is written in (`data/iso639/ISO-639-2_utf-8.txt`), compiled in so that choosing
+/// a run's language system parses nothing (ADR 1708).
+///
+/// A code the registry gives several tags keeps them in the registry's order, a tag it marks
+/// deprecated after the others, so a program built after the change finds its own tag first.
+fn language_table() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+    let read = |name: &str| {
+        let path = root.join(name);
+        println!("cargo::rerun-if-changed={}", path.display());
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("data/{name} is readable: {error}"))
+    };
+    let mut tags: std::collections::BTreeMap<String, (Vec<String>, Vec<String>)> =
+        std::collections::BTreeMap::new();
+    for line in read("opentype/language-tags.txt").lines() {
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [quoted, codes, deprecated, _name] = fields[..] else {
+            panic!("language-tags.txt: {line:?} is not four fields");
+        };
+        let tag = quoted
+            .strip_prefix('\'')
+            .and_then(|rest| rest.strip_suffix('\''))
+            .filter(|tag| tag.len() == 4 && tag.is_ascii())
+            .unwrap_or_else(|| panic!("language-tags.txt: {quoted:?} is no quoted tag"));
+        for code in codes.split(',').filter(|code| !code.is_empty()) {
+            assert!(
+                code.len() == 3 && code.bytes().all(|byte| byte.is_ascii_lowercase()),
+                "language-tags.txt: {code:?} is no ISO 639 code"
+            );
+            let entry = tags.entry(code.to_owned()).or_default();
+            if deprecated == "deprecated" {
+                entry.1.push(tag.to_owned());
+            } else {
+                entry.0.push(tag.to_owned());
+            }
+        }
+    }
+    // **One flat list of tags and an index of plain numbers into it, and no reference in either.**
+    // A table of `&[[u8; 4]]` slices is one pointer per code, and in a position-independent
+    // executable each pointer is a relocation the dynamic loader applies before `main` — about six
+    // hundred of them on every launch, for a table that most launches never read (ADR 1708).
+    let mut flat: Vec<&str> = Vec::new();
+    let mut index: Vec<(&str, usize, usize)> = Vec::new();
+    for (code, (current, deprecated)) in &tags {
+        let first = flat.len();
+        flat.extend(current.iter().chain(deprecated).map(String::as_str));
+        index.push((code, first, flat.len().saturating_sub(first)));
+    }
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "/// Every language system tag the registry lists, grouped by ISO 639 code in \
+         [`LANGUAGES`]' order.\n\
+         pub(crate) static LANGUAGE_TAGS: [[u8; 4]; {}] = [",
+        flat.len()
+    );
+    for tag in &flat {
+        let _ = writeln!(out, "    *b\"{tag}\",");
+    }
+    out.push_str("];\n");
+    let _ = writeln!(
+        out,
+        "/// Each ISO 639 code, sorted, with where its tags start in [`LANGUAGE_TAGS`] and how \
+         many there are; a deprecated tag after the others.\n\
+         pub(crate) static LANGUAGES: [([u8; 3], u16, u8); {}] = [",
+        index.len()
+    );
+    for (code, first, count) in &index {
+        let first = u16::try_from(*first).expect("the registry lists fewer than 65 536 tags");
+        let count = u8::try_from(*count).expect("no code has 256 tags");
+        let _ = writeln!(out, "    (*b\"{code}\", {first}, {count}),");
+    }
+    out.push_str("];\n");
+    two_letter_codes(&read("iso639/ISO-639-2_utf-8.txt"), &mut out);
+    let target = std::path::PathBuf::from(
+        std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for a build script"),
+    );
+    std::fs::write(target.join("languages.rs"), out).expect("the table is writable");
+}
+
+/// ISO 639-1's two-letter codes, each with the three-letter code the OpenType registry lists it
+/// under, written into `out` as `TWO_LETTER`.
+fn two_letter_codes(text: &str, out: &mut String) {
+    // Each line is `B|T|1|English|French`; ISO 639-3 takes the terminology code where the two
+    // differ, which is the one the registry lists.
+    let mut two: Vec<(String, String)> = text
+        .lines()
+        .map(|line| line.trim_start_matches('\u{feff}'))
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split('|').collect();
+            let [bibliographic, terminology, alpha2, ..] = fields[..] else {
+                return None;
+            };
+            (!alpha2.is_empty()).then(|| {
+                let three = if terminology.is_empty() {
+                    bibliographic
+                } else {
+                    terminology
+                };
+                (alpha2.to_owned(), three.to_owned())
+            })
+        })
+        .collect();
+    two.sort_unstable();
+    assert!(
+        two.iter()
+            .all(|(alpha2, three)| alpha2.len() == 2 && three.len() == 3),
+        "ISO-639-2_utf-8.txt: a code is not two and three letters"
+    );
+    let _ = writeln!(
+        out,
+        "/// ISO 639-1's two-letter codes and the three-letter code of each, sorted.\n\
+         pub(crate) static TWO_LETTER: [([u8; 2], [u8; 3]); {}] = [",
+        two.len()
+    );
+    for (alpha2, three) in &two {
+        let _ = writeln!(out, "    (*b\"{alpha2}\", *b\"{three}\"),");
+    }
+    out.push_str("];\n");
 }

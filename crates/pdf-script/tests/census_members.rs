@@ -87,6 +87,7 @@ fn document() -> DocumentState {
                 locked: true,
             },
         ],
+        annotations: Vec::new(),
     }
 }
 

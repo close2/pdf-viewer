@@ -34,6 +34,9 @@ pub enum ScriptSite {
     Library,
     /// Table 200: the document as a whole about to close, or around a save or a print.
     Document(DocumentTrigger),
+    /// The expression an earlier script handed `app.setInterval` or `app.setTimeOut`, run when
+    /// its period has elapsed on the host's ticks (ADR 1702).
+    Timer,
 }
 
 /// One of Table 200's five events of the document as a whole, each an entry of the catalog's
@@ -285,6 +288,9 @@ pub struct DocumentState {
     pub info: Vec<InfoEntry>,
     /// Every optional content group Table 98's `/OCGs` lists, in that order.
     pub layers: Vec<Layer>,
+    /// Every annotation a script's `getAnnots` answers, in page order and then in the order of
+    /// each page's `/Annots` (ADR 1700).
+    pub annotations: Vec<AnnotationState>,
 }
 
 /// One entry of Table 349's document information dictionary, as `this.info` reads it.
@@ -298,6 +304,58 @@ pub struct InfoEntry {
     /// 1970-01-01T00:00:00Z — Adobe's "Doc properties" page answers `CreationDate` and `ModDate`
     /// with a `Date`.
     pub moment: Option<i64>,
+}
+
+/// One annotation as a document's realm holds it: what Adobe's `Annotation` object reads, each
+/// property from the entry ISO 32000-2 §12.5.2 or §12.5.6.2 states for it (ADR 1700).
+///
+/// The property names are Adobe's *JavaScript for Acrobat API Reference*, "Annotation
+/// properties", read at the commit `crates/pdf-script`'s root names — documented choices under
+/// principle 5. Every value is what the reader is shown now: the file's entry, with what a person,
+/// an action or a script changed since laid over it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnnotationState {
+    /// The annotation dictionary's object number, which names it in a [`ScriptEdit::Annotation`].
+    pub number: u32,
+    /// Its generation number.
+    pub generation: u16,
+    /// The zero-based page whose `/Annots` lists it: Adobe's `page`.
+    pub page: u32,
+    /// Table 166's `/Subtype`, one of the seventeen Adobe's "Annotation types" lists: `type`.
+    pub kind: String,
+    /// Table 166's `/Rect`, normalised as §7.9.5 reads a rectangle: `rect`.
+    pub rect: [f64; 4],
+    /// Table 166's `/NM`, where the file states one: `name`.
+    pub name: Option<String>,
+    /// Table 166's `/Contents`, or what a person retyped: `contents`. Empty where neither says
+    /// anything.
+    pub contents: String,
+    /// Table 172's `/T`, the markup annotation's author, where the file states one: `author`.
+    pub author: Option<String>,
+    /// Table 166's `/M` as §7.9.4's date, in milliseconds since 1970-01-01T00:00:00Z, where it
+    /// parses as one: `modDate`.
+    pub modified: Option<i64>,
+    /// Table 167's `Hidden` bit, as the reader sees it now: `hidden`.
+    pub hidden: bool,
+    /// Table 167's `ReadOnly` bit: `readOnly`.
+    pub read_only: bool,
+    /// Whether the annotation's popup window opens with the page — Table 186's `/Open`, or Table
+    /// 175's on a text annotation, which is the whole statement for one with no popup — or `None`
+    /// for the three subtypes Adobe's `popupOpen` is not a property of and for an annotation that
+    /// has no window to open (ADR 1700).
+    pub popup_open: Option<bool>,
+}
+
+/// What a script set on one annotation: the three of Adobe's `Annotation` properties a reader's
+/// own edit already reaches (ADR 1700).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnnotationChange {
+    /// `hidden`: Table 167's `Hidden` bit, set or cleared as §12.6.4.11's hide sets or clears it.
+    Hidden(bool),
+    /// `popupOpen`: whether the annotation's window opens with the page.
+    PopupOpen(bool),
+    /// `contents`: Table 166's `/Contents`, as a person's retyping of a free text annotation.
+    Contents(String),
 }
 
 /// One optional content group as a document's realm holds it: what Adobe's `OCG` object reads.
@@ -362,6 +420,11 @@ impl ScriptSite {
             Self::Page(PageTrigger::Close) => ("Page", "Close"),
             Self::OpenAction | Self::Library => ("Doc", "Open"),
             Self::Document(trigger) => ("Doc", trigger.adobe()),
+            // The reference's "Event type/name combinations" page lists no event for a timer's
+            // expression, so the pair is a documented choice: `App`, the type of the one event the
+            // application raises, and a name the list does not hold, so that a script branching on
+            // a listed event takes no branch (ADR 1702).
+            Self::Timer => ("App", "Timer"),
         }
     }
 }
@@ -874,6 +937,39 @@ pub enum ScriptEdit {
         /// Whether it is to be on.
         on: bool,
     },
+    /// An `Annotation` object's property set: the change a person's edit of that annotation would
+    /// make (ADR 1700).
+    Annotation {
+        /// The annotation dictionary's object number.
+        number: u32,
+        /// Its generation number.
+        generation: u16,
+        /// What was set.
+        change: AnnotationChange,
+    },
+    /// `app.setInterval(cExpr, nMilliseconds)` or `app.setTimeOut(…)`: an expression the view state
+    /// holds and runs when its period has elapsed on the host's ticks, once or until cleared
+    /// ([`ViewState::timer_due`], ADR 1702).
+    Timer {
+        /// The realm's number for it, which the interval or timeout object the script holds names.
+        id: u32,
+        /// The expression, as text.
+        script: String,
+        /// The period, in milliseconds.
+        period: u32,
+        /// Whether it runs every period (`setInterval`) rather than once (`setTimeOut`).
+        repeat: bool,
+    },
+    /// `app.clearInterval(o)` or `app.clearTimeOut(o)`: the timer the object names stops.
+    ClearTimer {
+        /// The realm's number for it.
+        id: u32,
+    },
+    /// `app.beep(nType)`: a sound the host plays, or says it cannot ([`ViewState::take_beeps`]).
+    Beep {
+        /// Which of the reference's five.
+        sound: Sound,
+    },
 }
 
 /// The field properties a script set, kept beside the edit log by field name.
@@ -910,6 +1006,48 @@ impl Overrides {
             Property::ReadOnly(flag) => Some(*flag),
             _ => None,
         })
+    }
+}
+
+/// `app.beep`'s sound type: Adobe's "app methods" page numbers five, 0 to 4, with 4 the default.
+///
+/// What a host plays is its own: a toolkit with one system sound plays it for all five, which the
+/// reference allows of two of its three platforms (ADR 1702).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Sound {
+    /// 0, an error.
+    Error,
+    /// 1, a warning.
+    Warning,
+    /// 2, a question.
+    Question,
+    /// 3, a status.
+    Status,
+    /// 4, the default.
+    #[default]
+    Default,
+}
+
+impl Sound {
+    /// The five, in the reference's order: each one's place is its number.
+    pub const ALL: [Self; 5] = [
+        Self::Error,
+        Self::Warning,
+        Self::Question,
+        Self::Status,
+        Self::Default,
+    ];
+
+    /// The reference's word for the sound, as a host says it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Question => "question",
+            Self::Status => "status",
+            Self::Default => "default",
+        }
     }
 }
 

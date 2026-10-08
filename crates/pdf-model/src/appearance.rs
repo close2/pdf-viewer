@@ -4066,6 +4066,7 @@ fn rich_laid_out(
         },
         asked: route.asked,
         value: route.value,
+        language: chosen.language,
     };
     let laid_out = match crate::rich_text::lay_out(document, &request) {
         Ok(laid_out) => Ok(laid_out),

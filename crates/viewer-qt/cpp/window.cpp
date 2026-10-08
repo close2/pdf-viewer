@@ -1594,7 +1594,9 @@ void MainWindow::pumpSearch()
 // `viewer_host::Clock` answers how long to wait: a tenth of a second while a page is simply being
 // shown, a sixtieth while one of Table 164's effects is in flight, and `-1` when nothing is
 // presenting. The restart is guarded on the interval so that a key press — which also reaches
-// `applyUpdates` — does not push the next tick out by a whole period every time.
+// `applyUpdates` — does not push the next tick out by a whole period every time. While nothing
+// presents, the same timer wakes for a document's script timers, and the wait is then what is left
+// of the soonest one's period (ADR 1702).
 void MainWindow::pumpPresentation()
 {
     const int wait = host_->presentation_wait();
@@ -2150,6 +2152,11 @@ void MainWindow::applyUpdates()
     }
     if (update.placement) {
         placeWindow();
+    }
+    if (update.beep) {
+        // A document's script asked for a sound, `app.beep` (ADR 1702): Qt has one, and plays it
+        // for whichever of the reference's five was asked for.
+        QApplication::beep();
     }
     if (update.clipboard) {
         // ISO 32000-2 §14.8.2.5's text leaving the program (ADR 0519). `QGuiApplication` owns the

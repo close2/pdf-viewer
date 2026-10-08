@@ -609,9 +609,13 @@ inside its spread and not at all pinned, and is not built (ADR 1686). **A drain 
 residue clip lends those threads to the exact meets its commit records**, so the stroked Type 3 page,
 every meet of which is recorded in its one drain's commit, starts 23 a frame at 24 threads and 7
 pinned where it started 46 and 14, its rows inside their spreads; `bug1721218_reduced.pdf` keeps its
-second set, the frame's own helpers making the meets recorded in the walk after its drain. The
-photograph's 23 are its reduction's row split, one scope a turn and none a step, and the frame's only
-set (ADR 1692).
+second set (ADR 1692): its chromatic frame's last 232 meets are recorded by a drain that a group's
+layer boundary forces and that stays under the floor, so the frame's own helpers make them. A scope
+of the frame that kept the first drain's threads until the walk ends started 30 rather than 37 a
+pinned turn and moved no row outside its spread, and is not built (ADR 1704). The photograph's 23
+are its reduction's row split, one scope a turn and none a step, the only set on every photograph
+page `turn_path` times: starting them is 0.10 ms at eight threads and 0.49 at 24 against 4.4 ms of
+one thread's reduction, and capping them at 4, 8 or 12 moved no row (ADR 1704).
 
 ## What a soft mask cost, and what naming one constant took off it
 

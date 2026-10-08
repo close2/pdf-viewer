@@ -18,7 +18,7 @@
 #
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
-#   tools/bounded.sh [--lock [--clock] [--round N]] [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
+#   tools/bounded.sh [--lock [--clock] [--round N]] [--build '<cargo build arguments>']… [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
 #   tools/bounded.sh --held
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
@@ -56,9 +56,18 @@
 #                script that must run under the lock asks before it walks (`tools/batch.sh arms-held`).
 #   --round N    the round's session number, written on that line so a round's lock time can be
 #                read off the log (default `-`).
+#   --build ARGS `cargo build ARGS` before the command, inside the same hold and the same bound, each
+#                in the order given; a build that fails ends the run with its status and the
+#                command is not started. ARGS are separate words (`--profile gates -p pdf-sandbox
+#                --bins`). What a walk spawns and Cargo will not build for it — the sandbox worker of
+#                the walk's profile above all — is rebuilt here rather than before the lock, because a
+#                walk that queued behind the lock spawns whatever the tree was when the build ran,
+#                and five siblings edit it meanwhile (trap 109). The line's `cmd=` is the command's,
+#                so a gate keeps its name on the log (ADR 1710).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
 #                that fans out, one that crosses the ceiling, one whose sampler stalls, one that
-#                forks past a task limit of its own — and exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
+#                forks past a task limit of its own, the lock's lanes and a build inside a hold — and
+#                exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
 #                `cargo test -p conformance`, so the sequence's last line exercises the bound.
 #
 # The walk budget is 12 GiB a round, and the figure was 32 until 2026-09-02, when 32 turned out to
@@ -186,6 +195,7 @@ held_query=
 round=-
 lane_fds=
 lanes=
+builds=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -199,6 +209,7 @@ while [ $# -gt 0 ]; do
         --clock) clock=1; shift ;;
         --held) held_query=1; shift ;;
         --round) round=$2; shift 2 ;;
+        --build) builds+=("$2"); shift 2 ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
         -h|--help) usage ;;
@@ -514,19 +525,43 @@ if [ -n "$self_test" ]; then
     trap 'rm -rf "$scratch"' EXIT
     fail() { echo "bounded --self-test: FAILED — $*" >&2; exit 1; }
     self=${BASH_SOURCE[0]}
+    # **Every hand-off between a case's runs waits for an event, never for a time.** A holder holds
+    # until the case releases it, and the case releases it once the run it is about has said what it
+    # was asked to say; the bound on each wait is a minute, and it is only the bound. Holds of two and
+    # five seconds that an idle machine always outlasted failed under the merge's whole-workspace test
+    # run at a load of 16, and failed every time with six busy loops on the two processors the test
+    # ran on (ADR 1710). `appears FILE PATTERN WHY` waits for FILE to exist, or with a PATTERN for a
+    # line of it to match; `hold_until` is the command of a holder, which ends once `<its file>.go`
+    # exists.
+    appears() {
+        local _
+        for _ in $(seq 600); do
+            if [ -z "$2" ]; then [ -e "$1" ] && return 0; else grep -q -- "$2" "$1" 2>/dev/null && return 0; fi
+            sleep 0.1
+        done
+        fail "$3"
+    }
+    hold_until='for _ in $(seq 600); do [ -e "$0.go" ] && exit 0; sleep 0.1; done; exit 9'
+    # A run that found its lane free never polls, and one that queued sleeps at least one poll, so
+    # under a poll's length is the discriminating figure for "it waited for nothing" — not 0.0 s,
+    # which is the time three `flock` calls take on an idle machine only.
+    waited_nothing() { awk -v w="$1" -v p="$poll_interval" 'BEGIN { exit !(w < p) }'; }
 
     # 1. A flat tree of 100 000 children under the root, beside 500 strangers: the total is the
     #    root's 100 plus 100 000 tens, every child is listed once, and the whole walk costs well
-    #    under the sampler's interval. The quadratic walk this replaced needed minutes here.
+    #    under the sampler's interval. The quadratic walk this replaced needed minutes here. The cost
+    #    is the walk's processor time, which is the algorithm's; its wall time on a loaded machine is
+    #    the load's, and is printed beside it.
     awk 'BEGIN { print 1000, 1, 100; for (i = 1; i <= 100000; i++) print 1000 + i, 1000, 10
                  for (i = 1; i <= 500; i++) print 200000 + i, 1, 5 }' > "$scratch/flat"
     started_ns=$(date +%s%N)
-    walk_table 1000 < "$scratch/flat" > "$scratch/flat.out"
-    cost_ms=$(( ($(date +%s%N) - started_ns) / 1000000 ))
+    cpu=$( { TIMEFORMAT='%3U %3S'; time walk_table 1000 < "$scratch/flat" > "$scratch/flat.out"; } 2>&1 )
+    wall_ms=$(( ($(date +%s%N) - started_ns) / 1000000 ))
+    cost_ms=$(awk -v t="$cpu" 'BEGIN { split(t, f, " "); printf "%d", (f[1] + f[2]) * 1000 }')
     [ "$(head -n 1 "$scratch/flat.out")" = 1000100 ] || fail "flat tree: total $(head -n 1 "$scratch/flat.out"), wanted 1000100"
     [ "$(tail -n +2 "$scratch/flat.out" | wc -l)" = 100000 ] || fail "flat tree: $(tail -n +2 "$scratch/flat.out" | wc -l) descendants listed, wanted 100000"
     [ "$cost_ms" -lt 1000 ] || fail "flat tree: one sample cost ${cost_ms} ms, which is not a fraction of the interval it has to fit"
-    echo "bounded --self-test: a flat tree of 100000 sampled correctly in ${cost_ms} ms"
+    echo "bounded --self-test: a flat tree of 100000 sampled correctly in ${cost_ms} ms of processor time (${wall_ms} ms of wall)"
 
     # 2. A chain 50 000 deep, and a table holding a cycle and a duplicated row: the walk ends,
     #    and every pid counts once.
@@ -598,7 +633,9 @@ if [ -n "$self_test" ]; then
     read -r blind elapsed alive < "$scratch/blind.verdict" || fail "blind: the case left no verdict"
     [ "$blind" != sighted ] || fail "blind: the watch returned without going blind"
     [ "$alive" = stopped ] || fail "blind: the leader is still running after the watch stopped it"
-    [ "$elapsed" -lt 15 ] || fail "blind: took ${elapsed}s to stop a tree whose sampler stalled"
+    # Under the leader's own thirty seconds, which is when a watch that stopped nothing would return:
+    # the three misses take about six seconds idle and twice that on a loaded machine.
+    [ "$elapsed" -lt 25 ] || fail "blind: took ${elapsed}s to stop a tree whose sampler stalled"
     [ "$(grep -c 'did not return within' "$scratch/blind.err")" = 3 ] || fail "blind: $(cat "$scratch/blind.err")"
     echo "bounded --self-test: a stalled sampler stopped the tree in ${elapsed}s after 3 missed samples"
 
@@ -641,12 +678,18 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     #    and must finish rather than queue behind its own caller; and the lock is free afterwards.
     #    The queued line names its holder: the bare `flock`'s command from `/proc/locks`, and then a
     #    `--lock` holder's round from the file it leaves, the source `/proc/locks` cannot be.
+    #    The holder releases a second after the run has said it queued, so the run's wait is at least
+    #    that second however long it took to start.
     lock_case() { HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" "$self" "$@"; }
-    ( flock "$scratch/lock" sh -c ': > "$0"; sleep 2' "$scratch/held" ) &
+    ( flock "$scratch/lock" sh -c ': > "$0"; '"$hold_until" "$scratch/held" ) &
     holder=$!
-    for _ in $(seq 50); do [ -e "$scratch/held" ] && break; sleep 0.1; done
-    [ -e "$scratch/held" ] || fail "lock: the case's own holder never took its lock"
-    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- sh -c 'exit 3' > /dev/null 2> "$scratch/lock.err"
+    appears "$scratch/held" "" "lock: the case's own holder never took its lock"
+    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- sh -c 'exit 3' > /dev/null 2> "$scratch/lock.err" &
+    queued=$!
+    appears "$scratch/lock.err" 'queued for the heavy-walk lock' "lock: the run behind the holder never said it queued"
+    sleep 1
+    : > "$scratch/held.go"
+    wait "$queued"
     status=$?
     wait "$holder"
     [ "$status" -eq 3 ] || fail "lock: exit $status, wanted the command's 3: $(tail -n 1 "$scratch/lock.err")"
@@ -659,19 +702,23 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ "$(wc -l < "$scratch/lock.log")" = 3 ] || fail "lock: $(wc -l < "$scratch/lock.log") lines logged, wanted 3: $(cat "$scratch/lock.log")"
     first_wait=$(sed -n '1s/.* wait=\([0-9.]*\)s .*/\1/p' "$scratch/lock.log")
     awk -v w="$first_wait" 'BEGIN { exit !(w >= 1.0) }' || fail "lock: the queued run logged wait=${first_wait}s, wanted at least a second: $(head -n 1 "$scratch/lock.log")"
-    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=[^ ]*sleep_2[^ ]* kind=large lane=1 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
+    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=flock_[^ ]* kind=large lane=1 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
         fail "lock: the line is not the shape the header states: $(head -n 1 "$scratch/lock.log")"
     for line in 2 3; do
-        [ "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" = 0.0 ] ||
+        waited_nothing "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" ||
             fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
     done
     HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/held.log" \
-        "$self" --lock --round 77 --tree 12 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
+        "$self" --lock --round 77 --tree 12 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/held77" > /dev/null 2>&1 &
     holder=$!
-    for _ in $(seq 50); do [ -s "$scratch/lock.holder" ] && break; sleep 0.1; done
-    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1
+    appears "$scratch/lock.holder" . "lock: the --lock holder never wrote its file"
+    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2> "$scratch/lock77.err" &
+    queued=$!
+    appears "$scratch/lock77.err" 'queued for the heavy-walk lock' "lock: the run behind a --lock holder never said it queued"
+    : > "$scratch/held77.go"
+    wait "$queued"
     wait "$holder"
-    tail -n 1 "$scratch/lock.log" | grep -q ' behind=[^ ]*round=77_sleep_2' ||
+    tail -n 1 "$scratch/lock.log" | grep -q ' behind=[^ ]*round=77_sh_-c' ||
         fail "lock: a run queued behind a --lock holder did not name its round: $(tail -n 1 "$scratch/lock.log")"
     [ -e "$scratch/lock.holder" ] && fail "lock: the holder's file outlived the holder: $(cat "$scratch/lock.holder")"
     echo "bounded --self-test: a run queued ${first_wait}s behind a holder, one found the lock free and one its caller's, each logged, each holder named"
@@ -696,9 +743,8 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     daemon=$(cat "$scratch/held8.pid" 2>/dev/null)
     flock -n "$scratch/lock" true && flock -n "$scratch/lock.lane2" true; free=$?
     : > "$scratch/held8.over"
-    for _ in $(seq 100); do [ -e "$scratch/held8.asked" ] && break; sleep 0.1; done
+    appears "$scratch/held8.asked" "" "held: the daemon never asked --held"
     [ -n "$daemon" ] && kill "$daemon" 2>/dev/null
-    [ -e "$scratch/held8.asked" ] || fail "held: the daemon never asked --held"
     [ "$free" -eq 0 ] || fail "held: a sleep the command left running kept the lock after the wrapper ended"
     [ -e "$scratch/held8.inside" ] || fail "held: --held said no inside a hold, so the marker is not read"
     [ -e "$scratch/held8.descriptor" ] && fail "held: the command was handed the lock's descriptor"
@@ -714,26 +760,32 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     #    the first small walk frees it, but only once the clock run has ended. The clock run's own
     #    command finds both lanes held; each line names its kind, its lane and, for a queued run,
     #    whom it queued behind. A `--clock` with no `--lock`, and one inside a hold of a single lane,
-    #    are refused.
+    #    are refused. The two walks hold until the clock run and the walk behind it have each said they
+    #    queued; then the small walk is released a second before the large one, which is the window a
+    #    gate that did not hold would hand the second lane to the late walk in.
     lane_case() { HEAVY_WALK_LOCK="$scratch/lane" HEAVY_WALK_LOG="$scratch/lane.log" "$self" "$@"; }
-    lane_seen() { for _ in $(seq 50); do [ -s "$1" ] && return 0; sleep 0.1; done; fail "lanes: $1 never appeared"; }
-    lane_case --lock --round 91 --tree 12 --data 1 --nice 0 -- sleep 5 > /dev/null 2>&1 &
+    lane_case --lock --round 91 --tree 12 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/lane91" > /dev/null 2>&1 &
     large=$!
-    lane_seen "$scratch/lane.holder"
-    lane_case --lock --round 92 --tree 1 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
+    appears "$scratch/lane.holder" . "lanes: the large walk never took the first lane"
+    lane_case --lock --round 92 --tree 1 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/lane92" > /dev/null 2>&1 &
     small=$!
-    lane_seen "$scratch/lane.lane2.holder"
+    appears "$scratch/lane.lane2.holder" . "lanes: the small walk never took the second lane"
     lane_case --lock --clock --round 93 --tree 1 --data 1 --nice 0 -- sh -c '
         flock -n "$1" true || echo held > "$0.1"; flock -n "$1.lane2" true || echo held > "$0.2"
-        sleep 1; date +%s%N > "$0.end"' "$scratch/clock" "$scratch/lane" > /dev/null 2>&1 &
+        sleep 1; date +%s%N > "$0.end"' "$scratch/clock" "$scratch/lane" > /dev/null 2> "$scratch/clock.err" &
     timed=$!
-    lane_seen "$scratch/lane.gate.holder"
-    lane_case --lock --round 94 --tree 1 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/late" > /dev/null 2>&1 &
+    appears "$scratch/clock.err" 'queued for the heavy-walk lock' "lanes: the clock run never queued for the lanes"
+    lane_case --lock --round 94 --tree 1 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/late" > /dev/null 2> "$scratch/late.err" &
     late=$!
+    appears "$scratch/late.err" 'a clock run holds the gate' "lanes: the walk asked behind a waiting clock run never queued at the gate"
+    : > "$scratch/lane92.go"
+    sleep 1
+    : > "$scratch/lane91.go"
     wait "$large" "$small" "$timed" "$late"
     lane_line() { grep " round=$1 " "$scratch/lane.log"; }
     lane_line 91 | grep -q ' kind=large lane=1 ' || fail "lanes: the large walk's line: $(lane_line 91)"
-    lane_line 92 | grep -q ' wait=0\.0s .* kind=small lane=2 ' || fail "lanes: a small walk beside a large one was not granted the second lane at once: $(lane_line 92)"
+    lane_line 92 | grep -q ' kind=small lane=2 ' && waited_nothing "$(lane_line 92 | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+        fail "lanes: a small walk beside a large one was not granted the second lane at once: $(lane_line 92)"
     lane_line 93 | grep -q ' behind=[^ ]*round=91[^ ]* kind=clock lane=1+2 ' || fail "lanes: the clock run's line: $(lane_line 93)"
     clock_end=$(cat "$scratch/clock.end" 2>/dev/null) late_start=$(cat "$scratch/late" 2>/dev/null)
     [ -n "$clock_end" ] && [ -n "$late_start" ] && [ "$late_start" -ge "$clock_end" ] ||
@@ -747,6 +799,36 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     flock -n "$scratch/lane" true && flock -n "$scratch/lane.lane2" true && flock -n "$scratch/lane.gate" true ||
         fail "lanes: a lane or the gate is still held after every run ended"
     echo "bounded --self-test: a small walk ran beside a large one; a clock run waited $(lane_line 93 | sed 's/.* wait=\([0-9.]*s\) .*/\1/') for both lanes and the walk asked behind it ran after it; --clock alone and inside one lane refused"
+
+    # 10. A build inside the hold (ADR 1710), with a `cargo` of the case's own first on the path: it
+    #     writes its arguments, whether `--held` says yes and whether it was handed a lane's
+    #     descriptor. Two builds run in their order, under the hold and without a descriptor, before
+    #     the command, which sees both; the line's `cmd=` is the command's. A build that fails ends
+    #     the run with its status, and its command never starts.
+    mkdir -p "$scratch/bin"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '[ "$1" = build ] || exit 64; shift' 'echo "build $*" >> "$BUILD_CASE_LOG"' \
+        '"$BUILD_CASE_SELF" --held && echo "held $*" >> "$BUILD_CASE_LOG"' \
+        'ls -l /proc/$$/fd | grep -q "/build\(\.lane2\)\{0,1\}\$" && echo "descriptor $*" >> "$BUILD_CASE_LOG"' \
+        'case "$*" in *fails*) exit 101 ;; esac' > "$scratch/bin/cargo"
+    chmod +x "$scratch/bin/cargo"
+    build_case() {
+        PATH="$scratch/bin:$PATH" BUILD_CASE_LOG="$scratch/build.calls" BUILD_CASE_SELF="$self" \
+            HEAVY_WALK_LOCK="$scratch/build" HEAVY_WALK_LOG="$scratch/build.log" "$self" "$@"
+    }
+    build_case --lock --round 101 --tree 1 --data 1 --nice 0 --build '--profile gates -p first --bins' --build '-p second' \
+        -- sh -c 'cp "$0" "$0.seen"' "$scratch/build.calls" > /dev/null 2> "$scratch/build.err" ||
+        fail "build: a run whose builds succeeded exited $?: $(tail -n 3 "$scratch/build.err")"
+    [ "$(cat "$scratch/build.calls.seen" 2>/dev/null)" = "$(printf '%s\n' 'build --profile gates -p first --bins' 'held --profile gates -p first --bins' 'build -p second' 'held -p second')" ] ||
+        fail "build: the builds did not run in order, under the hold and without a lane, before the command: $(cat "$scratch/build.calls" 2>/dev/null)"
+    grep -q ' round=101 .* exit=0 .* cmd=sh -c cp ' "$scratch/build.log" || fail "build: the line does not name the command: $(cat "$scratch/build.log")"
+    build_case --lock --round 102 --tree 1 --data 1 --nice 0 --build 'fails' -- touch "$scratch/build.ran" > /dev/null 2> "$scratch/build.err"
+    status=$?
+    [ "$status" -eq 101 ] || fail "build: a failed build's run exited $status, wanted the build's 101"
+    [ -e "$scratch/build.ran" ] && fail "build: the command ran after its build failed"
+    grep -q 'failed (exit 101) inside the hold, so the command was not started' "$scratch/build.err" || fail "build: the refusal was not said: $(tail -n 2 "$scratch/build.err")"
+    grep -q ' round=102 .* exit=101 ' "$scratch/build.log" || fail "build: the failed run's line: $(cat "$scratch/build.log")"
+    echo "bounded --self-test: two builds ran in order inside the hold, without a lane, before their command; a failed build ended its run with exit 101 and the command unstarted"
 
     echo "bounded --self-test: every case holds"
     exit 0
@@ -833,6 +915,23 @@ without_lanes() {
 (
     exec {out_fd}>&1
     [ -z "$lane_fds" ] || export HEAVY_WALK_HELD_BY=$BASHPID
+    # Each `--build` in the leader's own tree, so the ceiling sees it, and with the lanes' descriptors
+    # closed as the command's are: a build starts `sccache`'s server, which would keep a descriptor it
+    # was handed for as long as it idles (trap 131). Its output goes to a file and is shown only when
+    # it fails, so a survey's standard output is still only the survey's.
+    for build in "${builds[@]}"; do
+        build_started=$(date +%s)
+        # shellcheck disable=SC2086 # the arguments are separate words by design (the header)
+        ( without_lanes prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" cargo build $build ) \
+            > "$scratch/build.log" 2>&1 {out_fd}>&-
+        built=$?
+        if [ "$built" -ne 0 ]; then
+            tail -n 20 "$scratch/build.log" >&2
+            echo "bounded: \`cargo build $build\` failed (exit $built) inside the hold, so the command was not started" >&2
+            exit "$built"
+        fi
+        echo "bounded: built \`cargo build $build\` inside the hold in $(( $(date +%s) - build_started ))s" >&2
+    done
     without_lanes prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
         2>&1 1>&"$out_fd" {out_fd}>&- | without_lanes tee "$errlog" {out_fd}>&- >&2
     exit "${PIPESTATUS[0]}"

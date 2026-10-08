@@ -20,7 +20,7 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's nine cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's ten cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
@@ -33,7 +33,11 @@
 //! under it (ADR 1674) — and the lock's two lanes: a small walk granted the second lane beside a
 //! large one, a clock run planted behind two lane holders that waits for both while a walk asked
 //! after it is granted nothing until it ends, and a `--clock` outside a lock or inside a hold of one
-//! lane refused (ADR 1684). This test runs the script and repeats what it said.
+//! lane refused (ADR 1684) — and a `--build` run inside the hold before its command, a failed one
+//! ending the run unstarted (ADR 1710). Every hand-off between a case's runs waits for the run to say
+//! what it was asked, never for a hold of so many seconds, and the one cost it bounds is processor
+//! time: a hold an idle machine always outlasted failed inside the merge's whole-workspace test run at
+//! a load of 16 (ADR 1710). This test runs the script and repeats what it said.
 //!
 //! **No memory bound sees a process count**, and trap 116 is the incident: a tool that forked a
 //! task per package and never waited took the agent's scope to 52 259 tasks, and the OOM daemon
@@ -54,9 +58,15 @@
 //! that, and the merge's list of clock gates to the gates the merge runs.
 //!
 //! **And no state section walks unlocked** (ADR 1698). `tools/state.sh` is run by rounds as often
-//! as by a person, and a walk it ran bare took no lane and wrote no line. The last test holds every
+//! as by a person, and a walk it ran bare took no lane and wrote no line. One test holds every
 //! walk it runs to its `walk` helper and a declared kind, and a gate the merge also runs to the
 //! merge's own answer on whether its verdict is a time.
+//!
+//! **Nor builds what a walk spawns outside the walk's hold** (trap 109, ADR 1710). A worker built
+//! before the lock is as old as the moment the walk stopped queueing, and siblings edit the tree
+//! meanwhile. The last test holds `tools/state.sh` to no `cargo build` of its own — each walk takes
+//! its builds with `--build`, inside its hold — and holds the worker each walk derives, and the
+//! `pdfref-hayro` a walk whose test asks `Reference::Hayro` declares, to what the script prints.
 
 #![expect(
     clippy::expect_used,
@@ -691,6 +701,8 @@ struct Walk {
     kind: Option<String>,
     /// `<package> --test <target>` or `<package> --example <name>`, where both are literal.
     gate: Option<String>,
+    /// The command's words, continued lines joined.
+    text: String,
 }
 
 /// The `<package> --test <target>` or `<package> --example <name>` a command's words state, where
@@ -736,15 +748,27 @@ fn state_walks(source: &str) -> Vec<Walk> {
         if !(runs_cargo && profile) {
             continue;
         }
-        let kind = words
-            .windows(2)
-            .find(|pair| pair.first() == Some(&"walk"))
-            .and_then(|pair| pair.get(1))
+        let at = words.iter().position(|word| *word == "walk");
+        let kind = at
+            .and_then(|at| words.get(at.saturating_add(1)))
             .map(|kind| (*kind).to_owned());
+        // The gate is the command's, after the walk's own `--`: a `--build` before it names a
+        // package of its own (`-p hayro-compare`), and that is a build rather than the gate.
+        let command = at
+            .and_then(|at| {
+                words
+                    .iter()
+                    .skip(at)
+                    .position(|word| *word == "--")
+                    .map(|end| at.saturating_add(end).saturating_add(1))
+            })
+            .and_then(|start| words.get(start..))
+            .unwrap_or(&words);
         walks.push(Walk {
             line,
             kind,
-            gate: gate_of(&words),
+            gate: gate_of(command),
+            text: text.clone(),
         });
     }
     walks
@@ -774,7 +798,9 @@ fn merge_clocks(batch: &str) -> Vec<(String, bool)> {
 fn walk_findings(script: &str, merge: &[(String, bool)]) -> Vec<String> {
     let mut found = Vec::new();
     for walk in state_walks(script) {
-        let Walk { line, kind, gate } = &walk;
+        let Walk {
+            line, kind, gate, ..
+        } = &walk;
         let named = gate.as_deref().unwrap_or("a command with no literal gate");
         let Some(kind) = kind else {
             found.push(format!("line {line}: {named} walks unlocked"));
@@ -827,13 +853,16 @@ fn every_walk_a_state_section_runs_is_locked_in_its_declared_lane() {
                    run \"f\" 'x' cargo test -p conformance --test f -- --nocapture\n    \
                    # cargo test --profile gates -p g --test h\n    \
                    run \"g\" 'x' walk tiny -- cargo nextest run --workspace\n    \
-                   run \"h\" 'x' walk clock -- \"$cargo\" test $profile -p \"$package\" --test \"$target\"\n}\n";
+                   run \"h\" 'x' walk clock -- \"$cargo\" test $profile -p \"$package\" --test \"$target\"\n    \
+                   run \"i\" 'x' walk large --build '--profile gates -p other --bin x' -- \\\n        \
+                   cargo test --release -p e --test clocked -- --ignored\n}\n";
     assert_eq!(
         walk_findings(planted, &merge),
         [
             "line 2: a --test b walks unlocked",
             "line 5: e --test clocked is `large` here and a clock run in the merge",
             "line 8: a command with no literal gate declares `tiny`",
+            "line 10: e --test clocked is `large` here and a clock run in the merge",
         ],
         "the reader is not the shape it states"
     );
@@ -880,6 +909,222 @@ fn every_walk_a_state_section_runs_is_locked_in_its_declared_lane() {
         found.is_empty(),
         "tools/state.sh walks outside its `walk` helper, or in a lane the merge does not; run each \
          as `walk small|large|clock -- <command>` (ADR 1698):\n{}",
+        found.join("\n")
+    );
+}
+
+/// The lines of a shell script that run `cargo build` themselves, as `(line number, line)`, continued
+/// lines joined; a comment, and a line that only prints, build nothing.
+fn builds_of_its_own(source: &str) -> Vec<(usize, String)> {
+    joined_lines(source)
+        .into_iter()
+        .filter(|(_, text)| {
+            let code = text.trim_start();
+            let words: Vec<&str> = code.split_whitespace().collect();
+            !(code.starts_with('#') || code.starts_with("echo ") || code.starts_with("printf "))
+                && words.windows(2).any(|pair| {
+                    pair.first().is_some_and(|word| {
+                        word.trim_start_matches(['$', '(', '"', '\''])
+                            .trim_end_matches('"')
+                            .ends_with("cargo")
+                    }) && pair.get(1) == Some(&"build")
+                })
+        })
+        .map(|(line, text)| (line, text.trim().to_owned()))
+        .collect()
+}
+
+/// The test file a `<package> --test <target>` gate runs, in whichever of the tree's crate roots holds
+/// it.
+fn test_source(gate: &str) -> Option<String> {
+    let mut words = gate.split_whitespace();
+    let (package, flag, target) = (words.next()?, words.next()?, words.next()?);
+    (flag == "--test")
+        .then(|| {
+            ["crates", "raster/crates", "tools"]
+                .iter()
+                .find_map(|root| {
+                    std::fs::read_to_string(
+                        repository_root().join(format!("{root}/{package}/tests/{target}.rs")),
+                    )
+                    .ok()
+                })
+        })
+        .flatten()
+}
+
+/// The walks whose test asks `Reference::Hayro` and whose command builds no `pdfref-hayro`: that
+/// reading is another package's binary, and a walk without it votes with three references and says
+/// nothing (trap 10, ADR 0222). `source_of` reads a gate's test file.
+fn hayro_findings(
+    script: &str,
+    source_of: impl Fn(&str) -> Option<String>,
+) -> (Vec<String>, usize) {
+    let mut found = Vec::new();
+    let mut asking = 0_usize;
+    for walk in state_walks(script) {
+        let Some(gate) = walk.gate.as_deref() else {
+            continue;
+        };
+        if !source_of(gate).is_some_and(|source| source.contains("Reference::Hayro")) {
+            continue;
+        }
+        asking = asking.saturating_add(1);
+        if !walk.text.contains("--bin pdfref-hayro") {
+            found.push(format!(
+                "line {}: {gate} asks Reference::Hayro and builds no pdfref-hayro",
+                walk.line
+            ));
+        }
+    }
+    (found, asking)
+}
+
+/// **What a walk spawns is built inside the walk's hold** (trap 109, ADR 1710). A worker
+/// `tools/state.sh` built before the lock is as old as the moment its walk stopped queueing, and five
+/// siblings edit the tree meanwhile, so the script runs no `cargo build` of its own: `walk` hands
+/// `tools/bounded.sh` a `--build` for the sandbox worker of the command's profile, which the wrapper
+/// runs inside the hold before the command, and a walk that spawns another package's program declares
+/// it. This test names a build outside a walk; the two after it hold the worker the script derives,
+/// and a walk whose test asks `Reference::Hayro`. Calibrated by planting (trap 13): the reader names
+/// a build on a line of its own, inside a command substitution and through a variable across a
+/// continuation, and passes a comment, a printed command and a walk's `--build`.
+#[test]
+fn no_state_section_builds_outside_the_hold_of_the_walk_that_needs_it() {
+    let planted = "section_a() {\n    cargo build --profile gates -p pdf-sandbox --bins >/dev/null 2>&1 || status=1\n    \
+                   out=$(cargo build -p x 2>&1)\n    \"$cargo\" build \\\n        --release -p y\n    \
+                   # cargo build -p z\n    printf 'cargo build -p w\\n'\n    \
+                   run \"a\" 'x' walk small --build '-p v --bins' -- cargo test --profile gates -p a --test b\n}\n";
+    let found: Vec<usize> = builds_of_its_own(planted)
+        .iter()
+        .map(|(line, _)| *line)
+        .collect();
+    assert_eq!(
+        found,
+        [2, 3, 4],
+        "the build reader is not the shape it states"
+    );
+
+    let script = std::fs::read_to_string(repository_root().join("tools/state.sh"))
+        .expect("tools/state.sh is in the tree");
+    let builds: Vec<String> = builds_of_its_own(&script)
+        .iter()
+        .map(|(line, text)| format!("line {line}: {text}"))
+        .collect();
+    assert!(
+        builds.is_empty(),
+        "tools/state.sh builds outside the hold of the walk that spawns what it builds; give the walk \
+         `--build '<cargo build arguments>'` (trap 109, ADR 1710):\n{}",
+        builds.join("\n")
+    );
+}
+
+/// The sandbox worker each walk takes is the one the script derives from the command's own words: the
+/// command's profile, nothing for a whole-`--workspace` command, which builds every package's binaries,
+/// and nothing for a command that is not cargo's. Asked of the script itself, `--walk-worker`, so the
+/// derivation that runs is the one held (ADR 1710).
+#[test]
+fn a_walk_builds_the_sandbox_worker_of_its_own_profile() {
+    let worker = |command: &[&str]| {
+        let output = Command::new("bash")
+            .arg(repository_root().join("tools/state.sh"))
+            .arg("--walk-worker")
+            .args(command)
+            .output()
+            .expect("bash runs tools/state.sh");
+        assert!(
+            output.status.success(),
+            "tools/state.sh --walk-worker {command:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    for (command, wanted) in [
+        (
+            &[
+                "cargo",
+                "test",
+                "--profile",
+                "gates",
+                "-p",
+                "a",
+                "--test",
+                "b",
+                "--",
+                "--ignored",
+            ][..],
+            "--profile gates -p pdf-sandbox --bins",
+        ),
+        (
+            &[
+                "cargo",
+                "run",
+                "--release",
+                "-q",
+                "-p",
+                "a",
+                "--example",
+                "b",
+            ][..],
+            "--release -p pdf-sandbox --bins",
+        ),
+        (
+            &["cargo", "test", "-p", "a", "--", "--release"][..],
+            "-p pdf-sandbox --bins",
+        ),
+        (&["cargo", "nextest", "run", "--workspace"][..], ""),
+        (&["python3", "tools/x.py"][..], ""),
+    ] {
+        assert_eq!(
+            worker(command),
+            wanted,
+            "the worker tools/state.sh derives for `{}`",
+            command.join(" ")
+        );
+    }
+}
+
+/// A walk whose test asks `Reference::Hayro` builds `pdfref-hayro` inside its hold: the oracle's fourth
+/// reading is another package's binary, and without it the walk votes with three references and says
+/// nothing (trap 10, ADR 0222). Calibrated by planting (trap 13): the reader names a walk that asks and
+/// builds nothing, and passes one that builds it and one that does not ask.
+#[test]
+fn a_walk_whose_test_asks_hayro_builds_it_inside_its_hold() {
+    let script = std::fs::read_to_string(repository_root().join("tools/state.sh"))
+        .expect("tools/state.sh is in the tree");
+    let planted = "section_b() {\n    run \"a\" 'x' walk clock -- cargo test --profile gates -p m --test asks -- --ignored\n    \
+                   run \"b\" 'x' walk clock --build '--profile gates -p hayro-compare --bin pdfref-hayro' -- \\\n        \
+                   cargo test --profile gates -p m --test asks -- --ignored\n    \
+                   run \"c\" 'x' walk small -- cargo test --profile gates -p m --test quiet -- --ignored\n}\n";
+    let (found, asking) = hayro_findings(planted, |gate| {
+        Some(
+            if gate.ends_with("asks") {
+                "Reference::Hayro"
+            } else {
+                "Reference::Poppler"
+            }
+            .to_owned(),
+        )
+    });
+    assert_eq!(
+        (found, asking),
+        (
+            vec![
+                "line 2: m --test asks asks Reference::Hayro and builds no pdfref-hayro".to_owned()
+            ],
+            2
+        ),
+        "the hayro reader is not the shape it states"
+    );
+    let (found, asking) = hayro_findings(&script, test_source);
+    println!("{asking} walk(s) in tools/state.sh ask Reference::Hayro");
+    assert!(
+        asking >= 1,
+        "no walk in tools/state.sh asks Reference::Hayro, so the oracle is not in the population"
+    );
+    assert!(
+        found.is_empty(),
+        "these walks ask Reference::Hayro and build no pdfref-hayro inside their hold:\n{}",
         found.join("\n")
     );
 }

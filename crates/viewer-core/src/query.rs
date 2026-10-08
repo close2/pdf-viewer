@@ -303,6 +303,17 @@ pub enum Query<'a> {
     Measure(&'a [[f32; 2]]),
     /// Whether anything has been edited since the document opened.
     Dirty,
+    /// How many milliseconds of [`crate::Command::Tick`] may pass before a timer a script set —
+    /// `app.setInterval`, `app.setTimeOut` — is owed, the soonest of every open document's.
+    ///
+    /// **What a host asks after every command to decide whether to tick at all**, because this
+    /// crate has no clock and a timer is counted in the ticks a host sends: [`Answer::TimerDue`]
+    /// of `None` is a window that arms no timer and sends nothing, which is every window whose
+    /// documents set none (`CLAUDE.md` principle 2), and `Some(n)` is one that sleeps `n`
+    /// milliseconds and then sends a tick of the time that really passed (ADR 1702). Asked of
+    /// every document rather than the focused one, because a timer ends with its document and not
+    /// when another is brought to the front.
+    TimerDue,
     /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
     ///
     /// What a document-properties panel shows. The second half is not decoration: §12.2's
@@ -655,6 +666,8 @@ pub enum Answer<'a> {
     Highlighted(Vec<[f32; 8]>),
     /// Whether anything has been edited.
     Dirty(bool),
+    /// [`Query::TimerDue`]'s milliseconds, or `None` where no open document holds a timer.
+    TimerDue(Option<u32>),
     /// The focused annotation and the quadrilateral covering it, in device pixels.
     Focus {
         /// The annotation itself, which is what §12.6.3's `/Fo` was raised against.

@@ -132,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        222,
+        223,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -249,6 +249,8 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_EVENT_SCRIPT_QUESTION_WITHDRAWN",
             EventKind::ScriptQuestionWithdrawn,
         ),
+        // A script's `app.beep` (ADR 1702).
+        ("QUORRA_EVENT_BEEP", EventKind::Beep),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

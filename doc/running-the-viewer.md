@@ -402,6 +402,13 @@ down by itself and the window says the question was withdrawn (ADR 1643); `quorr
 to `off`, refuses one by name. A script's `this.pageNum = n` turns the page as a person's turn
 would, `/C` and `/O` included.
 
+**A script's timers fire and its sound is played or refused** (ADR 1702). `app.setInterval` and
+`app.setTimeOut` run their expression on the window's own ticks — a `glib` one-shot, the Qt window's
+clock timer, winit's `WaitUntil` — armed only while a document holds a timer, so a window whose
+documents set none never wakes for one; while a presentation runs, its clock carries the time.
+`app.beep` plays the system sound in `quorra-gtk` and `quorra-qt` and prints which of the
+reference's five was asked for; `quorra`'s toolkit has no sound, and it says so.
+
 **A note's popup window shows its rich text formatted** (ADR 1642): where Table 172's `/RC` states
 the same characters as `/Contents`, each run is drawn in its face, weight, posture, size, colour,
 underlines, line through, rise and letter spacing, each paragraph in its alignment and list indent

@@ -51,6 +51,44 @@ pub(crate) struct Chosen {
     pub(crate) rich: RichText,
     /// Why the formatting drawn is not the rich text string the file states, where it is not.
     pub(crate) disagrees: Option<crate::variable_text::Owed>,
+    /// The text's natural language, from [`language`].
+    pub(crate) language: pdf_font::pairs::Language,
+}
+
+/// The natural language of the text an annotation shows, as the language systems it selects
+/// for pair kerning (ADR 1708).
+///
+/// The natural language specification decides it, and two of its places reach a field's or a
+/// note's text. The annotation's own entry, Table 166 of §12.5.2:
+///
+/// > A language identifier overriding the document's language identifier to specify the natural
+/// > language for all text in the annotation except where overridden by other explicit language
+/// > specifications
+///
+/// and beneath it the catalog's, §14.9.2.3:
+///
+/// > The Lang entry in the document catalog dictionary shall specify the default natural
+/// > language for all text in the document.
+///
+/// A widget's field states no language of its own — Table 226 has no `/Lang` and Table 166's
+/// is not inheritable — so the walk is the annotation, then the document. An empty identifier is
+/// §14.9.2.2's unknown language, and one that is not a BCP 47 tag is treated as unknown as
+/// [`crate::structure::document_language`] treats the catalog's; both select the default
+/// language system. XFA 3.3's `locale` property does not reach here: it belongs to a template's
+/// draw, field or subform (chapter 4, *Localization and Canonicalization*), which this tree does
+/// not read, and an interactive form field carries no such entry. What is not carried is the language a
+/// §7.9.2.2.2 escape sequence states inside the value, which the text string's decoding removes,
+/// and a structure element's `/Lang` over the annotation.
+pub(crate) fn language(document: &Document, annotation: &Dictionary) -> pdf_font::pairs::Language {
+    let own = match document.get_key(annotation, "Lang") {
+        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+        _ => None,
+    };
+    own.or_else(|| crate::structure::document_language(document))
+        .filter(|tag| crate::structure::well_formed_language_tag(tag))
+        .map_or_else(pdf_font::pairs::Language::default, |tag| {
+            pdf_font::pairs::Language::of(&tag)
+        })
 }
 
 /// A text string or text stream entry, decoded: §7.9.2.2's text string, or §7.9.3's stream whose
@@ -131,6 +169,11 @@ pub(crate) fn for_field(
     let default_style =
         nearest(document, chain, "DS").and_then(|(_, value)| entry_text(document, &value));
     let default_style = default_style.as_deref();
+    // The chain's nearest dictionary is the widget, the annotation the text is shown in.
+    let language = chain.first().map_or_else(
+        || language(document, &Dictionary::new()),
+        |widget| language(document, widget),
+    );
     if stated.stored {
         let rich_value = match stated.imported_rich {
             Some(imported) => Some(imported.to_owned()),
@@ -145,6 +188,7 @@ pub(crate) fn for_field(
                 return Some(Chosen {
                     rich,
                     disagrees: None,
+                    language,
                 });
             }
             return Some(Chosen {
@@ -154,6 +198,7 @@ pub(crate) fn for_field(
                     plain: "/V",
                     clause: "§12.7.5.3 makes /V hold the field's text",
                 }),
+                language,
             });
         }
         if let Some(rich) = stated
@@ -163,12 +208,14 @@ pub(crate) fn for_field(
             return Some(Chosen {
                 rich,
                 disagrees: None,
+                language,
             });
         }
     }
     default_style.map(|default_style| Chosen {
         rich: plain_text(plain, Some(default_style), root),
         disagrees: None,
+        language,
     })
 }
 
@@ -192,10 +239,13 @@ pub(crate) fn for_free_text(
 ) -> Option<Chosen> {
     let default_style = entry_text(document, &document.get_key(shared, "DS"));
     let default_style = default_style.as_deref();
+    // The text shown is the group's, so its language is the annotation that holds it.
+    let language = language(document, shared);
     if let Some(retyped) = retyped {
         return default_style.map(|default_style| Chosen {
             rich: plain_text(retyped, Some(default_style), root),
             disagrees: None,
+            language,
         });
     }
     let rich = entry_text(document, &document.get_key(shared, "RC"))
@@ -207,10 +257,12 @@ pub(crate) fn for_free_text(
         (Some(rich), None) => Some(Chosen {
             rich,
             disagrees: None,
+            language,
         }),
         (Some(rich), Some(contents)) if same_characters(&rich.text(), contents) => Some(Chosen {
             rich,
             disagrees: None,
+            language,
         }),
         (Some(_), Some(contents)) => Some(Chosen {
             rich: plain_text(contents, default_style, root),
@@ -219,6 +271,7 @@ pub(crate) fn for_free_text(
                 plain: "/Contents",
                 clause: "§12.5.6.2 makes /Contents specify a free text annotation's displayed text",
             }),
+            language,
         }),
         (None, contents) => default_style.map(|default_style| Chosen {
             rich: plain_text(
@@ -227,6 +280,7 @@ pub(crate) fn for_free_text(
                 root,
             ),
             disagrees: None,
+            language,
         }),
     }
 }

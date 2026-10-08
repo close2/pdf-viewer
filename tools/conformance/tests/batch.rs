@@ -208,17 +208,19 @@ impl Sandbox {
         if let Some(rule) = self.debug_rule_kib {
             command.env("BATCH_DEBUG_RULE_KIB", rule.to_string());
         }
+        // The heavy-walk lock of the sandbox's own, for every sandbox: `check` takes the lock for
+        // the fuzz workspace's build, and a test that took the machine's would queue behind a real
+        // walk and write a line into the real log.
+        command
+            .env("HEAVY_WALK_LOCK", self.lock())
+            .env("HEAVY_WALK_LOG", self.base.join("heavy-walk.log"));
         if self.detaching {
             let mut path = std::ffi::OsString::from(self.base.join("bin"));
             if let Some(inherited) = std::env::var_os("PATH") {
                 path.push(":");
                 path.push(inherited);
             }
-            command
-                .env("PATH", path)
-                .env("BATCH_ARMS_ROOT", &self.base)
-                .env("HEAVY_WALK_LOCK", self.lock())
-                .env("HEAVY_WALK_LOG", self.base.join("heavy-walk.log"));
+            command.env("PATH", path).env("BATCH_ARMS_ROOT", &self.base);
         } else {
             // `open` warms a workspace it finds; a throwaway one is built by the test that needs it.
             command.env("BATCH_WARM", "0");
@@ -226,7 +228,7 @@ impl Sandbox {
         command
     }
 
-    /// The heavy-walk lock of a detaching sandbox: its own file, so that no test queues behind a
+    /// The heavy-walk lock of a sandbox: its own file, so that no test queues behind a
     /// real walk and no real walk behind a test.
     fn lock(&self) -> PathBuf {
         self.base.join("heavy-walk.lock")
@@ -582,6 +584,43 @@ fn check_prints_the_tasks_held_and_the_limit_where_called() {
     assert!(
         above.contains("ulimit -u 7000 where called, ABOVE the budget of 6000"),
         "{above}"
+    );
+}
+
+/// `check` compiles the fuzz workspace, which is a workspace of its own and so outside every tier-1
+/// line a round runs: the `script` target stopped compiling for a batch that way (ADR 1694). A clean
+/// target reads `clean`, one planted with a type error `fails` with the error named, and a tree with
+/// no fuzz manifest says so rather than reading clean (trap 13; ADR 1710).
+#[test]
+fn check_compiles_the_fuzz_workspace_and_names_a_target_that_does_not() {
+    let manifest = "[package]\nname = \"fuzz\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\
+                    publish = false\n\n[workspace]\n\n[[bin]]\nname = \"one\"\n\
+                    path = \"fuzz_targets/one.rs\"\n";
+    let label = "cargo check of the fuzz workspace";
+    let none = Sandbox::new("no-fuzz");
+    let report = text(&none.batch(&["check"]));
+    assert!(
+        check_line(&report, label).ends_with(" none (no fuzz/Cargo.toml)"),
+        "{report}"
+    );
+    let sandbox = Sandbox::with_files(
+        "fuzz",
+        &[
+            ("fuzz/Cargo.toml", manifest),
+            ("fuzz/fuzz_targets/one.rs", "fn main() {}\n"),
+        ],
+    );
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(check_line(&report, label).ends_with(" clean"), "{report}");
+    sandbox.write(
+        "fuzz/fuzz_targets/one.rs",
+        "fn main() {\n    let _: u8 = \"a string\";\n}\n",
+    );
+    let report = text(&sandbox.batch(&["check"]));
+    assert!(check_line(&report, label).ends_with(" fails"), "{report}");
+    assert!(
+        report.contains("error[E0308]"),
+        "the failing target's error is not named: {report}"
     );
 }
 

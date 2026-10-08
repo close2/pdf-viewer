@@ -487,6 +487,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
             )
         }
         Event::ScriptQuestionWithdrawn { .. } => "script question withdrawn".to_owned(),
+        Event::Beep { sound, .. } => format!("beep {}", sound.name()),
         Event::Copied {
             logical,
             page_order,

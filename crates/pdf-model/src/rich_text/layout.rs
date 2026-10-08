@@ -79,6 +79,9 @@ pub(crate) struct Request<'a> {
     /// The characters the offsets in [`Self::asked`] index, and the answers' offsets index: the
     /// value a host edits, whose words [`Self::rich`] states (ADR 1635's comparison).
     pub(crate) value: &'a str,
+    /// The text's natural language, §14.9.2's, which selects a face's language system for pair
+    /// kerning (ADR 1708).
+    pub(crate) language: pdf_font::pairs::Language,
 }
 
 /// Lays the string out.
@@ -98,7 +101,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let styles = Styles::collect(request.rich);
     let characters = request.rich.text();
     let levels = Levels::new(&characters);
-    let shaping = Shaping::of(&characters, levels.as_ref());
+    let shaping = Shaping::of(&characters, levels.as_ref(), request.language);
     let mut paragraphs = encode(request, &styles, &mut faces, &shaping);
     // **A character no face this program chose draws, asked of the machine** (ADR 1414's rule,
     // per character): a face from this machine covering what was missing ends the path of every
@@ -790,10 +793,13 @@ struct Shaping<'a> {
     /// Each character's script, resolved across the whole string the first time a run asks for
     /// pair kerning, since a neutral character takes its script from its neighbours (ADR 1696).
     scripts: std::cell::OnceCell<Vec<pdf_font::pairs::Script>>,
+    /// The string's natural language, which selects each script table's language system
+    /// (ADR 1708).
+    language: pdf_font::pairs::Language,
 }
 
 impl<'a> Shaping<'a> {
-    fn of(text: &str, levels: Option<&'a Levels<'a>>) -> Self {
+    fn of(text: &str, levels: Option<&'a Levels<'a>>, language: pdf_font::pairs::Language) -> Self {
         let characters: Vec<(usize, char)> = text.char_indices().collect();
         let letters: Vec<char> = characters.iter().map(|(_, character)| *character).collect();
         Self {
@@ -801,6 +807,7 @@ impl<'a> Shaping<'a> {
             characters,
             levels,
             scripts: std::cell::OnceCell::new(),
+            language,
         }
     }
 
@@ -910,10 +917,10 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
         let right_to_left = shaping
             .levels
             .is_some_and(|levels| levels.paragraph_level(begins) % 2 == 1);
-        let tag = paragraph
-            .tag
-            .as_ref()
-            .map(|tag| encode_tag(tag, right_to_left, styles, faces, &mut out));
+        let tag = paragraph.tag.as_ref().map(|tag| {
+            let language = shaping.language;
+            encode_tag(tag, (right_to_left, language), styles, faces, &mut out)
+        });
         out.list.push(Encoded {
             items,
             span: (begins, cursor),
@@ -934,16 +941,16 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
 /// A tag is generated text: a Hebrew numeral reads right to left within a tag whose full stop
 /// follows it in the direction its paragraph reads — UAX #9 over the tag with the paragraph's
 /// direction, rules L2 and L4. Its bytes index the tag rather than the string a host edits, so
-/// none is carried.
+/// none is carried. Its language is its paragraph's, which is the string's.
 fn encode_tag(
     tag: &super::markup::Tag,
-    right_to_left: bool,
+    (right_to_left, language): (bool, pdf_font::pairs::Language),
     styles: &Styles,
     faces: &mut Faces,
     out: &mut Paragraphs,
 ) -> Vec<Atom> {
     let tag_levels = Levels::with_direction(&tag.text, Some(right_to_left));
-    let tag_shaping = Shaping::of(&tag.text, tag_levels.as_ref());
+    let tag_shaping = Shaping::of(&tag.text, tag_levels.as_ref(), language);
     let mut atoms = encode_items(
         &tag_shaping.shaped,
         &tag_shaping.characters,
@@ -1046,7 +1053,8 @@ fn encode_items(
 /// A pair is two glyphs of the run set in one face, adjacent in logical order — the order
 /// OpenType's pairs are stated in — and the face is the one each glyph is drawn in, so a
 /// character a later face of the search path draws pairs with nothing across the change. The
-/// face's script table is the one the characters' script selects (ADR 1696). A
+/// face's script table is the one the characters' script selects (ADR 1696), and its language
+/// system the one the string's natural language selects (ADR 1708). A
 /// face that states no pairs is said, with the reason, rather than kerned by numbers that are
 /// not its own: §9.6.2.2's fourteen among them until `doc/questions/Q308` is answered.
 fn kern(
@@ -1078,10 +1086,13 @@ fn kern(
                     .is_some_and(|(levels, byte)| levels.level(byte) % 2 == 1)
             })
             .collect();
-        let adjusted = held
-            .face
-            .font
-            .pair_adjustments(pairs, &codes, &scripts, &right_to_left);
+        let adjusted = held.face.font.pair_adjustments(
+            pairs,
+            &codes,
+            &scripts,
+            shaping.language,
+            &right_to_left,
+        );
         for ((atom, adjustment), reversed) in
             run.iter_mut().zip(&adjusted.glyphs).zip(&right_to_left)
         {

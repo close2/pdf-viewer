@@ -44,7 +44,9 @@ before Boa parses it, and Boa's optimizer is off. A write to `this.pageNum` is a
 worker's wait withdraws is an event a window drops its card on, its late answer never handed to the
 question asked after it (ADR 1641). `getField("name.N")` is a `Field` of that one widget, a
 field's state carrying one state per widget (ADR 1664), and `Field.style` redraws a check box's
-glyph while `app.fs` is refused by name (ADR 1665). **What is next** is chosen from the throws' causes below, then
+glyph while `app.fs` is refused by name (ADR 1665); `this.getAnnots` answers the document's markup
+annotations, whose `hidden`, `popupOpen` and free-text `contents` a script writes as a reader's edit
+(ADR 1700). **What is next** is chosen from the throws' causes below, then
 the other Tier 1 members `crates/pdf-script/src/surface.rs` lists, and the owner's amendment of
 `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
@@ -1223,7 +1225,13 @@ them, so a document whose scripts throw on every field fills the report with its
    host focuses that widget and turns to the page its `/P` names (ADR 1688). A check box's
    `isBoxChecked` and `checkThisBox` read and set the value by each widget's §12.7.5.2.3 on state,
    which crosses with the widget; what the column's `not bridged` lines and the static census rank
-   after them — `getAnnots`, `app.beep`, the timers — is ADR 1689's tail.
+   after them — `getAnnots`, `app.beep`, the timers — is ADR 1689's tail. `this.getAnnots`,
+   `getAnnot` and `syncAnnotScan` are bridged: every page's markup annotations cross to the realm
+   at its first telling, each `Annotation` reads ten properties from §12.5.2's entries, and
+   `hidden`, `popupOpen` and a free text annotation's `contents` are a reader's edits that a save
+   writes by §7.5.6 (ADR 1700). No run of the column reaches them: the static census's documents
+   call them from Adobe's attachments shim, which a viewer at version 7 or later skips, and from
+   annotation events the column does not raise.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

@@ -145,6 +145,7 @@ pub mod reader;
 pub mod report;
 pub mod restriction;
 pub mod script_asks;
+pub mod script_timers;
 pub mod status;
 pub mod submit;
 pub mod trace;

@@ -424,6 +424,7 @@ fn main() {
         submitter: viewer_host::submit::Submitter::new(),
         asked: None,
         script_wait: None,
+        script_ticker: viewer_host::script_timers::Ticker::default(),
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
         drawn_without_a_page: false,

@@ -2474,6 +2474,9 @@ mod event_kind {
     // The question `SCRIPT_ASKING` put, withdrawn when its wait ran out (ADR 1643). This window
     // answers every question at once, so it is the arm a newer worker's event lands in.
     pub(super) const SCRIPT_QUESTION_WITHDRAWN: u8 = 24;
+    // `app.beep`'s sound, which crosses for `SCRIPT_ASKING`'s reason: the script runs beside the
+    // view, and the window holds the speaker (ADR 1702).
+    pub(super) const BEEP: u8 = 25;
 }
 
 /// Encodes one event.
@@ -2718,6 +2721,14 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
         Event::ScriptQuestionWithdrawn { document } => {
             writer.u8(k::SCRIPT_QUESTION_WITHDRAWN).document(*document);
         }
+        Event::Beep { document, sound } => {
+            let tag = pdf_model::view::Sound::ALL
+                .iter()
+                .position(|held| held == sound)
+                .and_then(|index| u8::try_from(index).ok())
+                .unwrap_or(u8::MAX);
+            writer.u8(k::BEEP).document(*document).u8(tag);
+        }
         Event::Reported {
             document,
             page,
@@ -2937,6 +2948,20 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         k::SCRIPT_QUESTION_WITHDRAWN => Event::ScriptQuestionWithdrawn {
             document: reader.document(what)?,
         },
+        k::BEEP => {
+            let document = reader.document(what)?;
+            let tag = reader.u8("a sound")?;
+            Event::Beep {
+                document,
+                sound: pdf_model::view::Sound::ALL
+                    .get(usize::from(tag))
+                    .copied()
+                    .ok_or(ProtocolError::Unrecognised {
+                        what: "a sound",
+                        value: u32::from(tag),
+                    })?,
+            }
+        }
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
             page: if reader.bool("a page number")? {
@@ -3143,6 +3168,9 @@ mod query_kind {
     // §12.3.6's preview picture for one attachment, which is that attachment's own first page's
     // §12.3.4 `/Thumb`. It crosses because only the worker holds the bytes to open (ADR 1251).
     pub(super) const ATTACHMENT_PREVIEW: u8 = 35;
+    // When a script's timer is next owed. It crosses because the worker holds the view the timers
+    // are in and the window holds the clock (ADR 1702).
+    pub(super) const TIMER_DUE: u8 = 36;
 }
 
 /// Encodes one question.
@@ -3206,6 +3234,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::Dirty => {
             writer.u8(k::DIRTY);
+        }
+        Query::TimerDue => {
+            writer.u8(k::TIMER_DUE);
         }
         Query::Find(needle) => {
             writer.u8(k::FIND).str(needle);
@@ -3332,6 +3363,7 @@ pub(crate) enum PlainQuery {
         at: (f32, f32),
     },
     Dirty,
+    TimerDue,
     Selection,
     LogicalSelection,
     Focus,
@@ -3375,6 +3407,7 @@ impl OwnedQuery {
                 }
                 PlainQuery::FreeTextAt { at } => Query::FreeTextAt { at },
                 PlainQuery::Dirty => Query::Dirty,
+                PlainQuery::TimerDue => Query::TimerDue,
                 PlainQuery::Selection => Query::Selection,
                 PlainQuery::LogicalSelection => Query::LogicalSelection,
                 PlainQuery::Focus => Query::Focus,
@@ -3439,6 +3472,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
             at: reader.point("a point")?,
         }),
         k::DIRTY => OwnedQuery::Plain(PlainQuery::Dirty),
+        k::TIMER_DUE => OwnedQuery::Plain(PlainQuery::TimerDue),
         k::FIND => OwnedQuery::Find(reader.string("a search string")?),
         k::ATTACHMENT_PREVIEW => {
             OwnedQuery::AttachmentPreview(reader.string("an attachment's name")?)
@@ -3525,6 +3559,8 @@ mod answer_kind {
     // §12.9's formatted measurement: strings Table 267's arrays produced and §12.10's reading
     // beside them (ADR 1191).
     pub(super) const MEASURED: u8 = 35;
+    // `query_kind::TIMER_DUE`'s answer: a flag, and the milliseconds where it is set (ADR 1702).
+    pub(super) const TIMER_DUE: u8 = 36;
 }
 
 /// Encodes one answer.
@@ -3633,6 +3669,12 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
         }
         Answer::Dirty(dirty) => {
             writer.u8(k::DIRTY).bool(*dirty);
+        }
+        Answer::TimerDue(due) => {
+            writer
+                .u8(k::TIMER_DUE)
+                .bool(due.is_some())
+                .u32(due.unwrap_or(0));
         }
         Answer::Focus { object, quad } => {
             writer.u8(k::FOCUS).object(*object).quad(*quad);
@@ -4301,6 +4343,11 @@ pub(crate) fn decode_answer_reusing(
             text: reader.string("a free text annotation's contents")?,
         },
         k::DIRTY => Reply::Dirty(reader.bool("a dirty flag")?),
+        k::TIMER_DUE => {
+            let held = reader.bool("whether a timer is held")?;
+            let due = reader.u32("a timer's milliseconds")?;
+            Reply::TimerDue(held.then_some(due))
+        }
         k::FOCUS => Reply::Focus {
             object: reader.object("an annotation")?,
             quad: reader.quad("a focus ring")?,
@@ -5260,6 +5307,7 @@ mod tests {
             },
             Query::FreeTextAt { at: (3.0, 4.0) },
             Query::Dirty,
+            Query::TimerDue,
             Query::Find("needle"),
             Query::Selection,
             Query::LogicalSelection,
@@ -5285,7 +5333,7 @@ mod tests {
             Query::Readback,
             Query::View,
         ];
-        assert_eq!(carried.len(), 35, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 36, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

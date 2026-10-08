@@ -457,6 +457,7 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                     initially_on: true,
                     locked: false,
                 }],
+                annotations: Vec::new(),
             });
             let ran = outcome(&asked);
             assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);

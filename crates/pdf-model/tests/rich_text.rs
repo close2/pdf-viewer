@@ -46,8 +46,19 @@ fn pdf_with(annotation: &str, form: &str, extra: &str) -> Vec<u8> {
 
 /// The same, with more `/DR` fonts named beside the two.
 fn pdf_with_fonts(annotation: &str, form: &str, extra: &str, fonts: &str) -> Vec<u8> {
+    pdf_with_catalog("", annotation, form, extra, fonts)
+}
+
+/// [`pdf_with_fonts`], with `catalog` written into the document catalog as it stands.
+fn pdf_with_catalog(
+    catalog: &str,
+    annotation: &str,
+    form: &str,
+    extra: &str,
+    fonts: &str,
+) -> Vec<u8> {
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+        "1 0 obj\n<< /Type /Catalog {catalog} /Pages 2 0 R /AcroForm \
          << /Fields [5 0 R] /DR << /Font << /Helv 6 0 R /HeBo 7 0 R {fonts} >> >> {form} >> >>\n\
          endobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -1719,6 +1730,87 @@ fn scripted_face() -> Vec<u8> {
     pdf_font::embedding::with_tables(&bare, &[(*b"GPOS", gpos)]).expect("the table goes in")
 }
 
+/// Liberation Sans with its own kerning taken out and a `GPOS` written in whose one script table,
+/// `latn`, kerns `A V` by −300 of 2048 units in its default language system and by −200 in its
+/// Turkish one, `TRK ` (ADR 1708).
+fn language_face() -> Vec<u8> {
+    const LIBERATION: &[u8] =
+        include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
+    let font = read_fonts::FontRef::new(LIBERATION).expect("Liberation Sans is an sfnt");
+    let cmap = read_fonts::TableProvider::cmap(&font).expect("a cmap");
+    let glyph = |character: char| {
+        u16::try_from(
+            cmap.map_codepoint(character)
+                .expect("Liberation Sans draws it")
+                .to_u32(),
+        )
+        .expect("a 16-bit glyph index")
+    };
+    let words = |values: &[u16]| -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| value.to_be_bytes())
+            .collect()
+    };
+    let (a, v) = (glyph('A'), glyph('V'));
+    let pair = |value: i16| {
+        words(&[
+            1,
+            18,
+            0x0004,
+            0,
+            1,
+            12,
+            1,
+            v,
+            value.cast_unsigned(),
+            1,
+            1,
+            a,
+        ])
+    };
+    // ScriptList: latn alone, its Script table at 8. That table: the default LangSys at 10, one
+    // LangSysRecord, `TRK ` at 18; each LangSys names one feature.
+    let scripts = [
+        words(&[1]),
+        b"latn".to_vec(),
+        words(&[8]),
+        words(&[10, 1]),
+        b"TRK ".to_vec(),
+        words(&[18]),
+        words(&[0, 0xFFFF, 1, 0]),
+        words(&[0, 0xFFFF, 1, 1]),
+    ]
+    .concat();
+    let features = [
+        words(&[2]),
+        b"kern".to_vec(),
+        words(&[14]),
+        b"kern".to_vec(),
+        words(&[20]),
+        words(&[0, 1, 0]),
+        words(&[0, 1, 1]),
+    ]
+    .concat();
+    let first = [words(&[2, 0, 1, 8]), pair(-300)].concat();
+    let second = [words(&[2, 0, 1, 8]), pair(-200)].concat();
+    let second_at = u16::try_from(first.len().saturating_add(6)).expect("small");
+    let lookups = [words(&[2, 6, second_at]), first, second].concat();
+    let features_at = u16::try_from(scripts.len().saturating_add(10)).expect("small");
+    let lookups_at =
+        u16::try_from(usize::from(features_at).saturating_add(features.len())).expect("small");
+    let gpos = [
+        words(&[1, 0, 10, features_at, lookups_at]),
+        scripts,
+        features,
+        lookups,
+    ]
+    .concat();
+    let bare = pdf_font::embedding::without_tables(LIBERATION, &[*b"GPOS", *b"kern"])
+        .expect("Liberation Sans is an sfnt");
+    pdf_font::embedding::with_tables(&bare, &[(*b"GPOS", gpos)]).expect("the table goes in")
+}
+
 /// A rich text field set in `/Kern`, the face [`kerned_face`] embeds, with `markup` as its `/RV`.
 fn in_kerned_face(value: &str, markup: &str) -> Vec<u8> {
     in_face(&kerned_face(), value, markup)
@@ -1727,6 +1819,17 @@ fn in_kerned_face(value: &str, markup: &str) -> Vec<u8> {
 /// A rich text field set in `/Kern`, a TrueType font embedding `program`, with `markup` as its
 /// `/RV`.
 fn in_face(program: &[u8], value: &str, markup: &str) -> Vec<u8> {
+    in_face_with(program, value, markup, ("", ""))
+}
+
+/// [`in_face`], with `widget` written into the widget annotation and `catalog` into the
+/// document catalog, each as it stands.
+fn in_face_with(
+    program: &[u8],
+    value: &str,
+    markup: &str,
+    (widget, catalog): (&str, &str),
+) -> Vec<u8> {
     let program = program.iter().fold(String::new(), |mut hex, byte| {
         let _ = write!(hex, "{byte:02X}");
         hex
@@ -1737,10 +1840,12 @@ fn in_face(program: &[u8], value: &str, markup: &str) -> Vec<u8> {
     widths[0] = "278";
     widths[33] = "667";
     widths[54] = "667";
-    pdf_with_fonts(
+    pdf_with_catalog(
+        catalog,
         &format!(
             "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff {RICH} \
-             /T (f) /V ({value}) /RV (<body><p>{markup}</p></body>) /DA (/Kern 12 Tf 0 g) >>"
+             /T (f) /V ({value}) /RV (<body><p>{markup}</p></body>) /DA (/Kern 12 Tf 0 g) \
+             {widget} >>"
         ),
         "",
         &format!(
@@ -1798,6 +1903,37 @@ fn pair_kerning_takes_the_script_table_its_characters_select() {
         content.contains("[(A) 146.48438 (VA) 146.48438 (V)] TJ"),
         "{content}"
     );
+}
+
+/// A run is kerned in the language system its natural language selects (ADR 1708): §14.9.2's
+/// language is the widget's own Table 166 `/Lang`, and the catalog's beneath it, and `tr` is
+/// OpenType's `TRK `. The fixture's Turkish system kerns `A V` by −200/2048 of an em, the `TJ`
+/// number 1000 × 200 / 2048 = 97.65625, and its default system by −300, 146.484375. A language
+/// the table registers no system for takes the default, and so does an empty identifier,
+/// §14.9.2.2's unknown language, though the catalog names one.
+#[test]
+fn pair_kerning_takes_the_language_system_the_text_s_language_selects() {
+    let kerned = |widget: &str, catalog: &str| {
+        let (content, _) = appearance(in_face_with(
+            &language_face(),
+            "AVAV",
+            "<span style=\"kerning-mode:pair\">AVAV</span>",
+            (widget, catalog),
+        ));
+        content
+    };
+    let turkish = "[(A) 97.65625 (VA) 97.65625 (V)] TJ";
+    let default = "[(A) 146.48438 (VA) 146.48438 (V)] TJ";
+    for (widget, catalog, expected) in [
+        ("/Lang (tr)", "", turkish),
+        ("", "/Lang (tr-TR)", turkish),
+        ("/Lang (de-DE)", "/Lang (tr)", default),
+        ("/Lang ()", "/Lang (tr)", default),
+        ("", "", default),
+    ] {
+        let content = kerned(widget, catalog);
+        assert!(content.contains(expected), "{widget} {catalog}: {content}");
+    }
 }
 
 /// A face that states no pairs is not kerned by numbers that are not its own, and the run says

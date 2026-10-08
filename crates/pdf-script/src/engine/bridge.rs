@@ -97,7 +97,7 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
     // `Doc` event — the open and Table 200's five (ADR 1614).
     let target = if matches!(
         request.site,
-        ScriptSite::Library | ScriptSite::OpenAction | ScriptSite::Document(_)
+        ScriptSite::Library | ScriptSite::OpenAction | ScriptSite::Document(_) | ScriptSite::Timer
     ) {
         JsValue::from(context.global_object())
     } else {
@@ -199,6 +199,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     }
     page_num(&global, context)?;
     members::document(&global, context)?;
+    super::annotations::install(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
 

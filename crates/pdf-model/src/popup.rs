@@ -258,9 +258,14 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         if !crate::annotation::displayed(document, dict, view.annotation(id)) {
             continue;
         }
-        let Some(popup) = read(document, id, dict) else {
+        let Some(mut popup) = read(document, id, dict) else {
             continue;
         };
+        // A script's `popupOpen` is a reader's act on the window, as a click is (ADR 1700), and
+        // it stands where the file's `/Open` stood.
+        if let Some(open) = view.popup_opened(id) {
+            popup.open = open;
+        }
         // The annotation whose text the window shows — Table 186's `/Parent`, or the window
         // itself for the parentless case this clause's NOTE 3 describes.
         let owner = document.get_key(dict, "Parent");
@@ -487,7 +492,7 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
 /// read from different dictionaries: §12.5.6.2 puts `Open` on its list and says nothing about
 /// `Subtype`, so a subordinate text annotation is still a text annotation and the entry that opens
 /// its group's window is the primary's.
-fn opens_with_the_page(
+pub(crate) fn opens_with_the_page(
     document: &Document,
     popup: &Dictionary,
     parent: Option<&Dictionary>,

@@ -37,16 +37,6 @@ task_budget=$("$root/tools/bounded.sh" --task-budget) || exit 1
 [ "$(ulimit -u)" != unlimited ] && [ "$(ulimit -u)" -le "$task_budget" ] || ulimit -u "$task_budget" || exit 1
 
 status=0
-built_gate_binaries=
-
-# The two programs a gate spawns and Cargo will not build for it (HANDOVER trap 10). Built
-# once, on the first section that needs one, so that `quick` never pays for them.
-gate_binaries() {
-    [ -n "$built_gate_binaries" ] && return 0
-    built_gate_binaries=yes
-    cargo build --profile gates -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
-    cargo build --profile gates -p hayro-compare --bin pdfref-hayro >/dev/null 2>&1 || status=1
-}
 
 heading() { printf '\n== %s ==\n%s\n\n' "$1" "$2"; }
 
@@ -73,7 +63,8 @@ run() {
 }
 
 # A corpus walk, behind the heavy-walk lock in the lane its kind takes: `walk <kind>
-# [<tools/bounded.sh option>…] -- <command>`. **A section may not walk unlocked**, because
+# [<tools/bounded.sh option>…] -- <command>`, an option being `--build '<cargo build arguments>'` for
+# a program the walk spawns beyond the sandbox worker. **A section may not walk unlocked**, because
 # `doc/environment.md`'s first rule is one heavy walk on each of the lock's lanes and a section is
 # run by a round as often as by a person; a walk this script ran bare was a walk beside whatever
 # held the lock, on no line of its log (ADR 1698). The kind is declared, never measured, because a
@@ -91,8 +82,16 @@ run() {
 # under that hold rather than queueing behind it; a `clock` walk there is refused, and the cure is to
 # run the section bare. `--round <session>`, the script's first argument, names the round on the
 # walk's line.
+#
+# **What a walk spawns is built inside its hold** (trap 109, ADR 1710). `pdf-sandbox-worker` is
+# another package's binary, so Cargo does not build it for a test (trap 10), and one built before the
+# lock is as old as the moment the walk stopped queueing — five siblings edit the tree meanwhile. So
+# the walk's own `--build` rebuilds it for the profile the command names, before the command and in
+# the same hold and bound, and the line's `cmd=` stays the gate's. A package's own binaries need no
+# line, because Cargo builds them for that package's integration tests: `pdf-vfs-worker` and
+# `pdf-view-worker` are in the unit graph of the walks that spawn them.
 walk() {
-    local kind=$1 tree=12 clock=
+    local kind=$1 tree=12 clock= options=() worker builds=()
     shift
     case $kind in
     small) tree=6 ;;
@@ -103,8 +102,34 @@ walk() {
         return 64
         ;;
     esac
+    while [ $# -gt 0 ] && [ "$1" != -- ]; do
+        options+=("$1")
+        shift
+    done
+    worker=$(walk_worker "${@:2}")
+    [ -z "$worker" ] || builds=(--build "$worker")
     RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" \
-        tools/bounded.sh --lock $clock --round "$walk_round" --tree "$tree" "$@"
+        tools/bounded.sh --lock $clock --round "$walk_round" --tree "$tree" "${builds[@]}" "${options[@]}" "$@"
+}
+
+# The `cargo build` arguments for the sandbox worker a walk's command spawns, under the command's own
+# profile — `--release`, `--profile <name>` or the dev profile's none — and nothing for a command that
+# is not cargo's, or that runs over the whole `--workspace`, which builds every package's binaries and
+# the worker with them. The command's own `--` ends the words read. `tools/state.sh --walk-worker
+# <command>` prints it, which is what `tools/conformance/tests/bounded.rs` asks.
+walk_worker() {
+    local word previous= profile=
+    case ${1-} in *cargo) ;; *) return 0 ;; esac
+    for word in "${@:2}"; do
+        [ "$word" != -- ] || break
+        case $word in
+        --workspace) return 0 ;;
+        --release) profile=--release ;;
+        esac
+        [ "$previous" != --profile ] || profile="--profile $word"
+        previous=$word
+    done
+    printf '%s\n' "${profile:+$profile }-p pdf-sandbox --bins"
 }
 
 section_ledger() {
@@ -294,31 +319,30 @@ section_conformance() {
 }
 
 section_tests() {
-    gate_binaries
     run "tests" 'Summary|tests run|test result' walk large -- cargo nextest run --workspace
     # Only the crate that has one; two dozen "0 passed" lines are not a summary.
     run "doctests" 'test result: ok\. [1-9]' walk large -- cargo test --workspace --doc
 }
 
 section_corpus() {
-    gate_binaries
     run "corpus (974 pdf.js documents, page one)" \
         '^[0-9]+ documents in|^  codes ' \
         walk small -- cargo test --profile gates -p pdf-model --test corpus -- --ignored --nocapture
 }
 
 section_golden() {
-    gate_binaries
     run "our own output held by name — the raster golden over the tracked corpus, a change detector and not a verdict (ADR 1016)" \
         '^[0-9]+ tracked documents on disk|^held [0-9]+|^  (moved|unheld|left):' \
         walk large -- cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 }
 
+# `pdfref-hayro` is the oracle's fourth reading (`Reference::Hayro`) and another package's binary, so
+# the walk builds it beside the sandbox worker (trap 10's second program, ADR 0222).
 section_oracle() {
-    gate_binaries
     run "oracle (poppler, mupdf, ghostscript)" \
         '^[0-9]+ pages in|^  (agrees|contradicted|ambiguous|our geometry|reference geometry|not comparable|no render) |undiagnosed' \
-        walk clock -- cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
+        walk clock --build '--profile gates -p hayro-compare --bin pdfref-hayro' -- \
+        cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
 }
 
 # The oracle's held pages, from its own constants and without the walk: per verdict the count, the
@@ -331,7 +355,6 @@ section_oracle_held() {
 }
 
 section_text() {
-    gate_binaries
     # Three gates in one binary since ADR 0333: two about which characters a page reads back as,
     # and one about *where* its words are — whose verdict and judged set are ratcheted since ADR
     # 0424 and are therefore two lines worth keeping.
@@ -365,21 +388,18 @@ section_accessibility() {
 # so this line and `doc/todo/02` §2's are two statements of one command, and only this one is
 # executed.
 section_quorra() {
-    gate_binaries
     run "raster against the CPU oracle" \
         '^[0-9]+ pages compared|^  (rasterisation|median page)' \
         walk clock -- cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
 }
 
 section_fixed() {
-    gate_binaries
     run "documents a round fixed outside the gates (doc/checks/fixed-documents.toml)" \
         '^fixed-documents:|no longer do what' \
         walk small -- cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
 }
 
 section_transform() {
-    gate_binaries
     run "the transform suite (RFC 0002 section 12's floor, and inventories held to the document)" \
         '^transform:' \
         walk clock -- cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
@@ -389,7 +409,6 @@ section_transform() {
 # attached, read back and removed, the input's bytes under every update. The filter keeps the
 # counts and the census lists' headings; the per-document lines under each are for a reader.
 section_writer() {
-    gate_binaries
     run "the transform writer over the corpus (attach, read back, remove)" \
         '^transform-writer:' \
         walk small -- cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
@@ -427,12 +446,11 @@ section_writer() {
 # and a reader wants the table rather than a total. `NOT JUDGED` is one of those lines — see ADR
 # 0884 for why a wall-clock gate on this machine says that rather than failing.
 section_launch() {
-    cargo build --release -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
     # The script stage's worker, trap 10's shape once more (ADR 1620).
-    cargo build --release -p pdf-script-worker --features engine --bins >/dev/null 2>&1 || status=1
     run "the launch path (principle 2's four numbers, doc/checks/launch-path.toml)" \
         '^launch-path:' \
-        walk clock -- cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+        walk clock --build '--release -p pdf-script-worker --features engine --bins' -- \
+        cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
 }
 
 # Principle 2's fifth number, which is the one a person feels after the launch: what a *frame*
@@ -506,14 +524,11 @@ turn_provenance() {
 }
 
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
-# the core opens. The `--bins` build is trap 10: a `--profile gates --test` line builds one test
-# target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
-# round left. There is no third line here: `awkward_classes` is the read walk's population
-# (ADR 0878), and the walk of the *other* confined program that carries the name is
-# `section_confined` below, a `doc/todo/02` §2 line (ADR 1015).
+# the core opens. `pdf-vfs-worker` is this package's own binary, so the test's build builds it
+# (trap 10 is about another package's). There is no third line here: `awkward_classes` is the read
+# walk's population (ADR 0878), and the walk of the *other* confined program that carries the name
+# is `section_confined` below, a `doc/todo/02` §2 line (ADR 1015).
 section_vfs() {
-    gate_binaries
-    cargo build --profile gates -p pdf-vfs --bins >/dev/null 2>&1 || status=1
     run "the five write verbs over the corpus, through the core (RFC 0003 section 5.2)" \
         '^vfs-write:' \
         walk small -- cargo test --profile gates -p pdf-vfs --test write_corpus -- --ignored --nocapture
@@ -526,9 +541,8 @@ section_vfs() {
 # document of each awkward class from every corpus on the disk (ADR 0879), and a `doc/todo/02` §2
 # line (ADR 1015). What fails it is a death, and the filter
 # keeps the per-root and per-class counts and the `killed:` line; the reasons listed under them
-# are for a reader. The `--bins` build is trap 10 for this crate's own worker.
+# are for a reader. `pdf-view-worker` is this crate's own binary, which the test's build builds.
 section_confined() {
-    cargo build --profile gates -p viewer-confined --bins >/dev/null 2>&1 || status=1
     run "the confined viewer over every awkward class on the disk (what fails it is a death)" \
         '^view-awkward:   [a-z]|^view-awkward: killed|^bounded:' \
         walk small -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
@@ -1512,12 +1526,10 @@ section_questions() {
 # tier-1 check goes first, because its own line says how many bounds are routed through the
 # crate, which is the count the table below has to fill.
 section_ratchets() {
-    gate_binaries
-    cargo build --release -p pdf-sandbox --bins >/dev/null 2>&1 || status=1
     # The command is assembled through a variable on purpose: `state_sections.rs` reads every
     # `cargo test` line in this script as a gate line, and a loop written literally would tell it
     # this script runs a gate called `"$package"`.
-    local cargo=cargo file line package target profile ignored
+    local cargo=cargo file line package target profile ignored builds
     run "bounds routed through gate-ratchet (the count the table below has to fill)" \
         '^ratchets: ' \
         "$cargo" test -p conformance --test ratchets -- --nocapture
@@ -1537,11 +1549,15 @@ section_ratchets() {
         [ -z "$profile" ] &&
             printf 'doc/todo/02 §2 names no line for %s --test %s, so it runs under the default profile\n' \
                 "$package" "$target"
+        # A test that asks `Reference::Hayro` spawns `pdfref-hayro`, so its walk builds it beside the
+        # worker, as `section_oracle`'s does.
+        builds=()
+        grep -q 'Reference::Hayro' "$file" && builds=(--build "${profile:+$profile }-p hayro-compare --bin pdfref-hayro")
         # A `clock` walk each, alone on both lanes: the loop's population holds gates whose verdict is
         # a time (`tools/batch.sh`'s `clock_gates`), it is derived rather than listed, and a composed
         # section nobody runs beside the merge pays nothing for running alone.
         run "$package --test $target" '^ratchet: ' \
-            walk clock -- "$cargo" test $profile -p "$package" --test "$target" -- $ignored --nocapture
+            walk clock "${builds[@]}" -- "$cargo" test $profile -p "$package" --test "$target" -- $ignored --nocapture
     done
 }
 
@@ -1564,6 +1580,7 @@ fi
 
 case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;
+--walk-worker) shift; walk_worker "$@"; exit 0 ;;
 esac
 
 case ${1-all} in

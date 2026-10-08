@@ -1095,6 +1095,14 @@ A/B has no worker beside it: it draws no CCITT, JBIG2 or JPX image and says noth
 read 157 M instructions for `bug1815476.pdf` with no fax decode in the profile. Copy the worker too,
 or set `PDF_SANDBOX_WORKER` (trap 99).
 
+The rebuild is the wrapper's own: `tools/bounded.sh --lock --round <session> --tree 12 --build '<profile> -p pdf-sandbox --bins' --`
+builds inside the same hold, before the command and with the lane descriptors closed, so nothing a
+sibling edits between a build and its walk reaches the walk; a build before the lock is the defect
+this trap names (ADR 1710). A package's own binaries need no line, since Cargo builds them for its
+integration tests. And a self-test's hand-off waits for the run under test to log that it queued,
+never for a hold of so many seconds: two- and five-second holds failed at a load an idle machine
+never showed.
+
 ### 111. `cargo fuzz run` writes into the main checkout, and the seed population is not 974 documents
 
 `fuzz/corpus` and `fuzz/artifacts` are symlinks into the owner's checkout. `cargo fuzz run` creates
@@ -1245,6 +1253,18 @@ wrapper is running, `ls -l /proc/*/fd` for the lock's path names the holder; the
 never killed, and it is started once outside any hold. The wrapper still owes a marker
 (`HEAVY_WALK_HELD_BY`) so its command can run without the descriptor while `arms-held`'s check
 (ADR 1662) still finds the hold.
+
+
+### 133. A `static` table of references is paid at load, by the loader, before `main`
+
+Round 1436 compiled the OpenType language-system registry into a `static` whose entries were
+`&[[u8; 4]]` slices. Nothing read the table at open, yet two launch rows' `open_kinstructions` rose
+past their ceilings: in a position-independent executable each reference in a `static` is an
+`R_X86_64_RELATIVE` relocation the dynamic loader applies before `main` — 1 023 more of them, about
+12 instructions each, 12.3 k instructions in the loader's own function (ADR 1708). The fix is the
+shape, not the data: a flat array of plain numbers and an index of code, start and count, sliced at
+lookup time, needs no relocation. `open_kinstructions` is the gate that sees this and no clock does;
+when a compiled-in table arrives, the counted launch gate is run before the clocks.
 
 ## Things worth knowing
 

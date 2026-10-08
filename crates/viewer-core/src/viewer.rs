@@ -298,6 +298,7 @@ impl Viewer {
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
         self.put_script_questions(&mut events);
+        self.ask_for_sounds(&mut events);
         self.settle(&mut events);
         events.into_iter()
     }
@@ -367,6 +368,16 @@ impl Viewer {
                   answered"
     )]
     pub fn query(&self, query: Query<'_>) -> Answer<'_> {
+        // Every document's, before the focused one is looked for: a timer runs in a document
+        // behind another, and a window with none in front still owes it its ticks (ADR 1702).
+        if matches!(query, Query::TimerDue) {
+            return Answer::TimerDue(
+                self.documents
+                    .values()
+                    .filter_map(|open| open.view.timer_due())
+                    .min(),
+            );
+        }
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return Answer::None;
         };
@@ -476,6 +487,7 @@ impl Viewer {
                     })
             }
             Query::Dirty => Answer::Dirty(open.dirty()),
+            Query::TimerDue => Answer::None,
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
                 metadata: pdf_model::xmp::Xmp::document(&open.document),
@@ -4312,6 +4324,14 @@ impl Viewer {
     /// the end, and looping is a decision a host can make with a `GoTo` and this crate cannot
     /// unmake.
     fn tick(&mut self, millis: u32, events: &mut Vec<Event>) {
+        self.run_timers(millis);
+        // Everything below is §12.4.4's advance timing, and the clause makes it a presentation's:
+        // a page's `/Dur` and `/Trans` "specify how to display that page in presentation mode".
+        // A window reading a document ticks for a script's timers too (ADR 1702), and those ticks
+        // must not turn a page a person is reading.
+        if self.presenting != crate::PresentationMode::On {
+            return;
+        }
         // Milliseconds in, seconds out, because the clause counts in seconds and a host counts
         // in whatever its event loop gives it. `f32` loses exactness above sixteen million
         // milliseconds — four and a half hours on one page — and what is being measured is a
@@ -5022,6 +5042,35 @@ impl Viewer {
         for open in self.documents.values_mut() {
             if open.view.apply_resumed(&open.document) {
                 open.stale();
+            }
+        }
+    }
+
+    /// Every timer a document's script set counted down by a tick's milliseconds, and each one now
+    /// due run at the page its document shows; a page whose ink a run changed is drawn again (ADR
+    /// 1702).
+    ///
+    /// Every document's, not only the focused one's: a timer ends with its document and nothing
+    /// else, and the page turn or focus a timer's script asks for waits in its view state until
+    /// the document is in front, as any script's does.
+    fn run_timers(&mut self, millis: u32) {
+        for open in self.documents.values_mut() {
+            let page = open.page_index;
+            if open.view.run_timers(&open.document, millis, page) > 0 {
+                open.stale();
+            }
+        }
+    }
+
+    /// Every sound a document's script asked for, put after the command whose scripts asked
+    /// (ADR 1702).
+    fn ask_for_sounds(&mut self, events: &mut Vec<Event>) {
+        for (id, open) in &mut self.documents {
+            for sound in open.view.take_beeps() {
+                events.push(Event::Beep {
+                    document: *id,
+                    sound,
+                });
             }
         }
     }

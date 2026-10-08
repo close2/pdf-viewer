@@ -5,8 +5,9 @@ use std::time::Duration;
 use pdf_model::action::Trigger as AnnotationTrigger;
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptSite, TextFlag, WidgetState,
+    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, Display, DocumentState,
+    DocumentTrigger, FieldState, FieldType, Property, ScriptEdit, ScriptSite, TextFlag,
+    WidgetState,
 };
 use pdf_script::wire::{WireError, decode_outcome, decode_request, encode_outcome, encode_request};
 use pdf_script::{Ending, Event, Exceeded, Outcome, Refusal, RefusalKind, Request};
@@ -63,7 +64,39 @@ fn request(site: ScriptSite) -> Request {
         page: 3,
         pages: 9,
         dirty: false,
-        document: None,
+        document: Some(DocumentState {
+            annotations: vec![
+                AnnotationState {
+                    number: 12,
+                    generation: 1,
+                    page: 2,
+                    kind: "Text".to_owned(),
+                    rect: [1.5, 2.0, 30.0, 40.25],
+                    name: Some("note".to_owned()),
+                    contents: "é".to_owned(),
+                    author: None,
+                    modified: Some(1_704_465_015_000),
+                    hidden: true,
+                    read_only: false,
+                    popup_open: Some(true),
+                },
+                AnnotationState {
+                    number: 13,
+                    generation: 0,
+                    page: 2,
+                    kind: "FreeText".to_owned(),
+                    rect: [0.0; 4],
+                    name: None,
+                    contents: String::new(),
+                    author: Some("Ann".to_owned()),
+                    modified: None,
+                    hidden: false,
+                    read_only: true,
+                    popup_open: None,
+                },
+            ],
+            ..DocumentState::default()
+        }),
         moment: 1_704_465_015_000,
         utc_offset_seconds: -3600,
     }
@@ -107,6 +140,21 @@ fn outcome() -> Outcome {
                 widget: Some(1),
             },
             ScriptEdit::GoTo { page: 3 },
+            ScriptEdit::Annotation {
+                number: 12,
+                generation: 1,
+                change: AnnotationChange::Hidden(false),
+            },
+            ScriptEdit::Annotation {
+                number: 12,
+                generation: 1,
+                change: AnnotationChange::PopupOpen(true),
+            },
+            ScriptEdit::Annotation {
+                number: 13,
+                generation: 0,
+                change: AnnotationChange::Contents("retyped".to_owned()),
+            },
         ],
         ending: Ending::Exceeded(Exceeded::Wall(Duration::from_millis(100))),
         refusals: vec![

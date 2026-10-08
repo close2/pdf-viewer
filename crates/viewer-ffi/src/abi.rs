@@ -2746,6 +2746,29 @@ pub unsafe extern "C" fn quorra_dirty(viewer: *const Session, dirty: *mut bool) 
     }
 }
 
+/// How many milliseconds of `quorra_tick` may pass before a script's timer is owed: `held` false
+/// where no document holds one (ADR 1702).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_timer_due(
+    viewer: *const Session,
+    held: *mut bool,
+    millis: *mut u32,
+) -> c_int {
+    let (Some(viewer), Some(held), Some(millis)) =
+        (viewer.as_ref(), held.as_mut(), millis.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let due = viewer.timer_due();
+    *held = due.is_some();
+    *millis = due.unwrap_or(0);
+    Status::Ok.code()
+}
+
 // ---------------------------------------------------------------------------------------------
 // Bytes out: §7.5.6's incremental update and §7.11.4's embedded files.
 // ---------------------------------------------------------------------------------------------

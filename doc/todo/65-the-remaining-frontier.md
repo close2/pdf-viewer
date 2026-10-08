@@ -70,18 +70,18 @@ permanent) or an owner decision to acquire a specification.
 - §7.4.7 — a generic region on ISO/IEC 14492's extended template is refused out loud: the pinned
   `hayro-jbig2` reads EXTTEMPLATE and ignores it, and `doc/patches/hayro-jbig2-extended-template.patch`
   waits on the owner's fork (ADR 1459); `crates/pdf-sandbox/tests/t88_conformance.rs` says the day the
-  codec takes it. No corpus stream uses it.
+  codec takes it. No corpus stream uses it. Read on 2026-10-08: the fork, `close2/hayro`, exists and is
+  what the manifest pins, and none of its branches, nor upstream's 0.3.1 release, carries the patch.
 - §7.4.9 — the one sentence of this clause addressed to a processor asks for *support* of the JPX
   baseline enumerated colour spaces, which ITU-T T.801 M.9.2.4 lists — the held identical text of
   ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
   under D50 are drawn as defined; e-sRGB and e-sYCC (PIMA 7667), CIE Jab (CIE Publication 131) and
-  CIE Lab under another illuminant take §7.4.9's device fallback, because those texts are not held —
-  PIMA 7667 is sold (IS&T, ANSI), CIE 131 is sold and superseded there by CIE 159, and a non-D50 Lab
-  wants the illuminant's white point, which T.801 codes after ITU-T T.4 Annex E. That text is held
-  and read: it gives the white point in XYZ for D50 alone and names every other illuminant by a
-  code, its data left for further study, so no held text states the value this case needs. The
-  row's note carries the date each text's availability was read on, which is the date to re-check
-  it against. Checking the restriction on a file is not a reader's job and is not counted as debt
+  CIE Lab under another illuminant take §7.4.9's device fallback. The first two because their texts
+  are not held (read on 2026-10-08, the row's note says where): PIMA 7667 is sold by IS&T, and CIE
+  131 is sold, superseded by CIE 159, itself withdrawn in 2022 for CIE 248. The third is no longer a
+  missing text: §8.6.5.4's own EXAMPLE prints D65's white point and the CIE publishes every standard
+  illuminant T.4 Annex E codes free under CC BY-SA 4.0; what it waits on is this tree's `Lab`, which
+  carries no white point. Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
   ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).
@@ -90,7 +90,9 @@ permanent) or an owner decision to acquire a specification.
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
   5.2.10's stored copy checked against that digest. What is missing is the specification the policy's
   own syntax is written in, and the signature *names* it, so the block is per file and named at
-  runtime rather than one text to acquire (ADR 1219).
+  runtime rather than one text to acquire (ADR 1219). The signatures on this disk name none, and the
+  policy most of them sign under is a PDF bound by its own digest — human-readable, which a validator can
+  bind and show but not enforce (ADR 1709).
 
 ISO/TS 32002's brainpoolP512r1 and Ed448 are not in this bucket: they are the tree's own under the
 owner's answer A170 (ADRs 1385 and 1386), so an upstream release is their *swap* condition rather
@@ -202,7 +204,8 @@ regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import
 - §12.7.4.3 — `kerning-mode:pair` in §9.6.2.2's fourteen, reported as `Owed::RichTextUnapplied`,
   which needs pair data no file of this tree holds (`doc/questions/Q308`); a face the document
   embeds is kerned by its own `GPOS` or `kern` pairs (ADR 1682), `GPOS`'s from the script table the run's
-  characters select, and a contextual lookup is not pair kerning (ADR 1696). Leaders, right-to-left tabs, every list type,
+  characters select and the language system the widget's or the document's `/Lang` selects (ADR 1708),
+  and a contextual lookup is not pair kerning (ADR 1696). Leaders, right-to-left tabs, every list type,
   the nearest width and a machine face per character are built, and following a link and resolving
   `xfa:embed` are choices the clause's delegation of formatting leaves (ADR 1660).
 - §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.
@@ -270,6 +273,11 @@ row is in this bucket when its note names none of those three.
   northings, refused by name until `doc/questions/Q271` is answered — the forward leg those maps
   would be fitted through is built and waits on that answer alone. A `/DCS` on another datum stays
   outside A171's scope.
+
+§7.4.9 is not here and one of its three cases is buildable: a CIE Lab image under an illuminant
+other than D50 now waits on this tree's `ColourSpace::Lab`, which carries no white point, and not on a
+text — §8.6.5.4's EXAMPLE and the CIE's free illuminant data state it, as the row's note cites. The
+row stays in bucket 2 for e-sRGB, e-sYCC and CIE Jab, whose texts are not held.
 
 §7.10.2 is `implemented`: Table 39's `/Order 3` is the not-a-knot cubic spline, the choice ADR 1636
 writes down against the clause's own four-sample threshold, and §7.10 settles with it.

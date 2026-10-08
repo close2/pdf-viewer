@@ -284,3 +284,11 @@ where the page prints 577274.99 (round 1418, ADR 1672). A test against the resul
 failed a correct implementation or passed a wrong one inside the tolerance it needed. Where an
 example prints both, the test asserts the constants and intermediates to their printed digits, and
 the result to the budget the decision records.
+
+## "No held text states this value" is checked against the held standard's own EXAMPLEs first
+
+§7.4.9's note said no held text stated a non-D50 Lab white point; §8.6.5.4's EXAMPLE prints D65 as
+`[0.9505 1.00 1.0890]`, and the CIE publishes every T.4-coded illuminant's spectrum free (round
+1436). Before a note records that a value is unheld, the standard's EXAMPLEs and NOTEs around the
+subject are grepped for it — they are part of the held text, and a silence recorded over one of them
+is the decay CLAUDE.md's fifth principle warns about.

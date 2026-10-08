@@ -5159,11 +5159,33 @@ fn a_cell_is_given_the_header_cells_that_describe_it() {
     assert_eq!(headers("Total"), vec!["Region"]);
 }
 
+/// §12.4.4.1's `/Dur` is "how to display that page in presentation mode", so a window reading the
+/// document — which ticks for a script's timers (ADR 1702) — turns no page however long it ticks.
+#[test]
+fn a_page_stating_a_duration_does_not_advance_outside_a_presentation() {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_durations().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let ticked: Vec<_> = viewer.handle(Command::Tick { millis: 60_000 }).collect();
+    assert!(
+        !ticked
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "{ticked:?}"
+    );
+}
+
 #[test]
 fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     // §12.4.4.1's `/Dur`, and rule 3: this crate has no clock, so the only way it learns that a
-    // second went by is `Command::Tick`. A host reading a document sends none and nothing
-    // advances, which is why "is a presentation running" is not a state this crate keeps.
+    // second went by is `Command::Tick` — and since a window ticks for a script's timers as well,
+    // a tick advances a page only while the window presents (ADR 1702).
     let mut viewer = Viewer::new(800, 1000, 1.0);
     viewer
         .handle(Command::Open {
@@ -5175,6 +5197,11 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
         .for_each(drop);
 
     // Short of the duration, nothing happens — a maximum, not a schedule.
+    // §12.4.4.1's advance timing is a presentation's, so the window says it is presenting (ADR
+    // 1702).
+    viewer
+        .handle(Command::Present(viewer_core::PresentationMode::On))
+        .for_each(drop);
     let quiet: Vec<_> = viewer.handle(Command::Tick { millis: 900 }).collect();
     assert!(
         !quiet
@@ -5367,6 +5394,11 @@ fn a_transition_frame_is_between_the_two_pages() {
     assert_eq!(&leaving.data[0..3], &[255, 0, 0], "page one is red");
 
     // The clock, which is the only way this crate learns that a second went by (rule 3).
+    // §12.4.4.1's advance timing is a presentation's, so the window says it is presenting (ADR
+    // 1702).
+    viewer
+        .handle(Command::Present(viewer_core::PresentationMode::On))
+        .for_each(drop);
     let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
     let transition = advanced
         .iter()
@@ -5448,6 +5480,11 @@ fn a_transition_drawn_at_a_chosen_quantity_says_the_quantity_is_ours() {
             fragment: None,
         })
         .for_each(drop);
+    // §12.4.4.1's advance timing is a presentation's, so the window says it is presenting (ADR
+    // 1702).
+    viewer
+        .handle(Command::Present(viewer_core::PresentationMode::On))
+        .for_each(drop);
     let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
     let said = advanced
         .iter()
@@ -5492,6 +5529,11 @@ fn a_direction_the_table_does_not_give_a_style_is_named_rather_than_cut() {
             password: None,
             fragment: None,
         })
+        .for_each(drop);
+    // §12.4.4.1's advance timing is a presentation's, so the window says it is presenting (ADR
+    // 1702).
+    viewer
+        .handle(Command::Present(viewer_core::PresentationMode::On))
         .for_each(drop);
     let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
     let said = advanced

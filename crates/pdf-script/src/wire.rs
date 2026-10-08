@@ -13,8 +13,9 @@ use std::time::Duration;
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, Display, DocumentState, DocumentTrigger, Face, FieldState,
-    FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit, ScriptSite, TextFlag, WidgetState,
+    Alignment, AnnotationChange, AnnotationState, BorderStyle, Colour, Display, DocumentState,
+    DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer, Property, ScriptEdit,
+    ScriptSite, Sound, TextFlag, WidgetState,
 };
 
 use crate::{
@@ -29,8 +30,10 @@ use crate::{
 /// captions, a layer's switch, the depth budget, a run's notes, and a question and its answer
 /// (ADRs 1626, 1627); 5 a script's page turn (ADR 1640); 6 a field's widgets each with its own
 /// state, and a property set on one of them (ADR 1664); 7 the widget a focus request names (ADR
-/// 1688), and the on state of a toggling widget (ADR 1689).
-pub const VERSION: u8 = 7;
+/// 1688), and the on state of a toggling widget (ADR 1689); 8 a timer's site, a timer set and
+/// cleared, and a sound asked for (ADR 1702), and the document's annotations and a script's change
+/// to one (ADR 1700).
+pub const VERSION: u8 = 8;
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -454,6 +457,7 @@ fn put_site(out: &mut Vec<u8>, site: ScriptSite) {
             put_u8(out, 5);
             put_u8(out, tag_of(&DOCUMENT_TRIGGERS, &trigger));
         }
+        ScriptSite::Timer => put_u8(out, 6),
     }
 }
 
@@ -529,6 +533,38 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
         put_bool(out, layer.initially_on);
         put_bool(out, layer.locked);
     }
+    put_len(out, document.annotations.len());
+    for annotation in &document.annotations {
+        put_annotation(out, annotation);
+    }
+}
+
+/// Writes one annotation as a realm holds it (ADR 1700).
+fn put_annotation(out: &mut Vec<u8>, annotation: &AnnotationState) {
+    put_u32(out, annotation.number);
+    out.extend_from_slice(&annotation.generation.to_le_bytes());
+    put_u32(out, annotation.page);
+    put_str(out, &annotation.kind);
+    for corner in annotation.rect {
+        put_f64(out, corner);
+    }
+    put_optional(out, annotation.name.as_deref());
+    put_str(out, &annotation.contents);
+    put_optional(out, annotation.author.as_deref());
+    match annotation.modified {
+        None => put_u8(out, 0),
+        Some(moment) => {
+            put_u8(out, 1);
+            out.extend_from_slice(&moment.to_le_bytes());
+        }
+    }
+    put_bool(out, annotation.hidden);
+    put_bool(out, annotation.read_only);
+    match annotation.popup_open {
+        None => put_u8(out, 0),
+        Some(false) => put_u8(out, 1),
+        Some(true) => put_u8(out, 2),
+    }
 }
 
 /// Writes a colour: a tag, then its components.
@@ -561,58 +597,7 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             put_u8(out, 1);
             put_str(out, field);
             put_optional_u32(out, *widget);
-            match property {
-                Property::Display(display) => {
-                    put_u8(out, 0);
-                    put_u8(out, tag_of(&DISPLAYS, display));
-                }
-                Property::ReadOnly(flag) => {
-                    put_u8(out, 1);
-                    put_bool(out, *flag);
-                }
-                Property::Required(flag) => {
-                    put_u8(out, 2);
-                    put_bool(out, *flag);
-                }
-                Property::TextColor(colour) => {
-                    put_u8(out, 3);
-                    put_colour(out, *colour);
-                }
-                Property::FillColor(colour) => {
-                    put_u8(out, 4);
-                    put_colour(out, *colour);
-                }
-                Property::StrokeColor(colour) => {
-                    put_u8(out, 5);
-                    put_colour(out, *colour);
-                }
-                Property::BorderStyle(style) => {
-                    put_u8(out, 6);
-                    put_u8(out, tag_of(&BORDER_STYLES, style));
-                }
-                Property::Alignment(alignment) => {
-                    put_u8(out, 7);
-                    put_u8(out, tag_of(&ALIGNMENTS, alignment));
-                }
-                Property::CharLimit(limit) => {
-                    put_u8(out, 8);
-                    put_u32(out, *limit);
-                }
-                Property::TextFlag(flag, on) => {
-                    put_u8(out, 9);
-                    put_u8(out, tag_of(&TEXT_FLAGS, flag));
-                    put_bool(out, *on);
-                }
-                Property::Caption(face, caption) => {
-                    put_u8(out, 10);
-                    put_u8(out, tag_of(&FACES, face));
-                    put_str(out, caption);
-                }
-                Property::Style(glyph) => {
-                    put_u8(out, 11);
-                    put_u8(out, tag_of(&Glyph::ALL, glyph));
-                }
-            }
+            put_property(out, property);
         }
         ScriptEdit::Reset { fields } => {
             put_u8(out, 2);
@@ -640,6 +625,122 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
         ScriptEdit::GoTo { page } => {
             put_u8(out, 6);
             put_u32(out, *page);
+        }
+        ScriptEdit::Timer { .. } | ScriptEdit::ClearTimer { .. } | ScriptEdit::Beep { .. } => {
+            put_host_edit(out, edit);
+        }
+        ScriptEdit::Annotation {
+            number,
+            generation,
+            change,
+        } => {
+            put_u8(out, 10);
+            put_u32(out, *number);
+            out.extend_from_slice(&generation.to_le_bytes());
+            put_annotation_change(out, change);
+        }
+    }
+}
+
+/// Writes one of the three edits a host's clock or speaker carries out: a timer set, a timer
+/// cleared, a sound asked for (ADR 1702).
+fn put_host_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
+    match edit {
+        ScriptEdit::Timer {
+            id,
+            script,
+            period,
+            repeat,
+        } => {
+            put_u8(out, 7);
+            put_u32(out, *id);
+            put_str(out, script);
+            put_u32(out, *period);
+            put_bool(out, *repeat);
+        }
+        ScriptEdit::ClearTimer { id } => {
+            put_u8(out, 8);
+            put_u32(out, *id);
+        }
+        ScriptEdit::Beep { sound } => {
+            put_u8(out, 9);
+            put_u8(out, tag_of(&Sound::ALL, sound));
+        }
+        // Every other edit is `put_edit`'s, which hands only these three here.
+        _ => {}
+    }
+}
+
+/// Writes one property a script set: a tag, then its value.
+fn put_property(out: &mut Vec<u8>, property: &Property) {
+    match property {
+        Property::Display(display) => {
+            put_u8(out, 0);
+            put_u8(out, tag_of(&DISPLAYS, display));
+        }
+        Property::ReadOnly(flag) => {
+            put_u8(out, 1);
+            put_bool(out, *flag);
+        }
+        Property::Required(flag) => {
+            put_u8(out, 2);
+            put_bool(out, *flag);
+        }
+        Property::TextColor(colour) => {
+            put_u8(out, 3);
+            put_colour(out, *colour);
+        }
+        Property::FillColor(colour) => {
+            put_u8(out, 4);
+            put_colour(out, *colour);
+        }
+        Property::StrokeColor(colour) => {
+            put_u8(out, 5);
+            put_colour(out, *colour);
+        }
+        Property::BorderStyle(style) => {
+            put_u8(out, 6);
+            put_u8(out, tag_of(&BORDER_STYLES, style));
+        }
+        Property::Alignment(alignment) => {
+            put_u8(out, 7);
+            put_u8(out, tag_of(&ALIGNMENTS, alignment));
+        }
+        Property::CharLimit(limit) => {
+            put_u8(out, 8);
+            put_u32(out, *limit);
+        }
+        Property::TextFlag(flag, on) => {
+            put_u8(out, 9);
+            put_u8(out, tag_of(&TEXT_FLAGS, flag));
+            put_bool(out, *on);
+        }
+        Property::Caption(face, caption) => {
+            put_u8(out, 10);
+            put_u8(out, tag_of(&FACES, face));
+            put_str(out, caption);
+        }
+        Property::Style(glyph) => {
+            put_u8(out, 11);
+            put_u8(out, tag_of(&Glyph::ALL, glyph));
+        }
+    }
+}
+
+/// Writes what a script set on an annotation: a tag, then the value (ADR 1700).
+fn put_annotation_change(out: &mut Vec<u8>, change: &AnnotationChange) {
+    match change {
+        AnnotationChange::Hidden(hidden) => {
+            put_u8(out, 0);
+            put_bool(out, *hidden);
+        }
+        AnnotationChange::PopupOpen(open) => {
+            put_u8(out, 1);
+            put_bool(out, *open);
+        }
+        AnnotationChange::Contents(text) => {
+            put_u8(out, 2);
+            put_str(out, text);
         }
     }
 }
@@ -825,6 +926,7 @@ impl<'a> Reader<'a> {
             3 => ScriptSite::OpenAction,
             4 => ScriptSite::Library,
             5 => ScriptSite::Document(self.tagged(&DOCUMENT_TRIGGERS, "trigger")?),
+            6 => ScriptSite::Timer,
             _ => return Err(WireError::Invalid("site")),
         })
     }
@@ -929,7 +1031,43 @@ impl<'a> Reader<'a> {
                 locked: self.boolean()?,
             });
         }
-        Ok(DocumentState { info, layers })
+        let count = self.count()?;
+        let mut annotations = Vec::new();
+        for _ in 0..count {
+            annotations.push(self.annotation()?);
+        }
+        Ok(DocumentState {
+            info,
+            layers,
+            annotations,
+        })
+    }
+
+    /// One annotation as a realm holds it.
+    fn annotation(&mut self) -> Result<AnnotationState, WireError> {
+        Ok(AnnotationState {
+            number: self.u32()?,
+            generation: u16::from_le_bytes(self.array()?),
+            page: self.u32()?,
+            kind: self.string()?,
+            rect: [self.f64()?, self.f64()?, self.f64()?, self.f64()?],
+            name: self.optional()?,
+            contents: self.string()?,
+            author: self.optional()?,
+            modified: match self.u8()? {
+                0 => None,
+                1 => Some(i64::from_le_bytes(self.array()?)),
+                _ => return Err(WireError::Invalid("moment")),
+            },
+            hidden: self.boolean()?,
+            read_only: self.boolean()?,
+            popup_open: match self.u8()? {
+                0 => None,
+                1 => Some(false),
+                2 => Some(true),
+                _ => return Err(WireError::Invalid("popup state")),
+            },
+        })
     }
 
     /// One edit.
@@ -984,6 +1122,26 @@ impl<'a> Reader<'a> {
                 on: self.boolean()?,
             },
             6 => ScriptEdit::GoTo { page: self.u32()? },
+            7 => ScriptEdit::Timer {
+                id: self.u32()?,
+                script: self.string()?,
+                period: self.u32()?,
+                repeat: self.boolean()?,
+            },
+            8 => ScriptEdit::ClearTimer { id: self.u32()? },
+            9 => ScriptEdit::Beep {
+                sound: self.tagged(&Sound::ALL, "sound")?,
+            },
+            10 => ScriptEdit::Annotation {
+                number: self.u32()?,
+                generation: u16::from_le_bytes(self.array()?),
+                change: match self.u8()? {
+                    0 => AnnotationChange::Hidden(self.boolean()?),
+                    1 => AnnotationChange::PopupOpen(self.boolean()?),
+                    2 => AnnotationChange::Contents(self.string()?),
+                    _ => return Err(WireError::Invalid("annotation change")),
+                },
+            },
             _ => return Err(WireError::Invalid("edit")),
         })
     }

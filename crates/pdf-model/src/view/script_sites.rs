@@ -168,7 +168,7 @@ impl ViewState {
             return 0;
         };
         let table = super::widgets_by_field_name(document);
-        let page = page_of(document, &dictionary);
+        let page = page_of(document, annotation, &dictionary);
         let (ran, changed, calculate) =
             self.annotation_scripts(document, &table, annotation, &dictionary, trigger, page);
         if ran > 0 {
@@ -436,14 +436,36 @@ impl ViewState {
     }
 }
 
-/// The zero-based page an annotation's Table 166 `/P` names, or page one where it names none.
-fn page_of(document: &Document, annotation: &Dictionary) -> usize {
-    let Some(page) = annotation.get("P").and_then(Object::as_reference) else {
-        return 0;
-    };
-    crate::page::Pages::new(document)
-        .index_of(page)
-        .unwrap_or_default()
+/// The zero-based page an annotation is on, `this.pageNum` at its events: the page Table 166's
+/// `/P` names, or where it names none the page whose `/Annots` lists the annotation (ADR 1700).
+///
+/// `/P` is Optional for every subtype but a screen annotation, so a page's own `/Annots` is the
+/// statement every annotation has; the walk is made only at an annotation's event, a person's act.
+/// Page one where neither names a page.
+fn page_of(document: &Document, id: ObjectId, annotation: &Dictionary) -> usize {
+    let pages = crate::page::Pages::new(document);
+    if let Some(page) = annotation.get("P").and_then(Object::as_reference) {
+        return pages.index_of(page).unwrap_or_default();
+    }
+    let mut ordered: Vec<(usize, ObjectId)> = pages
+        .indices()
+        .into_iter()
+        .map(|(page, index)| (index, page))
+        .collect();
+    ordered.sort_unstable();
+    ordered
+        .into_iter()
+        .find(|(_, page)| {
+            document.get(*page).as_dict().is_some_and(|page| {
+                document
+                    .get_key(page, "Annots")
+                    .as_array()
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|entry| entry.as_reference() == Some(id))
+            })
+        })
+        .map_or(0, |(index, _)| index)
 }
 
 /// How a page's event names itself in a report.

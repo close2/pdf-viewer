@@ -1,0 +1,685 @@
+# OpenType's registered language system tags, one per line: the tag between single quotes (four
+# bytes, spaces included), a tab, the ISO 639 codes the registry gives it (comma-separated, none where
+# it gives none), a tab, and `deprecated` where the registry marks the tag so, else `-`; a tab and the
+# registry's name for the language system last. Taken from the registry page "Language system tags
+# (OpenType 1.9.1)"; data/opentype/PROVENANCE.md says from where and when.
+'AAQ '	aaq	-	Eastern Abenaki
+'ABA '	abq	-	Abaza
+'ABK '	abk	-	Abkhazian
+'ACH '	ach	-	Acholi
+'ACR '	acr	-	Achi
+'ACY '	acy	-	Cypriot Arabic
+'ADY '	ady	-	Adyghe
+'AFK '	afr	-	Afrikaans
+'AFR '	aar	-	Afar
+'AGW '	ahg	-	Agaw
+'AIO '	aio	-	Aiton
+'AKA '	aka,fat,twi	-	Akan
+'AKB '	akb	-	Batak Angkola
+'ALS '	gsw	-	Alsatian
+'ALT '	atv,alt	-	Altai
+'AMH '	amh	-	Amharic
+'ANG '	ang	-	Anglo-Saxon
+'APPH'		-	Phonetic transcription—Americanist conventions
+'ARA '	ara	-	Arabic
+'ARG '	arg	-	Aragonese
+'ARI '	aiw	-	Aari
+'ARK '	mhv,rmz,rki	-	Rakhine
+'ASM '	asm	-	Assamese
+'AST '	ast	-	Asturian
+'ATH '	aht,apa,apk,apj,apl,apm,apw,ath,bea,sek,bcr,caf,chp,clc,coq,crx,ctc,den,dgr,gce,gwi,haa,hoi,hup,ing,kkz,koy,ktw,kuu,mvb,nav,qwt,scs,srs,taa,tau,tcb,tce,tfn,tgx,tht,tol,ttm,tuu,txc,wlk,xup,xsl	-	Athapaskan languages
+'ATS '	ats	-	Gros Ventre (Atsina)
+'AVN '	avn	-	Avatime
+'AVR '	ava	-	Avar
+'AWA '	awa	-	Awadhi
+'AYM '	aym	-	Aymara
+'AZB '	azb	-	Torki
+'AZE '	aze	-	Azerbaijani
+'BAD '	bfq	-	Badaga
+'BAD0'	bad,bbp,bfl,bjo,bpd,bqk,gox,kuw,liy,lna,lnl,mnh,nue,nuu,tor,yaj,zmz	-	Banda
+'BAG '	bfy	-	Baghelkhandi
+'BAL '	krc	-	Balkar
+'BAN '	ban	-	Balinese
+'BAR '	bar	-	Bavarian
+'BAU '	bci	-	Baulé
+'BBC '	bbc	-	Batak Toba
+'BBR '	auj,ber,cnu,gha,gho,grr,jbe,jbn,kab,mzb,oua,rif,sds,shi,shy,siz,sjs,swn,taq,tez,thv,thz,tia,tjo,tmh,ttq,tzm,zen,zgh	-	Berber
+'BCH '	bcq	-	Bench
+'BCR '		-	Bible Cree
+'BDC '	bdc	-	Emberá-Baudó
+'BDY '	bdy	-	Bandjalang
+'BEL '	bel	-	Belarusian
+'BEM '	bem	-	Bemba
+'BEN '	ben	-	Bangla
+'BGC '	bgc	-	Haryanvi
+'BGQ '	bgq	-	Bagri
+'BGR '	bul	-	Bulgarian
+'BHI '	bhi,bhb	-	Bhili
+'BHO '	bho	-	Bhojpuri
+'BIK '	bik,bhk,bcl,bto,cts,bln,fbl,lbl,rbl,ubl	-	Bikol
+'BIL '	byn	-	Bilen
+'BIS '	bis	-	Bislama
+'BJJ '	bjj	-	Kanauji
+'BKF '	bla	-	Blackfoot
+'BLI '	bal	-	Baluchi
+'BLK '	blk	-	Pa’o Karen
+'BLN '	bjt,ble	-	Balante
+'BLT '	bft	-	Balti
+'BMB '	bam	-	Bambara (Bamanankan)
+'BML '	bai,bbj,bko,byv,fmp,jgo,nla,nnh,nnz,nwe,xmg,ybb	-	Bamileke
+'BOS '	bos	-	Bosnian
+'BPY '	bpy	-	Bishnupriya Manipuri
+'BRE '	bre	-	Breton
+'BRH '	brh	-	Brahui
+'BRI '	bra	-	Braj Bhasha
+'BRM '	mya	-	Burmese
+'BRX '	brx	-	Bodo
+'BSH '	bak	-	Bashkir
+'BSK '	bsk	-	Burushaski
+'BTD '	btd	-	Batak Dairi (Pakpak)
+'BTI '	btb,beb,bum,bxp,eto,ewo,mct	-	Beti
+'BTK '	akb,bbc,btd,btk,btm,bts,btx,btz	-	Batak languages
+'BTM '	btm	-	Batak Mandailing
+'BTS '	bts	-	Batak Simalungun
+'BTX '	btx	-	Batak Karo
+'BTZ '	btz	-	Batak Alas-Kluet
+'BUG '	bug	-	Bugis
+'BYV '	byv	-	Medumba
+'CAK '	cak	-	Kaqchikel
+'CAT '	cat	-	Catalan
+'CAY '	cay	-	Cayuga
+'CBG '	cbg	-	Chimila
+'CBK '	cbk	-	Zamboanga Chavacano
+'CCHN'	cco,chj,chq,chz,cle,cnl,cnt,cpa,csa,cso,cte,ctl,cuc,cvn	-	Chinantec
+'CEB '	ceb	-	Cebuano
+'CGG '	cgg	-	Chiga
+'CHA '	cha	-	Chamorro
+'CHE '	che	-	Chechen
+'CHG '	sgw	-	Chaha Gurage
+'CHH '	hne	-	Chattisgarhi
+'CHI '	nya	-	Chichewa (Chewa, Nyanja)
+'CHK '	ckt	-	Chukchi
+'CHK0'	chk	-	Chuukese
+'CHO '	cho	-	Choctaw
+'CHP '	chp	-	Chipewyan
+'CHR '	chr	-	Cherokee
+'CHU '	chv	-	Chuvash
+'CHY '	chy	-	Cheyenne
+'CJA '	cja	-	Western Cham
+'CJM '	cjm	-	Eastern Cham
+'CMI '	cmi	-	Emberá-Chamí
+'CMR '	swb,wlc,wni,zdj	-	Comorian
+'COO '	coo	-	Comox
+'COP '	cop	-	Coptic
+'COR '	cor	-	Cornish
+'COS '	cos	-	Corsican
+'CPP '	abs,acf,afs,aig,aoa,bah,bew,bis,bjs,bpl,bpq,brc,bxo,bzj,bzk,cbk,ccl,ccm,chn,cks,cpe,cpf,cpi,cpp,cri,crp,crs,dcr,dep,djk,fab,fng,fpe,gac,gcf,gcl,gcr,gib,goq,gpe,gul,gyn,hat,hca,hmo,hwc,icr,idb,ihb,jam,jvd,kcn,kea,kmv,kri,kww,lir,lou,lrt,max,mbf,mcm,mfe,mfp,mkn,mod,msi,mud,mzs,nag,nef,ngm,njt,onx,oor,pap,pcm,pea,pey,pga,pih,pis,pln,pml,pmy,pov,pre,rcf,rop,scf,sci,skw,srm,srn,sta,svc,tas,tch,tcs,tgh,tmg,tpi,trf,tvy,uln,vic,vkp,wes,xmm,ycr	-	Creoles
+'CRE '	cre	-	Cree
+'CRR '	crx,caf	-	Carrier
+'CRT '	crh	-	Crimean Tatar
+'CSB '	csb	-	Kashubian
+'CSL '	chu	-	Church Slavonic
+'CSY '	ces	-	Czech
+'CTG '	ctg	-	Chittagonian
+'CTO '	cto	-	Emberá-Catío
+'CTT '	ctt	-	Wayanad Chetti
+'CUK '	cuk	-	San Blas Kuna
+'DAG '	dag	-	Dagbani
+'DAN '	dan	-	Danish
+'DAR '	dar	-	Dargwa
+'DAX '	dax	-	Dayi
+'DCR '	cwd	-	Woods Cree
+'DEU '	deu	-	German
+'DGO '	dgo	-	Dogri (individual language)
+'DGR '	doi	-	Dogri (macrolanguage)
+'DHG '	dhg	-	Dhangu
+'DHV '	div	deprecated	Divehi (Dhivehi, Maldivian)
+'DIQ '	diq	-	Dimli
+'DIV '	div	-	Divehi (Dhivehi, Maldivian)
+'DJR '	dje	-	Zarma
+'DJR0'	djr	-	Djambarrpuyngu
+'DNG '	ada	-	Dangme
+'DNJ '	dnj	-	Dan
+'DNK '	din	-	Dinka
+'DRI '	prs	-	Dari
+'DUJ '	duj,dwu,dwy	-	Dhuwal
+'DUN '	dng	-	Dungan
+'DZN '	dzo	-	Dzongkha
+'EBI '	igb	-	Ebira
+'ECR '	crj,crl	-	Eastern Cree
+'EDO '	bin	-	Edo
+'EFI '	efi	-	Efik
+'ELL '	ell	-	Greek
+'EMK '	emk	-	Eastern Maninkakan
+'EMP '	emp	-	Northern Emberá
+'ENG '	eng	-	English
+'ERZ '	myv	-	Erzya
+'ESP '	spa	-	Spanish
+'ESU '	esu	-	Central Yupik
+'ETI '	est	-	Estonian
+'EUQ '	eus	-	Basque
+'EVK '	evn	-	Evenki
+'EVN '	eve	-	Even
+'EWE '	ewe	-	Ewe
+'FAN '	acf	-	French Antillean
+'FAN0'	fan	-	Fang
+'FAR '	fas	-	Persian
+'FAT '	fat	-	Fanti
+'FIN '	fin	-	Finnish
+'FJI '	fij	-	Fijian
+'FLE '	vls	-	Dutch (Flemish)
+'FMP '	fmp	-	Fe’fe’
+'FNE '	enf	-	Forest Enets
+'FON '	fon	-	Fon
+'FOS '	fao	-	Faroese
+'FRA '	fra	-	French
+'FRC '	frc	-	Cajun French
+'FRI '	fry	-	Frisian
+'FRL '	fur	-	Friulian
+'FRP '	frp	-	Arpitan
+'FTA '	fuf	-	Futa
+'FUL '	ful	-	Fulah
+'FUV '	fuv	-	Nigerian Fulfulde
+'GAD '	gaa	-	Ga
+'GAE '	gla	-	Scottish Gaelic
+'GAG '	gag	-	Gagauz
+'GAL '	glg	-	Galician
+'GAR '		-	Garshuni
+'GAW '	gbm	-	Garhwali
+'GEZ '	gez	-	Geez
+'GIH '	gih	-	Githabul
+'GIL '	niv	-	Gilyak
+'GIL0'	gil	-	Kiribati (Gilbertese)
+'GKP '	gkp	-	Kpelle (Guinea)
+'GLK '	glk	-	Gilaki
+'GMZ '	guk	-	Gumuz
+'GNN '	gnn	-	Gumatj
+'GOG '	gog	-	Gogo
+'GON '	gon	-	Gondi
+'GRN '	kal	-	Greenlandic
+'GRO '	grt	-	Garo
+'GUA '	grn	-	Guarani
+'GUC '	guc	-	Wayuu
+'GUF '	guf	-	Gupapuyngu
+'GUJ '	guj	-	Gujarati
+'GUZ '	guz	-	Gusii
+'HAI '	hat	-	Haitian (Haitian Creole)
+'HAI0'	hai,hax,hdn	-	Haida
+'HAL '	cfm	-	Halam (Falam Chin)
+'HAR '	hoj	-	Harauti
+'HAU '	hau	-	Hausa
+'HAW '	haw	-	Hawaiian
+'HAY '	hay	-	Haya
+'HAZ '	haz	-	Hazaragi
+'HBN '	amf	-	Hammer-Banna
+'HEI '	hei	-	Heiltsuk
+'HER '	her	-	Herero
+'HIL '	hil	-	Hiligaynon
+'HIN '	hin	-	Hindi
+'HMA '	mrj	-	High Mari
+'HMD '	hmd	-	A-Hmao
+'HMN '	hmn	-	Hmong
+'HMO '	hmo	-	Hiri Motu
+'HMZ '	hmz	-	Hmong Shuat
+'HND '	hno,hnd	-	Hindko
+'HO  '	hoc	-	Ho
+'HRI '	har	-	Harari
+'HRV '	hrv	-	Croatian
+'HUN '	hun	-	Hungarian
+'HUR '	hur	-	Halkomelem
+'HYE '	hye,hyw	-	Armenian
+'HYE0'	hye	-	Armenian East
+'IBA '	iba	-	Iban
+'IBB '	ibb	-	Ibibio
+'IBO '	ibo	-	Igbo
+'IDO '	ido	-	Ido
+'IJO '	iby,ijc,ije,ijn,ijo,ijs,nkx,okd,okr,orr	-	Ijo languages
+'ILE '	ile	-	Interlingue
+'ILO '	ilo	-	Ilokano
+'INA '	ina	-	Interlingua
+'IND '	ind	-	Indonesian
+'ING '	inh	-	Ingush
+'INU '	iku	-	Inuktitut
+'INUK'	ike,iku	-	Nunavik Inuktitut
+'IPK '	ipk	-	Inupiat
+'IPPH'		-	Phonetic transcription—IPA conventions
+'IRI '	gle	-	Irish
+'IRT '	ghc,gle	-	Irish Traditional
+'IRU '	iru	-	Irula
+'ISL '	isl	-	Icelandic
+'ISM '	smn	-	Inari Sami
+'ITA '	ita	-	Italian
+'IWR '	heb	-	Hebrew
+'JAM '	jam	-	Jamaican Creole
+'JAN '	jpn	-	Japanese
+'JAV '	jav	-	Javanese
+'JBO '	jbo	-	Lojban
+'JCT '	jct	-	Krymchak
+'JDT '	jdt	-	Judeo-Tat
+'JII '	yid	-	Yiddish
+'JUD '	lad	-	Ladino
+'JUL '	dyu	-	Jula
+'KAB '	kbd	-	Kabardian
+'KAB0'	kab	-	Kabyle
+'KAC '	kfr	-	Kachchi
+'KAL '	kln	-	Kalenjin
+'KAN '	kan	-	Kannada
+'KAR '	krc	-	Karachay
+'KAT '	kat	-	Georgian
+'KAW '	kaw	-	Kawi (Old Javanese)
+'KAZ '	kaz	-	Kazakh
+'KBC '	kbc	-	Kadiwéu
+'KDE '	kde	-	Makonde
+'KEA '	kea	-	Kabuverdianu (Crioulo)
+'KEB '	ktb	-	Kebena
+'KEK '	kek	-	Kekchi
+'KGE '	kat	-	Khutsuri Georgian
+'KGF '	kgf	-	Kube
+'KHA '	kjh	-	Khakass
+'KHK '	kca	-	Khanty-Kazim
+'KHM '	khm	-	Khmer
+'KHS '	kca	-	Khanty-Shurishkar
+'KHT '	kht	-	Khamti Shan
+'KHV '	kca	-	Khanty-Vakhi
+'KHW '	khw	-	Khowar
+'KIK '	kik	-	Kikuyu (Gikuyu)
+'KIR '	kir	-	Kirghiz (Kyrgyz)
+'KIS '	kqs,kss	-	Kisii
+'KIU '	kiu	-	Kirmanjki
+'KJD '	kjd	-	Southern Kiwai
+'KJJ '	kjj	-	Khinalug
+'KJP '	kjp	-	Eastern Pwo Karen
+'KJZ '	kjz	-	Bumthangkha
+'KKN '	kex	-	Kokni
+'KLM '	xal	-	Kalmyk
+'KMB '	kam	-	Kamba
+'KMG '	kmg	-	Kâte
+'KMN '	kfy	-	Kumaoni
+'KMO '	kmw	-	Komo
+'KMS '	kxc	-	Komso
+'KMZ '	kmz	-	Khorasani Turkic
+'KNR '	kau	-	Kanuri
+'KOD '	kfa	-	Kodagu
+'KOH '	kor,okm	-	Korean Old Hangul
+'KOK '	kok	-	Konkani
+'KOM '	kom	-	Komi
+'KON '	ktu	-	Kikongo
+'KON0'	kon	-	Kongo
+'KOP '	koi	-	Komi-Permyak
+'KOR '	kor	-	Korean
+'KOS '	kos	-	Kosraean
+'KOZ '	kpv	-	Komi-Zyrian
+'KPL '	kpe	-	Kpelle
+'KRI '	kri	-	Krio
+'KRK '	kaa	-	Karakalpak
+'KRL '	krl	-	Karelian
+'KRM '	kdr	-	Karaim
+'KRN '	blk,bwe,eky,ghk,jkm,jkp,kar,kjp,kjt,ksw,kvl,kvq,kvt,kvu,kvy,kxf,kxk,kyu,pdu,pwo,pww,wea	-	Karen
+'KRT '	kqy	-	Koorete
+'KSH '	kas	-	Kashmiri
+'KSH0'	ksh	-	Ripuarian
+'KSI '	kha	-	Khasi
+'KSM '	sjd	-	Kildin Sami
+'KSU '	ksu	-	Khamyang
+'KSW '	ksw	-	S’gaw Karen
+'KUA '	kua	-	Kuanyama
+'KUI '	kxu	-	Kui
+'KUL '	kfx	-	Kulvi
+'KUM '	kum	-	Kumyk
+'KUR '	kur	-	Kurdish
+'KUU '	kru	-	Kurukh
+'KUY '	kdt	-	Kuy
+'KVQ '	kvq	-	Geba Karen
+'KWK '	kwk	-	Kwakʼwala
+'KYK '	kpy	-	Koryak
+'KYU '	kyu	-	Western Kayah
+'LAD '	lld	-	Ladin
+'LAH '	bfu	-	Lahuli
+'LAK '	lbe	-	Lak
+'LAM '	lmn	-	Lambani
+'LAO '	lao	-	Lao
+'LAT '	lat	-	Latin
+'LAZ '	lzz	-	Laz
+'LCR '	crm	-	L-Cree
+'LDK '	lbj	-	Ladakhi
+'LEF '	lef	-	Lelemi
+'LEZ '	lez	-	Lezgi
+'LIJ '	lij	-	Ligurian
+'LIM '	lim	-	Limburgish
+'LIN '	lin	-	Lingala
+'LIS '	lis	-	Lisu
+'LIV '	liv	-	Liv
+'LJP '	ljp	-	Lampung
+'LKI '	lki	-	Laki
+'LMA '	mhr	-	Low Mari
+'LMB '	lif	-	Limbu
+'LMO '	lmo	-	Lombard
+'LMW '	ngl	-	Lomwe
+'LOM '	lom	-	Loma
+'LPO '	lpo	-	Lipo
+'LRC '	lrc,luz,bqi,zum	-	Luri
+'LSB '	dsb	-	Lower Sorbian
+'LSM '	smj	-	Lule Sami
+'LTH '	lit	-	Lithuanian
+'LTZ '	ltz	-	Luxembourgish
+'LUA '	lua	-	Luba-Lulua
+'LUB '	lub	-	Luba-Katanga
+'LUG '	lug	-	Ganda
+'LUH '	luy	-	Luyia
+'LUO '	luo	-	Luo
+'LUT '	lut	-	Lushootseed
+'LVI '	lav	-	Latvian
+'MAD '	mad	-	Madura
+'MAG '	mag	-	Magahi
+'MAH '	mah	-	Marshallese
+'MAJ '	mpe	-	Majang
+'MAK '	vmw	-	Makhuwa
+'MAL '	mal	-	Malayalam
+'MAM '	mam	-	Mam
+'MAN '	mns	-	Mansi
+'MAP '	arn	-	Mapudungun
+'MAR '	mar	-	Marathi
+'MAW '	mwr,dhd,rwr,mve,wry,mtr,swv	-	Marwari
+'MBN '	kmb	-	Mbundu
+'MBO '	mbo	-	Mbo
+'MCH '	mnc	-	Manchu
+'MCR '	crm	-	Moose Cree
+'MDE '	men	-	Mende
+'MDR '	mdr	-	Mandar
+'MEN '	mym	-	Me’en
+'MER '	mer	-	Meru
+'MEV '	mev	-	Mano
+'MFA '	mfa	-	Pattani Malay
+'MFE '	mfe	-	Morisyen
+'MIN '	min	-	Minangkabau
+'MIZ '	lus	-	Mizo
+'MKD '	mkd	-	Macedonian
+'MKR '	mak	-	Makasar
+'MKW '	mkw	-	Kituba
+'MLE '	mdy	-	Male
+'MLG '	mlg	-	Malagasy
+'MLN '	mlq	-	Malinke
+'MLR '	mal	-	Malayalam Reformed
+'MLY '	msa	-	Malay
+'MND '	mnk	-	Mandinka
+'MNG '	mon	-	Mongolian
+'MNI '	mni	-	Manipuri
+'MNK '	man,mnk,myq,mku,msc,emk,mwk,mlq	-	Maninka
+'MNX '	glv	-	Manx
+'MOH '	moh	-	Mohawk
+'MOK '	mdf	-	Moksha
+'MOL '	mol	-	Moldavian
+'MON '	mnw	-	Mon
+'MONT'	mnw	-	Thailand Mon
+'MOR '		-	Moroccan
+'MOS '	mos	-	Mossi
+'MRI '	mri	-	Maori
+'MTH '	mai	-	Maithili
+'MTS '	mlt	-	Maltese
+'MUN '	unr	-	Mundari
+'MUS '	mus	-	Muscogee
+'MWL '	mwl	-	Mirandese
+'MWW '	mww	-	Hmong Daw
+'MYN '	acr,agu,caa,cac,cak,chf,ckz,cob,ctu,emy,hus,itz,ixl,jac,kek,kjb,knj,lac,mam,mhc,mop,myn,poc,poh,quc,qum,quv,toj,ttc,tzh,tzj,tzo,usp,yua	-	Mayan
+'MZN '	mzn	-	Mazanderani
+'NAG '	nag	-	Naga-Assamese
+'NAH '	azd,azn,azz,nah,naz,nch,nci,ncj,ncl,ncx,ngu,nhc,nhe,nhg,nhi,nhk,nhm,nhn,nhp,nhq,nht,nhv,nhw,nhx,nhy,nhz,nlv,npl,nsu,nuz	-	Nahuatl
+'NAN '	gld	-	Nanai
+'NAP '	nap	-	Neapolitan
+'NAS '	nsk	-	Naskapi
+'NAU '	nau	-	Nauruan
+'NAV '	nav	-	Navajo
+'NCR '	csw	-	N-Cree
+'NDB '	nbl,nde	-	Ndebele
+'NDC '	ndc	-	Ndau
+'NDG '	ndo	-	Ndonga
+'NDS '	nds	-	Low Saxon
+'NEP '	nep	-	Nepali
+'NEW '	new	-	Newari
+'NGA '	nga	-	Ngbaka
+'NGR '		-	Nagari
+'NHC '	csw	-	Norway House Cree
+'NIS '	dap,njz,tgj	-	Nisi
+'NIU '	niu	-	Niuean
+'NKL '	nyn	-	Nyankole
+'NKO '	nqo	-	N’Ko
+'NLD '	nld	-	Dutch
+'NOE '	noe	-	Nimadi
+'NOG '	nog	-	Nogai
+'NOP '	nop	-	Numanggang
+'NOR '	nob	-	Norwegian
+'NOV '	nov	-	Novial
+'NSM '	sme	-	Northern Sami
+'NSO '	nso	-	Northern Sotho
+'NTA '	nod	-	Northern Tai
+'NTO '	epo	-	Esperanto
+'NUK '	nuk	-	Nuu-chah-nulth
+'NYM '	nym	-	Nyamwezi
+'NYN '	nno	-	Norwegian Nynorsk (Nynorsk, Norwegian)
+'NZA '	nza	-	Mbembe Tigon
+'OCI '	oci	-	Occitan
+'OCR '	ojs	-	Oji-Cree
+'OJB '	oji	-	Ojibway
+'ONE '	one	-	Oneida
+'ONO '	ono	-	Onondaga
+'ORI '	ori	-	Odia
+'ORO '	orm	-	Oromo
+'OSS '	oss	-	Ossetian
+'PAA '	sam	-	Palestinian Aramaic
+'PAG '	pag	-	Pangasinan
+'PAL '	pli	-	Pali
+'PAM '	pam	-	Pampangan
+'PAN '	pan	-	Punjabi
+'PAP '	plp	-	Palpa
+'PAP0'	pap	-	Papiamentu
+'PAS '	pus	-	Pashto
+'PAU '	pau	-	Palauan
+'PCC '	pcc	-	Bouyei
+'PCD '	pcd	-	Picard
+'PDC '	pdc	-	Pennsylvania German
+'PGR '	ell	-	Polytonic Greek
+'PHK '	phk	-	Phake
+'PIH '	pih	-	Norfolk
+'PIL '	fil	-	Filipino
+'PLG '	pce,rbb,pll	-	Palaung
+'PLG0'	plg	-	Pilagá
+'PLK '	pol	-	Polish
+'PMS '	pms	-	Piemontese
+'PNB '	pnb	-	Western Panjabi
+'POH '	poh	-	Pocomchi
+'PON '	pon	-	Pohnpeian
+'PRO '	pro	-	Provençal / Old Provençal
+'PTG '	por	-	Portuguese
+'PWO '	pwo	-	Western Pwo Karen
+'QIN '	bgr,biu,cek,cey,cfm,cbl,cka,ckn,clj,clt,cmr,cnb,cnh,cnk,cnw,csh,csj,csv,csy,ctd,cth,czt,dao,gnb,hlt,hmr,hra,lus,mrh,mwq,pck,pkh,pub,ral,rtc,sch,sez,shl,smt,tcp,tcz,vap,weu,zom,zyp	-	Chin
+'QUC '	quc	-	K’iche’
+'QUH '	quh	-	Quechua (Bolivia)
+'QUZ '	quz	-	Quechua
+'QVI '	qvi	-	Quechua (Ecuador)
+'QWH '	qwh	-	Quechua (Peru)
+'RAJ '	raj	-	Rajasthani
+'RAR '	rar	-	Rarotongan
+'RBU '	bxr	-	Russian Buriat
+'RCR '	atj	-	R-Cree
+'REJ '	rej	-	Rejang
+'RIA '	ria	-	Riang
+'RHG '	rhg	-	Rohingya
+'RIF '	rif	-	Tarifit
+'RIT '	rit	-	Ritarungo
+'RKW '	rkw	-	Arakwal
+'RMS '	roh	-	Romansh
+'RMY '	rmy	-	Vlax Romani
+'ROM '	ron	-	Romanian
+'ROY '	rom	-	Romany
+'RSY '	rue	-	Rusyn
+'RTM '	rtm	-	Rotuman
+'RUA '	kin	-	Kinyarwanda
+'RUN '	run	-	Rundi
+'RUP '	rup	-	Aromanian
+'RUS '	rus	-	Russian
+'SAD '	sck	-	Sadri
+'SAN '	san	-	Sanskrit
+'SAS '	sas	-	Sasak
+'SAT '	sat	-	Santali
+'SAY '	chp	-	Sayisi
+'SCN '	scn	-	Sicilian
+'SCO '	sco	-	Scots
+'SCS '	scs	-	North Slavey
+'SEE '	see	-	Seneca
+'SEK '	xan	-	Sekota
+'SEL '	sel	-	Selkup
+'SFM '	sfm	-	Small Flowery Miao
+'SGA '	mga,sga	-	Old Irish
+'SGO '	sag	-	Sango
+'SGS '	sgs	-	Samogitian
+'SHI '	shi	-	Tachelhit
+'SHN '	shn	-	Shan
+'SIB '	sjo	-	Sibe
+'SID '	sid	-	Sidamo
+'SIG '	xst,stv,wle	-	Silte Gurage
+'SJA '	sja	-	Epena
+'SJE '	sje	-	Pite Sami
+'SJU '	sju	-	Ume Sami
+'SKS '	sms	-	Skolt Sami
+'SKY '	slk	-	Slovak
+'SLA '	den,scs,xsl	-	Slavey
+'SLV '	slv	-	Slovenian
+'SML '	som	-	Somali
+'SMO '	smo	-	Samoan
+'SNA '	seh	-	Sena
+'SNA0'	sna	-	Shona
+'SND '	snd	-	Sindhi
+'SNH '	sin	-	Sinhala (Sinhalese)
+'SNK '	snk	-	Soninke
+'SOG '	gru	-	Sodo Gurage
+'SOP '	sop	-	Songe
+'SOT '	sot	-	Southern Sotho
+'SQI '	sqi	-	Albanian
+'SRB '	cnr,srp	-	Serbian
+'SRD '	srd	-	Sardinian
+'SRK '	skr	-	Saraiki
+'SRR '	srr	-	Serer
+'SSL '	xsl	-	South Slavey
+'SSM '	sma	-	Southern Sami
+'STR '	str	-	Straits Salish
+'STQ '	stq	-	Saterland Frisian
+'SUK '	suk	-	Sukuma
+'SUN '	sun	-	Sundanese
+'SUR '	suq	-	Suri
+'SVA '	sva	-	Svan
+'SVE '	swe	-	Swedish
+'SWA '	aii	-	Swadaya Aramaic
+'SWK '	swa	-	Swahili
+'SWZ '	ssw	-	Swati
+'SXT '	ngo,xnj,xnq	-	Sutu
+'SXU '	sxu	-	Upper Saxon
+'SYL '	syl	-	Sylheti
+'SYR '	aii,amw,cld,syc,syr,tru	-	Syriac
+'SYRE'	syc,syr	-	Syriac, Estrangela script-variant (equivalent to ISO 15924 'Syre')
+'SYRJ'	syc,syr	-	Syriac, Western script-variant (equivalent to ISO 15924 'Syrj')
+'SYRN'	syc,syr	-	Syriac, Eastern script-variant (equivalent to ISO 15924 'Syrn')
+'SZL '	szl	-	Silesian
+'TAB '	tab	-	Tabasaran
+'TAJ '	tgk	-	Tajiki
+'TAM '	tam	-	Tamil
+'TAQ '	taq	-	Tamasheq
+'TAT '	tat	-	Tatar
+'TBV '	tbv	-	Tobo
+'TCR '	cwd	-	TH-Cree
+'TDC '	tdc	-	Emberá-Tadó
+'TDD '	tdd	-	Dehong Dai
+'TEL '	tel	-	Telugu
+'TET '	tet	-	Tetum
+'TGL '	tgl	-	Tagalog
+'TGN '	ton	-	Tongan
+'TGR '	tig	-	Tigre
+'TGY '	tir	-	Tigrinya
+'THA '	tha	-	Thai
+'THT '	tah	-	Tahitian
+'THP '	thp	-	Thompson
+'THV '	thv	-	Tahaggart Tamahaq
+'THZ '	thz	-	Tayart Tamajeq
+'TIB '	bod	-	Tibetan
+'TIV '	tiv	-	Tiv
+'TJL '	tjl	-	Tai Laing
+'TKM '	tuk	-	Turkmen
+'TLI '	tli	-	Tlingit
+'TMH '	taq,thv,thz,tmh,ttq	-	Tamashek
+'TLY '	tly	-	Talysh
+'TMN '	tem	-	Temne
+'TNA '	tsn	-	Tswana
+'TNE '	enh	-	Tundra Enets
+'TNG '	toi	-	Tonga
+'TOD '	xal	-	Todo
+'TOD0'	tod	-	Toma
+'TPI '	tpi	-	Tok Pisin
+'TRK '	tur	-	Turkish
+'TSG '	tso	-	Tsonga
+'TSJ '	tsj	-	Tshangla
+'TTQ '	ttq	-	Tawallammat Tamajaq
+'TUA '	tru	-	Turoyo Aramaic
+'TUL '	tcy	-	Tulu
+'TUM '	tum	-	Tumbuka
+'TUS '	tus	-	Tuscarora
+'TUV '	tyv	-	Tuvin
+'TVL '	tvl	-	Tuvalu
+'TWI '	twi	-	Twi
+'TYZ '	tyz	-	Tày
+'TZM '	tzm	-	Tamazight
+'TZO '	tzo	-	Tzotzil
+'UDI '	udi	-	Udi
+'UDM '	udm	-	Udmurt
+'UKR '	ukr	-	Ukrainian
+'UMB '	umb	-	Umbundu
+'UPPH'		-	Uralic Phonetic Alphabet
+'URD '	urd	-	Urdu
+'USB '	hsb	-	Upper Sorbian
+'UYG '	uig	-	Uyghur
+'UZB '	uzb	-	Uzbek
+'VEC '	vec	-	Venetian
+'VEN '	ven	-	Venda
+'VIT '	vie	-	Vietnamese
+'VOL '	vol	-	Volapük
+'VRO '	vro	-	Võro
+'WA  '	wbm	-	Wa
+'WAG '	wbr	-	Wagdi
+'WAR '	war	-	Waray-Waray
+'WBL '	wbl	-	Wakhi
+'WCI '	wci	-	Waci Gbe
+'WCR '	crk	-	West-Cree
+'WDT '	wdt	-	Wendat
+'WEL '	cym	-	Welsh
+'WLF '	wol	-	Wolof
+'WLN '	wln	-	Walloon
+'WTM '	wtm	-	Mewati
+'WYN '	wyn	-	Wyandot
+'XBD '	khb	-	Lü
+'XHS '	xho	-	Xhosa
+'XJB '	xjb	-	Minjangbal
+'XKF '	xkf	-	Khengkha
+'XOG '	xog	-	Soga
+'XPE '	xpe	-	Kpelle (Liberia)
+'XUB '	xub	-	Bette Kuruma
+'XUJ '	xuj	-	Jennu Kuruma
+'YAK '	sah	-	Sakha
+'YAO '	yao	-	Yao
+'YAP '	yap	-	Yapese
+'YBA '	yor	-	Yoruba
+'YCR '	crj,crk,crl	-	Y-Cree
+'YGP '	ygp	-	Gepo
+'YIC '		-	Yi Classic
+'YIM '	iii	-	Yi Modern
+'YNA '	yna	-	Aluo
+'YUF '	yuf	-	Havasupai-Walapai-Yavapai
+'YWQ '	ywq	-	Wuding-Luquan Yi
+'ZEA '	zea	-	Zealandic
+'ZGH '	zgh	-	Standard Moroccan Tamazight
+'ZHA '	zha	-	Zhuang
+'ZHH '	zho	-	Chinese, Traditional, Hong Kong SAR
+'ZHP '	zho	-	Chinese, Phonetic
+'ZHS '	zho	-	Chinese, Simplified
+'ZHT '	zho	-	Chinese, Traditional
+'ZHTM'	zho	-	Chinese, Traditional, Macao SAR
+'ZND '	zne	-	Zande
+'ZUL '	zul	-	Zulu
+'ZZA '	zza	-	Zazaki

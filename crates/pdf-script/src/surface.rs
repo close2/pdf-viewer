@@ -270,7 +270,8 @@ pub const EXCLUDED: &[Excluded] = &[
 /// flags' writes (ADR 1615), and `global`, `event.commitKey`, `fieldFull` and `changeEx`,
 /// `this.dirty`, `info` and `getOCGs`, `util.printf`, the button captions, `app.alert` and
 /// `app.response` (ADRs 1626, 1627), one widget of a field (ADR 1664) and `Field.style` (ADR
-/// 1665), and a check box's `isBoxChecked` and `checkThisBox` (ADR 1689); each of these is the
+/// 1665), a check box's `isBoxChecked` and `checkThisBox` (ADR 1689), and `this.getAnnots` and
+/// `getAnnot` with the `Annotation` object (ADR 1700); each of these is the
 /// next thing a round adds, and until then a property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (
@@ -297,8 +298,6 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
         Holder::Doc,
         &[
             "calculate",
-            "getAnnot",
-            "getAnnots",
             "getPageLabel",
             "getPageBox",
             "getPageRotation",
@@ -313,19 +312,7 @@ pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
             "getPageNthWord",
         ],
     ),
-    (
-        Holder::App,
-        &[
-            "beep",
-            "setTimeOut",
-            "setInterval",
-            "clearTimeOut",
-            "clearInterval",
-            "activeDocs",
-            "goBack",
-            "goForward",
-        ],
-    ),
+    (Holder::App, &["activeDocs", "goBack", "goForward"]),
     (
         Holder::Util,
         &[

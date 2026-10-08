@@ -112,6 +112,7 @@ fn document() -> DocumentState {
             },
         ],
         layers: vec![layer(7, "Watermark", false), layer(8, "English", true)],
+        annotations: Vec::new(),
     }
 }
 

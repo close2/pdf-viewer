@@ -591,6 +591,21 @@ for entry in members:
     printf '__pycache__ under tools/ or crates/ %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) director(ies)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 
+    # The fuzz workspace against the batch's tree. `fuzz/Cargo.toml` is a workspace of its own, so no
+    # tier-1 line a round runs builds it, and a public type that moved under a target goes unseen: the
+    # `script` target stopped compiling for a whole batch that way (ADR 1694). A `cargo check` wants
+    # no nightly and no sanitiser; a cold one builds the targets' dependencies under the fuzz
+    # workspace's own lock file, so it is a large walk behind the lock, the line naming it `check`
+    # (ADR 1710). A tree with no fuzz manifest has no fuzz workspace to check.
+    local fuzz
+    if [ -f fuzz/Cargo.toml ]; then
+        fuzz=$("$wt/tools/bounded.sh" --lock --round check --tree 12 -- cargo check -q --manifest-path fuzz/Cargo.toml 2>&1) && found= || found=$fuzz
+        printf 'cargo check of the fuzz workspace %s\n' "$([ -z "$found" ] && echo clean || echo fails)"
+        [ -z "$found" ] || { printf '%s\n' "$found" | grep -E '^(error|warning)(\[|:)' | sort | uniq -c | head -20 | sed 's/^/    /'; bad=1; }
+    else
+        printf 'cargo check of the fuzz workspace %s\n' "none (no fuzz/Cargo.toml)"
+    fi
+
     # And the one tier-1 line that fails after a commit rather than before it.
     local fmt
     fmt=$(cargo fmt --all --check 2>&1) && found= || found=$fmt

@@ -47,9 +47,10 @@
 # pinned to `off` (ADR 1616); and in the three, a push-button a script paints red, drawn so at `on`
 # and not at `off` (ADR 1617).
 # A script's alert left unanswered under a four-second wait is withdrawn and its dialogue comes down,
-# and an open action's `this.pageNum = 2` shows the third page (ADR 1643); and in the three, a
-# note's popup draws its /RC's red run red and the same note with /Contents alone draws none (ADR
-# 1642).
+# and an open action's `this.pageNum = 2` shows the third page (ADR 1643); an interval and a
+# timeout an open action sets each turn a page on the window's own ticks, and `app.beep` is played
+# or refused by name (ADR 1702); and in the three, a note's popup draws its /RC's red run red and
+# the same note with /Contents alone draws none (ADR 1642).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -500,6 +501,26 @@ for name in ["Turn one", "Turn two", "Turn three"]:
     page(pdf, font, name)
 pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String('this.pageNum = 2;'))
 pdf.save(f"{out}/drive-goto.pdf")
+
+# drive-timer.pdf: three pages and an open action that sets an interval turning one page forward
+# every 300 ms until it clears itself on the third, and a timeout that turns back to the first at
+# 1.5 s — Adobe's `app.setInterval`, `clearInterval` and `setTimeOut`, which a window ticks for
+# (ADR 1702). An interval that never stopped would carry the window off the first page again.
+pdf = pikepdf.new()
+font = helv(pdf)
+for name in ["Timer one", "Timer two", "Timer three"]:
+    page(pdf, font, name)
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
+    'var t = app.setInterval("this.pageNum++; if (this.pageNum == 2) app.clearInterval(t);", 300);'
+    ' app.setTimeOut("this.pageNum = 0;", 1500);'))
+pdf.save(f"{out}/drive-timer.pdf")
+
+# drive-beep.pdf: an open action asking for the warning's sound, `app.beep(1)` (ADR 1702).
+pdf = pikepdf.new()
+font = helv(pdf)
+page(pdf, font, "Beep")
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String('app.beep(1);'))
+pdf.save(f"{out}/drive-beep.pdf")
 
 # drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
 # /RC colouring two words pure red and bold, and the same note with /Contents alone — the control,
@@ -2201,6 +2222,67 @@ script_goto() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# `app.setInterval`, `clearInterval` and `setTimeOut` in an open action, in all four windows (ADR
+# 1702): the interval turns to the third page and clears itself, and the timeout turns back to the
+# first a second later — so the window must reach page 3 and then rest on page 1, which it can only
+# do if it ticked for the timers and the interval stopped. The confined window is pinned to off, so
+# no timer is set and it stays on the first page throughout.
+script_timer() {
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 60-script-timer "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    launch "$FIXTURES/drive-timer.pdf" --scripts on
+    if [ "$WINDOW" = quorra-confined ]; then
+        sleep 2.5
+        expect_title 60-script-timer "page 1 of 3"
+    elif ! wait_for 10 title_has "page 3 of 3"; then
+        verdict 60-script-timer wrong "the interval never reached the third page: $(title); $LOG"
+    elif ! wait_for 10 title_has "page 1 of 3"; then
+        verdict 60-script-timer wrong "the timeout never turned back to the first page: $(title)"
+    else
+        sleep 1
+        local seen
+        seen=$(title)
+        if [[ "$seen" == *"page 1 of 3"* ]]; then
+            verdict 60-script-timer works "page 3 by the interval, page 1 by the timeout, and still: $seen"
+        else
+            verdict 60-script-timer wrong "the interval did not stop: $seen"
+        fi
+    fi
+    shot 60-script-timer
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
+# `app.beep(1)` in an open action, in all four windows (ADR 1702): GTK and Qt play their system
+# sound and say which of the reference's five was asked for; `quorra`'s toolkit has none, so it says
+# none was played — never silence; the confined window runs no script, so it says nothing at all.
+script_beep() {
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict 61-script-beep "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    local wanted
+    case "$WINDOW" in
+        quorra-gtk) wanted='asked for the warning sound; GDK played its system sound' ;;
+        quorra-qt) wanted='asked for the warning sound; Qt played its system sound' ;;
+        quorra) wanted='asked for the warning sound, and none was played: this window.s toolkit, winit' ;;
+        *) wanted='' ;;
+    esac
+    launch "$FIXTURES/drive-beep.pdf" --scripts on
+    if [ -z "$wanted" ]; then
+        sleep 1.5
+        if [ "$(said 'warning sound')" -eq 0 ]; then
+            verdict 61-script-beep works "pinned to off: no script ran and no sound was asked for"
+        else
+            verdict 61-script-beep wrong "a sound was asked for under off: $LOG"
+        fi
+    elif wait_for 10 said_since 0 "$wanted"; then
+        verdict 61-script-beep works "$(grep -m1 -o 'a script in .* (ADR 1702)' "$LOG")"
+    else
+        verdict 61-script-beep wrong "no line for the sound: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # Table 172's /RC drawn formatted in the popup window, in the three windows that draw one (ADR
 # 1642): pure red pixels on the photograph where the note colours two words, and none where the same
 # note states /Contents alone — the control that says the red is the run's.
@@ -2459,6 +2541,8 @@ for WINDOW in "${WINDOWS[@]}"; do
         script_asks
         script_withdrawn
         script_goto
+        script_timer
+        script_beep
         located
         located_displayed
         continue
@@ -2473,6 +2557,8 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_asks
     script_withdrawn
     script_goto
+    script_timer
+    script_beep
     popup_rich
     popup_face
     popup_rtl

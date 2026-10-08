@@ -197,6 +197,9 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   convention, and no clause states one.
 - **`quorra-gtk` places no window**: GTK 4 gives a program no way to set its own position, so
   §12.2's `/CenterWindow` is said when the document opens rather than obeyed (ADR 1429).
+- **`quorra` plays no sound for a script's `app.beep`**: winit has no system sound, so the window
+  prints which of the reference's five was asked for and that none was played; GTK and Qt play
+  their one sound for all five (ADR 1702).
 
 ## Two places the API forces a host into an awkward shape
 

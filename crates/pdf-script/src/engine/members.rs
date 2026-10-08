@@ -1,8 +1,8 @@
 //! The members the census found refused and RFC 0008 section 4.2 admits, carried (ADRs 1626,
 //! 1627): `global`, `this.dirty`, `this.info`, `this.getOCGs` and the `OCG` object, `util.printf`,
 //! a button's `buttonGetCaption` and `buttonSetCaption`, a check box's `isBoxChecked` and
-//! `checkThisBox` (ADR 1689), and the two calls that need a host,
-//! `app.alert` and `app.response`. `event.commitKey`, `fieldFull` and `changeEx` are the event's own
+//! `checkThisBox` (ADR 1689), the three kinds of call that need a host — `app.alert` and
+//! `app.response`, the four timer methods, and `app.beep` (ADR 1702). `event.commitKey`, `fieldFull` and `changeEx` are the event's own
 //! and are installed with it (`bridge::begin`).
 //!
 //! Each member's meaning is Adobe's *JavaScript for Acrobat API Reference* — "Doc properties",
@@ -15,9 +15,12 @@ use std::time::Instant;
 
 use boa_engine::object::builtins::{JsArray, JsRegExp};
 use boa_engine::object::{IntegrityLevel, ObjectInitializer};
-use boa_engine::{Context, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction};
+use boa_engine::property::PropertyDescriptor;
+use boa_engine::{
+    Context, JsNativeError, JsObject, JsResult, JsString, JsSymbol, JsValue, NativeFunction,
+};
 use pdf_model::aform::printf::{Argument, printf};
-use pdf_model::view::{Face, FieldState, FieldType, Layer, Property, ScriptEdit};
+use pdf_model::view::{Face, FieldState, FieldType, Layer, Property, ScriptEdit, Sound};
 
 use super::bridge::{
     accessor, data, field_name, function, integral, refusers, terminals, text_argument, widget_of,
@@ -60,7 +63,7 @@ pub(super) fn document(global: &JsObject, context: &mut Context) -> JsResult<()>
     Ok(())
 }
 
-/// Installs `app.alert` and `app.response`.
+/// Installs `app.alert` and `app.response`, the four timer methods and `app.beep` (ADR 1702).
 ///
 /// # Errors
 ///
@@ -70,7 +73,140 @@ pub(super) fn app(app: &JsObject, context: &mut Context) -> JsResult<()> {
     data(app, "alert", JsValue::from(alert), false, context)?;
     let response = function(context, "response", NativeFunction::from_fn_ptr(response));
     data(app, "response", JsValue::from(response), false, context)?;
+    let methods: [(&str, NativeFunction); 5] = [
+        ("setInterval", NativeFunction::from_fn_ptr(set_interval)),
+        ("setTimeOut", NativeFunction::from_fn_ptr(set_time_out)),
+        ("clearInterval", NativeFunction::from_fn_ptr(clear_timer)),
+        ("clearTimeOut", NativeFunction::from_fn_ptr(clear_timer)),
+        ("beep", NativeFunction::from_fn_ptr(beep)),
+    ];
+    for (name, native) in methods {
+        let method = function(context, name, native);
+        data(app, name, JsValue::from(method), false, context)?;
+    }
     Ok(())
+}
+
+/// `app.setInterval(cExpr, nMilliseconds)`: an interval object, its expression run every period.
+fn set_interval(
+    _this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    set_timer(arguments, true, context)
+}
+
+/// `app.setTimeOut(cExpr, nMilliseconds)`: a timeout object, its expression run once.
+fn set_time_out(
+    _this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    set_timer(arguments, false, context)
+}
+
+/// The timer both methods set: recorded as [`ScriptEdit::Timer`] for the view state, which counts
+/// it down on the host's ticks and runs the expression as a script of its own (ADR 1702).
+///
+/// Adobe's "app methods" page gives `cExpr` as the script and `nMilliseconds` as the period, and
+/// answers an object that the matching `clear` method stops. Each of the rest is a documented
+/// choice: the expression is the argument's `ToString`, the period its `ToNumber` truncated toward
+/// zero and held to a `u32` (the view state raises it to its floor), and the object is an ordinary
+/// one a script may add its own properties to — the reference's own example keeps a count on it —
+/// carrying its number under a symbol no script can name.
+fn set_timer(arguments: &[JsValue], repeat: bool, context: &mut Context) -> JsResult<JsValue> {
+    let values = named(arguments, &["cExpr", "nMilliseconds"], context)?;
+    let value = |index: usize| values.get(index).cloned().unwrap_or_default();
+    let script = value(0).to_string(context)?.to_std_string_lossy();
+    let asked = value(1).to_number(context)?;
+    let period = if asked.is_finite() {
+        u32::try_from(integral(asked).clamp(0, i64::from(u32::MAX))).unwrap_or(u32::MAX)
+    } else {
+        0
+    };
+    let held = State::table(context, |table| table.timer_key.clone()).flatten();
+    let key = if let Some(key) = held {
+        key
+    } else {
+        let key = JsSymbol::new(Some(JsString::from("timer"))).ok_or_else(|| {
+            JsNativeError::range().with_message("the engine has no symbol left to name a timer by")
+        })?;
+        State::table(context, |table| table.timer_key = Some(key.clone()));
+        key
+    };
+    let id = State::table(context, |table| {
+        let id = table.next_timer;
+        table.next_timer = id.wrapping_add(1);
+        id
+    })
+    .ok_or_else(|| JsNativeError::error().with_message("the realm holds no document"))?;
+    let object = ObjectInitializer::new(context).build();
+    object.define_property_or_throw(
+        key,
+        PropertyDescriptor::builder()
+            .value(JsValue::from(id))
+            .writable(false)
+            .enumerable(false)
+            .configurable(false),
+        context,
+    )?;
+    State::with(context, |record| {
+        if record.edits.len() < super::MAX_EDITS {
+            record.edits.push(ScriptEdit::Timer {
+                id,
+                script,
+                period,
+                repeat,
+            });
+        }
+    });
+    Ok(JsValue::from(object))
+}
+
+/// `app.clearInterval(oInterval)` and `app.clearTimeOut(oTime)`: the timer the object names stops,
+/// recorded as [`ScriptEdit::ClearTimer`] (ADR 1702).
+///
+/// The reference's own example guards the call with `try`, because a stop pressed before the start
+/// passes `undefined`; so a value that is no timer object throws a `TypeError`, and one of either
+/// kind stops through either method — the reference names the two apart and states no difference
+/// in what they do.
+fn clear_timer(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let key = State::table(context, |table| table.timer_key.clone()).flatten();
+    let held = arguments.first().and_then(JsValue::as_object);
+    let id = match (key, held) {
+        (Some(key), Some(object)) => object.get(key, context)?.as_number(),
+        _ => None,
+    };
+    let Some(id) = id else {
+        return Err(JsNativeError::typ()
+            .with_message("the argument is not an interval or timeout object app.setInterval or app.setTimeOut answered")
+            .into());
+    };
+    let id = u32::try_from(integral(id)).unwrap_or(u32::MAX);
+    State::with(context, |record| {
+        if record.edits.len() < super::MAX_EDITS {
+            record.edits.push(ScriptEdit::ClearTimer { id });
+        }
+    });
+    Ok(JsValue::undefined())
+}
+
+/// `app.beep(nType)`: one of the reference's five sounds, recorded as [`ScriptEdit::Beep`] for the
+/// host to play or to say it cannot (ADR 1702). A number that names none is the default, as an
+/// absent one is.
+fn beep(_this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    let values = named(arguments, &["nType"], context)?;
+    let sound = numbered(
+        &values.first().cloned().unwrap_or_default(),
+        &Sound::ALL,
+        context,
+    )?;
+    State::with(context, |record| {
+        if record.edits.len() < super::MAX_EDITS {
+            record.edits.push(ScriptEdit::Beep { sound });
+        }
+    });
+    Ok(JsValue::undefined())
 }
 
 /// Installs `util.printf`.
@@ -726,7 +862,11 @@ fn widget_argument(arguments: &[JsValue], member: &str, context: &mut Context) -
 /// The arguments of a call the reference lets a script pass positionally or as one object of
 /// named properties: the object's properties where the first argument is an object, the
 /// positions otherwise.
-fn named(arguments: &[JsValue], names: &[&str], context: &mut Context) -> JsResult<Vec<JsValue>> {
+pub(super) fn named(
+    arguments: &[JsValue],
+    names: &[&str],
+    context: &mut Context,
+) -> JsResult<Vec<JsValue>> {
     let first = arguments.first().and_then(JsValue::as_object);
     match first {
         Some(object) if !object.is_callable() && arguments.len() == 1 => names

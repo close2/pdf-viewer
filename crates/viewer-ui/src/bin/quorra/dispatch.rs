@@ -525,6 +525,16 @@ answers in two places"
             // The question's wait ran out and the runner answered it as a closed dialogue does, so
             // the card it is on comes down and a key pressed at it afterwards answers nothing (ADR
             // 1643).
+            // `app.beep`: winit has no sound, so the window says which was asked for and that none
+            // was played — never silence (ADR 1702).
+            Event::Beep { document, sound } => println!(
+                "note: {}",
+                viewer_host::script_timers::unplayed(
+                    &self.documents.label_of(document),
+                    sound,
+                    "this window's toolkit, winit, has no system sound to play"
+                )
+            ),
             Event::ScriptQuestionWithdrawn { document } => {
                 if matches!(
                     &self.asked,
