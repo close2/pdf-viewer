@@ -473,3 +473,10 @@ modules built since the last re-read were named nowhere in them — an unnamed m
 pointer (round 1462, ADR 1760). A re-read compares each crate-map row's named modules with `ls src`
 and with `git diff --diff-filter=A <last re-read's commit> HEAD --name-only` before it reads a sentence,
 so an omission is found by the file that exists rather than by the sentence that does not.
+
+## A claim counted by a verb phrase is counted with word boundaries
+
+A ledger audit that counts rows by `(is|are) (read|applied|executed)` without `\b` round the phrase
+counts `this read` and `his read` as claims: the text rows' audit printed 70 claims without the
+boundaries and 61 with them (round 1468, ADR 1772). Put `\b` round the phrase before the count is
+written into a brief, and write the pattern beside the figure so the next round re-derives the same one.

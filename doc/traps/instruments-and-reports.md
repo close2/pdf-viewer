@@ -1295,6 +1295,17 @@ shape, not the data: a flat array of plain numbers and an index of code, start a
 lookup time, needs no relocation. `open_kinstructions` is the gate that sees this and no clock does;
 when a compiled-in table arrives, the counted launch gate is run before the clocks.
 
+### 135. Seeding a member is not reaching it
+
+Round 1463 bridged the tail of Tier 1 — `event.shift`, `modifier`, `keyDown`, `richValue`,
+`richChange`, the word pair — and the brief asked round 1471 to seed the `script` target so the
+campaign would reach them. No seed could: the target's realm told every script that every key was up,
+carried no rich value and had pages without words, so the members' answers were constants whatever
+the seed spelled, and libFuzzer had no edge to find (ADR 1776). The input now carries an optional
+fourth part — the keys and a rich value — and the realm's pages have words. Before a member is called
+covered, check that the target lets the input the member reads *vary*, and confirm it the way trap 13
+confirms a test: take the input away and watch the edge count fall.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

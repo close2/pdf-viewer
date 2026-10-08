@@ -5278,8 +5278,8 @@ impl Viewer {
     }
 
     /// Every timer a document's script set counted down by a tick's milliseconds, and each one now
-    /// due run at the page its document shows; a page whose ink a run changed is drawn again (ADR
-    /// 1702).
+    /// due run at the page its document shows; a page is drawn again only where a run can have
+    /// changed what it draws, as at the other sites (ADRs 1702, 1771).
     ///
     /// Every document's, not only the focused one's: a timer ends with its document and nothing
     /// else, and the page turn or focus a timer's script asks for waits in its view state until
@@ -5287,7 +5287,7 @@ impl Viewer {
     fn run_timers(&mut self, millis: u32) {
         for open in self.documents.values_mut() {
             let page = open.page_index;
-            if open.view.run_timers(&open.document, millis, page) > 0 {
+            if open.view.run_timers(&open.document, millis, page).changed {
                 open.stale();
             }
         }

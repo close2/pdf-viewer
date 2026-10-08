@@ -1051,7 +1051,7 @@ file and in no other document, which is exactly the failure they are about**:
   file — `tools/state.sh --round <session> fixed`, spelled out:
 
   ```sh
-  ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \
+  ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 6 \
       --build '--profile gates -p pdf-sandbox --bins' -- \
       cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
   ```

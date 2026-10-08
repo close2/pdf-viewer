@@ -847,3 +847,11 @@ lane is free, so the batch's short walks keep a lane of their own.
 `[ "$(tail -1 README)" = done ]` never matched it and round 1466 waited about 480 s after the export
 had finished. A wait on a status file reads `grep -q '^done'` or the file's own stated prefix, and it
 is bounded, so a line whose tail changes shape does not hold a round for the shape it remembered.
+
+## 81. A walk queued for either lane is queued early, and its wait is reported
+
+A request that may take either lane is granted the first lane to free, not its place in a queue:
+round 1470's `--tree 12` walk asked at 23:01 and was granted at about 00:13, while a `raster_golden`
+asked at 23:56 took a lane first. A round that needs a gate's result in order asks for it as early as
+its edits allow, and its record says how long the grant took, so the lock's cost is counted where it
+fell rather than inferred from the round's wall.

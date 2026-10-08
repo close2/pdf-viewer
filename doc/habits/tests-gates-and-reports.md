@@ -576,3 +576,18 @@ as it found it; round 1463 kept its counting patch under `scratchpad/r1463/censu
 applied it with `git apply` and reversed it with `git apply -R`, so the reversal was exact and
 `git diff` on the example read empty (ADR 1762). An edit made by hand and undone by hand is how a
 counting line stays in a tree (trap 127's "before" build is the same shape).
+
+## A test that needs work in progress holds it open at something it owns, never at a timed wait
+
+The interrupt test asserted a ten-thousand-fill draw was still unfinished after a wait that had been
+cut from seconds to 200 ms as the machine and the rasteriser got faster; the draw finished in 0.4 s
+in release, a 2× margin a faster machine would close (round 1473, ADR 1780). The draw now holds at a
+mark the test owns and waits on a gate, so the interrupt has something to interrupt on any machine. A
+wait chosen against a measured duration decays with the code under it; a hold the test owns does not.
+
+## A forced step is read against the windows the whole drive runs it in
+
+`tools/drive-windows.sh --step` runs the named steps in every window, including `quorra-confined`,
+which draws no popup; the whole drive never offers the note steps there, so a `--step` run of them
+reports two `wrong` that the full drive would report as `not offered` (round 1469). Before a forced
+step's `wrong` is called a defect, check which windows the whole drive runs that step in.

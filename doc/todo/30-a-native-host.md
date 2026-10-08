@@ -154,17 +154,19 @@ These are the places where a native host's shape differs from the tier-2 host's,
   (ADRs 1655, 1667, 1726). A text note is retyped in its window in all three — a text view placed
   over it in the toolkits, a caret a press places and the arrows move in `quorra`, a note drawn
   from `/RC` included, at the glyph its runs drew (ADRs 1739, 1770); the toolkits' editor starts
-  at the character the press was on, read from Pango's layout in GTK for both kinds of note and
-  from the rich note's `QTextDocument` in Qt, whose plain note's `QLabel` answers no point and
-  starts at the end — and a reply stating no popup is a comment in its note's window
+  at the character the press was on, read from Pango's layout in GTK and from the note's
+  `QTextDocument` in Qt, for both kinds of note, and sets each rich run's face over its characters
+  while it is typed into, plain where the window would be, saying what of the paragraphs it does
+  not draw (ADR 1782) — and a reply stating no popup is a comment in its note's window
   (ADRs 1726, 1727). §12.3.5's collection is shown in all three. A signature's published policy is
   fetched in all three under the submissions level and a bound copy opened beside, declined in
   `quorra-confined`; a C caller fetches the copy and `quorra_event_policy_bind` binds it (ADRs
   1738, 1753). A widget's and a page's `/AA` scripts are raised in all three, a press on a
   toolkit's own control included (ADR 1752); a script that changes nothing drawn leaves the page
-  interpreted, a script reads each window's Shift and Control, and its console requests are said
-  by name, every window's console being its log — no window reports an arrow key's choice
-  selection, so `event.keyDown` reads false (ADR 1771).
+  interpreted, a timer's included, a script reads each window's Shift and Control, and its console
+  requests are said by name, every window's console being its log (ADR 1771). `event.keyDown`
+  reads false: no window reports an arrow key's choice selection, `quorra`'s list takes no arrow
+  at all, and a choice selection raises no Table 199 `/K` in the view state to read it at.
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font

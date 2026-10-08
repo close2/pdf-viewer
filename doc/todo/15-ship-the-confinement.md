@@ -1,22 +1,15 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
-Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
-its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
-host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657), the boundary has
-its first host (ADR 0713), that host draws on the graphics device (ADR 0725), the owner's
-warn-and-abort has reached the three established windows (ADR 0729), a breach is a refusal
-of the page rather than of the document (ADR 0734) — and the reader's own view survives that
-refusal (ADR 0737)**:
-`quorra-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
-arms, presented through `render-raster` — which is what the marks cross the pipe *for* — with
-Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
-device. The
-machinery exists and is verified
-against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
-frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
-confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
-what the choice was for. The tier change is complete. What it left behind was one *host-side* debt
-whose mechanism, policy and input are now all built, in all four windows.
+Status: **open, and one thing is left: moving the three established windows onto the boundary.**
+The confinement ships in one window. `quorra-confined` takes every page from `pdf-view-worker` on
+both payload arms — a frame carries a page's pixels or its marks, and the worker never draws marks
+it sends — and presents them through the device. Escape there ends the worker and takes the
+drawing thread back by `pdf_render::Interrupt`, without blocking (the key is the abort in all four
+windows, ADR 0729); and a breach is answered by refusing the page and restoring the reader's view in a
+new worker. `quorra`, `viewer-gtk` and `viewer-qt` still interpret in process, so
+the counting bounds this road would relax still stand, and the confined window's bring-up and
+present cadence on the real adapter wait for the owner's session. ADR 0633 is the tier change, 0650
+and 0657 the stoppable draw, 0713 and 0725 the window, 0734 and 0737 the refusal.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size

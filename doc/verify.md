@@ -1035,7 +1035,10 @@ cd fuzz && cargo +nightly fuzz run script       -- -max_total_time=1200 -rss_lim
   # (ADRs 1626, 1627). Bracket nesting past 256 is not run; the realm's own bounds stop a script
   # below that. Seeded by `fuzz/seed_script.py` with every site, each member carried and refused,
   # every budget at its number and one past it, chains deep without brackets, and a script at the
-  # `-max_len` above. **A run's escape is the time its thread spent on a processor**, not the wall
+  # `-max_len` above. An input's fourth part, after a third NUL, is the keys a host tells the view
+  # state and a rich text field's `/RV`, and the realm's first page has words and its second none,
+  # so ADR 1762's members — the keys, the rich pair, the word pair — are reached (ADR 1776).
+  # **A run's escape is the time its thread spent on a processor**, not the wall
   # clock's: at nice 19 under siblings' builds a seed at the element budget waited past the bound and
   # stopped `seeds.sh check script` as "not judged" (ADR 1717). **An out-of-memory stop is read for
   # its script before it is believed**: the target runs the engine in this process, and growth
@@ -1105,7 +1108,7 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # and a worktree's linked `fuzz/corpus` is read rather than grown (ADR 1423):
 #   tools/bounded.sh --lock --round <session> --tree 6 -- \
 #     bash -c 'cd fuzz && cargo +nightly fuzz build -O -s none'
-#   RAYON_NUM_THREADS=4 tools/bounded.sh --lock --long --round <session> --data 4 --tree 4 -- \
+#   tools/bounded.sh --lock --long --round <session> --data 4 --tree 4 -- \
 #     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
 #     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-
 # A target whose own line above states a larger ceiling runs under that one — `page`'s 4096 MB,
@@ -1120,7 +1123,9 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # holds the second lane and never the first, so a second campaign queues behind the first and every
 # sibling's walk keeps the first lane, and a clock run waiting behind it stops no walk (ADR 1756).
 # Several targets fit one `--long` hold side by side under its 6 GiB, which is how a fuzz round runs
-# more than one at once.
+# more than one at once: `script`, `script_wire` and `jpeg_bands` at `-rss_limit_mb=1024` beside
+# `page` at 3072 peaked at 2.15 GiB over 3 340 s, and a fork parent's load counts against its
+# `-max_total_time` — `jpeg_bands`' was 1 116 s of it (ADR 1776).
 # `tools/state.sh fuzz` prints what the disk holds of every target: its seeds, and the crashes,
 # timeouts and memory refusals sitting in `fuzz/artifacts/`.
 ```

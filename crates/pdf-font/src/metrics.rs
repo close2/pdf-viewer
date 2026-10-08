@@ -491,11 +491,19 @@ fn resolved<'a>(document: &Document, item: &'a Object) -> Cow<'a, Object> {
 /// `mask` is the bit's value, `1 << (position − 1)`; the callers name theirs by Table 121's
 /// position.
 pub(crate) fn flag(document: &Document, descriptor: &Dictionary, mask: u32) -> bool {
+    descriptor_flags(document, descriptor) & mask != 0
+}
+
+/// The descriptor's `/Flags` word, every bit clear where the entry is absent or is not the
+/// unsigned 32-bit integer ISO 32000-2 §9.8.2 requires — [`flag`]'s reading, for a reader outside
+/// this crate that tests the bits itself.
+#[must_use]
+pub fn descriptor_flags(document: &Document, descriptor: &Dictionary) -> u32 {
     document
         .get_key(descriptor, "Flags")
         .as_integer()
         .and_then(|flags| u32::try_from(flags).ok())
-        .is_some_and(|flags| flags & mask != 0)
+        .unwrap_or(0)
 }
 
 pub(crate) fn missing_width(document: &Document, descriptor: Option<&Dictionary>) -> f32 {

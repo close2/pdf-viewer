@@ -8,15 +8,20 @@
 //! reads about.
 //!
 //! The input is a selector byte and three texts separated by NUL bytes — the script, the event's
-//! value and the keystroke's change — read lossily so that every input is one. The selector's low
-//! four bits choose the site (the four field triggers, two of an annotation's, a page's open and
+//! value and the keystroke's change — read lossily so that every input is one, and after a third
+//! NUL, where an input has one, the keys a host tells the view state (the byte's low three bits:
+//! shift, the modifier, an arrow-key selection) and a rich text field's `/RV`, so that
+//! `event.shift`, `modifier`, `keyDown`, `richValue` and `richChange` are reached (ADR 1762); an
+//! input without it is every key up and a field that is not rich text, as before. The selector's
+//! low four bits choose the site (the four field triggers, two of an annotation's, a page's open and
 //! close, the open action, the document's library, and Table 200's five), bit 4 the unsaved mark,
 //! bit 5 a commit by Enter with a full field, bit 6 whether a question is answered — a button or
 //! the change as typed text — or answered by nobody, and the top bit `willCommit`. The realm is
 //! told of five fields and of the document as a whole — an information dictionary and two groups,
 //! one locked — so `this.getField`, a field's properties, `this.info` and `this.getOCGs` are
-//! reached (ADRs 1626, 1627). A fresh realm is built for every input, so that a crash is the
-//! input's alone.
+//! reached (ADRs 1626, 1627); its first page's words were read and its second's were not, so
+//! the word pair reaches both its answer and its refusal (ADR 1762). A fresh realm is built for
+//! every input, so that a crash is the input's alone.
 //!
 //! Beyond never panicking — overflow checks stay on in this profile — three properties:
 //!
@@ -46,6 +51,7 @@
     reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message names the property"
 )]
 
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
@@ -55,7 +61,7 @@ use std::rc::Rc;
 
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, FieldState,
-    FieldType, InfoEntry, Layer, PageState, ScriptEvent, ScriptSite, WidgetState,
+    FieldType, InfoEntry, Keys, Layer, PageState, ScriptEvent, ScriptSite, WidgetState,
 };
 use pdf_script::{Answer, Asker, Budget, Button, Ending, Nobody, Question, Realm, Request, wire};
 
@@ -125,7 +131,13 @@ fn document() -> DocumentState {
                 label: Some("i".to_owned()),
                 boxes: [[0.0, 0.0, 612.0, 792.0]; 5],
                 rotate: 90,
-                words: None,
+                // Words as the readback cuts them, `bStrip`'s punctuation at either end of two.
+                words: Some(vec![
+                    "Total:".to_owned(),
+                    "(12.50)".to_owned(),
+                    "über".to_owned(),
+                    String::new(),
+                ]),
             },
             PageState {
                 label: None,
@@ -137,7 +149,7 @@ fn document() -> DocumentState {
                 label: Some("A-1".to_owned()),
                 boxes: [[-10.0, 5.0, 300.0, 400.0]; 5],
                 rotate: 270,
-                words: None,
+                words: Some(Vec::new()),
             },
         ],
     }
@@ -210,18 +222,35 @@ fn nesting(script: &str) -> usize {
     deepest
 }
 
+/// The input's fourth part, read as the module's first section says: every key up and no rich
+/// value where the input has none.
+fn keys_and_rich_value(part: Option<&[u8]>) -> (Keys, Cow<'_, str>) {
+    match part.and_then(<[u8]>::split_first) {
+        Some((&keys, rich)) => (
+            Keys {
+                shift: keys & 0x01 != 0,
+                modifier: keys & 0x02 != 0,
+                arrows: keys & 0x04 != 0,
+            },
+            String::from_utf8_lossy(rich),
+        ),
+        None => (Keys::default(), Cow::Borrowed("")),
+    }
+}
+
 /// Runs one input and checks the three properties.
 fn run(data: &[u8]) {
     let Some((&selector, rest)) = data.split_first() else {
         return;
     };
-    let mut parts = rest.splitn(3, |&byte| byte == 0);
+    let mut parts = rest.splitn(4, |&byte| byte == 0);
     let script = String::from_utf8_lossy(parts.next().unwrap_or_default());
     if nesting(&script) > NESTING {
         return;
     }
     let value = String::from_utf8_lossy(parts.next().unwrap_or_default());
     let change = String::from_utf8_lossy(parts.next().unwrap_or_default());
+    let (keys, rich_value) = keys_and_rich_value(parts.next());
     let fields = [
         field("Total", FieldType::Text, "12.50"),
         field("Amount", FieldType::Text, &value),
@@ -256,8 +285,8 @@ fn run(data: &[u8]) {
             zoom: Some(100.0),
             ..pdf_model::view::WindowView::default()
         },
-        keys: pdf_model::view::Keys::default(),
-        rich_value: "",
+        keys,
+        rich_value: &rich_value,
     };
     let request = Request::of(&event, 1_704_465_015_000, 0);
 

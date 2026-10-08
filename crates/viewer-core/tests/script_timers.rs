@@ -176,6 +176,85 @@ fn a_scripts_sound_is_an_event_after_the_command_that_asked() {
     );
 }
 
+/// A runner whose open action sets one timeout, and whose timeout's run either only asks for a
+/// sound or asks for `/CO` to be walked, which can write what a page draws.
+#[derive(Debug)]
+struct Ticking {
+    draws: bool,
+}
+
+impl ScriptRunner for Ticking {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        let edits = match event.site {
+            ScriptSite::OpenAction => vec![ScriptEdit::Timer {
+                id: 0,
+                script: "tick()".to_owned(),
+                period: 500,
+                repeat: false,
+            }],
+            ScriptSite::Timer if self.draws => vec![ScriptEdit::Calculate],
+            ScriptSite::Timer => vec![ScriptEdit::Beep {
+                sound: Sound::Default,
+            }],
+            _ => Vec::new(),
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Tickers(bool);
+
+impl ScriptRunners for Tickers {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(Ticking { draws: self.0 })
+    }
+}
+
+/// The ink of every render a command's events asked for.
+fn inks(events: &[Event]) -> Vec<u64> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.ink),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A timer whose script changes nothing a page draws leaves the page as it was interpreted: the
+/// tick it runs at asks for no render, where the same tick under a script that asks for `/CO`'s
+/// walk asks for one of new ink (ADRs 1762, 1771).
+#[test]
+fn a_timer_that_changes_nothing_drawn_does_not_interpret_the_page_again() {
+    for draws in [false, true] {
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Scripts(Scripting::Run(Arc::new(Tickers(draws)))))
+            .for_each(drop);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: three_pages().into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        viewer.handle(Command::Presented).for_each(drop);
+        assert_eq!(due(&viewer), Some(500), "the open action set the timeout");
+        let ran: Vec<Event> = viewer.handle(Command::Tick { millis: 500 }).collect();
+        assert_eq!(due(&viewer), None, "the timeout ran");
+        let expected = usize::from(draws);
+        assert_eq!(inks(&ran).len(), expected, "draws {draws}: {ran:?}");
+    }
+}
+
 /// With no runner nothing runs, so nothing is owed: a window asks and is told to arm nothing.
 #[test]
 fn a_document_with_no_runner_owes_no_tick() {

@@ -45,6 +45,7 @@
 #include <QResizeEvent>
 #include <QScreen>
 #include <QSizePolicy>
+#include <QSyntaxHighlighter>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSplitter>
@@ -769,23 +770,18 @@ PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent, std::function<v
     // that shall be displayed in the popup window when the annotation is opened" — as the rich
     // text `viewer_host::popup::html` wrote: every character escaped and every element its own,
     // so `Qt::RichText` shows the note's formatting and nothing of the document's as markup.
+    //
+    // Both are a document rather than a label, so that a press finds the character it is on and
+    // the editor that replaces the window starts there (ADRs 1770, 1782).
     if (!window.rich.empty()) {
         // Built format by format rather than handed over as markup, so that chapter 27's font
         // scales and a paragraph's tab stops are set (ADR 1666).
-        auto* note = new RichNoteView(window.rich, font(), this);
-        note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-        column->addWidget(note, 1);
-        rich_ = note;
+        note_ = new NoteView(window.rich, font(), this);
     } else {
-        auto* note = new QLabel(text(window.text), this);
-        note->setTextFormat(Qt::PlainText);
-        note->setTextInteractionFlags(Qt::NoTextInteraction);
-        note->setWordWrap(true);
-        note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-        note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
-        note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-        column->addWidget(note, 1);
+        note_ = new NoteView(text(window.text), font(), this);
     }
+    note_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    column->addWidget(note_, 1);
     // What the window did not draw of the rich note, said rather than dropped (ADR 1642).
     if (!window.not_drawn.empty()) {
         auto* said = new QLabel(text(window.not_drawn), this);
@@ -819,12 +815,11 @@ void PopupWindow::mousePressEvent(QMouseEvent* event)
 {
     if (pressed_) {
         event->accept();
-        // Where the press was in the rich note's document, read now from the document's own
-        // layout: the window is gone by the time the editor is built (ADR 1770). A plain window's
-        // `QLabel` answers no point for a character, so its editor starts at the text's end.
+        // Where the press was in the note's document, read now from the document's own layout:
+        // the window is gone by the time the editor is built (ADRs 1770, 1782).
         int position = -1;
-        if (rich_ != nullptr) {
-            position = rich_->positionAt(rich_->mapFrom(this, event->position().toPoint()));
+        if (note_ != nullptr) {
+            position = note_->positionAt(note_->mapFrom(this, event->position().toPoint()));
         }
         // Queued: the editor replaces this window, which is still delivering the press.
         QTimer::singleShot(0, this, [pressed = pressed_, position] { pressed(position); });
@@ -842,7 +837,7 @@ void PopupWindow::paintEvent(QPaintEvent* event)
 }
 
 // ---------------------------------------------------------------------------------------------
-// RichNoteView
+// NoteView
 // ---------------------------------------------------------------------------------------------
 
 namespace {
@@ -880,9 +875,54 @@ QList<QTextOption::Tab> tabs(const std::vector<std::pair<qreal, std::uint8_t>>& 
     return handed;
 }
 
+/// One rich run's format: its face in `font`'s family where it names none, sized in points, its
+/// colour, lines and rise — what the window sets a run in and what its editor sets over the run's
+/// characters (ADR 1782). `device` measures a space for a spacing given as a share of one.
+QTextCharFormat runFormat(const QtRichRun& run, const QFont& font, qreal pixelsPerPoint,
+                          const QPaintDevice* device)
+{
+    QTextCharFormat format;
+    QFont face = font;
+    if (!run.family.empty()) {
+        face.setFamilies({text(run.family)});
+    }
+    face.setPointSizeF(std::max<qreal>(run.points, 1.0));
+    face.setBold(run.bold);
+    face.setItalic(run.italic);
+    // `QFont::setStretch` draws every glyph `stretch` percent of its face's own width: chapter
+    // 27's horizontal scale over its vertical (ADR 1666). Qt also matches a stretch to a face of
+    // another width where the family has one — a condensed design, not a scaled one — so the face
+    // is pinned by its style name first, and the stretch scales it.
+    if (run.stretch != 100) {
+        face.setStyleName(QFontInfo(face).styleName());
+        face.setStretch(run.stretch);
+    }
+    face.setUnderline(run.underlines > 0);
+    face.setStrikeOut(run.line_through);
+    qreal spacing = run.spacing * pixelsPerPoint;
+    if (run.spacing_of_space != 0.0f) {
+        spacing += QFontMetricsF(face, device).horizontalAdvance(QChar(' ')) * run.spacing_of_space;
+    }
+    const qreal bound = run.spacing_bound * pixelsPerPoint;
+    spacing = std::clamp(spacing, -bound, bound);
+    if (spacing != 0.0) {
+        face.setLetterSpacing(QFont::AbsoluteSpacing, spacing);
+    }
+    format.setFont(face);
+    if (run.coloured) {
+        format.setForeground(QColor::fromRgb(run.colour));
+    }
+    if (run.rise > 0) {
+        format.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+    } else if (run.rise < 0) {
+        format.setVerticalAlignment(QTextCharFormat::AlignSubScript);
+    }
+    return format;
+}
+
 } // namespace
 
-RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font,
+NoteView::NoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font,
                            QWidget* parent)
     : QWidget(parent), document_(new QTextDocument())
 {
@@ -946,54 +986,53 @@ RichNoteView::RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const Q
             leadered_.push_back(std::move(painted));
         }
         for (const QtRichRun& run : paragraph.runs) {
-            QTextCharFormat format;
-            QFont face = font;
-            if (!run.family.empty()) {
-                face.setFamilies({text(run.family)});
-            }
-            face.setPointSizeF(std::max<qreal>(run.points, 1.0));
-            face.setBold(run.bold);
-            face.setItalic(run.italic);
-            // `QFont::setStretch` draws every glyph `stretch` percent of its face's own width:
-            // chapter 27's horizontal scale over its vertical (ADR 1666). Qt also matches a stretch
-            // to a face of another width where the family has one — a condensed design, not a
-            // scaled one — so the face is pinned by its style name first, and the stretch scales it.
-            if (run.stretch != 100) {
-                face.setStyleName(QFontInfo(face).styleName());
-                face.setStretch(run.stretch);
-            }
-            face.setUnderline(run.underlines > 0);
-            face.setStrikeOut(run.line_through);
-            qreal spacing = run.spacing * pixelsPerPoint;
-            if (run.spacing_of_space != 0.0f) {
-                spacing += QFontMetricsF(face, this).horizontalAdvance(QChar(' '))
-                           * run.spacing_of_space;
-            }
-            const qreal bound = run.spacing_bound * pixelsPerPoint;
-            spacing = std::clamp(spacing, -bound, bound);
-            if (spacing != 0.0) {
-                face.setLetterSpacing(QFont::AbsoluteSpacing, spacing);
-            }
-            format.setFont(face);
-            if (run.coloured) {
-                format.setForeground(QColor::fromRgb(run.colour));
-            }
-            if (run.rise > 0) {
-                format.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
-            } else if (run.rise < 0) {
-                format.setVerticalAlignment(QTextCharFormat::AlignSubScript);
-            }
-            cursor.insertText(text(run.text), format);
+            cursor.insertText(text(run.text), runFormat(run, font, pixelsPerPoint, this));
         }
     }
 }
 
-RichNoteView::~RichNoteView()
+NoteView::NoteView(const QString& plain, const QFont& font, QWidget* parent)
+    : QWidget(parent), document_(new QTextDocument())
+{
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    document_->setDefaultFont(font);
+    document_->setDocumentMargin(0);
+    document_->setPlainText(plain);
+}
+
+NoteView::~NoteView()
 {
     delete document_;
 }
 
-int RichNoteView::positionAt(QPoint point) const
+// ---------------------------------------------------------------------------------------------
+// NoteFaces
+// ---------------------------------------------------------------------------------------------
+
+NoteFaces::NoteFaces(QTextDocument* document) : QSyntaxHighlighter(document) {}
+
+void NoteFaces::setSpans(std::vector<Span> spans)
+{
+    spans_ = std::move(spans);
+    // At once rather than on the highlighter's own deferred pass, which would arrive after the
+    // editor's handler is connected and lay the text out a second time.
+    rehighlight();
+}
+
+void NoteFaces::highlightBlock(const QString& text)
+{
+    const int from = currentBlock().position();
+    const int to = from + static_cast<int>(text.size());
+    for (const Span& span : spans_) {
+        const int start = std::max(span.start, from);
+        const int end = std::min(span.end, to);
+        if (start < end) {
+            setFormat(start - from, end - start, span.format);
+        }
+    }
+}
+
+int NoteView::positionAt(QPoint point) const
 {
     // The layout `paintEvent` draws, at the width it draws it and inside the same padding.
     const QPointF inside = QPointF(point) - QPointF(kPopupPadding, kPopupPadding);
@@ -1004,13 +1043,13 @@ int RichNoteView::positionAt(QPoint point) const
     return layout->hitTest(inside, Qt::FuzzyHit);
 }
 
-void RichNoteView::resizeEvent(QResizeEvent* event)
+void NoteView::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
     handLeftwardTabs(std::max(1, width() - 2 * kPopupPadding));
 }
 
-void RichNoteView::handLeftwardTabs(qreal inner)
+void NoteView::handLeftwardTabs(qreal inner)
 {
     if (inner == handedFor_) {
         return;
@@ -1027,7 +1066,7 @@ void RichNoteView::handLeftwardTabs(qreal inner)
     }
 }
 
-void RichNoteView::paintEvent(QPaintEvent* /*event*/)
+void NoteView::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter painter(this);
     const qreal inner = std::max(1, width() - 2 * kPopupPadding);
@@ -1042,7 +1081,7 @@ void RichNoteView::paintEvent(QPaintEvent* /*event*/)
     paintLeaders(painter);
 }
 
-void RichNoteView::paintLeaders(QPainter& painter) const
+void NoteView::paintLeaders(QPainter& painter) const
 {
     // Chapter 2's *Tab Leader Pattern* (pages 63 to 65), as `quorra` draws it (ADR 1679):
     // `QTextOption::Tab` holds a position, a kind and a delimiter and no fill, so each tab's extent
@@ -2973,7 +3012,8 @@ void MainWindow::rebuildPopups()
         // changes the window's text does not take the keyboard away from it.
         if (noteEditor_ != nullptr && window.retypes && window.note_number == noteNumber_
             && window.note_generation == noteGeneration_) {
-            noteEditor_->setGeometry(place);
+            noteFrame_->setGeometry(place);
+            styleNote(window);
             editorPlaced = true;
             continue;
         }
@@ -3000,19 +3040,42 @@ void MainWindow::editNote(const QtPopup& window, int position)
         && noteGeneration_ == window.note_generation) {
         return;
     }
-    if (noteEditor_ != nullptr) {
-        noteEditor_->deleteLater();
+    if (noteFrame_ != nullptr) {
+        noteFrame_->deleteLater();
+        noteFrame_ = nullptr;
         noteEditor_ = nullptr;
     }
     const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
-    auto* editor = new QPlainTextEdit(page_);
-    // Before the handler is connected, so that putting the text in sends no edit.
+    auto* frame = new QWidget(page_);
+    auto* column = new QVBoxLayout(frame);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(0);
+    auto* editor = new QPlainTextEdit(frame);
+    column->addWidget(editor, 1);
+    auto* said = new QLabel(frame);
+    said->setTextFormat(Qt::PlainText);
+    said->setWordWrap(true);
+    said->setEnabled(false);
+    said->setContentsMargins(kPopupPadding, 0, kPopupPadding, 0);
+    said->hide();
+    column->addWidget(said, 0);
+    // Before the handler is connected, so that putting the text in and setting the runs' faces
+    // over it send no edit.
     editor->setPlainText(text(window.text));
-    // The character the press was on in the rich note's document, as a place in `/Contents`
-    // (ADR 1770); the text's end where the host has none.
-    const int place = position < 0 ? -1
-                                   : host_->note_place(window.note_number, window.note_generation,
-                                                       position);
+    noteFrame_ = frame;
+    noteEditor_ = editor;
+    noteSaid_ = said;
+    noteFaces_ = new NoteFaces(editor->document());
+    noteSent_ = editor->toPlainText();
+    styleNote(window);
+    // The character the press was on in the note's document, as a place in the editor's: a
+    // rich note's is a place in `/Contents` the host finds (ADR 1770), and a plain note's document
+    // is the editor's own text, so its position is the editor's (ADR 1782); the text's end where
+    // the press was on none.
+    const int place = position < 0          ? -1
+                      : window.rich.empty() ? position
+                                            : host_->note_place(window.note_number,
+                                                                window.note_generation, position);
     if (place >= 0) {
         QTextCursor caret = editor->textCursor();
         caret.setPosition(std::min(place, editor->document()->characterCount() - 1));
@@ -3020,16 +3083,22 @@ void MainWindow::editNote(const QtPopup& window, int position)
     } else {
         editor->moveCursor(QTextCursor::End);
     }
-    editor->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
-                              qRound(window.width / scale), qRound(window.height / scale)));
+    frame->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
+                             qRound(window.width / scale), qRound(window.height / scale)));
     const std::uint32_t number = window.note_number;
     const std::uint16_t generation = window.note_generation;
     connect(editor, &QPlainTextEdit::textChanged, this, [this, editor, number, generation] {
         if (busy_) {
             return;
         }
+        // A format set over the text changes the document and no character of it.
+        const QString typed = editor->toPlainText();
+        if (typed == noteSent_) {
+            return;
+        }
+        noteSent_ = typed;
         Busy guard(busy_);
-        const QByteArray utf8 = editor->toPlainText().toUtf8();
+        const QByteArray utf8 = typed.toUtf8();
         host_->set_note(number, generation,
                         rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
         applyUpdates();
@@ -3037,13 +3106,43 @@ void MainWindow::editNote(const QtPopup& window, int position)
     // Escape is read off the editor's own key presses (`eventFilter`), since the window binds the
     // key for itself.
     editor->installEventFilter(this);
-    noteEditor_ = editor;
     noteNumber_ = number;
     noteGeneration_ = generation;
-    host_->note_editing(number, generation, true);
-    editor->show();
+    host_->note_editing(number, generation, true, editor->textCursor().position());
+    frame->show();
     editor->setFocus(Qt::MouseFocusReason);
     rebuildPopups();
+}
+
+void MainWindow::styleNote(const QtPopup& window)
+{
+    if (noteEditor_ == nullptr) {
+        return;
+    }
+    // The spans are positions of the text the window answers, so they are set only over that
+    // text; and the faces are the window's, sized at the resolution it draws them at.
+    std::vector<NoteFaces::Span> spans;
+    // The editor's plain text spells every line break a line feed (`QTextDocument::toPlainText`).
+    QString answered = text(window.text);
+    answered.replace(QStringLiteral("\r\n"), QStringLiteral("\n")).replace(u'\r', u'\n');
+    const bool same = noteEditor_->toPlainText() == answered;
+    const qreal pixelsPerPoint = noteEditor_->logicalDpiX() / 72.0;
+    for (const QtNoteSpan& span : window.spans) {
+        if (!same || span.paragraph >= window.rich.size()) {
+            break;
+        }
+        const QtRichParagraph& paragraph = window.rich[span.paragraph];
+        if (span.run >= paragraph.runs.size()) {
+            continue;
+        }
+        spans.push_back(NoteFaces::Span{
+            span.start, span.end,
+            runFormat(paragraph.runs[span.run], noteEditor_->font(), pixelsPerPoint, noteEditor_)});
+    }
+    noteFaces_->setSpans(std::move(spans));
+    const bool says = same && !window.spans.empty() && !window.editor_not_drawn.empty();
+    noteSaid_->setText(says ? text(window.editor_not_drawn) : QString());
+    noteSaid_->setVisible(says);
 }
 
 void MainWindow::keys()
@@ -3059,9 +3158,12 @@ void MainWindow::endNote()
     if (noteEditor_ == nullptr) {
         return;
     }
-    noteEditor_->deleteLater();
+    noteFrame_->deleteLater();
+    noteFrame_ = nullptr;
     noteEditor_ = nullptr;
-    host_->note_editing(noteNumber_, noteGeneration_, false);
+    noteSaid_ = nullptr;
+    noteFaces_ = nullptr;
+    host_->note_editing(noteNumber_, noteGeneration_, false, -1);
     page_->setFocus(Qt::OtherFocusReason);
     rebuildPopups();
 }

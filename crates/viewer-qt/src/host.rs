@@ -38,8 +38,9 @@ use viewer_host::panel::{Icon, PanelRow, RowAction, Tab};
 use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
-    QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtPrintCell, QtPrintJob, QtQuad,
-    QtRichParagraph, QtRichRun, QtRow, QtScatter, QtScriptEntry, QtTab, QtUpdate, QtWindowExtents,
+    QtChrome, QtControl, QtFrame, QtMeasure, QtNoteSpan, QtPage, QtPopup, QtPrintCell, QtPrintJob,
+    QtQuad, QtRichParagraph, QtRichRun, QtRow, QtScatter, QtScriptEntry, QtTab, QtUpdate,
+    QtWindowExtents,
 };
 use crate::keys;
 use crate::page;
@@ -1731,8 +1732,8 @@ impl Host {
 
     /// Where a press on a note's rich window puts the caret in its `/Contents`: `position` is the
     /// place `QTextDocument`'s own layout found under the press, in the document
-    /// `rich_paragraphs` built, and the answer is the `/Contents` offset of that character in
-    /// UTF-16 units, which is what the plain editor counts; -1 where there is none (ADR 1770).
+    /// `rich_paragraphs` built, and the answer is that character's position in the plain editor's
+    /// document ([`editor_position`]); -1 where there is none (ADR 1770).
     ///
     /// The document's text is every paragraph's runs as handed over — a list item's tag first,
     /// and a tab taken out where the paragraph's tabs advance by nothing — with one separator
@@ -1786,17 +1787,37 @@ impl Host {
                     }
                 }
                 let offset = *tables.get(paragraph)?.get(byte)?;
-                return i32::try_from(contents.get(..offset)?.encode_utf16().count()).ok();
+                return i32::try_from(editor_position(contents, offset)?).ok();
             }
             None
         })();
         place.unwrap_or(-1)
     }
 
-    /// Says that a note's window took the keyboard, or that the page has it again (ADR 1726).
-    pub(crate) fn note_editing(&mut self, number: u32, generation: u16, editing: bool) {
+    /// Says that a note's window took the keyboard, and the byte of `/Contents` its caret stands
+    /// before, as `quorra` says it — `position` is the editor's, in its plain text document — or
+    /// that the page has it again (ADR 1726).
+    pub(crate) fn note_editing(
+        &mut self,
+        number: u32,
+        generation: u16,
+        editing: bool,
+        position: i32,
+    ) {
         if editing {
-            self.say(&format!("typing into the text note {number} {generation}"));
+            let note = pdf_syntax::ObjectId::new(number, generation);
+            let contents = self
+                .popups_shown
+                .iter()
+                .find(|window| window.note == Some(note))
+                .and_then(|window| window.text.as_deref())
+                .unwrap_or_default();
+            let at = usize::try_from(position)
+                .map_or(contents.len(), |position| contents_byte(contents, position));
+            self.say(&format!(
+                "typing into the text note {number} {generation} at {at} of {}",
+                contents.len()
+            ));
         } else {
             self.say("the keyboard is back on the page");
         }
@@ -3624,6 +3645,14 @@ impl Host {
                     retypes: window.note.is_some(),
                     note_number: window.note.map_or(0, |note| note.number),
                     note_generation: window.note.map_or(0, |note| note.generation),
+                    spans: window
+                        .rich
+                        .map(|note| note_spans(window.text, note))
+                        .unwrap_or_default(),
+                    editor_not_drawn: window
+                        .rich
+                        .and_then(|note| viewer_host::popup::editor_not_drawn(note, true))
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -5034,6 +5063,57 @@ fn rich_paragraphs(
         .collect()
 }
 
+/// Where each run of a rich note stands in its editor's plain text document, the run counted as
+/// [`rich_paragraphs`] hands it over — a list tag first where there is one (ADR 1782).
+fn note_spans(contents: &str, note: &pdf_model::popup::RichNote) -> Vec<QtNoteSpan> {
+    let Some(spans) = viewer_host::popup::run_spans(contents, note) else {
+        return Vec::new();
+    };
+    spans
+        .iter()
+        .filter_map(|span| {
+            let tagged = note.paragraphs.get(span.paragraph)?.tag.is_some();
+            Some(QtNoteSpan {
+                start: i32::try_from(editor_position(contents, span.start)?).ok()?,
+                end: i32::try_from(editor_position(contents, span.end)?).ok()?,
+                paragraph: u32::try_from(span.paragraph).ok()?,
+                run: u32::try_from(span.run.saturating_add(usize::from(tagged))).ok()?,
+            })
+        })
+        .collect()
+}
+
+/// The position in a plain text document Qt built from `contents` of the character at byte
+/// `byte`, or `None` inside a character.
+///
+/// Qt counts in UTF-16 units and makes each line break one block separator of one unit — a
+/// carriage return, a line feed, and the two together (`QTextCursor::insertText`) — so a note
+/// whose lines end in `"\r\n"` is one unit shorter per line than its UTF-16 count.
+fn editor_position(contents: &str, byte: usize) -> Option<usize> {
+    let before = contents.get(..byte)?;
+    let pairs = before.matches("\r\n").count();
+    Some(before.encode_utf16().count().saturating_sub(pairs))
+}
+
+/// The byte of `contents` at `position` of the plain text document Qt built from it, the reverse
+/// of [`editor_position`]; the end of `contents` past its last position.
+fn contents_byte(contents: &str, position: usize) -> usize {
+    let mut left = position;
+    let mut characters = contents.char_indices().peekable();
+    while let Some((byte, character)) = characters.next() {
+        if left == 0 {
+            return byte;
+        }
+        if character == '\r' && characters.peek().is_some_and(|(_, next)| *next == '\n') {
+            characters.next();
+            left = left.saturating_sub(1);
+        } else {
+            left = left.saturating_sub(character.len_utf16());
+        }
+    }
+    contents.len()
+}
+
 /// One placed stop as the bridge carries it, its leader with it (ADR 1722).
 fn qt_tab(stop: &viewer_host::popup::TabStop) -> QtTab {
     use pdf_model::popup::RichRuleStyle;
@@ -5180,6 +5260,26 @@ mod tests {
     use viewer_host::form::ControlKind;
     use viewer_host::panel::{PanelRow, RowAction};
     use viewer_host::trace::Trace;
+
+    /// A byte of `/Contents` and a position of Qt's plain text document over it are one place
+    /// both ways round: a carriage return and line feed together are one block separator, a
+    /// letter outside the basic plane two units (ADR 1782).
+    #[test]
+    fn a_note_s_bytes_and_its_editor_s_positions_are_one_place() {
+        let contents = "a\r\nb\u{1F600}c\rd";
+        // a ␍␊ b 😀 c ␍ d — positions 0 1 2 3 5 6 7, bytes 0 1 3 4 8 9 10.
+        let places = [(0, 0), (1, 1), (3, 2), (4, 3), (8, 5), (9, 6), (10, 7)];
+        for (byte, position) in places {
+            assert_eq!(super::editor_position(contents, byte), Some(position));
+            assert_eq!(super::contents_byte(contents, position), byte);
+        }
+        assert_eq!(
+            super::editor_position(contents, 5),
+            None,
+            "inside a character"
+        );
+        assert_eq!(super::contents_byte(contents, 99), contents.len());
+    }
 
     /// Every panel the shared list states has a widget in this toolkit, and one is not a tree.
     ///

@@ -88,6 +88,11 @@
 //! `cargo test -p conformance` and crate-scoped tests are not walks; one waited 1 820.8 s behind the
 //! lock all the same (ADR 1706). The last test plants a log and holds `tools/state.sh gates-cost` to
 //! naming those runs, with their queue, and to passing every shape a walk has.
+//!
+//! **And a locked run's threads are the wrapper's** (ADR 1766). `--lock` gives a run four rayon
+//! threads, so an instruction that writes `RAYON_NUM_THREADS=4` before it is a copy of a rule the
+//! wrapper holds, which drifts the day the figure does. One test holds the wrapper to the four, and
+//! another every tracked instruction to leaving the prefix off.
 
 #![expect(
     clippy::expect_used,
@@ -2017,4 +2022,152 @@ fn a_locked_run_walks_at_the_merges_four_threads() {
         "an unlocked run's rayon threads"
     );
     assert_eq!(caller, "7", "a caller's own setting");
+}
+
+/// Whether `line` writes the wrapper's own thread count, `RAYON_NUM_THREADS=4`, as an assignment
+/// before a `tools/bounded.sh` invocation that takes `--lock` ahead of its `--`. A caller's other
+/// figure is its own choice, which the wrapper keeps (a clock child pins its cores, trap 122), and an
+/// unlocked invocation gets the machine's share, so neither is a copy.
+fn copies_the_locked_threads(line: &str) -> bool {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let Some(pinned) = words
+        .iter()
+        .position(|word| word.trim_start_matches(['`', '(', '"']) == "RAYON_NUM_THREADS=4")
+    else {
+        return false;
+    };
+    words
+        .iter()
+        .enumerate()
+        .skip(pinned.saturating_add(1))
+        .find(|(_, word)| {
+            word.trim_matches(|c: char| matches!(c, '`' | '"' | '\''))
+                .ends_with("bounded.sh")
+        })
+        .is_some_and(|(wrapper, _)| {
+            words
+                .iter()
+                .skip(wrapper.saturating_add(1))
+                .take_while(|word| **word != "--")
+                .any(|word| *word == "--lock")
+        })
+}
+
+/// The files that still write `RAYON_NUM_THREADS=4` before `tools/bounded.sh --lock`, each another
+/// round's to re-spell: a ratchet, so a file leaves this list the day it is re-spelled and none joins
+/// it. The crates' doc comments are their slots' files, and `doc/checks/` is the gates' manifests.
+const HELD_THREAD_PREFIXES: [&str; 12] = [
+    "crates/pdf-model/examples/colour_transform_census.rs",
+    "crates/pdf-model/examples/non_isolated_group_census.rs",
+    "crates/pdf-model/examples/overprint_ink_group_census.rs",
+    "crates/pdf-model/examples/substitution_census.rs",
+    "crates/pdf-model/tests/raster_golden.rs",
+    "crates/pdf-model/tests/script_corpus.rs",
+    "crates/pdf-script-worker/tests/script_column.rs",
+    "crates/pdf-script/tests/script_corpus.rs",
+    "crates/pdf-vfs/tests/read_corpus.rs",
+    "crates/viewer-ui/tests/launch_path.rs",
+    "doc/checks/fixed-documents.toml",
+    "doc/checks/launch-path.toml",
+];
+
+/// **No instruction copies the wrapper's thread count.** Since ADR 1766 `tools/bounded.sh --lock`
+/// gives its run four rayon threads, the figure each lane's ceiling was measured at, so the
+/// `RAYON_NUM_THREADS=4` that `doc/todo/02`'s walk line, `doc/verify.md`'s campaign, `doc/todo/03`'s
+/// fixed-documents walk and RFC 0008's census wrote before it said again what the wrapper says, and
+/// would say the old figure the day the wrapper's moved. The population is every tracked text file
+/// but the records — `doc/adr/`, `doc/history/` and `doc/reviews/` keep the spelling of their day —
+/// and this file, which plants the shape; the traps keep the incident's words, which name no wrapper
+/// after the prefix. Calibrated by planting (trap 13): the reader names the prefix alone, behind
+/// another assignment, and in a code span, and passes another figure, an unlocked run, the
+/// assignment inside the command after `--`, and the wrapper's own spelling.
+#[test]
+fn no_instruction_copies_the_threads_the_wrapper_gives_a_locked_run() {
+    for planted in [
+        "ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \\",
+        "//! PDFVIEWER_RASTER_GOLDEN=update RAYON_NUM_THREADS=4 tools/bounded.sh --lock \\",
+        "run `RAYON_NUM_THREADS=4 tools/bounded.sh --lock --clock --round 1 -- true`",
+    ] {
+        assert!(
+            copies_the_locked_threads(planted),
+            "the reader passed {planted:?}"
+        );
+    }
+    for clean in [
+        "RAYON_NUM_THREADS=8 tools/bounded.sh --lock --clock --round 1 -- true",
+        "if RAYON_NUM_THREADS=4 \"$wt/tools/bounded.sh\" --tree 12 -- cargo build",
+        "tools/bounded.sh --lock --clock --round 1 -- env RAYON_NUM_THREADS=4 true",
+        "tools/bounded.sh --lock --round <session> --tree 6 -- true",
+        "the lock prefix `RAYON_NUM_THREADS=4` reaches whatever runs inside it",
+    ] {
+        assert!(
+            !copies_the_locked_threads(clean),
+            "the reader named {clean:?}"
+        );
+    }
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut read = 0_usize;
+    let mut owed = Vec::new();
+    let mut spelled: Vec<String> = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        read = read.saturating_add(1);
+        let lines: Vec<usize> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| copies_the_locked_threads(line))
+            .map(|(index, _)| index.saturating_add(1))
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        spelled.push(path.to_owned());
+        if !HELD_THREAD_PREFIXES.contains(&path) {
+            owed.push(format!("{path}:{lines:?}"));
+        }
+    }
+    println!(
+        "{read} tracked text file(s) read for a copy of the locked run's threads; {} held, {} owed",
+        spelled.len().saturating_sub(owed.len()),
+        owed.len()
+    );
+    assert!(
+        read >= 1000,
+        "{read} file(s) read: the population is not the tree"
+    );
+    assert!(
+        owed.is_empty(),
+        "these lines write `RAYON_NUM_THREADS=4` before `tools/bounded.sh --lock`, which already gives \
+         a locked run four threads (ADR 1766); leave the prefix off:\n{}",
+        owed.join("\n")
+    );
+    let fixed: Vec<&str> = HELD_THREAD_PREFIXES
+        .iter()
+        .copied()
+        .filter(|held| !spelled.iter().any(|path| path == held))
+        .collect();
+    assert!(
+        fixed.is_empty(),
+        "these files no longer copy the locked run's threads, so they leave the held list: {fixed:?}"
+    );
 }

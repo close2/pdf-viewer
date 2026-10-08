@@ -17,6 +17,11 @@ malformed: an unterminated string, a regular expression that never closes, a scr
 repeated to the campaign's `-max_len` (trap 117), and brackets nested to the target's own limit.
 Every script is written at every site, the commit bit both ways. Each seed is named by its
 content, so a re-run adds nothing new.
+
+**The members a host's knowledge and a rich text field answer** (ADR 1762) are read from the
+input's fourth part — the keys a host tells the view state, then the field's `/RV` — so the scripts
+that read them are written with each of `EXTRAS` in turn, and every other script without the part,
+byte for byte the seed it was before.
 """
 
 import hashlib
@@ -93,6 +98,36 @@ SCRIPTS = [
     " f.deleteItemAt(1); event.value = f.numItems;",
     "var f = this.getField('Choice'); f.clearItems(); f.insertItemAt('x'); f.deleteItemAt(-1);",
     "this.getField('Choice').setItems(new Array(70000).fill('x'));",
+    # The members ADR 1762 carries that the file answers: a widget's line width and its `/DA`'s
+    # `Tf`, the `font` constants, the console's requests, the word pair, a group's intent, and
+    # `util`'s seven.
+    "var f = this.getField('Total'); f.lineWidth = 3; f.textSize = 0; f.textFont = font.HelvB;"
+    " event.value = f.lineWidth + ':' + f.textSize + ':' + f.textFont;",
+    "var f = this.getField('Amount'); f.textFont = 'NoSuchFont'; f.textSize = -1;"
+    " f.lineWidth = 1e9; f.textColor = color.blue; f.textSize = 12;",
+    "event.value = [font.Times, font.TimesBI, font.Cour, font.Symbol, font.ZapfD].join();",
+    "console.show(); console.println('x'); console.clear(); console.println('y'); console.hide();",
+    "var n = this.getPageNumWords(0); for (var i = 0; i < n; i++)"
+    " event.value += this.getPageNthWord(0, i, i % 2 == 0) + '|';",
+    "event.value = this.getPageNumWords(2) + this.getPageNthWord(0, 99) + this.getPageNthWord();",
+    "try { this.getPageNumWords(1); } catch (e) { event.value = e.message; } this.getPageNumWords(-1);",
+    "var g = this.getOCGs(); event.value = g[0].getIntent().join() + g[1].getIntent().length;",
+    "event.value = util.scand('mm/dd/yy', '02/29/24') + util.scand(0, 'D:20240105143015Z')"
+    " + util.scand(2, '2024/01/05 14:30:15') + util.scand('yyyy', 'nonsense');",
+    "var u = util.crackURL('https://user:pw@[::1]:8443/a/b?q=1#f');"
+    " event.value = [u.cScheme, u.cUser, u.cHost, u.nPort, u.nURLType, u.cPath, u.cQuery].join();",
+    "event.value = util.crackURL('file:///tmp/x').nPort; util.crackURL('gopher://x');",
+    "var s = util.streamFromString('h\\u00e9llo \\u20ac', 'utf-16');"
+    " event.value = util.stringFromStream(s, 'utf-16') + s.read(2) + s.read(1000);",
+    "util.stringFromStream(util.streamFromString('x'), 'Shift-JIS');",
+    "var s = util.streamFromString('x'.repeat(65536)); while (s.read(1)) {}",
+    "util.iconStreamFromIcon({});",
+    "var s = util.xmlToSpans('<body xmlns=\"http://www.w3.org/1999/xhtml\"><p style=\"color:#ff0000;"
+    "font-size:14pt\"><b>b</b><i>i</i>c</p></body>'); event.value = s.length + s[0].text"
+    " + util.spansToXML(s);",
+    "event.value = util.spansToXML([{text: 'a', fontStyle: 'italic', fontWeight: 700,"
+    " textColor: ['CMYK', 0, 1, 1, 0], textSize: 9, underline: true}, {text: '<&>'}]);",
+    "util.xmlToSpans('<p>never closes'); util.spansToXML([1, null, {}]);",
     # Deep without brackets, and deep at run time.
     "event.value = eval('1' + '+1'.repeat(30000));",
     "event.value = Function('return ' + '!'.repeat(5000) + '1')();",
@@ -104,7 +139,6 @@ SCRIPTS = [
     "app.launchURL('https://example.com');",
     "this.submitForm('https://example.com');",
     "this.exportDataObject({cName: 'x'});",
-    "event.keyDown;",
     "try { app.launchURL('x'); } catch (e) { event.value = e.name + ': ' + e.message; }",
     # The language's library.
     "event.value = JSON.stringify(JSON.parse('{\"a\": [1, 2, {\"b\": null}]}'));",
@@ -160,6 +194,32 @@ SCRIPTS = [
 
 VALUES = [("12", ""), ("", "x"), ("-1234.5678", "5"), ("é€ ", "€")]
 
+# The scripts that read what the input's fourth part tells: the keys and a rich text field's `/RV`
+# (`fuzz/fuzz_targets/script.rs`, ADR 1762).
+KEYED_SCRIPTS = [
+    "event.value = [event.shift, event.modifier, event.keyDown].join();",
+    "if (event.shift) event.rc = false; else if (event.modifier) event.change = '';",
+    "event.keyDown;",
+    "var r = event.richValue; if (r) { r[0].fontWeight = 700;"
+    " event.value = r.length + r[0].text + event.richChange[0].text + util.spansToXML(r); }",
+    "event.value = typeof event.richValue + typeof event.richChange; event.richValue = [];",
+]
+
+_XHTML = ('<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml"'
+          ' xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:7.0.0"'
+          ' xfa:spec="2.0.2">')
+
+# The fourth part: a byte whose low three bits are shift, the modifier and an arrow-key selection,
+# then the field's `/RV` — absent, plain, styled runs, and markup the reader does not take.
+EXTRAS = [
+    None,
+    bytes([0x01]) + (_XHTML + '<p>12.50</p></body>').encode("utf-8"),
+    bytes([0x06]) + (_XHTML + '<p style="font-size:14pt;color:#ff0000">Red <b>bold</b> <i>it</i>'
+                     ' <span style="font-family:Helvetica;text-decoration:underline">u</span></p>'
+                     '</body>').encode("utf-8"),
+    bytes([0x07]) + b'<body><p>never closes',
+]
+
 
 def main() -> None:
     if len(sys.argv) != 2:
@@ -172,12 +232,16 @@ def main() -> None:
     scripts.append(statement * ((MAX_LEN - 16) // len(statement)))
     scripts.append("1" + " +1" * ((MAX_LEN - 16) // 3))
     written = 0
-    for script in scripts:
+    keyed = set(KEYED_SCRIPTS)
+    for script in scripts + KEYED_SCRIPTS:
         for selector in range(16):
             for commit in (0x00, 0x70, 0x80, 0xF0):
                 value, change = VALUES[(selector + len(script)) % len(VALUES)]
                 data = (bytes([selector | commit]) + script.encode("utf-8") + b"\0"
                         + value.encode("utf-8") + b"\0" + change.encode("utf-8"))
+                extra = EXTRAS[(selector + commit) % len(EXTRAS)] if script in keyed else None
+                if extra is not None:
+                    data += b"\0" + extra
                 if len(data) > MAX_LEN:
                     data = data[:MAX_LEN]
                 name = hashlib.sha1(data).hexdigest()

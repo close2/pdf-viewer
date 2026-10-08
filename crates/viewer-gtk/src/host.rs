@@ -2469,12 +2469,14 @@ impl Host {
         for window in &placed {
             let (x, y, width, height) = window.place;
             // The note being typed into keeps its editor where its window is, so that a keystroke
-            // that changes the window's text does not take the keyboard away from it.
+            // that changes the window's text does not take the keyboard away from it; the editor
+            // draws the note as the window now would (ADR 1782).
             if let Some(editor) = self
                 .note_editor
-                .as_ref()
+                .as_mut()
                 .filter(|editor| window.note == Some(editor.note))
             {
+                editor.styled.style(window.text, window.rich);
                 editor.frame.set_size_request(
                     logical(f64::from(width), scale),
                     logical(f64::from(height), scale),
@@ -2522,9 +2524,11 @@ impl Host {
     ///
     /// A `GtkTextView` over the window, holding Table 166's `/Contents` as the window shows it, and
     /// every change sent as `Edit::SetNoteText` — the whole text, as a field's value is sent.
-    /// Escape, or the window closing, gives the keyboard back to the page. The window's `/RC`
-    /// formatting is the label's and not the editor's: a retyping is plain characters, and the
-    /// window shows the note's formatting again where those still agree with it (ADR 1721).
+    /// Escape, or the window closing, gives the keyboard back to the page. Where the window draws
+    /// the note from Table 172's `/RC`, the editor sets each run's face over the characters of
+    /// `/Contents` it is, and says under the text what of the paragraphs it does not draw; where a
+    /// retyping makes the window plain — its characters no longer `/Contents`' (ADR 1721) — the
+    /// editor is plain too, so a person types into what the window shows (ADR 1782).
     ///
     /// The caret starts at `place`, the byte of `/Contents` the press that opened the editor was
     /// on ([`Host::note_place`]), and at the text's end where the press was on no character.
@@ -2546,14 +2550,9 @@ impl Host {
         };
         let (x, y, width, height) = viewer_host::bounds(window.quad);
         let text = window.text.clone().unwrap_or_default();
-        let view = gtk4::TextView::new();
-        view.set_wrap_mode(gtk4::WrapMode::WordChar);
-        view.set_left_margin(POPUP_PADDING);
-        view.set_right_margin(POPUP_PADDING);
-        view.set_top_margin(POPUP_PADDING);
-        let buffer = view.buffer();
         // Before the handler is connected, so that putting the text in sends no edit.
-        buffer.set_text(&text);
+        let (view, styled) = NoteStyle::editor(&text, window.rich.as_ref());
+        let (buffer, said) = (styled.buffer.clone(), styled.said.clone());
         // A text buffer counts its offsets in characters, the place is a byte of the same text.
         let caret = place
             .and_then(|byte| text.get(..byte))
@@ -2583,8 +2582,12 @@ impl Host {
             glib::Propagation::Stop
         });
         view.add_controller(keys);
-        let frame = gtk4::ScrolledWindow::new();
-        frame.set_child(Some(&view));
+        let scroller = gtk4::ScrolledWindow::new();
+        scroller.set_child(Some(&view));
+        scroller.set_vexpand(true);
+        let frame = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        frame.append(&scroller);
+        frame.append(&said);
         frame.set_overflow(gtk4::Overflow::Hidden);
         let scale = f64::from(self.scale);
         frame.set_size_request(
@@ -2596,11 +2599,21 @@ impl Host {
         self.ui
             .fixed
             .put(&frame, f64::from(x) / scale, f64::from(y) / scale);
+        // Where the caret starts, as the byte of `/Contents` it stands before, as `quorra` says it.
+        let start = place
+            .filter(|byte| text.is_char_boundary(*byte))
+            .unwrap_or(text.len());
         self.say(&format!(
-            "typing into the text note {} {}",
-            note.number, note.generation
+            "typing into the text note {} {} at {start} of {}",
+            note.number,
+            note.generation,
+            text.len()
         ));
-        self.note_editor = Some(NoteEditor { note, frame });
+        self.note_editor = Some(NoteEditor {
+            note,
+            frame,
+            styled,
+        });
         // The window under the editor is taken away by the next placement.
         self.popups_shown.clear();
         let popups = match self.viewer.query(Query::Popups) {
@@ -5477,8 +5490,119 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
 struct NoteEditor {
     /// The text note `Edit::SetNoteText` names.
     note: pdf_syntax::ObjectId,
-    /// The scrolled `GtkTextView`, in the popups' layer.
-    frame: gtk4::ScrolledWindow,
+    /// The scrolled `GtkTextView` and the sentence under it, in the controls' layer.
+    frame: gtk4::Box,
+    /// The runs' faces over the editor's text.
+    styled: NoteStyle,
+}
+
+/// The faces a rich note's runs are set in over the characters of `/Contents` its editor holds,
+/// and the sentence under it (ADR 1782).
+///
+/// **Set again whenever the window's answer changes**, from nothing: a run's characters move as a
+/// person types, and the window goes plain once they are no longer `/Contents`' (ADR 1721), so the
+/// spans are [`viewer_host::popup::run_spans`] of the text as it now stands. A buffer's tags are
+/// no text, so setting them sends no edit and is not a step a person undoes. Pango states no glyph
+/// scale for a tag either, so a font scale is said here as the label says it.
+struct NoteStyle {
+    /// The editor's text.
+    buffer: gtk4::TextBuffer,
+    /// The tags set over it, one per run, taken out of the buffer's table before the next.
+    tags: Vec<gtk4::TextTag>,
+    /// What the editor does not draw of the note, under its text.
+    said: gtk4::Label,
+    /// The editor's own size in points, which a run's relative size is of.
+    base: f32,
+    /// The editor's context, which measures a share of a space for a run's letter spacing.
+    context: pango::Context,
+}
+
+impl NoteStyle {
+    /// A text view holding `text`, a note's `/Contents`, set in the runs of `rich` where the window
+    /// draws them, and the sentence that goes under it.
+    fn editor(text: &str, rich: Option<&pdf_model::popup::RichNote>) -> (gtk4::TextView, Self) {
+        let view = gtk4::TextView::new();
+        view.set_wrap_mode(gtk4::WrapMode::WordChar);
+        view.set_left_margin(POPUP_PADDING);
+        view.set_right_margin(POPUP_PADDING);
+        view.set_top_margin(POPUP_PADDING);
+        view.set_vexpand(true);
+        let buffer = view.buffer();
+        buffer.set_text(text);
+        let said = gtk4::Label::new(None);
+        said.set_xalign(0.0);
+        said.set_wrap(true);
+        said.add_css_class("dim-label");
+        said.set_margin_start(POPUP_PADDING);
+        said.set_margin_end(POPUP_PADDING);
+        let mut styled = Self {
+            buffer,
+            tags: Vec::new(),
+            said,
+            base: label_size(&view),
+            context: view.pango_context(),
+        };
+        styled.style(text, rich);
+        (view, styled)
+    }
+
+    /// Sets the runs of `rich`, the window's note as the core now answers it, over `text`, its
+    /// `/Contents`; nothing where the window is plain or the editor's text is not that text yet.
+    fn style(&mut self, text: &str, rich: Option<&pdf_model::popup::RichNote>) {
+        let table = self.buffer.tag_table();
+        for tag in self.tags.drain(..) {
+            table.remove(&tag);
+        }
+        let (start, end) = self.buffer.bounds();
+        let held = self.buffer.text(&start, &end, false);
+        let spans = rich
+            .filter(|_| held.as_str() == text)
+            .and_then(|note| Some((note, viewer_host::popup::run_spans(text, note)?)));
+        let Some((note, spans)) = spans else {
+            self.said.set_visible(false);
+            return;
+        };
+        // A text buffer counts in characters, a span in bytes of the same text.
+        let at = |byte: usize| {
+            text.get(..byte)
+                .and_then(|before| i32::try_from(before.chars().count()).ok())
+        };
+        for span in &spans {
+            let run = note
+                .paragraphs
+                .get(span.paragraph)
+                .and_then(|paragraph| paragraph.runs.get(span.run));
+            let (Some(run), Some(from), Some(to)) = (run, at(span.start), at(span.end)) else {
+                continue;
+            };
+            let tag = run_tag(&run_face(run, self.base, &self.context));
+            table.add(&tag);
+            self.buffer.apply_tag(
+                &tag,
+                &self.buffer.iter_at_offset(from),
+                &self.buffer.iter_at_offset(to),
+            );
+            self.tags.push(tag);
+        }
+        let sentence = viewer_host::popup::editor_not_drawn(note, false);
+        self.said.set_text(sentence.as_deref().unwrap_or_default());
+        self.said.set_visible(sentence.is_some());
+    }
+}
+
+/// A widget's own font size in points, which a rich run's relative size is of; ten where the
+/// theme states none, a common label size and only a stand-in.
+fn label_size(widget: &impl IsA<gtk4::Widget>) -> f32 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a font size in Pango units is far inside f32's exact integer range"
+    )]
+    widget
+        .pango_context()
+        .font_description()
+        .map(|description| description.size() as f32 / pango::SCALE as f32)
+        .filter(|size| *size > 0.0)
+        .unwrap_or(10.0)
 }
 
 /// A popup window placed over the page, and the labels that set its text (ADR 1770).
@@ -5685,16 +5809,7 @@ fn rich_note(note: &pdf_model::popup::RichNote) -> (gtk4::Box, Vec<NoteText>) {
     body.set_margin_end(POPUP_PADDING);
     body.set_margin_top(POPUP_PADDING);
     let probe = gtk4::Label::new(None);
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a font size in Pango units is far inside f32's exact integer range"
-    )]
-    let base = probe
-        .pango_context()
-        .font_description()
-        .map(|description| description.size() as f32 / pango::SCALE as f32)
-        .filter(|size| *size > 0.0)
-        .unwrap_or(10.0);
+    let base = label_size(&probe);
     let context = probe.pango_context();
     let mut texts = Vec::with_capacity(note.paragraphs.len());
     for (number, paragraph) in note.paragraphs.iter().enumerate() {
@@ -6046,8 +6161,72 @@ fn pango_space(run: &pdf_model::popup::RichRun, size: f32, context: &pango::Cont
     width / (size * 96.0 / 72.0).max(f32::EPSILON)
 }
 
+/// What one rich run is set in, as the numbers Pango takes: the label's markup ([`pango_span`])
+/// and the editor's tag ([`run_tag`]) are both written from it, so that a run typed into is drawn
+/// as the window drew it (ADR 1782).
+struct RunFace<'a> {
+    /// The size, in Pango units of points.
+    size: i32,
+    /// Whether the run is bold.
+    bold: bool,
+    /// Whether it is italic.
+    italic: bool,
+    /// A family `viewer_host::popup::family` has passed, or `None` for the window's own.
+    family: Option<&'a str>,
+    /// Chapter 27's `color`.
+    colour: Option<pdf_render::Color>,
+    /// How many underlines: Pango draws one or two.
+    underlines: u8,
+    /// Whether a line is drawn through it.
+    line_through: bool,
+    /// How far it is raised, in Pango units of points, where it is.
+    rise: Option<i32>,
+    /// Chapter 27's `letter-spacing` in Pango units of a logical pixel, where it has one.
+    spacing: Option<i32>,
+}
+
+/// [`RunFace`] for one run, of `base` points and measured where its spacing is a share of a space
+/// in `context`.
+fn run_face<'a>(
+    run: &'a pdf_model::popup::RichRun,
+    base: f32,
+    context: &pango::Context,
+) -> RunFace<'a> {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "a size held within three times a label's own is far inside i32's range in \
+                  Pango units, and Pango's scale of 1024 is exact in f32"
+    )]
+    let units = |points: f32| (points * pango::SCALE as f32).round() as i32;
+    let size = viewer_host::popup::size(run, base, 1.0);
+    let raised = viewer_host::popup::rise(run, base, 1.0);
+    // Chapter 27's `letter-spacing`. Pango takes it in thousand-and-twenty-fourths of the layout's
+    // own unit, a logical pixel, where a size's are of a point: eight points measured eight pixels
+    // a gap under the drive's step 53, so the points become CSS2's reference pixels, 96 to the
+    // inch, first (ADR 1654). A share of a space is of the face Pango picks, measured there.
+    let space = matches!(
+        run.letter_spacing,
+        pdf_model::popup::RichSpacing::OfSpace(share) if share != 0.0
+    )
+    .then(|| pango_space(run, size, context));
+    RunFace {
+        size: units(size),
+        bold: run.bold,
+        italic: run.italic,
+        family: viewer_host::popup::family(run),
+        colour: run.colour,
+        underlines: run.underlines,
+        line_through: run.line_through,
+        rise: (raised.abs() > f32::EPSILON).then(|| units(raised)),
+        spacing: viewer_host::popup::letter_spacing(run, base, 1.0, space)
+            .filter(|spacing| spacing.abs() > f32::EPSILON)
+            .map(|spacing| units(spacing * 96.0 / 72.0)),
+    }
+}
+
 /// One rich run as a Pango markup `span`: the characters escaped, and every attribute one this
-/// function writes from the run's own fields — a family `viewer_host::popup::family` has passed,
+/// function writes from the run's [`RunFace`] — a family `viewer_host::popup::family` has passed,
 /// so nothing the document wrote reaches the markup as markup. Its tab characters are kept only
 /// where `tabs` says the paragraph's tabs advance.
 fn pango_span(
@@ -6057,52 +6236,34 @@ fn pango_span(
     tabs: bool,
 ) -> String {
     use std::fmt::Write as _;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        reason = "a size held within three times a label's own is far inside i32's range in \
-                  Pango units, and Pango's scale of 1024 is exact in f32"
-    )]
-    let units = |points: f32| (points * pango::SCALE as f32).round() as i32;
+    let face = run_face(run, base, context);
     let mut out = String::new();
     let _ = write!(
         out,
         "<span size=\"{}\" weight=\"{}\" style=\"{}\"",
-        units(viewer_host::popup::size(run, base, 1.0)),
-        if run.bold { "bold" } else { "normal" },
-        if run.italic { "italic" } else { "normal" },
+        face.size,
+        if face.bold { "bold" } else { "normal" },
+        if face.italic { "italic" } else { "normal" },
     );
-    if let Some(name) = viewer_host::popup::family(run) {
+    if let Some(name) = face.family {
         let _ = write!(out, " font_family=\"{name}\"");
     }
-    if let Some(colour) = run.colour {
+    if let Some(colour) = face.colour {
         let _ = write!(out, " foreground=\"#{}\"", viewer_host::popup::hex(colour));
     }
-    match run.underlines {
+    match face.underlines {
         0 => {}
         1 => out.push_str(" underline=\"single\""),
         _ => out.push_str(" underline=\"double\""),
     }
-    if run.line_through {
+    if face.line_through {
         out.push_str(" strikethrough=\"true\"");
     }
-    let raised = viewer_host::popup::rise(run, base, 1.0);
-    if raised.abs() > f32::EPSILON {
-        let _ = write!(out, " rise=\"{}\"", units(raised));
+    if let Some(rise) = face.rise {
+        let _ = write!(out, " rise=\"{rise}\"");
     }
-    // Chapter 27's `letter-spacing`. Pango takes it in thousand-and-twenty-fourths of the layout's
-    // own unit, a logical pixel, where a size's are of a point: eight points measured eight pixels
-    // a gap under the drive's step 53, so the points become CSS2's reference pixels, 96 to the
-    // inch, first (ADR 1654). A share of a space is of the face Pango picks, measured there.
-    let space = matches!(
-        run.letter_spacing,
-        pdf_model::popup::RichSpacing::OfSpace(share) if share != 0.0
-    )
-    .then(|| pango_space(run, viewer_host::popup::size(run, base, 1.0), context));
-    if let Some(spacing) = viewer_host::popup::letter_spacing(run, base, 1.0, space)
-        .filter(|spacing| spacing.abs() > f32::EPSILON)
-    {
-        let _ = write!(out, " letter_spacing=\"{}\"", units(spacing * 96.0 / 72.0));
+    if let Some(spacing) = face.spacing {
+        let _ = write!(out, " letter_spacing=\"{spacing}\"");
     }
     out.push('>');
     let text: std::borrow::Cow<'_, str> = if tabs {
@@ -6113,6 +6274,42 @@ fn pango_span(
     out.push_str(&glib::markup_escape_text(&text));
     out.push_str("</span>");
     out
+}
+
+/// One rich run's [`RunFace`] as a text buffer's tag, which the note's editor sets over the
+/// characters of `/Contents` the run is (ADR 1782): the span's attributes, property for property.
+fn run_tag(face: &RunFace<'_>) -> gtk4::TextTag {
+    let tag = gtk4::TextTag::new(None);
+    tag.set_size(face.size);
+    tag.set_weight(if face.bold { 700 } else { 400 });
+    tag.set_style(if face.italic {
+        pango::Style::Italic
+    } else {
+        pango::Style::Normal
+    });
+    if let Some(name) = face.family {
+        tag.set_family(Some(name));
+    }
+    if let Some(colour) = face.colour {
+        tag.set_foreground_rgba(Some(&gtk4::gdk::RGBA::new(
+            colour.r, colour.g, colour.b, 1.0,
+        )));
+    }
+    match face.underlines {
+        0 => {}
+        1 => tag.set_underline(pango::Underline::Single),
+        _ => tag.set_underline(pango::Underline::Double),
+    }
+    if face.line_through {
+        tag.set_strikethrough(true);
+    }
+    if let Some(rise) = face.rise {
+        tag.set_rise(rise);
+    }
+    if let Some(spacing) = face.spacing {
+        tag.set_letter_spacing(spacing);
+    }
+    tag
 }
 
 /// Device pixels as the logical ones GTK lays out in.

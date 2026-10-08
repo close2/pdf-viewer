@@ -438,8 +438,9 @@ by two, where the file's `/Open`, a click or a script's `popupOpen` opens it (AD
 §12.5.6.4 note gives it the keyboard — a text view over the window in `quorra-gtk` and `quorra-qt`,
 the window's focus ring and a caret in `quorra`, which a press places in the window's text and the
 four arrows, Home and End move, a window drawn from `/RC` as much as a plain one (ADRs 1739, 1770);
-the toolkits' text view starts with its caret at the character the press was on, except a plain
-note in `quorra-qt`, whose label answers no point and starts at the end —
+the toolkits' text view starts with its caret at the character the press was on and draws a note
+from `/RC` in its runs' faces while you type, until a character you type makes the window plain,
+saying under the text what of its paragraphs it does not draw (ADR 1782) —
 every change is the note's
 `/Contents`, an undo takes it back, a save writes it with the producer's icon kept, and Escape gives
 the keyboard back to the page. Another markup annotation's window takes no press. A reply that states

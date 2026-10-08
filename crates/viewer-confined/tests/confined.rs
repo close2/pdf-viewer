@@ -171,9 +171,10 @@ fn frame_here(viewer: &Viewer) -> (usize, pdf_render::Raster, (f32, f32)) {
 /// through here. A test that reached for a raster field directly would have stopped seeing the
 /// boundary on the day the boundary started working, which is trap 1's own shape.
 ///
-/// One strip, because that is what the confined worker rasterises with. ADR 0139's property says
-/// the count cannot change the bytes; matching it anyway means a failure here is about the
-/// boundary rather than about a thread.
+/// One strip, so the expectation is the same on every machine. The worker's own width is the
+/// machine's under the arena limit its spawner sets (ADR 1554), and ADR 0219 found that a strip
+/// edge can move a pixel by up to two levels, so the identity asserted below holds the worker's
+/// division to the page's bytes as well as the boundary.
 fn pixels(framed: &viewer_confined::Framed) -> pdf_render::Raster {
     match &framed.payload {
         viewer_confined::Payload::Raster(raster) => raster.clone(),
@@ -1082,8 +1083,11 @@ mod amplification;
 /// How long the hostile document is given to *not* finish before it is cancelled.
 ///
 /// The assertion is one-sided on purpose: this says the work had not finished, which is what
-/// makes the cancel that follows a cancel of something. It is two seconds against a page that
-/// takes tens, so a machine under load moves it in the safe direction.
+/// makes the cancel that follows a cancel of something. It is two seconds against a page the
+/// worker draws in 16.3 s in the `dev` profile this suite builds and 6.9 s in release (measured
+/// 2026-10-08), so a machine under load moves it in the safe direction. It is the one draw in this
+/// file still timed rather than held: it happens inside the confined worker, which the test
+/// reaches only through the document, so [`HeldOpen`] has no way in (ADR 1780).
 const UNFINISHED: Duration = Duration::from_secs(2);
 
 /// How long the host waits for its thread back after cancelling.
@@ -1317,22 +1321,122 @@ fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
     );
 }
 
-/// How long the **host's** draw has to still be going before the interrupt is raised.
+/// How long the drawing thread may take to reach [`HeldOpen`], the mark the test holds.
 ///
-/// One-sided, exactly as [`UNFINISHED`] is one level up: what it establishes is that there was a
-/// draw to interrupt, and a machine under load moves it in the safe direction. The draw is ten
-/// thousand page-covering fills, and the CPU rasteriser takes 0.61 s over them in release and
-/// 1.18 s in debug on this machine, alone (measured 2026-09-22; ADR 0650 measured 27.6 s, before
-/// ADR 1082's scan converter and the rectangle fast path). A deeper document would cross as pixels
-/// rather than marks and leave this arm, so the wait is a third of the quicker figure instead.
-const HOST_UNFINISHED: Duration = Duration::from_millis(200);
+/// Bounded against unbounded, for [`AFTER_CANCEL`]'s reason: before the mark there is the planning
+/// pass and the target's allocation, which ADR 0650 section 4 prices in milliseconds, and a draw
+/// that never reached the mark is reported by name rather than waited on for ever.
+const REACHES_THE_MARK: Duration = Duration::from_secs(30);
+
+/// A mark whose samples are not produced until the test lets them be: **the draw it is part of
+/// cannot finish before the test says so, on any machine.**
+///
+/// Why the draw is held rather than timed. The ten thousand page-covering fills below finish
+/// unheld in 0.4 to 0.8 s in release and 1.9 to 2.4 s in debug on this machine, through
+/// `CpuRasterizer::new()` as the host makes it (measured 2026-10-08 at a load average of 10 to 24;
+/// ADR 1780). So no wait the test could choose establishes a draw in progress: it would be a
+/// race, which a quicker machine or a quicker rasteriser loses. A producer the rasteriser calls in
+/// the middle of its command loop is the one place this test can stand inside that loop, and
+/// `pdf_render::ImageAtDeviceScale` is that producer — `CpuRasterizer::draw_image` asks it for
+/// samples while it draws the command that names it.
+///
+/// It tells the test it has been reached, then waits until [`HeldOpen::release`]. Every strip that
+/// draws the mark waits on the same gate, so the hold does not depend on how many strips the
+/// machine's count grants.
+#[derive(Debug)]
+struct HeldOpen {
+    /// Told once, by the first strip to ask for samples: the draw is past `rasterize`'s own check
+    /// and inside the command loop.
+    reached: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    /// Whether the test has let the samples be produced, and the waiting strips' wake.
+    released: (std::sync::Mutex<bool>, std::sync::Condvar),
+}
+
+impl HeldOpen {
+    fn new(reached: std::sync::mpsc::Sender<()>) -> Self {
+        Self {
+            reached: std::sync::Mutex::new(Some(reached)),
+            released: (std::sync::Mutex::new(false), std::sync::Condvar::new()),
+        }
+    }
+
+    /// `list` with this mark in front of its commands.
+    ///
+    /// Page-covering, so that no strip passes it by as missing its rows, and first, so that every
+    /// one of `list`'s commands is still to come when the draw is stopped there. The clip and mask
+    /// tables stay where `list`'s commands expect them, because only the commands are moved.
+    fn in_front_of(self: &Arc<Self>, list: &pdf_render::DisplayList) -> pdf_render::DisplayList {
+        let mut held = list.clone();
+        let commands = held.split_off_commands(0);
+        let page = held.page_size;
+        held.push(pdf_render::Command::Image {
+            image: pdf_render::ImageSource::AtDeviceScale(pdf_render::DeferredImage::new(
+                Arc::clone(self) as Arc<dyn pdf_render::ImageAtDeviceScale>,
+            )),
+            transform: pdf_render::Transform::scale(page.width, page.height),
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: pdf_render::BlendMode::Normal,
+        });
+        for command in commands {
+            held.push(command);
+        }
+        held
+    }
+
+    /// Lets every strip waiting at the mark draw it and go on to the next command.
+    fn release(&self) {
+        let (released, wake) = &self.released;
+        *released
+            .lock()
+            .expect("the gate is never held across a panic") = true;
+        wake.notify_all();
+    }
+}
+
+impl pdf_render::ImageAtDeviceScale for HeldOpen {
+    fn samples(&self, _grid: pdf_render::Grid) -> pdf_render::Image {
+        if let Some(reached) = self
+            .reached
+            .lock()
+            .expect("the gate is never held across a panic")
+            .take()
+        {
+            // The test may already have given up and dropped its end, and then it is failing for
+            // a reason it states itself.
+            let _ = reached.send(());
+        }
+        let (released, wake) = &self.released;
+        let mut open = released
+            .lock()
+            .expect("the gate is never held across a panic");
+        while !*open {
+            open = wake
+                .wait(open)
+                .expect("the gate is never held across a panic");
+        }
+        // One opaque white sample: what it draws is not what this test is about.
+        pdf_render::Image {
+            width: 1,
+            height: 1,
+            data: Arc::from(vec![0xFF; 4]),
+            interpolate: false,
+            sample_alpha: pdf_render::SampleAlpha::Shape,
+        }
+    }
+
+    fn sample_alpha(&self) -> pdf_render::SampleAlpha {
+        pdf_render::SampleAlpha::Shape
+    }
+}
 
 /// How long the drawing thread may take to come back once the interrupt is raised.
 ///
 /// Generous for [`AFTER_CANCEL`]'s reason and one more of its own: the flag is read *between*
-/// commands, so the wait includes finishing the page-covering fill already in progress. What is
-/// being asserted is bounded against unbounded, and a tight bound here would be a test of the
-/// scheduler. Measured at 1.3–2.1 ms over three runs in release (ADR 0650 section 4).
+/// commands, so the wait includes finishing the command in progress — here [`HeldOpen`]'s
+/// page-covering image, once the test lets it go. What is being asserted is bounded against
+/// unbounded, and a tight bound here would be a test of the scheduler.
 const AFTER_INTERRUPT: Duration = Duration::from_secs(30);
 
 /// **The other half of the cancel, and the half no kill reaches: the host interrupts its own
@@ -1345,10 +1449,12 @@ const AFTER_INTERRUPT: Duration = Duration::from_secs(30);
 ///
 /// Four claims, and the last is what makes an interrupt a different object from a cancel. The
 /// page crosses as **marks** — checked, never assumed, for the reason the test above states. The
-/// host's draw **had not finished** after [`HOST_UNFINISHED`], so there was something to
-/// interrupt. The drawing thread **came back**, refused by name rather than with a raster. And
-/// the confined worker is **untouched**: it was never told, the document is still open, and a
-/// question still answers — where a cancel would have taken the worker and the document with it.
+/// host's draw **had not finished** when the interrupt was raised, and that is by construction:
+/// the worker's marks are drawn behind [`HeldOpen`], which holds the draw inside its command loop
+/// until the interrupt is up, with all ten thousand fills still to come. The drawing thread
+/// **came back**, refused by name rather than with a raster. And the confined worker is
+/// **untouched**: it was never told, the document is still open, and a question still answers —
+/// where a cancel would have taken the worker and the document with it.
 #[test]
 fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
     let levels = amplification::LEVELS.saturating_sub(1);
@@ -1389,15 +1495,20 @@ fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
             amplification::fills(levels)
         )
     };
-    let (list, target) = (Arc::clone(list), *target);
+    let (reached_sender, reached) = std::sync::mpsc::channel();
+    let gate = Arc::new(HeldOpen::new(reached_sender));
+    let held_list = gate.in_front_of(list);
+    let still_to_come = held_list.commands().len() - 1;
+    let target = *target;
 
     let interrupt = Interrupt::new();
-    let held = interrupt.clone();
+    let for_the_draw = interrupt.clone();
     let (sender, receiver) = std::sync::mpsc::channel();
     let drawing = std::thread::spawn(move || {
+        // `new()` because that is how `viewer_host::drawing` makes the host's rasteriser.
         let drawn = CpuRasterizer::new()
-            .interruptible(held)
-            .rasterize(&list, target);
+            .interruptible(for_the_draw)
+            .rasterize(&held_list, target);
         // What happened rather than the value, because a raster does not need to cross a channel
         // for this test to read it: a refusal by name, or the size of the pixels that arrived.
         let _ = sender.send(match drawn {
@@ -1406,13 +1517,22 @@ fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
         });
     });
 
+    if reached.recv_timeout(REACHES_THE_MARK).is_err() {
+        gate.release();
+        let said = receiver.recv_timeout(AFTER_INTERRUPT).map(|(_, said)| said);
+        panic!("the host's draw never reached the mark it was to be held at: {said:?}");
+    }
     assert!(
-        receiver.recv_timeout(HOST_UNFINISHED).is_err(),
-        "the host's draw finished in {HOST_UNFINISHED:?}, so this test interrupts nothing"
+        matches!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ),
+        "the draw is held at the mark, so it has not answered"
     );
 
-    let at = Instant::now();
     interrupt.raise();
+    let at = Instant::now();
+    gate.release();
     let (refused, said) = receiver
         .recv_timeout(AFTER_INTERRUPT)
         .expect("the drawing thread comes back once the interrupt is raised");
@@ -1432,8 +1552,7 @@ fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
         "the interrupt took {took:?}, which is not taking the thread back"
     );
     println!(
-        "{} page-covering fills, interrupted {:.3} ms after the flag was raised",
-        amplification::fills(levels),
+        "{still_to_come} marks still to come, interrupted {:.3} ms after the held mark was let go",
         took.as_secs_f64() * 1e3
     );
 

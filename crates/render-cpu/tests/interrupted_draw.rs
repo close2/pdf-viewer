@@ -17,9 +17,10 @@
 //! takes rather than in microseconds.
 //!
 //! **What is not here is the mid-draw case**, deliberately. Interrupting a draw already in
-//! progress needs a draw long enough to still be going, which is a hostile document rather than a
-//! scene: `viewer-confined`'s `a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw`
-//! is that test, on marks that came out of a real confined worker.
+//! progress needs a draw that is still going when the interrupt is raised, and `viewer-confined`'s
+//! `a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw` is that test: it holds the
+//! host's draw open at a page-covering image mark of its own, whose samples wait on a gate the test
+//! owns, in front of marks that came out of a real confined worker (ADR 1780).
 
 // No lint exception: every `expect` below is inside a `#[test]`, which `clippy.toml`'s
 // `allow-expect-in-tests` already permits, and an `#[expect]` that is never needed is itself an

@@ -33,9 +33,9 @@ use std::collections::BTreeMap;
 
 use pdf_syntax::Document;
 
-use super::ViewState;
 use super::script_model::{ScriptSite, Sound};
 use super::scripts::{MAX_SCRIPT_BYTES, ScriptEvent};
+use super::{ScriptsRan, ViewState};
 
 /// Shortest period a timer counts, in milliseconds: a sixtieth of a second.
 pub const MIN_PERIOD: u32 = 16;
@@ -152,22 +152,24 @@ impl ViewState {
     }
 
     /// Counts the timers scripts set down by `millis` of a host's ticks and runs every one now due,
-    /// at page `page`, the page the host shows: answers how many scripts were handed to the runner.
+    /// at page `page`, the page the host shows: answers how many scripts were handed to the runner
+    /// and whether what they edited can have changed what a page draws, as the event and page
+    /// runners answer (ADR 1762), so a host draws the page again only where one did.
     ///
     /// Each due expression runs as a script of its own, held to the runner's budget, with what it
     /// edits applied as any script's edits are; an interval due again runs again at a later tick,
     /// never twice in one. With no runner supplied a timer cannot have been set, so this does
     /// nothing.
-    pub fn run_timers(&mut self, document: &Document, millis: u32, page: usize) -> usize {
+    pub fn run_timers(&mut self, document: &Document, millis: u32, page: usize) -> ScriptsRan {
         if self.runner.0.is_none() || self.scripting.timers.held.is_empty() {
-            return 0;
+            return ScriptsRan::default();
         }
         let due = self.scripting.timers.elapse(millis);
         if due.is_empty() {
-            return 0;
+            return ScriptsRan::default();
         }
         let table = super::widgets_by_field_name(document);
-        let (mut handed, mut changed, mut calculate) = (0_usize, false, false);
+        let (mut handed, mut changed, mut calculate, mut drawn) = (0_usize, false, false, false);
         for script in &due {
             let event = ScriptEvent {
                 script,
@@ -178,6 +180,7 @@ impl ViewState {
                 handed = handed.saturating_add(1);
                 changed |= applied.values;
                 calculate |= applied.calculate;
+                drawn |= applied.drawn;
                 self.report_each("a timer's expression", result.report);
             }
         }
@@ -187,7 +190,10 @@ impl ViewState {
             self.recalculate_scripts(document, &table, "");
         }
         self.refresh_formatted(document, &table);
-        handed
+        ScriptsRan {
+            handed,
+            changed: drawn,
+        }
     }
 
     /// Every sound a script's `app.beep` asked for since a host last took them, in order (ADR

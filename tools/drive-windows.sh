@@ -527,6 +527,25 @@ pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
     ' app.setTimeOut("this.pageNum = 0;", 1500);'))
 pdf.save(f"{out}/drive-timer.pdf")
 
+# drive-timer-quiet.pdf: an open action whose interval logs at each of its first two runs and
+# changes nothing a page draws, and at its third writes a field and clears itself — so a page is
+# interpreted again after the third alone (ADR 1771): a timer's script that changes nothing leaves
+# the page as it is, and the third run is the count's own control.
+pdf = pikepdf.new()
+font = helv(pdf)
+quiet = page(pdf, font, "Timer quiet")
+written = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Written"), Rect=[72, 450, 540, 480], F=4, Ff=1,
+    P=quiet.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[0.95, 0.95, 0.95])))
+quiet.obj.Annots = Array([written])
+pdf.Root.AcroForm = Dictionary(Fields=Array([written]), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
+    'var n = 0; var t = app.setInterval("n++; console.println(\\"tick \\" + n + \\" ran\\");'
+    ' if (n == 3) { this.getField(\\"Written\\").value = \\"written\\"; app.clearInterval(t); }",'
+    ' 500);'))
+pdf.save(f"{out}/drive-timer-quiet.pdf")
+
 # drive-beep.pdf: an open action asking for the warning's sound, `app.beep(1)` (ADR 1702).
 pdf = pikepdf.new()
 font = helv(pdf)
@@ -2497,6 +2516,51 @@ script_timer() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A timer whose script changes nothing a page draws leaves the page as it was interpreted (ADR
+# 1771): drive-timer-quiet.pdf's interval logs twice and then writes a field, and the saved field
+# holds what the third run wrote in every window that runs scripts. `quorra` traces every render a
+# command asks for as `render ready`, so it also counts none between the first two runs' lines and
+# at least one after the third's — the count's control; the confined window, pinned to `off`,
+# logs none.
+script_timer_quiet() {
+    local step=72-script-timer-quiet form="$OUT/$WINDOW-timer-quiet.pdf" seen quiet="not counted" written="not counted"
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict "$step" "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    cp "$FIXTURES/drive-timer-quiet.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form" --scripts on
+    if [ "$WINDOW" = quorra-confined ]; then
+        sleep 2.5
+        if [ "$(said 'tick 1 ran')" -eq 0 ]; then
+            verdict "$step" works "pinned to off: no timer's script ran"
+        else
+            verdict "$step" wrong "a timer ran under off: $LOG"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    wait_for 10 said_since 0 'tick 3 ran'
+    sleep 1
+    if [ "$WINDOW" = quorra ]; then
+        quiet=$(sed -n '/tick 1 ran/,/tick 3 ran/p' "$LOG" | grep -c 'render ready')
+        written=$(sed -n '/tick 3 ran/,$p' "$LOG" | grep -c 'render ready')
+    fi
+    click 690 850; key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+print(str(p.Root.AcroForm.Fields[0].V))
+PY
+)
+    if [ "$seen" = written ] && [ "$(said 'tick 3 ran')" -ge 1 ] \
+        && { [ "$WINDOW" != quorra ] || { [ "$quiet" = 0 ] && [ "$written" -ge 1 ]; }; }; then
+        verdict "$step" works "three runs logged; renders after the two quiet runs: $quiet, after the writing run: $written; the saved field: $seen"
+    else
+        verdict "$step" wrong "renders after the two quiet runs: $quiet, after the writing run: $written; the saved field: ${seen:-nothing}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # `app.beep(1)` in an open action, in all four windows (ADR 1702): GTK and Qt play their system
 # sound and say which of the reference's five was asked for; `quorra`'s toolkit has none, so it says
 # none was played — never silence; the confined window runs no script, so it says nothing at all.
@@ -2919,10 +2983,12 @@ note_window() {
 # /Contents offset it is (ADR 1770) — and Right, Left, Left move it as in a plain note before "|"
 # goes in. Escape gives the keyboard back, and the saved file's /Contents is "A red word." with the
 # "|" at byte 1 to 4 — the witness a photograph cannot be: a caret left at the note's end puts it at
-# 9, and one at its start at 0. `quorra` says where the press put it; the toolkits' editors place
-# the press through their own text layouts.
+# 9, and one at its start at 0. Every window says where the press put it; the toolkits' editors place
+# the press through their own text layouts. And the editor draws what the window drew (ADR 1782): the
+# red run is red while the note is typed into, and once "|" makes its characters /Contents' no
+# longer, the window and its editor are plain alike.
 note_typed() {
-    local form="$OUT/$WINDOW-typed.pdf" box tall x y mark seen placed
+    local form="$OUT/$WINDOW-typed.pdf" box tall x y mark seen placed pressed typing
     cp "$FIXTURES/drive-note-file.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
     launch "$form"; sleep 1; shot 64-note-typed
     box=$(box_of "$OUT/shots/$WINDOW/64-note-typed.png" "#ff0000")
@@ -2941,9 +3007,12 @@ note_typed() {
     placed=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'typing into the text note [0-9]* [0-9]* at [0-9]* of [0-9]*' | head -1)
     sleep 0.5
     shot 64-note-typed-pressed
+    pressed=$(coloured "$OUT/shots/$WINDOW/64-note-typed-pressed.png" "#ff0000")
     key Right Left Left
     type_then 'SetNoteText' '|'
+    sleep 0.5
     shot 64-note-typed-typing
+    typing=$(coloured "$OUT/shots/$WINDOW/64-note-typed-typing.png" "#ff0000")
     key_then 'the keyboard is back on the page' Escape
     shot 64-note-typed-after
     click 690 850; key_then "$SAVED" ctrl+s
@@ -2956,18 +3025,20 @@ PY
     local at=-1 rest
     if [[ "$seen" == *"|"* ]]; then rest=${seen#*|}; at=$(( ${#seen} - ${#rest} - 1 )); fi
     if [ "${seen/|/}" = 'A red word.' ] && [ "$at" -ge 1 ] && [ "$at" -le 4 ] \
-        && { [ "$WINDOW" != quorra ] || [[ "$placed" =~ at\ ([2-5])\ of\ 11$ ]]; }; then
-        verdict 64-note-typed works "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: $seen"
+        && [[ "$placed" =~ at\ ([2-5])\ of\ 11$ ]] \
+        && [ "${pressed:-0}" -gt 40 ] && [ "${typing:-1}" -eq 0 ]; then
+        verdict 64-note-typed works "pressed at $x,$y ($placed); red pixels: $pressed typed into, $typing once plain; the saved /Contents: $seen"
     else
-        verdict 64-note-typed wrong "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: ${seen:-nothing}: $LOG"
+        verdict 64-note-typed wrong "pressed at $x,$y${placed:+ ($placed)}; red pixels: ${pressed:-?} typed into, ${typing:-?} once plain; the saved /Contents: ${seen:-nothing}: $LOG"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
 # A caret placed and moved inside a note's window (ADR 1739): a press in the window's text, then Home,
 # "A ", End, Left and "!" — so the saved /Contents is "A Plain words!." only where the keys moved the
-# caret inside the note rather than standing at its end. `quorra` lays the note's lines out itself
-# and says where the press put the caret; the two toolkits' text widgets place their own.
+# caret inside the note rather than standing at its end. Every window says where the press put the
+# caret, which is before the note's end: `quorra` lays the note's lines out itself, GTK's label and
+# Qt's plain document say which character a point is on (ADR 1782).
 note_caret() {
     local form="$OUT/$WINDOW-caret.pdf" photo paper tall line x y mark seen placed
     cp "$FIXTURES/drive-note-plain.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
@@ -3009,7 +3080,7 @@ p = pikepdf.open(sys.argv[1])
 print(str(p.pages[0].Annots[0].Contents))
 PY
 )
-    if [ "$seen" = 'A Plain words!.' ] && { [ "$WINDOW" != quorra ] || [[ "$placed" =~ at\ ([0-9]+)\ of\ 12$ && ${BASH_REMATCH[1]} -lt 12 ]]; }; then
+    if [ "$seen" = 'A Plain words!.' ] && [[ "$placed" =~ at\ ([0-9]+)\ of\ 12$ && ${BASH_REMATCH[1]} -lt 12 ]]; then
         verdict 67-note-caret works "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: $seen"
     else
         verdict 67-note-caret wrong "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: ${seen:-nothing}: $LOG"
@@ -3172,6 +3243,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         script_withdrawn
         script_goto
         script_timer
+        script_timer_quiet
         script_beep
         script_triggers
         located
@@ -3190,6 +3262,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_withdrawn
     script_goto
     script_timer
+    script_timer_quiet
     script_beep
     script_triggers
     script_keys

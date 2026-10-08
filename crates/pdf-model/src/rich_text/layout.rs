@@ -632,11 +632,11 @@ fn family_of(document: &Document, dict: &Dictionary) -> (String, bool, bool, u8)
                 stretch = u8::try_from(at).unwrap_or(NORMAL_STRETCH);
             }
         }
-        if let Some(flags) = document.get_key(descriptor, "Flags").as_integer() {
-            // Table 121's bit 7, Italic; bit 19, ForceBold, says the face is drawn bold.
-            italic = italic || flags & (1 << 6) != 0;
-            bold = bold || flags & (1 << 18) != 0;
-        }
+        // Table 121's bit 7, Italic; bit 19, ForceBold, says the face is drawn bold. A word that
+        // is not §9.8.2's unsigned 32-bit integer states no flags, as it does for `pdf_font`.
+        let flags = pdf_font::descriptor_flags(document, descriptor);
+        italic = italic || flags & (1 << 6) != 0;
+        bold = bold || flags & (1 << 18) != 0;
     }
     (family, bold, italic, stretch)
 }

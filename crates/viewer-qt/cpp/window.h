@@ -23,6 +23,8 @@
 #include <QPoint>
 #include <QString>
 #include <QStringList>
+#include <QSyntaxHighlighter>
+#include <QTextCharFormat>
 #include <QVector>
 #include <QWidget>
 
@@ -43,7 +45,7 @@ class QTreeView;
 
 namespace quorra_qt {
 
-class RichNoteView;
+class NoteView;
 
 /// One of `viewer-core`'s three panel answers, as a Qt item model.
 ///
@@ -275,23 +277,30 @@ protected:
 private:
     /// What a press does, where the window's text is retyped.
     std::function<void(int)> pressed_;
-    /// The rich note's view, where the window is drawn from Table 172's `/RC`.
-    RichNoteView* rich_ = nullptr;
+    /// The note's view, from Table 172's `/RC` or from `/Contents`, where the window's text is a
+    /// note a person may retype or is drawn from runs.
+    NoteView* note_ = nullptr;
     /// `viewer_host::popup::EDGE`.
     QColor edge_;
 };
 
-/// Table 172's `/RC` as a popup window draws it: a `QTextDocument` built format by format from
-/// the runs the host answered, laid out at the widget's width (ADR 1666).
+/// A note's text as a popup window draws it: Table 172's `/RC` as a `QTextDocument` built format
+/// by format from the runs the host answered (ADR 1666), or Table 166's `/Contents` as a plain
+/// one, laid out at the widget's width.
 ///
 /// Not a `QLabel`, because a label takes rich text as markup and Qt's CSS reader states no font
-/// scale; a document built through `QTextCursor` takes `QTextCharFormat::setFontStretch`.
-class RichNoteView : public QWidget
+/// scale — a document built through `QTextCursor` takes `QTextCharFormat::setFontStretch` — and
+/// because a label answers no point for a character, where a document's layout says which
+/// character a press is on, so a plain note's editor starts there too (ADR 1782).
+class NoteView : public QWidget
 {
 public:
     /// Builds the document from `paragraphs`, set in `font` where a run states nothing.
-    RichNoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font, QWidget* parent);
-    ~RichNoteView() override;
+    NoteView(const rust::Vec<QtRichParagraph>& paragraphs, const QFont& font, QWidget* parent);
+    /// Builds the document from `plain`, set in `font`, as `setPlainText` makes one: the positions
+    /// are the note's editor's own.
+    NoteView(const QString& plain, const QFont& font, QWidget* parent);
+    ~NoteView() override;
     /// The document position of the character at `point`, in this widget's coordinates, as the
     /// document's own layout places it; -1 below the last line (ADR 1770).
     int positionAt(QPoint point) const;
@@ -358,6 +367,39 @@ private:
     std::vector<Leadered> leadered_;
     /// The width they were last handed for, or below zero before the first.
     qreal handedFor_ = -1.0;
+};
+
+/// The faces a rich note's runs are set in, over the characters of `/Contents` its editor holds
+/// (ADR 1782).
+///
+/// A highlighter rather than formats written into the editor's document, because what it sets is
+/// the layout's alone: no character changes, nothing goes on the editor's undo stack for a person
+/// to undo, and setting it again from nothing as a person types costs no edit. Each span is a run's
+/// format over the positions `viewer_host::popup::run_spans` found it at; none is a plain note.
+class NoteFaces : public QSyntaxHighlighter
+{
+public:
+    /// One run's characters and what they are set in.
+    struct Span {
+        /// The position of its first character in the editor's document.
+        int start;
+        /// The position after its last.
+        int end;
+        /// The run's format.
+        QTextCharFormat format;
+    };
+
+    explicit NoteFaces(QTextDocument* document);
+    /// Sets these spans and lays every block out again with them.
+    void setSpans(std::vector<Span> spans);
+
+protected:
+    /// Sets each span's format over the part of `text`, the block's, it covers.
+    void highlightBlock(const QString& text) override;
+
+private:
+    /// The runs, in the document's order.
+    std::vector<Span> spans_;
 };
 
 /// The page's pixels, the form's controls, and the chrome over both.
@@ -464,6 +506,9 @@ private:
     void keys();
     /// Takes the note's editor away.
     void endNote();
+    /// Sets the note's editor in the runs' faces `window` answers and says under it what it does
+    /// not draw — nothing where the window is plain (ADR 1782).
+    void styleNote(const QtPopup& window);
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
     /// Ctrl + O's `QFileDialog`, whose answer opens beside the document in front (ADR 1275).
@@ -654,6 +699,14 @@ private:
     /// The editor standing in a note's window while a person types into it, and that note's
     /// object (ADR 1726).
     QPlainTextEdit* noteEditor_ = nullptr;
+    /// What holds the editor and the sentence under it, placed where the window is.
+    QWidget* noteFrame_ = nullptr;
+    /// What the editor does not draw of a rich note, under it.
+    QLabel* noteSaid_ = nullptr;
+    /// The runs' faces over the editor's text.
+    NoteFaces* noteFaces_ = nullptr;
+    /// The text last sent as the note's, so that a change that is a format's alone sends nothing.
+    QString noteSent_;
     std::uint32_t noteNumber_ = 0;
     std::uint16_t noteGeneration_ = 0;
     /// §12.4.4.1's clock, as one repeating timer that is stopped whenever nothing is presenting.

@@ -355,6 +355,84 @@ pub fn rich_offsets(contents: &str, note: &pdf_model::popup::RichNote) -> Option
         .then_some(tables)
 }
 
+/// One rich run's characters in Table 166's `/Contents`, for a toolkit's editor, which holds
+/// `/Contents` and sets each run's face over the characters it is (ADR 1782).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunSpan {
+    /// The paragraph of [`pdf_model::popup::RichNote::paragraphs`] the run is in.
+    pub paragraph: usize,
+    /// The run, by its place in the paragraph's own `runs`: a list item's tag is none of them.
+    pub run: usize,
+    /// The byte of `/Contents` the run's first character is.
+    pub start: usize,
+    /// The byte after its last, white space `/Contents` holds there included.
+    pub end: usize,
+}
+
+/// Where each rich run stands in Table 166's `/Contents`, in the note's order, on
+/// [`rich_offsets`]' one alignment, so that an editor holding `/Contents` sets a run's face on the
+/// characters the window drew in it; a run that covers no byte is left out. `None` where the two
+/// do not hold the same characters in the same order, which is where the window is plain too.
+///
+/// What lies between two paragraphs — the break `/Contents` spells as white space — is in no
+/// run, and an editor sets it in its own face, as the window draws no character for it.
+#[must_use]
+pub fn run_spans(contents: &str, note: &pdf_model::popup::RichNote) -> Option<Vec<RunSpan>> {
+    let tables = rich_offsets(contents, note)?;
+    let mut spans = Vec::new();
+    for (paragraph, (stated, table)) in note.paragraphs.iter().zip(&tables).enumerate() {
+        let mut from = 0_usize;
+        for (run, held) in stated.runs.iter().enumerate() {
+            let to = from.saturating_add(held.text.len());
+            let (start, end) = (*table.get(from)?, *table.get(to)?);
+            if end > start {
+                spans.push(RunSpan {
+                    paragraph,
+                    run,
+                    start,
+                    end,
+                });
+            }
+            from = to;
+        }
+    }
+    Some(spans)
+}
+
+/// The sentence a toolkit's editor says under a rich note while it is typed into, or `None` where
+/// it draws everything the window drew (ADR 1782).
+///
+/// The editor holds `/Contents` and sets each run's face over its characters ([`run_spans`]), so
+/// what it draws of the note is the runs'; what is a paragraph's — a list item's tag, which is no
+/// character of `/Contents`, a list's indent, an alignment, the stops a tab reaches and their
+/// leaders — the window drew and the editor does not, and it says so beside [`not_drawn`]'s own
+/// list and `toolkit_unapplied`'s, `scales` saying as there whether the toolkit sets a font scale.
+#[must_use]
+pub fn editor_not_drawn(note: &pdf_model::popup::RichNote, scales: bool) -> Option<String> {
+    let mut also = toolkit_unapplied(note, scales);
+    let paragraphs = &note.paragraphs;
+    if paragraphs.iter().any(|paragraph| paragraph.tag.is_some()) {
+        also.push("a list item's label while typing".to_owned());
+    }
+    if paragraphs.iter().any(|paragraph| paragraph.level > 0) {
+        also.push("a list's indent while typing".to_owned());
+    }
+    if paragraphs.iter().any(|paragraph| {
+        paragraph
+            .align
+            .is_some_and(|align| align != pdf_model::popup::RichAlign::Left)
+    }) {
+        also.push("a paragraph's alignment while typing".to_owned());
+    }
+    if paragraphs
+        .iter()
+        .any(|paragraph| tabbed(paragraph) && advances(paragraph))
+    {
+        also.push("a paragraph's tab stops while typing".to_owned());
+    }
+    not_drawn(note, &also)
+}
+
 /// Whether a run states chapter 27's `xfa-font-horizontal-scale` or `xfa-font-vertical-scale`
 /// (page 1202) as anything but its whole size.
 #[must_use]
@@ -1019,6 +1097,42 @@ mod tests {
         assert_eq!(super::rich_offsets("ab cx\rd e", &note), None);
         assert_eq!(super::rich_offsets("ab cé d e more", &note), None);
         assert!(super::rich_offsets("  ab cé d\te \n", &note).is_some());
+    }
+
+    /// Each run's characters are found in `/Contents` with the white space `/Contents` holds at
+    /// its end, a break between paragraphs in no run, and a note whose characters disagree has no
+    /// spans, as it has no places (ADR 1782).
+    #[test]
+    fn a_rich_note_s_runs_stand_on_their_contents_bytes() {
+        let contents = "ab  cé\rd\te";
+        let note = paragraphs(&[&["ab ", "cé"], &["d\te"]]);
+        let spans: Vec<(usize, usize, usize, usize)> = super::run_spans(contents, &note)
+            .unwrap_or_default()
+            .iter()
+            .map(|span| (span.paragraph, span.run, span.start, span.end))
+            .collect();
+        // "ab" and both spaces; "cé", two bytes for the letter; the carriage return is in no run.
+        assert_eq!(spans, vec![(0, 0, 0, 4), (0, 1, 4, 7), (1, 0, 8, 11)]);
+        assert_eq!(super::run_spans("ab cx\rd e", &note), None);
+    }
+
+    /// The editor says what is a paragraph's and not a run's, and nothing for a note of runs alone
+    /// (ADR 1782).
+    #[test]
+    fn a_rich_note_s_editor_says_what_is_its_paragraphs() {
+        let mut note = paragraphs(&[&["ab"]]);
+        assert_eq!(super::editor_not_drawn(&note, true), None);
+        if let Some(paragraph) = note.paragraphs.first_mut() {
+            paragraph.align = Some(pdf_model::popup::RichAlign::Centre);
+            paragraph.level = 1;
+        }
+        assert_eq!(
+            super::editor_not_drawn(&note, true).as_deref(),
+            Some(
+                "[formatting not drawn: a list's indent while typing, a paragraph's alignment \
+                 while typing]"
+            )
+        );
     }
 
     /// A letter spacing in points is points whatever the base and pixels where the host draws

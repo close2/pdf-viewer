@@ -63,10 +63,19 @@ pub const WORKER_PATH_VARIABLE: &str = "PDF_VFS_WORKER";
 /// **One, and it is a finding rather than a preference.** `glibc`'s allocator sizes its arena
 /// count from `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — so the first
 /// allocation in a thread of a many-threaded confined process is an `openat` the filter kills the
-/// process for (ADR 0218). It costs speed and not bytes: `render-cpu`'s own property is that a
-/// machine with four cores and one with thirty-two draw the same bytes, and `tests/a_face.rs`
-/// holds a page out of the mount to what `pdf-transform` itself writes on every core.
+/// process for (ADR 0218). It costs speed and not bytes, because the bytes are [`STRIPS`]'s.
 pub(crate) const RASTERISING_THREADS: u32 = 1;
+
+/// How many strips a page this worker draws is cut into: **one, stated rather than asked.**
+///
+/// A strip's origin is arithmetic of its own, so a page drawn in strips is the page drawn whole
+/// only up to the rasteriser's arithmetic at a shifted origin (ADR 0219), and a count taken from
+/// the machine would make the PNG a mount serves a function of the processors its worker was
+/// given. ADR 1742's rule decides which count to state: one where a comparison holds bytes, and
+/// `tests/read_corpus.rs` holds every render a mount serves to `pdf_transform`'s own at one strip,
+/// byte for byte. One is also all that [`RASTERISING_THREADS`] can draw at once, so it costs no
+/// time (ADR 1774).
+pub(crate) const STRIPS: u32 = 1;
 
 /// How many copies of an answer live at once, at the moment the peak is reached.
 ///
@@ -86,7 +95,7 @@ const COPIES_OF_AN_ANSWER: std::num::NonZeroU64 = match std::num::NonZeroU64::ne
 pub struct WorkerLimits {
     /// What confinement was reached, which is what the greeting carries to the broker.
     pub confinement: pdf_sandbox::lockdown::Confinement,
-    /// How many strips a page's raster may be cut into. See [`RASTERISING_THREADS`].
+    /// How many strips a page's raster is cut into, which is [`STRIPS`] on every machine.
     pub strips: u32,
     /// The largest message this process will read or write, in bytes.
     ///
@@ -131,22 +140,23 @@ pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64) -> u64 {
 
 /// Confines this process for deriving files from a document, and says what that settled.
 ///
-/// **Five steps in this order, and each is where it is for a reason the next one makes true.**
+/// **Four steps in this order, and each is where it is for a reason the next one makes true.**
 ///
-/// 1. **Image decoding moves in-process**, because after step 4 nothing can be spawned, and
-///    **the machine's fonts are declared unreachable**, because after step 4 there is no
+/// 1. **Image decoding moves in-process**, because after step 3 nothing can be spawned, and
+///    **the machine's fonts are declared unreachable**, because after step 3 there is no
 ///    filesystem and `pdf_font::substitute` would otherwise walk `/usr/share/fonts` and be
 ///    *killed* rather than told no (ADR 0870).
-/// 2. **How many processors this machine has is asked now, and mostly thrown away.**
-///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
-///    process asking it is *killed* rather than told no — and this is the one place it can be
-///    asked.
-/// 3. **How much address space this process already occupies is read**, for the same reason and
-///    from the same impossibility: `/proc/self/status` is a file, and after step 4 there are none.
-/// 4. **The confinement itself**, with [`pdf_sandbox::lockdown::Profile::Interpreter`] — the
+/// 2. **How much address space this process already occupies is read**, because
+///    `/proc/self/status` is a file, and after step 3 there are none.
+/// 3. **The confinement itself**, with [`pdf_sandbox::lockdown::Profile::Interpreter`] — the
 ///    viewer's profile, unchanged, because this worker needs nothing the viewer's does not.
-/// 5. **`rayon`'s pool, with that number stated**, built *after* the confinement so that its
+/// 4. **`rayon`'s pool, [`RASTERISING_THREADS`] wide**, built *after* the confinement so that its
 ///    thread inherits both the Landlock domain and the seccomp filter.
+///
+/// **Nothing here asks how many processors the machine has.** The pool's width and a page's strips
+/// are both stated, so neither the filter — `std::thread::available_parallelism` reads
+/// `/proc/self/cgroup` on Linux, and a confined process asking it is *killed* — nor the processors
+/// a worker was given can reach a page it draws (ADRs 0218, 1774).
 ///
 /// # Errors
 ///
@@ -171,10 +181,7 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     pdf_font::provider::faces_come_from(confined_transport::link::ask_the_host);
     confined_transport::link::requests_go_to_the_host(WORKER_PROGRAM);
 
-    let machine = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-    let threads = usize::try_from(RASTERISING_THREADS)
-        .unwrap_or(1)
-        .min(machine);
+    let threads = usize::try_from(RASTERISING_THREADS).unwrap_or(1);
     let already = confined_transport::ceiling::address_space_in_use();
 
     let confinement = pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Interpreter)
@@ -187,7 +194,7 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
 
     Ok(WorkerLimits {
         confinement,
-        strips: u32::try_from(threads).unwrap_or(1),
+        strips: STRIPS,
         // The budget the *default* ceilings imply, so that the first frame — the open frame,
         // which carries the document — has a bound before the document's own budget is known.
         // Replaced by the opened document's own once it has been read.

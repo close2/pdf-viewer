@@ -298,7 +298,8 @@ click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
 activation (ADR 0191), and a text note that states no popup opens one of its own beside its icon,
 §12.5.6.4's (ADR 1723), where a press gives a person the note's text to retype (ADR 1726), at the
-place pressed in `quorra` (ADR 1739), and a
+place pressed in every window (ADRs 1739, 1770, 1782) and in the runs' faces where the window draws
+them, and a
 reply stating no popup is a threaded comment (ADR 1727) — **in all three windows**: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the

@@ -328,6 +328,27 @@ pub mod ffi {
         note_number: u32,
         /// Its generation.
         note_generation: u16,
+        /// Where each of [`QtPopup::rich`]'s runs stands in the note's editor, which holds
+        /// [`QtPopup::text`]: the editor sets each run's format over its characters, and nothing
+        /// where this is empty, which is where the window is plain (ADR 1782).
+        spans: Vec<QtNoteSpan>,
+        /// What the editor does not draw of [`QtPopup::rich`], said under its text; empty where
+        /// nothing.
+        editor_not_drawn: String,
+    }
+
+    /// One rich run's characters in a note's editor, as `viewer_host::popup::run_spans` found them
+    /// in `/Contents`, in the positions Qt's plain text document counts (ADR 1782).
+    #[derive(Debug, Clone)]
+    struct QtNoteSpan {
+        /// The position of the run's first character.
+        start: i32,
+        /// The position after its last.
+        end: i32,
+        /// The paragraph of [`QtPopup::rich`] the run is in.
+        paragraph: u32,
+        /// The run, by its place in that paragraph's `runs`, a list tag counted.
+        run: u32,
     }
 
     /// One paragraph of a rich note, as the popup window's `QTextDocument` takes it (ADR 1666).
@@ -712,10 +733,18 @@ pub mod ffi {
         /// §12.5.6.4: a note's text was typed into in its popup window — the note a `QtPopup`
         /// named, and the whole of what it says now (ADR 1726).
         fn set_note(self: &mut Host, number: u32, generation: u16, text: &str);
-        /// The note's window took the keyboard, or gave it back to the page: said to the person.
-        fn note_editing(self: &mut Host, number: u32, generation: u16, editing: bool);
+        /// The note's window took the keyboard, its editor's caret at `position` of its plain text
+        /// document, or gave it back to the page: said to the person.
+        fn note_editing(
+            self: &mut Host,
+            number: u32,
+            generation: u16,
+            editing: bool,
+            position: i32,
+        );
         /// Where a press at `position` of a note's rich window's document puts the caret in its
-        /// `/Contents`, in UTF-16 units as Qt counts a plain text, or -1 for no place (ADR 1770).
+        /// `/Contents`, as a position of the editor's plain text document, or -1 for no place
+        /// (ADR 1770).
         fn note_place(self: &Host, number: u32, generation: u16, position: i32) -> i32;
         /// §12.7.4.3's commit: a person finished with a line edit — Enter, or the keyboard gone
         /// elsewhere — which is `QLineEdit::editingFinished` (ADR 1592).

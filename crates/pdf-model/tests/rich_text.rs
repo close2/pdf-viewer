@@ -1951,3 +1951,43 @@ fn pair_kerning_in_a_face_without_pairs_is_said() {
     );
     assert!(!inked(&raster).is_empty(), "the text is still drawn");
 }
+
+/// A `/DA` face whose descriptor writes a flags word §9.8.2 does not admit is read as stating no
+/// flags, so a bold run under it takes `/DR`'s bold face exactly as it does under a word that sets
+/// neither `Italic` nor `ForceBold`.
+///
+/// > The value of the Flags entry in a font descriptor shall be an unsigned 32-bit integer
+/// > containing flags specifying various characteristics of the font.
+///
+/// `-64` is not one. Read for its bits, it sets Table 121's bit 7, `Italic`, and bit 19,
+/// `ForceBold`, so the face reads as bold italic, a bold run asks for nothing it does not already
+/// have, and `Wide` is set in the regular face; read as no entry, the run takes `/HeBo` and draws
+/// what the word `32` draws.
+#[test]
+fn a_flags_word_outside_thirty_two_unsigned_bits_states_no_style() {
+    let with = |flags: &str| {
+        pdf_with_fonts(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff 33558528 \
+             /T (f) /V (Wide) /RV (<body><p><b>Wide</b></p></body>) /DA (/HeFl 12 Tf 0 g) >>",
+            "",
+            &format!(
+                "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+                 /Encoding /WinAnsiEncoding /FontDescriptor 9 0 R >>\nendobj\n\
+                 9 0 obj\n<< /Type /FontDescriptor /FontName /Helvetica /Flags {flags} \
+                 /FontBBox [0 -200 800 900] /ItalicAngle 0 /Ascent 750 /Descent -250 \
+                 /CapHeight 700 /StemV 80 >>\nendobj\n"
+            ),
+            "/HeFl 8 0 R",
+        )
+    };
+    let (content, _) = appearance(with("-64"));
+    assert!(content.contains("/HeBo"), "{content}");
+    let (reports, outside) = draw(with("-64"));
+    assert!(reports.is_empty(), "{reports:?}");
+    let (_, inside) = draw(with("32"));
+    assert_eq!(columns(&outside), columns(&inside));
+    assert!(
+        outside.data == inside.data,
+        "the two words draw the same page"
+    );
+}

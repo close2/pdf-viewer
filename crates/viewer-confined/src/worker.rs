@@ -186,7 +186,8 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     // **As wide as the machine, and the measurement is why** (ADR 1554): a page that crosses as
     // pixels is rasterised here while the host waits for it, and on `bug1815476.pdf` the round
     // trip of the first `Resize` fell from 0.039 s to 0.011 s at the median of fifteen launches.
-    // ADR 0139's split draws the same bytes on any number of strips, so this costs no pixel.
+    // A strip edge can move a pixel by at most two levels (ADR 0219's finding, ADR 1742's bound),
+    // and nothing compares a window's bytes for identity, so the width is the measurement's to set.
     let arenas_limited = std::env::var(ARENA_LIMIT_VARIABLE)
         .ok()
         .and_then(|limit| limit.parse::<u32>().ok())
