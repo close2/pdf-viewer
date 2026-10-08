@@ -22,8 +22,9 @@ reads the section below it only where a line here sends it (ADR 1639).
    `doc/HANDOVER.md` is the index to open when you need a file this list did not give you.
 2. **The contract is ledger rows by number, or a named build.** Read the clause in `doc/md/`,
    never only the row's note; check the brief's premise in the text, the code and the data before
-   building on it, and say in the report which premise held. Quotation marks mean verbatim from
-   ISO 32000-2; every other text is cited by section and paraphrased; a `§` is ISO 32000-2's.
+   building on it, test its hypothesis first (ADR 1748), and say in the report which of each
+   held. Quotation marks mean verbatim from ISO 32000-2; every other text is cited by section and
+   paraphrased; a `§` is ISO 32000-2's.
 3. **Tier 1 is every round's, scoped to what you touched**: `rustfmt --check --edition 2024` on
    your files; `RUSTFLAGS="-D warnings" cargo clippy -p <crate> --all-targets` and
    `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`. Tier 2
@@ -113,7 +114,7 @@ before the lock is as old as the moment the walk stopped queueing (trap 109, ADR
 first line is that shape; the lines after it are what goes after its `--`.
 
 ```sh
-ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree <6|12> --build '<the line's profile> -p pdf-sandbox --bins' -- <the line>
+ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree <6|12> --build '--profile gates -p pdf-sandbox --bins' (or `--release`, as the line's profile is) -- <the line>
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test raster_golden   -- --ignored --nocapture   # ADR 1016: our own output held by name — a change detector; PDFVIEWER_RASTER_GOLDEN=update regenerates
 cargo test  --profile gates -p pdf-model      --test script_corpus   -- --ignored --nocapture   # RFC 0008 section 6.7's Tier 0 form: every field script of the census population committed once, every displayed value held by name (ADR 1579); PDFVIEWER_SCRIPT_CORPUS=update regenerates

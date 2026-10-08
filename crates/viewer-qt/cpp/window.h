@@ -563,11 +563,15 @@ private:
     void applyChrome();
     /// Table 147's `/FitWindow` and `/CenterWindow`, once, at the first frame (ADR 1429).
     void placeWindow();
+    /// A pointer event one of §12.7's placed controls took, told to the core as the page's own
+    /// and left for the control to handle as well (ADR 1752).
+    void pointerThroughControl(QObject* watched, QEvent* event);
 
 protected:
     /// What a key means is `src/keys.rs`'s, so this carries the `Qt::Key` number and no meaning.
     void keyPressEvent(QKeyEvent* event) override;
-    /// Takes Tab from the page before Qt's own focus chain can, for §12.5.1's walk (ADR 1357).
+    /// Takes Tab from the page before Qt's own focus chain can, for §12.5.1's walk (ADR 1357),
+    /// and tells the core of the pointer over a placed control (ADR 1752).
     bool eventFilter(QObject* watched, QEvent* event) override;
     /// The window moved, so every node's screen coordinates moved with it.
     void moveEvent(QMoveEvent* event) override;

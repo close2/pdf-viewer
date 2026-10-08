@@ -1003,7 +1003,6 @@ pub fn signature_policy_fetched(
     warned: Option<&str>,
 ) -> crate::submit::Reply {
     use crate::submit::Reply;
-    use pdf_signature::policy::Published;
     use std::fmt::Write as _;
 
     let mut note = format!("signature policy {}: ", policy.identifier);
@@ -1038,7 +1037,43 @@ pub fn signature_policy_fetched(
         note.push_str(", so no copy of the policy's document came back");
         return Reply::Say(closed(note, policy, warned));
     }
-    match policy.binding(&response.body) {
+    bound(policy, response.body, note, warned)
+}
+
+/// What a copy of a signature policy's document a host was handed comes to — fetched by a caller
+/// of the C ABI rather than by this program — said as [`signature_policy_fetched`] says a fetched
+/// copy, without the server's answer this program did not see (ADR 1753).
+///
+/// The caller made the request, so the level that let it was the caller's to read; what is this
+/// program's is the comparison with the digest the signer signed, and the sentence.
+#[must_use]
+pub fn signature_policy_handed(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    copy: Vec<u8>,
+) -> crate::submit::Reply {
+    let note = format!(
+        "signature policy {}: the copy of its document at {} that this program was handed ({}          byte(s))",
+        policy.identifier,
+        policy.url,
+        copy.len()
+    );
+    bound(policy, copy, note, None)
+}
+
+/// The binding of a copy to the signature, which ETSI EN 319 122-1 clause 5.2.10's note makes the
+/// one thing that tells the signer's policy document from a substitute, and the sentence `note`
+/// begins.
+fn bound(
+    policy: &pdf_signature::policy::PublishedPolicy,
+    copy: Vec<u8>,
+    mut note: String,
+    warned: Option<&str>,
+) -> crate::submit::Reply {
+    use crate::submit::Reply;
+    use pdf_signature::policy::Published;
+    use std::fmt::Write as _;
+
+    match policy.binding(&copy) {
         Published::Matches { digest } => {
             let _ = write!(
                 note,
@@ -1046,10 +1081,10 @@ pub fn signature_policy_fetched(
                  digest they signed over it",
                 digest.name()
             );
-            if is_a_pdf(&response.body) {
+            if is_a_pdf(&copy) {
                 note.push_str(". It is opened beside this document");
                 Reply::Document {
-                    bytes: response.body,
+                    bytes: copy,
                     note: closed(note, policy, warned),
                 }
             } else {

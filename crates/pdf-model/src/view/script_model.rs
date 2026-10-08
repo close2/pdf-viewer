@@ -1060,8 +1060,8 @@ pub enum ScriptEdit {
         /// The zero-based indices, ascending.
         indices: Vec<u32>,
     },
-    /// `this.gotoNamedDest(cName)`: §12.3.2.4's named destination, whose page the host turns to as
-    /// it turns to a script's `this.pageNum` ([`ViewState::take_page_request`], ADR 1724).
+    /// `this.gotoNamedDest(cName)`: §12.3.2.4's named destination, which the view state resolves
+    /// and holds for the host as [`ViewChange::Destination`] (ADRs 1724, 1751).
     Destination {
         /// The name, as the script spelled it.
         name: String,
@@ -1105,6 +1105,17 @@ pub enum ViewChange {
         x: f64,
         /// Its vertical coordinate, in the page's default user space.
         y: f64,
+    },
+    /// `this.gotoNamedDest(cName)`: the page and Table 149's view of the destination §12.3.2.4's
+    /// name maps to, which a host shows as it shows a link's (ADR 1751).
+    ///
+    /// The view state makes this from [`ScriptEdit::Destination`], which is what a realm sends; a
+    /// realm that sends this itself asks for a page and a view of it, as a link would.
+    Destination {
+        /// The zero-based page the destination names.
+        page: u32,
+        /// Where on it, and how large.
+        view: crate::destination::View,
     },
 }
 

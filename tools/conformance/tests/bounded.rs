@@ -20,7 +20,7 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's ten cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's twelve cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
@@ -34,7 +34,11 @@
 //! large one, a clock run planted behind two lane holders that waits for both while a walk asked
 //! after it is granted nothing until it ends, and a `--clock` outside a lock or inside a hold of one
 //! lane refused (ADR 1684) — and a `--build` run inside the hold before its command, a failed one
-//! ending the run unstarted (ADR 1710). Every hand-off between a case's runs waits for the run to say
+//! ending the run unstarted (ADR 1710) — and a `--long` run pinned to the second lane: a second long
+//! run queues behind the first with the first lane free while a small walk takes that lane at once,
+//! `--long` refused outside a lock, beside `--clock`, above 6 GiB and inside a hold of the first lane,
+//! and a clock run waiting behind a long run without stopping the first lane while a long run asked
+//! after it waits for it (ADR 1756). Every hand-off between a case's runs waits for the run to say
 //! what it was asked, never for a hold of so many seconds, and the one cost it bounds is processor
 //! time: a hold an idle machine always outlasted failed inside the merge's whole-workspace test run at
 //! a load of 16 (ADR 1710). This test runs the script and repeats what it said.
@@ -73,6 +77,12 @@
 //! person to copy, and one test holds every tracked instruction to the walk's own `--build`; another
 //! holds every build `tools/batch.sh`'s merge runs to a gate after it that spawns that program from
 //! another package, and every gate that spawns one to a build ahead of it under its own profile.
+//!
+//! **And a run whose length is its own choice holds the second lane only** (ADR 1756). A campaign and
+//! a seed census declared small took the second lane or else the first, so two of them held both and
+//! a 25 s gate queued 4 289 s. One test holds every tracked campaign and census instruction to
+//! `--long`, and another holds `tools/state.sh gates-cost` to listing each long hold with the runs
+//! that queued behind it.
 //!
 //! **And a run that is not a walk is named where the lock's cost is read.** The rule line says
 //! `cargo test -p conformance` and crate-scoped tests are not walks; one waited 1 820.8 s behind the
@@ -449,7 +459,8 @@ fn every_instruction_a_person_reads_spells_the_lock_as_the_wrapper() {
     );
 }
 
-/// The `--lock` invocations in `source` that declare no kind — neither `--tree` nor `--clock` — as
+/// The `--lock` invocations in `source` that declare no kind — none of `--tree`, `--clock` and
+/// `--long` — as
 /// `(line number, invocation)`. A command continued with `\` is read as one line, and the line it
 /// starts on is the one named. Only the wrapper's path followed by the flag is an invocation, so
 /// prose that names the flag on its own is not one.
@@ -474,7 +485,11 @@ fn undeclared_locks(source: &str) -> Vec<(usize, String)> {
                     .ends_with("bounded.sh")
             }) && pair.get(1).is_some_and(|word| *word == "--lock")
         });
-        if invokes && !(joined.contains("--tree ") || joined.contains("--clock")) {
+        if invokes
+            && !(joined.contains("--tree ")
+                || joined.contains("--clock")
+                || joined.contains("--long"))
+        {
             found.push((start.saturating_add(1), joined.trim().to_owned()));
         }
     }
@@ -482,7 +497,7 @@ fn undeclared_locks(source: &str) -> Vec<(usize, String)> {
 }
 
 /// The files that still tell a person to run `--lock` with no kind, each another round's to
-/// declare: a ratchet, so a file leaves this list the day it says `--tree` or `--clock`.
+/// declare: a ratchet, so a file leaves this list the day it says `--tree`, `--clock` or `--long`.
 const HELD_UNDECLARED_LOCKS: [&str; 0] = [];
 
 /// Every `--lock` a tool runs or a document tells a person to run declares its kind, so the lane it
@@ -490,7 +505,7 @@ const HELD_UNDECLARED_LOCKS: [&str; 0] = [];
 /// population is every tracked text file but the records and this file, as the bare-`flock` test's
 /// is. Calibrated by planting (trap 13): the reader names an undeclared invocation in a code span,
 /// behind a quoted path, and across a continuation, and passes `--tree 6`, `--clock` on the
-/// continued line, and prose that names the flag.
+/// continued line, `--long`, and prose that names the flag.
 #[test]
 fn every_lock_a_caller_takes_declares_its_kind() {
     let planted = "run it as `tools/bounded.sh --lock --round <session> -- walk`.\n\
@@ -499,6 +514,7 @@ fn every_lock_a_caller_takes_declares_its_kind() {
                    tools/bounded.sh --lock --round 1 --tree 6 -- walk\n\
                    tools/bounded.sh --lock --round 1 \\\n\
                    \x20   --clock -- gate\n\
+                   tools/bounded.sh --lock --long --round 1 -- campaign\n\
                    the wrapper's `--lock` takes the lock\n";
     let found: Vec<usize> = undeclared_locks(planted)
         .iter()
@@ -560,8 +576,8 @@ fn every_lock_a_caller_takes_declares_its_kind() {
     );
     assert!(
         owed.is_empty(),
-        "these `--lock` runs declare no kind; give each `--tree <GiB>` (6 or less for a small walk) or \
-         `--clock` (ADR 1684):\n{}",
+        "these `--lock` runs declare no kind; give each `--tree <GiB>` (6 or less for a small walk), \
+         `--clock` or `--long` (ADRs 1684, 1756):\n{}",
         owed.join("\n")
     );
     let fixed: Vec<&str> = HELD_UNDECLARED_LOCKS
@@ -833,7 +849,7 @@ fn merge_clocks(batch: &str) -> Vec<(String, bool)> {
 }
 
 /// The findings for one script against the merge's gates: a walk with no `walk`, a kind that is not
-/// one of the three, and a gate the merge runs as a clock run declared as a walk here, or the other
+/// one of the four, and a gate the merge runs as a clock run declared as a walk here, or the other
 /// way round.
 fn walk_findings(script: &str, merge: &[(String, bool)]) -> Vec<String> {
     let mut found = Vec::new();
@@ -846,7 +862,7 @@ fn walk_findings(script: &str, merge: &[(String, bool)]) -> Vec<String> {
             found.push(format!("line {line}: {named} walks unlocked"));
             continue;
         };
-        if !matches!(kind.as_str(), "small" | "large" | "clock") {
+        if !matches!(kind.as_str(), "small" | "large" | "clock" | "long") {
             found.push(format!("line {line}: {named} declares `{kind}`"));
             continue;
         }
@@ -948,7 +964,7 @@ fn every_walk_a_state_section_runs_is_locked_in_its_declared_lane() {
     assert!(
         found.is_empty(),
         "tools/state.sh walks outside its `walk` helper, or in a lane the merge does not; run each \
-         as `walk small|large|clock -- <command>` (ADR 1698):\n{}",
+         as `walk small|large|clock|long -- <command>` (ADR 1698):\n{}",
         found.join("\n")
     );
 }
@@ -1298,7 +1314,7 @@ fn every_instruction_a_person_reads_builds_the_worker_inside_the_walks_hold() {
     assert!(
         owed.is_empty(),
         "these lines tell a person to build the sandbox worker before a walk; spell it as the walk's \
-         own `tools/bounded.sh --lock … --build '<profile> -p pdf-sandbox --bins' --`:\n{}",
+         own `tools/bounded.sh --lock … --build '--profile <name> -p pdf-sandbox --bins' --`:\n{}",
         owed.join("\n")
     );
     let fixed: Vec<&str> = HELD_WORKER_BUILD_INSTRUCTIONS
@@ -1578,5 +1594,379 @@ fn the_lock_cost_names_a_run_that_is_not_a_walk() {
              which the rule line says is not a walk: 1825.8s of queue"
         ),
         "the not-a-walk runs are not summed:\n{stdout}"
+    );
+}
+
+/// The targets a seed census names: the words after `fuzz/seeds.sh` and its mode — `check` or the
+/// corpus directory — up to the first word that is not a target's name, a quote or a backtick
+/// trimmed from each.
+fn census_targets<'a>(words: &[&'a str]) -> Vec<&'a str> {
+    let Some(at) = words.iter().position(|word| word.ends_with("seeds.sh")) else {
+        return Vec::new();
+    };
+    words
+        .iter()
+        .skip(at.saturating_add(2))
+        .map(|word| word.trim_end_matches(['`', '"', '\'', ')', ';', '.', ',']))
+        .take_while(|word| {
+            !word.is_empty()
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        })
+        .collect()
+}
+
+/// The campaign and census instructions in `source`, as `(line number, instruction, whether it holds
+/// the second lane only)`. An instruction is a `tools/bounded.sh --lock` invocation, or a
+/// `tools/state.sh` `walk <kind>`, continued lines joined, whose words run a fuzz campaign — a
+/// `-max_total_time=` or a `fuzz run` — or a seed census, `fuzz/seeds.sh`. It holds the second lane
+/// when it says `--long` or `walk long`. A census of `jbig2` or `jpx` alone may instead be a large
+/// walk, `--tree` above 6 or `walk large`, because their census peaked within half a gibibyte of the
+/// second lane's kill (ADRs 1710, 1756); a campaign has no such exception. A comment is read, since
+/// a document's instructions are in comments; `fuzz build` is a build and not a campaign.
+fn campaign_instructions(source: &str) -> Vec<(usize, String, bool)> {
+    let mut found = Vec::new();
+    for (line, text) in joined_lines(source) {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let locks = words.windows(2).any(|pair| {
+            pair.first().is_some_and(|word| {
+                word.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '(' | '$'))
+                    .ends_with("bounded.sh")
+            }) && pair.get(1) == Some(&"--lock")
+        });
+        let walk = words
+            .windows(2)
+            .find(|pair| pair.first() == Some(&"walk"))
+            .and_then(|pair| pair.get(1).copied())
+            .filter(|kind| matches!(*kind, "small" | "large" | "clock" | "long"));
+        if !locks && walk.is_none() {
+            continue;
+        }
+        let campaign = words.iter().any(|word| word.contains("-max_total_time="))
+            || words.windows(2).any(|pair| pair == ["fuzz", "run"]);
+        let census = words.iter().any(|word| word.ends_with("seeds.sh"));
+        if !(campaign || census) {
+            continue;
+        }
+        let long = words.contains(&"--long") || walk == Some("long");
+        let tree = words
+            .windows(2)
+            .find(|pair| pair.first() == Some(&"--tree"))
+            .and_then(|pair| pair.get(1))
+            .and_then(|gib| gib.parse::<u32>().ok());
+        let large = tree.is_some_and(|gib| gib > 6) || walk == Some("large");
+        let targets = census_targets(&words);
+        let only_the_two = !targets.is_empty()
+            && targets
+                .iter()
+                .all(|target| matches!(*target, "jbig2" | "jpx"));
+        let exempt = census && !campaign && large && only_the_two;
+        found.push((line, text.trim().to_owned(), long || exempt));
+    }
+    found
+}
+
+/// **Every campaign and seed census a person or a script is told to run holds the second lane only**
+/// (ADR 1756). A campaign or a census holds its lane for as long as it chooses; declared a small walk
+/// it took the second lane, or the first when the second was busy, and two of them held both while a
+/// round's 25 s corpus gate queued 4 289 s. So each instruction says `--long`, which `tools/bounded.sh`
+/// pins to the second lane, but a census of `jbig2` or `jpx` alone, a large walk by its peak. The
+/// population is every tracked text file but the records and this file, as the kind test's is.
+/// Calibrated by planting (trap 13): the reader names a campaign declared small across a
+/// continuation, a census declared small, a campaign of `jbig2` declared large, a census naming
+/// `page` beside `jpx` at `--tree 12` and a state section's `walk small` census, and passes a
+/// `--long` campaign, a `--long` census, a large census of `jbig2 jpx`, a `walk long` census, a
+/// `fuzz build` and a walk that is no campaign.
+#[test]
+fn every_campaign_and_seed_census_holds_the_second_lane_only() {
+    let planted = "tools/bounded.sh --lock --round 1 --tree 6 -- \\\n\
+                   \x20   target corpus -max_total_time=600\n\
+                   `tools/bounded.sh --lock --round 1 --tree 6 -- fuzz/seeds.sh check <target>`\n\
+                   tools/bounded.sh --lock --round 1 --tree 12 -- cargo +nightly fuzz run jbig2\n\
+                   `tools/bounded.sh --lock --round 1 --tree 12 -- fuzz/seeds.sh check page jpx`\n\
+                   \x20   walk small -- fuzz/seeds.sh check $targets\n\
+                   tools/bounded.sh --lock --long --round 1 --tree 4 -- target corpus -max_total_time=600\n\
+                   `tools/bounded.sh --lock --long --round 1 -- fuzz/seeds.sh fuzz/corpus <target>`\n\
+                   `tools/bounded.sh --lock --round 1 --tree 12 -- fuzz/seeds.sh check jbig2 jpx`.\n\
+                   \x20   walk long -- fuzz/seeds.sh check $lane2\n\
+                   tools/bounded.sh --lock --round 1 --tree 6 -- bash -c 'cd fuzz && cargo +nightly fuzz build'\n\
+                   \x20   walk small -- cargo test --profile gates -p a --test b\n";
+    let read = campaign_instructions(planted);
+    let found: Vec<usize> = read
+        .iter()
+        .filter(|(_, _, second)| !second)
+        .map(|(line, _, _)| *line)
+        .collect();
+    assert_eq!(
+        found,
+        [1, 3, 4, 5, 6],
+        "the reader is not the shape it states"
+    );
+    assert_eq!(
+        read.len(),
+        9,
+        "the reader does not find every planted instruction: {read:?}"
+    );
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut instructions = 0_usize;
+    let mut owed = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+            || path == "tools/bounded.sh"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        for (line, text, second) in campaign_instructions(&source) {
+            instructions = instructions.saturating_add(1);
+            println!(
+                "  {path}:{line}: {}",
+                if second {
+                    "the second lane only"
+                } else {
+                    "off the second lane"
+                }
+            );
+            if !second {
+                owed.push(format!("{path}:{line}: {text}"));
+            }
+        }
+    }
+    println!(
+        "{instructions} campaign or census instruction(s) under the lock; {} off the second lane",
+        owed.len()
+    );
+    assert!(
+        instructions >= 5,
+        "{instructions} campaign or census instruction(s) found: the population is not the tree's"
+    );
+    assert!(
+        owed.is_empty(),
+        "these campaigns or seed censuses do not declare `--long`, so they may hold the first lane for \
+         as long as they run; give each `--long` (a census of `jbig2` or `jpx` alone may be a large walk, \
+         `--tree 12`; ADR 1756):\n{}",
+        owed.join("\n")
+    );
+}
+
+/// `tools/state.sh gates-cost` lists each of the batch's long holds with the runs that queued behind
+/// it — a run whose `behind=` names the hold's holder word, `round=<N>_<command>`, and whose ask fell
+/// inside the hold — and sums those runs' queue once each (ADR 1756). Calibrated by planting
+/// (trap 13): the reader names a run behind the first long hold, one that names it beside a second
+/// holder, and one behind a later hold of the same command under that later hold only, and passes a
+/// run behind another holder, a run whose holder's command extends the long hold's, and the
+/// same command's earlier hold for the run that came after it.
+#[test]
+fn the_lock_cost_lists_each_long_hold_and_what_queued_behind_it() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("long-holds-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    // Each run as `<time> <round> <wait> <hold> <behind> <kind>` and its command.
+    let holder = "round=201_fuzz/seeds.sh_check_page";
+    let runs = [
+        (
+            "10:00:00 201 0.0 3600.0 - long".to_owned(),
+            "fuzz/seeds.sh check page",
+        ),
+        (
+            format!("10:10:00 202 300.0 20.0 {holder} small"),
+            "cargo test -p a --test b --release",
+        ),
+        (
+            "10:20:00 203 50.0 20.0 round=999_other small".to_owned(),
+            "cargo test -p c --test d --release",
+        ),
+        (
+            format!("10:30:00 205 100.0 20.0 {holder}+round=206_x small"),
+            "cargo test -p e --test f --release",
+        ),
+        (
+            format!("10:40:00 207 10.0 20.0 {holder}_jpx small"),
+            "cargo test -p g --test h --release",
+        ),
+        (
+            "11:30:00 201 0.0 1200.0 - long".to_owned(),
+            "fuzz/seeds.sh check page",
+        ),
+        (
+            format!("11:40:00 204 40.0 20.0 {holder} large"),
+            "cargo test -p i --test j --release",
+        ),
+    ];
+    let planted = runs
+        .iter()
+        .map(|(run, cmd)| {
+            let fields: Vec<&str> = run.split(' ').collect();
+            let [at, round, wait, hold, behind, kind] = fields[..] else {
+                panic!("a planted run has six fields: {run}");
+            };
+            let lane = if kind == "long" { "2" } else { "1" };
+            format!(
+                "2026-10-08T{at} batch=batch-200-210 round={round} wait={wait}s hold={hold}s exit=0 \
+                 peak=0.50GiB behind={behind} kind={kind} lane={lane} cmd={cmd} \n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut listed: Vec<String> = Vec::new();
+    let mut long_hold = String::new();
+    for line in stdout.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        if line.trim_start().starts_with("long:") {
+            long_hold = words.get(1).map_or_else(String::new, |at| (*at).to_owned());
+        } else if line.trim_start().starts_with("queued behind it:") {
+            let round = words.get(5).copied().unwrap_or_default();
+            listed.push(format!("{long_hold} {round}"));
+        }
+    }
+    assert_eq!(
+        listed,
+        [
+            "2026-10-08T10:00:00 202",
+            "2026-10-08T10:00:00 205",
+            "2026-10-08T11:30:00 204",
+        ],
+        "the runs listed behind each long hold are not the planted ones:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "2 long hold(s) of batch batch-200-210, 4800.0s held; 3 run(s) queued behind one or more \
+             of them, 440.0s of their queue"
+        ),
+        "the long holds are not summed:\n{stdout}"
+    );
+}
+
+/// The `--build '…'` arguments in `source` whose first word is not one of cargo's own flags, as
+/// `(line number, arguments)`: a profile spelled as a bare word or a placeholder for one,
+/// `--build 'gates -p pdf-sandbox --bins'` or `--build '<profile> -p …'`, which a round copied as
+/// the word and cargo refused. The whole-argument placeholder `<cargo build arguments>` is the
+/// option's own name for what it takes and passes.
+fn builds_not_spelled_as_cargo_takes_them(source: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        for (at, _) in line.match_indices("--build '") {
+            let rest = line
+                .get(at.saturating_add("--build '".len())..)
+                .unwrap_or_default();
+            let arguments = rest.split('\'').next().unwrap_or_default();
+            if arguments == "<cargo build arguments>" || arguments.starts_with('-') {
+                continue;
+            }
+            found.push((index.saturating_add(1), arguments.to_owned()));
+        }
+    }
+    found
+}
+
+/// The files that still spell a walk's worker build with a placeholder for its profile, each another
+/// round's to re-spell: a ratchet, so a file leaves this list the day it is re-spelled and none
+/// joins it. The two trap files carry trap 10's row verbatim, so they change together.
+const HELD_PROFILE_PLACEHOLDERS: [&str; 0] = [];
+
+/// **A walk's `--build` is spelled as cargo takes it**: `--build '--profile gates -p pdf-sandbox
+/// --bins'`, or `--release`, never a placeholder for the profile. The rule line spelled it
+/// `--build '<profile> -p pdf-sandbox --bins'` and a round wrote `--build 'gates -p …'`, which
+/// `cargo build` refuses, so the walk never started (ADR 1756). The population is every tracked
+/// text file but the records, this file and the wrapper, whose self-test builds `'fails'` on
+/// purpose. Calibrated by planting (trap 13): the reader names a bare
+/// profile and a placeholder, and passes `--profile <name>`, `--release`, `-p` first and the option's
+/// own `<cargo build arguments>`.
+#[test]
+fn every_build_a_walk_declares_is_spelled_as_cargo_takes_it() {
+    let planted = "--build 'gates -p pdf-sandbox --bins'\n\
+                   `--build '<profile> -p pdf-sandbox --bins'`\n\
+                   --build '--profile <name> -p pdf-sandbox --bins'\n\
+                   --build '--release -p pdf-sandbox --bins' --build '-p pdfref-hayro'\n\
+                   --build '<cargo build arguments>'\n";
+    let found: Vec<usize> = builds_not_spelled_as_cargo_takes_them(planted)
+        .iter()
+        .map(|(line, _)| *line)
+        .collect();
+    assert_eq!(found, [1, 2], "the reader is not the shape it states");
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut owed = Vec::new();
+    let mut spelled: Vec<String> = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+            || path == "tools/bounded.sh"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        let lines: Vec<usize> = builds_not_spelled_as_cargo_takes_them(&source)
+            .iter()
+            .map(|(line, _)| *line)
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        spelled.push(path.to_owned());
+        if !HELD_PROFILE_PLACEHOLDERS.contains(&path) {
+            owed.push(format!("{path}:{lines:?}"));
+        }
+    }
+    assert!(
+        owed.is_empty(),
+        "these lines spell a walk's --build with a placeholder or a bare word for its profile; \
+         spell it as cargo takes it, `--build '--profile gates -p pdf-sandbox --bins'`:\n{}",
+        owed.join("\n")
+    );
+    let fixed: Vec<&str> = HELD_PROFILE_PLACEHOLDERS
+        .iter()
+        .copied()
+        .filter(|held| !spelled.iter().any(|path| path == held))
+        .collect();
+    assert!(
+        fixed.is_empty(),
+        "these files now spell every --build as cargo takes it, so they leave the held list: {fixed:?}"
     );
 }

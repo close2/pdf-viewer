@@ -3226,12 +3226,7 @@ impl ColourSpace {
         reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
-        let (default, device) = match family {
-            b"DeviceGray" | b"G" | b"CalGray" => ("DefaultGray", Self::Gray),
-            b"DeviceRGB" | b"RGB" | b"CalRGB" => ("DefaultRGB", Self::Rgb),
-            b"DeviceCMYK" | b"CMYK" => ("DefaultCMYK", Self::Cmyk),
-            _ => return None,
-        };
+        let (default, device) = Self::family_named(family)?;
         if let Some(space) = Self::named_default(document, default, resources, reading, depth) {
             return Some(space);
         }
@@ -3247,6 +3242,105 @@ impl ColourSpace {
     ///
     /// A default that resolves back to the device space it replaces would recurse for
     /// ever, so the lookup is bounded by the same depth limit as everything else here.
+    /// The device family a name selects, and the resource key of the default standing in for
+    /// it — the one table [`Self::device_family`] and [`Self::selected_device_family`] share,
+    /// so that the space a selection resolves to and the family it was selected as cannot be
+    /// read from two lists.
+    fn family_named(family: &[u8]) -> Option<(&'static str, Self)> {
+        match family {
+            b"DeviceGray" | b"G" | b"CalGray" => Some(("DefaultGray", Self::Gray)),
+            b"DeviceRGB" | b"RGB" | b"CalRGB" => Some(("DefaultRGB", Self::Rgb)),
+            b"DeviceCMYK" | b"CMYK" => Some(("DefaultCMYK", Self::Cmyk)),
+            _ => None,
+        }
+    }
+
+    /// The device family `object` selects, where it selects one, before §8.6.5.6's default or
+    /// §14.11.5's output intent stands in for it: the bare name, a resource name resolving to
+    /// one, the array form ADR 1001 gives the same route, and `CalCMYK`, which §8.6.5.1 has a
+    /// reader render as though the colours had been given in `DeviceCMYK`.
+    ///
+    /// `None` for every other space, which is its own family whatever the page says.
+    fn selected_device_family(
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+        depth: usize,
+    ) -> Option<Self> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let resolved = document.resolve(object);
+        if let Some(name) = resolved.as_name() {
+            if let Some((_, family)) = Self::family_named(name.as_bytes()) {
+                return Some(family);
+            }
+            if name.as_bytes() == b"Pattern" {
+                return None;
+            }
+            let table = document.get_key(resources, "ColorSpace");
+            let entry = table.as_dict()?.get_by_name(name)?;
+            return Self::selected_device_family(
+                document,
+                entry,
+                resources,
+                depth.saturating_add(1),
+            );
+        }
+        let items = resolved.as_array()?;
+        let family = items.first().map(|item| document.resolve(item))?;
+        match family.as_name()?.as_bytes() {
+            b"CalCMYK" => Some(Self::Cmyk),
+            // The array form of a Cal family takes a dictionary and is its own space; only the
+            // device families' names select a device space from inside an array.
+            b"CalGray" | b"CalRGB" => None,
+            name => Self::family_named(name).map(|(_, family)| family),
+        }
+    }
+
+    /// The colour `cs` or `CS` starts a selection of `object` at, where the selection resolved
+    /// to `self` — [`Self::initial_colour`], except where a device family was selected and a
+    /// default or an output intent stands in for it.
+    ///
+    /// §8.6.8 states the initial colour per family — "[i]n a DeviceCMYK colour space, the
+    /// initial colour shall be [0.0 0.0 0.0 1.0]" — and §8.6.5.6 says what becomes of a device
+    /// family's colour values when a default replaces the space:
+    ///
+    /// > Colour values in the original device colour space shall be passed unchanged to the
+    /// > default colour space, which shall have the same number of components as the original
+    /// > space.
+    ///
+    /// So a `/DeviceCMYK cs` under a four-component `/DefaultCMYK` starts at the family's
+    /// black, passed unchanged, rather than at the zeros an `ICCBased` space's own initial
+    /// colour would be — no ink, which is the paper. §14.11.5's output intent does not replace
+    /// the space at all: it describes the device the document's `DeviceCMYK` was prepared for,
+    /// and the family's initial colour is the one that description is asked about. The same
+    /// clause's "[i]f a colour value lies outside the range of the default colour space, it
+    /// shall be adjusted to the nearest valid value" holds the values to the space that
+    /// receives them. A substitute whose component count differs from the family's is not one
+    /// §8.6.5.6 admits, and keeps its own initial colour. ADR 1755.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §8.6.8 and §8.6.5.6 verbatim, and a quotation is not marked up"
+    )]
+    #[must_use]
+    pub fn initial_colour_of(
+        &self,
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+    ) -> Vec<f32> {
+        match Self::selected_device_family(document, object, resources, 0) {
+            Some(family) if family.components() == self.components() => family
+                .initial_colour()
+                .into_iter()
+                .enumerate()
+                .map(|(component, value)| nearest(value, self.component_range(component)))
+                .collect(),
+            _ => self.initial_colour(),
+        }
+    }
+
     fn named_default(
         document: &Document,
         key: &str,
@@ -3360,14 +3454,13 @@ impl ColourSpace {
             // "In a Lab or ICCBased colour space, the initial colour shall have all
             // components equal to 0.0 unless that falls outside the intervals specified by
             // the space's Range entry, in which case the nearest valid value shall be
-            // substituted." Lab's `a` and `b` carry that range here; an ICCBased space's
-            // `/Range` is not read, and zero is inside it for every profile the corpus has.
-            Self::Lab { range, .. } => vec![
-                0.0,
-                0.0_f32.clamp(range[0], range[1]),
-                0.0_f32.clamp(range[2], range[3]),
-            ],
-            Self::Icc { .. } => vec![0.0; self.components()],
+            // substituted." The range is `component_range`'s: a `Lab` space's `/Range` for
+            // `a` and `b`, and an `ICCBased` space's profile range with Table 65's `/Range`
+            // taken over it (ADR 1098). `nearest` takes a range stated backwards as the
+            // conversion does rather than panicking on it, as `f32::clamp` would.
+            Self::Lab { .. } | Self::Icc { .. } => (0..self.components())
+                .map(|component| nearest(0.0, self.component_range(component)))
+                .collect(),
             // "In an Indexed colour space, the initial colour value shall be 0."
             Self::Indexed { .. } => vec![0.0],
             // "In a Separation or DeviceN colour space, the initial tint value shall be 1.0
@@ -5735,16 +5828,9 @@ fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4], white: [f32; 3]) -> Colo
               renaming them would make this harder to check against the formulae"
 )]
 fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4], white: [f32; 3]) -> [f32; 3] {
-    let bound = |value: f32, low: f32, high: f32| {
-        if value.is_nan() {
-            low
-        } else {
-            value.clamp(low.min(high), low.max(high))
-        }
-    };
-    let lightness = bound(lightness, 0.0, 100.0);
-    let a = bound(a, range[0], range[1]);
-    let b = bound(b, range[2], range[3]);
+    let lightness = nearest(lightness, (0.0, 100.0));
+    let a = nearest(a, (range[0], range[1]));
+    let b = nearest(b, (range[2], range[3]));
 
     let m = (lightness + 16.0) / 116.0;
     let l = m + a / 500.0;
@@ -5755,6 +5841,29 @@ fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4], white: [f32; 3]) -> 
         white[1] * expand(m),
         white[2] * expand(n),
     ]
+}
+
+/// The nearest value to `value` inside a component's range, which is what §8.6.5.4 and Table
+/// 64 ask of a component "falling outside the specified range" and §8.6.5.1 of an initial
+/// colour whose 0.0 falls outside it.
+///
+/// Table 64 states the range as `a_min ≤ a* ≤ a_max` and nothing stops a file writing the pair
+/// the other way round; the bounds are taken in either order, so such a space draws its
+/// components inside the interval its two numbers span rather than panicking, which is what
+/// `f32::clamp` does when its minimum exceeds its maximum. A `NaN` is the range's first bound.
+fn nearest(value: f32, (low, high): (f32, f32)) -> f32 {
+    if value.is_nan() {
+        return low;
+    }
+    let (low, high) = if low <= high {
+        (low, high)
+    } else {
+        (high, low)
+    };
+    if low.is_nan() || high.is_nan() {
+        return value;
+    }
+    value.clamp(low, high)
 }
 
 /// The L*a*b* companding function, the inverse of [`expand`].
@@ -6101,6 +6210,145 @@ mod tests {
             ColourSpace::Pattern { base: None }
                 .initial_colour()
                 .is_empty()
+        );
+    }
+
+    /// §8.6.5.1's initial colour is held to the space's range — "unless the range of valid
+    /// values for a given component does not include 0.0, in which case the nearest valid value
+    /// shall be substituted" — and the range is the one the conversion uses, however the file
+    /// wrote it.
+    ///
+    /// A `Lab` `/Range` stated backwards panicked here under `f32::clamp`, on a `cs` alone,
+    /// while the conversion beside it took the bounds in either order; an `ICCBased` space's
+    /// Table 65 `/Range` is taken over the profile's (ADR 1098) and was not consulted at all.
+    #[test]
+    fn an_initial_colour_is_held_to_the_range_however_it_is_written() {
+        let lab = |range: [f32; 4]| ColourSpace::Lab {
+            white: super::D50,
+            black: [0.0; 3],
+            range,
+        };
+        assert_eq!(
+            lab([-128.0, 127.0, -128.0, 127.0]).initial_colour(),
+            vec![0.0; 3],
+            "zero inside the range is the initial colour"
+        );
+        assert_eq!(
+            lab([10.0, 50.0, -100.0, -20.0]).initial_colour(),
+            vec![0.0, 10.0, -20.0],
+            "zero outside the range is its nearest bound"
+        );
+        assert_eq!(
+            lab([50.0, 10.0, -20.0, -100.0]).initial_colour(),
+            vec![0.0, 10.0, -20.0],
+            "a range written backwards spans the same interval, as the conversion reads it"
+        );
+        let backwards = lab([50.0, 10.0, -20.0, -100.0]);
+        assert_eq!(
+            backwards.to_rgb(&backwards.initial_colour()),
+            lab([10.0, 50.0, -100.0, -20.0]).to_rgb(&[0.0, 10.0, -20.0]),
+            "and it draws as the forward range draws"
+        );
+
+        let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+        let profile = crate::icc::Profile::parse(bytes).expect("the shipped profile parses");
+        let restated = ColourSpace::Icc {
+            profile: std::sync::Arc::new(profile.with_range(&[
+                (0.25, 1.0),
+                (0.0, 1.0),
+                (-1.0, -0.5),
+            ])),
+        };
+        assert_eq!(restated.initial_colour(), vec![0.25, 0.0, -0.5]);
+    }
+
+    /// §8.6.8's initial colour is the *selected* family's: a `/DeviceCMYK cs` starts at
+    /// `[0.0 0.0 0.0 1.0]` whether a `/DefaultCMYK` or an output intent stands in for the family,
+    /// passed unchanged as §8.6.5.6 passes every value of the family (ADR 1755).
+    ///
+    /// The press is `one_way_cmyk_profile`, whose paper is D50 and whose black ink alone is a
+    /// tenth of it, so the zeros an `ICCBased` space's own initial colour would be draw the
+    /// paper — the whole range of 255 from the black the family starts at.
+    #[test]
+    fn a_device_family_starts_at_its_own_initial_colour_whatever_stands_in_for_it() {
+        use std::fmt::Write as _;
+
+        let bytes = crate::icc::fixtures::one_way_cmyk_profile();
+        let profile = crate::icc::Profile::parse(&bytes).expect("the fixture parses");
+        let press = ColourSpace::Icc {
+            profile: std::sync::Arc::new(profile),
+        };
+        let mut hex = String::new();
+        for byte in &bytes {
+            let _ = write!(hex, "{byte:02X}");
+        }
+        let source = format!(
+            "%PDF-1.7\n1 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\n\
+             endstream\nendobj\n2 0 obj\n<< /ColorSpace << /DefaultCMYK [/ICCBased 1 0 R] \
+             /CS0 [/DeviceCMYK] /CS1 /DeviceCMYK /CS2 [/ICCBased 1 0 R] >> >>\nendobj\n\
+             trailer\n<< /Size 3 >>\n",
+            hex.len().saturating_add(1)
+        );
+        let document = Document::open(source.into_bytes()).expect("a document");
+        let resources = document
+            .get(pdf_syntax::ObjectId {
+                number: 2,
+                generation: 0,
+            })
+            .as_dict()
+            .cloned()
+            .expect("a resource dictionary");
+        let selection = |name: &str| Object::Name(Name::new(name.as_bytes().to_vec()));
+        let level = |colour: Color| {
+            let [r, g, b] = [colour.r, colour.g, colour.b].map(|c| (c * 255.0).round());
+            (r, g, b)
+        };
+
+        // §14.11.5's output intent standing in for the family.
+        let device = selection("DeviceCMYK");
+        let under_intent = ColourSpace::parse_under(
+            &document,
+            &device,
+            &Dictionary::new(),
+            super::Reading::new(Some(&press)),
+        )
+        .expect("the family parses");
+        assert!(matches!(under_intent, ColourSpace::Icc { .. }));
+        let initial = under_intent.initial_colour_of(&document, &device, &Dictionary::new());
+        assert_eq!(initial, vec![0.0, 0.0, 0.0, 1.0]);
+        let started = level(under_intent.to_rgb(&initial));
+        let paper = level(under_intent.to_rgb(&under_intent.initial_colour()));
+        assert_eq!(
+            paper,
+            (255.0, 255.0, 255.0),
+            "no ink is the profile's paper"
+        );
+        assert!(
+            started.0 < 64.0 && started.1 < 64.0 && started.2 < 64.0,
+            "the family's black is the press's black ink, got {started:?}"
+        );
+
+        // §8.6.5.6's default, by every route a device family can be selected.
+        for name in ["DeviceCMYK", "CS0", "CS1"] {
+            let object = selection(name);
+            let space = ColourSpace::parse(&document, &object, &resources).expect("parses");
+            assert!(
+                matches!(space, ColourSpace::Icc { .. }),
+                "{name}: the default"
+            );
+            assert_eq!(
+                space.initial_colour_of(&document, &object, &resources),
+                vec![0.0, 0.0, 0.0, 1.0],
+                "{name}: the family's initial colour, passed unchanged"
+            );
+        }
+
+        // A profile selected as itself is its own family, and starts at its own zeros.
+        let own = selection("CS2");
+        let space = ColourSpace::parse(&document, &own, &resources).expect("parses");
+        assert_eq!(
+            space.initial_colour_of(&document, &own, &resources),
+            vec![0.0; 4]
         );
     }
 

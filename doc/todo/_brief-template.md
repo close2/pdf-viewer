@@ -46,9 +46,12 @@ habit, if any; the record's `wc -l`; the duration as `<n> s`.
 ## Slot <k> — a "<kind>" round — session <n>
 
 - **Contract**: <ledger rows by number, or the named build>. The clause is <§…> in `doc/md/`.
-- **Premise and its evidence**: <the claim the contract rests on, and the file:line, command or
-  record that shows it true today — "ADR 1594 says sixteen; `grep -c` says fourteen" is the
-  shape>. If the tree disagrees, do the real residue and say so.
+- **Premise and its evidence**: <each claim the contract rests on that the orchestrator checked,
+  as the command run and what it printed, with its unit — "`grep -rn X crates` gives two lines,
+  both tests" is the shape>. If the tree disagrees, do the real residue and say so.
+- **Hypothesis**: <what the orchestrator believes and did not or cannot check by a command —
+  where a cost lies, what a figure follows, how far a feature reaches — and what the round builds
+  if it is false>. Tested first, reported as a premise is. Omitted when there is none (ADR 1748).
 - **Owns**: <files and directories>. Siblings own: <slot → paths>; touch none of those. A build
   error in a crate you were not given is a neighbour mid-edit — wait and retry.
 - **Reading beyond `tools/round.sh <kind>`**: <at most three files, each with the section>.
@@ -65,7 +68,8 @@ habit, if any; the record's `wc -l`; the duration as `<n> s`.
 - Any figure a command prints: ledger counts, gate counts, the number of passes, the record
   budget. `tools/state.sh` prints them; a round that needs one runs the command.
 - Shared-machine rules in full. The rule block is the one copy; the brief names it.
-- A contract's premise without its evidence. A premise checked by the orchestrator in the text,
+- A contract's premise without its command. A premise checked by the orchestrator in the text,
   the code and the data before the brief is written costs minutes; one checked by six rounds
-  afterwards costs each of them the same minutes, and four of six contracts of batch sixty-one
-  carried one that did not hold.
+  afterwards costs each of them the same minutes. Most premises the records say did not hold were
+  a mechanism or a feature's reach, which is a hypothesis and is briefed as one;
+  `doc/reviews/1456/premises.py` counts them (ADR 1748).

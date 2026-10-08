@@ -244,6 +244,8 @@ fn an_annotation_with_no_page_entry_is_on_the_page_that_lists_it() {
     let runner = Arc::new(Paging::default());
     let mut view = ViewState::of(&document);
     view.run_scripts_with(Some(Arc::clone(&runner) as Arc<dyn ScriptRunner>));
+    // A widget's event is a host's after the open sequence (ADR 1750); page one has no script.
+    view.run_open_scripts(&document, 0);
     let square = ObjectId {
         number: 4,
         generation: 0,

@@ -18,7 +18,7 @@
 #
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
-#   tools/bounded.sh [--lock [--clock] [--round N]] [--build '<cargo build arguments>']… [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
+#   tools/bounded.sh [--lock [--clock | --long] [--round N]] [--build '<cargo build arguments>']… [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
 #   tools/bounded.sh --held
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
@@ -42,7 +42,8 @@
 #                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
 #                long the run queued for it, behind what, how long it held it, the tree's peak, the
 #                run's kind and its lane (below). The lock has two lanes: a run whose `--tree` is 6
-#                GiB or less takes either, any larger one the first, and a `--clock` run both. An
+#                GiB or less takes either, any larger one the first, a `--clock` run both and a `--long` run
+#                the second only. An
 #                ancestor that holds the lock already — `flock <lock> tools/bounded.sh --lock …`, or
 #                a `--lock` wrapper this command runs under — is found and used, never queued
 #                behind. The command runs without the lanes' descriptors and with
@@ -51,6 +52,11 @@
 #                pair, a launch measured with its clocks — so it takes both lanes, and while it
 #                waits for them no other run is granted either. A run that holds a clock run anywhere
 #                inside it declares this itself; a `--clock` run inside a hold of one lane is refused.
+#   --long       with --lock: this run holds its lane for as long as it chooses — a fuzz campaign, a
+#                seed census over the corpora — so it takes the second lane and only the second, and
+#                waits for it rather than take the first while the first is free; the first stays
+#                a walk's. Its `--tree` is the second lane's, 6 GiB, and is refused above that; a
+#                `--long` run inside a hold of the first lane is refused (ADR 1756).
 #   --held       exit 0 if the caller runs under a hold of the lock — it has a lane's descriptor
 #                open, or `HEAVY_WALK_HELD_BY` names an ancestor that has — and 1 otherwise. What a
 #                script that must run under the lock asks before it walks (`tools/batch.sh arms-held`).
@@ -66,7 +72,8 @@
 #                so a gate keeps its name on the log (ADR 1710).
 #   --self-test  run the sampler against synthetic process tables and against live trees — one
 #                that fans out, one that crosses the ceiling, one whose sampler stalls, one that
-#                forks past a task limit of its own, the lock's lanes and a build inside a hold — and
+#                forks past a task limit of its own, the lock's lanes, a build inside a hold and a long
+#                run pinned to the second lane — and
 #                exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
 #                `cargo test -p conformance`, so the sequence's last line exercises the bound.
 #
@@ -151,6 +158,13 @@
 # second lane for walks declared at `--tree 6` or less; a clock run takes both, because a time
 # measured beside another walk is the busy end of trap 110, and a gate in front of the lanes lets a
 # waiting clock run stop every new grant rather than wait for two holds to end together. ADR 1684.
+#
+# **And a small walk was the same kind whether it held its lane for a minute or an hour.** A small
+# walk takes the second lane, or the first when the second is busy, so two campaigns of an hour each
+# held both lanes between them while a 25 s corpus gate queued 4 289 s behind them. So a run whose
+# length is its own choice declares `--long` and is pinned to the second lane: a second long run
+# queues behind the first, every walk keeps the first lane, and a clock run waiting for a long run
+# stops no walk while it waits (below). ADR 1756.
 
 set -u -o pipefail
 
@@ -191,6 +205,7 @@ lock_path=${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}
 lock_log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
 take_lock=
 clock=
+long=
 held_query=
 round=-
 lane_fds=
@@ -207,6 +222,7 @@ while [ $# -gt 0 ]; do
         --nice) niceness=$2; shift 2 ;;
         --lock) take_lock=1; shift ;;
         --clock) clock=1; shift ;;
+        --long) long=1; shift ;;
         --held) held_query=1; shift ;;
         --round) round=$2; shift 2 ;;
         --build) builds+=("$2"); shift 2 ;;
@@ -319,7 +335,9 @@ watch_tree() {
 # Three files: the first lane is the lock file itself, the second is `<lock>.lane2`, and `<lock>.gate`
 # is the order. A run's kind is what it declared: `--clock` is a clock run and takes both lanes; a
 # `--tree` of `small_lane_gib` or less is a small walk and takes either, the second first so that the
-# first stays free for a large one; any other walk is large and takes the first. Two lanes are at
+# first stays free for a large one; any other walk is large and takes the first; and a `--long` run
+# takes the second only, so that however long it holds, the first is never held by a run whose
+# length it chose (ADR 1756). Two lanes are at
 # most 12 + 6 GiB of walks, which ADR 1659 section 2 found room for beside everything else the machine
 # runs, and only because `--tree` is a kill and not a promise.
 #
@@ -332,6 +350,13 @@ watch_tree() {
 # waits only for the holds it found running. A walk polls rather than blocks, twice a second, because
 # it waits for the gate and a lane at once and `flock` waits for one file.
 #
+# A long run is the one hold a clock run may not wait for behind the gate: it ends when it chose to,
+# an hour on, and the gate would stop the first lane for all of it (ADR 1756). So a clock run takes a
+# fourth file first, `<lock>.clock`, the clock turn, which orders the clock runs and stops every long
+# run's grant; while the second lane's holder is a long run — `<lock>.lane2.long` names its live
+# wrapper — the clock run waits holding the turn and not the gate, and the first lane grants walks;
+# then it takes the gate and the lanes as before.
+#
 # `lock_take` sets `lane_fds` (the descriptors this wrapper holds, one per lane), `lanes` (as the log
 # line names them), `asked_ms`, `held_ms` and `behind`. A descriptor this process already has open on
 # the first lane is a bare `flock` ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is
@@ -341,6 +366,7 @@ watch_tree() {
 # shell knows what it is waiting for, and so is the run it found holding the lock (ADR 1659).
 lane2_path=$lock_path.lane2
 gate_path=$lock_path.gate
+clock_turn_path=$lock_path.clock
 small_lane_gib=6
 poll_interval=0.5
 
@@ -428,9 +454,11 @@ lane_hold() {
 # `lock_take` returns at once, taking nothing and writing no line, where a `--lock` wrapper above
 # this one holds the lock already: that wrapper's line is the hold, and a second one would count it
 # twice. A clock run under an ancestor that holds one lane only would measure beside whatever walk
-# took the other, so it is refused, with the cure: the outermost run declares `--clock`.
+# took the other, so it is refused, with the cure: the outermost run declares `--clock`. A long run
+# under an ancestor that holds the first lane, or under a bare `flock` of it, would keep the first
+# lane for the length the long run chose, so it is refused too: the outermost run declares `--long`.
 lock_take() {
-    local inherited ancestor gate_fd fd lane wanted=
+    local inherited ancestor gate_fd turn_fd fd lane wanted=
     asked_ms=$(now_ms)
     behind=-
     inherited=$(lock_open_in $$ "$lock_path") || inherited=
@@ -439,7 +467,15 @@ lock_take() {
             echo "bounded: a --clock run inside a hold of lane $ancestor only would be timed beside the walk on the other lane; declare the outermost --lock run --clock" >&2
             return 64
         fi
+        if [ "$kind" = long ] && [ "$ancestor" != 2 ]; then
+            echo "bounded: a --long run inside a hold of lane ${ancestor// / and } would keep the first lane for as long as it runs; declare the outermost --lock run --long" >&2
+            return 64
+        fi
         return 0
+    fi
+    if [ -n "$inherited" ] && [ "$kind" = long ]; then
+        echo "bounded: a --long run under its caller's flock of the first lane would keep that lane for as long as it runs; run it under tools/bounded.sh --lock --long alone" >&2
+        return 64
     fi
     if [ -n "$inherited" ]; then
         # The caller's own `flock` holds the first lane; a clock run takes the second after it, the
@@ -453,6 +489,18 @@ lock_take() {
             lane_fds="$lane_fds $fd" lanes=1+2
         fi
     elif [ "$kind" = clock ]; then
+        # The clock turn first: it orders the clock runs among themselves and stops every long run's
+        # grant, so that no long run takes the second lane while this run waits for it.
+        exec {turn_fd}>>"$clock_turn_path" || return 1
+        flock -n "$turn_fd" || { lock_queued "the clock turn, behind an earlier clock run" "$(lock_holder "$clock_turn_path")"; flock "$turn_fd" || return 1; }
+        printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$clock_turn_path.holder" 2>/dev/null
+        # A long run on the second lane holds it for as long as it chose, and waiting for it behind the
+        # gate would stop the first lane for as long too. So the gate is taken once the second lane is
+        # no long run's, and until then the first keeps granting walks.
+        while long_holds_lane2; do
+            lock_queued "lane 2, held by a long run; the first lane grants walks meanwhile" "$(lock_holder "$lane2_path")"
+            sleep "$poll_interval"
+        done
         exec {gate_fd}>>"$gate_path" || return 1
         flock -n "$gate_fd" || { lock_queued "the gate, behind an earlier clock run" "$(lock_holder "$gate_path")"; flock "$gate_fd" || return 1; }
         printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$gate_path.holder" 2>/dev/null
@@ -462,15 +510,20 @@ lock_take() {
             lane_fds="${lane_fds:+$lane_fds }$fd"
         done
         lanes=1+2
-        [ "$(cut -d' ' -f1 "$gate_path.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$gate_path.holder"
-        exec {gate_fd}>&-
+        for fd in "$gate_path" "$clock_turn_path"; do
+            [ "$(cut -d' ' -f1 "$fd.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$fd.holder"
+        done
+        exec {gate_fd}>&- {turn_fd}>&-
     else
         exec {gate_fd}>>"$gate_path" || return 1
-        if [ "$kind" = small ]; then wanted="2 1"; else wanted=1; fi
+        case $kind in small) wanted="2 1" ;; long) wanted=2 ;; *) wanted=1 ;; esac
+        [ "$kind" != long ] || exec {turn_fd}>>"$clock_turn_path" || return 1
         declare -A lane_fd=()
         for lane in $wanted; do exec {fd}>>"$(lane_path "$lane")" || return 1; lane_fd[$lane]=$fd; done
         while [ -z "$lanes" ]; do
-            if flock -n "$gate_fd"; then
+            if [ "$kind" = long ] && ! { flock -n "$turn_fd" && flock -u "$turn_fd"; }; then
+                lock_queued "a clock run waits for the second lane, and no long run is granted it meanwhile" "$(lock_holder "$clock_turn_path")"
+            elif flock -n "$gate_fd"; then
                 flock -u "$gate_fd"
                 for lane in $wanted; do
                     flock -n "${lane_fd[$lane]}" && { lanes=$lane; break; }
@@ -478,7 +531,7 @@ lock_take() {
                 [ -n "$lanes" ] && break
                 fd=
                 for lane in $wanted; do fd="${fd:+$fd+}$(lock_holder "$(lane_path "$lane")")"; done
-                lock_queued "lane ${wanted// / or }" "$fd"
+                lock_queued "lane ${wanted// / or }${long:+, the only lane a long run takes}" "$fd"
             else
                 lock_queued "a clock run holds the gate while it waits for both lanes" "$(lock_holder "$gate_path")"
             fi
@@ -488,11 +541,21 @@ lock_take() {
             if [ "$lane" = "$lanes" ]; then lane_fds=${lane_fd[$lane]}; else eval "exec ${lane_fd[$lane]}>&-"; fi
         done
         exec {gate_fd}>&-
+        [ "$kind" != long ] || exec {turn_fd}>&-
     fi
     held_ms=$(now_ms)
     for lane in ${lanes//+/ }; do
         printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$(lane_path "$lane").holder" 2>/dev/null
     done
+    [ "$kind" != long ] || echo "$$" > "$lane2_path.long" 2>/dev/null
+}
+
+# Whether the second lane is held by a long run: the pid the long run's wrapper leaves in
+# `<lock>.lane2.long` while it holds the lane is alive. A wrapper killed before it could remove the
+# file leaves a pid that is not, and that is no hold.
+long_holds_lane2() {
+    local pid
+    [ -s "$lane2_path.long" ] && read -r pid < "$lane2_path.long" 2>/dev/null && kill -0 "$pid" 2>/dev/null
 }
 
 # `lock_record STATUS` appends the run's one line, if it held the lock. Shorter than `PIPE_BUF`
@@ -513,6 +576,7 @@ lock_record() {
         holder=$(lane_path "$lane").holder
         [ "$(cut -d' ' -f1 "$holder" 2>/dev/null)" != "$$" ] || rm -f -- "$holder"
     done
+    [ "$kind" != long ] || [ "$(cat "$lane2_path.long" 2>/dev/null)" != "$$" ] || rm -f -- "$lane2_path.long"
 }
 seconds() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
 
@@ -830,6 +894,80 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     grep -q ' round=102 .* exit=101 ' "$scratch/build.log" || fail "build: the failed run's line: $(cat "$scratch/build.log")"
     echo "bounded --self-test: two builds ran in order inside the hold, without a lane, before their command; a failed build ended its run with exit 101 and the command unstarted"
 
+    # 11. A long run is pinned to the second lane (ADR 1756), on files of the case's own. A long run
+    #     takes the second lane; a second long run asked beside it finds the first lane free and must
+    #     not take it, but queue behind the first long run; a small walk asked while it queues is
+    #     granted the first lane at once and ends before either long run is released. Calibrated by
+    #     the first lane itself: while the second long run queues, the case takes the first lane with
+    #     `flock -n`, which fails if that run took it — the defect this kind exists to prevent, and
+    #     what the run did when it was a small walk. Each line names `kind=long lane=2`. `--long`
+    #     with no `--lock`, beside `--clock`, above the second lane's 6 GiB, inside a hold of the
+    #     first lane and under a bare `flock` of it are refused.
+    long_case() { HEAVY_WALK_LOCK="$scratch/long" HEAVY_WALK_LOG="$scratch/long.log" "$self" "$@"; }
+    long_case --lock --long --round 111 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/long111" > /dev/null 2>&1 &
+    first_long=$!
+    appears "$scratch/long.lane2.holder" . "long: the first long run never took the second lane"
+    long_case --lock --long --round 112 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/long112" > /dev/null 2> "$scratch/long112.err" &
+    second_long=$!
+    appears "$scratch/long112.err" 'queued for the heavy-walk lock (lane 2' "long: the second long run never queued for the second lane, so it took the first"
+    flock -n "$scratch/long" true || fail "long: the second long run took the first lane while the second was held"
+    long_case --lock --round 113 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "long: the small walk beside two long runs failed"
+    [ -e "$scratch/long112" ] && fail "long: the second long run ran before the first was released"
+    : > "$scratch/long111.go"
+    wait "$first_long" "$second_long"
+    long_line() { grep " round=$1 " "$scratch/long.log"; }
+    long_line 111 | grep -q ' kind=long lane=2 ' || fail "long: the first long run's line: $(long_line 111)"
+    long_line 112 | grep -q ' behind=[^ ]*round=111[^ ]* kind=long lane=2 ' || fail "long: the second long run's line does not name the first: $(long_line 112)"
+    long_line 113 | grep -q ' kind=small lane=1 ' && waited_nothing "$(long_line 113 | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+        fail "long: a small walk beside a long run was not granted the first lane at once: $(long_line 113)"
+    long_case --long --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "long: --long without --lock exited $status, wanted 64"
+    long_case --lock --long --clock --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "long: --long beside --clock exited $status, wanted 64"
+    long_case --lock --long --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "long: --long --tree 12 exited $status, wanted 64"
+    long_case --lock --round 114 --tree 12 --data 1 --nice 0 -- "$self" --lock --long --round 115 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "long: a --long run inside a hold of the first lane exited $status, wanted 64"
+    long_case --lock --round 116 --tree 1 --data 1 --nice 0 -- "$self" --lock --long --round 117 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 0 ] || fail "long: a --long run inside a hold of the second lane exited $status, wanted 0"
+    timeout 20 flock "$scratch/long" env HEAVY_WALK_LOCK="$scratch/long" HEAVY_WALK_LOG="$scratch/long.log" \
+        "$self" --lock --long --round 118 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "long: a --long run under a bare flock of the first lane exited $status, wanted 64"
+    flock -n "$scratch/long" true && flock -n "$scratch/long.lane2" true && flock -n "$scratch/long.gate" true ||
+        fail "long: a lane or the gate is still held after every run ended"
+    echo "bounded --self-test: a second long run queued $(long_line 112 | sed 's/.* wait=\([0-9.]*s\) .*/\1/') for the second lane with the first free, and a small walk took the first beside them at once; --long alone, with --clock, above 6 GiB, inside the first lane and under its flock refused"
+
+    # 12. A clock run behind a long run (ADR 1756), on files of the case's own. A long run holds the
+    #     second lane. A clock run asked next waits for it holding the clock turn and not the gate, so
+    #     a small walk asked while it waits is granted the first lane at once — the calibration, since
+    #     a clock run that took the gate first stops that walk until the long run ends. A second long
+    #     run asked while the clock run waits is not granted the second lane when the first frees it,
+    #     but only once the clock run has ended.
+    turn_case() { HEAVY_WALK_LOCK="$scratch/turn" HEAVY_WALK_LOG="$scratch/turn.log" "$self" "$@"; }
+    turn_case --lock --long --round 121 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/turn121" > /dev/null 2>&1 &
+    first_long=$!
+    appears "$scratch/turn.lane2.long" . "turn: the long run never marked the second lane"
+    turn_case --lock --clock --round 122 --tree 1 --data 1 --nice 0 -- sh -c 'sleep 1; date +%s%N > "$0"' "$scratch/turn122" > /dev/null 2> "$scratch/turn122.err" &
+    timed=$!
+    appears "$scratch/turn122.err" 'held by a long run' "turn: the clock run never said it waits for the long run"
+    turn_case --lock --round 123 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "turn: the small walk beside a waiting clock run failed"
+    waited_nothing "$(grep ' round=123 ' "$scratch/turn.log" | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+        fail "turn: a small walk asked while a clock run waited for a long run was not granted the first lane at once: $(grep ' round=123 ' "$scratch/turn.log")"
+    turn_case --lock --long --round 124 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/turn124" > /dev/null 2> "$scratch/turn124.err" &
+    second_long=$!
+    appears "$scratch/turn124.err" 'a clock run waits for the second lane' "turn: the long run asked behind a waiting clock run never queued at the turn"
+    : > "$scratch/turn121.go"
+    wait "$first_long" "$timed" "$second_long"
+    clock_end=$(cat "$scratch/turn122" 2>/dev/null) late_start=$(cat "$scratch/turn124" 2>/dev/null)
+    [ -n "$clock_end" ] && [ -n "$late_start" ] && [ "$late_start" -ge "$clock_end" ] ||
+        fail "turn: a long run asked while a clock run waited took the second lane before the clock run ended (${late_start:-never} against ${clock_end:-never} ns)"
+    grep ' round=122 ' "$scratch/turn.log" | grep -q ' behind=[^ ]*round=121[^ ]* kind=clock lane=1+2 ' ||
+        fail "turn: the clock run's line does not name the long run: $(grep ' round=122 ' "$scratch/turn.log")"
+    [ -e "$scratch/turn.lane2.long" ] && fail "turn: the long run's mark outlived it"
+    flock -n "$scratch/turn" true && flock -n "$scratch/turn.lane2" true && flock -n "$scratch/turn.gate" true && flock -n "$scratch/turn.clock" true ||
+        fail "turn: a lane, the gate or the clock turn is still held after every run ended"
+    echo "bounded --self-test: a clock run waited $(grep ' round=122 ' "$scratch/turn.log" | sed 's/.* wait=\([0-9.]*s\) .*/\1/') for a long run without stopping the first lane, where a small walk ran at once, and the long run asked behind it ran after it"
+
     echo "bounded --self-test: every case holds"
     exit 0
 fi
@@ -849,17 +987,33 @@ if [ "$data_gib" -gt "$round_share_gib" ] && [ -z "$tree_gib" ]; then
     echo "bounded: --data $data_gib GiB is above a round's share of $round_share_gib, and no --tree ceiling was given — see the header for 2026-09-02, when exactly this invocation took the machine down; pass --tree as well, or a smaller --data" >&2
     exit 64
 fi
-# Rule 3 of the header: a run without a tree ceiling is not started by omission.
-[ -n "$tree_gib" ] || tree_gib=$round_share_gib
+# Rule 3 of the header: a run without a tree ceiling is not started by omission. A long run's
+# default is the second lane's ceiling, the only lane it takes.
+if [ -z "$tree_gib" ]; then
+    if [ -n "$long" ]; then tree_gib=$small_lane_gib; else tree_gib=$round_share_gib; fi
+fi
 case "$tree_gib" in ''|*[!0-9]*|0) echo "bounded: --tree wants a positive integer of GiB" >&2; exit 64 ;; esac
 case "$tasks" in ''|*[!0-9]*|0) echo "bounded: --tasks wants a positive integer" >&2; exit 64 ;; esac
 if [ -n "$clock" ] && [ -z "$take_lock" ]; then
     echo "bounded: --clock declares how a run takes the heavy-walk lock, and this run takes none; pass --lock as well" >&2
     exit 64
 fi
+if [ -n "$long" ] && [ -z "$take_lock" ]; then
+    echo "bounded: --long declares how a run takes the heavy-walk lock, and this run takes none; pass --lock as well" >&2
+    exit 64
+fi
+if [ -n "$long" ] && [ -n "$clock" ]; then
+    echo "bounded: --long and --clock together: a clock run takes both lanes for a time it measures, a long run one lane for a time it chooses; a campaign is not timed, so declare --long" >&2
+    exit 64
+fi
+if [ -n "$long" ] && [ "$tree_gib" -gt "$small_lane_gib" ]; then
+    echo "bounded: --long holds the second lane, whose ceiling is $small_lane_gib GiB, and this run asks --tree $tree_gib; a run that needs more is a large walk on the first lane and does not declare --long (ADR 1756)" >&2
+    exit 64
+fi
 # The run's kind, which decides its lanes (the lock's section above): what it declared, never what it
 # turns out to peak at, because the lane is granted before the walk starts.
-if [ -n "$clock" ]; then kind=clock
+if [ -n "$long" ]; then kind=long
+elif [ -n "$clock" ]; then kind=clock
 elif [ "$tree_gib" -le "$small_lane_gib" ]; then kind=small
 else kind=large
 fi

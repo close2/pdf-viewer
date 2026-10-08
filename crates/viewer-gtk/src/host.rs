@@ -553,6 +553,11 @@ pub struct Host {
     /// The note whose window the press now held went down on, which its release does not reach
     /// the page for either.
     pressed_a_note: Option<pdf_syntax::ObjectId>,
+    /// Whether the press now held went down on one of §12.7's controls placed over the page, so
+    /// that the core is told of its release however far the pointer has moved (ADR 1752).
+    pressed_a_control: bool,
+    /// Whether the page's drag began on such a control, and is therefore that control's press.
+    dragging_a_control: bool,
     /// Whether the pointer was last over §12.5.6.5's activation region.
     ///
     /// Kept so that `Query::LinkAt` changes the cursor when the answer changes rather than on
@@ -800,6 +805,8 @@ impl Host {
                 popups_shown: Vec::new(),
                 note_editor: None,
                 pressed_a_note: None,
+                pressed_a_control: false,
+                dragging_a_control: false,
                 over_link: false,
                 presented: false,
                 accessibility: None,
@@ -4289,18 +4296,61 @@ impl Host {
         self.ui.window.is_active()
     }
 
-    /// Gives the keyboard to the page a person has just pressed on, unless the press went into one
-    /// of this host's controls or the find bar.
+    /// Gives the keyboard to the page a person has just pressed on, unless the press went into the
+    /// find bar or a note's editor — a press into one of this host's controls never reaches here
+    /// (ADR 1752).
     ///
     /// The page area is not a GTK control, and a press on something GTK cannot focus hands its
     /// keyboard to the outline's `GtkListView` — whose bindings take the arrow keys, Home and End
     /// before this window's key table hears them. Driven under `Xvfb`: one click on the page, and
     /// every page-turning key after it moved the outline's cursor instead (ADR 1453).
+    ///
+    /// **A press on the page takes the keyboard out of a field's control**, as a press beside a
+    /// field does in `quorra`: the core has raised Table 197's `/Bl` for the press, and a control
+    /// keeping the keyboard would go on taking keys for a field the document has been told lost it.
+    ///
+    /// A note's editor that the same press opened keeps the keyboard it was given (ADR 1726).
     fn page_takes_the_keyboard(&mut self) {
-        if self.a_control_has_the_keyboard() || self.ui.find_entry.has_focus() {
+        let focused = GtkWindowExt::focus(&self.ui.window);
+        let in_the_note = self.note_editor.as_ref().is_some_and(|editor| {
+            focused.as_ref().is_some_and(|focused| {
+                *focused == editor.frame || focused.is_ancestor(&editor.frame)
+            })
+        });
+        if in_the_note || self.ui.find_entry.has_focus() {
             return;
         }
         self.ui.page_area.grab_focus();
+    }
+
+    /// Whether the point, in the page area's own coordinates, is over one of the §12.7 controls this
+    /// host placed over the page — the control or a widget it is built of. Not "inside the
+    /// `GtkFixed`": the page's own picture is a child of it too.
+    fn in_a_control(&self, x: f64, y: f64) -> bool {
+        self.ui
+            .page_area
+            .pick(x, y, gtk4::PickFlags::DEFAULT)
+            .is_some_and(|picked| {
+                self.placed
+                    .iter()
+                    .any(|placed| picked == placed.widget || picked.is_ancestor(&placed.widget))
+            })
+    }
+
+    /// A press or a release of the primary button that one of §12.7's placed controls takes, told
+    /// to the core as the pointer's own: the press that went down on a control, and its release
+    /// wherever it lands (ADR 1752).
+    ///
+    /// GTK's own gesture inside an entry or a list claims the sequence before the page's drag can
+    /// see it, so without this a field a person clicks into would raise none of Table 197's `/D`,
+    /// `/U`, `/Fo` and later `/Bl` — the events whose scripts a form runs there.
+    fn pointer_through_a_control(&mut self, x: f64, y: f64, action: PointerAction) {
+        match action {
+            PointerAction::Pressed if self.in_a_control(x, y) => self.pressed_a_control = true,
+            PointerAction::Released if std::mem::take(&mut self.pressed_a_control) => {}
+            _ => return,
+        }
+        self.pointer(x, y, action);
     }
 
     /// Whether the keyboard is in one of the §12.7 controls this host placed over the page.
@@ -6318,13 +6368,55 @@ fn listen(
     });
     overlay.add_controller(motion);
 
+    presses(overlay, me);
+}
+
+/// The primary button on the page: the page's own drag, and the press a placed control takes,
+/// each told to the core once (ADR 1752).
+fn presses(overlay: &gtk4::Overlay, me: &Weak<RefCell<Host>>) {
+    // A press on one of §12.7's controls is read off the raw events before the control sees it,
+    // told to the core, and passed on untouched (`Host::pointer_through_a_control`).
+    let raw = gtk4::EventControllerLegacy::new();
+    raw.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let listener = me.clone();
+    raw.connect_event(move |controller, event| {
+        let action = match event.event_type() {
+            gtk4::gdk::EventType::ButtonPress => PointerAction::Pressed,
+            gtk4::gdk::EventType::ButtonRelease => PointerAction::Released,
+            _ => return glib::Propagation::Proceed,
+        };
+        let primary = event
+            .downcast_ref::<gtk4::gdk::ButtonEvent>()
+            .is_some_and(|button| button.button() == gtk4::gdk::BUTTON_PRIMARY);
+        if let (true, Some(widget)) = (primary, controller.widget())
+            && let Some((x, y)) = in_widget(&widget, event)
+        {
+            with(&listener, |host| {
+                host.pointer_through_a_control(x, y, action);
+            });
+        }
+        glib::Propagation::Proceed
+    });
+    overlay.add_controller(raw);
+
     let drag = gtk4::GestureDrag::new();
     let listener = me.clone();
     drag.connect_drag_begin(move |_, x, y| {
-        with(&listener, |host| host.pointer(x, y, PointerAction::Pressed));
-        // After GTK's own handling of the same press, which is what moves its focus.
-        let listener = listener.clone();
-        glib::idle_add_local_once(move || with(&listener, Host::page_takes_the_keyboard));
+        // A control that does not claim its press lets this gesture see it too; the press is the
+        // control's, told once above.
+        let mut on_the_page = false;
+        with(&listener, |host| {
+            host.dragging_a_control = host.pressed_a_control;
+            on_the_page = !host.dragging_a_control;
+            if on_the_page {
+                host.pointer(x, y, PointerAction::Pressed);
+            }
+        });
+        if on_the_page {
+            // After GTK's own handling of the same press, which is what moves its focus.
+            let listener = listener.clone();
+            glib::idle_add_local_once(move || with(&listener, Host::page_takes_the_keyboard));
+        }
     });
     let listener = me.clone();
     drag.connect_drag_update(move |gesture, dx, dy| {
@@ -6332,7 +6424,9 @@ fn listen(
             return;
         };
         with(&listener, |host| {
-            host.pointer(x + dx, y + dy, PointerAction::Dragged);
+            if !host.dragging_a_control {
+                host.pointer(x + dx, y + dy, PointerAction::Dragged);
+            }
         });
     });
     let listener = me.clone();
@@ -6341,10 +6435,21 @@ fn listen(
             return;
         };
         with(&listener, |host| {
-            host.pointer(x + dx, y + dy, PointerAction::Released);
+            if !std::mem::take(&mut host.dragging_a_control) {
+                host.pointer(x + dx, y + dy, PointerAction::Released);
+            }
         });
     });
     overlay.add_controller(drag);
+}
+
+/// Where a raw event happened, in `widget`'s own coordinates: GDK states an event's position on its
+/// surface, and the native widget that owns the surface may sit inside it by a transform.
+fn in_widget(widget: &gtk4::Widget, event: &gtk4::gdk::Event) -> Option<(f64, f64)> {
+    let native = widget.native()?;
+    let (x, y) = event.position()?;
+    let (left, top) = native.surface_transform();
+    native.translate_coordinates(widget, x - left, y - top)
 }
 
 /// The find bar, and it is somebody else's widget: a `GtkSearchBar` with a `GtkSearchEntry` in it,

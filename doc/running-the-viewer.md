@@ -409,6 +409,13 @@ documents set none never wakes for one; while a presentation runs, its clock car
 `app.beep` plays the system sound in `quorra-gtk` and `quorra-qt` and prints which of the
 reference's five was asked for; `quorra`'s toolkit has no sound, and it says so.
 
+**A widget's and a page's `/AA` scripts run at their events** (ADRs 1750, 1752): a cursor entering
+and leaving a widget, a press and a release in it, its taking and losing the focus, and the page
+shown changing each hand Table 197's or Table 198's script to the runner, in all three windows — a
+press on a toolkit's own entry or list included, which the window reads before the control and
+passes on. Step 68, 69 and 70 of `tools/drive-windows.sh` drive the three classes; `--step
+script_triggers` runs them alone.
+
 **A note's popup window shows its rich text formatted** (ADR 1642): where Table 172's `/RC` states
 the same characters as `/Contents`, each run is drawn in its face, weight, posture, size, colour,
 underlines, line through, rise and letter spacing, each paragraph in its alignment and list indent
@@ -439,7 +446,8 @@ the level `--submissions=` and the restrictions menu set — `send` and `warn` f
 URL to you first, `refuse` says it was not fetched — and a copy that hashes to the digest the signer
 signed is opened beside the document; any other answer is a sentence, and every one says the
 policy's constraints were not enforced. `quorra-confined` has no network and fetches nothing. Step
-66 of `tools/drive-windows.sh` serves one from the drive's loopback server.
+66 of `tools/drive-windows.sh` serves one from the drive's loopback server. A C caller fetches the
+copy itself and hands it to `quorra_event_policy_bind`, which says the same sentence (ADR 1753).
 
 **A measured point on a geospatial map is written in the file's display system** (Table 269's
 `/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an

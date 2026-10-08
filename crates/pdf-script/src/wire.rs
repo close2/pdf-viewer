@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
+use pdf_model::destination::View;
 use pdf_model::form::Choice;
 use pdf_model::view::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
@@ -39,8 +40,9 @@ use crate::{
 /// pointer — beside its two bits (ADR 1721); 10 every page's label, boundaries and rotation, a
 /// named destination asked for and the calculations switched (ADR 1724), and a field's `/Opt`, its
 /// selected items and a choice by index (ADR 1725); 11 the window's view with every request, and a
-/// script's change to it (ADR 1736), and a field's `/Opt` as a script rewrote it (ADR 1737).
-pub const VERSION: u8 = 11;
+/// script's change to it (ADR 1736), and a field's `/Opt` as a script rewrote it (ADR 1737); 12 a
+/// named destination's page and view as one change to the window's view (ADR 1751).
+pub const VERSION: u8 = 12;
 
 /// Table 29's six page layouts, in the order their tag counts them.
 const LAYOUTS: [PageLayout; 6] = [
@@ -606,6 +608,48 @@ fn put_view_change(out: &mut Vec<u8>, change: &ViewChange) {
             put_f64(out, *x);
             put_f64(out, *y);
         }
+        ViewChange::Destination { page, view } => {
+            put_u8(out, 4);
+            put_u32(out, *page);
+            put_destination_view(out, view);
+        }
+    }
+}
+
+/// Writes Table 149's view of a destination: a tag in the table's order, then its numbers, each
+/// absent one — the table's null, "the current value … retained unchanged" — a 0 byte.
+fn put_destination_view(out: &mut Vec<u8>, view: &View) {
+    match *view {
+        View::Xyz { left, top, zoom } => {
+            put_u8(out, 0);
+            for number in [left, top, zoom] {
+                put_optional_f32(out, number);
+            }
+        }
+        View::Fit => put_u8(out, 1),
+        View::FitH { top } => {
+            put_u8(out, 2);
+            put_optional_f32(out, top);
+        }
+        View::FitV { left } => {
+            put_u8(out, 3);
+            put_optional_f32(out, left);
+        }
+        View::FitR { rect } => {
+            put_u8(out, 4);
+            for number in rect {
+                put_f32(out, number);
+            }
+        }
+        View::FitB => put_u8(out, 5),
+        View::FitBH { top } => {
+            put_u8(out, 6);
+            put_optional_f32(out, top);
+        }
+        View::FitBV { left } => {
+            put_u8(out, 7);
+            put_optional_f32(out, left);
+        }
     }
 }
 
@@ -917,6 +961,22 @@ fn put_f64(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+/// Writes an `f32`.
+fn put_f32(out: &mut Vec<u8>, value: f32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Writes an `f32` that may be absent: 0, or 1 and the number.
+fn put_optional_f32(out: &mut Vec<u8>, value: Option<f32>) {
+    match value {
+        None => put_u8(out, 0),
+        Some(number) => {
+            put_u8(out, 1);
+            put_f32(out, number);
+        }
+    }
+}
+
 /// Writes a boolean.
 fn put_bool(out: &mut Vec<u8>, value: bool) {
     out.push(u8::from(value));
@@ -1002,6 +1062,11 @@ impl<'a> Reader<'a> {
     /// An `f64`.
     fn f64(&mut self) -> Result<f64, WireError> {
         Ok(f64::from_le_bytes(self.array()?))
+    }
+
+    /// An `f32`.
+    fn f32(&mut self) -> Result<f32, WireError> {
+        Ok(f32::from_le_bytes(self.array()?))
     }
 
     /// A count of items, no more than [`MAX_ITEMS`].
@@ -1324,8 +1389,50 @@ impl<'a> Reader<'a> {
                 x: self.f64()?,
                 y: self.f64()?,
             },
+            4 => ViewChange::Destination {
+                page: self.u32()?,
+                view: self.destination_view()?,
+            },
             _ => return Err(WireError::Invalid("view change")),
         })
+    }
+
+    /// Table 149's view of a destination.
+    fn destination_view(&mut self) -> Result<View, WireError> {
+        Ok(match self.u8()? {
+            0 => View::Xyz {
+                left: self.optional_f32()?,
+                top: self.optional_f32()?,
+                zoom: self.optional_f32()?,
+            },
+            1 => View::Fit,
+            2 => View::FitH {
+                top: self.optional_f32()?,
+            },
+            3 => View::FitV {
+                left: self.optional_f32()?,
+            },
+            4 => View::FitR {
+                rect: [self.f32()?, self.f32()?, self.f32()?, self.f32()?],
+            },
+            5 => View::FitB,
+            6 => View::FitBH {
+                top: self.optional_f32()?,
+            },
+            7 => View::FitBV {
+                left: self.optional_f32()?,
+            },
+            _ => return Err(WireError::Invalid("destination view")),
+        })
+    }
+
+    /// An `f32` that may be absent.
+    fn optional_f32(&mut self) -> Result<Option<f32>, WireError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(self.f32()?)),
+            _ => Err(WireError::Invalid("number")),
+        }
     }
 
     /// The window's view.

@@ -370,6 +370,50 @@ impl Events {
         }
     }
 
+    /// [`Event::SignaturePoliciesPublished`]: the published copies its signatures name, in the
+    /// event's order (ADR 1738).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn policies(
+        &self,
+        index: usize,
+    ) -> Result<&[pdf_signature::policy::PublishedPolicy], Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::SignaturePoliciesPublished { policies, .. } => Ok(policies),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// A copy of policy `policy`'s document that a caller fetched itself, bound against the digest
+    /// its signer signed: whether it is the signer's and a PDF to open beside, and the sentence
+    /// that says so — `viewer_host::policy`'s, word for word as the three windows say it (ADR
+    /// 1753).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] for an event or a policy the list does not hold, or
+    /// [`Status::WrongKind`] for another kind of event.
+    pub fn policy_bound(
+        &self,
+        index: usize,
+        policy: usize,
+        copy: Vec<u8>,
+    ) -> Result<(bool, String), Status> {
+        let named = self
+            .policies(index)?
+            .get(policy)
+            .ok_or(Status::OutOfRange)?;
+        Ok(
+            match viewer_host::policy::signature_policy_handed(named, copy) {
+                viewer_host::submit::Reply::Document { note, .. } => (true, note),
+                viewer_host::submit::Reply::Say(note)
+                | viewer_host::submit::Reply::Import { note, .. } => (false, note),
+            },
+        )
+    }
+
     /// [`Event::Extracted`]: the file's name, and whether a person asked for it.
     ///
     /// The second is §O.2.1's distinction and not decoration: a URI's `ef` parameter extracts a
@@ -704,5 +748,48 @@ mod tests {
         assert!(events.render_request(needs_render).is_ok());
         assert_eq!(events.kind(events.len()), Err(Status::OutOfRange));
         assert_eq!(events.describe(events.len()), Err(Status::OutOfRange));
+    }
+
+    /// A copy a C caller fetched is bound against the digest its signer signed: the signer's own
+    /// PDF opens, the same PDF with one byte changed is said and does not, and a policy the event
+    /// does not list is out of range (ADR 1753).
+    #[test]
+    fn a_callers_copy_of_a_policy_is_bound_against_the_signed_digest() {
+        use pdf_signature::cms::Digest;
+        use pdf_signature::policy::{Commitment, PublishedPolicy};
+
+        let copy = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n".to_vec();
+        let events = Events::new(vec![viewer_core::Event::SignaturePoliciesPublished {
+            document: DocumentId(7),
+            policies: vec![PublishedPolicy {
+                identifier: "2.16.724.1.3.1.1.2.1.9".to_owned(),
+                url: "https://example.invalid/policy.pdf".to_owned(),
+                commitment: Commitment::Stated {
+                    digest: Digest::Sha1,
+                    value: Digest::Sha1.compute(&[&copy]),
+                },
+                specification: None,
+            }],
+        }]);
+        assert_eq!(events.policies(0).map(<[_]>::len), Ok(1));
+        let (opens, said) = events.policy_bound(0, 0, copy.clone()).expect("listed");
+        assert!(opens, "{said}");
+        assert!(
+            said.contains("is the document the signer committed to"),
+            "{said}"
+        );
+        let mut altered = copy;
+        altered[0] = b' ';
+        let (opens, said) = events.policy_bound(0, 0, altered).expect("listed");
+        assert!(!opens, "{said}");
+        assert!(said.contains("does not hash to the SHA1 digest"), "{said}");
+        assert!(
+            !said.contains("answered"),
+            "no server answered this program: {said}"
+        );
+        assert_eq!(
+            events.policy_bound(0, 1, Vec::new()),
+            Err(Status::OutOfRange)
+        );
     }
 }

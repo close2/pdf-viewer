@@ -233,6 +233,24 @@ fn edits() -> Vec<ScriptEdit> {
                 y: 396.0,
             },
         },
+        ScriptEdit::View {
+            change: ViewChange::Destination {
+                page: 1,
+                view: pdf_model::destination::View::Xyz {
+                    left: Some(72.0),
+                    top: None,
+                    zoom: Some(2.0),
+                },
+            },
+        },
+        ScriptEdit::View {
+            change: ViewChange::Destination {
+                page: 0,
+                view: pdf_model::destination::View::FitR {
+                    rect: [10.0, 20.0, 300.0, 400.0],
+                },
+            },
+        },
     ]
 }
 

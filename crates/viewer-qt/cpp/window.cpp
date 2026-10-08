@@ -19,6 +19,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QEnterEvent>
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QFileDialog>
@@ -2155,6 +2156,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         }
         return true;
     }
+    pointerThroughControl(watched, event);
     if (watched == page_ && event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         const bool tab = key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab;
@@ -2164,6 +2166,58 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::pointerThroughControl(QObject* watched, QEvent* event)
+{
+    // A control placed over a §12.7 widget accepts the press the page would otherwise have had,
+    // and a cursor moving over it is the control's too, so without this a field a person clicks
+    // into would raise none of Table 197's events — the ones whose scripts a form runs there. The
+    // primary button only, and a move only with no button down: a drag inside a line edit selects
+    // its text, which is not the page's selection.
+    unsigned char action = 0;
+    QPointF at;
+    switch (event->type()) {
+    case QEvent::Enter:
+        at = static_cast<QEnterEvent*>(event)->position();
+        break;
+    case QEvent::MouseMove:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease: {
+        auto* mouse = static_cast<QMouseEvent*>(event);
+        if (event->type() == QEvent::MouseMove) {
+            if (mouse->buttons() != Qt::NoButton) {
+                return;
+            }
+        } else if (mouse->button() != Qt::LeftButton) {
+            return;
+        } else {
+            action = event->type() == QEvent::MouseButtonPress ? 1 : 3;
+        }
+        at = mouse->position();
+        break;
+    }
+    default:
+        return;
+    }
+    auto* widget = qobject_cast<QWidget*>(watched);
+    if (widget == nullptr || page_ == nullptr || busy_ || !page_->isAncestorOf(widget)) {
+        return;
+    }
+    QWidget* control = widget;
+    while (control != nullptr && control != page_
+           && std::find(controls_.begin(), controls_.end(), control) == controls_.end()) {
+        control = control->parentWidget();
+    }
+    if (control == nullptr || control == page_) {
+        return;
+    }
+    const QPointF onPage = widget->mapTo(page_, at);
+    const qreal scale = page_->devicePixelRatioF();
+    Busy guard(busy_);
+    host_->pointer(static_cast<float>(onPage.x() * scale), static_cast<float>(onPage.y() * scale),
+                   action);
+    applyUpdates();
 }
 
 void MainWindow::syncDocuments()
@@ -2862,6 +2916,12 @@ void MainWindow::rebuildControls()
             widget->setAccessibleName(text(control.tooltip));
         }
         widget->show();
+        // The control and every widget it is built of: an editable combo box takes a press in its
+        // own line edit, which the box never sees.
+        widget->installEventFilter(this);
+        for (QWidget* inner : widget->findChildren<QWidget*>()) {
+            inner->installEventFilter(this);
+        }
         controls_.push_back(widget);
     }
     host_->note("controls rebuilt");

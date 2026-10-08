@@ -13,11 +13,12 @@ names; a round reads this block, and opens the section only where a line bites (
   you wait in it: `ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 -- <command>`;
   a walk that stays under 6 GiB says `--tree 6` and may run beside another, and a run whose verdict is
   a time — a band, a floor, an A/B, a reference program on a budget — says `--clock` and runs alone,
-  declared by the outermost wrapper (ADR 1684); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
+  declared by the outermost wrapper (ADR 1684); a run whose length is its own choice — a fuzz campaign,
+  a seed census — says `--long` and holds the second lane only, never the first (ADR 1756); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
   `flock`, which is on no line (ADR 1646) and hands its descriptor to whatever daemon the walk
   starts, where the wrapper keeps it and hands the command `HEAVY_WALK_HELD_BY` (ADR 1674); a `tools/state.sh` section takes the lock itself, each walk in the lane it declares, so it
   runs bare as `tools/state.sh --round <session> <section>` and never walks unlocked (ADR 1698); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
-  the lock, as the wrapper's own `--build '<profile> -p pdf-sandbox --bins'` and never as a build before it (trap 109, ADR 1710); never a tool that forks per package or per input without the bound (trap 116).
+  the lock, as the wrapper's own `--build '--profile gates -p pdf-sandbox --bins'` (`--release` for a release walk: cargo's own words) and never as a build before it (trap 109, ADR 1710); never a tool that forks per package or per input without the bound (trap 116).
   `cargo test -p conformance` and crate-scoped unit tests are not walks and take no lock; `tools/state.sh gates-cost` names each one a batch ran under it, with its queue (ADR 1718).
 - **No `git stash`, no `git checkout -- .`, no `git restore .`, no `git add -A` or `-u`, no
   whole-file `cp` restore**: name the paths you mean. A before-and-after is a patch of your own.

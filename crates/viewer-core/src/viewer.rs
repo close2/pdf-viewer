@@ -1434,6 +1434,12 @@ impl Viewer {
     /// close and a focus change. Table 240 bit 5 is the one thing that reads it: "the
     /// coordinates of the mouse click that caused the submit-form action", and a submit button
     /// is a widget, so this is the path those coordinates arrive by.
+    ///
+    /// **Each event's scripts run here too** (ADR 1752): a pointer's and a focus's through
+    /// `run_annotation_scripts`, under the runner the reader's `Scripts` level supplied, before the
+    /// same chain's other actions — ADR 1602 keeps no order between the two. Table 197's four
+    /// page events are not run here: their scripts are [`Self::page_events`]'s, page and
+    /// annotations together, and the open sequence's at the first present (RFC 0008 section 6.5).
     fn raise(
         &mut self,
         id: DocumentId,
@@ -1441,6 +1447,7 @@ impl Viewer {
         at: Option<(f32, f32)>,
         events: &mut Vec<Event>,
     ) {
+        let runner = !matches!(self.scripting, crate::Scripting::Off);
         for (annotation, event) in raised {
             let Some(open) = self.focused_mut() else {
                 return;
@@ -1454,7 +1461,29 @@ impl Viewer {
             {
                 commit_typed(id, open, &field, events);
             }
-            let outcome = interact::trigger(open, annotation, event, at);
+            let scripted = match event {
+                Trigger::Enter
+                | Trigger::Exit
+                | Trigger::Down
+                | Trigger::Up
+                | Trigger::Focus
+                | Trigger::Blur => {
+                    let ran = open
+                        .view
+                        .run_annotation_scripts(&open.document, annotation, event);
+                    if ran > 0 {
+                        open.stale();
+                    }
+                    ran > 0
+                }
+                // `page_events` hands these four to the runner with the page's own, whenever
+                // there is one, and the open sequence hands them over for the page an open shows.
+                Trigger::PageOpen
+                | Trigger::PageClose
+                | Trigger::PageVisible
+                | Trigger::PageInvisible => runner,
+            };
+            let outcome = interact::trigger(open, annotation, event, at, scripted);
             self.apply(id, outcome, events);
         }
     }
@@ -4453,6 +4482,9 @@ impl Viewer {
             opened = pages.get(open.page_index).map(|page| page.dict.clone());
         }
         self.raise(id, raised, None, events);
+        let runner = !matches!(self.scripting, crate::Scripting::Off);
+        let turned =
+            left.filter(|index| Some(*index) != self.focused().map(|open| open.page_index));
         for (page, event) in [
             (closed, pdf_model::action::PageTrigger::Close),
             (opened.clone(), pdf_model::action::PageTrigger::Open),
@@ -4461,8 +4493,15 @@ impl Viewer {
             let Some(open) = self.focused_mut() else {
                 break;
             };
-            let outcome = interact::page_trigger(open, &page, event);
+            let outcome = interact::page_trigger(open, &page, event, runner);
             self.apply(id, outcome, events);
+            // Table 198's `/C` and Table 197's `/PC` of the page left, scripts and all, before
+            // anything of the page reached (ADR 1752).
+            if event == pdf_model::action::PageTrigger::Close
+                && let Some(left) = turned
+            {
+                self.page_scripts(left, event);
+            }
         }
         let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
         if let Some(open) = self.focused() {
@@ -4473,7 +4512,26 @@ impl Viewer {
             }
         }
         self.raise(id, raised, None, events);
+        // The open's own page is the open sequence's, run once page one is presented; a turn's is
+        // run here, `/O` and then each annotation's `/PO` and `/PV`, in Table 197's order.
+        if turned.is_some()
+            && let Some(page) = self.focused().map(|open| open.page_index)
+        {
+            self.page_scripts(page, pdf_model::action::PageTrigger::Open);
+        }
         self.raising = false;
+    }
+
+    /// Runs Table 198's `/O` or `/C` scripts of page `page` of the document in front, and its
+    /// annotations' Table 197 `/PO` and `/PV` or `/PC` and `/PI`, under the runner the reader's
+    /// level supplied; a page whose ink a script changed is drawn again (ADRs 1750, 1752).
+    fn page_scripts(&mut self, page: usize, trigger: pdf_model::action::PageTrigger) {
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        if open.view.run_page_scripts(&open.document, page, trigger) > 0 {
+            open.stale();
+        }
     }
 
     /// The focused document, where one is focused and open.
@@ -5122,6 +5180,18 @@ impl Viewer {
                 ViewChange::ZoomType(ZoomType::Preferred | ZoomType::ReflowWidth) => {}
                 ViewChange::Layout(layout) => self.act(Command::Layout(layout), events),
                 ViewChange::Scroll { page, x, y } => self.scroll_to_middle(page, x, y, events),
+                // `this.gotoNamedDest`: the destination's page and Table 149's view, shown as a
+                // link's are — the view left for `settle`, the page turned where it is not the one
+                // showing (ADR 1751).
+                ViewChange::Destination { page, view } => {
+                    let (Ok(page), Some(open)) = (usize::try_from(page), self.focused_mut()) else {
+                        continue;
+                    };
+                    open.pending_views = vec![view];
+                    if open.page_index != page {
+                        self.go_to(PageTarget::Index(page), Turn::Requested, events);
+                    }
+                }
             }
         }
     }

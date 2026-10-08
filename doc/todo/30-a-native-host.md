@@ -156,7 +156,9 @@ These are the places where a native host's shape differs from the tier-2 host's,
   note drawn from `/RC` (ADR 1739) — and a reply stating no popup is a comment in its note's window
   (ADRs 1726, 1727). §12.3.5's collection is shown in all three. A signature's published policy is
   fetched in all three under the submissions level and a bound copy opened beside, declined in
-  `quorra-confined`; the C ABI names the event and offers no binding (ADR 1738).
+  `quorra-confined`; a C caller fetches the copy and `quorra_event_policy_bind` binds it (ADRs
+  1738, 1753). A widget's and a page's `/AA` scripts are raised in all three, a press on a
+  toolkit's own control included (ADR 1752).
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font

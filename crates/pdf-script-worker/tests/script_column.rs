@@ -3,7 +3,10 @@
 //! field script Tier 0 does not run, its open sequence and then each such field typed, committed
 //! and asked what it displays — with a [`ScriptWorker`] as the runner, one per document, so every
 //! script runs in `pdf-script-worker` under `pdf_sandbox::lockdown::Profile::Script` (ADRs 1608,
-//! 1609).
+//! 1609). Then the events a window raises (ADR 1750): on each of the first [`MAX_TURNS`] pages,
+//! every annotation's Table 197 pointer and focus events in the order a click and a departure
+//! raise them, and the page turned to the next, so Table 198's `/C` and `/O` and Table 197's four
+//! page events run through the worker as they run in a window.
 //!
 //! # What this counts
 //!
@@ -38,10 +41,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::aform::site::{self, Site};
 use pdf_model::view::{
-    DocumentTrigger, Entered, ScriptEvent, ScriptResult, ScriptRunner, ViewState,
+    DocumentTrigger, Entered, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite, ViewState,
     widgets_by_field_name,
 };
 use pdf_script_worker::{Cause, ScriptWorker};
@@ -66,6 +70,22 @@ const WORKER: &str = env!("CARGO_BIN_EXE_pdf-script-worker");
 
 /// How many `SIGSYS` deaths the report names one by one.
 const NAMED_KILLS: usize = 20;
+
+/// Most pages a document's walk turns through, raising every annotation's events on each: the
+/// census's scripted forms are a few pages long, and a long document's pages past these repeat
+/// the same kind of event.
+const MAX_TURNS: usize = 64;
+
+/// Table 197's six events a person's pointer and focus raise, in the order a click raises them
+/// and the cursor's departure ends them (RFC 0008 section 6.5 step 3).
+const POINTER: [AnnotationTrigger; 6] = [
+    AnnotationTrigger::Enter,
+    AnnotationTrigger::Down,
+    AnnotationTrigger::Focus,
+    AnnotationTrigger::Up,
+    AnnotationTrigger::Blur,
+    AnnotationTrigger::Exit,
+];
 
 /// What the walk counts.
 #[derive(Debug, Default)]
@@ -96,6 +116,8 @@ struct Tally {
     members: Mutex<BTreeMap<String, usize>>,
     /// Runs whose script put a question, answered here as a closed dialogue answers.
     asked: AtomicUsize,
+    /// Runs at a site a window raises past the open: Table 197's ten events and Table 198's two.
+    raised: AtomicUsize,
 }
 
 /// A runner that hands each event to one document's worker and counts what came back.
@@ -120,6 +142,9 @@ impl ScriptRunner for Counting {
             }
         }
         self.tally.runs.fetch_add(1, Ordering::Relaxed);
+        if matches!(event.site, ScriptSite::Annotation(_) | ScriptSite::Page(_)) {
+            self.tally.raised.fetch_add(1, Ordering::Relaxed);
+        }
         let says = |prefix: &str| {
             result
                 .report
@@ -223,6 +248,7 @@ fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
         view.commit_field(&document, name);
         let _ = view.displayed_value(&document, name);
     }
+    raise_events(&document, &mut view);
     // Table 200's five, in the order a reader's session meets them: a save, a print, the close.
     for trigger in [
         DocumentTrigger::WillSave,
@@ -264,6 +290,49 @@ fn examine(path: &Path, tally: &Arc<Tally>) -> usize {
     scripted.len()
 }
 
+/// Raises what a window raises past the open, through the requests the view state exposes (ADR
+/// 1750): each annotation's pointer and focus events on the page shown, then a turn to the next
+/// page — the page left closed, the page reached opened — for the first [`MAX_TURNS`] pages.
+fn raise_events(document: &Document, view: &mut ViewState) {
+    let pages = pdf_model::Pages::new(document);
+    let count = pages.len().min(MAX_TURNS);
+    for index in 0..count {
+        let Some(page) = pages.get(index) else {
+            break;
+        };
+        let annotations = document
+            .get_key(&page.dict, "Annots")
+            .as_array()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(pdf_syntax::Object::as_reference)
+            .collect::<Vec<_>>();
+        for annotation in annotations {
+            // `/Fo` and `/Bl` are "widget annotations only", as a window gives only a widget the
+            // focus.
+            let widget = document
+                .get(annotation)
+                .as_dict()
+                .is_some_and(|dictionary| {
+                    document
+                        .get_key(dictionary, "Subtype")
+                        .as_name()
+                        .is_some_and(|name| name.as_bytes() == b"Widget")
+                });
+            for trigger in POINTER {
+                if widget || !matches!(trigger, AnnotationTrigger::Focus | AnnotationTrigger::Blur)
+                {
+                    view.run_annotation_scripts(document, annotation, trigger);
+                }
+            }
+        }
+        if index.saturating_add(1) < count {
+            view.run_page_scripts(document, index, PageTrigger::Close);
+            view.run_page_scripts(document, index.saturating_add(1), PageTrigger::Open);
+        }
+    }
+}
+
 #[test]
 #[ignore = "walks the census population through the confined worker; run behind the heavy-walk lock"]
 fn every_script_tier_0_does_not_run_is_run_in_the_confined_worker_and_its_deaths_counted() {
@@ -300,6 +369,10 @@ fn every_script_tier_0_does_not_run_is_run_in_the_confined_worker_and_its_deaths
     println!(
         "runs that put a question, answered as a closed dialogue answers: {}",
         count(&tally.asked)
+    );
+    println!(
+        "runs at a widget's or a page's event a window raises (Tables 197 and 198): {}",
+        count(&tally.raised)
     );
     for (document, subject, detail) in kills.iter().take(NAMED_KILLS) {
         println!("SIGSYS  {document}  {subject}  ({detail})");

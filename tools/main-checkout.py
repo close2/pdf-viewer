@@ -166,8 +166,19 @@ def unseeded(main, owed):
     stale, source = stale_corpora(main, targets)
     stale = [t for t in stale if t not in empty]
     if empty or stale:
-        owe(owed, RESEED, f"re-seed the {len(empty) + len(stale)} corpora above, behind the lock: "
-            f"`tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh fuzz/corpus {' '.join(empty + stale)}`")
+        # A seed census holds its lane as long as its population takes, so it is a long run on the
+        # second lane, but for `jbig2` and `jpx`, whose census peaked within half a gibibyte of that
+        # lane's kill and is a large walk on the first (`fuzz/seeds.sh`'s header, ADRs 1710, 1756).
+        owing = empty + stale
+        second = [t for t in owing if t not in ("jbig2", "jpx")]
+        commands = []
+        if second:
+            commands.append(f"`tools/bounded.sh --lock --long --round <session> -- fuzz/seeds.sh fuzz/corpus {' '.join(second)}`")
+        if "jbig2" in owing:
+            commands.append("`tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh fuzz/corpus jbig2`")
+        if "jpx" in owing:
+            commands.append("`tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh fuzz/corpus jpx`")
+        owe(owed, RESEED, f"re-seed the {len(owing)} corpora above, behind the lock: " + ", then ".join(commands))
     return f"fuzz/corpus: {len(empty)} of {len(targets)} target(s) unseeded" + (
         f": {' '.join(empty)}" if empty else "") + (
         f"; {len(stale)} stale by {source}" + (f": {' '.join(stale)}" if stale else ""))

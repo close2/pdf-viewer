@@ -74,7 +74,9 @@ run() {
 #   or less;
 # - `large` — the first lane and 12 GiB: every other walk;
 # - `clock` — both lanes, alone: a walk whose verdict is a time, which a neighbour's load can move —
-#   every gate `tools/batch.sh`'s `clock_gates` names, and the launch and frame figures beside them.
+#   every gate `tools/batch.sh`'s `clock_gates` names, and the launch and frame figures beside them;
+# - `long` — the second lane only, killed at 6 GiB: a census whose length is its population's, which
+#   holds its lane for as long as it runs and so may not take the first (ADR 1756).
 #
 # Four threads unless the caller set its own, as the merge's gates run, because a walk's peak is the
 # documents it holds in flight (ADR 0798) and the kinds were read off the merge's lines. A walk run
@@ -91,14 +93,15 @@ run() {
 # line, because Cargo builds them for that package's integration tests: `pdf-vfs-worker` and
 # `pdf-view-worker` are in the unit graph of the walks that spawn them.
 walk() {
-    local kind=$1 tree=12 clock= options=() worker builds=()
+    local kind=$1 tree=12 declared= options=() worker builds=()
     shift
     case $kind in
     small) tree=6 ;;
     large) ;;
-    clock) clock=--clock ;;
+    clock) declared=--clock ;;
+    long) declared=--long tree=6 ;;
     *)
-        printf 'walk: no such kind %s (small, large or clock)\n' "$kind" >&2
+        printf 'walk: no such kind %s (small, large, clock or long)\n' "$kind" >&2
         return 64
         ;;
     esac
@@ -109,7 +112,7 @@ walk() {
     worker=$(walk_worker "${@:2}")
     [ -z "$worker" ] || builds=(--build "$worker")
     RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" \
-        tools/bounded.sh --lock $clock --round "$walk_round" --tree "$tree" "${builds[@]}" "${options[@]}" "$@"
+        tools/bounded.sh --lock $declared --round "$walk_round" --tree "$tree" "${builds[@]}" "${options[@]}" "$@"
 }
 
 # The `cargo build` arguments for the sandbox worker a walk's command spawns, under the command's own
@@ -332,7 +335,7 @@ section_corpus() {
 
 section_golden() {
     run "our own output held by name — the raster golden over the tracked corpus, a change detector and not a verdict (ADR 1016)" \
-        '^[0-9]+ tracked documents on disk|^held [0-9]+|^  (moved|unheld|left):' \
+        '^[0-9]+ tracked documents on disk|^held [0-9]+|^  (moved|unheld|left):|^[0-9]+ first pages drawn whole|^  (past|can leave)' \
         walk large -- cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 }
 
@@ -823,12 +826,23 @@ human_bytes() {
 # Whether each target's corpus on disk is stale: `fuzz/seeds.sh check`'s answer, which seeds every
 # target afresh into a scratch directory and compares libFuzzer's `INITED cov` over the disk corpus
 # with the fresh seeds' (trap 107, ADR 1559). A census over the corpora, so it is in `all` and not
-# in `quick`, and is run behind the lock as every census is; it writes nothing under `fuzz/corpus`.
+# in `quick`; it writes nothing under `fuzz/corpus`. It takes the lock as the header of
+# `fuzz/seeds.sh` says a census does: every target a `long` walk on the second lane, which the
+# census holds for as long as its population takes (ADR 1756), but `jbig2` and `jpx`, whose census
+# peaked within half a gibibyte of that lane's kill and is a `large` walk on the first (ADR 1710).
 section_fuzz_stale() {
+    local targets lane2=
     heading "fuzz corpora: stale by coverage, fresh seeds against the disk (a census)" \
         "fuzz/seeds.sh check"
     if [ -x fuzz/seeds.sh ] && grep -q '"${1:-}" = check' fuzz/seeds.sh; then
-        fuzz/seeds.sh check || printf 'fuzz/seeds.sh check exited %s\n' "$?"
+        targets=$(awk '/^\[\[bin\]\]/ { want = 1; next }
+                       want && /^name *= *"/ { gsub(/^name *= *"|"$/, ""); print; want = 0 }' fuzz/Cargo.toml)
+        for target in $targets; do
+            case $target in jbig2|jpx) ;; *) lane2="${lane2:+$lane2 }$target" ;; esac
+        done
+        # shellcheck disable=SC2086 # the targets are separate words by design
+        walk long -- fuzz/seeds.sh check $lane2 || printf 'fuzz/seeds.sh check exited %s\n' "$?"
+        walk large -- fuzz/seeds.sh check jbig2 jpx || printf 'fuzz/seeds.sh check jbig2 jpx exited %s\n' "$?"
     else
         printf 'fuzz/seeds.sh has no check mode in this tree\n'
     fi
@@ -909,12 +923,34 @@ section_gates_cost() {
 # or `--workspace`. Each is
 # printed with its queue, and the batch's are summed; the line is not refused, because the lock is
 # not this section's to give (ADR 1718).
+#
+# **And a long hold is listed with what queued behind it** (ADR 1756). A `--long` run holds the
+# second lane for as long as it chooses, so the batch's `kind=long` lines are printed each with the
+# runs whose `behind=` names it — the holder's word `tools/bounded.sh` writes, `round=<N>_<command>`
+# cut where the wrapper cuts it — and whose ask fell inside its hold, so that a second run of the
+# same command at another hour is not counted against it. A run's wait is its whole queue, and a run
+# that waited for both lanes names both holders, so the sum is what those runs paid while a long
+# hold was one of the things in front of them, not what the long hold alone cost.
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
     [ -r "$log" ] || { printf 'no lock log at %s — no run on this machine has taken the lock through --lock\n' "$log"; return 0; }
     awk '
         function named(field) { return field ~ /^batch=batch-[0-9]+-[0-9]+$/ }
+        # Seconds from a fixed origin for a stamp `YYYY-MM-DDTHH:MM:SS` of the log, by the civil calendar
+        # rather than `mktime`, which not every awk has; only differences are taken.
+        function epoch(stamp,   y, m, d) {
+            y = substr(stamp, 1, 4) + 0; m = substr(stamp, 6, 2) + 0; d = substr(stamp, 9, 2) + 0
+            if (m <= 2) { y--; m += 12 }
+            d = 365 * y + int(y / 4) - int(y / 100) + int(y / 400) + int((153 * (m - 3) + 2) / 5) + d
+            return ((d * 24 + substr(stamp, 12, 2)) * 60 + substr(stamp, 15, 2)) * 60 + substr(stamp, 18, 2)
+        }
+        # Whether a `behind=` word names KEY as one of the holders it joins with `+`.
+        function names(behind, key) {
+            return behind == key || index(behind, key "+") == 1 ||
+                   (length(behind) > length(key) && substr(behind, length(behind) - length(key)) == "+" key) ||
+                   index(behind, "+" key "+") > 0
+        }
         FNR == NR {
             if (named($2)) {
                 b = $2; sub(/^batch=/, "", b); last = b
@@ -940,6 +976,11 @@ lock_cost() {
             cmd = $0; sub(/.* cmd=/, "", cmd)
             lane = "1"; if (match($0, / lane=[^ ]+/)) lane = substr($0, RSTART + 6, RLENGTH - 6)
             mark = (by_round == "") ? "" : "[" $2 ", by its round] "
+            kind = ""; if (match($0, / kind=[^ ]+/)) kind = substr($0, RSTART + 6, RLENGTH - 6)
+            behind = ""; if (match($0, / behind=[^ ]+/)) behind = substr($0, RSTART + 8, RLENGTH - 8)
+            seen++; at[seen] = epoch($1); waits[seen] = wait + 0; holds[seen] = hold + 0
+            kinds[seen] = kind; lanes[seen] = lane; behinds[seen] = behind; rounds_of[seen] = round
+            stamps[seen] = $1; cmds[seen] = cmd
             printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s lane %-3s %s%s\n", $1, round, wait, hold, code, lane, mark, substr(cmd, 1, 82 - length(mark))
             if (!(round in runs)) order[++rounds] = round
             runs[round]++; waited[round] += wait; held[round] += hold
@@ -960,6 +1001,20 @@ lock_cost() {
             if (unplaced) printf "%d line(s) of the log name no batch branch and a round no batch on the log holds, counted for none\n", unplaced
             for (i = 1; i <= unwalked; i++) print not_walks[i]
             printf "%d run(s) of batch %s took the lock for a dev-profile test asking no --ignored, which the rule line says is not a walk: %.1fs of queue\n", unwalked, last, unwalked_wait
+            for (i = 1; i <= seen; i++) {
+                if (kinds[i] != "long") continue
+                longs++; long_held += holds[i]
+                key = cmds[i]; sub(/ +$/, "", key); key = "round=" rounds_of[i] " " key
+                gsub(/[ \t]/, "_", key); key = substr(key, 1, 120)
+                from = at[i] + int(waits[i]); until = from + int(holds[i]) + 1
+                printf "  long: %s  round %-5s hold %8.1fs  lane %-3s %s\n", stamps[i], rounds_of[i], holds[i], lanes[i], substr(cmds[i], 1, 70)
+                for (j = 1; j <= seen; j++) {
+                    if (j == i || !names(behinds[j], key) || at[j] < from - 1 || at[j] > until) continue
+                    if (!(j in queued_behind)) { queued_behind[j] = 1; behind_long++; behind_wait += waits[j] }
+                    printf "    queued behind it: %s  round %-5s wait %8.1fs  kind %-5s lane %-3s %s\n", stamps[j], rounds_of[j], waits[j], kinds[j], lanes[j], substr(cmds[j], 1, 50)
+                }
+            }
+            printf "%d long hold(s) of batch %s, %.1fs held; %d run(s) queued behind one or more of them, %.1fs of their queue\n", longs, last, long_held, behind_long, behind_wait
         }' "$log" "$log"
 }
 
@@ -1045,28 +1100,44 @@ PY
 section_batches() {
     heading "each batch's clock, from its commit message (ADRs 1476, 1500)" \
         "git log --grep 'Round durations'"
-    local commits commit body gates rounds seconds figures named unsummed bare
+    local commits commit
     commits=$(git log --grep='Round durations' --format=%h)
     if [ -z "$commits" ]; then
         printf 'no batch commit carries round durations yet\n'
         return 0
     fi
     for commit in $commits; do
-        body=$(git log -1 --format=%B "$commit" | tr '\n' ' ' | tr -s ' ')
-        gates=$(printf '%s' "$body" | grep -oE '[0-9]+ of [0-9]+ green, [0-9]+ s of gate wall time' | tail -1)
-        rounds=$(printf '%s' "$body" | sed -n 's/.*Round durations[^:]*: *//p' | sed 's/ *Co-Authored-By.*//')
-        seconds=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | awk '{ t += $1 } END { print t + 0 }')
-        figures=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | grep -c .)
-        named=$(printf '%s' "$rounds" | tr ';' '\n' | grep -cE '^ *[0-9]{3,5}\b')
-        bare=$(printf '%s' "$rounds" | tr ';' '\n' | grep -E '^ *[0-9]{3,5}\b' |
-            grep -vE '[0-9]+ s\b' | grep -oE '^ *[0-9]{3,5}' | tr -d ' ' | tr '\n' ' ')
-        unsummed=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s \+ [0-9]+( [^s]|[,;.]|$)' |
-            sed -E 's/( [^s]|[,;.])$//' | paste -sd, -)
-        printf '%s %s  gates: %s  rounds: %s s over %s figure(s) for %s round(s)%s%s\n' \
-            "$commit" "$(git log -1 --format=%cs "$commit")" "${gates:-no gate wall-time line}" \
-            "$seconds" "$figures" "$named" "${bare:+  no <n> s: $bare}" \
-            "${unsummed:+  not summed, no unit: $unsummed}"
+        printf '%s %s  %s\n' "$commit" "$(git log -1 --format=%cs "$commit")" \
+            "$(git log -1 --format=%B "$commit" | batch_figures)"
     done
+}
+
+# What one batch commit's body says of its clock, read on standard input: the gate line and the sum
+# of its "Round durations". **A figure is read whole however its digits are grouped**: since batch
+# sixty-four the bodies group a number's digits in threes — `47 135 s`, `1 755 s` — with a space or a
+# thin space (U+2009), and a reader of `[0-9]+ s` took the last group alone. So a number of one to
+# three digits that no digit precedes, followed by groups of exactly three, is joined into one before
+# anything is read; a session number has four digits, so `1450 7 000 s` is a round and its 7 000 s,
+# and `1435 974 s` stays a round and 974 s. The gate line is read in each shape the bodies have used:
+# `33 of 33 green, 1 755 s of gate wall time`, `32 of 33 green at the run (1 783 s …` and `… green in
+# the batch run, 1576 s …`. `tools/state.sh --batch-figures` is this function, which
+# `tools/conformance/tests/state_sections.rs` asks of planted bodies (ADR 1756).
+batch_figures() {
+    local body gates rounds seconds figures named unsummed bare
+    body=$(tr '\n' ' ' | tr -s ' ' |
+        perl -CSD -pe 's/(?<![0-9])([0-9]{1,3}(?:[ \x{2009}][0-9]{3})+)(?![0-9])/$1 =~ s{[ \x{2009}]}{}gr/ge')
+    gates=$(printf '%s' "$body" | grep -oE '[0-9]+ of [0-9]+ green[^0-9]{0,24}[0-9]+ s of gate wall time' | tail -1)
+    rounds=$(printf '%s' "$body" | sed -n 's/.*Round durations[^:]*: *//p' | sed 's/ *Co-Authored-By.*//')
+    seconds=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | awk '{ t += $1 } END { print t + 0 }')
+    figures=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | grep -c .)
+    named=$(printf '%s' "$rounds" | tr ';' '\n' | grep -cE '^ *[0-9]{3,5}\b')
+    bare=$(printf '%s' "$rounds" | tr ';' '\n' | grep -E '^ *[0-9]{3,5}\b' |
+        grep -vE '[0-9]+ s\b' | grep -oE '^ *[0-9]{3,5}' | tr -d ' ' | tr '\n' ' ')
+    unsummed=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s \+ [0-9]+( [^s]|[,;.]|$)' |
+        sed -E 's/( [^s]|[,;.])$//' | paste -sd, -)
+    printf 'gates: %s  rounds: %s s over %s figure(s) for %s round(s)%s%s\n' \
+        "${gates:-no gate wall-time line}" "$seconds" "$figures" "$named" "${bare:+  no <n> s: $bare}" \
+        "${unsummed:+  not summed, no unit: $unsummed}"
 }
 
 # What the last drive of the three windows found (`tools/drive-windows.sh`): its `results.tsv`'s
@@ -1596,6 +1667,7 @@ fi
 case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;
 --walk-worker) shift; walk_worker "$@"; exit 0 ;;
+--batch-figures) batch_figures; exit 0 ;;
 esac
 
 case ${1-all} in

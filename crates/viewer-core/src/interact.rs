@@ -123,6 +123,18 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
     let (actions, destination, rect) = (link.actions.clone(), link.destination, link.rect);
     let link_id = link.id;
     drop(links);
+    // The click is Table 197's `/U` on the link, and a link's `/A` is that event's chain by the
+    // table's own precedence, so its scripts are handed to the runner here as a widget's are at
+    // the same event (ADRs 1750, 1752).
+    let scripted = link_id.is_some_and(|id| {
+        open.view
+            .run_annotation_scripts(&open.document, id, Trigger::Up)
+            > 0
+    });
+    if scripted {
+        open.stale();
+    }
+    let actions = handed_over(actions, scripted);
     perform(
         open,
         &actions,
@@ -252,11 +264,15 @@ fn is_thread(document: &Document, dict: &Dictionary) -> bool {
 /// No position is handed on, and the clause is why: §12.6.4.8's `/IsMap` "applies only to
 /// actions triggered by the user's clicking an annotation", and a cursor *entering* a region is
 /// not a click. A mouse-up over a link is not routed through here at all — see the caller.
+///
+/// `scripted` says that the view state's runner was handed this chain's ECMAScript actions at
+/// the same event (ADR 1752), so they are not refused a second time here.
 pub(crate) fn trigger(
     open: &mut Open,
     annotation: ObjectId,
     event: Trigger,
     at: Option<(f32, f32)>,
+    scripted: bool,
 ) -> Outcome {
     let object = open.document.get(annotation);
     let Some(dict) = object.as_dict() else {
@@ -278,7 +294,10 @@ pub(crate) fn trigger(
         composed
     });
     let dict = composed.as_ref().unwrap_or(dict);
-    let actions = pdf_model::action::for_annotation(&open.document, dict, event);
+    let actions = handed_over(
+        pdf_model::action::for_annotation(&open.document, dict, event),
+        scripted,
+    );
     if actions.is_empty() {
         return Outcome::default();
     }
@@ -319,16 +338,40 @@ pub(crate) fn navigate(open: &mut Open, actions: &[Action]) -> Outcome {
 /// `/O` "when the page is opened" and `/C` "when the page is closed" — the same page turn
 /// §12.6.3's `/PO` and `/PC` are about, one level up. Read from the page's *own* dictionary:
 /// `/AA` is not one of §7.7.3.4's inheritable entries, which `action::for_page` states.
+///
+/// `scripted` is [`trigger`]'s: the runner holds this chain's ECMAScript actions.
 pub(crate) fn page_trigger(
     open: &mut Open,
     page: &Dictionary,
     event: pdf_model::action::PageTrigger,
+    scripted: bool,
 ) -> Outcome {
-    let actions = pdf_model::action::for_page(&open.document, page, event);
+    let actions = handed_over(
+        pdf_model::action::for_page(&open.document, page, event),
+        scripted,
+    );
     if actions.is_empty() {
         return Outcome::default();
     }
     perform(open, &actions, None, None, None, "this page")
+}
+
+/// A trigger's chain without its ECMAScript actions, where the view state's runner was handed
+/// them at the same event, and whole where it was not.
+///
+/// §12.6.4.17's action reaches `pdf_model::action` as a refusal, because that module performs no
+/// script; the view state runs the same chain's scripts at the same event (ADR 1602), so a refusal
+/// said beside a script that ran would tell the reader the opposite of what happened. With no
+/// runner the refusal stays, and it is the one sentence saying the script was not run (trap 5).
+/// `Action::Refused` names its type before its colon, which is how the module's own tests read it.
+fn handed_over(actions: Vec<Action>, scripted: bool) -> Vec<Action> {
+    if !scripted {
+        return actions;
+    }
+    actions
+        .into_iter()
+        .filter(|action| !matches!(action, Action::Refused(why) if why.starts_with("JavaScript:")))
+        .collect()
 }
 
 /// Performs §12.6.2's action sequence and resolves whatever page it names.

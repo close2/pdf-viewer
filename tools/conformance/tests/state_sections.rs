@@ -398,3 +398,63 @@ fn every_section_a_list_names_is_one_the_script_runs_and_every_one_it_runs_is_li
         "the prose section is in `all` and `quick` (ADR 1451)"
     );
 }
+
+/// What `tools/state.sh --batch-figures` reads off one batch body: its gate line and the sum of its
+/// round durations.
+fn batch_figures(body: &str) -> String {
+    use std::io::Write as _;
+    let mut child = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("--batch-figures")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("bash runs tools/state.sh");
+    child
+        .stdin
+        .take()
+        .expect("the child's standard input is piped")
+        .write_all(body.as_bytes())
+        .expect("the body is written");
+    let output = child.wait_with_output().expect("tools/state.sh ends");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// **`tools/state.sh batches` reads a grouped figure whole** (ADR 1756). Since batch sixty-four the
+/// batch bodies group a number's digits in threes, with a space or a thin space, and the section took
+/// the last group alone: 2 135 s for batch seventy-one's 47 135 s, and no gate line, whose shape had
+/// moved too. Calibrated against bodies read by hand: batch seventy-one's (`8b8f86f0`, summed by
+/// hand to 47 135 s over six rounds), batch sixty-eight's (`ebe5f2e2`, whose `974 s` beside a
+/// session number must not join it, and whose `3 100 s + 1 600 s` is two figures), an ungrouped body
+/// of the older shape, and a thin-spaced one.
+#[test]
+fn the_batches_section_reads_a_grouped_figure_whole() {
+    let seventy_one = "Gates: tier 1 \u{2014} fmt 0, clippy 0, nextest 0 (6 814 passed), conformance 0 \
+        (421 passed), the fuzz\nworkspace checks; the 33 gates \u{2014} 33 of 33 green, 1 755 s of gate \
+        wall time.\n\nRound durations (wall, tool uses): 1450 7 000 s, 277; 1451 7 100 s, 241; \
+        1452 6 431 s, 136;\n1453 10 938 s, 149; 1454 6 520 s, 106; 1455 9 146 s, 175.\n\n\
+        Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n";
+    assert_eq!(
+        batch_figures(seventy_one),
+        "gates: 33 of 33 green, 1755 s of gate wall time  rounds: 47135 s over 6 figure(s) for 6 round(s)"
+    );
+    let sixty_eight = "the gates \u{2014} 34 of 35 green at the run (1 792 s of gate wall time).\n\n\
+        Round durations (wall, tool uses): 1432 4 300 s, 186; 1433 5 717 s, 233; 1434 3 100 s, 126; \
+        1435 974 s, 52; 1436 3 100 s + 1 600 s, 199; 1437 3 580 s, 128.\n";
+    assert_eq!(
+        batch_figures(sixty_eight),
+        "gates: 34 of 35 green at the run (1792 s of gate wall time  rounds: 22371 s over 7 figure(s) for 6 round(s)"
+    );
+    let ungrouped = "  Gates: 34 of 35 green in the batch run, 1576 s of gate wall time\n\
+        Round durations (wall, tool uses): 1389 6020 s, 175; 1390 6319 s, 306.\n";
+    assert_eq!(
+        batch_figures(ungrouped),
+        "gates: 34 of 35 green in the batch run, 1576 s of gate wall time  rounds: 12339 s over 2 figure(s) for 2 round(s)"
+    );
+    let thin = "33 of 33 green, 1\u{2009}755 s of gate wall time.\n\
+        Round durations (wall, tool uses): 1450 7\u{2009}000 s, 277; 1451 10\u{2009}938 s, 241.\n";
+    assert_eq!(
+        batch_figures(thin),
+        "gates: 33 of 33 green, 1755 s of gate wall time  rounds: 17938 s over 2 figure(s) for 2 round(s)"
+    );
+}

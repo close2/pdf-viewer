@@ -561,3 +561,10 @@ Step 67 passed on the saved text while `quorra` drew no caret at all — the car
 the popup windows — and only the photograph, zoomed to the note, showed it (round 1451, ADR 1739). A
 step whose verdict is a file's bytes says nothing about what the window drew; its photograph is
 looked at as trap 1 asks, and a step that draws chrome gets a verdict on the pixels as well.
+
+## The whole drive runs after any change to keyboard focus
+
+Steps 68 to 70 passed alone while the whole drive failed GTK's steps 64 and 67: a new rule that took
+the keyboard off a field on a page press also took it off the note editor the same press had just
+opened (round 1458, ADR 1752). A step run by itself cannot see what its rule does to another step's
+keyboard; after a focus rule changes, the drive runs whole before the record is written.

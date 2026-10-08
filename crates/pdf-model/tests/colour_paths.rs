@@ -605,6 +605,86 @@ fn an_output_intent_says_what_the_documents_device_colours_mean() {
     assert_eq!(without, (0, 173, 239));
 }
 
+/// A press profile whose paper is D50's white and whose every inked corner is black: `/A2B1`
+/// over a two-point grid, the same construction as [`green_cyan_profile`], with only the
+/// no-ink corner lit — so `[0 0 0 0]` draws white and `[0 0 0 1]` draws black.
+fn paper_profile() -> Vec<u8> {
+    let mut profile = green_cyan_profile();
+    // The grid follows the header (128), the tag count (4), one tag entry (12), and the
+    // `mft2` tag's own preamble: signature, reserved, the four counts, the matrix (36) and the
+    // two table sizes, then four input curves of two entries.
+    let clut = 144 + 4 + 4 + 4 + 36 + 2 + 2 + 4 * 2 * 2;
+    for (axis, value) in [31_595u16, 32_768, 27_030].into_iter().enumerate() {
+        profile[clut + axis * 2..clut + axis * 2 + 2].copy_from_slice(&value.to_be_bytes());
+    }
+    // Index 8 is the cyan corner `green_cyan_profile` lit; inked corners are black here.
+    for byte in &mut profile[clut + 8 * 3 * 2..clut + 8 * 3 * 2 + 6] {
+        *byte = 0;
+    }
+    profile
+}
+
+/// `cs` starts a device family at the family's initial colour, whatever stands in for it.
+///
+/// §8.6.8: "[i]n a DeviceCMYK colour space, the initial colour shall be [0.0 0.0 0.0 1.0]", and
+/// §8.6.5.6: "[c]olour values in the original device colour space shall be passed unchanged to
+/// the default colour space". Under a `/DefaultCMYK` or an output intent naming
+/// [`paper_profile`], a `/DeviceCMYK cs` with no `scn` is the family's black through the press;
+/// the zeros the profile's own space starts at would be its paper (ADR 1755).
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.6.8 and §8.6.5.6 verbatim, and a quotation is not marked up"
+)]
+fn a_device_family_starts_at_its_own_black_whatever_stands_in_for_it() {
+    let mut hex = String::new();
+    for byte in paper_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    // Object `number`: the fixture's cross-reference table numbers its extra objects in order.
+    let profile = |number: u32| {
+        format!(
+            "{number} 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\n\
+             endstream\nendobj\n",
+            hex.len().saturating_add(1)
+        )
+    };
+    let intent = format!(
+        "5 0 obj\n<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (test) \
+         /DestOutputProfile 6 0 R >>\nendobj\n{}",
+        profile(6)
+    );
+    let default = "/ColorSpace << /DefaultCMYK [/ICCBased 5 0 R] >>";
+    let content = "1 g /DeviceCMYK cs 0 0 20 20 re f";
+
+    let paper = centre_colour(pdf_with(&profile(5), default, "0 0 0 0 k 0 0 20 20 re f"));
+    let inked = centre_colour(pdf_with(&profile(5), default, "1 0 0 0 k 0 0 20 20 re f"));
+    assert_eq!(paper, (255, 255, 255), "the press's paper is white");
+    assert_eq!(
+        inked,
+        (0, 0, 0),
+        "and its inks are black, so the default is in force"
+    );
+
+    let by_default = centre_colour(pdf_with(&profile(5), default, content));
+    let by_intent = centre_colour(pdf_with_catalog(
+        &intent,
+        "/OutputIntents [5 0 R]",
+        "",
+        content,
+    ));
+    assert_eq!(
+        by_default,
+        (0, 0, 0),
+        "the family's black, through the default"
+    );
+    assert_eq!(
+        by_intent,
+        (0, 0, 0),
+        "the family's black, through the output intent"
+    );
+}
+
 /// A `/DefaultCMYK` in the page's resources outranks the document's output intent.
 ///
 /// §8.6.5.6 says a `Default` entry "shall be used"; §8.6.5.7 NOTE 3 says an output intent

@@ -633,8 +633,8 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # because it was never in it.
 #
 # **A seeded corpus also goes stale with nothing failing** (trap 107), so before a campaign ask:
-# `tools/bounded.sh --lock --round <session> --tree 6 -- fuzz/seeds.sh check <target>` (`--tree 12`
-# for `jbig2` and `jpx`, as `fuzz/seeds.sh`'s header says, ADR 1710) seeds the
+# `tools/bounded.sh --lock --long --round <session> -- fuzz/seeds.sh check <target>` (a large walk,
+# `--tree 12`, for `jbig2` and `jpx`, as `fuzz/seeds.sh`'s header says, ADRs 1710, 1756) seeds the
 # target afresh into a scratch directory beside the build output, prints libFuzzer's `INITED cov`
 # over the disk corpus and over the fresh seeds — a `-runs=0` pass each, under the limits this
 # file's line gives — and says `STALE` when the fresh seeds lead by more than the margin the script
@@ -1105,7 +1105,7 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # and a worktree's linked `fuzz/corpus` is read rather than grown (ADR 1423):
 #   tools/bounded.sh --lock --round <session> --tree 6 -- \
 #     bash -c 'cd fuzz && cargo +nightly fuzz build -O -s none'
-#   RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 4 --tree 4 -- \
+#   RAYON_NUM_THREADS=4 tools/bounded.sh --lock --long --round <session> --data 4 --tree 4 -- \
 #     <target dir>/x86_64-unknown-linux-gnu/release/<target> <scratch>/<target> fuzz/corpus/<target> \
 #     -max_total_time=600 -rss_limit_mb=2048 -timeout=20 -jobs=1 -artifact_prefix=<scratch>/<target>-
 # A target whose own line above states a larger ceiling runs under that one — `page`'s 4096 MB,
@@ -1115,9 +1115,12 @@ cd fuzz && cargo +nightly fuzz run vfs_write    -- -max_total_time=600 -rss_limi
 # seeds reach is a corpus to regenerate (ADRs 1423, 1495). A campaign meant to last an hour runs
 # `-fork=1 -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1` with `TMPDIR` in scratch, so one
 # stop does not end it; a fork parent prints no `INITED` and its `cov` is not an in-process run's,
-# so the figure after is a `-runs=0` pass over the disk corpus with the finds beside it. Several
-# targets fit one `--tree 6` hold side by side, and an hour's hold is an hour a sibling's small walk
-# may wait (ADR 1716).
+# so the figure after is a `-runs=0` pass over the disk corpus with the finds beside it. **A campaign
+# declares `--long`**, `jbig2`, `jpx` and `page` among them, and so does the pass after it: a long run
+# holds the second lane and never the first, so a second campaign queues behind the first and every
+# sibling's walk keeps the first lane, and a clock run waiting behind it stops no walk (ADR 1756).
+# Several targets fit one `--long` hold side by side under its 6 GiB, which is how a fuzz round runs
+# more than one at once.
 # `tools/state.sh fuzz` prints what the disk holds of every target: its seeds, and the crashes,
 # timeouts and memory refusals sitting in `fuzz/artifacts/`.
 ```

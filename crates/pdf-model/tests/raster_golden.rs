@@ -96,6 +96,15 @@
 //! separate program, and a page whose image it could not decode holds no command for it — so this
 //! gate refuses to measure without it, like every other corpus gate.
 //!
+//! # Beside it, how far a division moves the same pages
+//!
+//! How much a page depends on its division is a property of this backend claimed for every page,
+//! and `strip_parallelism.rs` asserts it over three. So the second ignored test here draws each
+//! first page again at [`DIVISIONS`] and holds it to that file's two bounds, or to a ceiling of its
+//! own where [`PAST_THE_BOUND`] names the page and says what moves on it — trap 66's construction:
+//! a claim about every page is held over the pages there are (ADR 1758). It rides the same walk;
+//! with ADR 0219's defect or ADR 0138's put back it fails, naming 7 and 14 pages.
+//!
 //! # Calibrated both ways (trap 13)
 //!
 //! With one pixel of every drawn page inverted in a scratch build, every drawn page is named and
@@ -329,6 +338,24 @@ fn password_for(path: &Path) -> &'static str {
         .map_or("", |known| known.password)
 }
 
+/// Opens one document with the empty default password, then with the one on record; the outcome
+/// that refused it otherwise.
+fn open(path: &Path) -> Result<Document, Outcome> {
+    let bytes = std::fs::read(path).map_err(|_| Outcome::Unreadable)?;
+    match Document::open(bytes.clone()) {
+        Ok(document) => Ok(document),
+        Err(SyntaxError::PasswordRequired) => {
+            Document::open_with_password(bytes, Limits::default(), password_for(path)).map_err(
+                |error| match error {
+                    SyntaxError::PasswordRequired => Outcome::Locked,
+                    _ => Outcome::Unopened,
+                },
+            )
+        }
+        Err(_) => Err(Outcome::Unopened),
+    }
+}
+
 /// Opens, interprets and rasterises one document's first page, and digests all three.
 fn examine(path: &Path) -> Entry {
     let refused = |outcome: Outcome| Entry {
@@ -338,19 +365,9 @@ fn examine(path: &Path) -> Entry {
         list: None,
         reports: None,
     };
-    let Ok(bytes) = std::fs::read(path) else {
-        return refused(Outcome::Unreadable);
-    };
-    let document = match Document::open(bytes.clone()) {
+    let document = match open(path) {
         Ok(document) => document,
-        Err(SyntaxError::PasswordRequired) => {
-            match Document::open_with_password(bytes, Limits::default(), password_for(path)) {
-                Ok(document) => document,
-                Err(SyntaxError::PasswordRequired) => return refused(Outcome::Locked),
-                Err(_) => return refused(Outcome::Unopened),
-            }
-        }
-        Err(_) => return refused(Outcome::Unopened),
+        Err(outcome) => return refused(outcome),
     };
     let Some(page) = Pages::new(&document).get(0) else {
         return refused(Outcome::NoPage);
@@ -576,6 +593,250 @@ fn the_first_page_of_every_tracked_document_draws_what_it_drew() {
          that is the change this round intends, regenerate with {UPDATE_VARIABLE}=update, read the \
          list it prints, and commit the file with the change",
         moved.len()
+    );
+}
+
+/// The divisions every first page is drawn in beside the undivided one: from the fewest a machine
+/// can cut a page into to [`render_cpu::MAX_STRIPS`], which is what [`CpuRasterizer::new`] asks for
+/// on any machine of at least sixteen CPUs and what the six arms' oracle states (ADR 1742).
+///
+/// Four rather than [`render_cpu::MAX_STRIPS`] alone because the population's worst is not at
+/// sixteen: `blendmode.pdf` moves three levels at two, four and eight strips and two at sixteen
+/// (ADR 1758).
+const DIVISIONS: [u32; 4] = [2, 4, 8, render_cpu::MAX_STRIPS];
+
+/// Most one pixel may move between the page drawn whole and the page drawn in strips, on a page
+/// not named in [`PAST_THE_BOUND`]: one level of 255, `strip_parallelism.rs`'s bound.
+///
+/// It is derived for **one** coverage: an `ulp` of `ty` moves an exact converter's area by far less
+/// than a level, so it can cross one rounding step and never two. A pixel that composites the
+/// rounded results of several marks, or blends one through a function steeper than one, is not
+/// one coverage, and ADR 1758 measures what that costs over the corpus.
+const ONE_LEVEL: u8 = 1;
+
+/// Most pixels that may move at all on a page not named in [`PAST_THE_BOUND`], as one in this
+/// many: `strip_parallelism.rs`'s bound.
+const RARE: usize = 1_000;
+
+/// The first pages that pass one of the two bounds above, each read with its moved pixels painted
+/// on the page: the key, the most pixels it moves at any of [`DIVISIONS`], the most levels any of
+/// them moves, and what the moved pixels are.
+///
+/// Held as ceilings rather than as digests: a page here that moves more fails, and a page that
+/// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement.
+const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
+    (
+        "blendmode.pdf p1",
+        83,
+        3,
+        "single pixels inside the photographs blended under eleven of the sixteen modes and none \
+         in the Normal or Multiply cells: a sample position at a shifted origin, through a blend \
+         function whose slope can exceed one",
+    ),
+    (
+        "comments.pdf p1",
+        113,
+        2,
+        "single glyph pixels under the highlight annotations' Multiply composite",
+    ),
+    (
+        "highlights.pdf p1",
+        112,
+        2,
+        "single glyph pixels under the highlight annotations' Multiply composite",
+    ),
+    (
+        "issue12810.pdf p1",
+        249,
+        2,
+        "the two levels where a diagonal stroke meets a vertical one: two marks' edges in a pixel",
+    ),
+    (
+        "issue1350.pdf p1",
+        1078,
+        1,
+        "five rows of the form's three boxes, each horizontal edge on a sample row",
+    ),
+    (
+        "issue7014.pdf p1",
+        327,
+        2,
+        "row 369, where the underline's bar ends and the highlight below it is clipped: two marks' \
+         edges in one pixel row",
+    ),
+    (
+        "issue7020.pdf p1",
+        102,
+        1,
+        "the horizontal tops of the Kannada glyphs, on sample rows",
+    ),
+    (
+        "pdfjs_wikipedia.pdf p1",
+        713,
+        1,
+        "the heading rules and glyph tops, on sample rows",
+    ),
+];
+
+/// How far one first page moves when it is divided: the most pixels and the most levels over
+/// [`DIVISIONS`], and the division and first pixel of the worst, for the failure's sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Division {
+    /// Pixels on the page.
+    pixels: usize,
+    /// Most pixels that differ from the undivided page at any one division.
+    moved: usize,
+    /// Most levels any byte moves at any division.
+    worst: u8,
+    /// The division that moved most pixels, and the first of them as `(x, y)`.
+    first: Option<(u32, u32, u32)>,
+    /// A division the rasteriser refused although it drew the page whole.
+    refused: Option<u32>,
+}
+
+/// One first page drawn whole and at every division, compared byte for byte; `None` when the
+/// document gives the rasteriser no page to draw, which [`examine`] names.
+fn divided(path: &Path) -> Option<Division> {
+    let document = open(path).ok()?;
+    let page = Pages::new(&document).get(0)?;
+    let list = interpret(&document, &page).display_list;
+    let target = TargetSpec::for_page(&list, SCALE, PIXEL_BUDGET).ok()?;
+    let drawn = |strips: u32| {
+        CpuRasterizer::new()
+            .with_strips(strips)
+            .rasterize(&list, target)
+            .ok()
+    };
+    let whole = drawn(STRIPS)?;
+    let mut division = Division {
+        pixels: whole.data.len() / 4,
+        moved: 0,
+        worst: 0,
+        first: None,
+        refused: None,
+    };
+    for strips in DIVISIONS {
+        let Some(split) = drawn(strips) else {
+            division.refused = division.refused.or(Some(strips));
+            continue;
+        };
+        let mut moved = 0_usize;
+        let mut first = None;
+        for (at, (ours, theirs)) in whole
+            .data
+            .chunks_exact(4)
+            .zip(split.data.chunks_exact(4))
+            .enumerate()
+        {
+            if ours == theirs {
+                continue;
+            }
+            moved = moved.saturating_add(1);
+            first = first.or(Some(at));
+            for (one, other) in ours.iter().zip(theirs) {
+                division.worst = division.worst.max(one.abs_diff(*other));
+            }
+        }
+        if moved > division.moved {
+            division.moved = moved;
+            division.first = first.and_then(|at| {
+                let width = usize::try_from(whole.width).ok()?;
+                let x = u32::try_from(at.checked_rem(width)?).ok()?;
+                let y = u32::try_from(at.checked_div(width)?).ok()?;
+                Some((strips, x, y))
+            });
+        }
+    }
+    Some(division)
+}
+
+/// Every first page of the tracked corpus drawn in strips is the page drawn whole within
+/// `strip_parallelism.rs`'s two bounds, or is a page [`PAST_THE_BOUND`] names and within its own
+/// ceilings — trap 66's construction for strips: a property claimed of every page is held over
+/// the pages there are, not over three fixtures (ADR 1758).
+#[test]
+#[ignore = "the whole tracked corpus rasterised five times; run explicitly, under the gates profile"]
+fn every_first_page_drawn_in_strips_is_the_page_drawn_whole_within_the_bound() {
+    require_the_sandbox();
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let started = Instant::now();
+    let measured: BTreeMap<String, Option<Division>> = files
+        .par_iter()
+        .map(|path| (key_for(path), divided(path)))
+        .collect();
+    let seconds = started.elapsed().as_secs_f64();
+    let past: BTreeMap<&str, (usize, u8)> = PAST_THE_BOUND
+        .iter()
+        .map(|(key, moved, worst, _)| (*key, (*moved, *worst)))
+        .collect();
+
+    let drawn: Vec<(&str, Division)> = measured
+        .iter()
+        .filter_map(|(key, division)| division.map(|division| (key.as_str(), division)))
+        .collect();
+    let mut failures: Vec<String> = Vec::new();
+    for (key, division) in &drawn {
+        let sentence = || {
+            let (strips, x, y) = division.first.unwrap_or_default();
+            format!(
+                "{key}: {} of {} pixels moved, worst {} levels; most at {strips} strips, the first \
+                 at ({x}, {y})",
+                division.moved, division.pixels, division.worst
+            )
+        };
+        if let Some(strips) = division.refused {
+            failures.push(format!(
+                "{key}: drawn whole and refused at {strips} strips — a division may not change \
+                 whether a page is drawn"
+            ));
+            continue;
+        }
+        let within_the_bound =
+            division.worst <= ONE_LEVEL && division.moved.saturating_mul(RARE) <= division.pixels;
+        match past.get(key) {
+            None if !within_the_bound => failures.push(format!(
+                "{} — past one level or one pixel in {RARE}, and not a page PAST_THE_BOUND names",
+                sentence()
+            )),
+            Some(&(moved, worst)) if division.moved > moved || division.worst > worst => failures
+                .push(format!(
+                    "{} — past its own ceiling of {moved} pixels and {worst} levels",
+                    sentence()
+                )),
+            Some(_) if within_the_bound => println!(
+                "  can leave PAST_THE_BOUND: {} — inside both bounds now",
+                sentence()
+            ),
+            _ => {}
+        }
+    }
+    for key in past.keys() {
+        if !measured.get(*key).is_some_and(Option::is_some) {
+            println!("  left: {key} is named in PAST_THE_BOUND and was not drawn");
+        }
+    }
+
+    let moved_pages = drawn.iter().filter(|(_, d)| d.moved > 0).count();
+    let worst = drawn.iter().map(|(_, d)| d.worst).max().unwrap_or(0);
+    let most = drawn.iter().map(|(_, d)| d.moved).max().unwrap_or(0);
+    println!(
+        "{} first pages drawn whole and at {DIVISIONS:?} strips — {seconds:.1} s: {moved_pages} \
+         move at some division, at most {most} pixels and {worst} levels; {} named past the bound",
+        drawn.len(),
+        past.len()
+    );
+    for failure in &failures {
+        println!("  past: {failure}");
+    }
+    assert!(
+        failures.is_empty(),
+        "{} first pages move further between one strip and many than the bound admits (named \
+         above): a chopped path or a misplaced strip moves sixteen levels and more (ADR 0138), and \
+         what a shifted origin costs is ADR 0219's and ADR 1758's",
+        failures.len()
     );
 }
 

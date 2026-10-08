@@ -5,9 +5,12 @@
 //!
 //! **Only the ECMAScript actions are run here.** A host already performs every other action of the
 //! same chains — `crate::action::for_annotation` and `crate::action::for_page` read them and
-//! [`ViewState::perform_all`] performs them — so each method here walks the same chain for its
-//! scripts alone and hands them to the runner, and a host calls both. Where no runner is supplied
-//! nothing runs and the open says, once, how many document-level scripts went unrun.
+//! [`ViewState::perform_all`] performs them, `JavaScript` among them a refusal, since §12.6.4.17's
+//! row is the owner's to move (`doc/questions/Q286`) — so each method here walks the same chain for
+//! its scripts alone and hands them to the runner, and a host calls both at the event it raises:
+//! [`ViewState::run_annotation_scripts`] at a widget's pointer and focus events, and
+//! [`ViewState::run_page_scripts`] as the page shown changes (ADR 1750). Where no runner is
+//! supplied nothing runs and the open says, once, how many document-level scripts went unrun.
 //!
 //! **The open sequence runs after the first present.** §12.6.4.17 says of the name tree: "When the
 //! document is opened, all of the actions in this name tree shall be executed, defining ECMAScript
@@ -40,7 +43,7 @@ impl ViewState {
     /// Runs the open sequence of RFC 0008 section 6.5 step 1, after the first present: every
     /// entry of Table 32's `/JavaScript` name tree in the tree's order, then the catalog's
     /// `/OpenAction` where it is a script, then page `page`'s Table 198 `/O` and its annotations'
-    /// Table 197 `/PO` ([`Self::run_page_scripts`]), then every format a runner runs.
+    /// Table 197 `/PO` and `/PV` ([`Self::run_page_scripts`]), then every format a runner runs.
     ///
     /// Answers how many scripts were handed to the runner. **What a host calls once page one has
     /// been presented**, with the page it presented; calling it again runs the sequence again.
@@ -49,6 +52,7 @@ impl ViewState {
     /// 0008 section 6.8's open-sequence deadline — after which the rest are reported as not run
     /// (ADR 1602).
     pub fn run_open_scripts(&mut self, document: &Document, page: usize) -> usize {
+        self.scripting.opened = true;
         let library = library(document);
         if self.runner.0.is_none() {
             if !library.is_empty() {
@@ -119,15 +123,23 @@ impl ViewState {
         handed
     }
 
-    /// Runs Table 198's `/O` or `/C` of page `page` and its annotations' matching Table 197 event,
-    /// in the order the two tables state, and answers how many scripts were handed over.
+    /// Runs Table 198's `/O` or `/C` of page `page` and its annotations' matching Table 197
+    /// events, in the order the two tables state, and answers how many scripts were handed over.
     ///
     /// Table 197's `/PO` "shall be executed after the O action in the page's additional - actions
-    /// dictionary", so an open runs the page's script first and then each annotation's; its `/PC`
-    /// "shall be executed before the C action", so a close runs each annotation's first. What a
-    /// host calls on a page turn — the leaving page's close, then the arriving page's open —
-    /// beside the non-script actions it already performs; an annotation's `/PO` and `/PC` are run
-    /// here rather than through [`Self::run_annotation_scripts`] (ADR 1602).
+    /// dictionary", so an open runs the page's script first and then each annotation's `/PO` and
+    /// `/PV`; its `/PC` "shall be executed before the C action", so a close runs each annotation's
+    /// `/PC` and `/PI` first. **The request a host raises as the page shown changes** — the
+    /// leaving page's close, then the arriving page's open — beside the non-script actions it
+    /// already performs; an annotation's four page events are run here rather than through
+    /// [`Self::run_annotation_scripts`], so a host that raises them per annotation for their other
+    /// actions does not run their scripts twice (ADRs 1602, 1750). The page visible is the page
+    /// shown: Table 197 lets more than one page be visible, and a host that shows one page at a
+    /// time raises the pair with the open and the close, as every window here does.
+    ///
+    /// Before [`Self::run_open_scripts`] has run nothing is run: an open is the open sequence's,
+    /// which runs the page shown when it runs, and a close says it was not run
+    /// ([`Self::before_open`]).
     pub fn run_page_scripts(
         &mut self,
         document: &Document,
@@ -135,6 +147,18 @@ impl ViewState {
         trigger: PageTrigger,
     ) -> usize {
         if self.runner.0.is_none() {
+            return 0;
+        }
+        // Cheap where the turn holds no script, which is nearly every turn: the fields are read
+        // only once one is found.
+        let held = page_turn_scripts(document, page, trigger);
+        if held == 0 {
+            return 0;
+        }
+        if !self.scripting.opened {
+            if trigger == PageTrigger::Close {
+                self.before_open(held, &format!("page {}'s close", page.saturating_add(1)));
+            }
             return 0;
         }
         // The page turned to or from, and no other (ADR 1653 section 4).
@@ -155,6 +179,14 @@ impl ViewState {
     /// the chain's order. What a host calls beside performing the same event's other actions
     /// (ADR 1602). A widget's event has its field as `event.target`; Adobe's reference does not
     /// listen to `event.rc` at any of these, and neither does this.
+    ///
+    /// **The request a host raises at a widget's pointer and focus events** — `/E`, `/X`, `/D`,
+    /// `/U`, `/Fo`, `/Bl` — beside performing the same event's other actions (ADR 1750). Cheap
+    /// where the chain holds no script, which is nearly every event a cursor crossing a page
+    /// raises: the field tree is walked only once a script is found. Table 197's four page events
+    /// are [`Self::run_page_scripts`]'s, and one raised here runs its scripts as any other does.
+    /// Before [`Self::run_open_scripts`] has run nothing is run, and a chain that holds scripts
+    /// says so ([`Self::before_open`]).
     pub fn run_annotation_scripts(
         &mut self,
         document: &Document,
@@ -167,10 +199,27 @@ impl ViewState {
         let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
             return 0;
         };
+        let scripts = annotation_chain(document, &dictionary, trigger)
+            .map(|entry| scripts_in(document, &entry))
+            .unwrap_or_default();
+        if scripts.is_empty() {
+            return 0;
+        }
+        if !self.scripting.opened {
+            self.before_open(
+                scripts.len(),
+                &format!(
+                    "the /{} event of the annotation of object {}",
+                    trigger.key(),
+                    annotation.number
+                ),
+            );
+            return 0;
+        }
         let table = super::widgets_by_field_name(document);
         let page = page_of(document, annotation, &dictionary);
         let (ran, changed, calculate) =
-            self.annotation_scripts(document, &table, annotation, &dictionary, trigger, page);
+            self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
         if ran > 0 {
             self.after_scripts(document, &table, changed, calculate);
             self.refresh_formatted(document, &table);
@@ -278,6 +327,24 @@ impl ViewState {
         handed
     }
 
+    /// Says that a request a host raised held scripts and ran none, because the open sequence has
+    /// not run (ADR 1750).
+    ///
+    /// Table 32's name tree is executed "[w]hen the document is opened … defining ECMAScript
+    /// functions for use by other scripts in the document", so a script run before it would meet a
+    /// library that does not exist yet, and a person would read the `ReferenceError` as the
+    /// form's. A host runs the sequence after its first present (RFC 0008 section 6.6), so only a
+    /// host that raises an event before it, or never presents, reaches this.
+    fn before_open(&mut self, scripts: usize, subject: &str) {
+        if scripts == 0 {
+            return;
+        }
+        self.report(format!(
+            "{subject} holds {scripts} script(s), and none was run: the document's open sequence, \
+             which defines the functions its scripts call, has not run yet (ADR 1750)"
+        ));
+    }
+
     /// The page's scripts and its annotations' for one of Table 198's events.
     fn page_scripts(
         &mut self,
@@ -289,26 +356,8 @@ impl ViewState {
         let Some(found) = crate::page::Pages::new(document).get(page) else {
             return (0, false, false);
         };
-        let annotations: Vec<ObjectId> = match document.get_key(&found.dict, "Annots") {
-            Object::Array(items) => items.iter().filter_map(Object::as_reference).collect(),
-            _ => Vec::new(),
-        };
-        let page_scripts = {
-            let additional = document.get_key(&found.dict, "AA");
-            let key = match trigger {
-                PageTrigger::Open => "O",
-                PageTrigger::Close => "C",
-            };
-            additional
-                .as_dict()
-                .and_then(|additional| additional.get(key).cloned())
-                .map(|entry| scripts_in(document, &entry))
-                .unwrap_or_default()
-        };
-        let annotation_trigger = match trigger {
-            PageTrigger::Open => AnnotationTrigger::PageOpen,
-            PageTrigger::Close => AnnotationTrigger::PageClose,
-        };
+        let annotations = page_annotations(document, &found.dict);
+        let page_scripts = page_entry_scripts(document, &found.dict, trigger);
         let mut total = (0_usize, false, false);
         let mut add = |ran: (usize, bool, bool)| {
             total = (
@@ -346,18 +395,22 @@ impl ViewState {
         if trigger == PageTrigger::Open {
             add(run_page(self));
         }
+        // Each annotation's pair together, the order a host raises them in for their other
+        // actions: Table 197 orders `/PO` and `/PC` against the page's own entry and states no
+        // order between one annotation's events and another's.
         for annotation in annotations {
             let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
                 continue;
             };
-            add(self.annotation_scripts(
-                document,
-                table,
-                annotation,
-                &dictionary,
-                annotation_trigger,
-                page,
-            ));
+            for each in annotation_triggers(trigger) {
+                let scripts = annotation_chain(document, &dictionary, each)
+                    .map(|entry| scripts_in(document, &entry))
+                    .unwrap_or_default();
+                if scripts.is_empty() {
+                    continue;
+                }
+                add(self.annotation_scripts(document, table, annotation, &scripts, each, page));
+            }
         }
         if trigger == PageTrigger::Close {
             add(run_page(self));
@@ -365,22 +418,16 @@ impl ViewState {
         total
     }
 
-    /// One annotation's scripts for one of Table 197's events.
+    /// One annotation's scripts for one of Table 197's events, `scripts` being its chain's.
     fn annotation_scripts(
         &mut self,
         document: &Document,
         table: &BTreeMap<String, Vec<ObjectId>>,
         annotation: ObjectId,
-        dictionary: &Dictionary,
+        scripts: &[String],
         trigger: AnnotationTrigger,
         page: usize,
     ) -> (usize, bool, bool) {
-        let scripts = annotation_chain(document, dictionary, trigger)
-            .map(|entry| scripts_in(document, &entry))
-            .unwrap_or_default();
-        if scripts.is_empty() {
-            return (0, false, false);
-        }
         let field = table
             .iter()
             .find(|(_, widgets)| widgets.contains(&annotation))
@@ -392,7 +439,7 @@ impl ViewState {
             self.text_of(document, annotation).unwrap_or_default()
         };
         let mut ran = (0_usize, false, false);
-        for script in &scripts {
+        for script in scripts {
             let event = ScriptEvent {
                 script,
                 value: &value,
@@ -468,12 +515,70 @@ fn page_of(document: &Document, id: ObjectId, annotation: &Dictionary) -> usize 
         .map_or(0, |(index, _)| index)
 }
 
-/// How a page's event names itself in a report.
-fn page_noun(trigger: PageTrigger) -> &'static str {
-    match trigger {
-        PageTrigger::Open => "/O",
-        PageTrigger::Close => "/C",
+/// How many scripts a page turn's request would hand over: the page's own and its annotations' for
+/// one of Table 198's events.
+fn page_turn_scripts(document: &Document, page: usize, trigger: PageTrigger) -> usize {
+    let Some(found) = crate::page::Pages::new(document).get(page) else {
+        return 0;
+    };
+    let own = page_entry_scripts(document, &found.dict, trigger).len();
+    page_annotations(document, &found.dict)
+        .into_iter()
+        .filter_map(|annotation| document.get(annotation).as_dict().cloned())
+        .flat_map(|dictionary| {
+            annotation_triggers(trigger).map(|each| {
+                annotation_chain(document, &dictionary, each)
+                    .map_or(0, |entry| scripts_in(document, &entry).len())
+            })
+        })
+        .fold(own, usize::saturating_add)
+}
+
+/// The annotations a page's `/Annots` lists, by object.
+fn page_annotations(document: &Document, page: &Dictionary) -> Vec<ObjectId> {
+    match document.get_key(page, "Annots") {
+        Object::Array(items) => items.iter().filter_map(Object::as_reference).collect(),
+        _ => Vec::new(),
     }
+}
+
+/// The scripts of a page's own Table 198 entry for one event.
+///
+/// `/AA` is not one of §7.7.3.4's inheritable entries, so it is read from the page's own
+/// dictionary, as `crate::action::for_page` reads it.
+fn page_entry_scripts(document: &Document, page: &Dictionary, trigger: PageTrigger) -> Vec<String> {
+    let additional = document.get_key(page, "AA");
+    additional
+        .as_dict()
+        .and_then(|additional| additional.get(page_key(trigger)).cloned())
+        .map(|entry| scripts_in(document, &entry))
+        .unwrap_or_default()
+}
+
+/// Table 197's two events of each annotation that ride with one of Table 198's: an opened page is
+/// the page shown, so it is opened and becomes visible; a closed one is closed and is no longer
+/// visible (ADR 1750).
+fn annotation_triggers(trigger: PageTrigger) -> [AnnotationTrigger; 2] {
+    match trigger {
+        PageTrigger::Open => [AnnotationTrigger::PageOpen, AnnotationTrigger::PageVisible],
+        PageTrigger::Close => [
+            AnnotationTrigger::PageClose,
+            AnnotationTrigger::PageInvisible,
+        ],
+    }
+}
+
+/// The key of a page's additional-actions dictionary that states one of Table 198's events.
+fn page_key(trigger: PageTrigger) -> &'static str {
+    match trigger {
+        PageTrigger::Open => "O",
+        PageTrigger::Close => "C",
+    }
+}
+
+/// How a page's event names itself in a report.
+fn page_noun(trigger: PageTrigger) -> String {
+    format!("/{}", page_key(trigger))
 }
 
 /// The action entry one of Table 197's events states on an annotation, `/U`'s precedence applied.

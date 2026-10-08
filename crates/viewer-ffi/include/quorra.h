@@ -1070,6 +1070,18 @@ int32_t quorra_event_bytes(const quorra_events *events, size_t index, uint8_t *o
 /* An EXTRACTED's file name, and whether a PERSON asked for it — §O.2.1's own distinction. */
 int32_t quorra_event_extracted(const quorra_events *events, size_t index, bool *asked, char *out,
                              size_t cap, size_t *needed);
+/*
+ * A SIGNATURE_POLICIES_PUBLISHED's published policy copies: how many, the URL of each, and a copy
+ * the caller fetched from one bound against the digest its signer signed. Fetching is the caller's
+ * decision at its reader's network level. `opens` is true only where the copy is the signer's and
+ * a PDF, which the caller may open beside the document; the sentence says which it is (ADR 1753).
+ */
+int32_t quorra_event_policy_count(const quorra_events *events, size_t index, size_t *count);
+int32_t quorra_event_policy_url(const quorra_events *events, size_t index, size_t policy, char *out,
+                                size_t cap, size_t *needed);
+int32_t quorra_event_policy_bind(const quorra_events *events, size_t index, size_t policy,
+                                 const uint8_t *bytes, size_t len, bool *opens, char *out,
+                                 size_t cap, size_t *needed);
 /* §12.6.4.8's resolved URI. Handed over rather than opened: the string is the document's. */
 int32_t quorra_event_open_uri(const quorra_events *events, size_t index, char *out, size_t cap,
                             size_t *needed);

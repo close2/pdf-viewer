@@ -457,3 +457,11 @@ action path declined every `JavaScript` action, so a button's mouse-up script an
 history of views although a brief assumed one (round 1450, ADR 1736). Before a brief or a note
 claims a feature is there, `grep` for a non-test caller of the API it rests on; the two claims a
 round found false this way took a minute each to check.
+
+## An audit of a note's "is read" claims also checks that every name the note cites exists
+
+Reading thirteen colour rows' twenty-three claims against the code found all of them true and
+three code names stale (`RgbRoute::from_xyz` for `components_with_xyz`, `GraphicsState::black_point`
+for `black_point_under`, "five routes" where four were named); a script that grepped each cited name
+found them in a minute (round 1459, ADR 1754). A row's note is read for its claims and for its names,
+and a name the tree no longer has is corrected in the same pass.

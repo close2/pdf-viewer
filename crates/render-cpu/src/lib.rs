@@ -5006,8 +5006,9 @@ fn note_mask_consumers(
 /// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
 /// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
 /// curve crosses. **The picture is very nearly independent of the answer**, which is the property
-/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts: a machine with four cores and
-/// one with thirty-two draw the same bytes but for a handful in a million.
+/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts: over the tracked corpus's 967
+/// first pages, 814 draw the same bytes at one strip and at every count from two to sixteen, and
+/// the page that moves most moves 0.36% of its pixels (ADR 1758).
 ///
 /// **"Very nearly" is measured, and both halves are worth carrying.** A confined process draws a
 /// page in one strip, because it may not ask how many cores it has (ADR 0218), so one strip and
@@ -5017,9 +5018,10 @@ fn note_mask_consumers(
 /// — see [`ToDevice`].
 ///
 /// What survives is a dependency's. `tiny-skia` maps a point as `y·sy + ty`, and shifting `ty` by
-/// a whole number of rows moves the sum into another binade; ADR 0219 measures what is left —
-/// fewer than one pixel in ten thousand, none by more than one supersample — and says why no
-/// arrangement of this crate's arithmetic closes it.
+/// a whole number of rows moves the sum into another binade; ADR 0219 says why no arrangement of
+/// this crate's arithmetic closes it, and ADR 1758 measures what is left over the corpus: one level
+/// for one coverage, and up to three where a pixel takes several rounded results or a blend
+/// function steeper than one — `raster_golden.rs` holds every first page to it.
 /// The whole target, as a rectangle in its own pixel space.
 ///
 /// One caller — [`images::ReducedImages::warm`], which asks whether a command marks the raster at
@@ -5826,8 +5828,8 @@ impl MaskCache {
     /// - **It is not obviously pixel-exact, and the sentence above is where that hides.** A
     ///   mask value at a given device row *does* depend on which band holds it, because
     ///   [`ToDevice`] composes the band's first row into the translation and ADR 0219 measures
-    ///   what shifting a whole number of rows does to `y·sy + ty` — fewer than one pixel in ten
-    ///   thousand, none by more than one supersample, but not nothing. A parent's mask rows are
+    ///   what shifting a whole number of rows does to `y·sy + ty` — a level or a few on the pixels
+    ///   an edge puts on a sample row (ADR 1758), but not nothing. A parent's mask rows are
     ///   therefore *nearly* the prefix's contribution for the child's band, and this backend is
     ///   the oracle. Taking the item means either building intermediates in the child's band or
     ///   proving the difference away.

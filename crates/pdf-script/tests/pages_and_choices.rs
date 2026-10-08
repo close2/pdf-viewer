@@ -17,7 +17,8 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_model::view::{Entered, ViewState};
+use pdf_model::destination::View;
+use pdf_model::view::{Entered, ViewChange, ViewState};
 use pdf_script::{Budget, Engine};
 use pdf_syntax::Document;
 
@@ -68,7 +69,7 @@ fn two_pages(
         format!(
             "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{fields}] {form} >> \
              /PageLabels << /Nums [0 << /S /r >> 1 << /P (A-) /S /D /St 5 >>] >> \
-             /Dests << /chapter2 [5 0 R /Fit] >> \
+             /Dests << /chapter2 [5 0 R /Fit] /figure [5 0 R /XYZ 72 700 2] >> \
              /OpenAction << /S /JavaScript /JS ({open}) >> >>"
         ),
         "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 /MediaBox [0 0 612 792] >>".to_owned(),
@@ -148,16 +149,33 @@ fn a_page_past_the_last_is_a_range_error_and_bbox_is_refused_by_name() {
 }
 
 #[test]
-fn a_named_destination_turns_to_its_page_and_an_unknown_one_turns_none() {
-    let document = two_pages("gotoNamedDest\\('chapter2'\\);", "", NONE, &[]);
-    let mut view = opened(&document);
-    assert_eq!(
-        view.take_page_request(),
-        Some(1),
-        "§12.3.2.4's catalog /Dests"
-    );
+fn a_named_destination_shows_its_page_and_its_view_and_an_unknown_one_shows_none() {
+    // §12.3.2.4's catalog /Dests maps the name to Table 149's array, and the page and the view
+    // cross together as a link's do (ADR 1751).
+    for (name, view) in [
+        ("chapter2", View::Fit),
+        (
+            "figure",
+            View::Xyz {
+                left: Some(72.0),
+                top: Some(700.0),
+                zoom: Some(2.0),
+            },
+        ),
+    ] {
+        let document = two_pages(&format!("gotoNamedDest\\('{name}'\\);"), "", NONE, &[]);
+        let mut state = opened(&document);
+        assert_eq!(
+            state.take_view_requests(),
+            vec![ViewChange::Destination { page: 1, view }],
+            "{name}: {:?}",
+            state.script_reports()
+        );
+        assert_eq!(state.take_page_request(), None, "one request, not two");
+    }
     let document = two_pages("gotoNamedDest\\('nowhere'\\);", "", NONE, &[]);
     let mut view = opened(&document);
+    assert_eq!(view.take_view_requests(), Vec::new());
     assert_eq!(view.take_page_request(), None);
     assert!(
         view.script_reports()

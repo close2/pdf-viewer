@@ -58,7 +58,7 @@ place exited 0 and said nothing. 160 inner `#![allow]` stand in the tree today.
 Cargo never builds another package's binaries. So the tests run against whatever worker was last
 compiled. Not hypothetical: the seventh session inverted the black-and-white sense of every JBIG2
 sample and the test passed. `cargo test --workspace` builds it, and a walk builds it as its
-wrapper's own `--build '<the walk's profile> -p pdf-sandbox --bins'`, inside its hold, so that it is
+wrapper's own `--build '--profile gates -p pdf-sandbox --bins'` (or `--release`, the walk's own profile), inside its hold, so that it is
 no older than the tree the walk reads (trap 109, ADR 1710). A missing worker and a stale one look
 nothing alike.
 
@@ -472,6 +472,12 @@ A census that `continue`s past a document it cannot open has silently shrunk its
 never seen (`bug1782186.pdf`, a D65 Lab under a `Separation` in an encrypted file). A census opens
 encrypted documents with the corpus passwords and prints every document it could not open, so a
 skipped file is a line in the output rather than a hole in the count.
+
+A figure parsed out of prose a person writes is a sweep of the same kind. `tools/state.sh batches`
+read each commit body's round durations with a regex that took one digit group, and from batch 64 the
+bodies wrote "7 497 s", so it printed 2 135 s for a 47 135 s batch and found no gate line, unnoticed
+for eight batches (round 1456). A parser over prose is calibrated on one body read by hand every
+time it is used, because the writer's format drifts and the regex does not say so.
 
 ### 18. A limit a process is under can destroy the channel it reports through
 
@@ -1113,7 +1119,7 @@ A/B has no worker beside it: it draws no CCITT, JBIG2 or JPX image and says noth
 read 157 M instructions for `bug1815476.pdf` with no fax decode in the profile. Copy the worker too,
 or set `PDF_SANDBOX_WORKER` (trap 99).
 
-The rebuild is the wrapper's own: `tools/bounded.sh --lock --round <session> --tree 12 --build '<profile> -p pdf-sandbox --bins' --`
+The rebuild is the wrapper's own: `tools/bounded.sh --lock --round <session> --tree 12 --build '--profile gates -p pdf-sandbox --bins' --`
 builds inside the same hold, before the command and with the lane descriptors closed, so nothing a
 sibling edits between a build and its walk reaches the walk; a build before the lock is the defect
 this trap names (ADR 1710). A package's own binaries need no line, since Cargo builds them for its

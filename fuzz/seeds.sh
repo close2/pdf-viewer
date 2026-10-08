@@ -15,12 +15,14 @@
 # line in `doc/verify.md`; the command is here.
 #
 # It walks `corpus-cache`, `doc/corpora` and `doc/pdf.js/test/pdfs`, which is a census over the
-# corpus: run it behind the lock, one target a hold, as a small walk —
-# `tools/bounded.sh --lock --round <session> --tree 6 -- fuzz/seeds.sh fuzz/corpus <target>` — and
-# as a large one, `--tree 12`, for `jbig2` and `jpx`, whose seeding and `check` peaked at 5.34 to
+# corpus: run it behind the lock as a long run, which holds the second lane and never the first, so
+# that however long the census takes a sibling's walk keeps the first lane (ADR 1756) —
+# `tools/bounded.sh --lock --long --round <session> -- fuzz/seeds.sh fuzz/corpus <target>` — and as
+# a large walk on the first lane for `jbig2` and `jpx`, whose seeding and `check` peaked at 5.34 to
 # 5.55 GiB, within half a gibibyte of the second lane's kill, where every other target's peaked at
-# 1.29 GiB or less (ADR 1710). `-L` because a worktree's corpora are symbolic links into the main
-# checkout.
+# 1.29 GiB or less (ADR 1710):
+# `tools/bounded.sh --lock --round <session> --tree 12 -- fuzz/seeds.sh check jbig2 jpx`. `-L`
+# because a worktree's corpora are symbolic links into the main checkout.
 #
 # **Every recipe over those documents keeps one seed per shape** (ADRs 1559, 1571): the population
 # is some ninety thousand files and 126 GB, and kept whole each recipe wrote tens of thousands of

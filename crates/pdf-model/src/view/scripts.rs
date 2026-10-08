@@ -286,6 +286,9 @@ pub(super) struct Scripting {
     /// The changes scripts asked of the window's view, in the order asked, until a host takes
     /// them; at most [`MAX_VIEW_CHANGES`].
     views: Vec<ViewChange>,
+    /// Whether [`ViewState::run_open_scripts`] has run: until it has, the functions Table 32's
+    /// name tree defines do not exist, so no event a host raises runs a script (ADR 1750).
+    pub(super) opened: bool,
 }
 
 /// Most changes to the window's view a view state holds for a host: a script that sets the zoom
@@ -1085,12 +1088,12 @@ impl ViewState {
     /// a host can carry out (ADR 1736). A change past [`MAX_VIEW_CHANGES`] replaces the latest of
     /// its own kind, so the last zoom a script asked for is the one that stands.
     fn ask_view(&mut self, document: &Document, change: ViewChange) {
-        if let ViewChange::Scroll { page, .. } = change {
+        if let ViewChange::Scroll { page, .. } | ViewChange::Destination { page, .. } = change {
             let pages = crate::page::Pages::new(document).len();
             if usize::try_from(page).map_or(true, |page| page >= pages) {
                 self.report(format!(
-                    "a script scrolled page {}, and this document has {pages}, so the view does \
-                     not move (ADR 1736)",
+                    "a script asked for a view of page {}, and this document has {pages}, so the \
+                     view does not move (ADR 1736)",
                     u64::from(page).saturating_add(1)
                 ));
                 return;
@@ -1162,10 +1165,10 @@ impl ViewState {
         true
     }
 
-    /// Holds a script's `gotoNamedDest` for a host as the page turn its destination names: §12.3.2.4's
-    /// name looked up where the clause keeps it, and the destination's page found as a link's is
-    /// (ADR 1724). The destination's view — Table 151's position and magnification — is not
-    /// carried, and the report says so, because the host's request for a script's turn is a page.
+    /// Holds a script's `gotoNamedDest` for a host as the page and the view its destination names:
+    /// §12.3.2.4's name looked up where the clause keeps it, and the destination's page found as a
+    /// link's is (ADR 1724); Table 149's position and magnification go with it as one
+    /// [`ViewChange::Destination`], so the host shows the place as it shows a link's (ADR 1751).
     fn go_to_named(&mut self, document: &Document, name: &str) {
         let key = Object::String(name.as_bytes().to_vec().into());
         let pages = crate::page::Pages::new(document);
@@ -1183,12 +1186,20 @@ impl ViewState {
             ));
             return;
         };
-        self.scripting.page = Some(page);
-        self.report(format!(
-            "a script went to the named destination {name:?}: page {} is turned to, and the \
-             destination's own position and magnification are not applied (ADR 1724)",
-            page.saturating_add(1)
-        ));
+        let Ok(page) = u32::try_from(page) else {
+            self.report(format!(
+                "a script asked for the named destination {name:?}, whose page lies past the \
+                 pages a script can name, so no page is turned (ADR 1751)"
+            ));
+            return;
+        };
+        self.ask_view(
+            document,
+            ViewChange::Destination {
+                page,
+                view: destination.view,
+            },
+        );
     }
 
     /// Holds a script's `setFocus` for a host, on the widget it names or on its field's first, or

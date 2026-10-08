@@ -313,8 +313,114 @@ mod engine {
             )],
         );
         let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
         assert_eq!(view.run_page_scripts(&document, 0, PageTrigger::Close), 2);
         assert_eq!(value(&view, &document, "Log"), "PC");
+    }
+
+    #[test]
+    fn a_page_shown_and_left_runs_each_annotation_s_visibility_with_its_open_and_close() {
+        // Table 197's /PV is performed "when the page containing the annotation becomes visible"
+        // and /PI when it "is no longer visible"; a host showing one page at a time raises them
+        // with the page's open and close, so the open sequence and a turn run them there, each
+        // annotation's pair after the page's /O and before its /C (ADR 1750).
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] >>",
+            "/AA << /O << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'O';) >> \
+             /C << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'C';) >> >>",
+            &[4],
+            &[text_field(
+                "Log",
+                "/PO << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'P';) >> \
+                 /PV << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'V';) >> \
+                 /PC << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'c';) >> \
+                 /PI << /S /JavaScript /JS (this.getField\\('Log'\\).value += 'i';) >>",
+                "/V ()",
+            )],
+        );
+        let mut view = engine_view(&document);
+        assert_eq!(view.run_open_scripts(&document, 0), 3);
+        assert_eq!(value(&view, &document, "Log"), "OPV");
+        assert_eq!(view.run_page_scripts(&document, 0, PageTrigger::Close), 3);
+        assert_eq!(value(&view, &document, "Log"), "OPVciC");
+    }
+
+    #[test]
+    fn a_widget_s_six_pointer_and_focus_events_each_run_their_script() {
+        // Table 197's /E, /D, /Fo, /U, /Bl and /X, raised in the order a click and a departure
+        // raise them (RFC 0008 section 6.5 step 3).
+        let mark = |letter: &str| {
+            format!("<< /S /JavaScript /JS (this.getField\\('Log'\\).value += '{letter}';) >>")
+        };
+        let actions = format!(
+            "/E {} /X {} /D {} /U {} /Fo {} /Bl {}",
+            mark("E"),
+            mark("X"),
+            mark("D"),
+            mark("U"),
+            mark("F"),
+            mark("B")
+        );
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] >>",
+            "",
+            &[4],
+            &[text_field("Log", &actions, "/V ()")],
+        );
+        let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
+        for trigger in [
+            AnnotationTrigger::Enter,
+            AnnotationTrigger::Down,
+            AnnotationTrigger::Focus,
+            AnnotationTrigger::Up,
+            AnnotationTrigger::Blur,
+            AnnotationTrigger::Exit,
+        ] {
+            assert_eq!(
+                view.run_annotation_scripts(&document, id(4), trigger),
+                1,
+                "{trigger:?}: {:?}",
+                view.script_reports()
+            );
+        }
+        assert_eq!(value(&view, &document, "Log"), "EDFUBX");
+    }
+
+    #[test]
+    fn an_event_raised_before_the_open_sequence_runs_nothing_and_says_so() {
+        // Table 32's tree defines the functions a document's scripts call "[w]hen the document is
+        // opened"; a widget's script raised before that would meet none of them (ADR 1750).
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] >>",
+            "",
+            &[4],
+            &[text_field(
+                "Log",
+                "/U << /S /JavaScript /JS (this.getField\\('Log'\\).value = 'ran';) >>",
+                "/V (before)",
+            )],
+        );
+        let mut view = engine_view(&document);
+        assert_eq!(
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
+            0
+        );
+        assert_eq!(value(&view, &document, "Log"), "before");
+        assert!(
+            view.script_reports()
+                .iter()
+                .any(|sentence| sentence.contains("open sequence")
+                    && sentence.contains("has not run yet")),
+            "{:?}",
+            view.script_reports()
+        );
+        view.run_open_scripts(&document, 0);
+        assert_eq!(
+            view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
+            1
+        );
+        assert_eq!(value(&view, &document, "Log"), "ran");
     }
 
     #[test]
@@ -336,6 +442,7 @@ mod engine {
             ],
         );
         let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
         assert_eq!(
             view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Up),
             1
@@ -474,6 +581,7 @@ mod engine {
             ],
         );
         let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
         assert_eq!(
             view.run_annotation_scripts(&document, id(4), AnnotationTrigger::Blur),
             1

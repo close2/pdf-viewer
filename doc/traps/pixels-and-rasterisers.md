@@ -561,6 +561,13 @@ changes, and the same binary passed unpinned at four and at eight rayon threads 
 states its strip count with `with_strips`, as `shadings.rs` and the transform suite's renderer do, and is
 regenerated once under it; the tell is a pixel move that disappears when the run is unpinned.
 
+And the bound a fixture derives for one coverage is not a bound on a pixel. `strip_parallelism.rs`'s
+one level and one pixel in a thousand hold for a single mark's arithmetic; over the 967 first pages
+drawn at one strip and at 2, 4, 8 and 16, eight pages pass them — two marks' edges in one pixel, glyphs
+under a Multiply highlight, photographs under a blend steeper than one, to three levels — and the
+golden now holds the corpus bound with those eight named at their own ceilings (round 1461, ADR 1758).
+A per-pixel tolerance derived from one mark is held over the corpus, with its exceptions named.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

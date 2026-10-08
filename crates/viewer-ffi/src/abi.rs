@@ -4119,6 +4119,105 @@ pub unsafe extern "C" fn quorra_event_extracted(
     }
 }
 
+/// How many published policy copies a `QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED` names.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_policy_count(
+    events: *const Events,
+    index: usize,
+    count: *mut usize,
+) -> c_int {
+    let (Some(events), Some(count)) = (events.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match events.policies(index) {
+        Ok(policies) => {
+            *count = policies.len();
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// The URL of policy `policy` a `QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED` names, and the policy's
+/// identifier, each in the two-call idiom [`quorra_events_describe`] uses.
+///
+/// The URL is the signature's word, and fetching it is a decision about this machine at the
+/// reader's network level — the caller's, as a submission is (ADR 1738).
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_policy_url(
+    events: *const Events,
+    index: usize,
+    policy: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.policies(index) {
+        Ok(policies) => match policies.get(policy) {
+            Some(named) => copy_out(&named.url, out, cap, needed),
+            None => Status::OutOfRange.code(),
+        },
+        Err(status) => status.code(),
+    }
+}
+
+/// Binds a copy of policy `policy`'s document, which the caller fetched from its URL, against the
+/// digest the signer signed (ETSI EN 319 122-1 clause 5.2.9.1), and says what it comes to.
+///
+/// `opens` is true only where the copy is the signer's and a PDF, which the caller may then open
+/// beside the document with [`quorra_open`]; the sentence, in the two-call idiom, says which it is
+/// and that §12.8.3.4.4's constraints were not enforced — the three windows' own words (ADR 1753).
+/// A null `bytes` with a zero `len` is an empty copy.
+///
+/// # Safety
+///
+/// See the module documentation. `bytes` is readable for `len`, or null with a zero `len`; `out`
+/// is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_policy_bind(
+    events: *const Events,
+    index: usize,
+    policy: usize,
+    bytes: *const u8,
+    len: usize,
+    opens: *mut bool,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let copy = if bytes.is_null() {
+        if len > 0 {
+            return Status::NullArgument.code();
+        }
+        Vec::new()
+    } else {
+        core::slice::from_raw_parts(bytes, len).to_vec()
+    };
+    match events.policy_bound(index, policy, copy) {
+        Ok((bound, sentence)) => {
+            if let Some(opens) = opens.as_mut() {
+                *opens = bound;
+            }
+            copy_out(&sentence, out, cap, needed)
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// A `QUORRA_EVENT_OPEN_URI`'s resolved URI.
 ///
 /// Handed over rather than opened, and that is not squeamishness: the string is one the *document*

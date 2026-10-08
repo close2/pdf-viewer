@@ -285,7 +285,8 @@ impl Interpreter<'_> {
             && let Some(space) = self.icc_spaces.get(&id)
         {
             let space = space.clone();
-            self.take_colour_space(space, state, fill);
+            let initial = space.initial_colour();
+            self.take_colour_space(space, &initial, state, fill);
             return;
         }
 
@@ -300,14 +301,20 @@ impl Interpreter<'_> {
         {
             self.icc_spaces.insert(id, parsed.clone());
         }
-        let space = space.unwrap_or_else(|| {
+        // §8.6.8's initial colour is the *selected* family's, which a default or an output
+        // intent standing in for a device family does not change: `initial_colour_of` says why.
+        let (space, initial) = if let Some(space) = space {
+            let initial =
+                space.initial_colour_of(self.document, &Object::Name(name.clone()), resources);
+            (space, initial)
+        } else {
             self.note(Unsupported::Shading {
                 name: format!("colour space /{}", String::from_utf8_lossy(name.as_bytes())),
             });
-            ColourSpace::Gray
-        });
+            (ColourSpace::Gray, ColourSpace::Gray.initial_colour())
+        };
 
-        self.take_colour_space(space, state, fill);
+        self.take_colour_space(space, &initial, state, fill);
     }
 
     /// Puts a space into the graphics state, with §8.6.8's initial colour.
@@ -316,30 +323,37 @@ impl Interpreter<'_> {
     /// [`Interpreter::icc_spaces`] and one parsed on the spot take exactly the same path: a
     /// memo that skipped this would set the space and leave the *previous* space's colour, and
     /// the clause is explicit that it must not.
-    fn take_colour_space(&mut self, space: ColourSpace, state: &mut GraphicsState, fill: bool) {
+    fn take_colour_space(
+        &mut self,
+        space: ColourSpace,
+        initial: &[f32],
+        state: &mut GraphicsState,
+        fill: bool,
+    ) {
         // §8.6.8: `cs` and `CS` "shall also set the current colour to its initial value,
         // which depends on the colour space". Omitting this leaves the previous space's
         // colour in place, which shows up as content painted in the wrong colour — and the
         // initial value is *not* simply black: `ColourSpace::initial_colour` carries the
         // clause's five cases, of which a `Separation`'s full ink and an `Indexed` space's
-        // entry 0 are the two that are usually some other colour entirely.
+        // entry 0 are the two that are usually some other colour entirely, and
+        // `ColourSpace::initial_colour_of` the selected device family's where a default or an
+        // output intent stands in for it.
         //
         // A `Pattern` space is the sixth case and has no components: its initial colour "shall
         // be a pattern object that causes nothing to be painted", which is a fully transparent
         // paint here, and the pattern the previous `scn` set has to go with it.
-        let initial = space.initial_colour();
         let colour = if initial.is_empty() {
             Color::TRANSPARENT
         } else {
-            self.colour(&space, &initial, state)
+            self.colour(&space, initial, state)
         };
         if fill {
-            state.fill_tints = cmyk_tints(&space, &initial);
+            state.fill_tints = cmyk_tints(&space, initial);
             state.fill_space = space;
             state.fill = colour;
             state.fill_pattern = None;
         } else {
-            state.stroke_tints = cmyk_tints(&space, &initial);
+            state.stroke_tints = cmyk_tints(&space, initial);
             state.stroke_space = space;
             state.stroke_colour = colour;
             state.stroke_pattern = None;

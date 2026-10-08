@@ -365,3 +365,9 @@ in `quorra-gtk`, because an overlay child holding wrapped text is allocated the 
 its narrowest width; the column now sits in a scrolled window that scrolls nothing, and only the
 drive's photograph of step 65 saw the clipping (round 1445, ADR 1727).
 
+And being inside the `GtkFixed` that holds the placed controls is not being on a control: the page
+picture is a child of the same fixed, so every press on the page first counted as a control's, and
+GTK's entry and Qt's line edit swallowed a press before the core saw it, so no click in a field had
+ever reached a script site (round 1458, ADR 1752). A hit test asks the placed widgets themselves, and
+a capture-phase controller reads the press without taking it from the control.
+

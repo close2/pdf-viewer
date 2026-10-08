@@ -231,9 +231,12 @@ off|ask|warn|on` on every command line and a third act in every menu, `off` by d
 `quorra-confined` pinned there and saying so, *ask* putting one question per document at its first
 script with that script's first line and a `yes` running what was withheld (ADR 1616); where it runs a document's scripts share one realm — Table 32's
 name tree runs into it once the first page is presented, Table 198's `/O` of page one and its
-annotations' Table 197 `/PO` run in the open sequence while a window declines every later Table 197
-and Table 198 script, no `viewer-core` code calling `run_annotation_scripts` or `run_page_scripts`
-(ADR 1736 section 3), a commit runs `/V` and every `/CO` entry's `/C` with
+annotations' Table 197 `/PO` and `/PV` run in the open sequence, and every later Table 197 and
+Table 198 script is a request the view state exposes for a host to raise at its event — a widget's
+pointer and focus through `run_annotation_scripts`, the page shown changing through
+`run_page_scripts` with Table 197's four page events beside it, nothing before the open sequence
+(ADR 1750), raised in all three windows, a press a toolkit's own control took included (ADR
+1752) — a commit runs `/V` and every `/CO` entry's `/C` with
 `event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),

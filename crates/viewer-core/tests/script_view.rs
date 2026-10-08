@@ -215,3 +215,39 @@ fn a_scroll_on_another_page_turns_to_it() {
     let viewing = view(&viewer);
     assert_eq!((viewing.page, viewing.scroll), (1, (600.0, 300.0)));
 }
+
+/// `gotoNamedDest`'s destination is shown as a link's is (ADR 1751): Table 149's `/XYZ` puts
+/// `left` at the window's left edge and `top` at its top, at its own magnification — at four pixels
+/// a unit, the point (100, 300) is 400 pixels from page two's left and 400 from its top.
+#[test]
+fn a_named_destination_s_view_is_shown_on_its_page() {
+    let (viewer, _) = opened(vec![ViewChange::Destination {
+        page: 1,
+        view: pdf_model::destination::View::Xyz {
+            left: Some(100.0),
+            top: Some(300.0),
+            zoom: Some(4.0),
+        },
+    }]);
+    let viewing = view(&viewer);
+    assert_eq!(
+        (viewing.page, viewing.zoom, viewing.scroll),
+        (1, Zoom::Scale(4.0), (400.0, 400.0))
+    );
+}
+
+/// Table 149's `/Fit` on the page already showing fits it and turns nothing: the whole page 400
+/// units square fits an 800 by 1000 window at two pixels a unit, so the 400 per cent set before it
+/// is undone, as a link's `/Fit` undoes it.
+#[test]
+fn a_named_destination_on_the_page_showing_changes_only_the_view() {
+    let (viewer, _) = opened(vec![
+        ViewChange::Zoom(400.0),
+        ViewChange::Destination {
+            page: 0,
+            view: pdf_model::destination::View::Fit,
+        },
+    ]);
+    let viewing = view(&viewer);
+    assert_eq!((viewing.page, viewing.zoom), (0, Zoom::Scale(2.0)));
+}

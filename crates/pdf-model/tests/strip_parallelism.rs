@@ -37,7 +37,11 @@
 //!    device pixel; an exact converter turns a position into an area, so it can move a boundary
 //!    pixel's coverage by that much and no more — which crosses a rounding step only where the
 //!    value already sat within `6 × 10⁻⁵` of one, and can never cross two. Measured over all 27
-//!    cases below, the worst is **1**. A *chopped* path — ADR 0138's defect, and the one
+//!    cases below, the worst is **1**. That is a bound on **one coverage**, and a pixel is not
+//!    always one: where it takes the rounded results of two marks' edges, or blends a source
+//!    through a function steeper than one, the corpus's first pages move two levels and three, so
+//!    `raster_golden.rs` holds all 967 of them to this file's two bounds or to a ceiling it names
+//!    page by page (ADR 1758). A *chopped* path — ADR 0138's defect, and the one
 //!    `unsplittable_rows` exists to prevent — reached 16, 32, 48 and 64, and a mark drawn in the
 //!    wrong place is worth everything, so this bound is sixteen times tighter than the one it
 //!    replaces and catches every scene that defect produced.

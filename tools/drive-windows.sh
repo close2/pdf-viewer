@@ -4,7 +4,7 @@
 # opening caption's section and the one thing only it can show, a device refusal of a page its
 # sandboxed worker sent as marks.
 #
-#   tools/drive-windows.sh [--out DIR] [--window NAME]... [--bin DIR] [--display :N]
+#   tools/drive-windows.sh [--out DIR] [--window NAME]... [--step FUNCTION]... [--bin DIR] [--display :N]
 #
 # The list is `doc/verify.md`'s "Driving the three windows": open, §12.2's Table 147 entries, the
 # outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, a word typed
@@ -58,7 +58,9 @@
 # /Popup is a comment in its note's window (ADR 1727); and in all four, a signature's published
 # policy copy is fetched from the loopback server at `send`, bound by its digest and opened beside,
 # told apart where the digest is another's, and not asked for at `refuse` or in the confined window
-# (ADR 1738).
+# (ADR 1738). And in all four, a text field's six Table 197 pointer and focus events and a page
+# turn's Table 198 pair each run their script — through a toolkit's own control in the two that
+# place one — and none runs in the confined window (ADR 1752).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -97,12 +99,14 @@ TARGET=$(cargo metadata --format-version 1 --no-deps --manifest-path "$ROOT/Carg
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])' 2>/dev/null)
 BIN="${TARGET:-$ROOT/target}/release"
 WINDOWS=()
+STEPS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT=$2; shift 2 ;;
         --window) WINDOWS+=("$2"); shift 2 ;;
         --bin) BIN=$2; shift 2 ;;
         --display) DISPLAY_NUMBER=$2; shift 2 ;;
+        --step) STEPS+=("$2"); shift 2 ;;
         *) echo "drive-windows: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -529,6 +533,39 @@ font = helv(pdf)
 page(pdf, font, "Beep")
 pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String('app.beep(1);'))
 pdf.save(f"{out}/drive-beep.pdf")
+
+# drive-triggers.pdf: two pages, the first carrying a text field whose Table 197 /AA states all six
+# pointer and focus events and a read-only field each of them writes its name into, so the log and
+# the saved /V each witness which ran and in which order; and both pages stating Table 198's /O and
+# /C, each logging its event (ADR 1752).
+pdf = pikepdf.new()
+font = helv(pdf)
+t1 = page(pdf, font, "Triggers one")
+page(pdf, font, "Triggers two")
+def logs(name):
+    return Dictionary(S=Name.JavaScript, JS=String(
+        'console.println("%s ran"); var seen = this.getField("Seen");'
+        ' seen.value = seen.value + "%s ";' % (name, name)))
+triggers = {
+    "Triggered": pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String("Triggered"), Rect=[72, 150, 540, 250], F=4,
+        P=t1.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1]),
+        AA=Dictionary(E=logs("E"), X=logs("X"), D=logs("D"), U=logs("U"), Fo=logs("Fo"),
+                      Bl=logs("Bl")))),
+    "Seen": pdf.make_indirect(Dictionary(
+        Type=Name.Annot, Subtype=Name.Widget, T=String("Seen"), Rect=[72, 450, 540, 480], F=4, Ff=1,
+        P=t1.obj, FT=Name.Tx, DA=text, V=String(""), MK=Dictionary(BC=[0, 0, 0], BG=[0.95, 0.95, 0.95]))),
+}
+t1.obj.Annots = Array(list(triggers.values()))
+for index, at in enumerate(pdf.pages):
+    # The page's scripts log alone, since a page's scripts read the fields of that page (ADR 1653),
+    # and each line carries a count: a view state says a sentence it has said before only once.
+    at.obj.AA = Dictionary(**{key: Dictionary(S=Name.JavaScript, JS=String(
+        'global.turns = (global.turns || 0) + 1; console.println("%s%d ran, turn " + global.turns);'
+        % (key, index + 1))) for key in ["O", "C"]})
+pdf.Root.AcroForm = Dictionary(Fields=Array(list(triggers.values())), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-triggers.pdf")
 
 # drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
 # /RC colouring two words pure red and bold, and the same note with /Contents alone — the control,
@@ -2466,6 +2503,89 @@ script_beep() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# Table 197's six pointer and focus events of a text field and Table 198's /O and /C, in all four
+# windows (ADR 1752): the cursor enters the field, presses and releases in it, leaves it and presses
+# on the page, then the page turns forward and back. Each event's script logs its name and each of
+# the field's adds it to Seen, so the log says which ran and the saved /V the order. The toolkits
+# place their own entry over the field, so this is the press a toolkit's control took and handed on.
+# The confined window is pinned to off: nothing runs and nothing is logged.
+script_triggers() {
+    local step
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        for step in 68-script-pointer 69-script-focus 70-script-page; do
+            verdict "$step" "not offered" "no $BIN/pdf-script-worker beside the windows"
+        done
+        return
+    fi
+    local form="$OUT/$WINDOW-triggers.pdf" mark x y fx fy bx by seen missing
+    cp "$FIXTURES/drive-triggers.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form" --scripts on
+    # Measured on this fixture at Xvfb's 1400x1100; the window's own answer replaces it below.
+    case "$WINDOW" in
+        quorra-gtk) TRIGGERED="685 750" ;;
+        quorra-qt) TRIGGERED="690 772" ;;
+        *) TRIGGERED="399 747" ;;
+    esac
+    [ "$WINDOW" != quorra-confined ] && asked TRIGGERED "*" "Triggered"
+    read -r fx fy <<< "$TRIGGERED"
+    bx=$fx; by=$((fy - 150))
+    read -r x y <<< "$(origin)"
+    xdotool mousemove $((x + bx)) $((y + by)); sleep 0.5
+    mark=$(lines)
+    xdotool mousemove $((x + fx)) $((y + fy)); wait_for 10 said_since "$mark" 'logged: E ran'
+    xdotool click 1; wait_for 10 said_since "$mark" 'logged: U ran'
+    xdotool mousemove $((x + bx)) $((y + by)); wait_for 10 said_since "$mark" 'logged: X ran'
+    xdotool click 1; wait_for 10 said_since "$mark" 'logged: Bl ran'
+    sleep 0.5; shot 68-script-pointer
+    if [ "$WINDOW" = quorra-confined ]; then
+        key Right; key Left
+        if [ "$(said 'the script logged')" -eq 0 ]; then
+            for step in 68-script-pointer 69-script-focus 70-script-page; do
+                verdict "$step" works "pinned to off: no trigger's script ran"
+            done
+        else
+            for step in 68-script-pointer 69-script-focus 70-script-page; do
+                verdict "$step" wrong "a script ran under off: $(grep -m1 'the script logged' "$LOG")"
+            done
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+print(next(str(f.V) for f in p.Root.AcroForm.Fields if str(f.T) == "Seen").strip())
+PY
+)
+    missing=""
+    for step in E D U X; do said_since "$mark" "logged: $step ran" || missing="$missing $step"; done
+    if [ -z "$missing" ] && [[ "$seen" == "E D Fo U X Bl" ]]; then
+        verdict 68-script-pointer works "/E /D /U /X logged at $fx,$fy ($(grep -c 'the script logged' "$LOG") lines); the saved Seen: $seen"
+    else
+        verdict 68-script-pointer wrong "at $fx,$fy, not logged:${missing:- none}; the saved Seen: ${seen:-nothing}: $LOG"
+    fi
+    missing=""
+    for step in Fo Bl; do said_since "$mark" "logged: $step ran" || missing="$missing $step"; done
+    if [ -z "$missing" ] && [[ "$seen" == *"Fo"*"Bl" ]]; then
+        verdict 69-script-focus works "/Fo at the press in the field and /Bl at the press beside it; the saved Seen: $seen"
+    else
+        verdict 69-script-focus wrong "not logged:${missing:- none}; the saved Seen: ${seen:-nothing}: $LOG"
+    fi
+    mark=$(lines)
+    key Right; wait_for 10 said_since "$mark" 'logged: O2 ran'
+    key Left; wait_for 10 said_since "$mark" 'logged: O1 ran'
+    seen=$(tail -n "+$((mark + 1))" "$LOG" | grep -v '^trace:' | grep -o 'logged: [OC][12] ran' \
+        | cut -d' ' -f2 | tr '\n' ' ')
+    if [ "$seen" = "C1 O2 C2 O1 " ]; then
+        verdict 70-script-page works "a turn forward and back ran, in order: $seen"
+    else
+        verdict 70-script-page wrong "the turns ran: ${seen:-nothing}: $LOG"
+    fi
+    shot 70-script-page
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # Table 172's /RC drawn formatted in the popup window, in the three windows that draw one (ADR
 # 1642): pure red pixels on the photograph where the note colours two words, and none where the same
 # note states /Contents alone — the control that says the red is the run's.
@@ -2934,6 +3054,11 @@ confined() {
 
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
+    # `--step FUNCTION` runs the named step functions alone, in each window asked for.
+    if [ ${#STEPS[@]} -gt 0 ]; then
+        for step in "${STEPS[@]}"; do "$step"; done
+        continue
+    fi
     if [ "$WINDOW" = quorra-confined ]; then
         confined
         reader_words
@@ -2945,6 +3070,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         script_goto
         script_timer
         script_beep
+        script_triggers
         located
         located_displayed
         signature_policy
@@ -2962,6 +3088,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_goto
     script_timer
     script_beep
+    script_triggers
     popup_rich
     popup_face
     popup_rtl

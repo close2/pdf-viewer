@@ -161,6 +161,7 @@ const WINDOW: pdf_model::view::WindowView = pdf_model::view::WindowView {
 /// One change of each kind to the window's view (ADR 1736), and a field's `/Opt` rewritten (ADR
 /// 1737).
 fn view_and_option_edits() -> Vec<ScriptEdit> {
+    use pdf_model::destination::View;
     use pdf_model::view::{ViewChange, ZoomType};
     vec![
         ScriptEdit::View {
@@ -179,12 +180,46 @@ fn view_and_option_edits() -> Vec<ScriptEdit> {
                 y: 800.0,
             },
         },
-        ScriptEdit::Property {
-            field: "Colour".to_owned(),
-            widget: None,
-            property: Property::Options(options()),
+        // Every form of Table 149's view, a null among them (ADR 1751).
+        ScriptEdit::View {
+            change: ViewChange::Destination {
+                page: 1,
+                view: View::Xyz {
+                    left: Some(72.0),
+                    top: None,
+                    zoom: Some(1.5),
+                },
+            },
+        },
+        ScriptEdit::View {
+            change: ViewChange::Destination {
+                page: 0,
+                view: View::FitR {
+                    rect: [10.0, 20.0, 300.5, 400.0],
+                },
+            },
         },
     ]
+    .into_iter()
+    .chain(
+        [
+            View::Fit,
+            View::FitH { top: Some(700.0) },
+            View::FitV { left: None },
+            View::FitB,
+            View::FitBH { top: None },
+            View::FitBV { left: Some(3.25) },
+        ]
+        .map(|view| ScriptEdit::View {
+            change: ViewChange::Destination { page: 2, view },
+        }),
+    )
+    .chain([ScriptEdit::Property {
+        field: "Colour".to_owned(),
+        widget: None,
+        property: Property::Options(options()),
+    }])
+    .collect()
 }
 
 fn outcome() -> Outcome {

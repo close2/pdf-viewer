@@ -1096,7 +1096,8 @@ proposed rule was **too weak** (a clipped line keeps its geometry and loses its 
 minimises the worst strip among the rows left, by binary search on that maximum, because ADR
 0137's prefix sum snapped to the nearest legal row gives 24.5% against a 12.5% ideal. **Every
 oracle verdict, corpus count and text percentage is unchanged**, which is what says the strips are
-exact, and `with_strips` plus `strip_parallelism.rs` is the standing guard.
+exact up to ADR 0219's shifted origin, and `with_strips` plus `strip_parallelism.rs` is the standing
+guard — over every tracked first page too, in `raster_golden.rs` (ADR 1758).
 
 | page, at the scale a laptop window asks for | serial | split | strips |
 |---|---|---|---|
