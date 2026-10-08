@@ -58,6 +58,7 @@ mod shaders;
 pub mod startup;
 mod surface;
 pub mod target;
+pub mod threads;
 mod timing;
 pub mod viewport;
 mod winding;

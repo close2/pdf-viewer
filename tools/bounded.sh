@@ -18,7 +18,7 @@
 #
 # So the bound here is the *walk's*, and a shard takes a share of it:
 #
-#   tools/bounded.sh [--lock [--round N]] [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
+#   tools/bounded.sh [--lock [--clock] [--round N]] [--shards N] [--data GiB] [--tree GiB] [--tasks N] [--nice n] -- <command> [args…]
 #   tools/bounded.sh --held
 #
 #   --shards N   this process is one of N run side by side (default 1). It gets nproc/N rayon
@@ -40,12 +40,18 @@
 #                behind any round's gates).
 #   --lock       take the heavy-walk lock (/home/AI/heavy-walk.lock) before the command starts, hold
 #                it until the wrapper ends, and append one line to /home/AI/heavy-walk.log saying how
-#                long the run queued for it, behind what, how long it held it and the tree's peak
-#                (below). An ancestor that holds the lock already — `flock <lock> tools/bounded.sh
-#                --lock …`, or a `--lock` wrapper this command runs under — is found and used,
-#                never queued behind. The command runs without the lock's descriptor and with
-#                `HEAVY_WALK_HELD_BY` naming the process that holds it for the command.
-#   --held       exit 0 if the caller runs under a hold of the lock — it has the lock's descriptor
+#                long the run queued for it, behind what, how long it held it, the tree's peak, the
+#                run's kind and its lane (below). The lock has two lanes: a run whose `--tree` is 6
+#                GiB or less takes either, any larger one the first, and a `--clock` run both. An
+#                ancestor that holds the lock already — `flock <lock> tools/bounded.sh --lock …`, or
+#                a `--lock` wrapper this command runs under — is found and used, never queued
+#                behind. The command runs without the lanes' descriptors and with
+#                `HEAVY_WALK_HELD_BY` naming the process that holds them for the command.
+#   --clock      with --lock: this run's figure is a time — a gate with a band on a clock, an A/B
+#                pair, a launch measured with its clocks — so it takes both lanes, and while it
+#                waits for them no other run is granted either. A run that holds a clock run anywhere
+#                inside it declares this itself; a `--clock` run inside a hold of one lane is refused.
+#   --held       exit 0 if the caller runs under a hold of the lock — it has a lane's descriptor
 #                open, or `HEAVY_WALK_HELD_BY` names an ancestor that has — and 1 otherwise. What a
 #                script that must run under the lock asks before it walks (`tools/batch.sh arms-held`).
 #   --round N    the round's session number, written on that line so a round's lock time can be
@@ -129,6 +135,13 @@
 # descriptor is `HEAVY_WALK_HELD_BY`, that subshell's pid, which `--held` accepts only while that
 # process is an ancestor of the caller and has the descriptor open — so a daemon the walk left
 # behind, reparented away from it, is under no hold. ADR 1674.
+#
+# **And one lock was one lane for a machine with room for two.** Every walk queued behind every
+# other, whatever either would peak at, and the rounds of one batch queued 10 759 s behind holds
+# that a second lane of 6 GiB could have run beside them (ADR 1671 section 3). So the lock has a
+# second lane for walks declared at `--tree 6` or less; a clock run takes both, because a time
+# measured beside another walk is the busy end of trap 110, and a gate in front of the lanes lets a
+# waiting clock run stop every new grant rather than wait for two holds to end together. ADR 1684.
 
 set -u -o pipefail
 
@@ -168,8 +181,11 @@ tasks=$task_budget
 lock_path=${HEAVY_WALK_LOCK:-/home/AI/heavy-walk.lock}
 lock_log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
 take_lock=
+clock=
 held_query=
 round=-
+lane_fds=
+lanes=
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -180,6 +196,7 @@ while [ $# -gt 0 ]; do
         --task-budget) echo "$task_budget"; exit 0 ;;
         --nice) niceness=$2; shift 2 ;;
         --lock) take_lock=1; shift ;;
+        --clock) clock=1; shift ;;
         --held) held_query=1; shift ;;
         --round) round=$2; shift 2 ;;
         --self-test) self_test=1; shift ;;
@@ -286,43 +303,68 @@ watch_tree() {
 }
 
 # ---------------------------------------------------------------------------------------------
-# The lock.
+# The lock, in two lanes (ADR 1684).
 #
-# `lock_take` sets `lock_fd`, `asked_ms` and `held_ms`. A descriptor this process already has open
-# on the lock file is a bare `flock` ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is
+# Three files: the first lane is the lock file itself, the second is `<lock>.lane2`, and `<lock>.gate`
+# is the order. A run's kind is what it declared: `--clock` is a clock run and takes both lanes; a
+# `--tree` of `small_lane_gib` or less is a small walk and takes either, the second first so that the
+# first stays free for a large one; any other walk is large and takes the first. Two lanes are at
+# most 12 + 6 GiB of walks, which ADR 1659 section 2 found room for beside everything else the machine
+# runs, and only because `--tree` is a kill and not a promise.
+#
+# `flock` gives a waiting exclusive holder no priority, so a clock run waiting for two lanes would
+# wait until two holds happened to end together, while small walks took each lane as it freed. The
+# gate is that priority: a clock run takes the gate first and keeps it while it waits for the first
+# lane and then the second — always in that order, so no two takers each hold the lane the other
+# waits for — and a walk is granted a lane only at a moment it finds the gate free. So while a clock
+# run waits, no walk is granted either lane, the ones queued before it included, and the clock run
+# waits only for the holds it found running. A walk polls rather than blocks, twice a second, because
+# it waits for the gate and a lane at once and `flock` waits for one file.
+#
+# `lock_take` sets `lane_fds` (the descriptors this wrapper holds, one per lane), `lanes` (as the log
+# line names them), `asked_ms`, `held_ms` and `behind`. A descriptor this process already has open on
+# the first lane is a bare `flock` ancestor's — `flock <lock> tools/bounded.sh --lock …` — and is
 # locked again rather than a second one opened: `flock` locks an open file description, so a second
 # description of the same file would queue behind the caller's own lock for ever, while the
 # inherited one is granted at once. The wait is printed when there is one, so a round watching its
 # shell knows what it is waiting for, and so is the run it found holding the lock (ADR 1659).
+lane2_path=$lock_path.lane2
+gate_path=$lock_path.gate
+small_lane_gib=6
+poll_interval=0.5
+
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
 
-# `lock_holder` prints the run holding the lock as one word: its command line, blanks made `_`,
-# or `unknown`. Two kinds of holder need two sources. A bare `flock <lock> <command>` keeps the
+# `lock_holder FILE` prints the run holding FILE's lock as one word: its command line, blanks made
+# `_`, or `unknown`. Two kinds of holder need two sources. A bare `flock <lock> <command>` keeps the
 # `flock` process alive as the command's parent, and `/proc/locks` names its pid. A `--lock`
 # wrapper's lock was taken by a `flock -n <fd>` that has already exited — `/proc/locks` keeps the
-# taker's pid, not the holder's — so the wrapper leaves its own line in `<lock>.holder` while it
+# taker's pid, not the holder's — so the wrapper leaves its own line in `<FILE>.holder` while it
 # holds, and that file is read when the pid is gone.
 lock_holder() {
-    local inode pid said=
-    inode=$(stat -L -c %i -- "$lock_path" 2>/dev/null) || { echo unknown; return; }
+    local file=$1 inode pid said=
+    inode=$(stat -L -c %i -- "$file" 2>/dev/null) || { echo unknown; return; }
     pid=$(awk -v ino="$inode" '$2 == "FLOCK" { n = split($6, at, ":"); if (at[n] == ino) { print $5; exit } }' /proc/locks 2>/dev/null)
     if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
         said=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
     fi
-    if [ -z "$said" ] && [ -s "$lock_path.holder" ]; then
-        read -r pid said < "$lock_path.holder"
+    if [ -z "$said" ] && [ -s "$file.holder" ]; then
+        read -r pid said < "$file.holder"
         kill -0 "$pid" 2>/dev/null || said=
     fi
     [ -n "$said" ] || said=unknown
-    printf '%s' "$said" | tr ' \t\n' '___' | cut -c1-160
+    printf '%s' "$said" | tr ' \t\n' '___' | cut -c1-120
 }
 
-# `lock_open_in PID` prints the number of a descriptor PID has open on the lock file, and fails
-# where it has none.
+# `lane_path N` is lane N's file.
+lane_path() { if [ "$1" = 1 ]; then echo "$lock_path"; else echo "$lane2_path"; fi; }
+
+# `lock_open_in PID FILE` prints the number of a descriptor PID has open on FILE, and fails where it
+# has none.
 lock_open_in() {
     local target link
-    [ -e "$lock_path" ] || return 1
-    target=$(readlink -f -- "$lock_path") || return 1
+    [ -e "$2" ] || return 1
+    target=$(readlink -f -- "$2") || return 1
     for link in /proc/"$1"/fd/*; do
         if [ "$(readlink -- "$link" 2>/dev/null)" = "$target" ]; then
             echo "${link##*/}"
@@ -332,58 +374,134 @@ lock_open_in() {
     return 1
 }
 
-# `held_by_marked_ancestor` succeeds where `HEAVY_WALK_HELD_BY` names a process that is an
-# ancestor of this one and has the lock's descriptor open: the subshell of a `--lock` wrapper this
-# process runs under. The marker alone is only an inherited word — a daemon the walk started keeps
-# it after the walk — so the parent chain is what makes it a hold.
-held_by_marked_ancestor() {
+# `lanes_open_in PID` prints the lanes PID has a descriptor open on, `1`, `2` or `1 2`, and fails
+# where it has none.
+lanes_open_in() {
+    local held=
+    lock_open_in "$1" "$lock_path" > /dev/null && held=1
+    lock_open_in "$1" "$lane2_path" > /dev/null && held="${held:+$held }2"
+    [ -n "$held" ] && echo "$held"
+}
+
+# `marked_ancestor_lanes` prints the lanes held by the process `HEAVY_WALK_HELD_BY` names, where that
+# process is an ancestor of this one: the subshell of a `--lock` wrapper this process runs under. The
+# marker alone is only an inherited word — a daemon the walk started keeps it after the walk — so the
+# parent chain is what makes it a hold.
+marked_ancestor_lanes() {
     local holder=${HEAVY_WALK_HELD_BY:-} pid=$$
     case "$holder" in ''|*[!0-9]*) return 1 ;; esac
     while [ "$pid" -gt 1 ]; do
         pid=$(awk '$1 == "PPid:" { print $2; exit }' "/proc/$pid/status" 2>/dev/null)
         [ -n "$pid" ] || return 1
-        [ "$pid" != "$holder" ] || { lock_open_in "$pid" > /dev/null; return; }
+        [ "$pid" != "$holder" ] || { lanes_open_in "$pid"; return; }
     done
     return 1
 }
 
-# What `--held` answers: this process has the lock's descriptor open — handed down by a bare
-# `flock <lock>` — or a marked ancestor holds it.
-lock_held_here() { lock_open_in $$ > /dev/null || held_by_marked_ancestor; }
+# What `--held` answers: this process has a lane's descriptor open — handed down by a bare
+# `flock <lock>` — or a marked ancestor holds a lane.
+lock_held_here() { lanes_open_in $$ > /dev/null || marked_ancestor_lanes > /dev/null; }
+
+# `lock_queued WHAT HOLDERS` says the wait once, and keeps the holders it found as `behind`.
+lock_queued() {
+    [ "$behind" = - ] || return 0
+    behind=$2
+    echo "bounded: queued for the heavy-walk lock ($1) at $(date '+%H:%M:%S'), behind $behind" >&2
+}
+
+# `lane_hold N FD` takes lane N on FD, waiting in the kernel: a clock run's way, behind the gate.
+lane_hold() {
+    flock -n "$2" || { lock_queued "lane $1" "$(lock_holder "$(lane_path "$1")")"; flock "$2"; }
+}
 
 # `lock_take` returns at once, taking nothing and writing no line, where a `--lock` wrapper above
 # this one holds the lock already: that wrapper's line is the hold, and a second one would count it
-# twice.
+# twice. A clock run under an ancestor that holds one lane only would measure beside whatever walk
+# took the other, so it is refused, with the cure: the outermost run declares `--clock`.
 lock_take() {
-    lock_fd=$(lock_open_in $$) || lock_fd=
-    if [ -z "$lock_fd" ] && held_by_marked_ancestor; then
-        return 0
-    fi
-    [ -n "$lock_fd" ] || exec {lock_fd}>>"$lock_path" || return 1
+    local inherited ancestor gate_fd fd lane wanted=
     asked_ms=$(now_ms)
     behind=-
-    if ! flock -n "$lock_fd"; then
-        behind=$(lock_holder)
-        echo "bounded: queued for the heavy-walk lock $lock_path at $(date '+%H:%M:%S'), behind $behind" >&2
-        flock "$lock_fd" || return 1
+    inherited=$(lock_open_in $$ "$lock_path") || inherited=
+    if [ -z "$inherited" ] && ancestor=$(marked_ancestor_lanes); then
+        if [ "$kind" = clock ] && [ "$ancestor" != "1 2" ]; then
+            echo "bounded: a --clock run inside a hold of lane $ancestor only would be timed beside the walk on the other lane; declare the outermost --lock run --clock" >&2
+            return 64
+        fi
+        return 0
+    fi
+    if [ -n "$inherited" ]; then
+        # The caller's own `flock` holds the first lane; a clock run takes the second after it, the
+        # order the gate's holder keeps, and not the gate, which a clock run waiting for the first
+        # lane may hold.
+        flock "$inherited" || return 1
+        lane_fds=$inherited lanes=1
+        if [ "$kind" = clock ]; then
+            exec {fd}>>"$lane2_path" || return 1
+            lane_hold 2 "$fd" || return 1
+            lane_fds="$lane_fds $fd" lanes=1+2
+        fi
+    elif [ "$kind" = clock ]; then
+        exec {gate_fd}>>"$gate_path" || return 1
+        flock -n "$gate_fd" || { lock_queued "the gate, behind an earlier clock run" "$(lock_holder "$gate_path")"; flock "$gate_fd" || return 1; }
+        printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$gate_path.holder" 2>/dev/null
+        for lane in 1 2; do
+            exec {fd}>>"$(lane_path "$lane")" || return 1
+            lane_hold "$lane" "$fd" || return 1
+            lane_fds="${lane_fds:+$lane_fds }$fd"
+        done
+        lanes=1+2
+        [ "$(cut -d' ' -f1 "$gate_path.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$gate_path.holder"
+        exec {gate_fd}>&-
+    else
+        exec {gate_fd}>>"$gate_path" || return 1
+        if [ "$kind" = small ]; then wanted="2 1"; else wanted=1; fi
+        declare -A lane_fd=()
+        for lane in $wanted; do exec {fd}>>"$(lane_path "$lane")" || return 1; lane_fd[$lane]=$fd; done
+        while [ -z "$lanes" ]; do
+            if flock -n "$gate_fd"; then
+                flock -u "$gate_fd"
+                for lane in $wanted; do
+                    flock -n "${lane_fd[$lane]}" && { lanes=$lane; break; }
+                done
+                [ -n "$lanes" ] && break
+                fd=
+                for lane in $wanted; do fd="${fd:+$fd+}$(lock_holder "$(lane_path "$lane")")"; done
+                lock_queued "lane ${wanted// / or }" "$fd"
+            else
+                lock_queued "a clock run holds the gate while it waits for both lanes" "$(lock_holder "$gate_path")"
+            fi
+            sleep "$poll_interval"
+        done
+        for lane in $wanted; do
+            if [ "$lane" = "$lanes" ]; then lane_fds=${lane_fd[$lane]}; else eval "exec ${lane_fd[$lane]}>&-"; fi
+        done
+        exec {gate_fd}>&-
     fi
     held_ms=$(now_ms)
-    printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$lock_path.holder" 2>/dev/null
+    for lane in ${lanes//+/ }; do
+        printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$(lane_path "$lane").holder" 2>/dev/null
+    done
 }
 
 # `lock_record STATUS` appends the run's one line, if it held the lock. Shorter than `PIPE_BUF`
 # and written with `O_APPEND` while the lock is still held, so two wrappers cannot interleave one.
+# `kind=` is what the run declared and `lane=` what it was granted, so that ADR 1671's re-ask can
+# replay a batch's lines under either rule.
 lock_record() {
     [ -n "${held_ms:-}" ] || return 0
-    local ended_ms
+    local ended_ms lane holder
     ended_ms=$(now_ms)
-    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s peak=%sGiB behind=%s cmd=%s\n' \
+    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s peak=%sGiB behind=%s kind=%s lane=%s cmd=%s\n' \
         "$(date -d "@$(( asked_ms / 1000 ))" '+%Y-%m-%dT%H:%M:%S')" "$batch" "$round" \
         "$(seconds $(( held_ms - asked_ms )))" "$(seconds $(( ended_ms - held_ms )))" "$1" \
         "$(awk -v k="${peak_kib:-0}" 'BEGIN { printf "%.2f", k / 1048576 }')" "${behind:--}" \
-        "$command_words" >> "$lock_log" ||
+        "$kind" "$lanes" "$command_words" >> "$lock_log" ||
         echo "bounded: the lock was held, and its line could not be appended to $lock_log" >&2
-    [ "$(cut -d' ' -f1 "$lock_path.holder" 2>/dev/null)" != "$$" ] || rm -f -- "$lock_path.holder"
+    for lane in ${lanes//+/ }; do
+        holder=$(lane_path "$lane").holder
+        [ "$(cut -d' ' -f1 "$holder" 2>/dev/null)" != "$$" ] || rm -f -- "$holder"
+    done
 }
 seconds() { awk -v ms="$1" 'BEGIN { printf "%.1f", ms / 1000 }'; }
 
@@ -528,30 +646,30 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     holder=$!
     for _ in $(seq 50); do [ -e "$scratch/held" ] && break; sleep 0.1; done
     [ -e "$scratch/held" ] || fail "lock: the case's own holder never took its lock"
-    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- sh -c 'exit 3' > /dev/null 2> "$scratch/lock.err"
+    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- sh -c 'exit 3' > /dev/null 2> "$scratch/lock.err"
     status=$?
     wait "$holder"
     [ "$status" -eq 3 ] || fail "lock: exit $status, wanted the command's 3: $(tail -n 1 "$scratch/lock.err")"
     grep -q 'queued for the heavy-walk lock' "$scratch/lock.err" || fail "lock: the wait was not said: $(cat "$scratch/lock.err")"
-    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "lock: a free lock's run failed"
+    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "lock: a free lock's run failed"
     timeout 20 flock "$scratch/lock" env HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" \
-        "$self" --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 ||
+        "$self" --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1 ||
         fail "lock: a run under its caller's flock did not finish (exit $?): it queued behind its own caller"
     flock -n "$scratch/lock" true || fail "lock: the lock is still held after every run ended"
     [ "$(wc -l < "$scratch/lock.log")" = 3 ] || fail "lock: $(wc -l < "$scratch/lock.log") lines logged, wanted 3: $(cat "$scratch/lock.log")"
     first_wait=$(sed -n '1s/.* wait=\([0-9.]*\)s .*/\1/p' "$scratch/lock.log")
     awk -v w="$first_wait" 'BEGIN { exit !(w >= 1.0) }' || fail "lock: the queued run logged wait=${first_wait}s, wanted at least a second: $(head -n 1 "$scratch/lock.log")"
-    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=[^ ]*sleep_2[^ ]* cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
+    grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=[^ ]*sleep_2[^ ]* kind=large lane=1 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
         fail "lock: the line is not the shape the header states: $(head -n 1 "$scratch/lock.log")"
     for line in 2 3; do
         [ "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" = 0.0 ] ||
             fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
     done
     HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/held.log" \
-        "$self" --lock --round 77 --tree 1 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
+        "$self" --lock --round 77 --tree 12 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
     holder=$!
     for _ in $(seq 50); do [ -s "$scratch/lock.holder" ] && break; sleep 0.1; done
-    lock_case --lock --round 7 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1
+    lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1
     wait "$holder"
     tail -n 1 "$scratch/lock.log" | grep -q ' behind=[^ ]*round=77_sleep_2' ||
         fail "lock: a run queued behind a --lock holder did not name its round: $(tail -n 1 "$scratch/lock.log")"
@@ -568,7 +686,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     held_case --held && fail "held: --held said yes outside any hold"
     held_case --lock --round 8 --tree 1 --data 1 --nice 0 -- sh -c '
         "$0" --held && echo yes > "$1.inside"
-        ls -l /proc/$$/fd | grep -q "/lock\$" && echo yes > "$1.descriptor"
+        ls -l /proc/$$/fd | grep -q "/lock\(\.lane2\)\{0,1\}\$" && echo yes > "$1.descriptor"
         (for _ in $(seq 200); do [ -e "$1.over" ] && break; sleep 0.1; done
          "$0" --held && echo yes > "$1.daemon"; : > "$1.asked"; exec sleep 30) > /dev/null 2>&1 < /dev/null &
         echo $! > "$1.pid"
@@ -576,7 +694,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         exit 0
     ' "$self" "$scratch/held8" > /dev/null 2>&1 || fail "held: the hold's own run failed"
     daemon=$(cat "$scratch/held8.pid" 2>/dev/null)
-    flock -n "$scratch/lock" true; free=$?
+    flock -n "$scratch/lock" true && flock -n "$scratch/lock.lane2" true; free=$?
     : > "$scratch/held8.over"
     for _ in $(seq 100); do [ -e "$scratch/held8.asked" ] && break; sleep 0.1; done
     [ -n "$daemon" ] && kill "$daemon" 2>/dev/null
@@ -588,6 +706,47 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ -e "$scratch/held8.nested" ] || fail "held: a --lock run inside a hold did not finish: it queued behind its own ancestor"
     [ "$(wc -l < "$scratch/held8.log")" = 1 ] || fail "held: $(wc -l < "$scratch/held8.log") lines logged for one hold and one nested run, wanted 1"
     echo "bounded --self-test: a daemon left by the command did not keep the lock; --held read the marker inside, no outside and none in the daemon; a nested --lock ran under its ancestor"
+
+    # 9. The two lanes and the gate (ADR 1684), on files of the case's own. A large walk holds the
+    #    first lane for five seconds, and a small walk asked beside it is granted the second at once
+    #    for two. A clock run asked next waits for both — the calibration of the gate is the next
+    #    run: a small walk asked while the clock run waits must not be granted the second lane when
+    #    the first small walk frees it, but only once the clock run has ended. The clock run's own
+    #    command finds both lanes held; each line names its kind, its lane and, for a queued run,
+    #    whom it queued behind. A `--clock` with no `--lock`, and one inside a hold of a single lane,
+    #    are refused.
+    lane_case() { HEAVY_WALK_LOCK="$scratch/lane" HEAVY_WALK_LOG="$scratch/lane.log" "$self" "$@"; }
+    lane_seen() { for _ in $(seq 50); do [ -s "$1" ] && return 0; sleep 0.1; done; fail "lanes: $1 never appeared"; }
+    lane_case --lock --round 91 --tree 12 --data 1 --nice 0 -- sleep 5 > /dev/null 2>&1 &
+    large=$!
+    lane_seen "$scratch/lane.holder"
+    lane_case --lock --round 92 --tree 1 --data 1 --nice 0 -- sleep 2 > /dev/null 2>&1 &
+    small=$!
+    lane_seen "$scratch/lane.lane2.holder"
+    lane_case --lock --clock --round 93 --tree 1 --data 1 --nice 0 -- sh -c '
+        flock -n "$1" true || echo held > "$0.1"; flock -n "$1.lane2" true || echo held > "$0.2"
+        sleep 1; date +%s%N > "$0.end"' "$scratch/clock" "$scratch/lane" > /dev/null 2>&1 &
+    timed=$!
+    lane_seen "$scratch/lane.gate.holder"
+    lane_case --lock --round 94 --tree 1 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/late" > /dev/null 2>&1 &
+    late=$!
+    wait "$large" "$small" "$timed" "$late"
+    lane_line() { grep " round=$1 " "$scratch/lane.log"; }
+    lane_line 91 | grep -q ' kind=large lane=1 ' || fail "lanes: the large walk's line: $(lane_line 91)"
+    lane_line 92 | grep -q ' wait=0\.0s .* kind=small lane=2 ' || fail "lanes: a small walk beside a large one was not granted the second lane at once: $(lane_line 92)"
+    lane_line 93 | grep -q ' behind=[^ ]*round=91[^ ]* kind=clock lane=1+2 ' || fail "lanes: the clock run's line: $(lane_line 93)"
+    clock_end=$(cat "$scratch/clock.end" 2>/dev/null) late_start=$(cat "$scratch/late" 2>/dev/null)
+    [ -n "$clock_end" ] && [ -n "$late_start" ] && [ "$late_start" -ge "$clock_end" ] ||
+        fail "lanes: a small walk asked while a clock run waited was granted a lane before the clock run ended (${late_start:-never} against ${clock_end:-never} ns)"
+    lane_line 94 | grep -q ' behind=[^ ]*round=93[^ ]* kind=small lane=[12] ' || fail "lanes: the walk asked behind a waiting clock run does not name it: $(lane_line 94)"
+    [ -e "$scratch/clock.1" ] && [ -e "$scratch/clock.2" ] || fail "lanes: the clock run's command found a lane free under it"
+    lane_case --clock --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "lanes: --clock without --lock exited $status, wanted 64"
+    lane_case --lock --round 95 --tree 1 --data 1 --nice 0 -- "$self" --lock --clock --round 96 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
+    [ "$status" -eq 64 ] || fail "lanes: a --clock run inside a hold of one lane exited $status, wanted 64"
+    flock -n "$scratch/lane" true && flock -n "$scratch/lane.lane2" true && flock -n "$scratch/lane.gate" true ||
+        fail "lanes: a lane or the gate is still held after every run ended"
+    echo "bounded --self-test: a small walk ran beside a large one; a clock run waited $(lane_line 93 | sed 's/.* wait=\([0-9.]*s\) .*/\1/') for both lanes and the walk asked behind it ran after it; --clock alone and inside one lane refused"
 
     echo "bounded --self-test: every case holds"
     exit 0
@@ -612,6 +771,16 @@ fi
 [ -n "$tree_gib" ] || tree_gib=$round_share_gib
 case "$tree_gib" in ''|*[!0-9]*|0) echo "bounded: --tree wants a positive integer of GiB" >&2; exit 64 ;; esac
 case "$tasks" in ''|*[!0-9]*|0) echo "bounded: --tasks wants a positive integer" >&2; exit 64 ;; esac
+if [ -n "$clock" ] && [ -z "$take_lock" ]; then
+    echo "bounded: --clock declares how a run takes the heavy-walk lock, and this run takes none; pass --lock as well" >&2
+    exit 64
+fi
+# The run's kind, which decides its lanes (the lock's section above): what it declared, never what it
+# turns out to peak at, because the lane is granted before the walk starts.
+if [ -n "$clock" ]; then kind=clock
+elif [ "$tree_gib" -le "$small_lane_gib" ]; then kind=small
+else kind=large
+fi
 if [ "$tasks" -gt "$task_budget" ]; then
     echo "bounded: --tasks $tasks is above the agent's task budget of $task_budget, and the limit counts every task of the user, so it would lend this command the other rounds' share — see trap 116" >&2
     exit 64
@@ -637,7 +806,9 @@ if [ -n "$take_lock" ]; then
     # measuring in a private export of HEAD calls the batch worktree's wrapper from there, and its
     # line is still the batch's.
     batch=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --abbrev-ref HEAD 2>/dev/null) || batch=-
-    lock_take || { echo "bounded: could not take the heavy-walk lock $lock_path" >&2; exit 75; }
+    lock_take; taken=$?
+    if [ "$taken" -eq 64 ]; then exit 64; fi
+    [ "$taken" -eq 0 ] || { echo "bounded: could not take the heavy-walk lock $lock_path" >&2; exit 75; }
 fi
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/bounded.XXXXXX") || exit 1
@@ -647,22 +818,23 @@ errlog="$scratch/stderr"
 # is what a limit can reach (trap 18) and a pipe is not. Its standard output stays its own —
 # fd 3 carries it around the pipeline — because a survey's report is that stream. The subshell
 # exits with the *command's* status rather than `tee`'s.
-# Where this wrapper took the lock, the command and its `tee` run with the lock's descriptor closed
-# and the subshell keeps it, so the lock ends with the command and not with what the command left
-# running (the header, ADR 1674); the marker names the subshell, the process that holds it for them.
-# The output's copy is a descriptor of its own number for the same reason: an inherited lock is on
-# whatever number its `flock` opened, often 3.
+# Where this wrapper took the lock, the command and its `tee` run with every lane's descriptor
+# closed and the subshell keeps them, so the lock ends with the command and not with what the
+# command left running (the header, ADR 1674); the marker names the subshell, the process that holds
+# them for it. `without_lanes` closes them in its own process, one side of the pipeline, and becomes
+# the program. The output's copy is a descriptor of its own number for the same reason: an inherited
+# lock is on whatever number its `flock` opened, often 3.
 started=$(date +%s)
+without_lanes() {
+    local fd
+    for fd in $lane_fds; do eval "exec $fd>&-"; done
+    exec "$@"
+}
 (
     exec {out_fd}>&1
-    if [ -n "${lock_fd:-}" ]; then
-        export HEAVY_WALK_HELD_BY=$BASHPID
-        prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
-            {lock_fd}>&- 2>&1 1>&"$out_fd" {out_fd}>&- | tee "$errlog" {lock_fd}>&- {out_fd}>&- >&2
-    else
-        prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
-            2>&1 1>&"$out_fd" {out_fd}>&- | tee "$errlog" {out_fd}>&- >&2
-    fi
+    [ -z "$lane_fds" ] || export HEAVY_WALK_HELD_BY=$BASHPID
+    without_lanes prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
+        2>&1 1>&"$out_fd" {out_fd}>&- | without_lanes tee "$errlog" {out_fd}>&- >&2
     exit "${PIPESTATUS[0]}"
 ) &
 leader=$!

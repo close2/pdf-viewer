@@ -27,7 +27,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use super::markup::{ListIndent, Piece, RichText};
 use super::style::{
-    Align, Character, Linear, NORMAL_STRETCH, STRETCHES, Spacing, Underline, VerticalAlign,
+    Align, Character, Kerning, Linear, NORMAL_STRETCH, STRETCHES, Spacing, Underline, VerticalAlign,
 };
 use crate::variable_text::{
     self, Asked, Caret, DefaultAppearance, Face, Glyph, LaidOut, Order, Owed, Placed, Quadding,
@@ -201,7 +201,13 @@ fn owed_by(paragraphs: Paragraphs, request: &Request, faces: &Faces) -> Option<O
     if !paragraphs.unformed.is_empty() {
         return Some(Owed::FormsNotInFont(paragraphs.unformed));
     }
+    // The layout answers `kerning-mode:pair` itself, run by run: what it could not kern is in
+    // `unkerned`, with the reason.
     let mut unapplied = request.rich.unapplied.clone();
+    unapplied.0.remove(super::style::PAIR_KERNING);
+    for phrase in paragraphs.unkerned {
+        unapplied.note(phrase);
+    }
     for width in &faces.unmet_widths {
         unapplied.note(format!(
             "font-stretch:{width}, set in the nearest width its family's faces hold"
@@ -258,6 +264,18 @@ struct Held {
     used: std::cell::Cell<bool>,
     /// Whether a character of a run whose path holds it was drawn by no face of the path.
     fell_short: std::cell::Cell<bool>,
+    /// The face's own pair kerning, read the first time a run set in it asks (ADR 1682).
+    pairs: std::cell::OnceCell<Result<pdf_font::pairs::Pairs, pdf_font::pairs::NoPairs>>,
+}
+
+impl Held {
+    /// The pairs the face's program states, read once.
+    fn pairs(&self) -> Result<&pdf_font::pairs::Pairs, pdf_font::pairs::NoPairs> {
+        self.pairs
+            .get_or_init(|| self.face.font.pairs())
+            .as_ref()
+            .map_err(|refused| *refused)
+    }
 }
 
 /// What a search path is resolved from: the family list, bold, italic, and the width.
@@ -316,6 +334,7 @@ impl<'a> Faces<'a> {
                 invented: resolution != Resolution::Named,
                 used: std::cell::Cell::new(false),
                 fell_short: std::cell::Cell::new(false),
+                pairs: std::cell::OnceCell::new(),
             }],
             base,
             base_resolution: resolution,
@@ -472,6 +491,7 @@ impl<'a> Faces<'a> {
             invented,
             used: std::cell::Cell::new(false),
             fell_short: std::cell::Cell::new(false),
+            pairs: std::cell::OnceCell::new(),
         });
         self.held.len().saturating_sub(1)
     }
@@ -684,6 +704,15 @@ struct Atom {
     /// Whether the character is the radix a decimal tab stop aligns: the full stop, a choice the
     /// chapter leaves to the implementation (page 1207).
     radix: bool,
+    /// The pair kerning added to the glyph's advance, in ems: the room between it and the glyph
+    /// after it in logical order (ADR 1682). Zero where nothing kerns it.
+    kern: f32,
+    /// How far right of where it stands the pair kerning draws the glyph, in ems, the glyphs
+    /// after it unmoved: OpenType's `XPlacement`.
+    shift: f32,
+    /// Whether the glyph reads right to left, so that the room [`Self::kern`] adds — between it
+    /// and the glyph after it in logical order — stands on its left as it is displayed.
+    kern_left: bool,
 }
 
 impl Atom {
@@ -698,6 +727,9 @@ impl Atom {
             byte: Some(byte),
             tab: count,
             radix: false,
+            kern: 0.0,
+            shift: 0.0,
+            kern_left: false,
         }
     }
 }
@@ -742,6 +774,8 @@ struct Paragraphs {
     /// The letters drawn as stored where their joined form or mirror image has no code.
     unformed: String,
     truncated: bool,
+    /// What `kerning-mode:pair` asked of a face and the face could not give, by phrase.
+    unkerned: std::collections::BTreeSet<String>,
 }
 
 /// The string's characters, shaped once across every run.
@@ -777,6 +811,7 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
         missing: String::new(),
         unformed: String::new(),
         truncated: false,
+        unkerned: std::collections::BTreeSet::new(),
     };
     let mut total = 0_usize;
     let mut cursor = 0_usize;
@@ -829,7 +864,7 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                     {
                         next = next.saturating_add(1);
                     }
-                    let atoms = encode_items(
+                    let mut atoms = encode_items(
                         shaping.shaped.get(from..next).unwrap_or_default(),
                         &shaping.characters,
                         shaping.levels,
@@ -838,6 +873,11 @@ fn encode(request: &Request, styles: &Styles, faces: &mut Faces, shaping: &Shapi
                         (&mut out.missing, &mut out.unformed),
                         true,
                     );
+                    // Table 231 bit 25 divides a comb into "equally spaced positions", which
+                    // leaves no room between two glyphs for a pair to adjust.
+                    if style.kerning == Kerning::Pair && request.comb.is_none() {
+                        kern(&mut atoms, faces, shaping.levels, &mut out.unkerned);
+                    }
                     total = total.saturating_add(atoms.len());
                     if total > variable_text::MAX_CODES {
                         out.truncated = true;
@@ -884,7 +924,7 @@ fn encode_tag(
 ) -> Vec<Atom> {
     let tag_levels = Levels::with_direction(&tag.text, Some(right_to_left));
     let tag_shaping = Shaping::of(&tag.text, tag_levels.as_ref());
-    let atoms = encode_items(
+    let mut atoms = encode_items(
         &tag_shaping.shaped,
         &tag_shaping.characters,
         tag_levels.as_ref(),
@@ -893,6 +933,9 @@ fn encode_tag(
         (&mut out.missing, &mut out.unformed),
         true,
     );
+    if tag.style.kerning == Kerning::Pair {
+        kern(&mut atoms, faces, tag_levels.as_ref(), &mut out.unkerned);
+    }
     let levels: Vec<u8> = atoms
         .iter()
         .map(|atom| {
@@ -968,9 +1011,67 @@ fn encode_items(
             byte: bytes.then_some(at),
             tab: 0,
             radix: original == '.',
+            kern: 0.0,
+            shift: 0.0,
+            kern_left: false,
         });
     }
     atoms
+}
+
+/// Kerns one run's glyphs by the pairs their face's own program states: XFA 3.3 chapter 27's
+/// `kerning-mode:pair` (*Kerning*, pages 1203 and 1204), kerning "based purely on the two
+/// adjacent glyphs" (ADR 1682).
+///
+/// A pair is two glyphs of the run set in one face, adjacent in logical order — the order
+/// OpenType's pairs are stated in — and the face is the one each glyph is drawn in, so a
+/// character a later face of the search path draws pairs with nothing across the change. A
+/// face that states no pairs is said, with the reason, rather than kerned by numbers that are
+/// not its own: §9.6.2.2's fourteen among them until `doc/questions/Q308` is answered.
+fn kern(
+    atoms: &mut [Atom],
+    faces: &Faces,
+    levels: Option<&Levels>,
+    unkerned: &mut std::collections::BTreeSet<String>,
+) {
+    for run in atoms.chunk_by_mut(|one, other| one.face == other.face) {
+        let Some(held) = run.first().and_then(|first| faces.get(first.face)) else {
+            continue;
+        };
+        let pairs = match held.pairs() {
+            Ok(pairs) => pairs,
+            Err(refused) => {
+                unkerned.insert(format!("kerning-mode:pair, in {}", refused.phrase()));
+                continue;
+            }
+        };
+        let codes: Vec<pdf_font::Code> = run.iter().map(|atom| atom.code).collect();
+        let right_to_left: Vec<bool> = run
+            .iter()
+            .map(|atom| {
+                levels
+                    .zip(atom.byte)
+                    .is_some_and(|(levels, byte)| levels.level(byte) % 2 == 1)
+            })
+            .collect();
+        let adjusted = held
+            .face
+            .font
+            .pair_adjustments(pairs, &codes, &right_to_left);
+        for ((atom, adjustment), reversed) in
+            run.iter_mut().zip(&adjusted.glyphs).zip(&right_to_left)
+        {
+            atom.kern = adjustment.advance;
+            atom.shift = adjustment.placement;
+            atom.kern_left = *reversed;
+        }
+        if adjusted.vertical {
+            unkerned.insert("kerning-mode:pair's vertical adjustments".to_owned());
+        }
+        if let Some(unread) = pairs.unread() {
+            unkerned.insert(format!("kerning-mode:pair's {unread}"));
+        }
+    }
 }
 
 /// The box the text is laid out in, less the body's margins.
@@ -1066,13 +1167,18 @@ impl Measure<'_> {
         } else {
             0.0
         };
-        (held
-            .face
-            .font
-            .advance(atom.code)
+        ((held.face.font.advance(atom.code) + atom.kern)
             .mul_add(size_at(style, root), self.character_spacing(atom, root))
             + word)
             * self.horizontal_scale(atom)
+    }
+
+    /// The part of [`Self::width`] pair kerning adds: §9.4.4's `TJ` adjustment, scaled by the
+    /// size and `Th` and by nothing else.
+    fn kerning(&self, atom: Atom, root: f32) -> f32 {
+        self.style(atom.style).map_or(0.0, |style| {
+            atom.kern * size_at(style, root) * self.horizontal_scale(atom)
+        })
     }
 
     fn widths(&self, atoms: &[Atom], root: f32) -> f32 {
@@ -1220,7 +1326,15 @@ fn break_lines(
         let mut reached = 0.0_f32;
         let mut last_space: Option<usize> = None;
         let mut limit = width;
-        let push = |out: &mut Vec<Broken>, atoms: Vec<Atom>, span: (usize, usize)| {
+        // A line's last glyph keeps no pair kerning, and neither does the last before the spaces
+        // a line's end trims: the glyph it was kerned against is not drawn beside it.
+        let push = |out: &mut Vec<Broken>, mut atoms: Vec<Atom>, span: (usize, usize)| {
+            let shown = atoms.iter().rposition(|atom| !atom.space);
+            for at in [shown, atoms.len().checked_sub(1)].into_iter().flatten() {
+                if let Some(atom) = atoms.get_mut(at) {
+                    atom.kern = 0.0;
+                }
+            }
             out.push(Broken {
                 atoms,
                 paragraph: index,
@@ -1264,7 +1378,8 @@ fn break_lines(
             if atom.space {
                 last_space = Some(line.len());
             }
-            if reached <= limit || line.len() <= 1 {
+            // Whether the line fits ending here, where this glyph would keep no pair kerning.
+            if reached - measure.kerning(*atom, root) <= limit || line.len() <= 1 {
                 continue;
             }
             // Past the edge: break after the last space if there was one, else before this
@@ -2471,6 +2586,9 @@ fn leader_atoms(measure: &Measure, tab: Atom, text: &str) -> Option<Vec<Atom>> {
                     byte: None,
                     tab: 0,
                     radix: false,
+                    kern: 0.0,
+                    shift: 0.0,
+                    kern_left: false,
                 })
             })
             .collect();
@@ -2537,8 +2655,7 @@ fn write_group(
         style.vertical_scale,
         baseline + rise
     );
-    let placed: Vec<Placed> = group.iter().map(|atom| atom.placed()).collect();
-    variable_text::show(stream, &placed);
+    show_group(stream, group);
 
     // Chapter 27's underline and line through, in the run's own colour (page 1208).
     let underline = style.underline;
@@ -2593,6 +2710,40 @@ fn write_group(
         );
     }
     decorations.push_str("f\nQ\n");
+}
+
+/// A group's codes, as `Tj` where nothing kerns them and as `TJ` with the adjustments where
+/// pair kerning does.
+fn show_group(stream: &mut String, group: &[Atom]) {
+    let placed: Vec<Placed> = group.iter().map(|atom| atom.placed()).collect();
+    if group
+        .iter()
+        .any(|atom| atom.kern != 0.0 || atom.shift != 0.0)
+    {
+        variable_text::show_adjusted(stream, &placed, &adjustments(group));
+    } else {
+        variable_text::show(stream, &placed);
+    }
+}
+
+/// The `TJ` number before each displayed glyph of a group, which pair kerning puts there:
+/// §9.4.3's adjustment is "expressed in thousandths of a unit of text space" and is subtracted
+/// from the position, so a glyph moved right by an em has −1000 before it.
+///
+/// A glyph's kerned room stands after it as it is displayed, or before it where it reads right
+/// to left ([`Atom::kern_left`]); its placement moves it alone, so what it adds before it is
+/// taken back after. The room after a group's last glyph is the next group's start, which the
+/// line's edges already hold; the room before a first glyph read right to left is inside its own
+/// box, so it is written before it.
+fn adjustments(group: &[Atom]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(group.len());
+    let mut owed = 0.0_f32;
+    for atom in group {
+        let before = if atom.kern_left { atom.kern } else { 0.0 };
+        out.push(-1000.0 * (owed + before + atom.shift));
+        owed = -atom.shift + if atom.kern_left { 0.0 } else { atom.kern };
+    }
+    out
 }
 
 /// The style of text nothing styles: the `/DA`'s face, in that face's own weight and posture.
@@ -2964,7 +3115,36 @@ impl std::fmt::Write for ByteWriter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::Alignment;
+    use super::{Alignment, Atom, adjustments};
+
+    fn kerned(kern: f32, shift: f32, kern_left: bool) -> Atom {
+        Atom {
+            tab: 0,
+            kern,
+            shift,
+            kern_left,
+            ..Atom::tab(0, (0, 0), 0)
+        }
+    }
+
+    /// A glyph's kerned room is written after it where it reads left to right and before it where
+    /// it reads right to left, and a placement moves one glyph and is taken back after it
+    /// (ADR 1682): the numbers are §9.4.3's thousandths, subtracted from the position.
+    #[test]
+    fn a_pair_adjustment_stands_on_the_side_the_glyph_reads_toward() {
+        let left_to_right = [kerned(-0.1, 0.0, false), kerned(0.0, 0.0, false)];
+        assert_eq!(adjustments(&left_to_right), [0.0, 100.0]);
+        // Read right to left, each glyph's room stands on its left, so it is written before it —
+        // the first glyph's too, which moves it within the box its kerned advance gives it.
+        let right_to_left = [kerned(-0.2, 0.0, true), kerned(-0.1, 0.0, true)];
+        assert_eq!(adjustments(&right_to_left), [200.0, 100.0]);
+        let placed = [
+            kerned(0.0, 0.0, false),
+            kerned(0.0, 0.05, false),
+            kerned(0.0, 0.0, false),
+        ];
+        assert_eq!(adjustments(&placed), [0.0, -50.0, 50.0]);
+    }
 
     /// The same text is the identity, both ways.
     #[test]

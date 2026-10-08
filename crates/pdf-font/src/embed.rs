@@ -512,7 +512,7 @@ const TRUE_TYPE: [u8; 4] = 0x0001_0000_u32.to_be_bytes();
 
 /// An sfnt laid out from its tables under `version`, in the tag order a directory is kept in,
 /// every checksum stated.
-fn assembled(tables: &BTreeMap<[u8; 4], Vec<u8>>, version: [u8; 4]) -> Option<Vec<u8>> {
+pub(crate) fn assembled(tables: &BTreeMap<[u8; 4], Vec<u8>>, version: [u8; 4]) -> Option<Vec<u8>> {
     let count = u16::try_from(tables.len()).ok()?;
     // ISO/IEC 14496-22's three search fields, from the table count.
     let selector = u16::try_from(15u32.checked_sub(count.leading_zeros())?).ok()?;

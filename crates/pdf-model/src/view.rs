@@ -3048,19 +3048,13 @@ impl ViewState {
         }
         self.write_imported_values(document, &mut update, &mut withheld);
         self.write_scripted(document, &mut update);
-        if !update.is_empty()
-            && let Some((id, mut form)) = interactive_form(document)
-        {
-            // Table 224's flag is written only for what this program could not write itself.
-            // §12.7.2 states what setting it admits — "[i]f such an object defines an appearance
-            // stream, the appearance shall be consistent with the object's current value as a
-            // field" — so a document whose every changed widget got a new stream is one where
-            // that obligation is *kept*, and asking the next reader to redo the work would be
-            // saying otherwise.
-            if !update.owed.is_empty() {
-                form.insert(Name::new(&b"NeedAppearances"[..]), Object::Boolean(true));
-                update.put(id, Object::Dictionary(form));
-            }
+        // Table 224's flag is written only for what this program could not write itself. §12.7.2
+        // states what setting it admits — "[i]f such an object defines an appearance stream, the
+        // appearance shall be consistent with the object's current value as a field" — so a
+        // document whose every changed widget got a new stream is one where that obligation is
+        // *kept*, and asking the next reader to redo the work would be saying otherwise.
+        if !update.owed.is_empty() {
+            update.owe_appearances(document);
         }
         if !update.is_empty()
             && let Some((id, catalog)) = withdrawn_usage_rights(document, &update)
@@ -4683,7 +4677,16 @@ impl Update {
     /// interactive form dictionary at all gets one, with Table 224's Required `/Fields` as the
     /// empty array — a form with no fields, which is what the document has.
     fn state_default_font(&mut self, document: &Document) {
-        let Ok(catalog) = document.catalog() else {
+        let root = document
+            .trailer()
+            .get("Root")
+            .and_then(Object::as_reference);
+        // As the update has it: [`ViewState::write_filings`] may already have rewritten the
+        // catalog, and a second rewrite composes only if it reads the first.
+        let Some(catalog) = root
+            .and_then(|id| self.current(document, id))
+            .or_else(|| document.catalog().ok())
+        else {
             return;
         };
         let held = |update: &Self, entry: Option<&Object>| match entry {
@@ -4732,6 +4735,28 @@ impl Update {
             self.put(id, Object::Dictionary(form));
             return;
         }
+        let Some(root) = root else {
+            return;
+        };
+        let mut catalog = catalog;
+        catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
+        self.put(root, Object::Dictionary(catalog));
+    }
+
+    /// Sets Table 224's `/NeedAppearances` in the interactive form dictionary, wherever the catalog
+    /// keeps it (ADR 1677).
+    ///
+    /// Table 29's `/AcroForm` row types the entry as a dictionary and states no indirectness, so a
+    /// form held directly in the catalog is as much the document's form as one held by
+    /// reference. An update replaces objects, and a direct dictionary has no number
+    /// of its own, so it is rewritten inside the catalog that holds it — the distinction
+    /// [`withdrawn_usage_rights`] draws for `/Perms`. Both levels are read through
+    /// [`Self::current`], because [`Self::state_default_font`] and [`ViewState::write_filings`]
+    /// may have rewritten either already, and two rewrites of one object compose only if the
+    /// second reads the first. A document with no form dictionary is left without one: a flag
+    /// about "all visible widget annotations" in a form that lists no field would describe a form
+    /// the file does not have, and [`Written::unconstructed`] still names what is owed.
+    fn owe_appearances(&mut self, document: &Document) {
         let Some(root) = document
             .trailer()
             .get("Root")
@@ -4739,9 +4764,25 @@ impl Update {
         else {
             return;
         };
-        let mut catalog = catalog;
-        catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
-        self.put(root, Object::Dictionary(catalog));
+        let Some(mut catalog) = self.current(document, root) else {
+            return;
+        };
+        let flag = Name::new(&b"NeedAppearances"[..]);
+        match catalog.get("AcroForm").cloned() {
+            Some(Object::Reference(id)) => {
+                let Some(mut form) = self.current(document, id) else {
+                    return;
+                };
+                form.insert(flag, Object::Boolean(true));
+                self.put(id, Object::Dictionary(form));
+            }
+            Some(Object::Dictionary(mut form)) => {
+                form.insert(flag, Object::Boolean(true));
+                catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
+                self.put(root, Object::Dictionary(catalog));
+            }
+            _ => {}
+        }
     }
 
     /// Records what one object now says, replacing anything already recorded for it.
@@ -4857,6 +4898,10 @@ impl Update {
         let built = match crate::appearance::for_saving(document, dict, value, displayed, scripted)
         {
             crate::appearance::ForSaving::Stream(built) => built,
+            crate::appearance::ForSaving::States(states) => {
+                self.write_states(document, widget, states);
+                return;
+            }
             crate::appearance::ForSaving::Selected => return,
             crate::appearance::ForSaving::Owed => {
                 self.owed.push(widget);
@@ -4868,10 +4913,84 @@ impl Update {
         }
 
         let added = built.existing.is_none();
-        let (stream_id, mut stream_dict) = match built.existing {
-            Some((id, dict)) => (id, dict),
-            None => (self.allocate(), Dictionary::new()),
+        let stream_id = match &built.existing {
+            Some((id, _)) => *id,
+            None => self.allocate(),
         };
+        let stream = self.form_stream(built);
+        self.put(stream_id, stream);
+
+        if added {
+            // A widget that had no `/AP` needs one pointing at the stream just written. Table
+            // 170's `/N` is "the annotation's normal appearance"; a widget with one state has it
+            // as the stream itself rather than as a subdictionary of states.
+            let Some(mut widget_dict) = self.current(document, widget) else {
+                return;
+            };
+            let mut appearances = document
+                .get_key(&widget_dict, "AP")
+                .as_dict()
+                .cloned()
+                .unwrap_or_default();
+            appearances.insert(Name::new(&b"N"[..]), Object::Reference(stream_id));
+            widget_dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+            self.put(widget, Object::Dictionary(widget_dict));
+        }
+    }
+
+    /// Writes a toggling button's constructed states as its appearance dictionary's (ADR 1676).
+    ///
+    /// Table 170 gives `/N` "either a single appearance stream or an appearance subdictionary",
+    /// and §12.7.5.2.3 puts a check box's states in the second, so each state is a new stream
+    /// object under its own name. New rather than the producer's numbers, because a generated
+    /// form shares one `Off` stream among many widgets, and replacing it would redraw them all.
+    ///
+    /// `/R` and `/D`, where the widget states them, name the same states: Table 170 makes each
+    /// default to "the value of the N entry", and a constructed widget draws one appearance per
+    /// state whatever the pointer does, so a stored rollover or down state would show the
+    /// producer's glyph the moment the box is touched. The appearance dictionary is written onto
+    /// the widget itself, because a dictionary held indirectly may be another widget's too.
+    fn write_states(
+        &mut self,
+        document: &Document,
+        widget: ObjectId,
+        saved: crate::appearance::SavedStates,
+    ) {
+        if saved.states.iter().any(|(_, built)| built.report.is_some()) {
+            self.owed.push(widget);
+        }
+        let mut states = Dictionary::new();
+        for (name, built) in saved.states {
+            let id = self.allocate();
+            let stream = self.form_stream(built);
+            self.put(id, stream);
+            states.insert(name, Object::Reference(id));
+        }
+        let Some(mut widget_dict) = self.current(document, widget) else {
+            return;
+        };
+        let mut appearances = document
+            .get_key(&widget_dict, "AP")
+            .as_dict()
+            .cloned()
+            .unwrap_or_default();
+        for key in ["R", "D"] {
+            if appearances.get(key).is_some() {
+                appearances.insert(
+                    Name::new(key.as_bytes()),
+                    Object::Dictionary(states.clone()),
+                );
+            }
+        }
+        appearances.insert(Name::new(&b"N"[..]), Object::Dictionary(states));
+        widget_dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+        self.put(widget, Object::Dictionary(widget_dict));
+    }
+
+    /// A built appearance as the form `XObject` §8.10.2 defines, its dictionary the one it replaces
+    /// where there was one.
+    fn form_stream(&mut self, built: crate::appearance::SavedStream) -> Object {
+        let mut stream_dict = built.existing.map(|(_, dict)| dict).unwrap_or_default();
         // §8.10.2's three required entries, plus the resources §12.7.4.3 builds from `/DR`.
         stream_dict.insert(
             Name::new(&b"Type"[..]),
@@ -4902,31 +5021,11 @@ impl Update {
         // described — a stream keeping a `/FlateDecode` it no longer has would not decode at all.
         stream_dict.remove("Filter");
         stream_dict.remove("DecodeParms");
-        self.put(
-            stream_id,
-            Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
-                dict: stream_dict,
-                data: built.content.into(),
-                decryption_failed: false,
-            })),
-        );
-
-        if added {
-            // A widget that had no `/AP` needs one pointing at the stream just written. Table
-            // 170's `/N` is "the annotation's normal appearance"; a widget with one state has it
-            // as the stream itself rather than as a subdictionary of states.
-            let Some(mut widget_dict) = self.current(document, widget) else {
-                return;
-            };
-            let mut appearances = document
-                .get_key(&widget_dict, "AP")
-                .as_dict()
-                .cloned()
-                .unwrap_or_default();
-            appearances.insert(Name::new(&b"N"[..]), Object::Reference(stream_id));
-            widget_dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
-            self.put(widget, Object::Dictionary(widget_dict));
-        }
+        Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+            dict: stream_dict,
+            data: built.content.into(),
+            decryption_failed: false,
+        }))
     }
 }
 
@@ -4981,18 +5080,6 @@ fn named_field(document: &Document, widget: ObjectId) -> ObjectId {
     widget
 }
 
-/// The catalog's `/AcroForm`, with the object it is, where the document states one indirectly.
-///
-/// An interactive form stated *directly* in the catalog has no identity of its own to replace, so
-/// it answers `None` and the flag is not written — which leaves the appearance streams as the
-/// file's own. §12.7.3 makes `/AcroForm` a dictionary rather than a reference in principle; every
-/// real document writes it indirectly, and 0 of the 974 corpus documents do otherwise.
-fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
-    let catalog = document.catalog().ok()?;
-    let id = catalog.get("AcroForm").and_then(Object::as_reference)?;
-    Some((id, document.get(id).as_dict().cloned()?))
-}
-
 /// §12.8.2.3's withdrawal: the object to rewrite so that `/UR3` is gone, if it has to go.
 ///
 /// > A PDF processor that modifies a PDF, with a UR signature in excess of the rights that are
@@ -5017,8 +5104,7 @@ fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
 ///
 /// `/Perms` is rewritten where the catalog states it indirectly and the catalog itself where it
 /// does not, because an update replaces objects and a direct dictionary has no identity to
-/// replace. That is the same distinction `interactive_form` draws for `/AcroForm`, and unlike
-/// there it cannot fail: the catalog always has an object number.
+/// replace. That is the same distinction `Update::owe_appearances` draws for `/AcroForm`.
 ///
 /// # Measured, not assumed: the condition has no members in the corpus
 ///

@@ -458,6 +458,12 @@ And read every site that *derives* a number from the constant, because those mov
 `grep` for the name finds them in a second and the eight-hundred-and-seventy-first session, which
 found the two nestings, did not look.
 
+The defect is planted in every spelling it is actually written in. CLAUDE.md's grep for history in
+code comments (`hundred-and-|session`) came back with nothing but false positives while 55 comment
+sites in 20 files said `round 911` and the like (round 1423, ADR 1680): the sweep had been checked
+against the spellings its author imagined, not against the tree's. Before a sweep's clean answer is
+believed, one real instance of the debt is found by eye and the sweep is shown to name it.
+
 ### 18. A limit a process is under can destroy the channel it reports through
 
 `viewer-confined`'s worker inherited the host's standard error, with a comment saying why: "so that

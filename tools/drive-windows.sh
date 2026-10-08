@@ -595,6 +595,19 @@ pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 79
         Type=Name.Measure, Subtype=Name.GEO, GCS=Dictionary(Type=Name.PROJCS, WKT=String(wkt)),
         GPTS=Array([47, 8, 48, 8, 48, 10, 47, 10]), LPTS=Array([0, 0, 0, 1, 1, 1, 1, 0])))]))))
 pdf.save(f"{out}/drive-projected.pdf")
+
+# drive-displayed.pdf: a geographic map whose /DCS is projected on the same datum, so a position is
+# displayed as the projected system's easting and northing (Table 269, ADRs 1672, 1678).
+gcs = ('GEOGCS["GCS_ETRS_1989",DATUM["D_ETRS_1989",SPHEROID["GRS_1980",6378137,298.257222101]],'
+       'PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]')
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+    Contents=pdf.make_stream(b"0.8 0.8 0.9 rg 0 0 612 792 re f"),
+    VP=Array([Dictionary(Type=Name.Viewport, BBox=[0, 0, 612, 792], Measure=Dictionary(
+        Type=Name.Measure, Subtype=Name.GEO, GCS=Dictionary(Type=Name.GEOGCS, WKT=String(gcs)),
+        DCS=Dictionary(Type=Name.PROJCS, WKT=String(wkt)),
+        GPTS=Array([47, 8, 48, 8, 48, 10, 47, 10]), LPTS=Array([0, 0, 0, 1, 1, 1, 1, 0])))]))))
+pdf.save(f"{out}/drive-displayed.pdf")
 PY
 ARABIC="$ROOT/doc/pdf.js/test/pdfs/ArabicCIDTrueType.pdf"
 [ -f "$ARABIC" ] && cp "$ARABIC" "$FIXTURES/arabic.pdf"
@@ -2362,6 +2375,22 @@ located() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# Table 269's /DCS, in all four windows (ADR 1678): one press on a geographic map of 47° N to 48° N
+# and 8° E to 10° E whose display system is UTM zone 32N, and the sentence carries an easting and a
+# northing in metres inside the map's own grid rectangle, two places each.
+located_displayed() {
+    local mark seen
+    launch "$FIXTURES/drive-displayed.pdf"; mark=$(lines)
+    mode_on m "$MEASURING_ON" "$MEASURING_OFF"; click 700 550; shot 58-located-displayed
+    seen=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'geospatial.*' | head -1)
+    if [[ "$seen" =~ displayed\ in\ /DCS\ as\ easting\ (4[2-9]|5[0-7])[0-9]{4}\.[0-9]{2}\ Meter,\ northing\ 5(2[0-9]|3[01])[0-9]{4}\.[0-9]{2}\ Meter ]]; then
+        verdict 58-located-displayed works "$seen"
+    else
+        verdict 58-located-displayed wrong "${seen:-nothing}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
     # The worker reads the outline on a thread of its own after the open, and its next answer
@@ -2402,6 +2431,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         script_withdrawn
         script_goto
         located
+        located_displayed
         continue
     fi
     drive
@@ -2423,6 +2453,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     popup_list_rtl
     popup_tab
     located
+    located_displayed
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

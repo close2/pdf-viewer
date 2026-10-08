@@ -133,12 +133,54 @@ pub enum RichTabAlign {
 }
 
 /// One tab stop a paragraph states: `tab-stops` or `xfa-tab-stops` (page 1205).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RichTabStop {
     /// How the text after the tab stands at it.
     pub align: RichTabAlign,
     /// Its distance from the paragraph's left margin.
     pub at: Measure,
+    /// What fills the room before the text at the stop; `None` for a blank leader and for a stop
+    /// that states none (chapter 2's *Tab Leader Pattern*, pages 63 to 65; ADR 1679).
+    pub leader: Option<RichLeader>,
+}
+
+/// A tab leader as a host draws it: what is repeated across the room before a stop, and the least
+/// width of one repetition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RichLeader {
+    /// What is repeated.
+    pub pattern: RichLeaderPattern,
+    /// `leaderPatternWidth`, the least repetition width; the cycle is the larger of this and the
+    /// pattern's own width.
+    pub width: Option<Measure>,
+}
+
+/// A leader's pattern: chapter 2's `dots`, `rule` and `use-content`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RichLeaderPattern {
+    /// `dots()`, drawn as the run's own full stop, as a field's appearance draws it.
+    Dots,
+    /// `rule(ruleStyle [ruleThickness])`, in the text's colour.
+    Rule {
+        /// How the rule is broken.
+        style: RichRuleStyle,
+        /// `ruleThickness`; `None` takes the underline's.
+        thickness: Option<Measure>,
+    },
+    /// `use-content(content)`: the characters repeated as many whole times as fit.
+    Content(String),
+}
+
+/// A rule leader's `ruleStyle`, `double`, `groove` and `ridge` read as solid, which the chapter
+/// permits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RichRuleStyle {
+    /// One unbroken line.
+    Solid,
+    /// Dashes.
+    Dashed,
+    /// Dots.
+    Dotted,
 }
 
 /// One paragraph of a note: chapter 27's `p`, or a list item.
@@ -261,30 +303,42 @@ fn handed_over(rich: &RichText) -> RichNote {
                             per_base: stop.at.per_root,
                             points: stop.at.points,
                         },
+                        leader: stop.leader.as_ref().map(leader),
                     })
                     .collect(),
             }
         })
         .collect();
-    let mut unapplied: Vec<String> = rich.unapplied.0.iter().cloned().collect();
-    // A leader fills the room before a stop with a pattern none of the three windows draws, so
-    // a paragraph that holds a tab and states a stop with one says so (ADR 1666).
-    if rich.paragraphs.iter().any(|paragraph| {
-        paragraph
-            .pieces
-            .iter()
-            .any(|piece| matches!(piece, Piece::Tab(_)))
-            && paragraph
-                .block
-                .tab_stops
-                .iter()
-                .any(|stop| stop.leader.is_some())
-    }) {
-        unapplied.push("a tab leader in a popup window".to_owned());
-    }
+    // A leader crosses with its stop, and a window that cannot draw one says so itself
+    // (ADR 1679).
+    let unapplied: Vec<String> = rich.unapplied.0.iter().cloned().collect();
     RichNote {
         paragraphs,
         unapplied,
+    }
+}
+
+/// A stop's leader as a host reads it, every length a [`Measure`] of the window's base size.
+fn leader(leader: &crate::rich_text::parts::Leader) -> RichLeader {
+    use crate::rich_text::parts::{LeaderPattern, RuleStyle};
+    let measure = |linear: crate::rich_text::parts::Linear| Measure {
+        per_base: linear.per_root,
+        points: linear.points,
+    };
+    RichLeader {
+        pattern: match &leader.pattern {
+            LeaderPattern::Dots => RichLeaderPattern::Dots,
+            LeaderPattern::Rule { style, thickness } => RichLeaderPattern::Rule {
+                style: match style {
+                    RuleStyle::Solid => RichRuleStyle::Solid,
+                    RuleStyle::Dashed => RichRuleStyle::Dashed,
+                    RuleStyle::Dotted => RichRuleStyle::Dotted,
+                },
+                thickness: thickness.map(measure),
+            },
+            LeaderPattern::Content(content) => RichLeaderPattern::Content(content.clone()),
+        },
+        width: leader.width.map(measure),
     }
 }
 

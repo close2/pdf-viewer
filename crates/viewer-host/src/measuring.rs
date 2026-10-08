@@ -26,6 +26,7 @@
 //!
 //! ADR 1191.
 
+use pdf_model::geospatial::Displayed;
 use pdf_model::measurement::{Geographic, Traced};
 use viewer_core::Located;
 
@@ -175,11 +176,25 @@ pub fn degrees(latitude: f64, longitude: f64) -> String {
     )
 }
 
+/// An easting and a northing as this program writes them (ADR 1678): each named, to two places
+/// of the display system's own unit, the unit as the system's string spells it.
+///
+/// Table 269 leaves the form to the processor, as [`degrees`] says. A grid position is named
+/// rather than lettered because an `E` after a number is also a hemisphere, and the two axes of a
+/// projected system are not the two of a geographic one. Two places is a centimetre of a metre,
+/// the order of the forward projection's own budget of 1.5 cm on the ground (ADR 1672), so a third
+/// place would print a digit the reading does not hold.
+#[must_use]
+pub fn grid(easting: f64, northing: f64, unit: &str) -> String {
+    format!("easting {easting:.2} {unit}, northing {northing:.2} {unit}")
+}
+
 /// What a window says about a geospatial viewport: the system, the registration, the neatline,
 /// and where the last point is on the earth.
 ///
 /// The position is `viewer_core`'s reading (ADR 1593) and the wording is here: the file's own
-/// system first, `/DCS`'s beside it where the file names one, how far the registration departs
+/// system first, `/DCS`'s beside it where the file names one — in degrees, or as an easting and a
+/// northing where it is projected (ADR 1678) — how far the registration departs
 /// from the map the position was read through where it departs at all, and a refusal's sentence
 /// where no position is given.
 fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> String {
@@ -212,11 +227,22 @@ fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> St
         }) => {
             let _ = write!(said, " — {}", degrees(*latitude, *longitude));
             match display {
-                Some(Ok((latitude, longitude))) => {
+                Some(Ok(Displayed::Geographic(shown))) => {
                     let _ = write!(
                         said,
                         ", displayed in /DCS as {}",
-                        degrees(*latitude, *longitude)
+                        degrees(shown.latitude, shown.longitude)
+                    );
+                }
+                Some(Ok(Displayed::Projected {
+                    easting,
+                    northing,
+                    unit,
+                })) => {
+                    let _ = write!(
+                        said,
+                        ", displayed in /DCS as {}",
+                        grid(*easting, *northing, unit)
                     );
                 }
                 Some(Err(why)) => {
@@ -366,6 +392,47 @@ mod tests {
         assert!(sentence.contains("51.500000° N, 0.125000° W"), "{sentence}");
         assert!(sentence.contains("; not in /DCS: the display system's datum differs"));
         assert!(sentence.contains("depart by up to 0.050000°"), "{sentence}");
+    }
+
+    /// Table 269's `/DCS` is the system "used for the display of position values": a geographic
+    /// one is written in degrees beside the file's own, and a projected one as its easting and
+    /// northing in its own unit, each named (ADR 1678).
+    #[test]
+    fn a_display_system_writes_its_own_coordinates() {
+        use pdf_model::geospatial::{Displayed, GeographicPosition};
+        let traced = Traced {
+            geospatial: Some(Geographic {
+                registration: 4,
+                within_bounds: true,
+                ..Geographic::default()
+            }),
+            ..Traced::default()
+        };
+        let located = |display| Located::At {
+            latitude: 47.5,
+            longitude: 9.0,
+            display: Some(Ok(display)),
+            departure: 0.0,
+        };
+        let geographic = located(Displayed::Geographic(GeographicPosition {
+            latitude: 47.5,
+            longitude: -0.5,
+        }));
+        assert_eq!(
+            said(1, Some(&traced), Some(&geographic)),
+            "geospatial, 4 registration point(s) — 47.500000° N, 9.000000° E, displayed in /DCS \
+             as 47.500000° N, 0.500000° W"
+        );
+        let projected = located(Displayed::Projected {
+            easting: 500_000.0,
+            northing: 5_260_729.733,
+            unit: "Meter".to_owned(),
+        });
+        assert_eq!(
+            said(1, Some(&traced), Some(&projected)),
+            "geospatial, 4 registration point(s) — 47.500000° N, 9.000000° E, displayed in /DCS \
+             as easting 500000.00 Meter, northing 5260729.73 Meter"
+        );
     }
 
     /// The sentence that turns the mode on names the key that turns it off.

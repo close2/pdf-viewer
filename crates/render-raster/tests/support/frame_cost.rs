@@ -97,11 +97,13 @@ pub(crate) struct Stages {
     pub(crate) bytes: u64,
     /// Uploads made.
     pub(crate) uploads: u32,
+    /// Threads the frame started (`raster_gpu::threads`, ADR 1686): a count, not a duration.
+    pub(crate) threads: u64,
 }
 
 impl Stages {
-    /// The stages of `cost`, with `interpret` beside them.
-    pub(crate) fn of(interpret: f64, cost: FrameCost) -> Self {
+    /// The stages of a frame [`draw`] drew, with `interpret` beside them.
+    pub(crate) fn of(interpret: f64, (cost, threads): (FrameCost, u64)) -> Self {
         // `device` less the phases raster names, which is host time inside its own `render` —
         // the same arithmetic `zoom_frame` does, and a bound rather than a duration because
         // `execute` is usually the adapter's clock and the rest are this thread's.
@@ -121,6 +123,7 @@ impl Stages {
             readback: ms(cost.readback),
             bytes: cost.bytes_uploaded,
             uploads: cost.uploads,
+            threads,
         }
     }
 
@@ -152,8 +155,13 @@ fn placed(list: &DisplayList, zoom: f32, window: (u32, u32)) -> TargetSpec {
     }
 }
 
-/// Draws one placed list into the window-sized target and hands back what it cost.
-fn draw(backend: &mut QuorraRasterizer, list: &Arc<DisplayList>, target: TargetSpec) -> FrameCost {
+/// Draws one placed list into the window-sized target and hands back what it cost, with the
+/// threads it started beside it.
+fn draw(
+    backend: &mut QuorraRasterizer,
+    list: &Arc<DisplayList>,
+    target: TargetSpec,
+) -> (FrameCost, u64) {
     let frame = PresentFrame {
         width: target.width,
         height: target.height,
@@ -161,10 +169,12 @@ fn draw(backend: &mut QuorraRasterizer, list: &Arc<DisplayList>, target: TargetS
         raster: None,
         overlays: &[],
     };
+    let started = raster_gpu::threads::started();
     backend
         .rasterize_frame(&frame)
         .unwrap_or_else(|error| panic!("refused: {error}"));
-    backend.last_frame()
+    let threads = raster_gpu::threads::started().saturating_sub(started);
+    (backend.last_frame(), threads)
 }
 
 /// One page interpreted, as a page turn interprets it.

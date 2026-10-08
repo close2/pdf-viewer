@@ -1620,9 +1620,85 @@ fn encode_rich(writer: &mut Writer, rich: Option<&pdf_model::popup::RichNote>) {
                 pdf_model::popup::RichTabAlign::Before => 5,
             });
             writer.f32(stop.at.per_base).f32(stop.at.points);
+            encode_leader(writer, stop.leader.as_ref());
         }
     }
     writer.strings(&note.unapplied);
+}
+
+/// A tab stop's leader, which crosses with its stop so that a window draws it (ADR 1679).
+fn encode_leader(writer: &mut Writer, leader: Option<&pdf_model::popup::RichLeader>) {
+    use pdf_model::popup::{RichLeaderPattern, RichRuleStyle};
+    let measure = |writer: &mut Writer, measure: Option<pdf_model::popup::Measure>| match measure {
+        Some(measure) => {
+            writer.u8(1).f32(measure.per_base).f32(measure.points);
+        }
+        None => {
+            writer.u8(0);
+        }
+    };
+    let Some(leader) = leader else {
+        writer.u8(0);
+        return;
+    };
+    match &leader.pattern {
+        RichLeaderPattern::Dots => {
+            writer.u8(1);
+        }
+        RichLeaderPattern::Rule { style, thickness } => {
+            writer.u8(2).u8(match style {
+                RichRuleStyle::Solid => 0,
+                RichRuleStyle::Dashed => 1,
+                RichRuleStyle::Dotted => 2,
+            });
+            measure(writer, *thickness);
+        }
+        RichLeaderPattern::Content(content) => {
+            writer.u8(3).str(content);
+        }
+    }
+    measure(writer, leader.width);
+}
+
+/// [`encode_leader`]'s inverse.
+fn decode_leader(
+    reader: &mut Reader<'_>,
+) -> Result<Option<pdf_model::popup::RichLeader>, ProtocolError> {
+    use pdf_model::popup::{Measure, RichLeader, RichLeaderPattern, RichRuleStyle};
+    let measure = |reader: &mut Reader<'_>, what: &'static str| -> Result<_, ProtocolError> {
+        Ok(match reader.u8(what)? {
+            0 => None,
+            1 => Some(Measure {
+                per_base: reader.f32(what)?,
+                points: reader.f32(what)?,
+            }),
+            value => return Err(unrecognised(what, value)),
+        })
+    };
+    let what = "a tab leader's pattern";
+    let pattern = match reader.u8(what)? {
+        0 => return Ok(None),
+        1 => RichLeaderPattern::Dots,
+        2 => {
+            let what = "a rule leader's style";
+            let style = match reader.u8(what)? {
+                0 => RichRuleStyle::Solid,
+                1 => RichRuleStyle::Dashed,
+                2 => RichRuleStyle::Dotted,
+                value => return Err(unrecognised(what, value)),
+            };
+            RichLeaderPattern::Rule {
+                style,
+                thickness: measure(reader, "a rule leader's thickness")?,
+            }
+        }
+        3 => RichLeaderPattern::Content(reader.string("a leader's content")?),
+        value => return Err(unrecognised(what, value)),
+    };
+    Ok(Some(RichLeader {
+        pattern,
+        width: measure(reader, "a leader's pattern width")?,
+    }))
 }
 
 /// One run of a rich note, every field of it.
@@ -1723,6 +1799,7 @@ fn decode_rich(
                     per_base: reader.f32(what)?,
                     points: reader.f32(what)?,
                 },
+                leader: decode_leader(reader)?,
             })
         })?;
         Ok(pdf_model::popup::RichParagraph {

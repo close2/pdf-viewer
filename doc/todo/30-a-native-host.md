@@ -146,8 +146,9 @@ These are the places where a native host's shape differs from the tier-2 host's,
   run in its own face, ordering a right-to-left paragraph across its runs and drawing its spacing and
   scales (ADR 1654), all three setting a paragraph's tab stops and a list tag at its start edge, and
   `quorra-qt` the scales through a document built format by format; Pango states no per-run glyph
-  scale, so `quorra-gtk` says one (ADR 1666) — and the C ABI hands the runs and the stops over (ADRs
-  1655, 1667). §12.3.5's collection is shown in all three.
+  scale, so `quorra-gtk` says one (ADR 1666); `quorra` draws a stop's leader and lays a right-to-left
+  paragraph's tabs leftward, which both toolkits say (ADR 1679) — and the C ABI hands the runs and
+  the stops over (ADRs 1655, 1667). §12.3.5's collection is shown in all three.
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font

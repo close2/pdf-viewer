@@ -21,7 +21,9 @@
 //!   its own start edge, as Pango and Qt place one (ADR 1654).
 //! - **Tab stops**, chapter 27's *Tab Stops* (pages 1205 to 1207): a tab advances to the next of
 //!   the paragraph's stops past it, stated or every `tab-interval`, and the text after it stands
-//!   there as the stop's alignment says (ADR 1666).
+//!   there as the stop's alignment says (ADR 1666) — the next on the left in a paragraph read
+//!   right to left, as chapter 2's *Tab Stops* has it (page 61), and the room before it filled
+//!   with the stop's leader (ADR 1679).
 //! - **`letter-spacing` and the two font scales** as `pdf_model::rich_text::lay_out` applies them
 //!   to a field: the spacing is added after every glyph and the horizontal scale multiplies the
 //!   advance with it, which is §9.4.4's `(w0 × Tfs + Tc) × Th` with chapter 27's two in place of
@@ -119,6 +121,9 @@ struct Item<'a> {
     /// Whether it is chapter 27's tab, which advances to the paragraph's next stop: how far is
     /// decided where its line is laid out ([`lines`]), and it draws no glyph.
     tab: bool,
+    /// For a tab, the stop it reached, by its place among the paragraph's stops: the leader drawn
+    /// across its advance is that stop's.
+    stop: Option<usize>,
 }
 
 /// How a run is drawn: its family and style, its em in pixels across and up, and how far its
@@ -220,19 +225,38 @@ fn glyphs_of<'a>(
             space: stored == ' ',
             end,
             tab,
+            stop: None,
         });
     }
     (text, out, settings)
 }
 
 /// How far a tab at `position` from the paragraph's left margin advances before `group`, the
-/// glyphs after it up to the next tab or the line's end: to the first of `stops` past the
-/// cursor, the group standing there as the stop's side says, and by nothing where no stop lies
-/// past it — chapter 27's *Tab Stops* (pages 1205 to 1207), as a field's layout reads it.
-fn tab_advance(stops: &[viewer_host::popup::TabStop], position: f32, group: &[Item<'_>]) -> f32 {
+/// glyphs after it up to the next tab or the line's end, and which of `stops` it reached: the
+/// first past the cursor in the direction the text flows, the group standing there as the stop's
+/// side says, and by nothing where no stop lies past it — chapter 27's *Tab Stops* (pages 1205 to
+/// 1207), as a field's layout reads it.
+///
+/// Where the paragraph reads right to left the cursor moves leftward and the next stop is the
+/// nearest on its left (chapter 2's *Tab Stops*, page 61): the answer is how far the group's
+/// right edge lies left of the cursor.
+fn tab_advance(
+    stops: &[viewer_host::popup::TabStop],
+    (position, right_to_left): (f32, bool),
+    group: &[Item<'_>],
+) -> (f32, Option<usize>) {
     use viewer_host::popup::TabSide;
-    let Some(stop) = stops.iter().find(|stop| stop.at > position + f32::EPSILON) else {
-        return 0.0;
+    let reached = if right_to_left {
+        stops
+            .iter()
+            .rposition(|stop| stop.at < position - f32::EPSILON)
+    } else {
+        stops
+            .iter()
+            .position(|stop| stop.at > position + f32::EPSILON)
+    };
+    let Some((index, stop)) = reached.and_then(|index| Some((index, stops.get(index)?))) else {
+        return (0.0, None);
     };
     let whole: f32 = group.iter().map(|item| item.advance).sum();
     let lead = match stop.side {
@@ -253,7 +277,12 @@ fn tab_advance(stops: &[viewer_host::popup::TabStop], position: f32, group: &[It
                 })
         }
     };
-    (stop.at - lead - position).max(0.0)
+    let advance = if right_to_left {
+        position - (stop.at - lead + whole)
+    } else {
+        stop.at - lead - position
+    };
+    (advance.max(0.0), Some(index))
 }
 
 /// A paragraph's glyphs broken into lines that fit `available`, each a range of them in stored
@@ -261,12 +290,13 @@ fn tab_advance(stops: &[viewer_host::popup::TabStop], position: f32, group: &[It
 /// line, because the window is the document's rectangle and there is nowhere else for it to go.
 ///
 /// A tab's advance is set here, where its place on the line is known: `stops` from the left
-/// margin, which lies `margin` before the line's first glyph — a list tag's width, which the two
-/// toolkit windows set inside the line (ADR 1666).
+/// margin, which lies `origin` before the line's first glyph in the order the text flows — a
+/// list tag's width, which the two toolkit windows set inside the line (ADR 1666), or, in a
+/// paragraph read right to left, the line's whole width, its first glyph being at its right.
 fn lines(
     items: &mut [Item<'_>],
     available: f32,
-    (stops, margin): (&[viewer_host::popup::TabStop], f32),
+    (stops, origin, right_to_left): (&[viewer_host::popup::TabStop], f32, bool),
 ) -> Vec<std::ops::Range<usize>> {
     let mut lines = Vec::new();
     let (mut from, mut used, mut at) = (0, 0.0_f32, 0);
@@ -285,9 +315,16 @@ fn lines(
             let group = items
                 .get(at.saturating_add(1)..group_end)
                 .unwrap_or_default();
-            let advance = tab_advance(stops, margin + used, group).min((available - used).max(0.0));
+            let position = if right_to_left {
+                origin - used
+            } else {
+                origin + used
+            };
+            let (advance, stop) = tab_advance(stops, (position, right_to_left), group);
+            let advance = advance.min((available - used).max(0.0));
             if let Some(tab) = items.get_mut(at) {
                 tab.advance = advance;
+                tab.stop = stop;
             }
             used += advance;
             at = at.saturating_add(1);
@@ -378,7 +415,12 @@ pub(super) fn draw(
         let (text, mut items, settings) = glyphs_of(chrome, paragraph, size, per_point);
         let levels = pdf_font::shaping::Paragraphs::new(&text);
         let stops = viewer_host::popup::tab_stops(paragraph, size, per_point, room);
-        let broken = lines(&mut items, available, (&stops, tag_width));
+        let (origin, margin) = if right_to_left {
+            (available, left)
+        } else {
+            (tag_width, start - tag_width)
+        };
+        let broken = lines(&mut items, available, (&stops, origin, right_to_left));
         let final_line = broken.len().saturating_sub(1);
         for (index, range) in broken.iter().enumerate() {
             let line = items.get(range.clone()).unwrap_or_default();
@@ -405,25 +447,12 @@ pub(super) fn draw(
             if baseline > bottom {
                 return baseline;
             }
-            let width: f32 = line.iter().map(|item| item.advance).sum();
-            let spaces = line.iter().filter(|item| item.space).count();
             let align = paragraph.align.unwrap_or(if right_to_left {
                 RichAlign::Right
             } else {
                 RichAlign::Left
             });
-            let (mut x, widen) = match align {
-                RichAlign::Centre => (start + (available - width) / 2.0, 0.0),
-                RichAlign::Right => (start + available - width, 0.0),
-                #[expect(
-                    clippy::cast_precision_loss,
-                    reason = "a line's count of spaces is far below f32's exact integer range"
-                )]
-                RichAlign::Justify if !ends_paragraph && spaces > 0 => {
-                    (start, (available - width).max(0.0) / spaces as f32)
-                }
-                RichAlign::Justify | RichAlign::Left => (start, 0.0),
-            };
+            let (mut x, widen) = line_start(align, (start, available), line, ends_paragraph);
             if index == 0
                 && let Some((tag, setting)) = &tag
             {
@@ -437,6 +466,14 @@ pub(super) fn draw(
             for item in ordered(line, levels.as_ref()) {
                 let advance = item.advance + if item.space { widen } else { 0.0 };
                 if let Some(setting) = settings.get(item.setting) {
+                    if let Some(stop) = item.stop.and_then(|stop| stops.get(stop)) {
+                        draw_leader(
+                            chrome,
+                            list,
+                            (item, setting, stop),
+                            ((x, baseline), advance, margin),
+                        );
+                    }
                     draw_item(
                         chrome,
                         list,
@@ -452,6 +489,136 @@ pub(super) fn draw(
         }
     }
     top + size
+}
+
+/// Where a line of `line`'s glyphs starts in the room from `start` that is `available` wide, and
+/// how much wider each of its spaces is drawn, as `align` places it; a paragraph's last line is
+/// not justified.
+fn line_start(
+    align: RichAlign,
+    (start, available): (f32, f32),
+    line: &[Item<'_>],
+    ends_paragraph: bool,
+) -> (f32, f32) {
+    let width: f32 = line.iter().map(|item| item.advance).sum();
+    let spaces = line.iter().filter(|item| item.space).count();
+    match align {
+        RichAlign::Centre => (start + (available - width) / 2.0, 0.0),
+        RichAlign::Right => (start + available - width, 0.0),
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a line's count of spaces is far below f32's exact integer range"
+        )]
+        RichAlign::Justify if !ends_paragraph && spaces > 0 => {
+            (start, (available - width).max(0.0) / spaces as f32)
+        }
+        RichAlign::Justify | RichAlign::Left => (start, 0.0),
+    }
+}
+
+/// The most cycles one leader draws: a window's width over the narrowest glyph is far below it,
+/// and a pattern of a hair's width is not a reason to draw a million of them.
+const MOST_CYCLES: usize = 4096;
+
+/// The share of a dashed rule's cycle a dash takes, and its cycle in thicknesses; a dotted rule's
+/// cycle is a square dot and its own width of gap. Chapter 2 states neither, and these are a field
+/// appearance's choices (ADR 1660), kept so that one leader is not drawn two ways in one program.
+const DASH_CYCLE: f32 = 4.0;
+/// A dotted rule's cycle, in thicknesses.
+const DOT_CYCLE: f32 = 2.0;
+
+/// A tab stop's leader across the `room` a tab advanced from `from`, on the line's baseline: chapter 2's *Tab Leader Pattern*
+/// (pages 63 to 65), as a field's appearance draws it (ADR 1660), in this window's pixels.
+///
+/// The cycles are laid on a grid from the paragraph's left margin, `margin`, so that leaders on
+/// different lines line up — `leaderAlignment`'s `none` leaves that to the processor — and a cycle
+/// the room cannot hold whole is left blank, as the chapter has a processor leave a partial one. A
+/// cycle is the larger of `leaderPatternWidth` and the pattern's own width; dots and content are
+/// the tab's run's own glyphs, and a rule is drawn in its colour, centred on the baseline, a
+/// dashed or dotted one in pieces (ADR 1679).
+fn draw_leader(
+    chrome: &Chrome,
+    list: &mut DisplayList,
+    (item, setting, stop): (&Item<'_>, &Setting, &viewer_host::popup::TabStop),
+    ((from, baseline), room, margin): ((f32, f32), f32, f32),
+) {
+    use pdf_model::popup::RichRuleStyle;
+    use viewer_host::popup::LeaderPattern;
+    let Some(leader) = stop.leader.as_ref() else {
+        return;
+    };
+    let to = from + room;
+    let colour = item.run.colour.unwrap_or(Color::BLACK);
+    let cycles = |inherent: f32| -> Vec<f32> {
+        let cycle = inherent.max(leader.width);
+        if !cycle.is_finite() || cycle <= 0.0 || to <= from {
+            return Vec::new();
+        }
+        let mut index = ((from - margin) / cycle).ceil();
+        let mut out = Vec::new();
+        while margin + (index + 1.0) * cycle <= to + f32::EPSILON && out.len() < MOST_CYCLES {
+            out.push(margin + index * cycle);
+            index += 1.0;
+        }
+        out
+    };
+    let glyphs = |text: &str| -> Vec<(char, f32)> {
+        text.chars()
+            .map(|character| {
+                let advance = setting.advance(
+                    item.run,
+                    chrome.glyph_advance(setting.face.0, setting.face.1, character),
+                );
+                (character, advance)
+            })
+            .collect()
+    };
+    match &leader.pattern {
+        LeaderPattern::Dots | LeaderPattern::Content(_) => {
+            let glyphs = glyphs(match &leader.pattern {
+                LeaderPattern::Content(content) => content.as_str(),
+                _ => ".",
+            });
+            let inherent: f32 = glyphs.iter().map(|(_, advance)| advance).sum();
+            for at in cycles(inherent) {
+                let mut x = at;
+                for (character, advance) in &glyphs {
+                    if *character != ' ' {
+                        chrome.glyph(
+                            list,
+                            setting.face,
+                            *character,
+                            (x, baseline - setting.rise),
+                            setting.em,
+                            colour,
+                        );
+                    }
+                    x += advance;
+                }
+            }
+        }
+        LeaderPattern::Rule { style, thickness } => {
+            let thick = thickness.unwrap_or((setting.em.1 * 0.05).max(1.0)).max(0.0);
+            if thick <= 0.0 || to <= from {
+                return;
+            }
+            let top = baseline - setting.rise - thick * 0.5;
+            let pieces: Vec<(f32, f32)> = match style {
+                RichRuleStyle::Solid => vec![(from, to - from)],
+                RichRuleStyle::Dashed => cycles(DASH_CYCLE * thick)
+                    .into_iter()
+                    .map(|x| (x, DASH_CYCLE * thick * 0.5))
+                    .collect(),
+                RichRuleStyle::Dotted => cycles(DOT_CYCLE * thick)
+                    .into_iter()
+                    .map(|x| (x, thick))
+                    .collect(),
+            };
+            for (x, width) in pieces {
+                rectangle(list, (x, top, width, thick), colour);
+            }
+        }
+    }
 }
 
 /// A list item's tag at `at` on its baseline, drawn where `list` is given and only measured where
@@ -552,9 +719,9 @@ fn draw_item(
 }
 
 /// What a rich note states and this window did not draw, said under it, and where the next line
-/// goes: chapter 27's properties `pdf-model` does not carry out, and a tab in a paragraph read
-/// right to left, which no window lays out leftward — this window sets every face, order,
-/// spacing, scale and left-to-right tab stop the note states (ADRs 1654, 1666).
+/// goes: chapter 27's properties `pdf-model` does not carry out — this window sets every face,
+/// order, spacing, scale, tab stop and leader the note states, a right-to-left paragraph's
+/// leftward (ADRs 1654, 1666, 1679).
 pub(super) fn say_what_was_not_drawn(
     chrome: &Chrome,
     list: &mut DisplayList,
@@ -562,9 +729,7 @@ pub(super) fn say_what_was_not_drawn(
     (left, line, room, bottom): (f32, f32, f32, f32),
     size: f32,
 ) -> f32 {
-    let Some(sentence) =
-        viewer_host::popup::not_drawn(note, &viewer_host::popup::tabs_unapplied(note))
-    else {
+    let Some(sentence) = viewer_host::popup::not_drawn(note, &[]) else {
         return line;
     };
     if line > bottom {

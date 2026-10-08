@@ -1412,6 +1412,7 @@ fn a_tab_advances_to_the_paragraphs_stop() {
                     per_base: 0.0,
                     points: 120.0,
                 },
+                leader: None,
             }];
         }
         let list = viewer_ui::chrome::popup_windows(
@@ -1438,6 +1439,115 @@ fn a_tab_advances_to_the_paragraphs_stop() {
     let ((_, _), (_, blue_to)) = stopped(Some(pdf_model::popup::RichTabAlign::Right));
     let gap = blue_to - red_from;
     assert!((155..=165).contains(&gap), "right stop: {gap} px");
+}
+
+/// A note of a red run and a blue run whose paragraph states one stop 120 points from its left
+/// margin, `align` and `leader`, drawn twice so the chrome's faces have settled.
+fn one_stop(
+    chrome: &Chrome,
+    runs: [&str; 2],
+    align: pdf_model::popup::RichTabAlign,
+    leader: Option<pdf_model::popup::RichLeader>,
+) -> pdf_render::DisplayList {
+    let mut note = rich_note(&[(runs[0], &[], RED), (runs[1], &[], BLUE)], |_| {});
+    if let Some(paragraph) = note
+        .rich
+        .as_mut()
+        .and_then(|rich| rich.paragraphs.first_mut())
+    {
+        paragraph.tab_stops = vec![pdf_model::popup::RichTabStop {
+            align,
+            at: pdf_model::popup::Measure {
+                per_base: 0.0,
+                points: 120.0,
+            },
+            leader,
+        }];
+    }
+    let draw = || {
+        viewer_ui::chrome::popup_windows(chrome, std::slice::from_ref(&note), WIDTH, HEIGHT, 1.0)
+            .expect("one window is drawn")
+    };
+    drop(draw());
+    chrome.settle();
+    draw()
+}
+
+/// A tab in a paragraph read right to left reaches leftward, chapter 2's *Tab Stops* (page 61),
+/// to a stop placed from the left margin (ADR 1679): the red Hebrew letter stands at the right,
+/// and the blue one after the tab ends at the stop — `after` is the start edge, the right in such
+/// a paragraph — 120 points, 160 pixels, right of the margin a left-to-right line starts at.
+#[test]
+fn a_right_to_left_tab_reaches_leftward_to_its_stop() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    chrome.settle();
+    let margin = one_stop(
+        &chrome,
+        ["H", "H"],
+        pdf_model::popup::RichTabAlign::Left,
+        None,
+    );
+    let (margin, _) = columns(&margin, 50..150, 0).expect("the red letter is drawn");
+    let list = one_stop(
+        &chrome,
+        ["\u{5d0}", "\t\u{5d1}"],
+        pdf_model::popup::RichTabAlign::After,
+        None,
+    );
+    let (red_from, _) = columns(&list, 50..150, 0).expect("the red letter is drawn");
+    let (blue_from, blue_to) = columns(&list, 50..150, 2).expect("the blue letter is drawn");
+    assert!(
+        blue_to < red_from,
+        "blue {blue_from}..{blue_to}, red from {red_from}"
+    );
+    let reach = blue_to - margin;
+    assert!(
+        (155..=165).contains(&reach),
+        "the stop is {reach} px from the margin"
+    );
+}
+
+/// A stop's leader fills the room its tab advances across (chapter 2's *Tab Leader Pattern*,
+/// pages 63 to 65; ADR 1679): the tab is the blue run's, so with a rule or dots the blue ink
+/// begins next to the red letter, and without one it begins only at the stop.
+#[test]
+fn a_tab_leader_fills_the_room_before_its_stop() {
+    use pdf_model::popup::{RichLeader, RichLeaderPattern, RichRuleStyle, RichTabAlign};
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    chrome.settle();
+    let blank = one_stop(&chrome, ["H", "\tH"], RichTabAlign::Left, None);
+    let (_, red_to) = columns(&blank, 50..150, 0).expect("the red letter is drawn");
+    let (blank_from, _) = columns(&blank, 50..150, 2).expect("the blue letter is drawn");
+    assert!(
+        blank_from > red_to + 100,
+        "no leader: blue from {blank_from}, red to {red_to}"
+    );
+    for pattern in [
+        // Three points thick, so that the rule covers whole pixels and reads as the blue it is.
+        RichLeaderPattern::Rule {
+            style: RichRuleStyle::Solid,
+            thickness: Some(pdf_model::popup::Measure {
+                per_base: 0.0,
+                points: 3.0,
+            }),
+        },
+        RichLeaderPattern::Dots,
+    ] {
+        let list = one_stop(
+            &chrome,
+            ["H", "\tH"],
+            RichTabAlign::Left,
+            Some(RichLeader {
+                pattern: pattern.clone(),
+                width: None,
+            }),
+        );
+        let (from, to) = columns(&list, 50..150, 2).expect("the blue leader and letter are drawn");
+        assert!(
+            from < red_to + 12 && to > blank_from,
+            "{pattern:?}: blue {from}..{to}, red to {red_to}, the stop's letter from {blank_from}"
+        );
+    }
 }
 
 /// A list item's tag stands at its paragraph's start edge (ADR 1666): the right of a paragraph

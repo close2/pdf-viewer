@@ -88,7 +88,8 @@ impl Helpers {
                     .spawn(move || help(&shared))
                     .ok()
             })
-            .collect();
+            .collect::<Vec<_>>();
+        crate::threads::count(threads.len());
         Self { shared, threads }
     }
 

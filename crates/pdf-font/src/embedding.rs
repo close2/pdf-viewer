@@ -128,6 +128,25 @@ pub fn without_tables(program: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>> {
     crate::sfnt::without_tables(program, dropped)
 }
 
+/// A copy of an sfnt with the tables given put in, each replacing the program's own table of
+/// its tag or added beside the rest, and its directory rebuilt with every checksum.
+///
+/// What a fixture needs to state a table's rule against a real program: a face's outlines and
+/// metrics kept, and the one table under test written byte for byte (ADR 1682's pair kerning).
+/// `None` where the bytes are not an sfnt this reader can take apart.
+#[must_use]
+pub fn with_tables(program: &[u8], tables: &[([u8; 4], Vec<u8>)]) -> Option<Vec<u8>> {
+    let mut kept = std::collections::BTreeMap::new();
+    for (tag, &(at, length)) in &crate::sfnt::sfnt_tables(program)? {
+        let tag: [u8; 4] = tag.as_slice().try_into().ok()?;
+        kept.insert(tag, program.get(at..at.checked_add(length)?)?.to_vec());
+    }
+    for (tag, bytes) in tables {
+        kept.insert(*tag, bytes.clone());
+    }
+    crate::embed::assembled(&kept, program.get(..4)?.try_into().ok()?)
+}
+
 /// One table's bytes out of an sfnt, where the container holds it.
 fn sfnt_table<'a>(program: &'a [u8], tag: &[u8]) -> Option<&'a [u8]> {
     let tables = crate::sfnt::sfnt_tables(program)?;

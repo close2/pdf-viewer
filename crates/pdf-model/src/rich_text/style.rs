@@ -317,6 +317,19 @@ pub(crate) struct Character {
     /// page 1206). Not inherited — it is an event at the element, which the markup walk takes and
     /// clears before anything inside it is read.
     pub(crate) tab_count: u16,
+    /// `kerning-mode`: whether the run is kerned by its face's own pairs (*Kerning*, pages 1203
+    /// and 1204; ADR 1682).
+    pub(crate) kerning: Kerning,
+}
+
+/// Chapter 27's *Kerning* table, its two values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Kerning {
+    /// `none`, the default: no kerning is applied.
+    #[default]
+    None,
+    /// `pair`: each two adjacent glyphs are kerned by the pair their face states.
+    Pair,
 }
 
 /// The nine widths, narrowest first, in chapter 27's spelling (*Font*, page 1201); Table 120's
@@ -367,6 +380,7 @@ impl Character {
             spacerun: false,
             stretch: NORMAL_STRETCH,
             tab_count: 0,
+            kerning: Kerning::None,
         }
     }
 
@@ -569,6 +583,9 @@ pub(crate) fn apply(
     }
 }
 
+/// The note a string stating `kerning-mode:pair` carries until a layout kerns it.
+pub(crate) const PAIR_KERNING: &str = "kerning-mode:pair";
+
 /// One character property, applied; `false` where the name is not one.
 fn character_property(
     name: &str,
@@ -659,10 +676,15 @@ fn character_property(
         }
         "xfa-spacerun" => character.spacerun = value.eq_ignore_ascii_case("yes"),
         "kerning-mode" => {
-            // Chapter 27's *Kerning* table: `none`, the default, and `pair` (page 1204). Pair
-            // kerning reads a face's own kerning table, which nothing on this path reads.
+            // Chapter 27's *Kerning* table: `none`, the default, and `pair` (page 1204). Whether
+            // the run's face states pairs to kern by is the layout's question, asked of the face
+            // a glyph is set in: the layout takes this note back and says what it could not kern
+            // (ADR 1682), and a reader that sets no glyphs — a host's popup window — keeps it.
             if value.eq_ignore_ascii_case("pair") {
-                unapplied.note("kerning-mode:pair");
+                character.kerning = Kerning::Pair;
+                unapplied.note(PAIR_KERNING);
+            } else if value.eq_ignore_ascii_case("none") {
+                character.kerning = Kerning::None;
             }
         }
         _ => return false,
@@ -1309,9 +1331,13 @@ mod tests {
     /// applies or that have nothing to act on are not.
     #[test]
     fn what_is_not_applied_is_named_and_nothing_else_is() {
-        let (character, _, unapplied) =
-            styled("font-stretch:condensed; kerning-mode:pair; orphans:2; widows:1; color:#000000");
+        let (character, _, unapplied) = styled(
+            "font-stretch:condensed; kerning-mode:pair; orphans:2; widows:1; \
+             color:#000000",
+        );
         assert_eq!(unapplied.phrase(), "kerning-mode:pair");
+        // Pair kerning is asked of the face a run is set in, which the layout knows.
+        assert_eq!(character.kerning, super::Kerning::Pair);
         // A width is a style the layout looks a face up by, and says where it finds none.
         assert_eq!(
             super::STRETCHES[usize::from(character.stretch)],

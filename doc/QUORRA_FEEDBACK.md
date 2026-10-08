@@ -521,8 +521,9 @@ three targets, interleaved, the first frame now pays **6.70, 7.74 and 17.87 ms**
 successors (medians of eight runs; 596 × 842, 1191 × 1684, 2382 × 3368), and a second's wait still
 moves nothing the right way. Stage by stage, almost all of it is the page's own work: the CPU lane's
 coverage of every glyph seen for the first time, 4.1 to 5.8 ms of encode, and the scene's resources.
-At 4× a further 7.6 ms is the offscreen path's host pass over the read-back raster, which a window
-does not have. Counted at wgpu's boundary, the per-device resources a first frame makes and the tenth
+At 4× the offscreen path's host pass over the read-back raster — the medium's composite — is 17 ms
+of every frame, and a further 7 ms of frames 1 and 2 in some processes; a window does not have it
+(ADR 1687). Counted at wgpu's boundary, the per-device resources a first frame makes and the tenth
 does not are two textures, the glyph atlas and the white stand-in, plus the command-stream memory
 ADR 1606 already priced. Made on the warm-up thread, the two textures take 0.10 to 0.18 ms off the
 frame's upload and nothing measurable off the frame; made before the warm set, they delay it by

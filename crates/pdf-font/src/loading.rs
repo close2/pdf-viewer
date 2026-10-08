@@ -2640,6 +2640,54 @@ impl LoadedFont {
         self.reader_chosen.contains(code.value())
     }
 
+    /// The pair kerning the document's own program states, for XFA 3.3 chapter 27's
+    /// `kerning-mode:pair` (ADR 1682): `GPOS`'s `kern` feature, or the legacy `kern` table.
+    ///
+    /// Read on request rather than at load, because only a run asking for pair kerning needs it.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::pairs::NoPairs::NotTheDocuments`] for a substituted font, whose pairs would be
+    /// the stand-in's; [`crate::pairs::NoPairs::NoPairData`] for a bare CFF or Type 1 program,
+    /// which carries neither table; and the reader's own refusals otherwise.
+    pub fn pairs(&self) -> Result<crate::pairs::Pairs, crate::pairs::NoPairs> {
+        if self.substituted {
+            return Err(crate::pairs::NoPairs::NotTheDocuments);
+        }
+        if self.program != Program::Sfnt {
+            return Err(crate::pairs::NoPairs::NoPairData);
+        }
+        crate::pairs::Pairs::read(Arc::clone(&self.data), self.units_per_em)
+    }
+
+    /// The adjustments [`Self::pairs`] gives a run of this font's codes, in logical order;
+    /// `right_to_left` says, per code, whether it reads right to left. A code reaching no glyph
+    /// of the program, or its `.notdef`, pairs with nothing.
+    #[must_use]
+    pub fn pair_adjustments(
+        &self,
+        pairs: &crate::pairs::Pairs,
+        codes: &[Code],
+        right_to_left: &[bool],
+    ) -> crate::pairs::Adjusted {
+        let glyphs: Vec<Option<u16>> = codes.iter().map(|code| self.pair_glyph(*code)).collect();
+        pairs.adjust(&glyphs, right_to_left)
+    }
+
+    /// The program glyph a code reaches for pair kerning: [`Self::program_glyph`]'s mapping,
+    /// without its refusal of a repaired CID-keyed CFF, whose glyph indices the repair leaves as
+    /// they were.
+    fn pair_glyph(&self, code: Code) -> Option<u16> {
+        let glyph = match &self.mapping {
+            CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
+            CodeMapping::Composite { cmap, glyphs } => {
+                cmap.cid(code).and_then(|cid| glyphs.glyph(cid))
+            }
+            CodeMapping::Substituted { .. } | CodeMapping::MetricsOnly { .. } => None,
+        }?;
+        (glyph != NOTDEF_GLYPH).then_some(glyph)
+    }
+
     /// The glyph index a character code reaches, or `None` where it reaches none.
     ///
     /// Public for one reason: the strongest check in this tree is that the document's stated

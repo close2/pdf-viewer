@@ -218,6 +218,16 @@ struct Threaded {
     rich: Option<pdf_model::popup::RichNote>,
 }
 
+/// A rich note as the C ABI hands it: the note, with a leader said among what is not carried out,
+/// because `quorra_popup_rich_tab` hands a stop's position and alignment and not its fill
+/// (ADR 1679).
+fn abi_note(note: &pdf_model::popup::RichNote) -> pdf_model::popup::RichNote {
+    let mut note = note.clone();
+    note.unapplied
+        .extend(viewer_host::popup::leader_unapplied(&note));
+    note
+}
+
 impl Popups {
     /// Takes what [`viewer_core::Answer::Popups`] held.
     #[must_use]
@@ -248,10 +258,10 @@ impl Popups {
                                 reply.text.clone(),
                                 reply.modified.clone(),
                             ],
-                            rich: reply.rich.clone(),
+                            rich: reply.rich.as_ref().map(abi_note),
                         })
                         .collect(),
-                    rich: window.rich.clone(),
+                    rich: window.rich.as_ref().map(abi_note),
                 })
                 .collect(),
         }
@@ -1012,6 +1022,62 @@ mod tests {
         assert_eq!(matches.quads(1).map(|quads| quads.len()), Ok(1));
         assert_eq!(matches.quads(2), Err(Status::OutOfRange));
         assert!(Matches::default().is_empty());
+    }
+
+    /// A stop's leader does not cross the C ABI, so a note whose tab reaches one says so among
+    /// what is not carried out, and a note without one says nothing more (ADR 1679).
+    #[test]
+    fn a_leader_the_abi_does_not_hand_over_is_said() {
+        use pdf_model::popup::{
+            Measure, RichLeader, RichLeaderPattern, RichNote, RichParagraph, RichRun, RichSpacing,
+            RichTabAlign, RichTabStop,
+        };
+        let run = RichRun {
+            text: "a\tb".to_owned(),
+            families: Vec::new(),
+            size: Measure {
+                per_base: 1.0,
+                points: 0.0,
+            },
+            bold: false,
+            italic: false,
+            colour: None,
+            underlines: 0,
+            underline_by_word: false,
+            line_through: false,
+            rise: Measure::default(),
+            letter_spacing: RichSpacing::default(),
+            horizontal_scale: 1.0,
+            vertical_scale: 1.0,
+        };
+        let stop = |leader| RichTabStop {
+            align: RichTabAlign::Left,
+            at: Measure {
+                per_base: 0.0,
+                points: 72.0,
+            },
+            leader,
+        };
+        let note = |leader| RichNote {
+            paragraphs: vec![RichParagraph {
+                align: None,
+                level: 0,
+                tag: None,
+                runs: vec![run.clone()],
+                tab_interval: None,
+                tab_stops: vec![stop(leader)],
+            }],
+            unapplied: Vec::new(),
+        };
+        assert!(super::abi_note(&note(None)).unapplied.is_empty());
+        let dotted = note(Some(RichLeader {
+            pattern: RichLeaderPattern::Dots,
+            width: None,
+        }));
+        assert_eq!(
+            super::abi_note(&dotted).unapplied,
+            vec!["a tab leader in a popup window".to_owned()]
+        );
     }
 
     /// A window with no title answers an empty string; one past the end is refused.

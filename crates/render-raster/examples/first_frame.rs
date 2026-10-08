@@ -80,6 +80,7 @@ fn main() {
     for nth in 1..=10_u32 {
         mark(nth);
         let faulted = minor_faults();
+        let threads = raster_gpu::threads::started();
         let started = Instant::now();
         backend
             .rasterize(&list, target)
@@ -92,6 +93,7 @@ fn main() {
                 .zip(faulted)
                 .map(|(after, before)| after.saturating_sub(before)),
             phases: backend.last_phases().to_vec(),
+            threads: raster_gpu::threads::started().saturating_sub(threads),
         });
     }
     mark(0);
@@ -114,12 +116,14 @@ fn main() {
 }
 
 /// One frame as the loop saw it: its wall clock in milliseconds, the stages `FrameCost` reports,
-/// the minor page faults the process took during it, and raster's named spans.
+/// the minor page faults the process took during it, raster's named spans, and the threads it
+/// started (ADR 1686).
 struct Measured {
     wall: f64,
     cost: render_raster::FrameCost,
     faults: Option<u64>,
     phases: Vec<(&'static str, Duration)>,
+    threads: u64,
 }
 
 fn ms(d: Duration) -> f64 {
@@ -127,10 +131,10 @@ fn ms(d: Duration) -> f64 {
 }
 
 /// One line a frame, stage by stage: an excess is only actionable once it is known which stage
-/// holds it.
+/// holds it, and the host's work after the device beside them (ADR 1686).
 fn print_stages(frames: &[Measured]) {
     println!(
-        "  {:<10} {:>8} | {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}  (ms) {:>7} {:>7}",
+        "  {:<10} {:>8} | {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}  (ms) {:>7} {:>7} {:>7}",
         "",
         "wall",
         "scene",
@@ -141,13 +145,25 @@ fn print_stages(frames: &[Measured]) {
         "execute",
         "readbk",
         "settle",
+        "host",
+        "caller",
         "uploads",
-        "faults"
+        "faults",
+        "threads"
     );
     for (nth, frame) in frames.iter().enumerate() {
         let cost = &frame.cost;
+        // `rasterize`'s own clock less the stages it names: the passes it runs over the read-back
+        // raster after the device has returned (§11.4.7's medium, and whatever else the page
+        // composites there). `caller` is the wall less that clock — what dropping the raster
+        // costs the loop that asked for it.
+        let host = cost
+            .total
+            .saturating_sub(cost.scene)
+            .saturating_sub(cost.device)
+            .saturating_sub(cost.settle);
         println!(
-            "  frame {:<4} {:8.2} | {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2}       {:>7} {:>7}",
+            "  frame {:<4} {:8.2} | {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2} {:7.2}       {:>7} {:>7} {:>7}",
             nth.saturating_add(1),
             frame.wall,
             ms(cost.scene),
@@ -158,10 +174,13 @@ fn print_stages(frames: &[Measured]) {
             ms(cost.execute),
             ms(cost.readback),
             ms(cost.settle),
+            ms(host),
+            frame.wall - ms(cost.total),
             cost.uploads,
             frame
                 .faults
                 .map_or_else(|| "-".to_owned(), |n| n.to_string()),
+            frame.threads,
         );
     }
 }

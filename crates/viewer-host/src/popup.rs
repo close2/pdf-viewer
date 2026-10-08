@@ -274,14 +274,43 @@ pub enum TabSide {
     Decimal,
 }
 
-/// One of a paragraph's tab stops, placed: how the text after it stands, and how far it is from
-/// the paragraph's left margin in the unit [`size`] answers in.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// One of a paragraph's tab stops, placed: how the text after it stands, how far it is from the
+/// paragraph's left margin in the unit [`size`] answers in, and what fills the room before it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TabStop {
     /// How the text after the tab stands at the stop.
     pub side: TabSide,
     /// The stop's distance from the left margin.
     pub at: f32,
+    /// The stop's leader, where it states one; a default stop is blank (page 1205).
+    pub leader: Option<Leader>,
+}
+
+/// A tab leader, placed: chapter 2's *Tab Leader Pattern* (pages 63 to 65) in the unit [`size`]
+/// answers in (ADR 1679).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Leader {
+    /// What is repeated across the room before the stop.
+    pub pattern: LeaderPattern,
+    /// `leaderPatternWidth`, the least width of one repetition; zero where none is stated, and
+    /// then a repetition is the pattern's own width.
+    pub width: f32,
+}
+
+/// What a leader repeats.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LeaderPattern {
+    /// The run's full stop.
+    Dots,
+    /// A rule in the text's colour, centred on the baseline.
+    Rule {
+        /// Solid, dashed or dotted.
+        style: pdf_model::popup::RichRuleStyle,
+        /// Its thickness; `None` takes the window's underline thickness.
+        thickness: Option<f32>,
+    },
+    /// These characters, in the run's face.
+    Content(String),
 }
 
 /// The most default stops a paragraph is given: a window's width at the smallest interval a
@@ -293,10 +322,13 @@ const MOST_DEFAULT_STOPS: usize = 256;
 ///
 /// ISO 32000-2 §12.7.4.3 brings chapter 27 of XFA 3.3 in for a rich text string's formatting, and
 /// its *Tab Stops* (pages 1205 to 1207) is the rule: the stops `tab-stops` states, then the
-/// default ones at every multiple of `tab-interval` beyond the last stated, each default stop
-/// aligned `after` — its left edge where the paragraph reads left to right. `base` and
-/// `per_point` are [`size`]'s; a paragraph stating neither property has no stop, and then a tab
-/// advances by nothing ([`advances`]), which is the chapter's own reading where nothing sets one.
+/// default ones at every multiple of `tab-interval` beyond the stated ones, each default stop
+/// aligned `after` — its left edge where the paragraph reads left to right. *Beyond* is read in
+/// the direction the text flows, which chapter 2's *Tab Stops* makes leftward in a paragraph read
+/// right to left (page 61): there the default stops lie left of the leftmost stated one, as a
+/// field's layout places them (ADR 1679). `base` and `per_point` are [`size`]'s; a paragraph
+/// stating neither property has no stop, and then a tab advances by nothing ([`advances`]), which
+/// is the chapter's own reading where nothing sets one.
 #[must_use]
 pub fn tab_stops(
     paragraph: &pdf_model::popup::RichParagraph,
@@ -325,6 +357,26 @@ pub fn tab_stops(
         .map(|stop| TabStop {
             side: side(stop.align),
             at: length(stop.at),
+            leader: stop.leader.as_ref().map(|leader| Leader {
+                pattern: match &leader.pattern {
+                    pdf_model::popup::RichLeaderPattern::Dots => LeaderPattern::Dots,
+                    pdf_model::popup::RichLeaderPattern::Rule { style, thickness } => {
+                        LeaderPattern::Rule {
+                            style: *style,
+                            thickness: thickness.map(length).filter(|t| t.is_finite()),
+                        }
+                    }
+                    pdf_model::popup::RichLeaderPattern::Content(content) => {
+                        LeaderPattern::Content(content.clone())
+                    }
+                },
+                width: leader
+                    .width
+                    .map(length)
+                    .filter(|width| width.is_finite())
+                    .unwrap_or_default()
+                    .max(0.0),
+            }),
         })
         .filter(|stop| stop.at.is_finite() && stop.at >= 0.0)
         .collect();
@@ -334,16 +386,35 @@ pub fn tab_stops(
         .map(length)
         .filter(|interval| interval.is_finite() && *interval > 0.0)
     {
-        let last = stops.last().map_or(0.0, |stop| stop.at);
-        let mut at = ((last / interval).floor() + 1.0) * interval;
-        let mut added = 0;
-        while at <= room && added < MOST_DEFAULT_STOPS {
-            stops.push(TabStop {
-                side: side(RichTabAlign::After),
-                at,
-            });
-            at += interval;
-            added = added.saturating_add(1);
+        let default = |at| TabStop {
+            side: side(RichTabAlign::After),
+            at,
+            leader: None,
+        };
+        if right_to_left {
+            // Leftward from the leftmost stated stop, or from the far edge where none is stated;
+            // a default stop is never at the margin itself, which no tab can reach leftward.
+            let first = stops.first().map_or(room, |stop| stop.at);
+            let below: Vec<TabStop> = (1..=MOST_DEFAULT_STOPS)
+                .map_while(|step| {
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "a count held at MOST_DEFAULT_STOPS is exactly representable"
+                    )]
+                    let at = step as f32 * interval;
+                    (at < first - f32::EPSILON).then(|| default(at))
+                })
+                .collect();
+            stops.splice(0..0, below);
+        } else {
+            let last = stops.last().map_or(0.0, |stop| stop.at);
+            let mut at = ((last / interval).floor() + 1.0) * interval;
+            let mut added = 0;
+            while at <= room && added < MOST_DEFAULT_STOPS {
+                stops.push(default(at));
+                at += interval;
+                added = added.saturating_add(1);
+            }
         }
     }
     stops
@@ -366,25 +437,31 @@ pub fn tabbed(paragraph: &pdf_model::popup::RichParagraph) -> bool {
     paragraph.runs.iter().any(|run| run.text.contains('\t'))
 }
 
-/// What a popup window says it did not draw of a paragraph's tabs, in every window alike: a tab in
-/// a paragraph read right to left, whose stops chapter 2's *Tab Stops* has the text reach leftward
-/// (page 61), which none of the three windows lays out (ADR 1666).
+/// The sentence for a note one of whose tabs reaches a stop with a leader, said by a window that
+/// draws no leader: the two toolkit windows ([`toolkit_unapplied`]), and the C ABI, which hands a
+/// stop's position and alignment and not its fill (ADR 1679).
 #[must_use]
-pub fn tabs_unapplied(note: &pdf_model::popup::RichNote) -> Vec<String> {
-    if note
-        .paragraphs
+pub fn leader_unapplied(note: &pdf_model::popup::RichNote) -> Option<String> {
+    note.paragraphs
         .iter()
-        .any(|paragraph| tabbed(paragraph) && advances(paragraph) && right_to_left(paragraph))
-    {
-        vec!["a tab in a right-to-left paragraph".to_owned()]
-    } else {
-        Vec::new()
-    }
+        .any(|paragraph| {
+            tabbed(paragraph) && paragraph.tab_stops.iter().any(|stop| stop.leader.is_some())
+        })
+        .then(|| "a tab leader in a popup window".to_owned())
 }
 
 /// What a window that sets a note through a toolkit says it did not draw, beside
-/// `pdf_model::popup::RichNote::unapplied` and [`tabs_unapplied`] (ADRs 1654, 1666).
+/// `pdf_model::popup::RichNote::unapplied` (ADRs 1654, 1666, 1679). `quorra` lays its lines out
+/// itself and draws all of these; neither toolkit can draw the first two.
 ///
+/// - **A tab in a right-to-left paragraph**, whose stops chapter 2's *Tab Stops* has the text reach
+///   leftward (page 61) at positions from the left margin. Pango measures a stop from a
+///   right-to-left line's start edge, the right (measured: a stop at 100 in a layout 400 wide put
+///   the text after the tab at 300), so a stop from the left margin would have to be handed as
+///   its distance from a right edge the label is not given until it is allocated. How Qt places
+///   a stop in a right-to-left block has not been measured, so the case is said there too.
+/// - **A tab leader**: neither Pango's tab array nor Qt's `QTextOption::Tab` has a fill, only a
+///   position, an alignment and (Qt) a delimiter.
 /// - **A font scale**, where `scales` is false: Pango's attributes state none per run (its
 ///   `font_stretch` chooses a face's width, it does not scale one), so `quorra-gtk` passes false;
 ///   Qt's `QTextCharFormat::setFontStretch` scales, and `quorra-qt` sets it.
@@ -393,8 +470,6 @@ pub fn tabs_unapplied(note: &pdf_model::popup::RichNote) -> Vec<String> {
 ///   put one of their own — Pango repeats the last spacing, Qt its default distance. Whether a tab
 ///   reaches that far is decided by the toolkit's line, so the sentence names the case rather than
 ///   a count of it.
-///
-/// `quorra` lays its lines out itself and passes neither.
 #[must_use]
 pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote, scales: bool) -> Vec<String> {
     let runs = || {
@@ -402,7 +477,15 @@ pub fn toolkit_unapplied(note: &pdf_model::popup::RichNote, scales: bool) -> Vec
             .iter()
             .flat_map(|paragraph| paragraph.tag.iter().chain(&paragraph.runs))
     };
-    let mut said = tabs_unapplied(note);
+    let mut said = Vec::new();
+    if note
+        .paragraphs
+        .iter()
+        .any(|paragraph| tabbed(paragraph) && advances(paragraph) && right_to_left(paragraph))
+    {
+        said.push("a tab in a right-to-left paragraph".to_owned());
+    }
+    said.extend(leader_unapplied(note));
     if !scales && runs().any(scaled) {
         said.push("a font scale in a popup window".to_owned());
     }
@@ -776,6 +859,7 @@ mod tests {
             RichTabStop {
                 align: RichTabAlign::Decimal,
                 at: points(100.0),
+                leader: None,
             },
             RichTabStop {
                 align: RichTabAlign::Right,
@@ -783,6 +867,7 @@ mod tests {
                     per_base: 3.0,
                     points: 0.0,
                 },
+                leader: None,
             },
         ];
         paragraph.tab_interval = Some(points(72.0));
@@ -811,6 +896,67 @@ mod tests {
         assert_eq!(
             super::toolkit_unapplied(&unbounded, true),
             vec!["a tab past the last stated stop".to_owned()]
+        );
+    }
+
+    /// Chapter 2's *Tab Stops* has a tab in a paragraph read right to left reach leftward (page
+    /// 61), so the default stops lie left of the leftmost stated one, every `tab-interval` from
+    /// the margin and never at it, aligned at their start edge — the right in such a paragraph; a
+    /// stated stop keeps its leader and a default one is blank (ADR 1679).
+    #[test]
+    fn a_right_to_left_paragraphs_default_stops_lie_left_of_its_stated_ones() {
+        use pdf_model::popup::{Measure, RichLeader, RichLeaderPattern, RichTabAlign, RichTabStop};
+        let points = |points| Measure {
+            per_base: 0.0,
+            points,
+        };
+        let dots = RichLeader {
+            pattern: RichLeaderPattern::Dots,
+            width: Some(points(6.0)),
+        };
+        let paragraph = pdf_model::popup::RichParagraph {
+            align: None,
+            level: 0,
+            tag: None,
+            runs: vec![run("\u{5d0}\t\u{5d1}")],
+            tab_interval: Some(points(50.0)),
+            tab_stops: vec![RichTabStop {
+                align: RichTabAlign::Before,
+                at: points(180.0),
+                leader: Some(dots),
+            }],
+        };
+        let stops = super::tab_stops(&paragraph, 10.0, 1.0, 400.0);
+        let placed: Vec<(super::TabSide, f32, bool)> = stops
+            .iter()
+            .map(|stop| (stop.side, stop.at, stop.leader.is_some()))
+            .collect();
+        assert_eq!(
+            placed,
+            vec![
+                (super::TabSide::Right, 50.0, false),
+                (super::TabSide::Right, 100.0, false),
+                (super::TabSide::Right, 150.0, false),
+                (super::TabSide::Left, 180.0, true),
+            ]
+        );
+        assert_eq!(
+            stops.last().and_then(|stop| stop.leader.as_ref()),
+            Some(&super::Leader {
+                pattern: super::LeaderPattern::Dots,
+                width: 6.0,
+            })
+        );
+        let note = pdf_model::popup::RichNote {
+            paragraphs: vec![paragraph],
+            unapplied: Vec::new(),
+        };
+        assert_eq!(
+            super::toolkit_unapplied(&note, true),
+            vec![
+                "a tab in a right-to-left paragraph".to_owned(),
+                "a tab leader in a popup window".to_owned(),
+            ]
         );
     }
 

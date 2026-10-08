@@ -21,7 +21,7 @@
 //! threshold of this program's choosing: the file stated those points, and a person reading a
 //! position is owed how far the reading is from them.
 
-use pdf_model::geospatial::{AffineRegistration, GeographicPosition};
+use pdf_model::geospatial::{AffineRegistration, Displayed, GeographicPosition};
 use pdf_model::measurement::{Geospatial, Measure, Viewports};
 
 /// Where on the earth one point of a geospatial viewport is, or why no position is given.
@@ -34,8 +34,10 @@ pub enum Located {
         /// Degrees east of the system's prime meridian, negative west.
         longitude: f64,
         /// Table 269's `/DCS`, "used for the display of position values", where the file names
-        /// one: the position in that system, or the sentence saying why it cannot be reached.
-        display: Option<Result<(f64, f64), String>>,
+        /// one: the position in that system — a latitude and a longitude for a geographic one, an
+        /// easting and a northing in its own unit for a projected one (ADR 1678) — or the
+        /// sentence saying why it cannot be reached.
+        display: Option<Result<Displayed, String>>,
         /// The largest distance, in degrees of either axis, between a registration point the
         /// file states and where the affine map puts it; zero where `/PCSM` gave the position.
         departure: f64,
@@ -92,10 +94,12 @@ fn position(geospatial: &Geospatial, point: (f32, f32), local: [f64; 2]) -> Loca
             Err(refusal) => return Located::Refused(refusal.to_string()),
         },
     };
+    // `display` rather than `display_position`, which keeps its degrees-only contract: a
+    // projected `/DCS` is a system whose position values are an easting and a northing, and the
+    // table says that system "shall be used for the display" of them (ADRs 1672, 1678).
     let display = geospatial.display_system.as_ref().map(|_| {
         geospatial
-            .display_position(position)
-            .map(|shown| (shown.latitude, shown.longitude))
+            .display(position)
             .map_err(|refusal| refusal.to_string())
     });
     Located::At {

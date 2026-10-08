@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF09";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF10";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -4066,8 +4066,10 @@ fn encode_coordinate_system(
     }
 }
 
-/// §12.10's position of a measured path's last point, as `viewer_core` read it (ADR 1593).
+/// §12.10's position of a measured path's last point, as `viewer_core` read it (ADR 1593), with
+/// Table 269's `/DCS` reading in either of its shapes (ADR 1678).
 fn encode_located(writer: &mut Writer, located: Option<&viewer_core::Located>) {
+    use pdf_model::geospatial::Displayed;
     match located {
         None => {
             writer.u8(0);
@@ -4083,11 +4085,18 @@ fn encode_located(writer: &mut Writer, located: Option<&viewer_core::Located>) {
                 None => {
                     writer.u8(0);
                 }
-                Some(Ok((latitude, longitude))) => {
-                    writer.u8(1).f64(*latitude).f64(*longitude);
+                Some(Ok(Displayed::Geographic(shown))) => {
+                    writer.u8(1).f64(shown.latitude).f64(shown.longitude);
                 }
                 Some(Err(why)) => {
                     writer.u8(2).str(why);
+                }
+                Some(Ok(Displayed::Projected {
+                    easting,
+                    northing,
+                    unit,
+                })) => {
+                    writer.u8(3).f64(*easting).f64(*northing).str(unit);
                 }
             }
             writer.f64(*departure);
@@ -4100,6 +4109,7 @@ fn encode_located(writer: &mut Writer, located: Option<&viewer_core::Located>) {
 
 /// [`encode_located`]'s inverse.
 fn decode_located(reader: &mut Reader<'_>) -> Result<Option<viewer_core::Located>, ProtocolError> {
+    use pdf_model::geospatial::{Displayed, GeographicPosition};
     Ok(match reader.u8("whether a measured point is located")? {
         0 => None,
         1 => {
@@ -4107,11 +4117,16 @@ fn decode_located(reader: &mut Reader<'_>) -> Result<Option<viewer_core::Located
             let longitude = reader.f64("a longitude")?;
             let display = match reader.u8("whether a position has a display system")? {
                 0 => None,
-                1 => Some(Ok((
-                    reader.f64("a displayed latitude")?,
-                    reader.f64("a displayed longitude")?,
-                ))),
+                1 => Some(Ok(Displayed::Geographic(GeographicPosition {
+                    latitude: reader.f64("a displayed latitude")?,
+                    longitude: reader.f64("a displayed longitude")?,
+                }))),
                 2 => Some(Err(reader.string("why a display position is refused")?)),
+                3 => Some(Ok(Displayed::Projected {
+                    easting: reader.f64("a displayed easting")?,
+                    northing: reader.f64("a displayed northing")?,
+                    unit: reader.string("a display system's linear unit")?,
+                })),
                 other => {
                     return Err(ProtocolError::Unrecognised {
                         what: "whether a position has a display system",
@@ -5870,15 +5885,63 @@ mod tests {
                             per_base: 0.0,
                             points: 36.0,
                         }),
-                        tab_stops: vec![pdf_model::popup::RichTabStop {
-                            align: pdf_model::popup::RichTabAlign::Decimal,
-                            at: pdf_model::popup::Measure {
-                                per_base: 2.0,
-                                points: 1.5,
+                        // Each of a leader's three patterns crosses with its stop (ADR 1679).
+                        tab_stops: vec![
+                            pdf_model::popup::RichTabStop {
+                                align: pdf_model::popup::RichTabAlign::Decimal,
+                                at: pdf_model::popup::Measure {
+                                    per_base: 2.0,
+                                    points: 1.5,
+                                },
+                                leader: None,
                             },
-                        }],
+                            pdf_model::popup::RichTabStop {
+                                align: pdf_model::popup::RichTabAlign::Right,
+                                at: pdf_model::popup::Measure {
+                                    per_base: 0.0,
+                                    points: 144.0,
+                                },
+                                leader: Some(pdf_model::popup::RichLeader {
+                                    pattern: pdf_model::popup::RichLeaderPattern::Dots,
+                                    width: None,
+                                }),
+                            },
+                            pdf_model::popup::RichTabStop {
+                                align: pdf_model::popup::RichTabAlign::After,
+                                at: pdf_model::popup::Measure {
+                                    per_base: 0.0,
+                                    points: 216.0,
+                                },
+                                leader: Some(pdf_model::popup::RichLeader {
+                                    pattern: pdf_model::popup::RichLeaderPattern::Rule {
+                                        style: pdf_model::popup::RichRuleStyle::Dashed,
+                                        thickness: Some(pdf_model::popup::Measure {
+                                            per_base: 0.0,
+                                            points: 0.5,
+                                        }),
+                                    },
+                                    width: None,
+                                }),
+                            },
+                            pdf_model::popup::RichTabStop {
+                                align: pdf_model::popup::RichTabAlign::Left,
+                                at: pdf_model::popup::Measure {
+                                    per_base: 0.0,
+                                    points: 288.0,
+                                },
+                                leader: Some(pdf_model::popup::RichLeader {
+                                    pattern: pdf_model::popup::RichLeaderPattern::Content(
+                                        "-~".to_owned(),
+                                    ),
+                                    width: Some(pdf_model::popup::Measure {
+                                        per_base: 1.0,
+                                        points: 0.0,
+                                    }),
+                                }),
+                            },
+                        ],
                     }],
-                    unapplied: vec!["a tab leader in a popup window".to_owned()],
+                    unapplied: vec!["a font scale in a popup window".to_owned()],
                 }),
                 // §12.5.6.2's thread, which Table 172 makes part of what this window shows.
                 replies: vec![
@@ -6485,6 +6548,50 @@ mod tests {
     fn round_trip(answer: &Answer<'_>) -> Reply {
         let encoded = encode_answer(answer, &Marks::default()).expect("this answer crosses");
         decode_answer(&encoded).expect("what was written reads back")
+    }
+
+    /// §12.10's position crosses in each of Table 269's `/DCS` shapes — none named, degrees, an
+    /// easting and a northing in the system's own unit, and the refusal's sentence — and a
+    /// point that is refused crosses as its sentence (ADRs 1593, 1678).
+    #[test]
+    fn a_located_point_crosses_in_every_display_shape() {
+        use pdf_model::geospatial::{Displayed, GeographicPosition};
+        let at = |display| viewer_core::Located::At {
+            latitude: 47.5,
+            longitude: 9.0,
+            display,
+            departure: 0.000_25,
+        };
+        for located in [
+            None,
+            Some(at(None)),
+            Some(at(Some(Ok(Displayed::Geographic(GeographicPosition {
+                latitude: 47.5,
+                longitude: -0.5,
+            }))))),
+            Some(at(Some(Ok(Displayed::Projected {
+                easting: 500_000.0,
+                northing: 5_260_729.733,
+                unit: "Meter".to_owned(),
+            })))),
+            Some(at(Some(Err("the datums differ".to_owned())))),
+            Some(viewer_core::Located::Refused(
+                "the points are shaped as degrees".to_owned(),
+            )),
+        ] {
+            let traced = pdf_model::measurement::Traced::default();
+            let reply = round_trip(&Answer::Measured {
+                traced: traced.clone(),
+                located: located.clone(),
+            });
+            assert_eq!(
+                reply,
+                Reply::Measured {
+                    traced: Box::new(traced),
+                    located,
+                }
+            );
+        }
     }
 
     /// One frame carrying ADR 0607's list arm, written the way [`encode_answer`] writes it.

@@ -187,7 +187,8 @@ fn turn_probe() {
          turn_readback={:.3} warm_ms={:.3} seventh_ms={:.3} seventh_encode={:.3} \
          seventh_elsewhere={:.3} step_ms={:.3} step_encode={:.3} \
          step_transfer={:.3} step_bytes={} step_uploads={} commands={commands} \
-         preceded={} calibration_ms={calibration:.3}",
+         preceded={} calibration_ms={calibration:.3} turn_threads={} seventh_threads={} \
+         step_threads={}",
         turn.budget(),
         turn.interpret,
         turn.encode,
@@ -203,6 +204,9 @@ fn turn_probe() {
         step.bytes,
         step.uploads,
         u8::from(preceded),
+        turn.threads,
+        seventh.threads,
+        step.threads,
     );
 }
 

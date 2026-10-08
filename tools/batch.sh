@@ -179,6 +179,9 @@ export_arms() {
     # log as every other walk's are (ADR 1646), and what runs under it is this script's `arms-held`.
     # The lock first and the directory after it, so that a second export of the same directory
     # queues behind the first and then finds it complete rather than writing beside it.
+    # A large walk, on the lock's first lane: its two builds run inside the hold and a cold build
+    # is not held to a small walk's 6 GiB, and a killed export costs the batch its pixels baseline.
+    # A round's small walks run beside it on the second lane (ADR 1684).
     "$wt/tools/bounded.sh" --lock --round arms --tree 12 -- \
         "$wt/tools/batch.sh" arms-held "$out" "$commit" "$(date +%s)"
 }
@@ -272,11 +275,19 @@ arms_at_open() {
 # granted (`bounded: … after <n>s`, printed after a nested wrapper's own), so `wall` is that and
 # `wait` the rest of the time since the lock was asked for. A line with no such sentence is a
 # wrapper that never started the command, and its time is all `wall`.
+#
+# A gate in `clock_gates` is a clock run (`--clock`): its verdict is a time — a band, a floor, or a
+# reference program held to a budget, which a loaded machine fails without a defect in either
+# (`doc/todo/02` section 2, "Run the sequence on a quiet machine") — so it takes both of the lock's
+# lanes and runs alone. Every other gate is a large walk, under the 12 GiB ceiling the gates were
+# always run under, on the first lane (ADR 1684).
+clock_gates="t2-transform-gate t2-turn_path t3-oracle t3-text_extract t3-render_raster t3-foreign_corpus"
 run() {
-    local name=$1; shift; local out rc asked ended wall
+    local name=$1; shift; local out rc asked ended wall clock=
+    [[ " $clock_gates " == *" $name "* ]] && clock=1
     asked=$(date +%s)
-    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" "$wt/tools/bounded.sh" --lock --round "$merge_round" \
-        --nice 0 -- "$@" 2>&1) && rc=0 || rc=$?
+    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" "$wt/tools/bounded.sh" --lock ${clock:+--clock} --tree 12 \
+        --round "$merge_round" --nice 0 -- "$@" 2>&1) && rc=0 || rc=$?
     ended=$(date +%s)
     wall=$(printf '%s\n' "$out" | sed -n 's/^bounded: .* after \([0-9][0-9]*\)s.*/\1/p' | tail -1)
     [ -n "$wall" ] || wall=$((ended - asked))

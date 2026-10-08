@@ -38,6 +38,7 @@ mod glyph_names;
 mod loading;
 mod metrics;
 pub mod name_keyed;
+pub mod pairs;
 pub mod panose;
 mod post;
 pub mod predefined;

@@ -190,7 +190,7 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-**One build, the rows below it: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649, 1660, 1661). A rich text
+**One build, the rows below it: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649, 1660, 1661, 1682). A rich text
 string is laid out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the
 CSS2 and XFA properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face,
 size, width, colour, alignment and spacing, list tags and tab stops included, in comb cells and in
@@ -199,8 +199,9 @@ regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import
 `/RV` and XFDF's `<value-richtext>`, which a save writes (ADR 1661). XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
 (`doc/third-party-data.md`), cited by section, never quoted. What is left, row by row:
 
-- §12.7.4.3 — `kerning-mode:pair`, reported as `Owed::RichTextUnapplied`, which needs pair data
-  no file of this tree holds (`doc/questions/Q308`). Leaders, right-to-left tabs, every list type,
+- §12.7.4.3 — `kerning-mode:pair` in §9.6.2.2's fourteen, reported as `Owed::RichTextUnapplied`,
+  which needs pair data no file of this tree holds (`doc/questions/Q308`); a face the document
+  embeds is kerned by its own `GPOS` or `kern` pairs (ADR 1682). Leaders, right-to-left tabs, every list type,
   the nearest width and a machine face per character are built, and following a link and resolving
   `xfa:embed` are choices the clause's delegation of formatting leaves (ADR 1660).
 - §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.

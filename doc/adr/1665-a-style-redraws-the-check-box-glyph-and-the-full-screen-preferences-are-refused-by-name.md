@@ -1,6 +1,7 @@
 # 1665 — A style redraws the check box glyph, and the full-screen preferences are refused by name
 
-Status: accepted and **built**. Session 1414. Builds on ADR 1652 section 3 (the `style` and `cursor`
+Status: accepted and **built**; section 3 superseded by ADR 1676, its found gap closed by ADR
+1677. Session 1414. Builds on ADR 1652 section 3 (the `style` and `cursor`
 constants), ADR 1617 (a script's properties drawn as the entries the standard draws a widget from)
 and ADR 1591's refusal rule.
 Code: `crates/pdf-model/src/view/script_model.rs` (`Glyph`, `Property::Style`),

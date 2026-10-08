@@ -187,7 +187,7 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
         REFRESH_MS * 2.0
     );
     println!(
-        "{:<26}{:>9}{:>9}{:>8}{:>9}{:>8}{:>10}{:>9}{:>9}{:>12}",
+        "{:<26}{:>9}{:>9}{:>8}{:>9}{:>8}{:>10}{:>9}{:>9}{:>12}{:>9}",
         "page / row",
         "budget",
         "interp",
@@ -197,7 +197,8 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
         "elsewhere",
         "execute",
         "readback",
-        "bytes"
+        "bytes",
+        "threads"
     );
     for row in table {
         let stem = std::path::Path::new(&row.path).file_name().map_or_else(
@@ -220,7 +221,7 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
                 continue;
             };
             println!(
-                "  {:<24}{:>9.2}{:>9.2}{:>8.2}{:>9.2}{:>8.2}{:>10.2}{:>9.2}{:>9.2}{:>12}",
+                "  {:<24}{:>9.2}{:>9.2}{:>8.2}{:>9.2}{:>8.2}{:>10.2}{:>9.2}{:>9.2}{:>12}{:>9}",
                 name,
                 stage.budget(),
                 stage.interpret,
@@ -230,7 +231,8 @@ fn report(table: &[Row], adapter: &str, window: (u32, u32), rounds: usize, befor
                 stage.elsewhere,
                 stage.execute,
                 stage.readback,
-                stage.bytes
+                stage.bytes,
+                stage.threads
             );
             println!(
                 "  {:<24}{:>8.0}%{:>8.0}%{:>7.0}%{:>8.0}%{:>7.0}%{:>9.0}%{:>8.0}%{:>9}{:>12}",

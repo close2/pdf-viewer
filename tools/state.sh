@@ -847,6 +847,9 @@ section_gates_cost() {
 # whose branch is not `batch-<first>-<last>` is counted for the batch whose sessions hold its round,
 # and is marked so where it is printed; one whose round no batch on the log holds is counted for
 # none and said once. The last batch is the last branch of that shape on the log (ADR 1675).
+#
+# A line names the lane it held, `1`, `2` or `1+2` for a clock run's both; a line written before the
+# lock had two lanes names none and held the only one, the first (ADR 1684).
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
@@ -876,8 +879,9 @@ lock_cost() {
             hold = $5; sub(/^hold=/, "", hold); sub(/s$/, "", hold)
             code = $6; sub(/^exit=/, "", code)
             cmd = $0; sub(/.* cmd=/, "", cmd)
+            lane = "1"; if (match($0, / lane=[^ ]+/)) lane = substr($0, RSTART + 6, RLENGTH - 6)
             mark = (by_round == "") ? "" : "[" $2 ", by its round] "
-            printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s %s%s\n", $1, round, wait, hold, code, mark, substr(cmd, 1, 90 - length(mark))
+            printf "  %s  round %-5s wait %8.1fs  hold %8.1fs  exit %-3s lane %-3s %s%s\n", $1, round, wait, hold, code, lane, mark, substr(cmd, 1, 82 - length(mark))
             if (!(round in runs)) order[++rounds] = round
             runs[round]++; waited[round] += wait; held[round] += hold
             if (by_round != "") { relabelled++; relabelled_wait += wait }

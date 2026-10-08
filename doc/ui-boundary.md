@@ -98,8 +98,9 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF09`
-since a rich paragraph's tab stops cross with it (ADR 1666). Where the
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF10`
+since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679) and a located
+point's `/DCS` reading in either of Table 269's shapes (ADR 1678). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).
@@ -330,7 +331,9 @@ is because none of this is an event, and the C ABI gained one entry point and se
 sentence over one path would be six chances to be handed a string from a different reading of it.
 `QUORRA_ABI_VERSION` did not move, for the standing reason. **Every window gained the gesture**:
 `m` puts it into the mode, a press puts a point down, and the answer goes where that window already
-puts a sentence. ADR 1191.
+puts a sentence. ADR 1191. `Located::At`'s `display` is `pdf_model::geospatial::Displayed`, so a
+projected `/DCS` reaches every window as an easting and a northing rather than as a refusal; the
+variant changed shape and no message was added (ADR 1678).
 
 **And the one-thousand-one-hundred-and-ninety-fifth added one `Command`, one `Purpose` value and
 one entry point**, on the pattern `Command::Trust` set. `Command::Separations(bool)` carries

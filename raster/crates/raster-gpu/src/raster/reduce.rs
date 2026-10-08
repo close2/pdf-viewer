@@ -220,8 +220,10 @@ pub(crate) fn area_averaged_cells(
                 }
             }
         };
+        let helpers = threads.min(bands.len()).saturating_sub(1);
+        crate::threads::count(helpers);
         std::thread::scope(|scope| {
-            for _ in 1..threads.min(bands.len()) {
+            for _ in 0..helpers {
                 scope.spawn(work);
             }
             work();

@@ -9,9 +9,11 @@ can and cannot open a window on, and where the build lands.
 Every rule below is an incident with an argument, and the argument is in the section the rule
 names; a round reads this block, and opens the section only where a line bites (ADR 1639).
 
-- **One heavy walk on the machine at a time**, in the foreground, and you wait in it:
-  `ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 -- <command>`,
-  the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
+- **One heavy walk on the machine at a time**, or two on the lock's two lanes, in the foreground, and
+  you wait in it: `ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 -- <command>`;
+  a walk that stays under 6 GiB says `--tree 6` and may run beside another, and a run whose verdict is
+  a time — a band, a floor, an A/B, a reference program on a budget — says `--clock` and runs alone,
+  declared by the outermost wrapper (ADR 1684); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
   `flock`, which is on no line (ADR 1646) and hands its descriptor to whatever daemon the walk
   starts, where the wrapper keeps it and hands the command `HEAVY_WALK_HELD_BY` (ADR 1674); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside
   the lock (trap 109); never a tool that forks per package or per input without the bound (trap 116).

@@ -253,6 +253,8 @@ pub(super) fn sample_ramps(ramps: &[&[Stop]], threads: usize) -> Vec<Vec<u8>> {
         return ramps.iter().map(|stops| sample_ramp(stops)).collect();
     }
     let share = ramps.len().div_ceil(threads);
+    // Every chunk is a thread of its own here, the calling thread only collecting.
+    crate::threads::count(ramps.len().div_ceil(share));
     std::thread::scope(|scope| {
         let made: Vec<_> = ramps
             .chunks(share)

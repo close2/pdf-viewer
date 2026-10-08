@@ -131,13 +131,13 @@ impl Cadence {
     /// Asks the platform again what this window's surface refreshes at, and says whether the
     /// answer moved.
     ///
-    /// **This exists because of Wayland, and the defect it repairs was invisible on X11.** winit's
+    /// **This exists because of Wayland; on X11 the first answer is the answer.** winit's
     /// `winit::window::Window::current_monitor` on that backend is the first output in the surface's own
     /// `wl_surface::enter` list, and *a Wayland surface enters no output until it has been drawn
-    /// to* — winit's own platform note says windows do not appear until you present to them. The
-    /// cadence was read once, in `resumed`, which is strictly before the first present: so on
-    /// every Wayland session `current_monitor` answered `None`, [`FLOOR`] stood in, and **120 Hz
-    /// could not be reached even in principle**. The project owner's trace says
+    /// to* — winit's own platform note says windows do not appear until you present to them. A
+    /// cadence read once, in `resumed`, is read strictly before the first present: on every
+    /// Wayland session `current_monitor` answers `None` there, [`FLOOR`] stands in, and **120 Hz
+    /// cannot be reached even in principle** — the project owner's trace says
     /// `the surface states no refresh rate` on a machine with a real display. ADR 0384.
     ///
     /// Two routes, in the order that answers best:

@@ -25,8 +25,8 @@ sentence is deleted rather than annotated (ADRs 0232, 0281, 0428, 0974, 0983, 10
 `tools/round.sh` prints it, and `tools/round.sh --lines` counts it: `CLAUDE.md`;
 [`doc/todo/02`](todo/02-every-round.md) **section 0** (the round on one page — contract, tier 1,
 the record); the rule block that opens [`doc/environment.md`](environment.md) (one line per
-shared-machine rule); [`doc/traps/every-round.md`](traps/every-round.md) (the ten traps that carry
-four-fifths of the citations); [`doc/habits/every-round.md`](habits/every-round.md) (the ten
+shared-machine rule); [`doc/traps/every-round.md`](traps/every-round.md) (the ten traps the records cite
+most, as `tools/state.sh traps` counts them); [`doc/habits/every-round.md`](habits/every-round.md) (the ten
 habits the records show rounds paying for). Then `tools/round.sh <kind>` for the kind of round you
 are, and what your contract names. The brief is written from
 [`doc/todo/_brief-template.md`](todo/_brief-template.md) and repeats none of this.
@@ -38,7 +38,7 @@ are, and what your contract names. The brief is written from
 | asks what the program already does | [`doc/state-of-play.md`](state-of-play.md) — the capability list, and which clause each came from |
 | asks what is left, and why it is not done | [`doc/todo/65`](todo/65-the-remaining-frontier.md) — the `partial`/`reported` rows grouped by their blocker; a status change edits its map in the same pass (it is a gate) |
 | wants a number | `tools/state.sh` — `quick` in seconds, a section in minutes; never a document. What a merge's gates cost is `gates-cost`, a batch's clock `batches` (ADR 1476) |
-| needs the shape of the batch loop, or runs a merge | [`doc/todo/02`](todo/02-every-round.md) section 8 and [`tools/batch.sh`](../tools/batch.sh) — `open`, `gates`, `check`, `commit`, `install`, `close` (ADRs 1313, 1511, 1526); `check` before reporting |
+| needs the shape of the batch loop, or runs a merge | [`doc/todo/02`](todo/02-every-round.md) section 8 and [`tools/batch.sh`](../tools/batch.sh), whose header lists its verbs in the order a merge runs them (ADRs 1313, 1511, 1526); `check` before reporting |
 | reads a clause, or writes a ledger row | [`doc/habits/reading-the-specification.md`](habits/reading-the-specification.md), [`the-ledger-and-claims-about-this-tree.md`](habits/the-ledger-and-claims-about-this-tree.md), [`doc/todo/01`](todo/01-ledger-partial-rows.md); [`doc/ledger-and-claims.md`](ledger-and-claims.md) and [`doc/errata-read.md`](errata-read.md) on demand. An `inapplicable` row rests on a condition the clause itself states ([`doc/PLAN.md`](PLAN.md) section 5a, ADR 1461); `departed` is one decided `shall` inside an otherwise-executed clause, priced by its ADR — a declined `should` or a permission not taken is `implemented` with the choice named (ADRs 1119, 1622) |
 | opens an encrypted corpus document, or writes a gate that walks the corpus | `crates/pdf-model/tests/support/corpus_passwords.rs`, the one table of published passwords every corpus gate reads through a `#[path]` (ADR 1377) |
 | judges a page against other renderers — a robustness round | `tools/state.sh oracle-held` first (ADR 1512), then the oracle's own ranking in `crates/pdf-model/tests/oracle.rs`'s `WHOSE_DEPARTURE` (ADRs 1483, 1572), then [`doc/habits/judging-against-other-implementations.md`](habits/judging-against-other-implementations.md), [`doc/oracle-and-corpus.md`](oracle-and-corpus.md), [`doc/todo/00`](todo/00-ambiguous-bucket.md) |

@@ -20,7 +20,7 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's eight cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's nine cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
@@ -30,7 +30,10 @@
 //! finishes rather than queueing behind it (ADR 1646) — and the lock kept by the wrapper rather
 //! than handed to its command: a daemon the command leaves running does not keep it, `--held`
 //! reads the marker inside a hold and not outside it, and a `--lock` run nested in a hold runs
-//! under it (ADR 1674). This test runs the script and repeats what it said.
+//! under it (ADR 1674) — and the lock's two lanes: a small walk granted the second lane beside a
+//! large one, a clock run planted behind two lane holders that waits for both while a walk asked
+//! after it is granted nothing until it ends, and a `--clock` outside a lock or inside a hold of one
+//! lane refused (ADR 1684). This test runs the script and repeats what it said.
 //!
 //! **No memory bound sees a process count**, and trap 116 is the incident: a tool that forked a
 //! task per package and never waited took the agent's scope to 52 259 tasks, and the OOM daemon
@@ -44,6 +47,11 @@
 //! on no line, which is how the merge's gates and the arms export each held it for half an hour
 //! unrecorded (ADR 1662). The third test holds every script under `tools/` but the wrapper, and the
 //! rule line `doc/environment.md` gives the rounds, to taking it through `--lock`.
+//!
+//! **A lane is granted on what a run declared**, never on what it turns out to peak at, so every
+//! `--lock` a person or a script is told to run says its kind: `--tree` (6 GiB or less a small walk,
+//! more a large one) or `--clock` (ADR 1684). The last two tests hold every tracked instruction to
+//! that, and the merge's list of clock gates to the gates the merge runs.
 
 #![expect(
     clippy::expect_used,
@@ -413,5 +421,220 @@ fn every_instruction_a_person_reads_spells_the_lock_as_the_wrapper() {
     assert!(
         fixed.is_empty(),
         "these files no longer spell a bare `flock`, so they leave the held list: {fixed:?}"
+    );
+}
+
+/// The `--lock` invocations in `source` that declare no kind — neither `--tree` nor `--clock` — as
+/// `(line number, invocation)`. A command continued with `\` is read as one line, and the line it
+/// starts on is the one named. Only the wrapper's path followed by the flag is an invocation, so
+/// prose that names the flag on its own is not one.
+fn undeclared_locks(source: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut at = 0;
+    while let Some(first) = lines.get(at) {
+        let start = at;
+        let mut joined = (*first).to_owned();
+        while joined.trim_end().ends_with('\\') {
+            at = at.saturating_add(1);
+            let Some(next) = lines.get(at) else { break };
+            joined.push(' ');
+            joined.push_str(next);
+        }
+        at = at.saturating_add(1);
+        let words: Vec<&str> = joined.split_whitespace().collect();
+        let invokes = words.windows(2).any(|pair| {
+            pair.first().is_some_and(|word| {
+                word.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '(' | '$'))
+                    .ends_with("bounded.sh")
+            }) && pair.get(1).is_some_and(|word| *word == "--lock")
+        });
+        if invokes && !(joined.contains("--tree ") || joined.contains("--clock")) {
+            found.push((start.saturating_add(1), joined.trim().to_owned()));
+        }
+    }
+    found
+}
+
+/// The files that still tell a person to run `--lock` with no kind, each another round's to
+/// declare: a ratchet, so a file leaves this list the day it says `--tree` or `--clock`.
+const HELD_UNDECLARED_LOCKS: [&str; 1] = ["crates/pdf-model/examples/substitution_census.rs"];
+
+/// Every `--lock` a tool runs or a document tells a person to run declares its kind, so the lane it
+/// is granted is a decision written down rather than the wrapper's default (ADR 1684). The
+/// population is every tracked text file but the records and this file, as the bare-`flock` test's
+/// is. Calibrated by planting (trap 13): the reader names an undeclared invocation in a code span,
+/// behind a quoted path, and across a continuation, and passes `--tree 6`, `--clock` on the
+/// continued line, and prose that names the flag.
+#[test]
+fn every_lock_a_caller_takes_declares_its_kind() {
+    let planted = "run it as `tools/bounded.sh --lock --round <session> -- walk`.\n\
+                   \"$wt/tools/bounded.sh\" --lock --round arms -- \\\n\
+                   \x20   tools/batch.sh arms-held\n\
+                   tools/bounded.sh --lock --round 1 --tree 6 -- walk\n\
+                   tools/bounded.sh --lock --round 1 \\\n\
+                   \x20   --clock -- gate\n\
+                   the wrapper's `--lock` takes the lock\n";
+    let found: Vec<usize> = undeclared_locks(planted)
+        .iter()
+        .map(|(line, _)| *line)
+        .collect();
+    assert_eq!(found, [1, 2], "the reader is not the shape it states");
+
+    let listed = Command::new("git")
+        .arg("-C")
+        .arg(repository_root())
+        .args(["ls-files", "-z"])
+        .output()
+        .expect("git lists the tree");
+    assert!(listed.status.success(), "git ls-files failed");
+    let records = ["doc/adr/", "doc/history/", "doc/reviews/"];
+    let text = ["rs", "md", "sh", "py", "toml", "txt", "yml", "yaml"];
+    let mut read = 0_usize;
+    let mut invoking = 0_usize;
+    let mut owed = Vec::new();
+    let mut undeclared: Vec<String> = Vec::new();
+    for path in String::from_utf8_lossy(&listed.stdout).split('\0') {
+        let is_text = Path::new(path)
+            .extension()
+            .is_some_and(|extension| text.iter().any(|kind| extension == *kind));
+        if !is_text
+            || records.iter().any(|record| path.starts_with(record))
+            || path == "tools/conformance/tests/bounded.rs"
+            || path == "tools/bounded.sh"
+        {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(repository_root().join(path)) else {
+            continue;
+        };
+        read = read.saturating_add(1);
+        if source.contains("bounded.sh\" --lock") || source.contains("bounded.sh --lock") {
+            invoking = invoking.saturating_add(1);
+        }
+        let lines: Vec<usize> = undeclared_locks(&source)
+            .iter()
+            .map(|(line, _)| *line)
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        undeclared.push(path.to_owned());
+        if !HELD_UNDECLARED_LOCKS.contains(&path) {
+            owed.push(format!("{path}:{lines:?}"));
+        }
+    }
+    println!(
+        "{read} tracked text file(s) read, {invoking} of them run or name `--lock`; {} held, {} owed",
+        undeclared.len().saturating_sub(owed.len()),
+        owed.len()
+    );
+    assert!(
+        read >= 1000 && invoking >= 5,
+        "{read} file(s) read, {invoking} naming `--lock`: the population is not the tree"
+    );
+    assert!(
+        owed.is_empty(),
+        "these `--lock` runs declare no kind; give each `--tree <GiB>` (6 or less for a small walk) or \
+         `--clock` (ADR 1684):\n{}",
+        owed.join("\n")
+    );
+    let fixed: Vec<&str> = HELD_UNDECLARED_LOCKS
+        .iter()
+        .copied()
+        .filter(|held| !undeclared.iter().any(|path| path == held))
+        .collect();
+    assert!(
+        fixed.is_empty(),
+        "these files now declare every `--lock`'s kind, so they leave the held list: {fixed:?}"
+    );
+}
+
+/// The names `tools/batch.sh`'s `gates()` runs, with its `for t in …` loops expanded, whether the
+/// loop's `run` is on the `for` line or the next.
+fn merge_gate_names(source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut inside = false;
+    let mut looped: Vec<String> = Vec::new();
+    for line in source.lines() {
+        if line.starts_with("gates() {") {
+            inside = true;
+            continue;
+        }
+        if inside && line.starts_with('}') {
+            break;
+        }
+        if !inside {
+            continue;
+        }
+        let mut call = line.trim_start();
+        if let Some(rest) = call.strip_prefix("for t in ")
+            && let Some((list, after)) = rest.split_once(';')
+        {
+            looped = list.split_whitespace().map(str::to_owned).collect();
+            call = after
+                .trim_start()
+                .strip_prefix("do")
+                .unwrap_or(after)
+                .trim_start();
+        }
+        if let Some(name) = call
+            .strip_prefix("run ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .map(|name| name.trim_matches('"'))
+        {
+            if name.contains("$t") {
+                names.extend(looped.iter().map(|each| name.replace("$t", each)));
+            } else {
+                names.push(name.to_owned());
+            }
+        }
+        if call.contains("done") {
+            looped.clear();
+        }
+    }
+    names
+}
+
+/// The merge's clock gates — the ones `tools/batch.sh` runs `--clock`, alone on both lanes — are
+/// gates the merge runs: a name in `clock_gates` that no gate carries would leave the gate it meant
+/// to name on one lane beside a walk, and say nothing (trap 25). And the list holds `t2-turn_path`,
+/// whose bands are clocks by construction (ADR 1513). Calibrated by planting (trap 13): the reader
+/// expands a loop and reads a quoted name.
+#[test]
+fn every_clock_gate_the_merge_names_is_a_gate_it_runs() {
+    let planted = "gates() {\n    run build cargo build\n    for t in a b; do\n        \
+                   run \"t3-$t\" cargo test; done\n    for t in c d; do run \"t2-$t\" cargo test; done\n\
+                   \x20   run last cargo test\n}\nrun outside\n";
+    assert_eq!(
+        merge_gate_names(planted),
+        ["build", "t3-a", "t3-b", "t2-c", "t2-d", "last"],
+        "the reader is not the shape it states"
+    );
+    let source = std::fs::read_to_string(repository_root().join("tools/batch.sh"))
+        .expect("tools/batch.sh is in the tree");
+    let names = merge_gate_names(&source);
+    assert!(
+        names.len() > 20,
+        "{} gate name(s) read from tools/batch.sh: the population is not the merge's",
+        names.len()
+    );
+    let clocks: Vec<&str> = source
+        .lines()
+        .find_map(|line| line.strip_prefix("clock_gates=\""))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .map(|list| list.split_whitespace().collect())
+        .unwrap_or_default();
+    assert!(
+        clocks.contains(&"t2-turn_path"),
+        "tools/batch.sh's clock_gates does not hold t2-turn_path: {clocks:?}"
+    );
+    let strangers: Vec<&&str> = clocks
+        .iter()
+        .filter(|clock| !names.iter().any(|name| name == *clock))
+        .collect();
+    assert!(
+        strangers.is_empty(),
+        "tools/batch.sh's clock_gates names gates the merge does not run: {strangers:?}"
     );
 }

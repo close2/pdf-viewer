@@ -1211,12 +1211,16 @@ them, so a document whose scripts throw on every field fills the report with its
 7. **A Tier 1 member not yet bridged**: `AFSpecial_FormatEx`, which neither library has (class
    3). `AFExactMatch`, the `style` constants and the `cursor` constants are carried, each rule a
    documented choice (ADR 1652). `Field.style` is a check box's or radio button's glyph, Table
-   192's `/CA` holding Table D.6's code, drawn by constructing the widget and owed to the next
-   reader on a save (ADR 1665); `app.fs`, which the `cursor` constants are written to, is the
-   application's full-screen preferences and is refused by name (ADR 1665). The reference's
-   widget addressing — `getField("myRadio.0")` is one widget — is answered: a field's state is its
-   own members and one state per widget across the wire, a widget member set through one widget's
-   `Field` reaches that widget alone, and the value stays the field's (ADR 1664).
+   192's `/CA` holding Table D.6's code, drawn by constructing the widget (ADR 1665) and saved as
+   both of §12.7.5.2.3's states constructed, under the names the widget selects them by, so the
+   next reader needs no `/NeedAppearances` for it (ADR 1676); `app.fs`, which the `cursor`
+   constants are written to, is the application's full-screen preferences and is refused by name
+   (ADR 1665). The reference's widget addressing — `getField("myRadio.0")` is one widget — is
+   answered: a field's state is its own members and one state per widget across the wire, a
+   widget member set through one widget's `Field` reaches that widget alone, and the value stays
+   the field's (ADR 1664). `setFocus` through a widget after the first stays refused by name: the
+   request crosses to a host as a field's name (`ViewState::take_focus_request`), and the host
+   focuses that field's first widget, so answering it changes both sides of that boundary at once.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 

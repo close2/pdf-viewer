@@ -460,3 +460,11 @@ pages their widgets are on (ADR 1653), the launch path walked all 1 023 of EC3's
 high-water rose from 28 to 78 MiB. The launch gate's count caught it; no clock would have. A
 function on the per-command path takes its cheapest exit first, and a table that reads pages comes
 in the narrowest width the caller needs (`view::Omitted`'s four).
+
+## A writer that rewrites a shared holder reads it through the update, and one test saves two writers at once
+
+Two save-path sites read the catalog and the form dictionary from the file rather than from the
+update's own copy, so a second rewrite of the same holder in one save silently dropped the first — a
+free-text annotation's `/DR` font went missing under the `/NeedAppearances` flag (round 1420,
+ADR 1677). A writer that rewrites a holder another writer may also rewrite reads it through
+`Update::current`, and the test that proves it combines two writers in one save.

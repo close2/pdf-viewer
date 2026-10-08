@@ -89,8 +89,8 @@ The crates that only `deny` it are the three a foreign ABI passes through — `v
 bridge, `viewer-ffi` and `pdf-vfs-ffi` — and `viewer-qt`'s
 `only_the_three_named_crates_in_the_tree_lift_the_denial` is the list, asserted rather than
 written down, so a fourth crate lifting the denial fails a test instead of editing a document.
-`render-gpu` is permitted `unsafe` by its own header — a surface from a raw window handle
-eventually needs it — and contains none, the offscreen path needing none.
+`render-gpu`'s header permits `unsafe` for the day a surface from a raw window handle needs it,
+and the crate forbids it until then, the offscreen path needing none.
 
 ## 3. Foundation, the build, and the test layers
 
@@ -227,7 +227,7 @@ it; a version written down here would be a number nothing checks.
 The word "independent" above was an assumption, and it cost something.
 `mupdf` and `ghostscript` **both link `jbig2dec`**: on a page whose image is JBIG2 they are
 one implementation, and the gate duly reported seven pages as contradicting us where in fact
-`jbig2dec` renders a blank page or one strewn with noise. `Reference::independence` now
+`jbig2dec` renders a blank page or one strewn with noise. `Reference::independence`
 records this, and `Reference::voting` is what the gate iterates, so a renderer that cannot
 supply evidence cannot silently be counted as supplying it.
 
@@ -262,9 +262,9 @@ therefore metric 2's job, not metric 3's.
 
 1. **Geometry** — page count, dimensions, rotation. Exact match required.
 2. **Text** — our extraction vs `pdftotext`. Validates encoding and `ToUnicode`
-   *independently of rendering*, isolating a whole error class. **Now load-bearing, not
-   optional:** measurement showed pixel comparison cannot police text at all (see below),
-   so this is the only metric that can.
+   *independently of rendering*, isolating a whole error class. **Load-bearing, not
+   optional:** pixel comparison cannot police text at all (above, ADR 0005), so this is the
+   only metric that can.
 3. **Structural similarity** — SSIM / blurred difference, per-corpus tolerance. The map is
    computed a band of rows at a time with the window's margin either side, the same map to the
    bit, so a comparison holds a band of the page rather than nine planes of it (ADR 1481).
@@ -349,10 +349,11 @@ sets where the differentiators have to be: startup latency, the sandbox, the GPU
 viewer itself, and a correctness standard anchored to the specification rather than to
 consensus with other implementations. That is roughly what `CLAUDE.md` already says.
 
-**It is ahead on feature completeness, and not narrowly.** Its regression suite is 1000+ PDFs and
-it has closed things this tree wrote down as gaps: transparency groups, encryption, predefined
-`CMap`s (a whole crate, `hayro-cmap`), Type1 fonts. Type 3 fonts, optional content and inline
-images are in this tree. How many pages our own oracle contradicts us on is `tools/state.sh
+**Which of the two is further on is a measurement, not this section's sentence.** Its regression
+suite is 1000+ PDFs; every feature the comparison set beside it — transparency groups, encryption,
+predefined `CMap`s (`hayro-cmap` there, `pdf-font`'s `predefined.rs` here), Type 1 and Type 3
+fonts, optional content, inline images — is in this tree, the ledger says clause by clause what
+this tree executes, and how many pages our own oracle contradicts us on is `tools/state.sh
 oracle`'s to say.
 
 **Where the direction of inference must not reverse.** `hayro-jbig2` and `hayro-jpeg2000`
@@ -371,9 +372,9 @@ temptation stronger rather than weaker.
    in the confined worker beside JBIG2 and JPEG 2000, `crates/pdf-sandbox/src/decode.rs` being the
    only place in the tree any of the three codestreams is looked at.
 2. **Their crate boundaries are worth copying where ours are missing.** `hayro-cmap` as its
-   own crate is a better shape than our "embedded `CMap`s are 14 documents in the text gap":
-   a `CMap` parser is self-contained, independently testable and independently fuzzable,
-   which is the argument that made `pdf-syntax` separate from `pdf-model` in the first place.
+   own crate is the shape the argument for a separate `pdf-syntax` points at: a `CMap` parser
+   is self-contained, independently testable and independently fuzzable. Ours is `pdf-font`'s
+   `cmap.rs`, a fuzz target of its own (`fuzz/fuzz_targets/cmap.rs`) and not yet a crate.
 3. **The `simd` feature pattern.** `hayro-jpeg2000` defaults vectorisation on and documents
    that turning it off "eliminates any usage of unsafe in this crate as well as its
    dependencies". The consumer picks the point on the curve and the cost is stated at both
@@ -396,9 +397,8 @@ language — which is not true of any of the other three references.
 **[`doc/performance.md`](performance.md) §4 owns the measurement**, one column per time it was
 taken, and the rule that comes with it: quote a total against a total taken the same afternoon,
 because two independent programs do not slow down together and the ratio is the measurement while
-the totals are the machine. The aggregate and the median answer different questions — their
-distribution has a long tail and ours does not, and on the median page we are still the slower —
-so only quoting both is honest.
+the totals are the machine. The aggregate and the median answer different questions, because the
+two distributions differ in their tails, so only quoting both is honest.
 
 ## 5. Arlington PDF Model
 
@@ -414,7 +414,7 @@ IndirectReference, Inheritable, DefaultValue, PossibleValues, SpecialCase, Link,
 - `Link` encodes the object graph, giving typed traversal.
 - Directly serves principles 1 and 4: no shortcuts, and legible to a reader.
 
-Resolved when the codegen was built (ADR 0003): `SinceVersion`'s predicates are a closed set of
+ADR 0003 settled two questions: `SinceVersion`'s predicates are a closed set of
 two shapes and are modelled exactly; `Required` is uniformly `fn:IsRequired(...)`. `SpecialCase` and
 predicate-bearing `PossibleValues` are carried verbatim and unevaluated, because an
 evaluator needs a document to evaluate against and so belongs after `pdf-syntax`. See
@@ -424,10 +424,10 @@ ADR 0003 for the measured breakdown.
 
 The sibling of §5, and the half Arlington cannot supply. **The Arlington model is the object
 model, not the semantics**: it says `/BaseEncoding` must be one of three names and nothing
-about what those encodings contain. Nothing in the tree tracks which of the standard's
-*requirements* are implemented, so the only answers to "how much of PDF do we support" are a
-corpus count and a prose self-assessment — one measures demand, the other has been wrong
-twice. `CLAUDE.md` principle 5 states what conformance means; this section is the machinery
+about what those encodings contain. Without something that tracks which of the standard's
+*requirements* are implemented, the only answers to "how much of PDF do we support" would be a
+corpus count and a prose self-assessment — one measures demand, and the other is a claim nothing
+checks (ADR 0016). `CLAUDE.md` principle 5 states what conformance means; this section is the machinery
 that makes the claim checkable.
 
 **The ledger.** `doc/conformance/ledger.toml`, one row per numbered subclause of the population
@@ -436,10 +436,9 @@ clause against this code. `tools/state.sh ledger` prints how many rows there are
 stand.
 
 **The population is clause 6, clauses 7 to 14, and the eight normative annexes** — D, E, F, I, K,
-L, O and Q, each of which says *normative* on its own title line. Two of those three groups were
-added after the first generation, and each time the lesson was the same: an instrument that walks
-the ledger's own covered numbers cannot report a clause the ledger does not cover, so its silence
-was total rather than partial (ADRs 0206, 0984).
+L, O and Q, each of which says *normative* on its own title line. An instrument that walks the ledger's
+own covered numbers cannot report a clause the ledger does not cover, so its silence about one is
+total rather than partial (ADRs 0206, 0984).
 
 **The population is therefore a checked claim rather than a written one.** `check` counts `shall`
 under every clause and annex of the standard and reports one covered by neither the population nor
@@ -496,8 +495,8 @@ project *not knowing* (`unreviewed`), the project *owing out loud* (`reported`, 
 for part of a clause), the project *owing in silence* (`silent`), and the requirement having
 no meaning for a screen (`inapplicable`). `out-of-scope`, `departed` and `inapplicable` are
 permanent; **`writer-side` is not** — a clause that
-addressed only a generator becomes this tree's the moment it grows one, and this tree has grown
-two. The remaining four are different
+addressed only a generator becomes this tree's the moment it grows one, and this tree writes —
+§7.5.6's update and RFC 0002's serializer. The remaining four are different
 kinds of debt, and the ledger's headline number is how much of each is left. The distinction
 between the last two kinds is the one this project cares about most: a gap that reports is a
 gap you can schedule, and a gap that does not is a gap that ships.
@@ -629,8 +628,8 @@ including what was decided against; `tools/state.sh conformance` prints where it
 citations, the quotations, the distinct tables and the rows — because a table of those figures in
 this file is exactly what lets a round write "unchanged" without running anything.
 
-**Each of the four checks was confirmed to fail when its defect is put back**, which is trap 13
-applied to the gate itself. The measurement that justified building it found two citations naming
+**Each of the gate's first four checks was confirmed to fail when its defect is put back** (ADR
+0016), which is trap 13 applied to the gate itself. The measurement that justified building it found two citations naming
 clauses that do not exist and three of five sampled quotations that were paraphrases inside
 quotation marks.
 
@@ -651,7 +650,7 @@ and all three are arguments for the method in *How it gets filled* above:
   and one transparency-group gap took §11.4.6, §11.6.6 and §11.3.7.3 alike. A reader of any of
   them finds it, which is what a ledger is for.
 
-**Table numbers are now checked, weakly and honestly.** The tree cited "§9.3.6 Table 106" for
+**Table numbers are checked, weakly and honestly.** The tree cited "§9.3.6 Table 106" for
 the text rendering modes in four comments, two tests and a written report; the modes are Table
 104, and Table 106 is the text-*positioning* operators. Every automated check passed, because
 the clause exists and the table exists and only the pair is wrong. The obvious gate — the
@@ -693,8 +692,8 @@ Memory safety is necessary, not sufficient.
   problem.** The owner accepted the RFC (`doc/questions/A193`); Tier 0 runs a script that is one
   `AF*` call as Rust and parses no ECMAScript (ADRs 1578, 1579); Tier 1's engine, Boa in
   `pdf-script`, is behind the `engine` feature, one realm per document (ADRs 1590, 1591, 1602,
-  1603), and its sandbox argument is built: `pdf-script-worker` is the third confined program,
-  under the narrowest of `pdf_sandbox`'s profiles, with a deadline per trigger and a named loss
+  1603), and its sandbox argument is built: `pdf-script-worker` is a confined program of its own,
+  under the narrowest of `pdf_sandbox`'s three profiles, with a deadline per trigger and a named loss
   (ADRs 1608, 1609). No window is built with the feature: the worker alone is, in a Cargo run of
   its own that `tools/batch.sh install` puts beside the windows, and every window supplies it as
   its runner at the reader's `Scripts` level, `off` by default (ADRs 1616, 1625). The merge's Tier 1

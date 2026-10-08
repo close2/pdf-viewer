@@ -650,10 +650,12 @@ pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised>
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(mine);
     };
+    // Every thread but this one is spawned and this one claims jobs too, so `threads`
+    // threads is `threads - 1` spawns and the calling thread is not left waiting.
+    let spawns = threads.min(jobs.len()).saturating_sub(1);
+    crate::threads::count(spawns);
     thread::scope(|scope| {
-        // Every thread but this one is spawned and this one claims jobs too, so `threads`
-        // threads is `threads - 1` spawns and the calling thread is not left waiting.
-        for _ in 1..threads.min(jobs.len()) {
+        for _ in 0..spawns {
             scope.spawn(work);
         }
         work();

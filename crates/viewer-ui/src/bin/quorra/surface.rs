@@ -1441,8 +1441,8 @@ impl App {
     /// Asks the surface once more what it refreshes at, until it answers.
     ///
     /// **A Wayland surface enters no output until it has been drawn to**, and the cadence is read
-    /// in `resumed`, which is strictly before that — so every Wayland session took
-    /// `doc/todo/36`'s floor and 120 Hz was out of reach in principle. Called after a present
+    /// in `resumed`, which is strictly before that — so a cadence read only there takes
+    /// `doc/todo/36`'s floor on every Wayland session and puts 120 Hz out of reach in principle. Called after a present
     /// rather than before one for exactly that reason, and it stops asking the moment the window's
     /// own output answers ([`crate::cadence::Cadence::ask`], ADR 0384).
     fn settle_cadence(&mut self) {

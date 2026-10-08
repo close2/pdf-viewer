@@ -251,9 +251,10 @@ pub(crate) enum Owed {
     ///
     /// **A report beside a complete drawing.** The string's runs are laid out in the faces, sizes,
     /// colours, alignments and spacing it states (`crate::rich_text`, ADR 1634); what the phrase
-    /// names is a property no part of this program carries out as stated — pair kerning, an
-    /// embedded object's text, a leader's alignment to the page, or a width set in the nearest one
-    /// the document's faces hold (ADR 1660) — and leaving it out silently would be trap 5's
+    /// names is a property no part of this program carries out as stated — pair kerning in a face
+    /// whose program states no pairs (ADR 1682), an embedded object's text, a leader's alignment
+    /// to the page, or a width set in the nearest one the document's faces hold (ADR 1660) — and
+    /// leaving it out silently would be trap 5's
     /// silence inside a feature otherwise built.
     RichTextUnapplied(String),
     /// A rich text string states characters other than its plain twin's, so the plain one is
@@ -2996,20 +2997,51 @@ fn comb_glyphs(
 pub(crate) fn show(stream: &mut String, codes: &[Placed]) {
     stream.push('(');
     for code in codes.iter().filter_map(|placed| placed.code()) {
-        for byte in code_bytes(code) {
-            match byte {
-                b'(' | b')' | b'\\' => {
-                    stream.push('\\');
-                    stream.push(char::from(byte));
-                }
-                0x20..=0x7e => stream.push(char::from(byte)),
-                other => {
-                    let _ = write!(stream, "\\{other:03o}");
-                }
+        push_code(stream, code);
+    }
+    stream.push_str(") Tj\n");
+}
+
+/// The same codes as §9.4.3's `TJ`, each after the number `before` holds for it — the rich text
+/// layout's pair kerning (ADR 1682) — a zero written as nothing.
+pub(crate) fn show_adjusted(stream: &mut String, codes: &[Placed], before: &[f32]) {
+    stream.push('[');
+    let mut open = false;
+    for (index, code) in codes.iter().filter_map(|placed| placed.code()).enumerate() {
+        let number = before.get(index).copied().unwrap_or(0.0);
+        if number != 0.0 {
+            if open {
+                stream.push(')');
+                open = false;
+            }
+            let _ = write!(stream, " {number} ");
+        }
+        if !open {
+            stream.push('(');
+            open = true;
+        }
+        push_code(stream, code);
+    }
+    if open {
+        stream.push(')');
+    }
+    stream.push_str("] TJ\n");
+}
+
+/// One code's bytes as a literal string's, escaped where §7.3.4.2 requires.
+fn push_code(stream: &mut String, code: pdf_font::Code) {
+    for byte in code_bytes(code) {
+        match byte {
+            b'(' | b')' | b'\\' => {
+                stream.push('\\');
+                stream.push(char::from(byte));
+            }
+            0x20..=0x7e => stream.push(char::from(byte)),
+            other => {
+                let _ = write!(stream, "\\{other:03o}");
             }
         }
     }
-    stream.push_str(") Tj\n");
 }
 
 /// A code's bytes, most significant first, as many of them as §9.7.6.2 gives it.

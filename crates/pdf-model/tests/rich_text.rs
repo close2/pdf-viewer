@@ -1594,3 +1594,120 @@ fn a_tab_leader_fills_the_room_before_its_stop() {
         "{reports:?}"
     );
 }
+
+/// Liberation Sans with its own kerning taken out and one pair written in: a `kern` table whose
+/// one format 0 subtable kerns `A` against `V` by −300 of the face's 2048 units, so every expected
+/// value below is the table this fixture wrote (trap 8; ADR 1682).
+fn kerned_face() -> Vec<u8> {
+    use read_fonts::TableProvider as _;
+    const LIBERATION: &[u8] =
+        include_bytes!("../../../data/standard-fonts/LiberationSans-Regular.ttf");
+    let font = read_fonts::FontRef::new(LIBERATION).expect("Liberation Sans is an sfnt");
+    let cmap = font.cmap().expect("a cmap");
+    let glyph = |character: char| {
+        u16::try_from(
+            cmap.map_codepoint(character)
+                .expect("Liberation Sans draws it")
+                .to_u32(),
+        )
+        .expect("a 16-bit glyph index")
+    };
+    let words = |values: &[u16]| -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| value.to_be_bytes())
+            .collect()
+    };
+    let kern = words(&[
+        0,
+        1,
+        0,
+        20,
+        0x0001,
+        1,
+        6,
+        0,
+        0,
+        glyph('A'),
+        glyph('V'),
+        (-300_i16).cast_unsigned(),
+    ]);
+    let bare = pdf_font::embedding::without_tables(LIBERATION, &[*b"GPOS", *b"kern"])
+        .expect("Liberation Sans is an sfnt");
+    pdf_font::embedding::with_tables(&bare, &[(*b"kern", kern)]).expect("the table goes in")
+}
+
+/// A rich text field set in `/Kern`, the face [`kerned_face`] embeds, with `markup` as its `/RV`.
+fn in_kerned_face(value: &str, markup: &str) -> Vec<u8> {
+    let program = kerned_face().iter().fold(String::new(), |mut hex, byte| {
+        let _ = write!(hex, "{byte:02X}");
+        hex
+    });
+    // Liberation Sans is metric-compatible with Helvetica: 1366 of 2048 units is 667 thousandths
+    // for `A` and `V`, 569 is 278 for the space.
+    let mut widths = vec!["0"; 55];
+    widths[0] = "278";
+    widths[33] = "667";
+    widths[54] = "667";
+    pdf_with_fonts(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx /Ff {RICH} \
+             /T (f) /V ({value}) /RV (<body><p>{markup}</p></body>) /DA (/Kern 12 Tf 0 g) >>"
+        ),
+        "",
+        &format!(
+            "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans \
+             /FirstChar 32 /LastChar 86 /Widths [{}] /Encoding /WinAnsiEncoding \
+             /FontDescriptor 9 0 R >>\nendobj\n\
+             9 0 obj\n<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-203 -303 1050 910] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 729 /StemV 80 /FontFile2 10 0 R >>\nendobj\n\
+             10 0 obj\n<< /Length {} /Filter /ASCIIHexDecode >>\nstream\n{program}>\n\
+             endstream\nendobj\n",
+            widths.join(" "),
+            program.len().saturating_add(1),
+        ),
+        "/Kern 8 0 R",
+    )
+}
+
+/// `kerning-mode:pair` kerns a run by its face's own pairs (XFA 3.3 chapter 27, *Kerning*, pages
+/// 1203 and 1204): the `A V` pair the fixture's `kern` table states is drawn −300/2048 of an em
+/// closer, written as §9.4.3's `TJ` adjustment of 1000 × 300 / 2048 = 146.484375 thousandths,
+/// and `V A`, which the table does not state, is not moved. Over `AVAV` at 12 points the two
+/// pairs take 2 × 12 × 300 / 2048 = 3.515625 points out of the ink's width. Nothing is said,
+/// because the property is carried out (ADR 1682).
+#[test]
+fn pair_kerning_draws_a_pair_the_face_states_closer() {
+    let kerned = in_kerned_face("AVAV", "<span style=\"kerning-mode:pair\">AVAV</span>");
+    let plain = in_kerned_face("AVAV", "AVAV");
+    let (content, _) = appearance(kerned.clone());
+    assert!(
+        content.contains("[(A) 146.48438 (VA) 146.48438 (V)] TJ"),
+        "{content}"
+    );
+    let (unkerned_content, _) = appearance(plain.clone());
+    assert!(unkerned_content.contains("(AVAV) Tj"), "{unkerned_content}");
+    let (reports, kerned_raster) = draw(kerned);
+    assert!(reports.is_empty(), "{reports:?}");
+    let (reports, plain_raster) = draw(plain);
+    assert!(reports.is_empty(), "{reports:?}");
+    let narrower = ink_width(&plain_raster).saturating_sub(ink_width(&kerned_raster));
+    assert!((3..=4).contains(&narrower), "{narrower} px");
+}
+
+/// A face that states no pairs is not kerned by numbers that are not its own, and the run says
+/// so: §9.6.2.2's fourteen carry none in this tree until `doc/questions/Q308` is answered.
+#[test]
+fn pair_kerning_in_a_face_without_pairs_is_said() {
+    let (reports, raster) = draw(rich(
+        "AVAV",
+        "<span style=\"kerning-mode:pair\">AVAV</span>",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("kerning-mode:pair, in a face"),
+        "{reports:?}"
+    );
+    assert!(!inked(&raster).is_empty(), "the text is still drawn");
+}

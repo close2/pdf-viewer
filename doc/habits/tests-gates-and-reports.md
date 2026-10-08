@@ -509,3 +509,16 @@ A drive fixture whose `/RC` held a tab had a `/Contents` that spelled the tab as
 texts differed, `/Contents` won (ADR 1635), the window showed plain text and the step found no colour
 at all (round 1415, step 57). A fixture that states both carries in `/Contents` exactly the text the
 rich string reads to, character for character, or the window is right to ignore the rich string.
+
+## A sentence that is "said" somewhere is located before it is moved
+
+The popup's tab-leader sentence lived in `pdf-model`, so when the leader began to cross to the
+hosts and the sentence left `pdf-model`, the C ABI — which had been handed that sentence from there —
+would have stopped saying it without anyone noticing (round 1421, ADR 1679). Before a report moves,
+every reader of it is found, and each keeps or replaces the sentence on purpose.
+
+## A todo's Status line is read before an item from it is briefed
+
+Batch sixty-six's clause slot carried "`doc/todo/22`'s edges list, one item, if time remains"; the
+file's own Status line says done, nothing owed (round 1424). A brief's optional item costs one line
+to check and a slot's attention to carry.

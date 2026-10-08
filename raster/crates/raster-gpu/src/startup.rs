@@ -549,7 +549,7 @@ pub fn create_launch_instance() -> wgpu::Instance {
 /// 1569). [`StartupTimings::instance_creation`] cannot carry either, because the constructor
 /// that takes this instance did not make it.
 ///
-/// Before either, the machine's awake render nodes are opened ([`wake_render_nodes`]); they are
+/// Before either, the machine's awake render nodes are opened (`wake_render_nodes`); they are
 /// closed after the check. The power-up the kernel driver starts on an open then runs beside the
 /// loader rather than in front of the adapter check (ADR 1658).
 #[must_use]
@@ -599,7 +599,7 @@ pub fn create_launch_instance_timed() -> (wgpu::Instance, LaunchSteps) {
 #[derive(Debug, Clone, Copy)]
 pub struct LaunchSteps {
     /// Opening the awake render nodes before the instance and closing them after the adapter check
-    /// ([`wake_render_nodes`]); zero where the platform has none.
+    /// (`wake_render_nodes`); zero where the platform has none.
     pub render_node_wake: Duration,
     /// How many render nodes that step opened. Fewer than the machine has is a node that was
     /// asleep, or one this process may not open, and the adapter check meets it either way.
@@ -656,7 +656,7 @@ fn wake_render_nodes() -> Vec<std::fs::File> {
     .collect()
 }
 
-/// [`wake_render_nodes`] where there are no DRM render nodes to open.
+/// `wake_render_nodes` where there are no DRM render nodes to open.
 #[cfg(not(target_os = "linux"))]
 fn wake_render_nodes() -> Vec<std::fs::File> {
     Vec::new()

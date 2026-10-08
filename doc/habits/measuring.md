@@ -790,3 +790,10 @@ dictionary is never inside an object stream: 126 393 Type 0 functions over the w
 repaint builds, and a form page proposed for a row there would have measured a cost the harness
 never pays (round 1417, ADR 1670). Before a row is proposed for a cost, the harness's own module
 comment says what it runs; a cost outside it needs another instrument, not a row.
+
+## 74. A wait on a lock's holder is a wait on its pid, never a `pgrep -f` of a string the waiter's own line holds
+
+The rule line forbids a `pgrep -f` whose pattern appears in the grepping command, and the lock's
+holder file names the pid for exactly this: `kill -0 $(cut -d' ' -f1 <lock>.holder)` ends when the
+hold ends, where a pattern wait matches itself and never does (round 1425; trap 124's incident is
+the same shape with a `pkill -P`).

@@ -1543,12 +1543,18 @@ fn arms_held_runs_under_the_wrappers_marker_and_a_daemon_it_leaves_holds_nothing
         "the hold that starts the daemon failed: {}",
         text(&started)
     );
-    let free = Command::new("flock")
-        .arg("-n")
-        .arg(&lock)
-        .arg("true")
-        .status()
-        .is_ok_and(|status| status.success());
+    // The hold is a small walk's (`--tree 1`), so it was on the lock's second lane, and both lanes
+    // are asked (ADR 1684).
+    let free = [lock.clone(), sandbox.base.join("heavy-walk.lock.lane2")]
+        .iter()
+        .all(|lane| {
+            Command::new("flock")
+                .arg("-n")
+                .arg(lane)
+                .arg("true")
+                .status()
+                .is_ok_and(|status| status.success())
+        });
     std::fs::write(&over, "").expect("the hold's end, said to the daemon");
     let asked = within(20, || verdict.exists());
     let pid = std::fs::read_to_string(format!("{}.pid", verdict.display())).unwrap_or_default();

@@ -409,8 +409,14 @@ and a right-to-left one in UAX #9's order across its runs, a list item's tag at 
 at the paragraph's stops — Pango spans and a tab array in `quorra-gtk`, a `QTextDocument` built run by
 run in `quorra-qt`, `quorra`'s own chrome, which sets a run in the one of §9.6.2.2's families its
 `font-family` reaches (ADRs 1654, 1666); chapter 27's font scales are drawn in `quorra` and
-`quorra-qt` — and whatever the window did not draw of it (a tab leader, a tab in a right-to-left
-paragraph; in `quorra-gtk` a font scale) is said under the note.
+`quorra-qt`, and a tab's leader and a right-to-left paragraph's leftward tabs in `quorra` (ADR 1679)
+— and whatever the window did not draw of it (in the two toolkit windows a tab leader and a tab in a
+right-to-left paragraph; in `quorra-gtk` a font scale) is said under the note.
+
+**A measured point on a geospatial map is written in the file's display system** (Table 269's
+`/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an
+easting and a northing in the system's own unit, to two places, where it is projected — in all four
+windows, `m` and a press, as `tools/drive-windows.sh` step 58 drives it.
 
 An editable combo box's text — Table 233 bit 19 — is typed into and committed like a single-line
 field's in all four windows: Tab out of it or Enter in it runs its `/K` commit form and `/V`.

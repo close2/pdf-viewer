@@ -466,7 +466,8 @@ fn check_box_document(face: &str) -> Document {
         format!(
             "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /Yes /AS /Yes \
              /Rect [10 10 30 30] /F 4 /P 3 0 R /DA ({face} 0 Tf 0 g) \
-             /MK << /BG [1] /BC [0] /CA (4) >> /AP << /N << /Yes 6 0 R /Off 7 0 R >> >> >>"
+             /MK << /BG [1] /BC [0] /CA (4) >> \
+             /AP << /N << /Yes 6 0 R /Off 7 0 R >> /D << /Yes 6 0 R /Off 7 0 R >> >> >>"
         ),
         font(),
         "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 46 >>\nstream\n\
@@ -478,18 +479,44 @@ fn check_box_document(face: &str) -> Document {
     ])
 }
 
-/// `style`: Table 192's `/CA` holding the glyph's `ZapfDingbats` code. A saved file states it,
-/// and — since the on state is one stream among the appearance dictionary's, which one
-/// constructed stream would replace — keeps its states and names the field as one whose
-/// appearance it did not construct, which is what Table 224's flag is written for (ADR 1665).
+/// The decoded stream a saved widget's `/AP /N` names for appearance state `state`.
+fn state_appearance(saved: &Document, widget: &Dictionary, state: &str) -> String {
+    let states = normal_states(saved, widget);
+    let stream = saved.get_key(&states, state);
+    let stream = stream.as_stream().expect("a stream");
+    String::from_utf8_lossy(&saved.decoded_stream_data(stream).expect("decodes")).into_owned()
+}
+
+/// A saved widget's `/AP /N`, which §12.7.5.2.3 makes a dictionary of states for a check box.
+fn normal_states(saved: &Document, widget: &Dictionary) -> Dictionary {
+    let appearances = saved.get_key(widget, "AP");
+    let normal = appearances
+        .as_dict()
+        .map(|appearances| saved.get_key(appearances, "N"));
+    // The variant itself, because `Object::as_dict` answers for a stream too.
+    normal
+        .and_then(|normal| match normal {
+            Object::Dictionary(states) => Some(states),
+            _ => None,
+        })
+        .expect("a dictionary of states")
+}
+
+/// `style`: Table 192's `/CA` holding the glyph's `ZapfDingbats` code, and both of §12.7.5.2.3's
+/// states constructed as the page draws them and written under the names the widget selects them
+/// by — so the next reader draws the glyph with no flag asking it to (ADRs 1665, 1676).
 #[test]
-fn a_style_is_the_check_box_caption_and_its_states_are_owed() {
+fn a_style_is_the_check_box_caption_and_its_states_are_written() {
     let document = check_box_document("/ZaDb");
     let mut view = ViewState::of(&document);
     view.run_scripts_with(Some(Arc::new(Setting(vec![Property::Style(Glyph::Cross)]))));
     view.run_open_scripts(&document, 0);
     let written = view.save(&document).expect("the update writes");
-    assert_eq!(written.unconstructed, vec!["Field".to_owned()]);
+    assert!(
+        written.unconstructed.is_empty(),
+        "every state was written: {:?}",
+        written.unconstructed
+    );
     let saved = Document::open(written.bytes).expect("the update reads back");
     let widget = object(&saved, 4);
     assert_eq!(
@@ -499,19 +526,146 @@ fn a_style_is_the_check_box_caption_and_its_states_are_owed() {
             .map(<[u8]>::to_vec),
         Some(b"8".to_vec())
     );
-    let normal = saved.get_key(
-        &saved
-            .get_key(&widget, "AP")
-            .as_dict()
-            .cloned()
-            .expect("an /AP"),
-        "N",
-    );
+    // The on state is the construction's glyph in the `/DA` font, not the producer's `(4)`; the
+    // face is subset and embedded, so the code shown is the subset's (ADR 1425).
+    let on = state_appearance(&saved, &widget, "Yes");
     assert!(
-        normal
-            .as_dict()
-            .is_some_and(|states| states.get("Yes").is_some() && states.get("Off").is_some()),
-        "the states stand: {normal:?}"
+        on.contains("/ZaDb") && on.contains(" Tj") && !on.contains("(4)"),
+        "{on}"
+    );
+    let off = state_appearance(&saved, &widget, "Off");
+    assert!(!off.contains("Tj"), "the off state draws no glyph: {off}");
+    // New objects, because the producer's states may be other widgets' too.
+    let states = normal_states(&saved, &widget);
+    for (state, producer) in [("Yes", 6), ("Off", 7)] {
+        assert!(
+            states
+                .get(state)
+                .and_then(Object::as_reference)
+                .is_some_and(|id| id.number != producer),
+            "{state}: {states:?}"
+        );
+    }
+    // Table 170's `/D` defaults to `/N`, and a stored down state would show the producer's glyph
+    // the moment the box is pressed, so it names the constructed states too.
+    let appearances = saved.get_key(&widget, "AP");
+    let down = appearances
+        .as_dict()
+        .map(|appearances| saved.get_key(appearances, "D"));
+    assert_eq!(
+        down,
+        Some(Object::Dictionary(states)),
+        "the down states are the normal ones"
+    );
+    let catalog = saved.catalog().expect("a /Root");
+    let form = saved.get_key(&catalog, "AcroForm");
+    assert!(
+        form.as_dict()
+            .is_some_and(|form| form.get("NeedAppearances").is_none()),
+        "nothing is owed: {form:?}"
+    );
+}
+
+/// A check box with no states and no on value gives the style's on state no name to be written
+/// under, so it is owed — and Table 224's flag reaches a form the catalog holds **directly**, which
+/// Table 29 permits as much as a reference (ADR 1677).
+#[test]
+fn a_style_with_no_on_state_is_owed_and_flagged_in_a_direct_form() {
+    let [pages, page] = pages("4 0 R");
+    let document = assembled(&[
+        catalog(),
+        pages,
+        page,
+        "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /Off /AS /Off \
+         /Rect [10 10 30 30] /F 4 /P 3 0 R /DA (/ZaDb 0 Tf 0 g) /MK << /BG [1] /BC [0] >> >>"
+            .to_owned(),
+        font(),
+    ]);
+    assert!(
+        document
+            .catalog()
+            .is_ok_and(|catalog| matches!(catalog.get("AcroForm"), Some(Object::Dictionary(_)))),
+        "the fixture's form is direct"
+    );
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::new(Setting(vec![Property::Style(Glyph::Star)]))));
+    view.run_open_scripts(&document, 0);
+    let written = view.save(&document).expect("the update writes");
+    assert_eq!(written.unconstructed, vec!["Field".to_owned()]);
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let catalog = saved.catalog().expect("a /Root");
+    let form = saved.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("the form");
+    assert!(
+        matches!(
+            saved.get_key(form, "NeedAppearances"),
+            Object::Boolean(true)
+        ),
+        "{form:?}"
+    );
+    // The rest of the form is the producer's, and the catalog's other entries survive the rewrite.
+    assert!(
+        form.get("Fields").is_some() && form.get("DR").is_some(),
+        "{form:?}"
+    );
+    assert!(catalog.get("OpenAction").is_some(), "{catalog:?}");
+}
+
+/// Table 224's flag and §12.7.4.3's `/DR` font, both written into one indirect form dictionary.
+///
+/// Two writers rewrite the form in one update — the free text annotation's font stated in `/DR`,
+/// and `/NeedAppearances` for the check box whose on state has no name — and the second keeps the
+/// first's entry only by reading the form as the update already has it (ADR 1677).
+#[test]
+fn the_flag_and_the_free_text_font_are_written_into_one_form() {
+    let [pages, page] = pages("4 0 R");
+    let document = assembled(&[
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (paint\\(\\);) >> \
+         /AcroForm 5 0 R >>"
+            .to_owned(),
+        pages,
+        page,
+        "<< /Type /Annot /Subtype /Widget /FT /Btn /T (Field) /V /Off /AS /Off \
+         /Rect [10 10 30 30] /F 4 /P 3 0 R /DA (/ZaDb 0 Tf 0 g) /MK << /BC [0] >> >>"
+            .to_owned(),
+        "<< /Fields [4 0 R] >>".to_owned(),
+    ]);
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::new(Setting(vec![Property::Style(Glyph::Check)]))));
+    view.run_open_scripts(&document, 0);
+    let page = ObjectId {
+        number: 3,
+        generation: 0,
+    };
+    view.add_free_text(
+        &document,
+        page,
+        [72.0, 200.0, 300.0, 280.0],
+        "note",
+        [0.0; 3],
+    )
+    .expect("a rectangle with area is something to write in");
+    let written = view.save(&document).expect("the update writes");
+    assert_eq!(written.unconstructed, vec!["Field".to_owned()]);
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let form = object(&saved, 5);
+    assert!(
+        matches!(
+            saved.get_key(&form, "NeedAppearances"),
+            Object::Boolean(true)
+        ),
+        "{form:?}"
+    );
+    let resources = saved.get_key(&form, "DR");
+    let fonts = resources
+        .as_dict()
+        .map(|resources| saved.get_key(resources, "Font"));
+    assert!(
+        fonts
+            .as_ref()
+            .and_then(Object::as_dict)
+            .is_some_and(|fonts| fonts.get("Helv").is_some()),
+        "the free text's font survives the flag: {form:?}"
     );
 }
 

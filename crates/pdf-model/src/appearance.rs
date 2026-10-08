@@ -1098,8 +1098,22 @@ pub(crate) enum ForSaving {
     Selected,
     /// The stream to write.
     Stream(SavedStream),
+    /// A check box's or radio button's states, each constructed, for a widget whose script set
+    /// the glyph its on state draws (ADR 1676).
+    States(SavedStates),
     /// The stream this program cannot produce, so Table 224's flag is what the file gets.
     Owed,
+}
+
+/// The appearance states of a toggling button this program constructs, by Table 170's names.
+///
+/// §12.7.5.2.3 keeps each state "defined by an appearance stream in the appearance dictionary of
+/// the field's widget annotation", and "[t]he appearance for the off state is optional but, if
+/// present, shall be stored in the appearance dictionary under the name Off". So the on state is
+/// written under the name the widget already selects it by, and `Off` beside it.
+pub(crate) struct SavedStates {
+    /// Each state's name and stream, the on state first.
+    pub states: Vec<(Name, SavedStream)>,
 }
 
 /// The appearance stream itself, and what to write it over.
@@ -1143,10 +1157,11 @@ pub(crate) fn for_saving(
         !scripted.is_empty() && constructs_for_script(document, annotation, scripted);
     // A check box's or radio button's style is its on state's glyph, and §12.7.5.2.3 keeps that
     // state as one stream among the appearance dictionary's, which one constructed stream would
-    // replace: the saved file states the glyph in `/MK` and asks the next reader to construct the
-    // states with Table 224's flag (ADR 1665).
+    // replace: so each state is constructed and written under its own name, and only a widget
+    // whose on state has no name to be written under is left to Table 224's flag (ADR 1676).
     if constructed_for_script && is_toggling(document, annotation) {
-        return ForSaving::Owed;
+        return toggling_states(document, annotation, scripted)
+            .map_or(ForSaving::Owed, ForSaving::States);
     }
     if !constructed_for_script && !regenerates(document, annotation, b"Widget", value) {
         return ForSaving::Selected;
@@ -1239,6 +1254,90 @@ pub(crate) fn for_saving(
         existing: None,
         report: constructed.report,
     })
+}
+
+/// A toggling button's on and off states, each constructed as the page draws it (ADR 1676).
+///
+/// The page draws such a widget by constructing it in whichever state it is in
+/// ([`constructs_for_script`]), so a saved file shows what the viewer did only if both states are
+/// that construction: the on state is the glyph Table 192's `/CA` names, the off state the
+/// background and border alone. Each is constructed from the widget posed in that state by its
+/// `/AS`, which is the entry §12.7.5.2.3 has decide "which appearance to use" — the value a person
+/// or a script gave the field selects among the states and does not change what either draws.
+///
+/// `None` where the on state has no name ([`on_state`]), or a state's construction refuses and
+/// leaves nothing to write: the widget is then owed to the next reader, as before.
+fn toggling_states(
+    document: &Document,
+    annotation: &Dictionary,
+    scripted: &[crate::view::Property],
+) -> Option<SavedStates> {
+    let on = on_state(document, annotation)?;
+    let rect = rectangle(document, annotation).ok()?;
+    let mut states = Vec::new();
+    for name in [on, Name::new(OFF)] {
+        let mut posed = annotation.clone();
+        posed.insert(Name::new(&b"AS"[..]), Object::Name(name.clone()));
+        let constructed = construct(
+            document,
+            &posed,
+            b"Widget",
+            crate::view::AnnotationView {
+                scripted,
+                ..crate::view::AnnotationView::default()
+            },
+            rect,
+        );
+        let content = match constructed.content {
+            Some(content) => content,
+            // An off state with no background and no border draws nothing, and that is what the
+            // page shows for it; an empty stream says so where the producer's would draw its own.
+            None if constructed.report.is_none() => Vec::new(),
+            None => return None,
+        };
+        let resources = variable_text::for_a_file(&constructed.resources).ok()?;
+        states.push((
+            name,
+            SavedStream {
+                content,
+                resources,
+                bbox: rect,
+                existing: None,
+                report: constructed.report,
+            },
+        ));
+    }
+    Some(SavedStates { states })
+}
+
+/// The name a toggling widget's on state is selected by: the one state of its `/AP /N` that is
+/// not `Off`, or, where the widget has no dictionary of states, its `/AS` or the field's `/V`
+/// where either names a state other than `Off`.
+///
+/// §12.7.5.2.3 gives a check box two states and names only the off one, so the on state's name is
+/// the file's: `None` where the file states none, or states two (ADR 1676).
+fn on_state(document: &Document, annotation: &Dictionary) -> Option<Name> {
+    let normal = document
+        .get_key(annotation, "AP")
+        .as_dict()
+        .map(|appearances| document.get_key(appearances, "N"));
+    if let Some(Object::Dictionary(states)) = normal {
+        let mut on = states
+            .iter()
+            .map(|(name, _)| name)
+            .filter(|name| name.as_bytes() != OFF);
+        let first = on.next()?.clone();
+        return on.next().is_none().then_some(first);
+    }
+    let field = Field::read(document, annotation, FieldValue::Stored);
+    [
+        document.get_key(annotation, "AS"),
+        field.value.unwrap_or(Object::Null),
+    ]
+    .iter()
+    .filter_map(Object::as_name)
+    .find(|name| name.as_bytes() != OFF)
+    .cloned()
 }
 
 /// The entries a script's properties write, split by the dictionary each belongs on (ADR 1617).

@@ -264,15 +264,29 @@ fn a_projected_map_with_degrees_for_eastings_gives_no_position() {
                PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",9],\
                PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],\
                PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]";
+    let measure = format!(
+        "<< /Type /Measure /Subtype /GEO /GCS << /Type /PROJCS /WKT ({wkt}) >> \
+         /GPTS [47 8 48 8 48 10 47 10] /LPTS [0 0 0 1 1 1 1 0] >>"
+    );
+    let (viewer, point) = shown_at(one_map(&measure), 0, (200.0, 200.0));
+    let Answer::Measured {
+        located: Some(viewer_core::Located::Refused(why)),
+        ..
+    } = viewer.query(Query::Measure(&[point]))
+    else {
+        panic!("a projected map with degree-shaped points is refused");
+    };
+    assert!(why.contains("shaped as degrees"), "{why}");
+}
+
+/// A document of one 400 by 400 page whose one viewport covers it and states `measure`.
+fn one_map(measure: &str) -> Vec<u8> {
     let objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /VP [4 0 R] >>".to_owned(),
-        "<< /Type /Viewport /BBox [0 0 400 400] /Measure 5 0 R >>".to_owned(),
-        format!(
-            "<< /Type /Measure /Subtype /GEO /GCS << /Type /PROJCS /WKT ({wkt}) >> \
-             /GPTS [47 8 48 8 48 10 47 10] /LPTS [0 0 0 1 1 1 1 0] >>"
-        ),
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /VP [4 0 R] >>",
+        "<< /Type /Viewport /BBox [0 0 400 400] /Measure 5 0 R >>",
+        measure,
     ];
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
@@ -290,15 +304,61 @@ fn a_projected_map_with_degrees_for_eastings_gives_no_position() {
         "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
         objects.len() + 1
     );
-    let (viewer, point) = shown_at(out.into_bytes(), 0, (200.0, 200.0));
+    out.into_bytes()
+}
+
+/// Table 269's `/DCS`, "[a] projected or geographic coordinate system that shall be used for the
+/// display of position values", reached from a geographic `/GCS` on the same datum: the point is
+/// answered as the projected system's easting and northing in its own unit (ADRs 1672, 1678).
+///
+/// The map is a north-up rectangle of degrees, 47° N to 48° N and 8° E to 10° E, so the middle of
+/// the page is 47.5° N, 9° E exactly. The display system is UTM zone 32N, whose central meridian
+/// is 9° E: on it, IOGP Guidance Note 7-2 section 3.2.3.1's Transverse Mercator gives the false
+/// easting itself, 500 000 m, and a northing of the scale factor times the meridian arc,
+/// 0.9996 × 5 262 834.867 m = 5 260 729.733 m on GRS 1980 — the arc being the integral of the
+/// ellipsoid's meridional radius of curvature from the equator to 47.5°, which the test states
+/// to the forward's budget of 1.5 cm (ADR 1672).
+#[test]
+fn a_projected_display_system_is_answered_as_its_easting_and_northing() {
+    use pdf_model::geospatial::Displayed;
+    let datum = "DATUM[\"D_ETRS_1989\",SPHEROID[\"GRS_1980\",6378137,298.257222101]],\
+                 PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.017453292519943295]";
+    let gcs = format!("GEOGCS[\"GCS_ETRS_1989\",{datum}]");
+    let dcs = format!(
+        "PROJCS[\"ETRS89_UTM_zone_32N\",{gcs},PROJECTION[\"Transverse_Mercator\"],\
+         PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",9],\
+         PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],\
+         PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1]]"
+    );
+    let measure = format!(
+        "<< /Type /Measure /Subtype /GEO /GCS << /Type /GEOGCS /WKT ({gcs}) >> \
+         /DCS << /Type /PROJCS /WKT ({dcs}) >> \
+         /GPTS [47 8 48 8 48 10 47 10] /LPTS [0 0 0 1 1 1 1 0] >>"
+    );
+    let (viewer, point) = shown_at(one_map(&measure), 0, (200.0, 200.0));
     let Answer::Measured {
-        located: Some(viewer_core::Located::Refused(why)),
+        located:
+            Some(viewer_core::Located::At {
+                latitude,
+                longitude,
+                display:
+                    Some(Ok(Displayed::Projected {
+                        easting,
+                        northing,
+                        unit,
+                    })),
+                ..
+            }),
         ..
     } = viewer.query(Query::Measure(&[point]))
     else {
-        panic!("a projected map with degree-shaped points is refused");
+        panic!("the middle of the map is displayed in the projected /DCS");
     };
-    assert!(why.contains("shaped as degrees"), "{why}");
+    assert!((latitude - 47.5).abs() < 1e-4, "{latitude}");
+    assert!((longitude - 9.0).abs() < 1e-4, "{longitude}");
+    assert!((easting - 500_000.0).abs() < 0.015, "{easting}");
+    assert!((northing - 5_260_729.733).abs() < 0.015, "{northing}");
+    assert_eq!(unit, "Meter");
 }
 
 /// The one projected map among the curated documents names a projection method this tree does

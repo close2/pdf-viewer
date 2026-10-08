@@ -596,10 +596,16 @@ stage by stage with its page faults and raster's phases. On ISO 32000-2's page 7
 interleaved runs on 2026-10-07, frame 1 is 6.70 ms over the steady frame at 596 × 842, 7.74 at
 1191 × 1684 and 17.87 at 2382 × 3368. The encode holds 4.1 to 5.8 ms of it: the page's glyphs,
 whose coverage the CPU lane makes once into the atlas. The scene holds 0.5 ms and the first
-submission's recording and submit about 1. At 4× the readback holds 2.4 ms more, and the host pass
-over the read-back raster a further 7.6, paid on frames 1 and 2. What a warm-up thread could make
-for the frame is the atlas texture and the white stand-in, and they are worth 0.10 to 0.18 ms of
-its upload, so they are made where the first glyph needs them (ADR 1668).
+submission's recording and submit about 1. At 4× the readback holds 2.4 ms more. What a warm-up
+thread could make for the frame is the atlas texture and the white stand-in, and they are worth 0.10
+to 0.18 ms of its upload, so they are made where the first glyph needs them (ADR 1668). The offscreen
+lane's host pass — §11.4.7's medium composited over the read-back, premultiplied and back — is
+17 ms of *every* 4× frame and 1.2 of a 1× one (`first_frame`'s `host` column), and no window pays
+it, because a window's scene draws the medium on the device (ADR 1687). **The encode's fan-out
+starts its threads at every drain past the floor**: the text page's turn starts 115 at 24 threads
+and 35 at eight, every other row of the table once a frame or never (`frame_budget`'s `threads`
+column); a pool of the frame's own, started once, moved that turn's encode by 0.1 to 0.4 ms, mostly
+inside its spread and not at all pinned, and is not built (ADR 1686).
 
 ## What a soft mask cost, and what naming one constant took off it
 
