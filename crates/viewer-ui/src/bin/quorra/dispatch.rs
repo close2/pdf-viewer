@@ -223,6 +223,89 @@ impl App {
         }
     }
 
+    /// The answer to [`Self::fetch_policy`]'s question: a yes fetches the copy, and a `no` fetches
+    /// nothing and says so (ADR 1738).
+    fn policy_answered(
+        &mut self,
+        document: viewer_core::DocumentId,
+        policy: viewer_host::PublishedPolicy,
+        proceed: bool,
+    ) {
+        if proceed {
+            self.start_policy_fetch(document, policy, None);
+        } else {
+            println!(
+                "{}",
+                viewer_host::policy::signature_policy_declined(
+                    &policy,
+                    &format!("you answered \"{}\"", viewer_host::restriction::DO_NOT),
+                )
+            );
+        }
+    }
+
+    /// A signature policy's published copy, under the level the menu holds — the one answer
+    /// `viewer_host::policy::may_fetch_signature_policy` gives (ADR 1738).
+    ///
+    /// **One question at a time**, because this window has one card: a policy that would be asked
+    /// about while another question waits is declined with that reason rather than put in its
+    /// place, which would leave the first unanswered and unsaid.
+    fn fetch_policy(
+        &mut self,
+        document: viewer_core::DocumentId,
+        policy: viewer_host::PublishedPolicy,
+    ) {
+        use viewer_host::policy::{
+            asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
+        };
+        match may_fetch_signature_policy(&policy, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_policy_fetch(document, policy, None),
+            viewer_host::Sending::Warn(note) => {
+                self.start_policy_fetch(document, policy, Some(note));
+            }
+            viewer_host::Sending::Ask(_) if self.asked.is_some() => println!(
+                "{}",
+                signature_policy_declined(
+                    &policy,
+                    "another question was already waiting for your answer"
+                )
+            ),
+            viewer_host::Sending::Ask(_) => {
+                let words = asked_to_fetch_policy(&policy);
+                self.put_a_question(
+                    crate::app::Pending::Policy {
+                        document,
+                        policy: Box::new(policy),
+                    },
+                    &words,
+                );
+            }
+            viewer_host::Sending::Refuse(why) => {
+                println!("{}", signature_policy_declined(&policy, &why));
+            }
+        }
+    }
+
+    /// Puts a policy's GET on a `fetch-policy` thread of its own, woken and collected as a
+    /// submission is.
+    fn start_policy_fetch(
+        &mut self,
+        document: viewer_core::DocumentId,
+        policy: viewer_host::PublishedPolicy,
+        warned: Option<String>,
+    ) {
+        println!("{}", viewer_host::policy::policy_fetch_note(&policy));
+        let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
+            Box::new(move || {
+                // A loop that has already exited has nobody to wake.
+                let _ = waker.send_event(());
+            })
+        });
+        if let Err(sentence) = self.submitter.fetch_policy(document, policy, warned, wake) {
+            println!("note: {sentence}");
+        }
+    }
+
     /// Puts the GET on a `fetch-import` thread of its own, woken and collected as a submission is.
     fn start_fetch(
         &mut self,
@@ -429,6 +512,13 @@ answers in two places"
                 }
                 let bytes = self.supply(purpose, &name);
                 queue.push_back(Command::Supply { purpose, bytes });
+            }
+            // §12.8.3.4.4's policy, whose published copy is fetched under the same level a form is
+            // sent at, and opened beside only where it is the copy the signer signed (ADR 1738).
+            Event::SignaturePoliciesPublished { document, policies } => {
+                for policy in policies {
+                    self.fetch_policy(document, policy);
+                }
             }
             // §12.4.4: the frames of it are drawn — by this host, because a transition is an
             // animation over wall time and `viewer-core` has no clock (rule 3). What arrives here
@@ -775,6 +865,9 @@ impl App {
                         )
                     );
                 }
+            }
+            crate::app::Pending::Policy { document, policy } => {
+                self.policy_answered(document, *policy, proceed);
             }
             // Table Annex O.4's `fdf` from a server: a `no` fetches nothing, and the core is told
             // so the import says it declined (ADR 1527).

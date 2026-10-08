@@ -628,28 +628,34 @@ impl App {
     ///
     /// §12.5.6.14's popup "shall be used for editing the parent's text", and
     /// `viewer_core::PopupWindow::note` names the note where the window's text is one this program
-    /// retypes. **The caret stands at the end of the note** and the window's focus ring says it
-    /// has the keyboard: this host lays a note's lines out itself in `chrome::popup_windows`, which
-    /// answers no point for an offset, so a caret placed inside the text would be drawn where the
-    /// next character does not go. A window whose text is not retyped takes the press as before.
+    /// retypes, and the window's focus ring says it has the keyboard. **The caret goes where the
+    /// press went**: this host lays a note's lines out itself, so the place is
+    /// `chrome::popup_offset` over the layout `chrome::popup_windows` draws — the same lines, so
+    /// the caret stands where the next character goes. A window drawn from Table 172's `/RC` has
+    /// no such place and keeps its caret at the note's end (ADR 1739). A window whose text is not
+    /// retyped takes the press as before.
     pub(crate) fn press_on_note(&mut self, at: (f32, f32)) -> bool {
         let Answer::Popups(windows) = self.viewer.query(Query::Popups) else {
             return false;
         };
         // The last window drawn is the one on top.
-        let Some((note, text)) = windows
+        let Some(window) = windows
             .iter()
             .rev()
             .find(|window| viewer_host::covers(window.quad, at))
-            .and_then(|window| Some((window.note?, window.text.clone().unwrap_or_default())))
         else {
             return false;
         };
+        let Some(note) = window.note else {
+            return false;
+        };
+        let end = window.text.as_deref().map_or(0, str::len);
+        let caret = self.note_offset(window, at).unwrap_or(end);
         println!(
-            "note: typing into the text note {} {}",
+            "note: typing into the text note {} {} at {caret} of {end}",
             note.number, note.generation
         );
-        self.typing = Some(Typing::at_offset(Target::Note(note), at, text.len()));
+        self.typing = Some(Typing::at_offset(Target::Note(note), at, caret));
         self.redraw();
         true
     }
@@ -1089,10 +1095,40 @@ impl App {
         }
     }
 
-    /// One key press while a note's window has the keyboard, the caret at the note's end
-    /// ([`App::press_on_note`] says why): a character, a space or a return is added, Backspace
-    /// takes the last character away, and Escape gives the keyboard back to the page. Every other
-    /// key is consumed, so that a page does not turn under somebody typing.
+    /// Where a press at `at` puts the caret in a note's window — `chrome::popup_offset`, under the
+    /// scale the window is drawn at — or `None` where the window's text has no such place.
+    fn note_offset(&self, window: &viewer_core::PopupWindow, at: (f32, f32)) -> Option<usize> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        viewer_ui::chrome::popup_offset(chrome, window, at, scale)
+    }
+
+    /// The offset a line up or down from `caret` stands at in a note's window, at the same place
+    /// across, or `None` where there is no line there or no layout to ask.
+    fn note_line(
+        &self,
+        window: &viewer_core::PopupWindow,
+        caret: usize,
+        down: bool,
+    ) -> Option<usize> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        let ((x, top), (_, bottom)) = viewer_ui::chrome::popup_caret(chrome, window, caret, scale)?;
+        // One line's advance from the middle of this one: the caret is `1.25` of the text size
+        // tall, and `chrome::popup_windows` sets its lines `1.25` of the text size apart.
+        let step = bottom - top;
+        let middle = f32::midpoint(top, bottom);
+        let to = if down { middle + step } else { middle - step };
+        let moved = viewer_ui::chrome::popup_offset(chrome, window, (x, to), scale)?;
+        // The nearest line to a point past the first or the last is that line itself.
+        (moved != caret).then_some(moved)
+    }
+
+    /// One key press while a note's window has the keyboard, the caret where a press or a key put
+    /// it ([`App::press_on_note`] says how): a character, a space or a return goes in at the
+    /// caret, Backspace and Delete take out the character before or after it, the four arrows,
+    /// Home and End move it, and Escape gives the keyboard back to the page. Every other key is
+    /// consumed, so that a page does not turn under somebody typing.
     fn typed_into_note(&mut self, typing: Typing, note: ObjectId, key: &Key<&str>) -> bool {
         // The window's text as the core shows it — the note's retyping where there is one — while
         // the window is still open on the screen; a window that closed takes the keyboard back.
@@ -1104,9 +1140,18 @@ impl App {
             self.typing = None;
             return false;
         };
-        let current = window.text.unwrap_or_default();
+        let current = window.text.clone().unwrap_or_default();
         let current = current.as_str();
-        let next = match *key {
+        // The note's text is the core's and a script may have retyped it since the last key, so
+        // the caret is clamped to the text this press starts from.
+        let caret = caret_boundary(current, typing.caret);
+        let inserted = |text: &str| {
+            (
+                Some(spliced(current, caret, caret, text)),
+                caret.saturating_add(text.len()),
+            )
+        };
+        let (next, moved) = match *key {
             Key::Named(NamedKey::Escape) => {
                 self.typing = None;
                 println!("note: the keyboard is back on the page");
@@ -1114,23 +1159,38 @@ impl App {
                 return true;
             }
             Key::Character(_) if self.control => return true,
-            Key::Named(NamedKey::Backspace) => {
-                spliced(current, before(current, current.len()), current.len(), "")
+            Key::Named(NamedKey::ArrowLeft) => (None, before(current, caret)),
+            Key::Named(NamedKey::ArrowRight) => (None, after(current, caret)),
+            Key::Named(NamedKey::ArrowUp) => {
+                (None, self.note_line(&window, caret, false).unwrap_or(caret))
             }
-            Key::Named(NamedKey::Enter) => format!("{current}\n"),
-            Key::Named(NamedKey::Space) => format!("{current} "),
-            Key::Character(text) if !text.is_empty() => format!("{current}{text}"),
+            Key::Named(NamedKey::ArrowDown) => {
+                (None, self.note_line(&window, caret, true).unwrap_or(caret))
+            }
+            Key::Named(NamedKey::Home) => (None, 0),
+            Key::Named(NamedKey::End) => (None, current.len()),
+            Key::Named(NamedKey::Backspace) => {
+                let from = before(current, caret);
+                (Some(spliced(current, from, caret, "")), from)
+            }
+            Key::Named(NamedKey::Delete) => (
+                Some(spliced(current, caret, after(current, caret), "")),
+                caret,
+            ),
+            Key::Named(NamedKey::Enter) => inserted("\n"),
+            Key::Named(NamedKey::Space) => inserted(" "),
+            Key::Character(text) if !text.is_empty() => inserted(text),
             _ => return true,
         };
-        if next != current {
+        if let Some(next) = next.filter(|next| next != current) {
             self.dispatch(Command::Edit(Edit::SetNoteText {
                 annotation: note,
-                text: next.clone(),
+                text: next,
             }));
         }
         self.typing = Some(Typing {
-            caret: next.len(),
-            anchor: next.len(),
+            caret: moved,
+            anchor: moved,
             ..typing
         });
         self.redraw();

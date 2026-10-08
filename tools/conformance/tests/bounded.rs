@@ -355,8 +355,7 @@ fn spells_a_bare_lock(line: &str) -> bool {
 
 /// The files that still tell a person to take the lock with a bare `flock`, each another round's to
 /// re-spell: a ratchet, so a file leaves this list the day it is re-spelled and none joins it.
-const HELD_BARE_LOCK_INSTRUCTIONS: [&str; 1] =
-    ["doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md"];
+const HELD_BARE_LOCK_INSTRUCTIONS: [&str; 0] = [];
 
 /// Every instruction a person reads spells the lock as the wrapper does, not only the scripts and
 /// the rule line above: a census's doc comment, `fuzz/seeds.sh`'s header and `doc/verify.md` told a
@@ -733,6 +732,17 @@ fn gate_of(words: &[&str]) -> Option<String> {
         .find_map(|flag| after(flag).map(|name| format!("{package} {flag} {name}")))
 }
 
+/// The words of a shell command line up to its comment.
+///
+/// The shell's own rule: a word that begins with `#` begins a comment, and no word after it is an
+/// argument. A gate line's trailing comment says in words what the gate needs and may name a flag
+/// as it does, so a flag read off the whole line can be the comment's rather than the command's
+/// (ADR 1744).
+fn command_words(line: &str) -> impl Iterator<Item = &str> {
+    line.split_whitespace()
+        .take_while(|word| !word.starts_with('#'))
+}
+
 /// Every walk in a shell script: a command, continued lines joined, whose `cargo test`, `cargo
 /// nextest run` or `cargo run` builds under `--profile gates` or `--release` (or a profile held in a
 /// variable), or runs over the whole `--workspace`. Every other `cargo` a state section runs is a
@@ -744,7 +754,7 @@ fn state_walks(source: &str) -> Vec<Walk> {
         if text.trim_start().starts_with('#') {
             continue;
         }
-        let words: Vec<&str> = text.split_whitespace().collect();
+        let words: Vec<&str> = command_words(&text).collect();
         let runs_cargo = words.windows(2).any(|pair| {
             pair.first()
                 .is_some_and(|word| word.trim_matches('"').ends_with("cargo"))
@@ -783,6 +793,25 @@ fn state_walks(source: &str) -> Vec<Walk> {
         });
     }
     walks
+}
+
+/// A walk line's trailing comment says in words what the walk needs, and may name a flag while it
+/// does; the gate and the profile read are the command's own. Calibrated by planting (trap 13): the
+/// first comment names a target the command does not run, the second a profile it does not build.
+#[test]
+fn a_flag_a_trailing_comment_names_is_not_the_walk_s_own() {
+    let planted = "section_a() {\n    run \"a\" 'x' walk small -- cargo run --release -p e --bin x \
+                   # not --test clocked\n    \
+                   run \"b\" 'x' cargo test -p conformance --test f # a --release walk would lock\n}\n";
+    let walks = state_walks(planted);
+    assert_eq!(
+        walks
+            .iter()
+            .map(|walk| (walk.line, walk.gate.clone()))
+            .collect::<Vec<_>>(),
+        [(2, None)],
+        "{walks:?}"
+    );
 }
 
 /// The kind a state section's walk owes beside the merge's own line for the same gate: `clock` where

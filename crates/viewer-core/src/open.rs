@@ -401,7 +401,7 @@ pub(crate) struct Open {
     ///
     /// So [`crate::Command::Report`] is what asks, and this is what makes asking twice cost once.
     /// ADR 1044.
-    pub(crate) about: OnceCell<Vec<String>>,
+    pub(crate) about: OnceCell<crate::notes::About>,
 }
 
 /// One end of a selection: a page, and a byte offset into that page's readback.
@@ -978,7 +978,7 @@ impl Open {
     /// rather than `&mut self` because a [`OnceCell`] is what makes "once" a property of the
     /// value rather than of the caller's discipline — and because the document is immutable, so
     /// the sentences are a function of the file and are the same sentences every time.
-    pub(crate) fn about(&self, trust: &crate::TrustPolicy) -> &[String] {
+    pub(crate) fn about(&self, trust: &crate::TrustPolicy) -> &crate::notes::About {
         self.about
             .get_or_init(|| crate::notes::about(&self.document, trust))
     }

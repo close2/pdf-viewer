@@ -121,6 +121,7 @@ fn request(site: ScriptSite, script: &str) -> Request {
         pages: 1,
         dirty: true,
         document: Some(document()),
+        view: pdf_model::view::WindowView::default(),
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }

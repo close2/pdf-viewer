@@ -577,12 +577,17 @@ pub fn fetched(url: &str, format: DataFormat, response: Response, warned: Option
 }
 
 /// Which request a [`Returned`] answers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Asked {
     /// §12.7.6.2's submission, whose answer [`reply`] reads.
     Submission,
     /// A fetched import, in the format its URI's name says, whose answer [`fetched`] reads.
     Import(DataFormat),
+    /// A signature policy's published copy, whose answer
+    /// [`crate::policy::signature_policy_fetched`] compares with the digest the signer signed
+    /// (ADRs 1728, 1738). Boxed because the identifier, the URL and the digest travel with it and
+    /// the other two arms are a byte.
+    Policy(Box<pdf_signature::policy::PublishedPolicy>),
 }
 
 /// One request's end, as it crosses back to the window.
@@ -607,6 +612,11 @@ impl Returned {
     #[must_use]
     pub fn reply(self) -> Reply {
         match (self.asked, self.answer) {
+            // Both halves are the policy module's, which says every outcome — a failure to
+            // connect included — in the one sentence that ends by naming what was not enforced.
+            (Asked::Policy(policy), answer) => {
+                crate::policy::signature_policy_fetched(&policy, answer, self.warned.as_deref())
+            }
             (Asked::Submission, Ok(response)) => reply(&self.url, response, self.warned.as_deref()),
             (Asked::Import(format), Ok(response)) => {
                 fetched(&self.url, format, response, self.warned.as_deref())
@@ -726,6 +736,51 @@ impl Submitter {
                 }
             })
             .map_err(|error| format!("import-data: no thread to fetch it on: {error}"))?;
+        self.outstanding = self.outstanding.saturating_add(1);
+        Ok(())
+    }
+
+    /// Fetches a signature policy's published copy on a `fetch-policy` thread of its own —
+    /// [`Self::fetch`]'s shape, so the answer is collected on the same timer and a bound PDF opens
+    /// beside the document whose signature named it (ADR 1738).
+    ///
+    /// Asked first: a window calls this only after
+    /// [`crate::policy::may_fetch_signature_policy`] answered [`crate::Sending::Send`] or
+    /// [`crate::Sending::Warn`], or a person answered its question yes.
+    ///
+    /// # Errors
+    ///
+    /// The sentence to say where no thread could be started, in which case nothing was fetched.
+    pub fn fetch_policy(
+        &mut self,
+        document: DocumentId,
+        policy: pdf_signature::policy::PublishedPolicy,
+        warned: Option<String>,
+        wake: Option<Box<dyn Fn() + Send>>,
+    ) -> Result<(), String> {
+        let sender = self.sender.clone();
+        let identifier = policy.identifier.clone();
+        std::thread::Builder::new()
+            .name("fetch-policy".to_owned())
+            .spawn(move || {
+                let answer = fetch(&policy.url);
+                // The window's absence, as in `send`.
+                let _ = sender.send(Returned {
+                    document,
+                    url: policy.url.clone(),
+                    asked: Asked::Policy(Box::new(policy)),
+                    warned,
+                    answer,
+                });
+                if let Some(wake) = wake {
+                    wake();
+                }
+            })
+            .map_err(|error| {
+                format!(
+                    "signature policy {identifier}: no thread to fetch its document on: {error}"
+                )
+            })?;
         self.outstanding = self.outstanding.saturating_add(1);
         Ok(())
     }

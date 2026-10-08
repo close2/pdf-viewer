@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 26u
+#define QUORRA_EVENT_KIND_COUNT 27u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -124,6 +124,13 @@ extern "C" {
 /* A document's script asked for a sound: app.beep. Not sent to a caller of this ABI, for the kinds
  * above's reason; named for the default arm of a switch (ADR 1702). */
 #define QUORRA_EVENT_BEEP 25u
+
+/* ISO 32000-2 §12.8.3.4.4: a signature names a server where a copy of its policy's document is
+ * published (ETSI EN 319 122-1 clause 5.2.9.2). `quorra_events_describe` gives each URL and policy
+ * identifier. Fetching one tells that server the document is being validated, which is the
+ * caller's decision; the comparison that binds a copy to the digest the signer signed is the Rust
+ * hosts' and is not offered here (ADR 1738). */
+#define QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED 26u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u

@@ -1,6 +1,7 @@
 //! ADRs 1724 and 1725 driven through `pdf_model::view::ViewState` with the in-process engine: the
 //! `Doc` members a view state answers — the pages, a named destination, `title`, `calculate`,
-//! `app.activeDocs` — and a choice field's options read from `/Opt` and chosen by index.
+//! `app.activeDocs` — and a choice field's options read from `/Opt`, chosen by index, and
+//! rewritten (ADR 1737).
 //!
 //! Every expected value is the clause the member reads — §12.4.2's labels, Table 31's boxes and
 //! `/Rotate`, §12.3.2.4's named destinations, Table 230's and Table 234's `/Opt`, §12.7.5.4's `/V`
@@ -296,7 +297,7 @@ fn choosing_by_index_commits_the_item_as_a_person_s_choice() {
 }
 
 #[test]
-fn rewriting_opt_is_refused_by_name_and_export_values_reads_table_230() {
+fn rewriting_a_text_field_s_options_is_refused_by_name_and_export_values_reads_table_230() {
     let radio = |number: u32, state: &str| {
         format!(
             "<< /Type /Annot /Subtype /Widget /Parent 9 0 R /Rect [10 50 30 70] /F 4 /P 3 0 R \
@@ -327,4 +328,147 @@ fn rewriting_opt_is_refused_by_name_and_export_values_reads_table_230() {
         "{:?}",
         view.script_reports()
     );
+}
+
+/// The list box `Colour`'s options as a host's control lists them, and what it selects.
+fn control(view: &ViewState, document: &Document) -> (Vec<String>, Vec<usize>) {
+    let page = pdf_model::Pages::new(document).get(0).expect("page one");
+    let described = pdf_model::form::fields(document, &page, view);
+    let colour = described
+        .iter()
+        .find(|field| field.partial == "Colour")
+        .expect("the list box is on page one");
+    // A control of another kind answers with itself in place of the options, so the assertion
+    // that reads this prints what was found.
+    let pdf_model::form::Control::Choice(choice) = &colour.control else {
+        return (vec![format!("{:?}", colour.control)], Vec::new());
+    };
+    (
+        choice
+            .options
+            .iter()
+            .map(|option| option.label.clone())
+            .collect(),
+        choice.selected.clone(),
+    )
+}
+
+/// `setItems` replaces Table 234's `/Opt` whole: the realm reads the new list, a host's control
+/// lists it, a person's choice by index selects from it, and a save writes it — an item given as
+/// the reference's pair of text and export value written as the table's pair of export value and
+/// text. `Green`, selected before, is selected where it now stands (§12.7.5.4's `/V` names it by
+/// its text).
+#[test]
+fn set_items_rewrites_opt_for_the_realm_the_control_a_choice_and_the_save() {
+    let document = two_pages(
+        "var f = this.getField\\('Colour'\\); f.setItems\\([['One', '1'], 'Two', 'Green']\\); \
+         this.getField\\('Out'\\).value = [f.numItems, f.getItemAt\\(0\\), \
+         f.getItemAt\\(0, false\\), f.currentValueIndices].join\\('|'\\);",
+        "",
+        (&[7], &[7]),
+        &[colours("(Green)", 0)],
+    );
+    let mut view = opened(&document);
+    assert_eq!(
+        value(&view, &document, "Out"),
+        "3|1|One|2",
+        "{:?}",
+        view.script_reports()
+    );
+    assert_eq!(
+        control(&view, &document),
+        (
+            vec!["One".to_owned(), "Two".to_owned(), "Green".to_owned()],
+            vec![2]
+        )
+    );
+    view.set_field(&document, "Colour", &Entered::Chosen(vec![1]));
+    assert_eq!(
+        control(&view, &document).1,
+        vec![1],
+        "the new list's second item"
+    );
+    let written = view.save(&document).expect("the update writes");
+    let saved = Document::open(written.bytes).expect("the update reads back");
+    let field = saved
+        .get(pdf_syntax::ObjectId {
+            number: 7,
+            generation: 0,
+        })
+        .as_dict()
+        .cloned()
+        .expect("the list box");
+    let text = |object: &pdf_syntax::Object| match object {
+        pdf_syntax::Object::String(bytes) => pdf_syntax::text_string(bytes),
+        pdf_syntax::Object::Array(pair) => pair
+            .iter()
+            .map(|entry| match entry {
+                pdf_syntax::Object::String(bytes) => pdf_syntax::text_string(bytes),
+                _ => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join("/"),
+        _ => String::new(),
+    };
+    let options: Vec<String> = saved
+        .get_key(&field, "Opt")
+        .as_array()
+        .map(|items| items.iter().map(text).collect())
+        .unwrap_or_default();
+    assert_eq!(options, ["1/One", "Two", "Green"]);
+}
+
+/// `insertItemAt` and `deleteItemAt` move the selection with its item, and deleting the selected
+/// item — `deleteItemAt` with no index — leaves the field with no selection, as the reference
+/// says; `clearItems` leaves no option.
+#[test]
+fn inserting_and_deleting_keep_the_selection_with_its_item_until_it_is_deleted() {
+    let document = two_pages(
+        "var f = this.getField\\('Colour'\\); var said = []; \
+         f.insertItemAt\\('Mauve', 'm', 0\\); said.push\\(f.numItems, f.currentValueIndices\\); \
+         f.insertItemAt\\({cName: 'Last', nIdx: -1}\\); said.push\\(f.getItemAt\\(-1\\)\\); \
+         f.deleteItemAt\\(\\); said.push\\(f.numItems, f.currentValueIndices, f.value\\); \
+         f.deleteItemAt\\(\\); \
+         try { f.deleteItemAt\\(9\\); } catch \\(e\\) { said.push\\(e.name\\); } \
+         this.getField\\('Out'\\).value = said.join\\('|'\\);",
+        "",
+        (&[7], &[7]),
+        &[colours("(Green)", 0)],
+    );
+    let view = opened(&document);
+    assert_eq!(
+        value(&view, &document, "Out"),
+        "4|2|Last|4|-1||RangeError",
+        "{:?}",
+        view.script_reports()
+    );
+    assert_eq!(
+        control(&view, &document),
+        (
+            vec![
+                "Mauve".to_owned(),
+                "Red".to_owned(),
+                "Blue".to_owned(),
+                "Last".to_owned()
+            ],
+            Vec::new()
+        )
+    );
+    assert!(
+        view.script_reports()
+            .iter()
+            .any(|sentence| sentence.contains("nothing is selected, so no option is deleted")),
+        "{:?}",
+        view.script_reports()
+    );
+    let document = two_pages(
+        "var f = this.getField\\('Colour'\\); f.clearItems\\(\\); \
+         this.getField\\('Out'\\).value = [f.numItems, f.currentValueIndices].join\\('|'\\);",
+        "",
+        (&[7], &[7]),
+        &[colours("(Green)", 0)],
+    );
+    let view = opened(&document);
+    assert_eq!(value(&view, &document, "Out"), "0|-1");
+    assert_eq!(control(&view, &document), (Vec::new(), Vec::new()));
 }

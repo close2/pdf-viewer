@@ -38,7 +38,8 @@ use std::time::{Duration, Instant};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use super::script_model::{
-    CommitKey, DocumentState, FieldState, Overrides, Property, ScriptEdit, ScriptSite,
+    CommitKey, DocumentState, FieldState, Overrides, Property, ScriptEdit, ScriptSite, ViewChange,
+    WindowView,
 };
 use super::{Entry, ViewState};
 use crate::action::{ResetForm, ResetTarget};
@@ -120,6 +121,10 @@ pub struct ScriptEvent<'a> {
     /// The document as a whole, where it has changed since the runner was last handed an event:
     /// always the first time. A runner's realm replaces its record with it.
     pub document: Option<&'a DocumentState>,
+    /// The window's view of the document, as a host last told the view state of it: `this.zoom`,
+    /// `this.zoomType` and `this.layout` (ADR 1736). Small, so it is handed with every event
+    /// rather than measured against what the realm last heard.
+    pub view: WindowView,
 }
 
 /// What a [`ScriptRunner`] made of a [`ScriptEvent`].
@@ -275,7 +280,18 @@ pub(super) struct Scripting {
     /// Whether a script set `this.calculate` false, which stops Table 224's `/CO` from being
     /// walked until a script sets it true again (ADR 1724).
     calculations_off: bool,
+    /// The window's view as a host last told it, or `None` where no host has
+    /// ([`ViewState::set_window_view`], ADR 1736).
+    window: Option<WindowView>,
+    /// The changes scripts asked of the window's view, in the order asked, until a host takes
+    /// them; at most [`MAX_VIEW_CHANGES`].
+    views: Vec<ViewChange>,
 }
+
+/// Most changes to the window's view a view state holds for a host: a script that sets the zoom
+/// in a loop has asked for its last one, and four of each kind is more than any script needs to
+/// say where it wants the window (ADR 1736).
+const MAX_VIEW_CHANGES: usize = 16;
 
 /// A run its runner held rather than finished, and what its late outcome needs to be applied.
 #[derive(Debug, Clone, PartialEq)]
@@ -666,6 +682,27 @@ impl ViewState {
         self.scripting.page.take()
     }
 
+    /// Every change a script asked of the window's view since a host last took them, in the order
+    /// asked: a zoom, a fitting mode, a page layout, a point scrolled to the middle (ADR 1736).
+    ///
+    /// The view is the host's, as the focus and the page are, so a view state holds the requests
+    /// and a host carries them out after any call that ran scripts, as it carries a person's zoom
+    /// or layout. A scroll names a page of the document, checked when the script's run was
+    /// applied.
+    pub fn take_view_requests(&mut self) -> Vec<ViewChange> {
+        std::mem::take(&mut self.scripting.views)
+    }
+
+    /// Says what the window's view of the document now is, so that a script reads it as
+    /// `this.zoom`, `this.zoomType` and `this.layout` (ADR 1736).
+    ///
+    /// A host calls it with the document and after each change of its view; the next event a
+    /// runner is handed carries it. Until a host calls it, a script reads the layout the document
+    /// asks to open with and no magnification.
+    pub fn set_window_view(&mut self, view: WindowView) {
+        self.scripting.window = Some(view);
+    }
+
     /// What one field displays: its value through its format script, or as it stands.
     ///
     /// [`Self::field_value`] answers with the characters a host edits; this answers with what the
@@ -754,6 +791,7 @@ impl ViewState {
                                 .run(&ScriptEvent {
                                     script: &script,
                                     pages: crate::page::Pages::new(document).len(),
+                                    view: self.window_view(document),
                                     ..event
                                 })
                                 .value
@@ -815,6 +853,7 @@ impl ViewState {
             pages: crate::page::Pages::new(document).len(),
             dirty: self.unsaved(),
             document: whole.as_ref(),
+            view: self.window_view(document),
             ..event
         });
         if runner.waiting() && self.scripting.pending.len() < MAX_PENDING {
@@ -1036,9 +1075,48 @@ impl ViewState {
                 }
                 ScriptEdit::Destination { name } => self.go_to_named(document, name),
                 ScriptEdit::Calculation { on } => self.scripting.calculations_off = !*on,
+                ScriptEdit::View { change } => self.ask_view(document, *change),
             }
         }
         applied
+    }
+
+    /// Holds a script's change to the window's view for a host, or reports why it names nothing
+    /// a host can carry out (ADR 1736). A change past [`MAX_VIEW_CHANGES`] replaces the latest of
+    /// its own kind, so the last zoom a script asked for is the one that stands.
+    fn ask_view(&mut self, document: &Document, change: ViewChange) {
+        if let ViewChange::Scroll { page, .. } = change {
+            let pages = crate::page::Pages::new(document).len();
+            if usize::try_from(page).map_or(true, |page| page >= pages) {
+                self.report(format!(
+                    "a script scrolled page {}, and this document has {pages}, so the view does \
+                     not move (ADR 1736)",
+                    u64::from(page).saturating_add(1)
+                ));
+                return;
+            }
+        }
+        let views = &mut self.scripting.views;
+        if views.len() < MAX_VIEW_CHANGES {
+            views.push(change);
+        } else if let Some(same) = views
+            .iter_mut()
+            .rev()
+            .find(|held| std::mem::discriminant(*held) == std::mem::discriminant(&change))
+        {
+            *same = change;
+        }
+    }
+
+    /// What a script reads of the window's view: what a host last told
+    /// ([`Self::set_window_view`]), or, where none has, the arrangement the document asks its
+    /// window to open with — Table 29's `/PageLayout`, which "shall be used when the document is
+    /// opened" — and no magnification, since nothing is drawing the page (ADR 1736).
+    fn window_view(&self, document: &Document) -> WindowView {
+        self.scripting.window.unwrap_or_else(|| WindowView {
+            layout: crate::viewer_preferences::Opening::read(document).layout,
+            ..WindowView::default()
+        })
     }
 
     /// Applies a script's `currentValueIndices`: §12.7.5.4's items chosen by index, as a person's
@@ -1065,7 +1143,11 @@ impl ViewState {
             .iter()
             .filter_map(|index| usize::try_from(*index).ok())
             .collect();
-        let Some(entry) = super::chosen(document, widgets.first().copied(), &indices) else {
+        let scripted = widgets
+            .first()
+            .map_or(&[][..], |widget| self.scripted(*widget));
+        let Some(entry) = super::chosen(document, widgets.first().copied(), scripted, &indices)
+        else {
             self.report(format!(
                 "{field}: a script set currentValueIndices, and the field is not a choice field \
                  whose options it names, so nothing is chosen (ADR 1725)"
@@ -1224,7 +1306,10 @@ impl ViewState {
             | Property::CharLimit(_)
             | Property::Required(_)
             | Property::Caption(..)
-            | Property::Style(_) => {
+            | Property::Style(_)
+            // Table 234's `/Opt` as a script rewrote it: what a list box draws, what a host's
+            // control lists and what a save writes, each read as the entry it writes (ADR 1737).
+            | Property::Options(_) => {
                 for widget in &widgets {
                     let held = self.scripting.drawn.entry(*widget).or_default();
                     held.retain(|kept| !kept.replaces(property));
@@ -2022,6 +2107,7 @@ impl<'a> ScriptEvent<'a> {
             pages: 1,
             dirty: false,
             document: None,
+            view: WindowView::default(),
         }
     }
 }

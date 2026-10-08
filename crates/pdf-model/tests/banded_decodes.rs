@@ -136,26 +136,83 @@ fn a_scan_the_data_ends_inside_its_last_interval_is_never_cut_differently() {
 }
 
 /// A grey frame of 100 × 107 whose entropy-coded data runs to the end of the stream with no `EOI`
-/// — the `jpeg_bands` fuzz target's second finding (ADR 1495). The row plan re-codes its last band
-/// as a codestream of its own, ended by an `EOI` the data does not have, so a scan with no `EOI`
-/// after it is left to the whole decoder (`image::cut`, ADR 1513); the same frame ended by its
-/// `EOI` is cut, and is the whole frame.
+/// — the `jpeg_bands` fuzz target's second finding (ADR 1495). ISO/IEC 10918-1 section E.2.3 ends
+/// the scan on its MCU count and the data holds every MCU, so the scan is complete without the
+/// marker: the row plan cuts it, and its bands are the whole frame, read with the `EOI` or without
+/// (ADR 1740).
 #[test]
-fn a_scan_the_data_ends_inside_is_left_to_the_whole_decoder() {
+fn a_complete_scan_without_its_eoi_is_cut_at_its_rows_and_is_the_whole_frame() {
     let data = grey_frame_without_its_eoi();
-    for lines in [8, 16, 64] {
-        let decodes = banded_decodes(&data, lines);
-        assert!(decodes.whole.is_some(), "the whole decoder reads it");
-        assert_eq!(decodes.at_rows, None, "no EOI, so no cut at {lines} lines");
-    }
     let mut ended = data.clone();
     ended.extend_from_slice(&[0xFF, 0xD9]);
-    let decodes = banded_decodes(&ended, 16);
-    let banded = decodes.at_rows.expect("ended by its EOI, the frame is cut");
+    let with_eoi = banded_decodes(&ended, 16)
+        .whole
+        .expect("the frame ended by its EOI decodes");
+    for lines in [8, 16, 64] {
+        let decodes = banded_decodes(&data, lines);
+        let whole = decodes.whole.as_ref().expect("the whole decoder reads it");
+        let banded = decodes
+            .at_rows
+            .as_ref()
+            .unwrap_or_else(|| panic!("cut at its rows in bands of {lines} lines"));
+        assert!(banded == whole, "bands of {lines} lines moved a byte");
+        assert!(banded == &with_eoi, "and are the frame its EOI ends");
+    }
+}
+
+/// Every fixture the row plan cuts, its `EOI` taken off, and then its data ended at every byte of
+/// its last 1024 or carried on past its last MCU: a scan whose data does not hold its last MCU is
+/// not complete by section E.2.3's count, so the pass declines it and the frame is the whole
+/// decoder's; a complete one is cut and is the whole frame, whatever bytes the data carries after
+/// it. The plan never answers otherwise than the whole decoder (ADR 1740).
+#[test]
+fn a_scan_without_its_eoi_is_never_cut_differently_at_its_rows() {
+    let tails: [&[u8]; 5] = [
+        &[0x00],
+        &[0xFF],
+        &[0xFF, 0x00],
+        &[0x12, 0x34, 0x56],
+        &[0xFF; 3],
+    ];
+    for (name, data, restarts) in FIXTURES {
+        if restarts {
+            continue;
+        }
+        let bare = data.strip_suffix(&[0xFF, 0xD9]).expect("ended by EOI");
+        let decodes = banded_decodes(bare, 16);
+        let banded = decodes
+            .at_rows
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name} without its EOI is cut"));
+        assert!(
+            Some(banded) == decodes.whole.as_ref(),
+            "{name} without its EOI is the whole frame"
+        );
+        let mut refused = 0;
+        for end in bare.len().saturating_sub(1024)..bare.len() {
+            refused += usize::from(compared(&bare[..end], &format!("{name} ended at {end}")));
+        }
+        assert!(refused > 0, "{name}: some truncation is refused");
+        for tail in tails {
+            let mut carried = bare.to_vec();
+            carried.extend_from_slice(tail);
+            compared(&carried, &format!("{name} followed by {tail:02X?}"));
+        }
+    }
+}
+
+/// Whether the row plan declined `data` in bands of 16 lines, having checked that where it did not
+/// it answered the whole decoder's bytes — so never where the whole decoder refuses.
+fn compared(data: &[u8], what: &str) -> bool {
+    let decodes = banded_decodes(data, 16);
+    let Some(banded) = &decodes.at_rows else {
+        return true;
+    };
     assert!(
-        Some(&banded) == decodes.whole.as_ref(),
-        "and the cut frame is the whole frame"
+        decodes.whole.as_ref() == Some(banded),
+        "{what}: the cut is not the whole decoder's frame"
     );
+    false
 }
 
 /// The same frame decoded whole with and without the `EOI` its data lacks. ITU-T T.81 section

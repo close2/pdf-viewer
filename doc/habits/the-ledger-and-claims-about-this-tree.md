@@ -440,3 +440,20 @@ carrying them, largest first; a round touching a row leaves it without one and l
 An `out-of-scope` note names its exclusion in words and quotes the clause's own sentence that puts
 it there — the one row this found was §13.4, whose poster the owner had already taken off the
 exclusion in A33 and nobody had built.
+
+## A refusal that only chooses a schedule is not a departure from the clause
+
+`image/cut.rs` declined every scan without an `EOI` and handed it to the whole decoder; the brief
+read that as part of §7.4.8's departure, but no pixel depended on it — the decline chose which path
+drew the same bytes (round 1452, ADR 1740). Before a refusal is written into a row's note as a
+departure, the question is whether any output depends on it; a fast path that declines back to the
+reference path is scheduling, and the note records the departure the pixels show.
+
+## A feature a document says exists has a caller outside the tests
+
+`ViewState::run_annotation_scripts` and `run_page_scripts` had no caller outside the tests and the
+action path declined every `JavaScript` action, so a button's mouse-up script and a page's `/O` and
+`/C` scripts never ran in any window although `doc/state-of-play.md` said they did; the viewer kept no
+history of views although a brief assumed one (round 1450, ADR 1736). Before a brief or a note
+claims a feature is there, `grep` for a non-test caller of the API it rests on; the two claims a
+round found false this way took a minute each to check.

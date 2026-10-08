@@ -458,6 +458,14 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::NeedsFile { purpose, name, .. } => {
             format!("needs file {name} for {}", viewer_host::asked_for(*purpose))
         }
+        Event::SignaturePoliciesPublished { policies, .. } => format!(
+            "signature policies published at {}",
+            policies
+                .iter()
+                .map(|policy| policy.url.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Event::Transition { .. } => "a transition".to_owned(),
         Event::Dirty { dirty, .. } => format!("dirty {dirty}"),
         Event::Saved { bytes, .. } => format!("saved, {} bytes", bytes.len()),

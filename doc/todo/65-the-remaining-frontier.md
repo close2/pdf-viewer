@@ -81,8 +81,8 @@ permanent) or an owner decision to acquire a specification.
   free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
   defined; e-sRGB and e-sYCC (PIMA 7667) and CIE Jab (CIE Publication 131) take §7.4.9's device
   fallback, because their texts are not held (read on 2026-10-08, the row's note says where): PIMA
-  7667 is sold by IS&T, and CIE 131 is sold, superseded by CIE 159, itself withdrawn in 2022 for CIE
-  248. Checking the restriction on a file is not a reader's job and is not counted as debt
+  7667 is sold by IS&T, and CIE 131 is listed by the CIE as superseded by CIE 159, itself withdrawn
+  in 2022 for CIE 248; whether to buy them is `doc/questions/Q348`. Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
   ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).

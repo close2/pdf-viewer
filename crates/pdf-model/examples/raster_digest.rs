@@ -67,6 +67,10 @@ use render_cpu::CpuRasterizer;
 /// Pixels one page may cost, so that a malformed extent cannot exhaust this process.
 const MAX_PIXELS: u64 = 64 << 20;
 
+/// Strips per page: one, as `tests/raster_golden.rs` draws them. A count asked of the machine
+/// would make the two arms differ wherever they were given different CPUs (ADR 1742).
+const STRIPS: u32 = 1;
+
 fn main() {
     let mut documents = 0_usize;
     let mut drawn = 0_usize;
@@ -96,7 +100,10 @@ fn main() {
                 continue;
             }
         };
-        match CpuRasterizer::new().rasterize(&list, target) {
+        match CpuRasterizer::new()
+            .with_strips(STRIPS)
+            .rasterize(&list, target)
+        {
             Ok(raster) => {
                 let mut hasher = DefaultHasher::new();
                 raster.data.hash(&mut hasher);

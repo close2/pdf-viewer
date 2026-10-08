@@ -1456,6 +1456,73 @@ impl Host {
         }
     }
 
+    /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
+    /// sent at and opened beside only where a copy is the one the signer signed (ADR 1738): each
+    /// one asked of [`Self::fetch_policy`].
+    fn fetch_policies(
+        &mut self,
+        document: DocumentId,
+        policies: Vec<viewer_host::PublishedPolicy>,
+    ) {
+        for policy in policies {
+            self.fetch_policy(document, policy);
+        }
+    }
+
+    /// A signature policy's published copy, under the level the menu holds — the one answer
+    /// `viewer_host::policy::may_fetch_signature_policy` gives (ADR 1738). Declined, it is said;
+    /// fetched, its answer is looked for as a submission's is and a bound PDF opens beside.
+    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+        use viewer_host::policy::{
+            asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
+        };
+        match may_fetch_signature_policy(&policy, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_policy_fetch(document, policy, None),
+            viewer_host::Sending::Warn(note) => {
+                self.start_policy_fetch(document, policy, Some(note));
+            }
+            viewer_host::Sending::Ask(_) => {
+                let words = asked_to_fetch_policy(&policy);
+                self.put_a_question(
+                    viewer_host::Subject::Policy.title(),
+                    &words,
+                    Rc::new(move |host: &mut Self, proceed| {
+                        if proceed {
+                            host.start_policy_fetch(document, policy.clone(), None);
+                        } else {
+                            host.say(&signature_policy_declined(
+                                &policy,
+                                &format!("you answered \"{}\"", viewer_host::restriction::DO_NOT),
+                            ));
+                        }
+                    }),
+                );
+            }
+            viewer_host::Sending::Refuse(why) => {
+                self.say(&signature_policy_declined(&policy, &why));
+            }
+        }
+    }
+
+    /// Puts a policy's GET on a `fetch-policy` thread of its own, looked for as a submission's
+    /// answer is.
+    fn start_policy_fetch(
+        &mut self,
+        document: DocumentId,
+        policy: viewer_host::PublishedPolicy,
+        warned: Option<String>,
+    ) {
+        self.say(&viewer_host::policy::policy_fetch_note(&policy));
+        let first = self.submitter.interval().is_none();
+        if let Err(sentence) = self.submitter.fetch_policy(document, policy, warned, None) {
+            self.say(&sentence);
+            return;
+        }
+        if first {
+            self.look_for_answers();
+        }
+    }
+
     /// Puts the GET on a `fetch-import` thread of its own, looked for as a submission's answer is.
     fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
         self.say(&viewer_host::fetch_note(&url, None));
@@ -1965,24 +2032,28 @@ impl Host {
         }
     }
 
+    /// A document that could not be opened, said by the name it arrived under — a tab on its way
+    /// in, or the one in front — and the next one waiting started.
+    fn open_failed(&mut self, document: DocumentId, reason: &str) {
+        if let Some(arriving) = self.arrivals.settle(document) {
+            self.say(&viewer_host::cannot_open(
+                &viewer_host::documents::label(&arriving.named.path),
+                reason,
+            ));
+        } else {
+            self.say(&viewer_host::cannot_open(
+                &named(&self.showing.path),
+                reason,
+            ));
+        }
+        self.later_open_the_next();
+    }
+
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
-            Event::OpenFailed { document, reason } => {
-                if let Some(arriving) = self.arrivals.settle(document) {
-                    self.say(&viewer_host::cannot_open(
-                        &viewer_host::documents::label(&arriving.named.path),
-                        &reason,
-                    ));
-                } else {
-                    self.say(&viewer_host::cannot_open(
-                        &named(&self.showing.path),
-                        &reason,
-                    ));
-                }
-                self.later_open_the_next();
-            }
+            Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
             // rather than a refusal. How many times to ask is `viewer_host::password`'s, because
@@ -2036,6 +2107,9 @@ impl Host {
                 name,
                 beside,
             } => self.needs_file(document, purpose, name, beside, queue),
+            Event::SignaturePoliciesPublished { document, policies } => {
+                self.fetch_policies(document, policies);
+            }
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw

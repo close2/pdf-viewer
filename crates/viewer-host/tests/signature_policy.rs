@@ -226,3 +226,69 @@ fn a_named_specification_is_said_where_the_constraints_are_not_enforced() {
         "{declined}"
     );
 }
+
+/// The window's path rather than the function's: `Submitter::fetch_policy` puts the GET on a
+/// thread of its own, the answer is collected as a submission's is, and what it comes to is the
+/// same [`Reply`] the blocking function gives — a bound PDF to open beside the document whose
+/// signature named it, for that document (ADR 1738).
+#[test]
+fn a_window_s_fetch_of_a_policy_is_collected_as_its_bound_copy() {
+    let (base, server) = serve_once("200 OK", "application/pdf", POLICY.to_vec());
+    let policy = published(&format!("{base}/politica_de_firma.pdf"));
+    let mut submitter = viewer_host::submit::Submitter::new();
+    submitter
+        .fetch_policy(viewer_core::DocumentId(7), policy, None, None)
+        .expect("a thread to fetch on");
+    assert_eq!(
+        submitter.interval(),
+        Some(viewer_host::submit::LOOK),
+        "an answer is outstanding, so the window's timer runs"
+    );
+    let mut returned = Vec::new();
+    for _ in 0..500 {
+        returned.extend(submitter.collect());
+        if !returned.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = server.join();
+    let [returned] = <[_; 1]>::try_from(returned).expect("one answer arrives");
+    assert_eq!(returned.document, viewer_core::DocumentId(7));
+    assert_eq!(
+        submitter.interval(),
+        None,
+        "and nothing is outstanding after it"
+    );
+    let Reply::Document { bytes, note } = returned.reply() else {
+        panic!("a bound PDF is opened beside the document");
+    };
+    assert_eq!(bytes, POLICY);
+    assert!(note.contains(UNENFORCED), "{note}");
+}
+
+/// The control (trap 13): the same window path to a server that answers 404 says so and opens
+/// nothing, so the test above cannot pass on a reply that ignored the server.
+#[test]
+fn a_window_s_fetch_of_a_policy_that_is_not_found_is_said() {
+    let (base, server) = serve_once("404 Not Found", "text/html", b"<p>no</p>".to_vec());
+    let policy = published(&format!("{base}/politica_de_firma.pdf"));
+    let mut submitter = viewer_host::submit::Submitter::new();
+    submitter
+        .fetch_policy(viewer_core::DocumentId(7), policy, None, None)
+        .expect("a thread to fetch on");
+    let mut returned = Vec::new();
+    for _ in 0..500 {
+        returned.extend(submitter.collect());
+        if !returned.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = server.join();
+    let [returned] = <[_; 1]>::try_from(returned).expect("one answer arrives");
+    let Reply::Say(note) = returned.reply() else {
+        panic!("a 404 is said, not opened");
+    };
+    assert!(note.contains("answered 404"), "{note}");
+}

@@ -304,6 +304,7 @@ pub(crate) mod tests {
             change_ex: "",
             dirty: false,
             document: None,
+            view: pdf_model::view::WindowView::default(),
         };
         Request::of(&event, 1_704_465_015_000, 3600)
     }

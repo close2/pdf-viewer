@@ -70,6 +70,17 @@ fn repository_root() -> &'static Path {
         .expect("the manifest directory of a workspace member has two ancestors")
 }
 
+/// The words of a shell command line up to its comment.
+///
+/// The shell's own rule: a word that begins with `#` begins a comment, and no word after it is an
+/// argument. A gate line's trailing comment says in words what the gate needs and may name a flag
+/// as it does, so a flag read off the whole line can be the comment's rather than the command's
+/// (ADR 1744).
+fn command_words(line: &str) -> impl Iterator<Item = &str> {
+    line.split_whitespace()
+        .take_while(|word| !word.starts_with('#'))
+}
+
 /// Every `cargo test … -p <package> --test <target>` line in `text`, as `package --test target`.
 ///
 /// The same parse `sandbox_gates.rs` makes of the document, applied to the script as well: a
@@ -94,7 +105,7 @@ fn gate_lines(text: &str) -> BTreeSet<String> {
         if !fenced || !line.contains("cargo test") {
             continue;
         }
-        let mut fields = line.split_whitespace();
+        let mut fields = command_words(line);
         let mut package = None;
         let mut target = None;
         while let Some(field) = fields.next() {
@@ -109,6 +120,24 @@ fn gate_lines(text: &str) -> BTreeSet<String> {
         }
     }
     found
+}
+
+/// A gate line's trailing comment says in words what the gate needs, and may name a flag while it
+/// does; the flags read are the command's own, in the document and in the script alike. Calibrated
+/// by planting (trap 13): each comment names another package and another target.
+#[test]
+fn a_flag_a_trailing_comment_names_is_not_the_line_s_own() {
+    let document = "```sh\ncargo test  --profile gates -p pdf-model --test corpus -- --ignored   \
+                    # its worker is -p pdf-sandbox; compare --test oracle\n```\n";
+    let script = "    walk 12 -- cargo test --profile gates -p pdf-model --test corpus -- --ignored \
+                  # not -p viewer-ui --test launch_path\n";
+    for planted in [document, script] {
+        assert_eq!(
+            gate_lines(planted),
+            BTreeSet::from(["pdf-model --test corpus".to_owned()]),
+            "{planted}"
+        );
+    }
 }
 
 #[test]

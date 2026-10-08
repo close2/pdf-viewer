@@ -425,11 +425,21 @@ by two, where the file's `/Open`, a click or a script's `popupOpen` opens it (AD
 
 **A text note is retyped in its window** (ADR 1726): a press on an open window whose text is a
 §12.5.6.4 note gives it the keyboard — a text view over the window in `quorra-gtk` and `quorra-qt`,
-the window's focus ring and a caret at the note's end in `quorra` — every change is the note's
+the window's focus ring and a caret in `quorra`, which a press places in the window's text and the
+four arrows, Home and End move, a window drawn from `/RC` keeping it at the note's end (ADR 1739) —
+every change is the note's
 `/Contents`, an undo takes it back, a save writes it with the producer's icon kept, and Escape gives
 the keyboard back to the page. Another markup annotation's window takes no press. A reply that states
 no popup of its own is a comment in the window of the note it answers (ADR 1727), in all three, and
-`tools/drive-windows.sh` steps 64 and 65 drive both; `quorra-confined` draws no popup window.
+`tools/drive-windows.sh` steps 64, 65 and 67 drive them; `quorra-confined` draws no popup window.
+
+**A signature's published policy is fetched at the submissions level** (ADR 1738): where a
+§12.8.3.4.4 signature names a URL a copy of its policy document is published at, every window asks
+the level `--submissions=` and the restrictions menu set — `send` and `warn` fetch it, `ask` puts the
+URL to you first, `refuse` says it was not fetched — and a copy that hashes to the digest the signer
+signed is opened beside the document; any other answer is a sentence, and every one says the
+policy's constraints were not enforced. `quorra-confined` has no network and fetches nothing. Step
+66 of `tools/drive-windows.sh` serves one from the drive's loopback server.
 
 **A measured point on a geospatial map is written in the file's display system** (Table 269's
 `/DCS`, ADR 1678): beside its latitude and longitude, in degrees where `/DCS` is geographic and as an

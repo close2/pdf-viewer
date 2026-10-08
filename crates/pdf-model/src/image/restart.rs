@@ -54,9 +54,8 @@
 //! reset, on the same bytes the whole decoder reads from that marker on, so the two read the
 //! tail alike; where the data runs out before an MCU row of it begins, the whole decoder fills
 //! the rows left and a strict band is refused instead, and the frame is then decoded whole. A
-//! band that is delivered is therefore the whole decoder's lines. `super::cut` stays declined on
-//! a scan with no `EOI`, for the reason its own comment gives: its last band is re-coded and
-//! ended by `EOI`, so its reader does not see the tail the whole decoder sees (ADR 1495).
+//! band that is delivered is therefore the whole decoder's lines. `super::cut` cuts such a scan as
+//! well, on its own argument: its pass admits only a scan whose data holds every MCU (ADR 1740).
 //!
 //! **What the bands are is a function of the codestream alone**, never of how many threads
 //! there are: [`BAND_LINES`] sizes them, and the pool only decides who decodes which.

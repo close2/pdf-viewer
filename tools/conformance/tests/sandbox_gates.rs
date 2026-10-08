@@ -75,6 +75,17 @@ struct Gate {
     target: String,
 }
 
+/// The words of a shell command line up to its comment.
+///
+/// The shell's own rule: a word that begins with `#` begins a comment, and no word after it is an
+/// argument. A gate line's trailing comment says in words what the gate needs and may name a flag
+/// as it does, so a flag read off the whole line can be the comment's rather than the command's
+/// (ADR 1744).
+fn command_words(line: &str) -> impl Iterator<Item = &str> {
+    line.split_whitespace()
+        .take_while(|word| !word.starts_with('#'))
+}
+
 /// Every gate line in `doc/todo/02` §2's command block.
 ///
 /// Parsed from the whole file rather than from the block alone: `cargo test … --test …` appears
@@ -84,14 +95,18 @@ fn gates(root: &Path) -> Vec<Gate> {
     let path = root.join("doc/todo/02-every-round.md");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|why| panic!("{} is this gate's population: {why}", path.display()));
+    gates_in(&text)
+}
 
+/// Every gate line in `text`, read as [`gates`] reads the sequence.
+fn gates_in(text: &str) -> Vec<Gate> {
     let mut found = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if !line.starts_with("cargo test") {
             continue;
         }
-        let mut fields = line.split_whitespace();
+        let mut fields = command_words(line);
         let mut package = None;
         let mut target = None;
         while let Some(field) = fields.next() {
@@ -127,6 +142,22 @@ fn source_of(root: &Path, gate: &Gate) -> PathBuf {
         "doc/todo/02 §2 names `-p {} --test {}` and neither crates/ nor tools/ holds that file — \
          either the gate moved or the sequence is stale",
         gate.package, gate.target
+    );
+}
+
+/// A gate line's trailing comment says in words what the gate needs, and may name a flag while it
+/// does; the flags read are the command's own. Calibrated by planting (trap 13): the comment here
+/// names another package and another target, and only the command's pair may come back.
+#[test]
+fn a_flag_a_trailing_comment_names_is_not_the_line_s_own() {
+    let planted = "cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored   \
+                   # its worker is -p pdf-sandbox, built beside it; compare --test oracle\n";
+    assert_eq!(
+        gates_in(planted),
+        vec![Gate {
+            package: "pdf-model".to_owned(),
+            target: "corpus".to_owned(),
+        }]
     );
 }
 

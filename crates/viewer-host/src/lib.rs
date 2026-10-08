@@ -166,6 +166,9 @@ pub use panel::{
     attachment_rows, collection_rows, layer_rows, outline_rows, page_entry, property_rows, stamp,
 };
 pub use password::{Ask, Asking, Supplied, Wording};
+/// What a signature names as its policy's published copy, as `viewer_core` hands it over (ADR
+/// 1738): re-exported so that a window needs no dependency of its own on the crate that read it.
+pub use pdf_signature::policy::PublishedPolicy;
 pub use policy::{
     ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, EMBEDDED_DOCUMENTS, EmbeddedDocuments,
     IGNORE_RESTRICTIONS, INTERFACE_LANGUAGE, ImportRefusal, LINK_SCHEMES, LINKS, Link, Links,

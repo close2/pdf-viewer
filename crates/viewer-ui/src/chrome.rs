@@ -3092,6 +3092,147 @@ fn draw_plain(
     line
 }
 
+/// Where a caret at byte `offset` of a note's window text stands, as the top and the bottom of a
+/// line in the window's own pixels — or `None` where [`popup_windows`] does not draw that text as
+/// plain lines or the place is below the window's bottom edge.
+///
+/// **The same layout [`draw_plain`] draws**, read out of [`plain_carets`] rather than worked out
+/// a second time, so that the caret cannot stand where the next character does not go (ADR
+/// 1739). A window whose text is Table 172's `/RC` is laid out by `rich::draw` run by run, and its
+/// caret stays at the note's end, ringed; a white-space run the layout collapses to one space has
+/// one place for a caret, at the space.
+#[must_use]
+pub fn popup_caret(
+    chrome: &Chrome,
+    window: &viewer_core::PopupWindow,
+    offset: usize,
+    scale: f32,
+) -> Option<((f32, f32), (f32, f32))> {
+    let size = TEXT_SIZE * scale;
+    let carets = plain_carets(chrome, window, scale)?;
+    let nearest = carets
+        .iter()
+        .min_by_key(|caret| caret.offset.abs_diff(offset))?;
+    Some((
+        (nearest.x, nearest.baseline - size),
+        (nearest.x, nearest.baseline + size * 0.25),
+    ))
+}
+
+/// The byte offset of a note's window text that a press at `at` puts the caret at: the nearest
+/// place on the line under the press, or on the nearest line where the press is between lines —
+/// [`popup_caret`]'s inverse, over the same places.
+#[must_use]
+pub fn popup_offset(
+    chrome: &Chrome,
+    window: &viewer_core::PopupWindow,
+    at: (f32, f32),
+    scale: f32,
+) -> Option<usize> {
+    let size = TEXT_SIZE * scale;
+    let carets = plain_carets(chrome, window, scale)?;
+    // The line whose band — the caret's own extent, `baseline - size` to `baseline + size / 4` —
+    // is nearest the press, and the nearest place on it.
+    let band = |caret: &PopupCaret| {
+        let middle = caret.baseline - size * 0.375;
+        (at.1 - middle).abs()
+    };
+    let line = carets
+        .iter()
+        .min_by(|a, b| band(a).total_cmp(&band(b)))?
+        .baseline;
+    carets
+        .iter()
+        .filter(|caret| caret.baseline.total_cmp(&line).is_eq())
+        .min_by(|a, b| (a.x - at.0).abs().total_cmp(&(b.x - at.0).abs()))
+        .map(|caret| caret.offset)
+}
+
+/// One place a caret can stand in a note's window text.
+struct PopupCaret {
+    /// The byte offset into [`viewer_core::PopupWindow::text`].
+    offset: usize,
+    /// Where the caret stands across, in the window's pixels.
+    x: f32,
+    /// The baseline of its line.
+    baseline: f32,
+}
+
+/// Every place a caret can stand in a note's window text, in the layout [`draw_popup`] gives it:
+/// each paragraph split where [`draw_plain`] splits it, collapsed and wrapped by [`Wrapped`], one
+/// place per character boundary of each line drawn above the window's bottom edge. `None` for a
+/// window whose text is not drawn plain.
+fn plain_carets(
+    chrome: &Chrome,
+    popup: &viewer_core::PopupWindow,
+    scale: f32,
+) -> Option<Vec<PopupCaret>> {
+    let placed = viewer_host::popup::windows(std::slice::from_ref(popup));
+    let window = placed.first()?;
+    if window.rich.is_some() {
+        return None;
+    }
+    let (x, y, w, h) = window.place;
+    let size = TEXT_SIZE * scale;
+    let padding = POPUP_PADDING * scale;
+    let room = w - 2.0 * padding;
+    if room <= 0.0 {
+        return None;
+    }
+    let bottom = y + h - padding;
+    let mut line = y + size * POPUP_TITLE_HEIGHT + size;
+    let mut carets = Vec::new();
+    let mut start = 0_usize;
+    for paragraph in window.text.split(['\r', '\n']) {
+        let wrapped = Wrapped::new(chrome, paragraph, size, room);
+        // Each word's place in the paragraph as written and in the collapsed text the lines are
+        // cut from, which differ wherever the paragraph has a run of white space.
+        let mut words = Vec::new();
+        let mut collapsed = 0_usize;
+        let mut rest = paragraph;
+        let mut written = 0_usize;
+        while let Some(skip) = rest.find(|c: char| !c.is_whitespace()) {
+            let word_start = written.saturating_add(skip);
+            let after = &rest[skip..];
+            let length = after.find(char::is_whitespace).unwrap_or(after.len());
+            words.push((collapsed, word_start, length));
+            collapsed = collapsed.saturating_add(length).saturating_add(1);
+            written = word_start.saturating_add(length);
+            rest = &after[length..];
+        }
+        let written_at = |offset: usize| {
+            words
+                .iter()
+                .rev()
+                .find(|(from, _, _)| *from <= offset)
+                .map_or(0, |(from, written, length)| {
+                    written.saturating_add(offset.saturating_sub(*from).min(*length))
+                })
+        };
+        for range in &wrapped.lines {
+            if line > bottom {
+                return Some(carets);
+            }
+            let text = wrapped.text.get(range.clone()).unwrap_or_default();
+            let boundaries = text
+                .char_indices()
+                .map(|(at, _)| at)
+                .chain(std::iter::once(text.len()));
+            for at in boundaries {
+                carets.push(PopupCaret {
+                    offset: start.saturating_add(written_at(range.start.saturating_add(at))),
+                    x: x + padding + chrome.caret(text, at, size, Style::default()),
+                    baseline: line,
+                });
+            }
+            line += size * 1.25;
+        }
+        // The separator is one byte, `\r` or `\n`, whichever split the paragraph off.
+        start = start.saturating_add(paragraph.len()).saturating_add(1);
+    }
+    Some(carets)
+}
+
 /// Breaks a paragraph into lines that fit `room`, at word boundaries where it can.
 ///
 /// A word longer than the line is broken by character, because the alternative is a line that

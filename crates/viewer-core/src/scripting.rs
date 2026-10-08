@@ -271,6 +271,31 @@ fn asking(runners: &dyn ScriptRunners, consent: &mut Consent) -> Arc<dyn ScriptR
     runner
 }
 
+/// The window's view of one document as its realm reads it — `this.zoom`, `this.zoomType`,
+/// `this.layout` — from how large the page is drawn, the zoom that chose it and Table 29's
+/// arrangement (ADR 1736).
+///
+/// `magnification` is logical pixels per default user space unit, which the reference's 100 per
+/// cent is: the reading a destination's `/XYZ` magnification of 1 already has here. A fitting
+/// mode is the zoom type of the same name, and a fixed scale is `NoVary`.
+pub(crate) fn window_view(
+    zoom: crate::Zoom,
+    layout: pdf_model::viewer_preferences::PageLayout,
+    magnification: Option<f32>,
+) -> pdf_model::view::WindowView {
+    use pdf_model::view::ZoomType;
+    pdf_model::view::WindowView {
+        zoom: magnification.map(|logical| f64::from(logical) * 100.0),
+        zoom_type: match zoom {
+            crate::Zoom::FitPage => ZoomType::FitPage,
+            crate::Zoom::FitWidth => ZoomType::FitWidth,
+            crate::Zoom::FitHeight => ZoomType::FitHeight,
+            crate::Zoom::Scale(_) | crate::Zoom::In | crate::Zoom::Out => ZoomType::NoVary,
+        },
+        layout,
+    }
+}
+
 /// Whether a runner from `scripting` is a real one — one that runs what it is handed — for a
 /// document that has `consent`.
 pub(crate) fn runs(scripting: &Scripting, consent: &Consent) -> bool {

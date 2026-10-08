@@ -207,6 +207,15 @@ impl Events {
                 "a script's question is withdrawn: its wait ran out".to_owned()
             }
             Event::Beep { sound, .. } => format!("a script asks for the {} sound", sound.name()),
+            Event::SignaturePoliciesPublished { policies, .. } => format!(
+                "a signature names its policy's published copy at {} (ETSI EN 319 122-1 clause \
+                 5.2.9.2, under §12.8.3.4.4); fetching it is this machine's decision",
+                policies
+                    .iter()
+                    .map(|policy| format!("{} (policy {})", policy.url, policy.identifier))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Event::AttachmentsChanged { document } => format!(
                 "document {}'s embedded files changed; read the panel again",
                 document.0
@@ -336,7 +345,8 @@ impl Events {
             | Event::AskingToRunScripts { document, .. }
             | Event::ScriptAsking { document, .. }
             | Event::ScriptQuestionWithdrawn { document }
-            | Event::Beep { document, .. } => document.0,
+            | Event::Beep { document, .. }
+            | Event::SignaturePoliciesPublished { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })

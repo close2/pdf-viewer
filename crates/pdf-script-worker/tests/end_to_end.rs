@@ -137,6 +137,7 @@ fn format_event(script: &str) -> ScriptEvent<'_> {
         change_ex: "",
         dirty: false,
         document: None,
+        view: pdf_model::view::WindowView::default(),
     }
 }
 
@@ -215,6 +216,34 @@ fn the_worker_reports_the_confinement_its_profile_asks_for() {
         pdf_sandbox::lockdown::LandlockLevel::Enforced
     );
     assert_eq!(confinement.address_space_limit, 96 << 20);
+}
+
+/// The window's view crosses to the confined worker with the event, and a script's change to it
+/// comes back as the edit a host carries out (ADR 1736).
+#[test]
+fn the_window_s_view_crosses_to_the_worker_and_a_change_to_it_comes_back() {
+    use pdf_model::view::{ScriptEdit, ViewChange, WindowView, ZoomType};
+    use pdf_model::viewer_preferences::PageLayout;
+    let worker = ScriptWorker::with_program(WORKER);
+    let result = worker.run(&ScriptEvent {
+        view: WindowView {
+            zoom: Some(125.0),
+            zoom_type: ZoomType::FitWidth,
+            layout: PageLayout::TwoColumnLeft,
+        },
+        ..format_event("event.value = [zoom, zoomType, layout].join('|'); zoom = 250;")
+    });
+    assert_eq!(
+        result.value.as_deref(),
+        Some("125|FitWidth|TwoColumnLeft"),
+        "{result:?}"
+    );
+    assert_eq!(
+        result.edits,
+        vec![ScriptEdit::View {
+            change: ViewChange::Zoom(250.0)
+        }]
+    );
 }
 
 /// The allocation a budget admits at face value runs under the ceiling, and a repeat past the

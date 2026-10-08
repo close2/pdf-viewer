@@ -274,13 +274,6 @@ pub const EXCLUDED: &[Excluded] = &[
 pub const REFUSED: &[Excluded] = &[
     Excluded {
         holder: Holder::Doc,
-        members: &["zoom", "zoomType", "scroll", "layout"],
-        reason: "is the window's view of the document — its magnification, its scroll position, \
-                 its page layout — which a host keeps and a document's realm is not told, and no \
-                 host carries a script's request to change it",
-    },
-    Excluded {
-        holder: Holder::Doc,
         members: &["documentFileName"],
         reason: "is the name of a file on the reader's machine, which the confined worker has no \
                  business knowing; the document's own name for itself is this.info.Title",
@@ -288,14 +281,9 @@ pub const REFUSED: &[Excluded] = &[
     Excluded {
         holder: Holder::App,
         members: &["goBack", "goForward"],
-        reason: "walks the window's history of views, which a host keeps and a document's realm \
-                 is not told",
-    },
-    Excluded {
-        holder: Holder::Field,
-        members: &["setItems", "insertItemAt", "deleteItemAt", "clearItems"],
-        reason: "rewrites Table 234's /Opt, the field's own list of options, which no reader's \
-                 edit changes: a person chooses among the options and never rewrites them",
+        reason: "walks the window's history of views, and this viewer keeps none: a person has no \
+                 previous view to go back to either, so there is nothing a script's request could \
+                 reach",
     },
 ];
 
@@ -308,8 +296,9 @@ pub const REFUSED: &[Excluded] = &[
 /// `app.response` (ADRs 1626, 1627), one widget of a field (ADR 1664) and `Field.style` (ADR
 /// 1665), a check box's `isBoxChecked` and `checkThisBox` (ADR 1689), `this.getAnnots` and
 /// `getAnnot` with the `Annotation` object (ADR 1700), the document's pages, its named
-/// destinations, `title`, `calculate` and `app.activeDocs` (ADR 1724), and a field's options
-/// read from `/Opt` (ADR 1725); each of these is the next thing a round adds, and until then a
+/// destinations, `title`, `calculate` and `app.activeDocs` (ADR 1724), a field's options
+/// read from `/Opt` (ADR 1725), the window's `zoom`, `zoomType`, `layout` and `scroll` (ADR
+/// 1736), and the four members that rewrite a field's `/Opt` (ADR 1737); each of these is the next thing a round adds, and until then a
 /// property that says so.
 pub const NOT_BRIDGED: &[(Holder, &[&str])] = &[
     (

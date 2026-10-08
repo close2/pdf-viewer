@@ -845,6 +845,20 @@ impl Host {
                     bytes: None,
                 });
             }
+            // §12.8.3.4.4's policy, whose published copy is a server's: declined at every level
+            // here, for the fetched import's reason above — this window has no network (ADR 1738).
+            Event::SignaturePoliciesPublished { policies, .. } => {
+                for policy in &policies {
+                    eprintln!(
+                        "{}",
+                        viewer_host::policy::signature_policy_declined(
+                            policy,
+                            "this window has no network, so it fetches nothing a document names, \
+                             at any level"
+                        )
+                    );
+                }
+            }
             // §O.2.1's `ef` at `EmbeddedDocuments::Refuse`, for `Links::Refuse`'s reason above:
             // this window has no dialogue to put the *ask* level's question in, and it holds one
             // document (ADR 1331). It passes no fragment, so the arm is the policy's answer said

@@ -151,7 +151,8 @@ place of 0.5.15 (`doc/questions/A227`), and both reproducers are regression test
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
 in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
 decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
-loops are bounded in a patch the owner applies to the codec's fork (ADR 1447). The filter is held to ITU-T T.88
+loops are bounded in a patch the owner applies to the codec's fork (ADR 1447), which ends in
+seconds every input the campaigns have left past the deadline (ADR 1746). The filter is held to ITU-T T.88
 Annex K's conformance data, read from outside the tree: T.88's own Annex H datastream and Annex K's
 fax pages decode bit for bit, the streams that depart from the clauses they exercise are held by
 name with the clause, and a generic region on the extended template — which the codec reads as the
@@ -229,8 +230,10 @@ worker program alone and runs in every window **at the reader's `Scripts` level*
 off|ask|warn|on` on every command line and a third act in every menu, `off` by default and
 `quorra-confined` pinned there and saying so, *ask* putting one question per document at its first
 script with that script's first line and a `yes` running what was withheld (ADR 1616); where it runs a document's scripts share one realm — Table 32's
-name tree runs into it once the first page is presented, Table 197's and Table 198's scripts run
-beside the actions a window performs, a commit runs `/V` and every `/CO` entry's `/C` with
+name tree runs into it once the first page is presented, Table 198's `/O` of page one and its
+annotations' Table 197 `/PO` run in the open sequence while a window declines every later Table 197
+and Table 198 script, no `viewer-core` code calling `run_annotation_scripts` or `run_page_scripts`
+(ADR 1736 section 3), a commit runs `/V` and every `/CO` entry's `/C` with
 `event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),
@@ -250,8 +253,10 @@ annotations, filtered by Table 167 as the page is drawn, whose `hidden`, `popupO
 or text-note `contents` a script sets as a reader's edit and a save writes, a window's state the
 later of a click and a script's write (ADRs 1700, 1720, 1721), the pages' labels, boxes and
 rotations, a named destination's page, `title`, `calculate` and `app.activeDocs` read from the view
-state while the window's own view is refused by name (ADR 1724), and a choice field's items read
-from `/Opt` and chosen by index as a person chooses (ADR 1725) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
+state (ADR 1724), the window's `zoom`, `zoomType` and `layout` told to the realm and a script's
+write to them or its `scroll` carried out as a person's (ADR 1736), and a choice field's items read
+from `/Opt`, chosen by index as a person chooses (ADR 1725) and rewritten as one property the page,
+a host's control and the save read (ADR 1737) — the runner every window supplies is `pdf_script_worker::ScriptWorker`, which
 runs each script in a third confined process started at the first trigger, under the narrowest of
 `pdf_sandbox`'s three profiles, a deadline per trigger and a named loss (ADRs 1608, 1609), a script's
 nesting bounded before it is parsed (ADR 1626), the worker built with the engine in a Cargo run of its own and installed beside the windows (ADR 1625); **a rich text field's value and a free text
@@ -286,7 +291,8 @@ declining the toolkit's own focus chain so that Tab walks the document's `/Tabs`
 click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
 activation (ADR 0191), and a text note that states no popup opens one of its own beside its icon,
-§12.5.6.4's (ADR 1723), where a press gives a person the note's text to retype (ADR 1726) and a
+§12.5.6.4's (ADR 1723), where a press gives a person the note's text to retype (ADR 1726), at the
+place pressed in `quorra` (ADR 1739), and a
 reply stating no popup is a threaded comment (ADR 1727) — **in all three windows**: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613), drawn in all three as opaque paper with an edge (ADR 1466) — **with the subject and the creation date beside the title and the

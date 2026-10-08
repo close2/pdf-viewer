@@ -47,11 +47,15 @@ field's state carrying one state per widget (ADR 1664), and `Field.style` redraw
 glyph while `app.fs` is refused by name (ADR 1665); `this.getAnnots` answers the document's markup
 annotations, whose `hidden`, `popupOpen` and free-text `contents` a script writes as a reader's edit
 (ADR 1700). The pages' labels, boxes and rotations, `gotoNamedDest` as a page turn, `title`,
-`calculate` and `app.activeDocs` are read from the view state, and the window's own view — `zoom`,
-`zoomType`, `scroll`, `layout`, `goBack`, `goForward` — and `documentFileName` are refused by name
-with a reason in `surface::REFUSED` (ADR 1724); a choice field's items are read from `/Opt` and
-`currentValueIndices` is a person's choice, while the four methods that rewrite `/Opt` are refused
-(ADR 1725). **What is next** is chosen from the throws' causes below, then
+`calculate` and `app.activeDocs` are read from the view state, and `documentFileName` is refused by
+name with a reason in `surface::REFUSED` (ADR 1724); the window's `zoom`, `zoomType` and `layout`
+are told to the realm with every event and a script's write to them or its `scroll` is a request
+`viewer-core` carries out, while `app.goBack`/`goForward` stay refused because the viewer keeps no
+history of views (ADR 1736); a choice field's items are read from `/Opt`, `currentValueIndices` is a
+person's choice (ADR 1725), and the four methods that rewrite `/Opt` set one property the page, a
+host's control and the save read (ADR 1737). In a window, a Table 197 annotation script and a
+Table 198 page script past the open never reach the runner — no `viewer-core` code calls
+`run_annotation_scripts` or `run_page_scripts` (ADR 1736 section 3) — which is a host round's. **What is next** is chosen from the throws' causes below, then
 the other Tier 1 members `crates/pdf-script/src/surface.rs` lists — `getPageNumWords` and
 `getPageNthWord` first, five documents each — and the owner's amendment of
 `CLAUDE.md`'s exclusion, which `doc/questions/Q286` proposes. Every window commits through

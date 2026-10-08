@@ -72,6 +72,27 @@ SCRIPTS = [
     "event.value = app.alert({cMsg: 'Sure?', nIcon: 2, nType: 3, cTitle: 'Form'}) + app.alert('again');",
     "var c = {cMsg: 'box', bInitialValue: true}; app.alert('x', 0, 1, 't', this, c); event.value = c.bAfterValue;",
     "event.value = String(app.response({cQuestion: 'Name?', cDefault: 'x', bPassword: true}));",
+    # The members ADRs 1688 to 1737 carry: a focus, a check box, timers and a sound, the
+    # annotations, the pages and their labels, a named destination, the window's view, and a
+    # choice's options read and rewritten.
+    "this.getField('Total').setFocus(); this.getField('Agree').checkThisBox(0, true);",
+    "event.value = String(this.getField('Agree').isBoxChecked(0));",
+    "var t = app.setTimeOut('event.value = 1;', 10); app.clearTimeOut(t);",
+    "var i = app.setInterval('this.dirty = true;', 1); app.clearInterval(i); app.beep(0);",
+    "var a = this.getAnnots(); event.value = a ? a.length : 0; var n = this.getAnnot(0, 'x');",
+    "event.value = this.getPageLabel(0) + this.getPageBox('Crop', 0) + this.getPageRotation(0);",
+    "this.pageNum = this.numPages - 1; this.gotoNamedDest('Chapter1'); this.calculate = false;",
+    "event.value = app.activeDocs.length + this.title;",
+    "this.zoom = 150; this.zoomType = zoomtype.fitW; event.value = this.zoom + this.zoomType;",
+    "this.layout = 'TwoColumnLeft'; this.scroll(10, 20); event.value = this.layout;",
+    "this.zoom = 1e9; this.zoom = -1; this.zoomType = 'Nonsense'; this.layout = 7; this.scroll();",
+    "app.goBack(); app.goForward();",
+    "var f = this.getField('Choice'); event.value = f.numItems + f.getItemAt(0, false)"
+    " + f.currentValueIndices;",
+    "var f = this.getField('Choice'); f.setItems(['a', ['B', 'b'], 'c']); f.insertItemAt('d', 'D', 0);"
+    " f.deleteItemAt(1); event.value = f.numItems;",
+    "var f = this.getField('Choice'); f.clearItems(); f.insertItemAt('x'); f.deleteItemAt(-1);",
+    "this.getField('Choice').setItems(new Array(70000).fill('x'));",
     # Deep without brackets, and deep at run time.
     "event.value = eval('1' + '+1'.repeat(30000));",
     "event.value = Function('return ' + '!'.repeat(5000) + '1')();",

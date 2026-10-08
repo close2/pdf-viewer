@@ -34,11 +34,25 @@
 //! # What is admitted, and what is declined
 //!
 //! Admitted: what [`super::restart`] admits, with no `DRI` (or one stating no interval), entropy
-//! data in which every `FF` is a stuffed `FF 00`, and the scan ended by `EOI`. Declined: a pass that meets a code no table holds, a DC category past eleven or an AC
+//! data in which every `FF` is a stuffed `FF 00`, and the scan ended by `EOI` or by the end of the
+//! data. Declined: a pass that meets a code no table holds, a DC category past eleven or an AC
 //! category past ten (section F.1.2's bounds for eight-bit samples), a run past the 63rd
 //! coefficient, or the data's end before the last MCU; and a band whose first DC value has no code
 //! in its table. A declined frame is decoded whole, exactly as before, by the one decoder it always
 //! was.
+//!
+//! # Why a scan the data ends without `EOI` is cut too
+//!
+//! Section B.2.1 ends compressed image data with `EOI`, but section E.2.3 ends a scan's decoding on
+//! its count of MCUs, so what a codestream without one lacks is a marker after a complete scan. The
+//! pass admits a scan only where the data holds every bit of its last MCU, and this module's last
+//! band is those rows re-coded and ended by `EOI` as a codestream of its own. The whole decoder
+//! reads the same complete scan as the same frame whether or not `EOI` follows: the fork of
+//! `zune-jpeg` the manifest pins stops an MCU row only once it has consumed past the end of the
+//! data, not once its lookahead has reached it
+//! (`doc/patches/zune-jpeg-scan-complete-without-eoi.patch`, ADR 1730). So the two read the tail
+//! alike; where the data ends before the last MCU the pass declines and the frame is the whole
+//! decoder's alone (ADR 1740).
 
 use super::FirstScan;
 use super::restart::{self, Band, Geometry};
@@ -341,12 +355,6 @@ pub(super) fn decode_at(
     floor: u64,
     band_lines: u32,
 ) -> Option<Vec<u8>> {
-    // A scan with no `EOI` after it: the whole decoder reads the end of the data one way and
-    // this module's last band, re-coded and ended by `EOI` as a codestream of its own, another —
-    // even where the data holds every MCU, which is ADR 1495's fixture. It is the whole
-    // decoder's; `super::restart`, whose last band reads the tail as it stands, cuts it
-    // (ADR 1513).
-    scan.ends.as_ref()?;
     let frame = read(data, scan)?;
     let samples = u64::from(frame.width).saturating_mul(u64::from(frame.lines));
     if samples < floor {

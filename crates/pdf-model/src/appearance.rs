@@ -1469,6 +1469,7 @@ pub(crate) fn scripted_entries(
                         ),
                     );
             }
+            Property::Options(options) => entries.field.push(options_entry(options)),
             // `display`, `readonly` and the text flags are a view state's own (ADRs 1603, 1615).
             _ => {}
         }
@@ -1484,6 +1485,46 @@ pub(crate) fn scripted_entries(
             .push((Name::new(&b"BS"[..]), Object::Dictionary(style)));
     }
     entries
+}
+
+/// Table 234's `/Opt` as a script rewrote it (ADR 1737). ISO 32000-2 Table 234: "[e]ach element
+/// of the array is either a text string representing one of the available options or an array
+/// consisting of two text strings: the option's export value and the text that shall be displayed
+/// as the name of the option" — the pair where the option states an export value.
+fn options_entry(options: &[crate::form::Choice]) -> (Name, Object) {
+    (
+        Name::new(&b"Opt"[..]),
+        Object::Array(options.iter().map(option_entry).collect()),
+    )
+}
+
+/// One of Table 234's `/Opt` entries: a text string, or the export value and the displayed text.
+fn option_entry(option: &crate::form::Choice) -> Object {
+    let text =
+        |text: &str| Object::String(pdf_syntax::text_string::encode_text_string(text).into());
+    match option.export.as_deref() {
+        Some(export) => Object::Array(vec![text(export), text(&option.label)]),
+        None => text(&option.label),
+    }
+}
+
+/// The widget dictionary a reading of Table 234's `/Opt` takes: as a script's properties leave
+/// it where a script rewrote the options ([`with_scripted`]), and as the file states it otherwise
+/// (ADR 1737). What a host's control lists, what a person's choice by index selects and what a
+/// realm is told read the options here, so all three read the list the page draws.
+pub(crate) fn with_rewritten_options<'a>(
+    document: &Document,
+    annotation: &'a Dictionary,
+    scripted: &[crate::view::Property],
+) -> std::borrow::Cow<'a, Dictionary> {
+    if scripted
+        .iter()
+        .any(|property| matches!(property, crate::view::Property::Options(_)))
+    {
+        std::borrow::Cow::Owned(with_scripted(document, annotation, scripted))
+    } else {
+        std::borrow::Cow::Borrowed(annotation)
+    }
 }
 
 /// The Table 192 caption a script's property writes, and its text: `buttonSetCaption`'s `/CA`,

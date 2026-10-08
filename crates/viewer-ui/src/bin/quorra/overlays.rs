@@ -324,20 +324,38 @@ impl App {
     /// timer. What is *not* this host's is where it goes — `Query::Caret` answers that from
     /// §12.7.4.3's own layout, because a host laying the value out again to find the place would
     /// be a second opinion about the field's font, its auto-sizing and its wrapping. ADR 0211.
+    ///
+    /// `in_a_window` asks for a note's caret, which is drawn over the popup windows rather than
+    /// under them with the page's: the window it stands in is one of them (ADR 1739).
     pub(crate) fn caret_list(
         &self,
         edge: f32,
         width: u32,
         height: u32,
+        in_a_window: bool,
     ) -> Option<pdf_render::DisplayList> {
-        // A note's window keeps its caret at the note's end and shows it by its ring (ADR 1726);
-        // `Query::Caret` answers for what is on the page under the window, not for the window.
-        let typing = self.typing.filter(|typing| typing.note().is_none())?;
-        let Answer::Caret { from, to } = self.viewer.query(Query::Caret {
-            at: typing.at,
-            offset: typing.caret,
-        }) else {
-            return None;
+        let typing = self
+            .typing
+            .filter(|typing| typing.note().is_some() == in_a_window)?;
+        // A note's caret is in its window, which this host lays out, so the place is the window's
+        // own layout's (ADR 1739); `Query::Caret` answers for what is on the page under it. A
+        // window drawn from `/RC` has no place to give and shows the keyboard by its ring alone.
+        let (from, to) = if let Some(note) = typing.note() {
+            let chrome = self.chrome.as_ref()?;
+            let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+            let Answer::Popups(windows) = self.viewer.query(Query::Popups) else {
+                return None;
+            };
+            let window = windows.iter().find(|window| window.note == Some(note))?;
+            viewer_ui::chrome::popup_caret(chrome, window, typing.caret, scale)?
+        } else {
+            let Answer::Caret { from, to } = self.viewer.query(Query::Caret {
+                at: typing.at,
+                offset: typing.caret,
+            }) else {
+                return None;
+            };
+            (from, to)
         };
         #[expect(
             clippy::cast_precision_loss,
@@ -552,6 +570,8 @@ pub(crate) struct Overlays {
     measuring: Option<pdf_render::DisplayList>,
     /// §12.5.6.14's popup windows, which belong to the document and so are under the sidebar.
     popups: Option<pdf_render::DisplayList>,
+    /// A note's caret, in its window and so over the windows (ADR 1739).
+    note_caret: Option<pdf_render::DisplayList>,
     /// §12.7.5.4's options, where a choice field has been pressed. **Over the popups**: it is a
     /// control this host is showing rather than something the document states, and a control a
     /// person has just opened is the thing they are looking at.
@@ -591,9 +611,10 @@ impl Overlays {
             selection: app.selection_list(edge, width, height),
             field_selection: app.field_selection_list(edge, width, height),
             focus: app.focus_list(edge, width, height),
-            caret: app.caret_list(edge, width, height),
+            caret: app.caret_list(edge, width, height, false),
             measuring: app.measuring_list(edge, width, height),
             popups: app.popup_list(edge, width, height),
+            note_caret: app.caret_list(edge, width, height, true),
             choices: app.choices_list(width, height),
             panel: app.panel_list(height),
             find: app.find_list(width),
@@ -618,6 +639,7 @@ impl Overlays {
             self.caret.as_ref(),
             self.measuring.as_ref(),
             self.popups.as_ref(),
+            self.note_caret.as_ref(),
             self.choices.as_ref(),
             self.panel.as_ref(),
             // The strip under the bar rather than over it: both are a band across the top, and a

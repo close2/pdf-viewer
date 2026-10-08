@@ -5,15 +5,18 @@
 //! "Field methods" — cited and never quoted, a documented choice each under principle 5; what each
 //! reads is the entry ISO 32000-2 states for it: Table 234's `/Opt` of a choice field, with
 //! §12.7.5.4's `/V` and `/I` for what is selected, and Table 230's `/Opt` of a check box or a radio
-//! button. The four members that would rewrite `/Opt` are refused by name (`crate::surface::
-//! REFUSED`), since no reader's edit rewrites it.
+//! button. The four members that rewrite Table 234's `/Opt` — `setItems`, `insertItemAt`,
+//! `deleteItemAt`, `clearItems` — set the whole list a script left as one property of the field,
+//! which the view state's appearance, a host's control and a save each read as the entry it writes
+//! (ADR 1737).
 
 use boa_engine::object::builtins::JsArray;
 use boa_engine::{Context, JsNativeError, JsObject, JsResult, JsString, JsValue, NativeFunction};
-use pdf_model::view::{FieldState, FieldType, ScriptEdit};
+use pdf_model::form::Choice;
+use pdf_model::view::{FieldState, FieldType, MAX_PAGES, Property, ScriptEdit};
 
 use super::bridge::{accessor, data, field_name, function, integral, terminals};
-use super::members::read_only;
+use super::members::{named, read_only};
 use super::{State, refuse};
 use crate::RefusalKind;
 
@@ -78,7 +81,281 @@ pub(super) fn field(prototype: &JsObject, context: &mut Context) -> JsResult<()>
         false,
         context,
     )?;
+    let rewriters: [(&str, NativeFunction); 4] = [
+        ("setItems", NativeFunction::from_fn_ptr(set_items)),
+        ("insertItemAt", NativeFunction::from_fn_ptr(insert_item_at)),
+        ("deleteItemAt", NativeFunction::from_fn_ptr(delete_item_at)),
+        ("clearItems", NativeFunction::from_fn_ptr(clear_items)),
+    ];
+    for (name, native) in rewriters {
+        let callable = function(context, name, native);
+        data(prototype, name, JsValue::from(callable), false, context)?;
+    }
     Ok(())
+}
+
+/// `field.setItems(oArray)`: the list of options replaced by `oArray`'s, in its order.
+///
+/// The reference makes an element that converts to a string an option whose text and export value
+/// are that string, and an element that is an array of two an option whose text is the first and
+/// export value the second — the reverse of Table 234's own pair, which puts the export value
+/// first. An array element with fewer than two entries is a `TypeError`, and a list longer than the
+/// [`MAX_PAGES`] options a realm holds a `RangeError`.
+fn set_items(this: &JsValue, arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    choice_field(this, "setItems", context)?;
+    let first = arguments.first().cloned().unwrap_or_default();
+    let list = match first.as_object() {
+        Some(object) if object.is_array() => object.clone(),
+        _ => {
+            let values = named(arguments, &["oArray"], context)?;
+            let value = values.first().cloned().unwrap_or_default();
+            match value.as_object() {
+                Some(object) if object.is_array() => object.clone(),
+                _ => {
+                    return Err(JsNativeError::typ()
+                        .with_message("Field.setItems: oArray is not an array")
+                        .into());
+                }
+            }
+        }
+    };
+    let length = list
+        .get(JsString::from("length"), context)?
+        .to_length(context)?;
+    if usize::try_from(length).map_or(true, |length| length > MAX_PAGES) {
+        return Err(JsNativeError::range()
+            .with_message(format!(
+                "Field.setItems: {length} items are more than the {MAX_PAGES} a field's options \
+                 hold here (ADR 1737)"
+            ))
+            .into());
+    }
+    let mut options = Vec::new();
+    for index in 0..length {
+        let element = list.get(index, context)?;
+        let option = match element.as_object() {
+            Some(pair) if pair.is_array() => {
+                let count = pair
+                    .get(JsString::from("length"), context)?
+                    .to_length(context)?;
+                if count < 2 {
+                    return Err(JsNativeError::typ()
+                        .with_message(format!(
+                            "Field.setItems: item {index} is an array of {count}, and an item \
+                             given as an array is its text and its export value"
+                        ))
+                        .into());
+                }
+                let label = pair
+                    .get(0, context)?
+                    .to_string(context)?
+                    .to_std_string_lossy();
+                let export = pair
+                    .get(1, context)?
+                    .to_string(context)?
+                    .to_std_string_lossy();
+                option_of(label, Some(export))
+            }
+            _ => option_of(element.to_string(context)?.to_std_string_lossy(), None),
+        };
+        options.push(option);
+    }
+    rewrite(this, context, |_, _| Some(options.clone()))
+}
+
+/// `field.insertItemAt(cName, cExport, nIdx)`: one option inserted, its export value `cExport`
+/// where given and `cName` otherwise, at `nIdx` — the top where it is absent or 0, the end where it
+/// is -1, as the reference has it. Any other place that is not in the list is a `RangeError`.
+fn insert_item_at(
+    this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let state = choice_field(this, "insertItemAt", context)?;
+    let values = named(arguments, &["cName", "cExport", "nIdx"], context)?;
+    let label = values
+        .first()
+        .cloned()
+        .unwrap_or_default()
+        .to_string(context)?
+        .to_std_string_lossy();
+    let export = match values.get(1) {
+        Some(value) if !value.is_null_or_undefined() => {
+            Some(value.to_string(context)?.to_std_string_lossy())
+        }
+        _ => None,
+    };
+    let place = values.get(2).cloned().unwrap_or_default();
+    let number = if place.is_undefined() {
+        0.0
+    } else {
+        place.to_number(context)?
+    };
+    if state.options.len() >= MAX_PAGES {
+        return Err(JsNativeError::range()
+            .with_message(format!(
+                "Field.insertItemAt: {} already holds the {MAX_PAGES} options a field's options \
+                 hold here (ADR 1737)",
+                state.name
+            ))
+            .into());
+    }
+    let valid = number.is_finite()
+        && (integral(number) == -1
+            || (number >= 0.0
+                && usize::try_from(integral(number)).is_ok_and(|at| at <= state.options.len())));
+    if !valid {
+        return Err(JsNativeError::range()
+            .with_message(format!(
+                "Field.insertItemAt: {number} is no place among {}'s {} items",
+                state.name,
+                state.options.len()
+            ))
+            .into());
+    }
+    let option = option_of(label, export);
+    rewrite(this, context, move |held, _| {
+        let mut options = held.to_vec();
+        let at = if integral(number) == -1 {
+            options.len()
+        } else {
+            usize::try_from(integral(number))
+                .unwrap_or(usize::MAX)
+                .min(options.len())
+        };
+        options.insert(at, option.clone());
+        Some(options)
+    })
+}
+
+/// `field.deleteItemAt(nIdx)`: the option at `nIdx` deleted, or — where it is absent — the first
+/// option selected now, as the reference's "the currently selected item" is one. With no index
+/// and nothing selected nothing is deleted and the run says so; an index that names no option is a
+/// `RangeError`.
+fn delete_item_at(
+    this: &JsValue,
+    arguments: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let state = choice_field(this, "deleteItemAt", context)?;
+    let values = named(arguments, &["nIdx"], context)?;
+    let place = values.first().cloned().unwrap_or_default();
+    let asked = if place.is_undefined() {
+        None
+    } else {
+        let number = place.to_number(context)?;
+        let index = (number.is_finite() && number >= 0.0)
+            .then(|| usize::try_from(integral(number)).ok())
+            .flatten()
+            .filter(|index| *index < state.options.len());
+        let Some(index) = index else {
+            return Err(JsNativeError::range()
+                .with_message(format!(
+                    "Field.deleteItemAt: {number} names none of {}'s {} items",
+                    state.name,
+                    state.options.len()
+                ))
+                .into());
+        };
+        Some(index)
+    };
+    if asked.is_none() && state.selected.is_empty() {
+        State::with(context, |record| {
+            record.note(&format!(
+                "{}: the script called deleteItemAt with no index and nothing is selected, so no \
+                 option is deleted (ADR 1737)",
+                state.name
+            ));
+        });
+        return Ok(JsValue::undefined());
+    }
+    rewrite(this, context, move |held, selected| {
+        let index = asked.or_else(|| {
+            selected
+                .first()
+                .and_then(|first| usize::try_from(*first).ok())
+        })?;
+        let mut options = held.to_vec();
+        (index < options.len()).then(|| {
+            options.remove(index);
+            options
+        })
+    })
+}
+
+/// `field.clearItems()`: every option deleted.
+fn clear_items(this: &JsValue, _arguments: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+    choice_field(this, "clearItems", context)?;
+    rewrite(this, context, |_, _| Some(Vec::new()))
+}
+
+/// An option of `label`, whose export value is `export` where it differs: an export value equal
+/// to the text is Table 234's plain text string.
+fn option_of(label: String, export: Option<String>) -> Choice {
+    Choice {
+        export: export.filter(|export| *export != label),
+        label,
+    }
+}
+
+/// Rewrites the options of every terminal field the `Field` stands for, each to what `options`
+/// makes of its own list and selection — `None` to leave it — as [`Property::Options`].
+///
+/// §12.7.5.4's `/V` names what is selected by its text, so an option a rewrite moved stays
+/// selected where it now is; one a rewrite took away leaves the field with no selection, as the
+/// reference's `deleteItemAt` says, and the field's choice is cleared as a person's empty choice
+/// is ([`ScriptEdit::Choose`]).
+fn rewrite(
+    this: &JsValue,
+    context: &mut Context,
+    options: impl Fn(&[Choice], &[u32]) -> Option<Vec<Choice>>,
+) -> JsResult<JsValue> {
+    let name = field_name(this, context)?;
+    for field in terminals(context, &name) {
+        let Some(held) = State::table(context, |table| table.fields.get(&field).cloned()).flatten()
+        else {
+            continue;
+        };
+        if !matches!(held.kind, FieldType::ComboBox | FieldType::ListBox) {
+            continue;
+        }
+        let Some(rewritten) = options(&held.options, &held.selected) else {
+            continue;
+        };
+        let selected_labels: Vec<&str> = held
+            .selected
+            .iter()
+            .filter_map(|index| usize::try_from(*index).ok())
+            .filter_map(|index| held.options.get(index))
+            .map(|option| option.label.as_str())
+            .collect();
+        let still: Vec<u32> = selected_labels
+            .iter()
+            .filter_map(|label| rewritten.iter().position(|option| option.label == *label))
+            .filter_map(|index| u32::try_from(index).ok())
+            .collect();
+        let lost = still.len() < selected_labels.len();
+        let edit = ScriptEdit::Property {
+            field: field.clone(),
+            widget: None,
+            property: Property::Options(rewritten.clone()),
+        };
+        State::edit(context, &field, edit, move |state| {
+            state.options = rewritten;
+            state.selected = still;
+        });
+        if lost {
+            let clear = ScriptEdit::Choose {
+                field: field.clone(),
+                indices: Vec::new(),
+            };
+            State::edit(context, &field, clear, |state| {
+                state.selected.clear();
+                state.value.clear();
+            });
+        }
+    }
+    Ok(JsValue::undefined())
 }
 
 /// The first terminal field a `Field` stands for, held to a choice field: the reference gives

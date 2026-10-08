@@ -78,6 +78,9 @@ pub enum Subject {
     Submission,
     /// Table Annex O.4's `fdf` naming an absolute URI, which would be fetched from a server.
     Fetch,
+    /// A signature policy's published copy, which would be fetched from the server the signature
+    /// names (ADR 1738).
+    Policy,
     /// §O.2.1's `ef`, which would open a file carried inside the document.
     Embedded,
     /// A document's scripts, which would run in a confined worker (RFC 0008 section 6.3).
@@ -94,6 +97,7 @@ impl Subject {
             Self::Document => "Open this document?",
             Self::Submission => "Send this form?",
             Self::Fetch => "Fetch this form data?",
+            Self::Policy => "Fetch this signature policy?",
             Self::Embedded => "Open this embedded document?",
             Self::Scripts => "Run this document's scripts?",
         }
@@ -153,17 +157,19 @@ pub const MACHINE_NOTE: &str = "for every document in this window";
 
 /// The first act under [`MACHINE`], and the name the sentences about its level use.
 ///
-/// Two clauses' requests under one level, and the name says both: §12.7.6.2's form, and Table Annex
-/// O.4's `fdf` fetched from a server, which tells that server the document was opened here
-/// (ADR 1527).
-pub const SUBMITTING: &str = "sending a form or fetching its data";
+/// Three requests under one level, and the name says each: §12.7.6.2's form, Table Annex O.4's
+/// `fdf` fetched from a server, which tells that server the document was opened here (ADR 1527),
+/// and the copy of a signature's policy document at the URL ETSI EN 319 122-1 clause 5.2.9.2's
+/// qualifier names, which tells that server the document is being validated here (ADRs 1728,
+/// 1738).
+pub const SUBMITTING: &str = "sending a form, or fetching its data or a signature's policy";
 
 /// One of the acts under [`MACHINE`].
 ///
 /// Closed, and **not** `#[non_exhaustive]`, for [`Scope`]'s reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Act {
-    /// §12.7.6.2's submission and a fetched import — [`SUBMITTING`].
+    /// §12.7.6.2's submission, a fetched import and a fetched signature policy — [`SUBMITTING`].
     Submitting,
     /// §O.2.1's `ef` — `crate::policy::OPENING_EMBEDDED`.
     OpeningEmbedded,

@@ -18,8 +18,9 @@ use pdf_model::action::{PageTrigger, Trigger as AnnotationTrigger};
 use pdf_model::aform::Trigger;
 use pdf_model::view::{
     Alignment, BorderStyle, Colour, Display, DocumentTrigger, FieldState, FieldType, Property,
-    ScriptEdit, ScriptEvent, ScriptSite, TextFlag, WidgetState,
+    ScriptEdit, ScriptEvent, ScriptSite, TextFlag, ViewChange, WidgetState, WindowView, ZoomType,
 };
+use pdf_model::viewer_preferences::PageLayout;
 use pdf_script::{Ending, Exceeded, Outcome, Refusal, RefusalKind, Request};
 use pdf_script_worker::wire::{MAX_SCRIPT_BYTES, Reply, Run, encode_reply, encode_run};
 
@@ -100,6 +101,11 @@ fn request(site: ScriptSite, fields: &[FieldState], value: &str, change: &str) -
         change_ex: "",
         dirty: false,
         document: None,
+        view: WindowView {
+            zoom: Some(125.0),
+            zoom_type: ZoomType::FitWidth,
+            layout: PageLayout::TwoColumnLeft,
+        },
     };
     Request::of(&event, 1_704_465_015_000, -3600)
 }
@@ -211,6 +217,22 @@ fn edits() -> Vec<ScriptEdit> {
             name: "chapter5".to_owned(),
         },
         ScriptEdit::Calculation { on: false },
+        ScriptEdit::View {
+            change: ViewChange::Zoom(200.0),
+        },
+        ScriptEdit::View {
+            change: ViewChange::ZoomType(ZoomType::FitVisibleWidth),
+        },
+        ScriptEdit::View {
+            change: ViewChange::Layout(PageLayout::TwoPageRight),
+        },
+        ScriptEdit::View {
+            change: ViewChange::Scroll {
+                page: 1,
+                x: 306.0,
+                y: 396.0,
+            },
+        },
     ]
 }
 

@@ -42,6 +42,50 @@ fn pages() -> Vec<pdf_model::view::PageState> {
     ]
 }
 
+/// Two annotations as a realm is told of them, every member of each stated.
+fn annotations() -> Vec<AnnotationState> {
+    vec![
+        AnnotationState {
+            number: 12,
+            generation: 1,
+            page: 2,
+            kind: "Text".to_owned(),
+            rect: [1.5, 2.0, 30.0, 40.25],
+            name: Some("note".to_owned()),
+            contents: "é".to_owned(),
+            author: None,
+            modified: Some(1_704_465_015_000),
+            hidden: true,
+            read_only: false,
+            reach: AnnotationReach {
+                printed: true,
+                viewed: false,
+                interactive: true,
+            },
+            popup_open: Some(true),
+        },
+        AnnotationState {
+            number: 13,
+            generation: 0,
+            page: 2,
+            kind: "FreeText".to_owned(),
+            rect: [0.0; 4],
+            name: None,
+            contents: String::new(),
+            author: Some("Ann".to_owned()),
+            modified: None,
+            hidden: false,
+            read_only: true,
+            reach: AnnotationReach {
+                printed: false,
+                viewed: true,
+                interactive: false,
+            },
+            popup_open: None,
+        },
+    ]
+}
+
 fn request(site: ScriptSite) -> Request {
     Request {
         site,
@@ -97,52 +141,50 @@ fn request(site: ScriptSite) -> Request {
         pages: 9,
         dirty: false,
         document: Some(DocumentState {
-            annotations: vec![
-                AnnotationState {
-                    number: 12,
-                    generation: 1,
-                    page: 2,
-                    kind: "Text".to_owned(),
-                    rect: [1.5, 2.0, 30.0, 40.25],
-                    name: Some("note".to_owned()),
-                    contents: "é".to_owned(),
-                    author: None,
-                    modified: Some(1_704_465_015_000),
-                    hidden: true,
-                    read_only: false,
-                    reach: AnnotationReach {
-                        printed: true,
-                        viewed: false,
-                        interactive: true,
-                    },
-                    popup_open: Some(true),
-                },
-                AnnotationState {
-                    number: 13,
-                    generation: 0,
-                    page: 2,
-                    kind: "FreeText".to_owned(),
-                    rect: [0.0; 4],
-                    name: None,
-                    contents: String::new(),
-                    author: Some("Ann".to_owned()),
-                    modified: None,
-                    hidden: false,
-                    read_only: true,
-                    reach: AnnotationReach {
-                        printed: false,
-                        viewed: true,
-                        interactive: false,
-                    },
-                    popup_open: None,
-                },
-            ],
+            annotations: annotations(),
             pages: pages(),
             ..DocumentState::default()
         }),
+        view: WINDOW,
         moment: 1_704_465_015_000,
         utc_offset_seconds: -3600,
     }
+}
+
+/// A window drawn at a fixed magnification in Table 29's two-page arrangement (ADR 1736).
+const WINDOW: pdf_model::view::WindowView = pdf_model::view::WindowView {
+    zoom: Some(133.25),
+    zoom_type: pdf_model::view::ZoomType::NoVary,
+    layout: pdf_model::viewer_preferences::PageLayout::TwoPageLeft,
+};
+
+/// One change of each kind to the window's view (ADR 1736), and a field's `/Opt` rewritten (ADR
+/// 1737).
+fn view_and_option_edits() -> Vec<ScriptEdit> {
+    use pdf_model::view::{ViewChange, ZoomType};
+    vec![
+        ScriptEdit::View {
+            change: ViewChange::Zoom(250.0),
+        },
+        ScriptEdit::View {
+            change: ViewChange::ZoomType(ZoomType::FitVisibleWidth),
+        },
+        ScriptEdit::View {
+            change: ViewChange::Layout(pdf_model::viewer_preferences::PageLayout::OneColumn),
+        },
+        ScriptEdit::View {
+            change: ViewChange::Scroll {
+                page: 2,
+                x: -1.5,
+                y: 800.0,
+            },
+        },
+        ScriptEdit::Property {
+            field: "Colour".to_owned(),
+            widget: None,
+            property: Property::Options(options()),
+        },
+    ]
 }
 
 fn outcome() -> Outcome {
@@ -206,7 +248,10 @@ fn outcome() -> Outcome {
                 name: "chapter5".to_owned(),
             },
             ScriptEdit::Calculation { on: false },
-        ],
+        ]
+        .into_iter()
+        .chain(view_and_option_edits())
+        .collect(),
         ending: Ending::Exceeded(Exceeded::Wall(Duration::from_millis(100))),
         refusals: vec![
             Refusal {

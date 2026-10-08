@@ -200,6 +200,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     page_num(&global, context)?;
     members::document(&global, context)?;
     super::pages::document(&global, context)?;
+    super::window::install(&global, context)?;
     super::annotations::install(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;

@@ -251,6 +251,11 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ),
         // A script's `app.beep` (ADR 1702).
         ("QUORRA_EVENT_BEEP", EventKind::Beep),
+        // §12.8.3.4.4's published policy copies (ADR 1738).
+        (
+            "QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED",
+            EventKind::SignaturePoliciesPublished,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

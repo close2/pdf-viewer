@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF11";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF12";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -1110,6 +1110,91 @@ fn write_script_question(writer: &mut Writer, question: &viewer_core::ScriptQues
                 .bool(*password);
         }
     }
+}
+
+/// One policy copy a signature names: its identifier and URL, the commitment, and the
+/// specification. A digest crosses as its object identifier, which is what the signature stated
+/// and what [`pdf_signature::cms::Digest::from_oid`] reads back (ADR 1738).
+fn write_published(writer: &mut Writer, policy: &pdf_signature::policy::PublishedPolicy) {
+    use pdf_signature::policy::{Commitment, Specification};
+    writer.str(&policy.identifier).str(&policy.url);
+    match &policy.commitment {
+        Commitment::Stated { digest, value } => {
+            writer.u8(0).bytes(digest.oid()).bytes(value);
+        }
+        Commitment::UnderAnotherFunction { algorithm } => {
+            writer.u8(1).str(algorithm);
+        }
+        Commitment::NotKnown => {
+            writer.u8(2);
+        }
+    }
+    match &policy.specification {
+        None => {
+            writer.u8(0);
+        }
+        Some(Specification::ObjectIdentifier(oid)) => {
+            writer.u8(1).str(oid);
+        }
+        Some(Specification::Uri(uri)) => {
+            writer.u8(2).str(uri);
+        }
+    }
+}
+
+/// [`write_published`]'s inverse; a digest this build does not compute is refused rather than
+/// read as another, because the comparison a host makes is under the function the signer named.
+fn read_published(
+    reader: &mut Reader<'_>,
+) -> Result<pdf_signature::policy::PublishedPolicy, ProtocolError> {
+    use pdf_signature::cms::Digest;
+    use pdf_signature::policy::{Commitment, PublishedPolicy, Specification};
+    let identifier = reader.string("a signature policy's identifier")?;
+    let url = reader.string("a signature policy's URL")?;
+    let commitment = match reader.u8("a signature policy's commitment")? {
+        0 => {
+            let oid = reader.bytes("a signature policy's digest function")?;
+            // The identifier is octets rather than a number, so what the refusal names is how many
+            // there were: no `Digest` writes an identifier this build cannot read back.
+            let digest = Digest::from_oid(oid).ok_or(ProtocolError::Unrecognised {
+                what: "a digest identifier of this many octets",
+                value: u32::try_from(oid.len()).unwrap_or(u32::MAX),
+            })?;
+            Commitment::Stated {
+                digest,
+                value: reader.owned_bytes("a signature policy's digest")?,
+            }
+        }
+        1 => Commitment::UnderAnotherFunction {
+            algorithm: reader.string("a signature policy's digest function")?,
+        },
+        2 => Commitment::NotKnown,
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a signature policy's commitment",
+                value: u32::from(other),
+            });
+        }
+    };
+    let specification = match reader.u8("a signature policy's specification")? {
+        0 => None,
+        1 => Some(Specification::ObjectIdentifier(
+            reader.string("a specification's identifier")?,
+        )),
+        2 => Some(Specification::Uri(reader.string("a specification's URI")?)),
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a signature policy's specification",
+                value: u32::from(other),
+            });
+        }
+    };
+    Ok(PublishedPolicy {
+        identifier,
+        url,
+        commitment,
+        specification,
+    })
 }
 
 /// [`write_script_question`]'s inverse; a number outside Adobe's four is refused, never mapped.
@@ -2485,6 +2570,9 @@ mod event_kind {
     // `app.beep`'s sound, which crosses for `SCRIPT_ASKING`'s reason: the script runs beside the
     // view, and the window holds the speaker (ADR 1702).
     pub(super) const BEEP: u8 = 25;
+    // §12.8.3.4.4's published policy copies, which cross because the worker reads the signature
+    // and the window holds the network level and the person (ADR 1738).
+    pub(super) const SIGNATURE_POLICIES_PUBLISHED: u8 = 26;
 }
 
 /// Encodes one event.
@@ -2737,6 +2825,15 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .unwrap_or(u8::MAX);
             writer.u8(k::BEEP).document(*document).u8(tag);
         }
+        Event::SignaturePoliciesPublished { document, policies } => {
+            writer
+                .u8(k::SIGNATURE_POLICIES_PUBLISHED)
+                .document(*document)
+                .usize(policies.len());
+            for policy in policies {
+                write_published(&mut writer, policy);
+            }
+        }
         Event::Reported {
             document,
             page,
@@ -2970,6 +3067,10 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                     })?,
             }
         }
+        k::SIGNATURE_POLICIES_PUBLISHED => Event::SignaturePoliciesPublished {
+            document: reader.document(what)?,
+            policies: reader.list("a signature's published policies", read_published)?,
+        },
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
             page: if reader.bool("a page number")? {
@@ -5106,6 +5207,41 @@ mod tests {
                 purpose: Purpose::LaunchDocument,
                 name: "file1.pdf".to_owned(),
                 beside: true,
+            },
+            // §12.8.3.4.4: each of the three commitments and the three specification shapes.
+            Event::SignaturePoliciesPublished {
+                document,
+                policies: vec![
+                    pdf_signature::policy::PublishedPolicy {
+                        identifier: "2.16.724.1.3.1.1.2.1.9".to_owned(),
+                        url: "https://sede.060.gob.es/politica_de_firma_anexo_1.pdf".to_owned(),
+                        commitment: pdf_signature::policy::Commitment::Stated {
+                            digest: pdf_signature::cms::Digest::Sha1,
+                            value: vec![0x5a; 20],
+                        },
+                        specification: None,
+                    },
+                    pdf_signature::policy::PublishedPolicy {
+                        identifier: "1.2.3".to_owned(),
+                        url: "http://127.0.0.1/p.pdf".to_owned(),
+                        commitment: pdf_signature::policy::Commitment::UnderAnotherFunction {
+                            algorithm: "1.2.840.113549.2.5".to_owned(),
+                        },
+                        specification: Some(
+                            pdf_signature::policy::Specification::ObjectIdentifier(
+                                "0.4.0.19122.2.1".to_owned(),
+                            ),
+                        ),
+                    },
+                    pdf_signature::policy::PublishedPolicy {
+                        identifier: "1.2.4".to_owned(),
+                        url: "http://127.0.0.1/q.pdf".to_owned(),
+                        commitment: pdf_signature::policy::Commitment::NotKnown,
+                        specification: Some(pdf_signature::policy::Specification::Uri(
+                            "http://127.0.0.1/spec".to_owned(),
+                        )),
+                    },
+                ],
             },
             Event::Transition {
                 document,

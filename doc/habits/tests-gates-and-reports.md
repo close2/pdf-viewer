@@ -546,9 +546,18 @@ story was never the cause (round 1443, ADR 1718). A test that needs one piece of
 takes it by the name the report gives (`first_written`), and a flake blamed on another program is
 read against the test's own indexing first.
 
-## A comment on a gate line in `doc/todo/02` section 2 names no flag
+## A sweep that reads a command reads it up to its comment, and a planted comment calibrates it
 
-`sandbox_gates.rs`, `batch.rs` and `state_sections.rs` read `-p` and `--test` off the whole of a
-`cargo test` line in the gate map, comment included, so a comment saying "`-p pdf-script-worker` is
-built by the second `--build`" made a sweep read the wrong package and fail by name (round 1448,
-ADR 1732). What a gate needs is said in words beside its line; the flags are the line's own.
+Four sweeps (`sandbox_gates.rs`, `state_sections.rs`, `ratchets.rs`, `bounded.rs`'s `state_walks`)
+read `-p` and `--test` off the whole of a gate line, comment included, so a comment that named another
+package made a sweep fail by name (round 1448); they now read the command's words up to the first `#`,
+as the shell does, each with a test whose planted comment names another package and target (round
+1454, ADR 1744). A new reader of a command line in `tools/conformance/tests/` uses `command_words`
+and carries the same plant.
+
+## A drive step judged by the saved file is also looked at, zoomed, for the chrome it cannot see
+
+Step 67 passed on the saved text while `quorra` drew no caret at all — the caret overlay lay under
+the popup windows — and only the photograph, zoomed to the note, showed it (round 1451, ADR 1739). A
+step whose verdict is a file's bytes says nothing about what the window drew; its photograph is
+looked at as trap 1 asks, and a step that draws chrome gets a verdict on the pixels as well.

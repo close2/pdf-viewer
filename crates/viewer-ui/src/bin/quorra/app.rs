@@ -53,6 +53,13 @@ pub(crate) enum Pending {
         /// The URI as the fragment or the action named it.
         url: String,
     },
+    /// A signature policy's published copy, answered by fetching it (ADR 1738).
+    Policy {
+        /// The document whose signature named it, which a bound copy opens beside.
+        document: viewer_core::DocumentId,
+        /// The URL, the identifier and the digest the signer committed to.
+        policy: Box<viewer_host::PublishedPolicy>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.

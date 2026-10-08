@@ -152,8 +152,11 @@ These are the places where a native host's shape differs from the tier-2 host's,
   there, which each places as though the number read right to left (ADR 1690) — and the C ABI hands
   the runs, the stops and each stop's leader over, with the grid the windows break a leader on
   (ADRs 1655, 1667, 1726). A text note is retyped in its window in all three — a text view placed
-  over it in the toolkits, the caret at the note's end in `quorra` — and a reply stating no popup is
-  a comment in its note's window (ADRs 1726, 1727). §12.3.5's collection is shown in all three.
+  over it in the toolkits, a caret a press places and the arrows move in `quorra`, at the end of a
+  note drawn from `/RC` (ADR 1739) — and a reply stating no popup is a comment in its note's window
+  (ADRs 1726, 1727). §12.3.5's collection is shown in all three. A signature's published policy is
+  fetched in all three under the submissions level and a bound copy opened beside, declined in
+  `quorra-confined`; the C ABI names the event and offers no binding (ADR 1738).
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font

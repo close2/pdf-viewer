@@ -183,22 +183,52 @@ fn get_page_box(
 /// first: turned clockwise by `rotate` degrees and moved so that `media`'s turned lower-left
 /// corner is where `media`'s own was ([`get_page_box`]).
 fn rotated(rect: [f64; 4], media: [f64; 4], rotate: u16) -> [f64; 4] {
-    let turn = |x: f64, y: f64| match rotate {
+    let (dx, dy) = moved_by(media, rotate);
+    let (ax, ay) = turned(rect[0], rect[1], rotate);
+    let (bx, by) = turned(rect[2], rect[3], rotate);
+    [
+        ax.min(bx) + dx,
+        ay.min(by) + dy,
+        ax.max(bx) + dx,
+        ay.max(by) + dy,
+    ]
+}
+
+/// The point of default user space that `point`, in rotated user space, stands for: [`rotated`]
+/// undone for one point, on a page whose media box is `media` and whose `/Rotate` is `rotate` —
+/// what `this.scroll` hands a host, which places a destination's coordinates from default user
+/// space (ADR 1736).
+pub(super) fn unrotated_point(point: (f64, f64), media: [f64; 4], rotate: u16) -> (f64, f64) {
+    let (dx, dy) = moved_by(media, rotate);
+    let (u, v) = (point.0 - dx, point.1 - dy);
+    match rotate {
+        90 => (-v, u),
+        180 => (-u, -v),
+        270 => (v, -u),
+        _ => (u, v),
+    }
+}
+
+/// `(x, y)` turned clockwise by `rotate` degrees about the origin, in a space whose y axis points
+/// up.
+fn turned(x: f64, y: f64, rotate: u16) -> (f64, f64) {
+    match rotate {
         90 => (y, -x),
         180 => (-x, -y),
         270 => (-y, x),
         _ => (x, y),
-    };
-    let normalised = |[x0, y0, x1, y1]: [f64; 4]| {
-        let (ax, ay) = turn(x0, y0);
-        let (bx, by) = turn(x1, y1);
-        [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
-    };
-    let turned_media = normalised(media);
-    let dx = media[0].min(media[2]) - turned_media[0];
-    let dy = media[1].min(media[3]) - turned_media[1];
-    let [x0, y0, x1, y1] = normalised(rect);
-    [x0 + dx, y0 + dy, x1 + dx, y1 + dy]
+    }
+}
+
+/// How far [`rotated`] moves a turned point: what brings the turned media box's lower-left corner
+/// back onto the media box's own.
+fn moved_by(media: [f64; 4], rotate: u16) -> (f64, f64) {
+    let (ax, ay) = turned(media[0], media[1], rotate);
+    let (bx, by) = turned(media[2], media[3], rotate);
+    (
+        media[0].min(media[2]) - ax.min(bx),
+        media[1].min(media[3]) - ay.min(by),
+    )
 }
 
 /// The page a page method's argument at `position` names — zero where it is absent, as the
@@ -301,7 +331,30 @@ fn write_calculate(
 
 #[cfg(test)]
 mod tests {
-    use super::rotated;
+    use super::{rotated, unrotated_point};
+
+    /// A point of a turned page's box read back to default user space lands on the corner it was
+    /// turned from, at every quarter turn.
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "every coordinate is a whole number, exact in a double, and turning one only \
+                  moves and negates it"
+    )]
+    fn a_rotated_point_is_read_back_to_where_the_page_states_it() {
+        let media = [0.0, 0.0, 612.0, 792.0];
+        let crop = [10.0, 36.0, 600.0, 780.0];
+        for rotate in [0, 90, 180, 270] {
+            let [x0, y0, x1, y1] = rotated(crop, media, rotate);
+            let back = [
+                unrotated_point((x0, y0), media, rotate),
+                unrotated_point((x1, y1), media, rotate),
+            ];
+            let xs = [back[0].0.min(back[1].0), back[0].0.max(back[1].0)];
+            let ys = [back[0].1.min(back[1].1), back[0].1.max(back[1].1)];
+            assert_eq!([xs[0], ys[0], xs[1], ys[1]], crop, "rotate {rotate}");
+        }
+    }
 
     #[test]
     #[expect(

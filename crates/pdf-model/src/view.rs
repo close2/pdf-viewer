@@ -41,7 +41,8 @@ use crate::optional_content::{Audience, OptionalContent, Purpose};
 pub use script_model::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, CommitKey,
     Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
-    MAX_PAGES, PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
+    MAX_PAGES, PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, ViewChange,
+    WidgetState, WindowView, ZoomType,
 };
 pub use script_timers::{MAX_TIMERS, MIN_PERIOD};
 pub use scripts::{
@@ -2684,10 +2685,15 @@ impl ViewState {
                 )),
                 indices: None,
             },
-            Entered::Chosen(indices) => match chosen(document, taking.first().copied(), indices) {
-                Some(entry) => entry,
-                None => return 0,
-            },
+            Entered::Chosen(indices) => {
+                let scripted = taking
+                    .first()
+                    .map_or(&[][..], |widget| self.scripted(*widget));
+                match chosen(document, taking.first().copied(), scripted, indices) {
+                    Some(entry) => entry,
+                    None => return 0,
+                }
+            }
         };
         // §12.7.5.3's file-select control keeps the contents beside the pathname, so a value set
         // any other way takes them with it: a pathname and bytes that no longer belong to it
@@ -5224,11 +5230,18 @@ fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(Objec
 /// this refuses rather than reinterprets.
 ///
 /// The widget is any one of the field's: §12.7.4.1 makes `/Opt`, `/Ff` and the value the *field's*,
-/// so every widget of it walks to the same ancestry.
-fn chosen(document: &Document, widget: Option<ObjectId>, indices: &[usize]) -> Option<Entry> {
+/// so every widget of it walks to the same ancestry. `scripted` is what scripts set on it, read so
+/// that an index names an option of the list a script rewrote (ADR 1737).
+fn chosen(
+    document: &Document,
+    widget: Option<ObjectId>,
+    scripted: &[Property],
+    indices: &[usize],
+) -> Option<Entry> {
     let object = document.get(widget?);
-    let annotation = object.as_dict()?;
-    let field = crate::appearance::Field::read(document, annotation, FieldValue::Stored);
+    let stored = object.as_dict()?;
+    let annotation = crate::appearance::with_rewritten_options(document, stored, scripted);
+    let field = crate::appearance::Field::read(document, &annotation, FieldValue::Stored);
     if !matches!(
         field.kind,
         Some(crate::appearance::FieldKind::Choice { .. })

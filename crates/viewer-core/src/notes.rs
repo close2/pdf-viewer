@@ -16,9 +16,25 @@ use pdf_signature::signature::{
 use pdf_signature::verdict::{BestSignatureTime, Proof};
 use pdf_syntax::Document;
 
+/// What [`about`] answers: the sentences, and the policy documents the signatures say a copy of
+/// can be fetched from.
+///
+/// The second half is not words, because what a host does with it is not saying: ETSI EN 319
+/// 122-1 clause 5.2.9.2's URL qualifier names a server, and whether to ask it is the reader's
+/// network level, which only a host holds (ADR 1738).
+#[derive(Debug, Default)]
+pub(crate) struct About {
+    /// Everything worth saying, in order.
+    pub(crate) notes: Vec<String>,
+    /// Each signature's [`pdf_signature::policy::SignaturePolicy::published`] list, in signature
+    /// order, with a URL a second signature names under the same commitment listed once.
+    pub(crate) published: Vec<pdf_signature::policy::PublishedPolicy>,
+}
+
 /// Everything worth saying about a document the moment it opens.
-pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<String> {
+pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
     let mut notes = Vec::new();
+    let mut published = Vec::new();
 
     if document.was_recovered() {
         // Worth saying: the file's own cross-reference table was unusable and the document was
@@ -190,8 +206,8 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
     }
 
     tagged_structure(document, &mut notes);
-    signatures(document, trust, &mut notes);
-    notes
+    signatures(document, trust, &mut notes, &mut published);
+    About { notes, published }
 }
 
 /// §14.8.6's two requirements on the file, said where the file is what is being described.
@@ -486,7 +502,12 @@ pub(crate) fn restricted(
 /// **And a verdict is never separable from where its anchors came from.** [`anchors_note`] is that
 /// sentence: a reader told that a signature is valid is owed *valid according to whom*, and only
 /// the host that read the certificates can say.
-fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<String>) {
+fn signatures(
+    document: &Document,
+    trust: &crate::TrustPolicy,
+    notes: &mut Vec<String>,
+    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
+) {
     // Read once and lent on: §12.8.6's dictionary says which signature carries §12.8.2.2's
     // `/DocMDP` and which carries §12.8.2.3's `/UR3`, which is what decides whether a comparison of
     // two revisions has a transform to be ranked against — and which two of the signatures below
@@ -531,7 +552,7 @@ fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<S
             acceptance: trust.acceptance,
             timestamps,
         };
-        about_one(signature, document, length, &asked, notes);
+        about_one(signature, document, length, &asked, notes, published);
         modifications(signature, document, &permissions, notes);
     }
     permissions_stated(&permissions, notes);
@@ -1002,6 +1023,7 @@ fn about_one(
     length: u64,
     asked: &Asked<'_>,
     notes: &mut Vec<String>,
+    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
 ) {
     {
         let who = signature.name.as_deref().unwrap_or("an unnamed signer");
@@ -1344,7 +1366,7 @@ fn about_one(
                     }
                 ));
             }
-            signature_policy(signature, &cms, notes);
+            signature_policy(signature, &cms, notes, published);
             // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
             // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
             // object carrying the attribute, and `Signature::authenticity` already refuses on a
@@ -1404,6 +1426,7 @@ fn signature_policy(
     signature: &pdf_signature::signature::Signature,
     cms: &pdf_signature::cms::SignedData<'_>,
     notes: &mut Vec<String>,
+    published: &mut Vec<pdf_signature::policy::PublishedPolicy>,
 ) {
     use pdf_signature::policy::Binding;
 
@@ -1424,6 +1447,14 @@ fn signature_policy(
          rules its signer committed to (§12.8.3.4.4's signature-policy-identifier)",
         policy.identifier
     ));
+    // Clause 5.2.9.2's URL qualifier is a server, and asking it is a host's question under the
+    // reader's network level rather than a sentence (ADRs 1728, 1738). A second signature under
+    // the same policy, URL and digest would be the same question asked twice.
+    for copy in policy.published() {
+        if !published.contains(&copy) {
+            published.push(copy);
+        }
+    }
     notes.push(match policy.binding() {
         Binding::Matches { digest } => format!(
             "the copy of that policy's document this file carries is the one the signer committed \
@@ -2208,7 +2239,9 @@ mod tests {
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
             page,
         ]);
-        let said = about(&tree, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&tree, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(!said.contains("found by scanning"), "{said}");
 
         let scanned = document(&[
@@ -2216,7 +2249,9 @@ mod tests {
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
             page,
         ]);
-        let said = about(&scanned, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&scanned, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains("its 1 page(s) were found by scanning"),
             "{said}"
@@ -2334,7 +2369,9 @@ mod tests {
             &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
         );
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains("1 object(s) changed after that signature, in 1 incremental update(s)"),
             "{said}"
@@ -2359,7 +2396,9 @@ mod tests {
             &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
         );
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains("every one of those changes is one §12.8.2.2's /P 3 permits"),
             "{said}"
@@ -2395,7 +2434,9 @@ mod tests {
             &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
         );
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
 
         assert!(
             said.contains("every one of those changes is an operation this document's /UR3 grants"),
@@ -2419,7 +2460,9 @@ mod tests {
             &[(6, "<< /Type /Annot /Subtype /Text /Rect [1 1 6 6] >>")],
         );
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains("1 of those changes are modifications Table 258's rights do not permit"),
             "{said}"
@@ -2444,7 +2487,9 @@ mod tests {
             "<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 \
              /ByteRange [0 0 0 0] /Contents <> >>",
         ]);
-        let said = about(&stamped, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&stamped, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains("carries 1 §12.8.5 document timestamp(s)"),
             "{said}"
@@ -2483,7 +2528,9 @@ mod tests {
             "<< /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange [0 0 0 0] \
              /Contents <> >>",
         ]);
-        let quiet = about(&plain, &crate::TrustPolicy::default()).join("\n");
+        let quiet = about(&plain, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(!quiet.contains("§12.8.5 document timestamp(s)"), "{quiet}");
         assert!(
             !quiet.contains("none of those timestamps tells this program"),
@@ -2513,7 +2560,9 @@ mod tests {
             "<< /Length 0 >>\nstream\n\nendstream",
             "<< /Length 0 >>\nstream\n\nendstream",
         ]);
-        let said = about(&with_store, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&with_store, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains(
                 "carries a §12.8.4 document security store — the material a validator needs after \
@@ -2555,6 +2604,7 @@ mod tests {
         ]);
         assert!(
             !about(&without, &crate::TrustPolicy::default())
+                .notes
                 .join("\n")
                 .contains("document security store"),
             "a signed document with no store is told nothing about one"
@@ -2578,7 +2628,9 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
 
         assert!(
             said.contains("no longer hash to the SHA256 digest it records"),
@@ -2635,7 +2687,9 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains(
                 "carries revocation information with it (§12.8.3.3.2's \
@@ -2662,6 +2716,7 @@ mod tests {
         .expect("a valid file");
         assert!(
             !about(&plain, &crate::TrustPolicy::default())
+                .notes
                 .join("\n")
                 .contains("carries revocation information"),
             "a signature with no signed attributes carries none"
@@ -2700,7 +2755,7 @@ mod tests {
             "<< /Type /SigRef /TransformMethod /DocMDP \
              /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>",
         ]);
-        let said = about(&document, &crate::TrustPolicy::default());
+        let said = about(&document, &crate::TrustPolicy::default()).notes;
         let critical: Vec<_> = said
             .iter()
             .filter(|note| note.contains("considered critical to validating it (Table 255)"))
@@ -2744,7 +2799,7 @@ mod tests {
             "<< /Type /SigRef /TransformMethod /DocMDP /DigestMethod /SHA2 >>",
             "<< /Type /SigRef /TransformMethod /DocMDP >>",
         ]);
-        let said = about(&document, &crate::TrustPolicy::default());
+        let said = about(&document, &crate::TrustPolicy::default()).notes;
         let stated: Vec<_> = said
             .iter()
             .filter(|note| note.contains("states /DigestMethod"))
@@ -2790,7 +2845,9 @@ mod tests {
             return;
         };
         let document = Document::open(bytes).expect("a valid file");
-        let said = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let said = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             said.contains(
                 "directly over the bytes its /ByteRange names — so those bytes are the ones that \
@@ -2835,7 +2892,9 @@ mod tests {
         let said = |sub_filter: &str| {
             let bodies = objects(sub_filter);
             let borrowed: Vec<&str> = bodies.iter().map(String::as_str).collect();
-            about(&document(&borrowed), &crate::TrustPolicy::default()).join("\n")
+            about(&document(&borrowed), &crate::TrustPolicy::default())
+                .notes
+                .join("\n")
         };
 
         let ordinary = said("adbe.pkcs7.detached");
@@ -2877,6 +2936,7 @@ mod tests {
             &document(&[tagged, pages, foreign, root, element]),
             &crate::TrustPolicy::default(),
         )
+        .notes
         .join("\n");
         assert!(
             said.contains(
@@ -2896,6 +2956,7 @@ mod tests {
                 &document(&[untagged, pages, foreign, root, element]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.2"),
             "a document that does not say it is tagged is outside the clause's sentence"
@@ -2912,6 +2973,7 @@ mod tests {
                 &document(&[tagged, pages, mapped, root, element]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.2"),
             "a role map into the default standard namespace satisfies the third bullet"
@@ -2926,6 +2988,7 @@ mod tests {
                 &document(&[tagged, pages, mathml, root, math]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.2"),
             "MathML is a namespace §14.8.6.3 identifies"
@@ -2941,6 +3004,7 @@ mod tests {
                 &document(&[tagged, pages, foreign, plain_root, plain]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.2"),
             "an element with no /NS is in the default standard structure namespace"
@@ -2967,6 +3031,7 @@ mod tests {
             &document(&[tagged, pages, mathml, root, math]),
             &crate::TrustPolicy::default(),
         )
+        .notes
         .join("\n");
         assert!(
             said.contains("1 of its structure elements are §14.8.6.3's MathML"),
@@ -2979,6 +3044,7 @@ mod tests {
                 &document(&[tagged, pages, mathml, root, formula, math]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.3"),
             "a Formula around it is the clause satisfied"
@@ -2993,6 +3059,7 @@ mod tests {
                 &document(&[untagged, pages, mathml, root, math]),
                 &crate::TrustPolicy::default()
             )
+            .notes
             .join("\n")
             .contains("§14.8.6.3"),
             "a document that does not say it is tagged is outside the clause"
@@ -3017,7 +3084,7 @@ mod tests {
             ]),
             &crate::TrustPolicy::default(),
         )
-        .join("\n");
+        .notes.join("\n");
         assert!(
             said.contains("a namespace whose dictionary states no name of its own"),
             "{said}"
@@ -3056,7 +3123,7 @@ mod tests {
             ),
             acceptance: pdf_signature::verdict::Acceptance::RevocationMustBeGood,
         };
-        let said = about(&document, &trust).join("\n");
+        let said = about(&document, &trust).notes.join("\n");
 
         assert!(
             said.contains("were supplied by whoever started it, from the directory a test named"),
@@ -3100,7 +3167,9 @@ mod tests {
 
         // **And with no anchor the report is the one this program prints without the supply**,
         // which is what makes the supply an input rather than a change of behaviour.
-        let quiet = about(&document, &crate::TrustPolicy::default()).join("\n");
+        let quiet = about(&document, &crate::TrustPolicy::default())
+            .notes
+            .join("\n");
         assert!(
             quiet.contains("no certificate store and makes no network request"),
             "{quiet}"
@@ -3153,4 +3222,182 @@ mod tests {
     01145ff95d50573d9f49ce9a3ffacfc3be2129836e13390ec4d42d7da886f8ab\
     40be249e1ede625527e447d12d26ab4e7e1b9358621fa709fc05dde4fb1dfdb4\
     87de183084bf0c50f5693a4a5a35b3a7d0d81bae8a12ecbe42e482";
+
+    /// One DER value: a tag, X.690's shortest definite length, and the contents.
+    fn der(tag: u8, contents: &[u8]) -> Vec<u8> {
+        let mut out = vec![tag];
+        let length = contents.len();
+        if length < 0x80 {
+            out.push(u8::try_from(length).expect("under 128"));
+        } else if length < 0x100 {
+            out.extend([0x81, u8::try_from(length).expect("under 256")]);
+        } else {
+            let length = u16::try_from(length).expect("the fixture is short");
+            out.push(0x82);
+            out.extend(length.to_be_bytes());
+        }
+        out.extend_from_slice(contents);
+        out
+    }
+
+    /// A CMS `SignedData` whose one `SignerInfo` signs §12.8.3.4.4's signature-policy-identifier
+    /// (ETSI EN 319 122-1 clause 5.2.9.1) under `2.16.724.1.3.1.1.2.1.9`, the corpus's thirteen
+    /// signatures' policy, with SHA-1 `digest` and, where `url` is given, clause 5.2.9.2's URL
+    /// qualifier. Nothing in it verifies: the policy is read whether or not the signature does.
+    fn policy_cms(digest: &[u8], url: Option<&str>) -> Vec<u8> {
+        const SIGNED_DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02];
+        const DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
+        const SHA256: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01];
+        const SHA1: &[u8] = &[0x2b, 0x0e, 0x03, 0x02, 0x1a];
+        const RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
+        const SIG_POLICY_ID: &[u8] = &[
+            0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x10, 0x02, 0x0f,
+        ];
+        const SPQ_URI: &[u8] = &[
+            0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x09, 0x10, 0x05, 0x01,
+        ];
+        const POLICY: &[u8] = &[0x60, 0x85, 0x54, 0x01, 0x03, 0x01, 0x01, 0x02, 0x01, 0x09];
+        let algorithm = |oid: &[u8]| der(0x30, &der(0x06, oid));
+        let mut policy = [
+            der(0x06, POLICY),
+            der(0x30, &[algorithm(SHA1), der(0x04, digest)].concat()),
+        ]
+        .concat();
+        if let Some(url) = url {
+            let qualifier = der(
+                0x30,
+                &[der(0x06, SPQ_URI), der(0x16, url.as_bytes())].concat(),
+            );
+            policy.extend(der(0x30, &qualifier));
+        }
+        let attribute = der(
+            0x30,
+            &[der(0x06, SIG_POLICY_ID), der(0x31, &der(0x30, &policy))].concat(),
+        );
+        let signer_info = der(
+            0x30,
+            &[
+                der(0x02, &[1]),
+                der(0x30, &[der(0x30, &[]), der(0x02, &[1])].concat()),
+                algorithm(SHA256),
+                der(0xa0, &attribute),
+                der(0x30, &[der(0x06, RSA), der(0x05, &[])].concat()),
+                der(0x04, &[0; 8]),
+            ]
+            .concat(),
+        );
+        let signed_data = der(
+            0x30,
+            &[
+                der(0x02, &[1]),
+                der(0x31, &algorithm(SHA256)),
+                algorithm(DATA),
+                der(0x31, &signer_info),
+            ]
+            .concat(),
+        );
+        der(
+            0x30,
+            &[der(0x06, SIGNED_DATA), der(0xa0, &signed_data)].concat(),
+        )
+    }
+
+    /// A one-page document signed under [`policy_cms`].
+    fn signed_under_a_policy(url: Option<&str>) -> Vec<u8> {
+        use std::fmt::Write as _;
+        let mut contents = String::new();
+        for octet in policy_cms(&[0x5a; 20], url) {
+            let _ = write!(contents, "{octet:02x}");
+        }
+        signed_document(
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /SigFlags 3 >> >>",
+            &format!(
+                "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached \
+                 /ByteRange [0000000000 0000000000 0000000000 0000000000] \
+                 /Contents <{contents}> >>"
+            ),
+        )
+    }
+
+    /// §12.8.3.4.4's policy copy reaches a host as data, not as a sentence: the URL clause
+    /// 5.2.9.2's qualifier names, with the identifier and the digest the signer committed to.
+    ///
+    /// **The calibration is the same signature without the qualifier** (trap 13): the policy is
+    /// still said, and nothing is handed over, so a list that filled from the identifier alone
+    /// would fail the second half.
+    #[test]
+    fn a_policy_s_published_copy_is_handed_over_beside_the_sentence_naming_the_policy() {
+        let url = "http://127.0.0.1:9/politica.pdf";
+        let document = Document::open(signed_under_a_policy(Some(url))).expect("a valid file");
+        let said = about(&document, &crate::TrustPolicy::default());
+        assert!(
+            said.notes
+                .iter()
+                .any(|note| note.contains("signature policy 2.16.724.1.3.1.1.2.1.9")),
+            "{:?}",
+            said.notes
+        );
+        assert_eq!(
+            said.published,
+            vec![pdf_signature::policy::PublishedPolicy {
+                identifier: "2.16.724.1.3.1.1.2.1.9".to_owned(),
+                url: url.to_owned(),
+                commitment: pdf_signature::policy::Commitment::Stated {
+                    digest: pdf_signature::cms::Digest::Sha1,
+                    value: vec![0x5a; 20],
+                },
+                specification: None,
+            }]
+        );
+
+        let unpublished = Document::open(signed_under_a_policy(None)).expect("a valid file");
+        let said = about(&unpublished, &crate::TrustPolicy::default());
+        assert!(
+            said.notes
+                .iter()
+                .any(|note| note.contains("signature policy 2.16.724.1.3.1.1.2.1.9")),
+            "the policy is said without a qualifier too: {:?}",
+            said.notes
+        );
+        assert!(said.published.is_empty(), "{:?}", said.published);
+    }
+
+    /// The event comes from `Command::Report`, after the sentences, once per asking, and not at
+    /// all where nothing is published (ADR 1738).
+    #[test]
+    fn the_report_hands_a_host_the_published_policies_after_its_sentences() {
+        use crate::{Command, DocumentId, Event, Viewer};
+        let kinds = |bytes: Vec<u8>| {
+            let mut viewer = Viewer::new(200, 200, 1.0);
+            let _ = viewer
+                .handle(Command::Open {
+                    id: DocumentId(1),
+                    bytes: bytes.into(),
+                    password: None,
+                    fragment: None,
+                })
+                .count();
+            viewer
+                .handle(Command::Report)
+                .filter_map(|event| match event {
+                    Event::Reported { page: None, .. } => Some("reported".to_owned()),
+                    Event::SignaturePoliciesPublished { document, policies } => Some(format!(
+                        "published {} for {}",
+                        policies
+                            .iter()
+                            .map(|policy| policy.url.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        document.0
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            kinds(signed_under_a_policy(Some("http://127.0.0.1:9/p.pdf"))),
+            ["reported", "published http://127.0.0.1:9/p.pdf for 1"]
+        );
+        assert_eq!(kinds(signed_under_a_policy(None)), ["reported"]);
+    }
 }

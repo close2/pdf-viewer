@@ -118,6 +118,28 @@ pub enum Event {
         /// offers [`crate::Command::Beside`] a name, or in place of it (ADR 1335).
         beside: bool,
     },
+    /// §12.8.3.4.4: a signature names a server where a copy of its policy document is published.
+    /// Fetch it, or decline and say so.
+    ///
+    /// §12.8.3.4.4 makes ETSI EN 319 122-1 clause 5.2.9's rules apply to a `PAdES-E-EPES`
+    /// signature, and that clause's URL qualifier says where a copy of the policy document can be
+    /// obtained. **Handed over rather than fetched**, for [`Self::Submit`]'s reason: a GET to that
+    /// server tells it this document is being validated here, which is a decision about this
+    /// machine, and no crate under principle 3's sandbox has a network. What a host does is
+    /// `viewer_host::policy::may_fetch_signature_policy` at the reader's submissions level, and
+    /// then `fetch_signature_policy`, whose comparison with the digest the signer signed decides
+    /// whether the copy is shown as theirs (ADRs 1728, 1738).
+    ///
+    /// Sent once per [`crate::Command::Report`], after the [`Self::Reported`] whose sentences name
+    /// the policy, and only where at least one signature names a URL.
+    SignaturePoliciesPublished {
+        /// Which document's signatures.
+        document: DocumentId,
+        /// Every URL a signature names, with the identifier and the digest the signer committed
+        /// to, in signature order; one a second signature names under the same commitment is
+        /// listed once.
+        policies: Vec<pdf_signature::policy::PublishedPolicy>,
+    },
     /// §12.4.4: show the page using this transition.
     ///
     /// Named rather than played, because a transition is a sequence of frames and this crate has

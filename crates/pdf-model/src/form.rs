@@ -484,8 +484,12 @@ fn read(
 ) -> Option<FormField> {
     let (first, _) = *widgets.first()?;
     let object = document.get(first);
-    let dict = object.as_dict()?;
-    let field = Field::read(document, dict, view.annotation(first).value);
+    let stored = object.as_dict()?;
+    // Table 234's `/Opt` as a script left it, so a host's control lists what the page draws (ADR
+    // 1737).
+    let annotation = view.annotation(first);
+    let dict = &*appearance::with_rewritten_options(document, stored, annotation.scripted);
+    let field = Field::read(document, dict, annotation.value);
     // A `/Parent` chain past the bound is a field nobody can name the type or the flags of, and
     // answering from a half-walked ancestry would be a description of a field this crate could not
     // draw either. `crate::appearance::field_text_value` refuses the same case.

@@ -243,6 +243,12 @@ fn run(data: &[u8]) {
         pages: 3,
         dirty: selector & 0x10 != 0,
         document: Some(&whole),
+        // A window drawn at a fixed 100 per cent, so a script's `this.zoom *= 2` has a value to
+        // double and its write crosses as an edit (ADR 1736).
+        view: pdf_model::view::WindowView {
+            zoom: Some(100.0),
+            ..pdf_model::view::WindowView::default()
+        },
     };
     let request = Request::of(&event, 1_704_465_015_000, 0);
 

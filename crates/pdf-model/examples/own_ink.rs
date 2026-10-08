@@ -57,6 +57,10 @@ const SCALE: f32 = 1.0;
 /// Pixels per page, as that gate bounds them.
 const PIXEL_BUDGET: u64 = 64 << 20;
 
+/// Strips per page, as that gate draws them: one, so that two arms taken under different CPU
+/// affinities differ only where the change does (ADR 1742).
+const STRIPS: u32 = 1;
+
 fn main() {
     let Some(corpus) = corpus() else {
         println!("# no tracked corpus at doc/pdf.js/test/pdfs");
@@ -87,7 +91,10 @@ fn ink(path: &Path) -> String {
     let Ok(target) = TargetSpec::for_page(&list, SCALE, PIXEL_BUDGET) else {
         return String::from("no-target");
     };
-    let Ok(raster) = CpuRasterizer::new().rasterize(&list, target) else {
+    let Ok(raster) = CpuRasterizer::new()
+        .with_strips(STRIPS)
+        .rasterize(&list, target)
+    else {
         return String::from("refused");
     };
     let sum: u64 = raster

@@ -1011,6 +1011,11 @@ cd fuzz && cargo +nightly fuzz run jpx          -- -max_total_time=600 -rss_limi
   # and keeps the smallest of each shape `fuzz/seed_codecs.py` states (ADR 1571). libFuzzer stops at its first
   # timeout, and `hayro-jbig2` has inputs past the deadline (ADR 1424's third section), so a run
   # meant to go on past one adds `-fork=1 -ignore_timeouts=1` and reads what it leaves behind.
+  # **A timeout is classed by its processor time and its stack, never by the run that left it**: a
+  # fork child under siblings' builds is timed on the wall clock (ADR 1717), so each input is re-run
+  # alone under `ulimit -t` past the deadline, and its stack is read at libFuzzer's first alarm with
+  # `gdb` as its parent (`handle SIGALRM stop`) — `ptrace_scope` is 1 here, so attaching to a
+  # running process is refused. ADR 1746 has the two commands and the classes they found.
 cd fuzz && cargo +nightly fuzz run xfdf         -- -max_total_time=600  # ISO 19444-1's XFDF and the
   # import it feeds, §12.7.6.4 (ADR 1297). Seeded from `crates/pdf-model/tests/xfdf/` by `fuzz/seeds.sh`.
 cd fuzz && cargo +nightly fuzz run aform        -- -max_total_time=1200 -rss_limit_mb=2048 -timeout=20
@@ -1032,7 +1037,12 @@ cd fuzz && cargo +nightly fuzz run script       -- -max_total_time=1200 -rss_lim
   # every budget at its number and one past it, chains deep without brackets, and a script at the
   # `-max_len` above. **A run's escape is the time its thread spent on a processor**, not the wall
   # clock's: at nice 19 under siblings' builds a seed at the element budget waited past the bound and
-  # stopped `seeds.sh check script` as "not judged" (ADR 1717).
+  # stopped `seeds.sh check script` as "not judged" (ADR 1717). **An out-of-memory stop is read for
+  # its script before it is believed**: the target runs the engine in this process, and growth
+  # through an operator — `s += s` in a loop the mutator made endless — is the class ADR 1590 names
+  # as the confined worker's to bound, by its address-space ceiling, which `pdf-script-worker`'s
+  # `growth_past_the_ceiling_ends_the_worker_and_is_named` holds; a campaign runs past it with
+  # `-ignore_ooms=1`, and only an allocation no operator explains is a finding (ADR 1746).
 cd fuzz && cargo +nightly fuzz run script_wire  -- -max_total_time=1200 -rss_limit_mb=2048
   # the script worker's wire from both sides (ADR 1609): the run a host sends and the reply a
   # confined worker sends back to a host that is not. What decodes once decodes again to the same,
@@ -1065,9 +1075,12 @@ cd fuzz && cargo +nightly fuzz run jpeg_bands   -- -max_total_time=600 -rss_limi
   # `DCTDecode` stream of 64 KiB or less of each frame shape — marker, precision, components and
   # their sampling, restart interval, `DNL` — out of documents of 4 MiB or less, and the two
   # modules' fixtures; `fuzz/seed_streams.py` says why each bound is the one it is (ADR 1559).
-  # Until `doc/questions/Q227`'s fork is in, a run stops within minutes on `zune-jpeg`'s DC
-  # multiply (`bitstream.rs` line 400, overflow checks on): a campaign adds `-fork=1
-  # -ignore_crashes=1` and reads each crash's panic location, and only another location is a finding.
+  # The fork the manifest pins carries the DC multiply's patch (ADR 1730), and a campaign on it
+  # stopped nowhere, at `bitstream.rs` line 400 or elsewhere (ADR 1746): a crash is a finding
+  # wherever it is. **A fork-mode run reads its whole corpus before its first mutation**, and the
+  # disk corpus here is the largest any target has (`tools/state.sh fuzz` counts it), so a campaign
+  # either states the time it fuzzed beside the time it ran, or starts from an earlier campaign's
+  # finds and fresh seeds in scratch, which merge to the coverage the disk corpus gives (ADR 1746).
 cd fuzz && cargo +nightly fuzz run find         -- -max_total_time=600 -rss_limit_mb=2048 -timeout=20
   # the find bar's match over a page's readback through `viewer_core::find_in_text`: §9.10.2's
   # presentation forms folded, canonical decompositions and marks a needle may leave off (ADRs

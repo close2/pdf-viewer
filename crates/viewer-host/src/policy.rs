@@ -1114,6 +1114,16 @@ pub fn signature_policy_declined(
     )
 }
 
+/// What a host says as a signature policy's copy is fetched, before the answer arrives — the
+/// counterpart of [`fetch_note`]'s `None` arm (ADR 1738).
+#[must_use]
+pub fn policy_fetch_note(policy: &pdf_signature::policy::PublishedPolicy) -> String {
+    format!(
+        "signature policy {}: fetching GET {}",
+        policy.identifier, policy.url
+    )
+}
+
 /// The two sentences every signature-policy note ends with: the level's warning where it gave
 /// one, and what §12.8.3.4.4 also requires that this program does not do.
 fn closed(

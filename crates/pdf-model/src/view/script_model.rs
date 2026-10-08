@@ -777,6 +777,7 @@ impl FieldState {
             Property::Required(flag) => self.flags = set_bit(self.flags, REQUIRED, *flag),
             Property::CharLimit(limit) => self.char_limit = Some(*limit),
             Property::TextFlag(flag, on) => self.flags = set_bit(self.flags, flag.bit(), *on),
+            Property::Options(options) => self.options.clone_from(options),
             _ => {
                 for (index, held) in self.widgets.iter_mut().enumerate() {
                     if widget.is_none_or(|widget| u32::try_from(index).is_ok_and(|i| i == widget)) {
@@ -846,7 +847,8 @@ impl WidgetState {
             Property::ReadOnly(_)
             | Property::Required(_)
             | Property::CharLimit(_)
-            | Property::TextFlag(..) => {}
+            | Property::TextFlag(..)
+            | Property::Options(_) => {}
         }
     }
 }
@@ -895,6 +897,10 @@ pub enum Property {
     Caption(Face, String),
     /// `style`: a check box's or a radio button's glyph, Table 192's `/CA` (ADR 1665).
     Style(Glyph),
+    /// `setItems`, `insertItemAt`, `deleteItemAt` or `clearItems`: Table 234's `/Opt` as the
+    /// script left it, whole, in the array's order — each entry its export value where it states
+    /// one and the text a person sees (ADR 1737).
+    Options(Vec<crate::form::Choice>),
 }
 
 impl Property {
@@ -929,6 +935,7 @@ impl Property {
             Self::TextFlag(flag, _) => flag.adobe(),
             Self::Caption(..) => "buttonSetCaption",
             Self::Style(_) => "style",
+            Self::Options(_) => "setItems",
         }
     }
 
@@ -946,9 +953,11 @@ impl Property {
             | Self::Alignment(_)
             | Self::Caption(..)
             | Self::Style(_) => true,
-            Self::ReadOnly(_) | Self::Required(_) | Self::CharLimit(_) | Self::TextFlag(..) => {
-                false
-            }
+            Self::ReadOnly(_)
+            | Self::Required(_)
+            | Self::CharLimit(_)
+            | Self::TextFlag(..)
+            | Self::Options(_) => false,
         }
     }
 }
@@ -1063,6 +1072,129 @@ pub enum ScriptEdit {
         /// Whether calculations are performed.
         on: bool,
     },
+    /// `this.zoom`, `this.zoomType`, `this.layout` set or `this.scroll(nX, nY)` called: a change to
+    /// the window's view of the document, which a host carries out as it carries a focus request
+    /// — a view state holds the request and has no view of its own
+    /// ([`ViewState::take_view_requests`], ADR 1736).
+    View {
+        /// What the script changed.
+        change: ViewChange,
+    },
+}
+
+/// One change a script asked of the window's view (ADR 1736).
+///
+/// Adobe's "Doc properties" and "Doc methods" pages are the meaning of each, cited and never
+/// quoted, a documented choice under principle 5; what each lands on is the host's own view —
+/// its magnification, its fitting mode, Table 29's page layout and its scroll.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ViewChange {
+    /// `this.zoom = n`: the magnification, as a percentage, where 100 is one logical pixel per
+    /// default user space unit — the reading Table 151's `/XYZ` magnification of 1 already has
+    /// in the host.
+    Zoom(f64),
+    /// `this.zoomType = …`: one of the fitting modes a host draws.
+    ZoomType(ZoomType),
+    /// `this.layout = …`: Table 29's arrangement of the pages in the window.
+    Layout(crate::viewer_preferences::PageLayout),
+    /// `this.scroll(nX, nY)`: this point of this page brought to the middle of the window.
+    Scroll {
+        /// The zero-based page, the script's `this.pageNum` when it called.
+        page: u32,
+        /// The point's horizontal coordinate, in the page's default user space.
+        x: f64,
+        /// Its vertical coordinate, in the page's default user space.
+        y: f64,
+    },
+}
+
+/// Adobe's zoom types, the values "Doc properties" lists for `zoomType` (ADR 1736).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ZoomType {
+    /// `NoVary`: a fixed magnification, which stays as it is when the window changes.
+    #[default]
+    NoVary,
+    /// `FitPage`: the whole page, as large as fits.
+    FitPage,
+    /// `FitWidth`: the page's width, as large as fits.
+    FitWidth,
+    /// `FitHeight`: the page's height, as large as fits.
+    FitHeight,
+    /// `FitVisibleWidth`: the width of what the page draws, as large as fits — §12.3.2.2's
+    /// `/FitBH`, which a host already applies.
+    FitVisibleWidth,
+    /// `Preferred`: the reader's own preferred magnification, which a document's realm is not
+    /// told.
+    Preferred,
+    /// `ReflowWidth`: a reflowed page fitted to the window, which this program does not draw.
+    ReflowWidth,
+}
+
+impl ZoomType {
+    /// Every zoom type, in the reference's order.
+    pub const ALL: [Self; 7] = [
+        Self::NoVary,
+        Self::FitPage,
+        Self::FitWidth,
+        Self::FitHeight,
+        Self::FitVisibleWidth,
+        Self::Preferred,
+        Self::ReflowWidth,
+    ];
+
+    /// The reference's spelling, the string `zoomType` reads and the `zoomtype` constants hold.
+    #[must_use]
+    pub fn adobe(self) -> &'static str {
+        match self {
+            Self::NoVary => "NoVary",
+            Self::FitPage => "FitPage",
+            Self::FitWidth => "FitWidth",
+            Self::FitHeight => "FitHeight",
+            Self::FitVisibleWidth => "FitVisibleWidth",
+            Self::Preferred => "Preferred",
+            Self::ReflowWidth => "ReflowWidth",
+        }
+    }
+
+    /// The reference's `zoomtype` constant's name for it: `zoomtype.fitW` is `"FitWidth"`.
+    #[must_use]
+    pub fn constant(self) -> &'static str {
+        match self {
+            Self::NoVary => "none",
+            Self::FitPage => "fitP",
+            Self::FitWidth => "fitW",
+            Self::FitHeight => "fitH",
+            Self::FitVisibleWidth => "fitV",
+            Self::Preferred => "pref",
+            Self::ReflowWidth => "refW",
+        }
+    }
+
+    /// The zoom type the reference spells `name`, or `None`.
+    #[must_use]
+    pub fn from_adobe(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|zoom| zoom.adobe() == name)
+    }
+
+    /// Whether a host carries this zoom type out: every one but the reader's own preference and
+    /// reflow, neither of which this program has to give.
+    #[must_use]
+    pub fn is_drawn(self) -> bool {
+        !matches!(self, Self::Preferred | Self::ReflowWidth)
+    }
+}
+
+/// The window's view of the document as a host told the view state of it: what a script reads as
+/// `this.zoom`, `this.zoomType` and `this.layout` (ADR 1736).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct WindowView {
+    /// How large the page is drawn, as a percentage where 100 is one logical pixel per default
+    /// user space unit; `None` where no host has said, which a script reads as `undefined`.
+    pub zoom: Option<f64>,
+    /// How the magnification is chosen: a fitting mode, or `NoVary` for a fixed one.
+    pub zoom_type: ZoomType,
+    /// Table 29's arrangement of the pages, as it now stands.
+    pub layout: crate::viewer_preferences::PageLayout,
 }
 
 /// The field properties a script set, kept beside the edit log by field name.
@@ -1170,7 +1302,11 @@ impl ViewState {
     ) -> Option<FieldState> {
         let first = widgets.first().copied()?;
         let object = document.get(first);
-        let widget = object.as_dict()?;
+        let stored = object.as_dict()?;
+        // Table 234's `/Opt` as a script left it, so the options and what is selected among them
+        // are the list the page draws (ADR 1737).
+        let widget =
+            &*crate::appearance::with_rewritten_options(document, stored, self.scripted(first));
         let field = crate::appearance::Field::read(document, widget, self.annotation(first).value);
         let kind = match field.kind? {
             crate::appearance::FieldKind::Text => FieldType::Text,

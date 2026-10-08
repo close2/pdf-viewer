@@ -74,6 +74,7 @@ fn request(script: &str, document: Option<DocumentState>) -> Request {
         pages: 3,
         dirty: false,
         document,
+        view: pdf_model::view::WindowView::default(),
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }

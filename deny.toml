@@ -89,6 +89,23 @@ exceptions = [
 multiple-versions = "warn"
 wildcards = "deny"
 
+# The duplicates this tree chose, each the reference renderer's copy beside the one this program
+# ships. `tools/hayro-compare` drives `hayro` for the oracle and is not shipped; `hayro` reaches the
+# JPEG codec and the JBIG2, JPEG 2000 and CCITT codecs through crates.io, while the program takes
+# the codecs from upstream's release commit (ADR 1714) and the JPEG codec from the owner's fork
+# (ADR 1730), so each is in the lock twice by decision and a warning about it asks nothing. Each
+# is named by the exact version the reference renderer takes, so a release that moves it is
+# reported as an `unmatched-skip` and the line goes. The JPEG pair is one version from two
+# sources, which a version cannot tell apart, so its two lines skip both copies; a third version
+# of either is still a warning (ADR 1745).
+skip = [
+    { crate = "zune-jpeg@0.5.15", reason = "the reference renderer's crates.io copy beside the owner's fork (ADR 1730)" },
+    { crate = "zune-core@0.5.1", reason = "as zune-jpeg: the fork's `zune-jpeg` names it by path" },
+    { crate = "hayro-jbig2@0.3.0", reason = "the reference renderer's crates.io copy beside the release commit's (ADR 1714)" },
+    { crate = "hayro-jpeg2000@0.3.5", reason = "as hayro-jbig2" },
+    { crate = "hayro-ccitt@0.3.0", reason = "as hayro-jbig2" },
+]
+
 # Crates that must never appear in the tree, with the reason recorded.
 deny = [
     # No colour-management engine may reach the rasteriser under `raster/`, which is
@@ -131,11 +148,10 @@ deny = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# The git dependencies, each pinned by revision through Cargo.lock: the commissioned document
-# renderer (see the workspace manifest), first-party, and the codecs below.
+# The git dependencies, each pinned by revision through Cargo.lock: the codecs below. The
+# rasteriser is a member of this workspace under `raster/` and reaches the graph by path.
 allow-git = [
-    "https://github.com/close2/quorra",
-    # The second, third-party: upstream's repository of the JBIG2, JPEG 2000 and CCITT codecs, at
+    # The first, third-party: upstream's repository of the JBIG2, JPEG 2000 and CCITT codecs, at
     # the commit their crates.io releases `hayro-jbig2` 0.3.1, `hayro-jpeg2000` 0.4.1 and
     # `hayro-ccitt` 0.4.0 were published from, whose `src/` each is byte for byte. A git source
     # rather than crates.io for one reason: it is a different package from the crates.io copy the
@@ -145,7 +161,7 @@ allow-git = [
     # selects the reference renderer (ADR 1714). The owner's fork `close2/hayro` takes this
     # entry's place the day it carries `doc/patches/hayro-jbig2-*.patch` and the manifest pins it.
     "https://github.com/LaurenzV/hayro",
-    # The third, the owner's fork of the JPEG codec: `zune-jpeg` 0.5.15's own commit `31d81fed`
+    # The second, the owner's fork of the JPEG codec: `zune-jpeg` 0.5.15's own commit `31d81fed`
     # with `doc/patches/zune-jpeg-*.patch` applied and nothing else, `zune-core` coming from the
     # same revision because `zune-jpeg` names it by path (doc/questions/A227, ADR 1730). It gives
     # this entry back the day a crates.io release carries both patches.

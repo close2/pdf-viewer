@@ -69,6 +69,17 @@ fn repository_root() -> &'static Path {
         .expect("the manifest directory of a workspace member has two ancestors")
 }
 
+/// The words of a shell command line up to its comment.
+///
+/// The shell's own rule: a word that begins with `#` begins a comment, and no word after it is an
+/// argument. A gate line's trailing comment says in words what the gate needs and may name a flag
+/// as it does, so a flag read off the whole line can be the comment's rather than the command's
+/// (ADR 1744).
+fn command_words(line: &str) -> impl Iterator<Item = &str> {
+    line.split_whitespace()
+        .take_while(|word| !word.starts_with('#'))
+}
+
 /// Every `cargo test … -p <package> --test <target>` line inside a fenced block of `text`.
 ///
 /// `state_sections.rs`'s parse, and its comment says why the fence matters: §2 also *mentions*
@@ -85,7 +96,7 @@ fn gate_targets(text: &str) -> BTreeSet<(String, String)> {
         if !fenced || !line.contains("cargo test") {
             continue;
         }
-        let mut fields = line.split_whitespace();
+        let mut fields = command_words(line);
         let (mut package, mut target) = (None, None);
         while let Some(field) = fields.next() {
             match field {
@@ -297,6 +308,19 @@ fn scan(shown: &str, source: &str) -> Findings {
             .push(format!("{shown}:{}", at.saturating_add(1)));
     }
     findings
+}
+
+/// A gate line's trailing comment says in words what the gate needs, and may name a flag while it
+/// does; the flags read are the command's own. Calibrated by planting (trap 13): the comment names
+/// another package and another target.
+#[test]
+fn a_flag_a_trailing_comment_names_is_not_the_line_s_own() {
+    let planted = "```sh\ncargo test  --profile gates -p pdf-model --test corpus -- --ignored   \
+                   # its worker is -p pdf-sandbox; compare --test oracle\n```\n";
+    assert_eq!(
+        gate_targets(planted),
+        BTreeSet::from([("pdf-model".to_owned(), "corpus".to_owned())])
+    );
 }
 
 #[test]

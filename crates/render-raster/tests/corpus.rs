@@ -1277,6 +1277,19 @@ fn outcome(cpu: &pdf_render::Raster, ours: &Result<pdf_render::Raster, impl ToSt
     }
 }
 
+/// How many strips the oracle draws a page in: the most the CPU backend ever cuts one into.
+///
+/// A page's pixels depend on its division (ADR 0219), so a count asked of the machine made every
+/// list below and every page's mean in the `PDFVIEWER_RASTER_TIMES` file a fact about the CPUs
+/// this process was given. One strip — the page undivided, which ADR 0219 names as the page — is
+/// what `pdf-model`'s golden states; this gate states the shipped count instead, because its
+/// oracle is also a clock. The pages are drawn one after another, the CPU backend's time is half
+/// of what the survey reports, and the CPU backend as it ships on a machine of at least
+/// [`render_cpu::MAX_STRIPS`] CPUs — the one every figure here was taken on — asks for exactly
+/// this many. The verdicts are a comparison with a tolerance far above ADR 0219's residual of one
+/// supersample, so the count decides the clock and not a verdict (ADR 1742).
+const ORACLE_STRIPS: u32 = render_cpu::MAX_STRIPS;
+
 /// The three stages before the backend under test is asked anything, or which of them stopped.
 ///
 /// The comparison needs a page, a target for it and the **oracle's** raster of that target, and
@@ -1294,6 +1307,7 @@ fn oracles_render(
         .map_err(|why| (NotComparable::PastThePixelBudget, format!(": {why}")))?;
     let at = Instant::now();
     let cpu = CpuRasterizer::new()
+        .with_strips(ORACLE_STRIPS)
         .rasterize(&list, target)
         .map_err(|why| (NotComparable::TheOracleRefused, format!(": {why}")))?;
     Ok((list, target, cpu, at.elapsed()))

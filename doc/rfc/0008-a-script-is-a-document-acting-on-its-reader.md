@@ -243,8 +243,8 @@ every corpus `tools/state.sh` and `doc/oracle-and-corpus.md` name plus the two c
 find -L doc/pdf.js/test/pdfs -maxdepth 1 -name '*.pdf' > scratchpad/paths
 find -L doc/corpora corpus-cache/openpreserve corpus-cache/tika-issue-tracker corpus-cache/safedocs \
      -name '*.pdf' >> scratchpad/paths
-cargo build --release -p pdf-model --example javascript_census
-RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh --data 8 --tree 12 -- \
+ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 8 --tree 12 \
+    --build '--release -p pdf-model --example javascript_census' -- \
     target/release/examples/javascript_census @scratchpad/paths
 ```
 

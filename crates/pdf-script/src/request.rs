@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use pdf_model::view::{DocumentState, FieldState, ScriptEvent, ScriptSite};
+use pdf_model::view::{DocumentState, FieldState, ScriptEvent, ScriptSite, WindowView};
 
 /// One script to run at one of §12.6.3's sites or the document's open.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +30,9 @@ pub struct Request {
     /// The document as a whole, where it changed since the realm last heard; the realm replaces
     /// its record with it (ADR 1626).
     pub document: Option<DocumentState>,
+    /// The window's view of the document, which the realm reads as `this.zoom`, `this.zoomType`
+    /// and `this.layout` (ADR 1736).
+    pub view: WindowView,
     /// The moment `Date` answers, in milliseconds since 1970-01-01T00:00:00Z — the same value for
     /// the whole run, so that a script cannot time the host (RFC 0008 section 4.2).
     pub moment: u64,
@@ -69,6 +72,7 @@ impl Request {
             pages: u32::try_from(event.pages).unwrap_or(u32::MAX),
             dirty: event.dirty,
             document: event.document.cloned(),
+            view: event.view,
             moment,
             utc_offset_seconds,
         }

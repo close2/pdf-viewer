@@ -452,7 +452,12 @@ impl Rasterizer for CpuRasterizer {
 /// per-strip constants are what bound this rather than the thread count: sixteen strips of a
 /// 842-row page are 52 rows apiece, which is shorter than many clip bands. The cores beyond it
 /// are not idle in a viewer — pages are rendered on their own threads above this one.
-const MAX_STRIPS: u32 = 16;
+///
+/// Public for a gate whose clock is this backend's as it ships: on any machine of at least this
+/// many CPUs, [`CpuRasterizer::new`] asks for exactly this count, so a gate that states it with
+/// [`CpuRasterizer::with_strips`] draws what that machine draws and no longer depends on the CPUs
+/// its own process was given (ADR 1742).
+pub const MAX_STRIPS: u32 = 16;
 
 /// Most work a split may replay, as a multiple of the command list itself.
 ///

@@ -87,7 +87,10 @@
 //!
 //! The CPU rasteriser is deterministic for a given display list, and the interpreter is a pure
 //! function of the document (`CLAUDE.md`'s immutable `Document`); the pages are rasterised in
-//! parallel but each on one thread. Two consecutive `update` runs produce byte-identical files,
+//! parallel and each page whole — [`STRIPS`] is a count this file states rather than one the
+//! machine supplies, because a page's pixels depend on its division (ADR 0219) and a count
+//! asked of `available_parallelism` made the digests a fact about the cores the process was given
+//! (ADR 1734, ADR 1742). Two consecutive `update` runs produce byte-identical files,
 //! which is how the round that wrote this proved it (ADR 1016). What *is* a source of difference
 //! is the sandbox worker — `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a
 //! separate program, and a page whose image it could not decode holds no command for it — so this
@@ -135,6 +138,17 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 
 /// The scale every corpus gate rasterises at: 72 dpi, one pixel per default user-space unit.
 const SCALE: f32 = 1.0;
+
+/// How many strips each page is drawn in: one, the page undivided.
+///
+/// ADR 0219 decides which division a page's pixels are: the page is what is drawn and the division
+/// is an implementation detail, so the answer is the one that exists when there is no division —
+/// strips reproduce it up to `tiny-skia`'s arithmetic at a shifted origin, one supersample on an
+/// edge that lands on a sample row. Where the caller states nothing,
+/// `render_cpu::plan_strips` takes the count from `available_parallelism`, which is the CPUs a
+/// process may use and not a property of the page (ADR 1742). The pages are already drawn in
+/// parallel across the corpus, so what a page's own strips would add is little.
+const STRIPS: u32 = 1;
 
 /// The environment variable that turns the check into a regeneration.
 const UPDATE_VARIABLE: &str = "PDFVIEWER_RASTER_GOLDEN";
@@ -358,7 +372,10 @@ fn examine(path: &Path) -> Entry {
     let Ok(target) = TargetSpec::for_page(&interpretation.display_list, SCALE, PIXEL_BUDGET) else {
         return interpreted(Outcome::NoTarget);
     };
-    match CpuRasterizer::new().rasterize(&interpretation.display_list, target) {
+    match CpuRasterizer::new()
+        .with_strips(STRIPS)
+        .rasterize(&interpretation.display_list, target)
+    {
         Ok(raster) => Entry {
             outcome: Outcome::Drawn,
             extent: Some((raster.width, raster.height)),

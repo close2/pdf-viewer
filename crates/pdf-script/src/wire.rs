@@ -16,8 +16,10 @@ use pdf_model::form::Choice;
 use pdf_model::view::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour, Display,
     DocumentState, DocumentTrigger, Face, FieldState, FieldType, Glyph, InfoEntry, Layer,
-    PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, WidgetState,
+    PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag, ViewChange, WidgetState,
+    WindowView, ZoomType,
 };
+use pdf_model::viewer_preferences::PageLayout;
 
 use crate::{
     Answer, Button, Buttons, Ending, Event, Exceeded, Icon, Outcome, Question, Refusal,
@@ -36,8 +38,19 @@ use crate::{
 /// to one (ADR 1700); 9 what an annotation's Table 167 flags let it reach — paper, a screen, a
 /// pointer — beside its two bits (ADR 1721); 10 every page's label, boundaries and rotation, a
 /// named destination asked for and the calculations switched (ADR 1724), and a field's `/Opt`, its
-/// selected items and a choice by index (ADR 1725).
-pub const VERSION: u8 = 10;
+/// selected items and a choice by index (ADR 1725); 11 the window's view with every request, and a
+/// script's change to it (ADR 1736), and a field's `/Opt` as a script rewrote it (ADR 1737).
+pub const VERSION: u8 = 11;
+
+/// Table 29's six page layouts, in the order their tag counts them.
+const LAYOUTS: [PageLayout; 6] = [
+    PageLayout::SinglePage,
+    PageLayout::OneColumn,
+    PageLayout::TwoColumnLeft,
+    PageLayout::TwoColumnRight,
+    PageLayout::TwoPageLeft,
+    PageLayout::TwoPageRight,
+];
 
 /// Most fields one request may tell a realm of, and most edits one outcome may carry.
 ///
@@ -97,6 +110,7 @@ pub fn encode_request(request: &Request) -> Vec<u8> {
             put_document(&mut out, document);
         }
     }
+    put_view(&mut out, &request.view);
     put_u64(&mut out, request.moment);
     out.extend_from_slice(&request.utc_offset_seconds.to_le_bytes());
     out
@@ -147,6 +161,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<Request, WireError> {
             1 => Some(reader.document()?),
             _ => return Err(WireError::Invalid("document")),
         },
+        view: reader.view()?,
         moment: reader.u64()?,
         utc_offset_seconds: i32::from_le_bytes(reader.array()?),
     };
@@ -478,11 +493,7 @@ fn put_field(out: &mut Vec<u8>, field: &FieldState) {
     for widget in &field.widgets {
         put_widget(out, widget);
     }
-    put_len(out, field.options.len());
-    for option in &field.options {
-        put_optional(out, option.export.as_deref());
-        put_str(out, &option.label);
-    }
+    put_options(out, &field.options);
     put_len(out, field.selected.len());
     for index in &field.selected {
         put_u32(out, *index);
@@ -557,6 +568,44 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
             put_f64(out, *corner);
         }
         out.extend_from_slice(&page.rotate.to_le_bytes());
+    }
+}
+
+/// Writes the window's view: the magnification where a host stated one, the zoom type, the layout
+/// (ADR 1736).
+fn put_view(out: &mut Vec<u8>, view: &WindowView) {
+    match view.zoom {
+        None => put_u8(out, 0),
+        Some(zoom) => {
+            put_u8(out, 1);
+            put_f64(out, zoom);
+        }
+    }
+    put_u8(out, tag_of(&ZoomType::ALL, &view.zoom_type));
+    put_u8(out, tag_of(&LAYOUTS, &view.layout));
+}
+
+/// Writes one change a script asked of the window's view.
+fn put_view_change(out: &mut Vec<u8>, change: &ViewChange) {
+    match change {
+        ViewChange::Zoom(zoom) => {
+            put_u8(out, 0);
+            put_f64(out, *zoom);
+        }
+        ViewChange::ZoomType(zoom_type) => {
+            put_u8(out, 1);
+            put_u8(out, tag_of(&ZoomType::ALL, zoom_type));
+        }
+        ViewChange::Layout(layout) => {
+            put_u8(out, 2);
+            put_u8(out, tag_of(&LAYOUTS, layout));
+        }
+        ViewChange::Scroll { page, x, y } => {
+            put_u8(out, 3);
+            put_u32(out, *page);
+            put_f64(out, *x);
+            put_f64(out, *y);
+        }
     }
 }
 
@@ -679,6 +728,10 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
             put_u8(out, 13);
             put_bool(out, *on);
         }
+        ScriptEdit::View { change } => {
+            put_u8(out, 14);
+            put_view_change(out, change);
+        }
     }
 }
 
@@ -764,6 +817,20 @@ fn put_property(out: &mut Vec<u8>, property: &Property) {
             put_u8(out, 11);
             put_u8(out, tag_of(&Glyph::ALL, glyph));
         }
+        Property::Options(options) => {
+            put_u8(out, 12);
+            put_options(out, options);
+        }
+    }
+}
+
+/// Writes Table 234's `/Opt` entries: a count, then each export value where one is stated and
+/// the text a person sees.
+fn put_options(out: &mut Vec<u8>, options: &[Choice]) {
+    put_len(out, options.len());
+    for option in options {
+        put_optional(out, option.export.as_deref());
+        put_str(out, &option.label);
     }
 }
 
@@ -1018,14 +1085,7 @@ impl<'a> Reader<'a> {
         for _ in 0..count {
             widgets.push(self.widget()?);
         }
-        let count = self.count()?;
-        let mut options = Vec::new();
-        for _ in 0..count {
-            options.push(Choice {
-                export: self.optional()?,
-                label: self.string()?,
-            });
-        }
+        let options = self.options()?;
         let count = self.count()?;
         let mut selected = Vec::new();
         for _ in 0..count {
@@ -1170,6 +1230,7 @@ impl<'a> Reader<'a> {
                     }
                     10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
                     11 => Property::Style(self.tagged(&Glyph::ALL, "style")?),
+                    12 => Property::Options(self.options()?),
                     _ => return Err(WireError::Invalid("property")),
                 };
                 ScriptEdit::Property {
@@ -1232,7 +1293,51 @@ impl<'a> Reader<'a> {
             13 => ScriptEdit::Calculation {
                 on: self.boolean()?,
             },
+            14 => ScriptEdit::View {
+                change: self.view_change()?,
+            },
             _ => return Err(WireError::Invalid("edit")),
+        })
+    }
+
+    /// Table 234's `/Opt` entries.
+    fn options(&mut self) -> Result<Vec<Choice>, WireError> {
+        let count = self.count()?;
+        let mut options = Vec::new();
+        for _ in 0..count {
+            options.push(Choice {
+                export: self.optional()?,
+                label: self.string()?,
+            });
+        }
+        Ok(options)
+    }
+
+    /// One change a script asked of the window's view.
+    fn view_change(&mut self) -> Result<ViewChange, WireError> {
+        Ok(match self.u8()? {
+            0 => ViewChange::Zoom(self.f64()?),
+            1 => ViewChange::ZoomType(self.tagged(&ZoomType::ALL, "zoom type")?),
+            2 => ViewChange::Layout(self.tagged(&LAYOUTS, "layout")?),
+            3 => ViewChange::Scroll {
+                page: self.u32()?,
+                x: self.f64()?,
+                y: self.f64()?,
+            },
+            _ => return Err(WireError::Invalid("view change")),
+        })
+    }
+
+    /// The window's view.
+    fn view(&mut self) -> Result<WindowView, WireError> {
+        Ok(WindowView {
+            zoom: match self.u8()? {
+                0 => None,
+                1 => Some(self.f64()?),
+                _ => return Err(WireError::Invalid("zoom")),
+            },
+            zoom_type: self.tagged(&ZoomType::ALL, "zoom type")?,
+            layout: self.tagged(&LAYOUTS, "layout")?,
         })
     }
 

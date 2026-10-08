@@ -84,7 +84,7 @@ use script_population::{MAX_FILE_BYTES, password_for, population, repository};
 const HELD_EXCEEDED: usize = 0;
 
 /// Most runs that may end in an uncaught throw.
-const HELD_THREW: usize = 9_317;
+const HELD_THREW: usize = 9_315;
 
 /// Most runs that may finish having been refused a call: none, since a write to `this.pageNum` —
 /// the one refusal three scripts caught — is a page turn the host makes (ADR 1640).

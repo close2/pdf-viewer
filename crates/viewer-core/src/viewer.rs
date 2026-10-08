@@ -295,6 +295,7 @@ impl Viewer {
         self.apply_resumed_scripts();
         self.carry_out_page_requests(&mut events);
         self.carry_out_focus_requests(&mut events);
+        self.carry_out_view_requests(&mut events);
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
         self.put_script_questions(&mut events);
@@ -2517,16 +2518,28 @@ impl Viewer {
     /// Nothing at all where nothing is open, and nothing where the document has nothing to say:
     /// an empty report is not a sentence, and a host that printed one would be telling a reader
     /// something about a file that said nothing.
+    ///
+    /// **And after the sentences, the servers the signatures name**, as
+    /// [`Event::SignaturePoliciesPublished`]: the report is where a signature's policy is read, so
+    /// it is where a host first learns that a copy of it is published, and it comes after the
+    /// sentence saying which policy so that the question a host may put reads in that order (ADR
+    /// 1738).
     fn report_the_document(&self, events: &mut Vec<Event>) {
         let (Some(id), Some(open)) = (self.focused, self.focused()) else {
             return;
         };
-        let notes = open.about(&self.trust);
-        if !notes.is_empty() {
+        let about = open.about(&self.trust);
+        if !about.notes.is_empty() {
             events.push(Event::Reported {
                 document: id,
                 page: None,
-                notes: notes.to_vec(),
+                notes: about.notes.clone(),
+            });
+        }
+        if !about.published.is_empty() {
+            events.push(Event::SignaturePoliciesPublished {
+                document: id,
+                policies: about.published.clone(),
             });
         }
     }
@@ -3753,6 +3766,11 @@ impl Viewer {
             .magnification(viewport, scale)
             .map(|device| device / scale);
         let magnified = open.view.set_magnification(magnification);
+        open.view.set_window_view(crate::scripting::window_view(
+            open.zoom,
+            open.layout,
+            magnification,
+        ));
         if magnified.supersedes_ink() {
             open.stale();
         } else if magnified.needs_interpreting() {
@@ -5044,6 +5062,115 @@ impl Viewer {
             }
             self.focus_on(id, Some(widget), events);
         }
+    }
+
+    /// A script's changes to the window's view — `this.zoom`, `this.zoomType`, `this.layout`,
+    /// `this.scroll` — carried out in the order asked, each as the person's own zoom, layout or
+    /// scroll is (ADR 1736).
+    ///
+    /// Only the document in front changes its view, as only it turns a page: a document behind
+    /// another keeps its requests in its view state until a command finds it in front.
+    fn carry_out_view_requests(&mut self, events: &mut Vec<Event>) {
+        use pdf_model::view::{ViewChange, ZoomType};
+
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        for change in open.view.take_view_requests() {
+            match change {
+                ViewChange::Zoom(percent) => {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "the realm holds a zoom inside 8.33 to 6400 per cent, which an \
+                                  `f32` holds to far finer than a pixel"
+                    )]
+                    let scale = (percent / 100.0) as f32;
+                    self.set_zoom(Zoom::Scale(scale), None, events);
+                }
+                ViewChange::ZoomType(ZoomType::FitPage) => {
+                    self.set_zoom(Zoom::FitPage, None, events);
+                }
+                ViewChange::ZoomType(ZoomType::FitWidth) => {
+                    self.set_zoom(Zoom::FitWidth, None, events);
+                }
+                ViewChange::ZoomType(ZoomType::FitHeight) => {
+                    self.set_zoom(Zoom::FitHeight, None, events);
+                }
+                // `NoVary` holds the magnification a fitting mode resolved to, so that a later
+                // resize leaves it where it is.
+                ViewChange::ZoomType(ZoomType::NoVary) => {
+                    let (viewport, scale) = (self.viewport, self.scale);
+                    let fixed = self
+                        .focused_mut()
+                        .and_then(|open| open.magnification(viewport, scale))
+                        .map(|device| device / scale);
+                    if let Some(fixed) = fixed {
+                        self.set_zoom(Zoom::Scale(fixed), None, events);
+                    }
+                }
+                // §12.3.2.2's `/FitBH`, "the entire width of [the page's] bounding box", which
+                // `settle` applies as it applies a destination's.
+                ViewChange::ZoomType(ZoomType::FitVisibleWidth) => {
+                    let viewport = self.viewport;
+                    if let Some(open) = self.focused_mut() {
+                        open.pending_views
+                            .push(pdf_model::destination::View::FitBH { top: None });
+                    }
+                    events.push(damage(viewport));
+                }
+                // The realm refuses both before they cross (`ZoomType::is_drawn`).
+                ViewChange::ZoomType(ZoomType::Preferred | ZoomType::ReflowWidth) => {}
+                ViewChange::Layout(layout) => self.act(Command::Layout(layout), events),
+                ViewChange::Scroll { page, x, y } => self.scroll_to_middle(page, x, y, events),
+            }
+        }
+    }
+
+    /// `this.scroll(nX, nY)`: the point of default user space `(x, y)` on page `page` brought to
+    /// the middle of the viewport — the page turned to first where it is not the one showing —
+    /// and the scroll left for `settle` to clamp, as a wheel's is (ADR 1736).
+    fn scroll_to_middle(&mut self, page: u32, x: f64, y: f64, events: &mut Vec<Event>) {
+        let Ok(page) = usize::try_from(page) else {
+            return;
+        };
+        if self
+            .focused_mut()
+            .is_some_and(|open| open.page_index != page)
+        {
+            self.go_to(PageTarget::Index(page), Turn::Requested, events);
+        }
+        let (viewport, scale) = (self.viewport, self.scale);
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        if open.page_index != page {
+            return;
+        }
+        let (Some(object), Some(size), Some(magnification)) = (
+            open.page(page),
+            open.page_size(page),
+            open.magnification(viewport, scale),
+        ) else {
+            return;
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a point of a page's default user space, which is held in `f32` everywhere \
+                      a page is placed on the screen"
+        )]
+        let (px, py) = pdf_model::content::page_space_at(&object, x as f32, y as f32);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a viewport's extent in device pixels, far inside an `f32`'s whole numbers"
+        )]
+        let middle = (viewport.0 as f32 / 2.0, viewport.1 as f32 / 2.0);
+        // The display list's y counts up from the bottom of the page and the scroll down from its
+        // top, as `Open::scroll_to` measures it.
+        open.scroll = (
+            px * magnification - middle.0,
+            (size.height - py) * magnification - middle.1,
+        );
+        events.push(damage(viewport));
     }
 
     /// Every run a document's runner held on a person's answer and has since finished, applied as

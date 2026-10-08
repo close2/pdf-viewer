@@ -95,6 +95,15 @@ const SCALE: f32 = 1.0;
 /// Pixel budget per page, the same one `corpus.rs` uses.
 const PIXEL_BUDGET: u64 = 64 << 20;
 
+/// How many strips our render of a page is cut into: one, the page undivided.
+///
+/// A page's pixels depend on its division (ADR 0219), and where a caller states nothing the count
+/// is asked of `available_parallelism`, which made every verdict here a function of the CPUs this
+/// process was given. ADR 0219 names the undivided page as the page, and that is the render the
+/// references are compared with; the pages are already spread over every core by the outer
+/// `par_iter`, so a page's own strips added parallelism only to the longest pole (ADR 1742).
+const STRIPS: u32 = 1;
+
 /// Pages we claim to draw completely, and which two independent reference renderers
 /// contradict: pages whose raster is one pixel smaller than the references'.
 ///
@@ -12594,6 +12603,7 @@ fn render_ours(work: &Work) -> Result<OurRender, String> {
     let target =
         TargetSpec::for_page(&list, SCALE, PIXEL_BUDGET).map_err(|e| format!("no target: {e}"))?;
     let raster = CpuRasterizer::new()
+        .with_strips(STRIPS)
         .rasterize(&list, target)
         .map_err(|e| format!("will not rasterise: {e}"))?;
     Ok(OurRender {

@@ -75,6 +75,7 @@ fn request(
         pages: 1,
         dirty: false,
         document: None,
+        view: pdf_model::view::WindowView::default(),
         moment: 1_704_465_015_000,
         utc_offset_seconds: 0,
     }

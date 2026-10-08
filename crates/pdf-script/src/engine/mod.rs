@@ -32,6 +32,7 @@ mod choices;
 mod guard;
 mod members;
 mod pages;
+mod window;
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -53,6 +54,7 @@ use boa_engine::realm::Realm as BoaRealm;
 use boa_engine::{Context, JsError, JsNativeError, JsResult, JsString, JsValue, Script, Source};
 use pdf_model::view::{
     DocumentState, FieldState, ScriptEdit, ScriptEvent, ScriptResult, ScriptRunner, ScriptSite,
+    WindowView,
 };
 
 use crate::{Asker, Budget, Ending, Exceeded, Nobody, Outcome, Refusal, RefusalKind, Request};
@@ -365,6 +367,9 @@ pub(crate) struct Table {
     /// Whether a script set `this.calculate` false, which the realm reads back for its lifetime
     /// as the view state holds it (ADR 1724).
     pub(crate) calculations_off: bool,
+    /// The window's view as the current event was told it, and as the run's own writes left it
+    /// (ADR 1736).
+    pub(crate) view: WindowView,
 }
 
 /// One run's record.
@@ -441,6 +446,7 @@ impl State {
             table.page = request.page;
             table.pages = request.pages;
             table.dirty = request.dirty;
+            table.view = request.view;
             if let Some(document) = &request.document {
                 table.document.clone_from(document);
             }

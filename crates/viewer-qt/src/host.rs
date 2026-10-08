@@ -199,6 +199,13 @@ enum Pending {
         /// The URI as the fragment or the action named it.
         url: String,
     },
+    /// A signature policy's published copy, answered by fetching it (ADR 1738).
+    Policy {
+        /// The document whose signature named it, which a bound copy opens beside.
+        document: DocumentId,
+        /// The URL, the identifier and the digest the signer committed to.
+        policy: Box<viewer_host::PublishedPolicy>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -1917,6 +1924,70 @@ impl Host {
         }
     }
 
+    /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
+    /// sent at and opened beside only where a copy is the one the signer signed (ADR 1738): each
+    /// one asked of [`Self::fetch_policy`].
+    fn fetch_policies(
+        &mut self,
+        document: DocumentId,
+        policies: Vec<viewer_host::PublishedPolicy>,
+    ) {
+        for policy in policies {
+            self.fetch_policy(document, policy);
+        }
+    }
+
+    /// A signature policy's published copy, under the level the menu holds — the one answer
+    /// `viewer_host::policy::may_fetch_signature_policy` gives (ADR 1738).
+    ///
+    /// **One question at a time**, because this window has one dialogue: a policy that would be
+    /// asked about while another question waits is declined with that reason rather than put in
+    /// its place, which would leave the first unanswered and unsaid.
+    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+        use viewer_host::policy::{
+            asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
+        };
+        match may_fetch_signature_policy(&policy, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.start_policy_fetch(document, policy, None),
+            viewer_host::Sending::Warn(note) => {
+                self.start_policy_fetch(document, policy, Some(note));
+            }
+            viewer_host::Sending::Ask(_) if self.question.is_some() => {
+                self.say(&signature_policy_declined(
+                    &policy,
+                    "another question was already waiting for your answer",
+                ));
+            }
+            viewer_host::Sending::Ask(_) => {
+                let words = asked_to_fetch_policy(&policy);
+                self.put_the_question(
+                    Pending::Policy {
+                        document,
+                        policy: Box::new(policy),
+                    },
+                    &words,
+                );
+            }
+            viewer_host::Sending::Refuse(why) => {
+                self.say(&signature_policy_declined(&policy, &why));
+            }
+        }
+    }
+
+    /// Puts a policy's GET on a `fetch-policy` thread of its own; the answer is looked for on the
+    /// drawing timer, as a submission's is.
+    fn start_policy_fetch(
+        &mut self,
+        document: DocumentId,
+        policy: viewer_host::PublishedPolicy,
+        warned: Option<String>,
+    ) {
+        self.say(&viewer_host::policy::policy_fetch_note(&policy));
+        if let Err(sentence) = self.submitter.fetch_policy(document, policy, warned, None) {
+            self.say(&sentence);
+        }
+    }
+
     /// Puts the GET on a `fetch-import` thread of its own; the answer is looked for on the drawing
     /// timer, as a submission's is.
     fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
@@ -2098,6 +2169,7 @@ impl Host {
             Some(Pending::Link { .. }) => viewer_host::Subject::Link,
             Some(Pending::Submit { .. }) => viewer_host::Subject::Submission,
             Some(Pending::Fetch { .. }) => viewer_host::Subject::Fetch,
+            Some(Pending::Policy { .. }) => viewer_host::Subject::Policy,
             Some(Pending::RemoteDocument { .. }) => viewer_host::Subject::Document,
             Some(Pending::Embedded { .. }) => viewer_host::Subject::Embedded,
             Some(Pending::Scripts { .. }) => viewer_host::Subject::Scripts,
@@ -2197,6 +2269,18 @@ impl Host {
                         purpose: Purpose::ImportData,
                         bytes: None,
                     });
+                }
+            }
+            // A signature policy's copy from a server: a `no` fetches nothing and says so (ADR
+            // 1738).
+            Pending::Policy { document, policy } => {
+                if proceed {
+                    self.start_policy_fetch(document, *policy, None);
+                } else {
+                    self.say(&viewer_host::policy::signature_policy_declined(
+                        &policy,
+                        &format!("you answered \"{}\"", viewer_host::restriction::DO_NOT),
+                    ));
                 }
             }
             // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
@@ -4005,24 +4089,28 @@ impl Host {
         }
     }
 
+    /// A document that could not be opened, said by the name it arrived under — a tab on its way
+    /// in, or the one in front — and the next one waiting started.
+    fn open_failed(&mut self, document: DocumentId, reason: &str) {
+        if let Some(arriving) = self.arrivals.settle(document) {
+            self.say(&viewer_host::cannot_open(
+                &viewer_host::documents::label(&arriving.named.path),
+                reason,
+            ));
+        } else {
+            self.say(&viewer_host::cannot_open(
+                &named(&self.showing.path),
+                reason,
+            ));
+        }
+        self.later_open_the_next();
+    }
+
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
-            Event::OpenFailed { document, reason } => {
-                if let Some(arriving) = self.arrivals.settle(document) {
-                    self.say(&viewer_host::cannot_open(
-                        &viewer_host::documents::label(&arriving.named.path),
-                        &reason,
-                    ));
-                } else {
-                    self.say(&viewer_host::cannot_open(
-                        &named(&self.showing.path),
-                        &reason,
-                    ));
-                }
-                self.later_open_the_next();
-            }
+            Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
             // rather than a refusal. How many times to ask is `viewer_host::password`'s, because
@@ -4087,6 +4175,9 @@ impl Host {
                 ..
             } if viewer_host::import_is_fetched(&name) => self.fetch_import(document, name, queue),
             Event::NeedsFile { purpose, name, .. } => self.import(purpose, &name, queue),
+            Event::SignaturePoliciesPublished { document, policies } => {
+                self.fetch_policies(document, policies);
+            }
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw

@@ -2004,3 +2004,68 @@ fn a_tab_naming_a_file_in_chinese_is_set_from_the_machines_face() {
     let compiled = Chrome::compiled_in_only().expect("compiled in");
     assert_eq!(compiled.without_a_code(label, Style::default()), 5);
 }
+
+/// A note's caret stands where its window draws the text, and a press there finds the same place
+/// (ADR 1739): `chrome::popup_caret` and `chrome::popup_offset` read the one layout
+/// `chrome::popup_windows` draws, so each place a caret can stand round-trips through a press.
+///
+/// The text has a run of two spaces, which the window draws as one, and a second paragraph: the
+/// run has one place for a caret, and the paragraph's first place is on a line below the first.
+#[test]
+fn a_note_s_caret_stands_where_its_window_draws_the_text_and_a_press_there_finds_it() {
+    let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
+    let note = window("one  two\nthree", Some("A"));
+    let places = [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+    let mut previous: Option<(f32, f32)> = None;
+    for offset in places {
+        let ((x, top), (_, bottom)) = viewer_ui::chrome::popup_caret(&chrome, &note, offset, 1.0)
+            .unwrap_or_else(|| panic!("a place for offset {offset}"));
+        assert!(
+            (40.0..=240.0).contains(&x) && top >= 30.0 && bottom <= 150.0,
+            "offset {offset} at {x}, {top}..{bottom} is inside the window"
+        );
+        assert_eq!(
+            viewer_ui::chrome::popup_offset(&chrome, &note, (x, f32::midpoint(top, bottom)), 1.0),
+            Some(offset),
+            "a press on the caret at offset {offset} puts it back there"
+        );
+        if let Some((was_x, was_top)) = previous {
+            if offset == 9 {
+                assert!(
+                    top > was_top,
+                    "the second paragraph is on a line below the first"
+                );
+            } else {
+                assert!(
+                    x > was_x && (top - was_top).abs() < f32::EPSILON,
+                    "offset {offset} is right of the one before it on the same line"
+                );
+            }
+        }
+        previous = Some((x, top));
+    }
+    // The second of the two spaces is not a place of its own: it stands where the first does.
+    assert_eq!(
+        viewer_ui::chrome::popup_caret(&chrome, &note, 4, 1.0),
+        viewer_ui::chrome::popup_caret(&chrome, &note, 3, 1.0)
+    );
+}
+
+/// The control (trap 13): a window drawn from Table 172's `/RC` is laid out run by run, so the
+/// plain layout has no place to give and the caret stays at the note's end.
+#[test]
+fn a_rich_note_s_window_gives_no_place_for_a_caret() {
+    let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
+    let plain = window("A red word.", Some("A"));
+    assert!(viewer_ui::chrome::popup_caret(&chrome, &plain, 2, 1.0).is_some());
+    let mut rich = plain;
+    rich.rich = Some(pdf_model::popup::RichNote {
+        paragraphs: Vec::new(),
+        unapplied: Vec::new(),
+    });
+    assert_eq!(viewer_ui::chrome::popup_caret(&chrome, &rich, 2, 1.0), None);
+    assert_eq!(
+        viewer_ui::chrome::popup_offset(&chrome, &rich, (60.0, 70.0), 1.0),
+        None
+    );
+}

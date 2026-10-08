@@ -53,8 +53,12 @@
 # the same note with /Contents alone draws none (ADR 1642); a tab's dots, rule and content leader
 # reach its stop in both directions (ADR 1722); and a text note with no /Popup opens a window of its
 # own when a script's `popupOpen` or the file's /Open opens it, and none when closed (ADR 1723); a
-# person types into that window and the saved /Contents holds it (ADR 1726), and a reply stating no
-# /Popup is a comment in its note's window (ADR 1727).
+# person types into that window and the saved /Contents holds it (ADR 1726), a press and the arrow
+# keys place the caret inside a plain note's window (ADR 1739), and a reply stating no
+# /Popup is a comment in its note's window (ADR 1727); and in all four, a signature's published
+# policy copy is fetched from the loopback server at `send`, bound by its digest and opened beside,
+# told apart where the digest is another's, and not asked for at `refuse` or in the confined window
+# (ADR 1738).
 #
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
@@ -630,6 +634,17 @@ for how in ["script", "file", "closed"]:
             'this.getAnnot(0, "note").popupOpen = true;'))
     pdf.save(f"{out}/drive-note-{how}.pdf")
 
+# drive-note-plain.pdf: an open text note with no /Popup and no /RC, its /C a yellow title bar, whose
+# window `quorra` lays out as plain lines and places a caret in (ADR 1739).
+pdf = pikepdf.new()
+font = helv(pdf)
+p1 = page(pdf, font, "Note")
+p1.obj.Annots = Array([pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Text, Rect=[60, 600, 84, 624], F=4, Open=True,
+    Contents=String("Plain words."), T=String("Drive"), NM=String("plain"), Name=Name.Comment,
+    C=Array([1, 0.9, 0.2])))])
+pdf.save(f"{out}/drive-note-plain.pdf")
+
 # drive-reply-<how>.pdf: a text note that states no /Popup, open or closed, and a text note replying
 # to it by /IRT that states no /Popup either, its /RC colouring a word pure blue — shown in the note's
 # own window as §12.5.6.2's threaded comment (ADR 1727), and nowhere while that window is closed.
@@ -717,6 +732,116 @@ server.serve_forever()
 PY
 SERVER=$!
 for _ in $(seq 1 20); do PORT=$(head -1 "$OUT/server.port" 2>/dev/null); [ -n "$PORT" ] && break; sleep 0.2; done
+# drive-policy.pdf: §12.8.3.4.3's ETSI.CAdES.detached signature by the drive's signer whose signed
+# attributes carry §12.8.3.4.4's signature-policy-identifier (ETSI EN 319 122-1 clause 5.2.9.1) with
+# clause 5.2.9.2's URL qualifier naming served/policy.pdf on the loopback server above, and SHA-256
+# of that file as the digest the signer committed to; drive-policy-altered.pdf is the same signature
+# committing to the digest of other octets, the control a bound copy is told apart by (ADR 1738).
+# Written here rather than with the other fixtures because the URL carries the server's port.
+python3 - "$FIXTURES" "$PORT" <<'PY'
+import hashlib, os, sys
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+out, port = sys.argv[1], sys.argv[2]
+def der(tag, body):
+    n = len(body)
+    if n < 0x80: head = bytes([n])
+    elif n < 0x100: head = bytes([0x81, n])
+    else: head = bytes([0x82]) + n.to_bytes(2, "big")
+    return bytes([tag]) + head + body
+def oid(dotted):
+    arcs = [int(a) for a in dotted.split(".")]
+    body = bytearray([40 * arcs[0] + arcs[1]])
+    for arc in arcs[2:]:
+        chunk = [arc & 0x7f]
+        arc >>= 7
+        while arc:
+            chunk.insert(0, 0x80 | (arc & 0x7f)); arc >>= 7
+        body += bytes(chunk)
+    return der(0x06, bytes(body))
+seq = lambda *parts: der(0x30, b"".join(parts))
+def integer(value):
+    body = value.to_bytes((value.bit_length() + 8) // 8 or 1, "big", signed=True)
+    return der(0x02, body)
+SHA256 = seq(oid("2.16.840.1.101.3.4.2.1"))
+# served/policy.pdf: one magenta page, so that the copy opened beside the signed document is seen.
+page = b"1 0 1 rg 0 0 612 792 re f"
+policy = (b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+          b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+          b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
+          + b"4 0 obj\n<< /Length %d >>\nstream\n" % len(page) + page + b"\nendstream\nendobj\n")
+offsets = [policy.index(b"%d 0 obj" % number) for number in range(1, 5)]
+xref = len(policy)
+policy += b"xref\n0 5\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+policy += b"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % xref
+os.makedirs(os.path.join(out, "served"), exist_ok=True)
+open(os.path.join(out, "served", "policy.pdf"), "wb").write(policy)
+keys = os.path.join(out, "signing")
+signer = x509.load_pem_x509_certificate(open(os.path.join(keys, "signer.pem"), "rb").read())
+root = x509.load_pem_x509_certificate(open(os.path.join(out, "anchors", "root.pem"), "rb").read())
+key = serialization.load_pem_private_key(open(os.path.join(keys, "signer.key"), "rb").read(), None)
+url = f"http://127.0.0.1:{port}/policy.pdf"
+def signed(name, committed):
+    SIZE = 8192
+    content = b"BT /F1 24 Tf 72 700 Td (Signed under a policy) Tj ET"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] /Contents 6 0 R "
+        b"/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>",
+        b"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Policy) /Rect [0 0 0 0] /F 132 /P 3 0 R /V 5 0 R >>",
+        b"<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached /ByteRange "
+        b"[0 0000000000 0000000000 0000000000] /Contents <" + b"0" * (2 * SIZE) + b"> >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+    ]
+    body = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+    offsets = []
+    for number, obj in enumerate(objs, 1):
+        offsets.append(len(body))
+        body += b"%d 0 obj\n" % number + obj + b"\nendobj\n"
+    xref = len(body)
+    body += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    body += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    body += b"trailer\n<< /Size %d /Root 1 0 R /ID [<00112233445566778899aabbccddeeff> <00112233445566778899aabbccddeeff>] >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    placeholder = b"[0 0000000000 0000000000 0000000000]"
+    at = body.index(b"/Contents <" + b"0" * 16) + len(b"/Contents ")
+    end = at + 2 + 2 * SIZE
+    start = body.index(placeholder)
+    body[start:start + len(placeholder)] = b"[0 %010d %010d %010d]" % (at, end, len(body) - end)
+    covered = bytes(body[:at]) + bytes(body[end:])
+    # RFC 5652 section 5.4: the signed attributes, a DER SET OF in ascending order of encoding.
+    attributes = sorted([
+        seq(oid("1.2.840.113549.1.9.3"), der(0x31, oid("1.2.840.113549.1.7.1"))),
+        seq(oid("1.2.840.113549.1.9.4"), der(0x31, der(0x04, hashlib.sha256(covered).digest()))),
+        # ETSI EN 319 122-2 Table 1: signing-certificate-v2, which a CAdES signature carries.
+        seq(oid("1.2.840.113549.1.9.16.2.47"), der(0x31, seq(seq(seq(
+            der(0x04, hashlib.sha256(signer.public_bytes(serialization.Encoding.DER)).digest())))))),
+        seq(oid("1.2.840.113549.1.9.16.2.15"), der(0x31, seq(
+            oid("2.16.724.1.3.1.1.2.1.9"),
+            seq(SHA256, der(0x04, committed)),
+            seq(seq(oid("1.2.840.113549.1.9.16.5.1"), der(0x16, url.encode())))))),
+    ])
+    signed_attributes = b"".join(attributes)
+    signature = key.sign(der(0x31, signed_attributes), padding.PKCS1v15(), hashes.SHA256())
+    signer_info = seq(
+        integer(1),
+        seq(signer.issuer.public_bytes(), integer(signer.serial_number)),
+        SHA256,
+        der(0xa0, signed_attributes),
+        seq(oid("1.2.840.113549.1.1.11"), der(0x05, b"")),
+        der(0x04, signature))
+    certificates = der(0xa0, signer.public_bytes(serialization.Encoding.DER)
+                       + root.public_bytes(serialization.Encoding.DER))
+    cms = seq(oid("1.2.840.113549.1.7.2"), der(0xa0, seq(
+        integer(1), der(0x31, SHA256), seq(oid("1.2.840.113549.1.7.1")), certificates,
+        der(0x31, signer_info))))
+    assert len(cms) <= SIZE
+    body[at + 1:at + 1 + 2 * len(cms)] = cms.hex().encode()
+    open(os.path.join(out, name), "wb").write(body)
+signed("drive-policy.pdf", hashlib.sha256(policy).digest())
+signed("drive-policy-altered.pdf", hashlib.sha256(policy + b" ").digest())
+PY
 # A display somebody else has would put this run's windows beside theirs, and its photographs too.
 if [ -e "/tmp/.X${DISPLAY_NUMBER#:}-lock" ]; then
     echo "drive-windows: display $DISPLAY_NUMBER is in use; pass --display :N" >&2
@@ -2616,6 +2741,59 @@ PY
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# A caret placed and moved inside a note's window (ADR 1739): a press in the window's text, then Home,
+# "A ", End, Left and "!" — so the saved /Contents is "A Plain words!." only where the keys moved the
+# caret inside the note rather than standing at its end. `quorra` lays the note's lines out itself
+# and says where the press put the caret; the two toolkits' text widgets place their own.
+note_caret() {
+    local form="$OUT/$WINDOW-caret.pdf" photo paper tall line x y mark seen placed
+    cp "$FIXTURES/drive-note-plain.pdf" "$form"; rm -f "${form%.pdf}.edited.pdf"
+    launch "$form"; sleep 1; shot 67-note-caret
+    photo="$OUT/shots/$WINDOW/67-note-caret.png"
+    # The window's text is found on the photograph and pressed near its left end: the window is
+    # where the paper (`viewer_host::popup::PAPER`) is, its first line is the band of dark pixels
+    # under the yellow bar, and the note's icon beside it, which is paper and yellow too, has none
+    # in that band.
+    paper=$(magick "$photo" -alpha off -fuzz 2% -fill "#ff0000" -opaque "#fffce6" -fuzz 0 \
+        -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    tall=$(tall_of "$photo" "#ffe633")
+    if ! [[ "$paper" =~ ^([0-9]+)x[0-9]+\+([0-9]+)\+[0-9]+$ ]] || [ "${tall% *}" -le 0 ]; then
+        verdict 67-note-caret wrong "no note window to press in: $LOG"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    local width=${BASH_REMATCH[1]} left=${BASH_REMATCH[2]} top=$(( ${tall#* } + ${tall% *} + 2 ))
+    line=$(magick "$photo" -crop "${width}x16+${left}+${top}" +repage -alpha off -fuzz 40% \
+        -fill "#ff0000" -opaque black -fuzz 0 -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if ! [[ "$line" =~ ^[0-9]+x([0-9]+)\+([0-9]+)\+([0-9]+)$ ]]; then
+        verdict 67-note-caret wrong "no text under the note window's bar: $LOG"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    x=$(( left + BASH_REMATCH[2] + 2 )); y=$(( top + BASH_REMATCH[3] + BASH_REMATCH[1] / 2 ))
+    mark=$(lines)
+    xdotool mousemove "$x" "$y" click 1
+    wait_for 10 said_since "$mark" 'typing into the text note'
+    placed=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'typing into the text note [0-9]* [0-9]* at [0-9]* of [0-9]*' | head -1)
+    sleep 0.5
+    key Home; type_then 'SetNoteText' 'A '; key End Left; type_then 'SetNoteText' '!'
+    shot 67-note-caret-typing
+    key_then 'the keyboard is back on the page' Escape
+    click 690 850; key_then "$SAVED" ctrl+s
+    seen=$(python3 - "${form%.pdf}.edited.pdf" <<'PY' 2>&1 | tail -1
+import sys, pikepdf
+p = pikepdf.open(sys.argv[1])
+print(str(p.pages[0].Annots[0].Contents))
+PY
+)
+    if [ "$seen" = 'A Plain words!.' ] && { [ "$WINDOW" != quorra ] || [[ "$placed" =~ at\ ([0-9]+)\ of\ 12$ && ${BASH_REMATCH[1]} -lt 12 ]]; }; then
+        verdict 67-note-caret works "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: $seen"
+    else
+        verdict 67-note-caret wrong "pressed at $x,$y${placed:+ ($placed)}; the saved /Contents: ${seen:-nothing}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # A reply that states no /Popup is a comment in the window of the note it answers (ADR 1727): Table
 # 172's "shall not display replies to an annotation individually but together in the form of
 # threaded comments". The reply's /RC word is blue in the open note's own window, and the same
@@ -2672,6 +2850,60 @@ located_displayed() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# policy_served: how many times the loopback server has been asked for served/policy.pdf.
+policy_served() { grep -c 'GET /policy.pdf' "$SERVED"; }
+# §12.8.3.4.4's published policy copy, in all four windows (ADR 1738). At `--submissions=send` a
+# signature naming served/policy.pdf has the copy fetched from the loopback server, bound by the
+# digest the signer signed, and its magenta page opened beside the document; the same signature
+# committing to other octets is fetched and told apart, and nothing opens; at `refuse` the server is
+# not asked and the window says so. `quorra-confined` has no network and declines at every level.
+signature_policy() {
+    local before seen magenta
+    if [ "$WINDOW" = quorra-confined ]; then
+        before=$(policy_served)
+        launch "$FIXTURES/drive-policy.pdf"
+        wait_for 15 said_since 0 "was not fetched — this window has no network"; shot 66-signature-policy
+        seen=$(grep -o 'signature policy 2.16.724.1.3.1.1.2.1.9: its document at [^ ]* was not fetched — this window has no network' "$LOG" | head -1)
+        if [ -n "$seen" ] && [ "$(policy_served)" -eq "$before" ]; then
+            verdict 66-signature-policy works "$seen; and the server was not asked"
+        else
+            verdict 66-signature-policy wrong "$(grep -m1 'signature policy' "$LOG" || echo "no policy line: $LOG")"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    before=$(policy_served)
+    launch "$FIXTURES/drive-policy.pdf" --submissions=send
+    wait_for 15 said_since 0 "It is opened beside this document"
+    wait_for 15 holds_colour 66-signature-policy "#ff00ff"
+    magenta=$(coloured "$OUT/shots/$WINDOW/66-signature-policy.png" "#ff00ff")
+    seen=$(grep -o 'is the document the signer committed to: it hashes to the [A-Z0-9-]* digest they signed over it' "$LOG" | head -1)
+    if [ -n "$seen" ] && [ "${magenta:-0}" -gt 10000 ] && [ "$(policy_served)" -eq $((before + 1)) ]; then
+        verdict 66-signature-policy works "$seen; $magenta magenta pixels of the copy opened beside"
+    else
+        verdict 66-signature-policy wrong "${seen:-no binding line}; ${magenta:-?} magenta pixels: $LOG"
+    fi
+    before=$(policy_served)
+    launch "$FIXTURES/drive-policy-altered.pdf" --submissions=send
+    wait_for 15 said_since 0 "does not hash to the"; shot 66-signature-policy-altered
+    magenta=$(coloured "$OUT/shots/$WINDOW/66-signature-policy-altered.png" "#ff00ff")
+    seen=$(grep -o 'does not hash to the [A-Z0-9-]* digest the signer signed over it, so it is not shown as their policy' "$LOG" | head -1)
+    if [ -n "$seen" ] && [ "${magenta:-0}" -lt 1000 ] && [ "$(policy_served)" -eq $((before + 1)) ]; then
+        verdict 66-signature-policy-altered works "$seen; ${magenta:-0} magenta pixels"
+    else
+        verdict 66-signature-policy-altered wrong "${seen:-no mismatch line}; ${magenta:-?} magenta pixels: $LOG"
+    fi
+    before=$(policy_served)
+    launch "$FIXTURES/drive-policy.pdf" --submissions=refuse
+    wait_for 15 said_since 0 "was not fetched — this reader is set to send nothing"; shot 66-signature-policy-refused
+    if [ "$(said 'was not fetched — this reader is set to send nothing')" -gt 0 ] && [ "$(policy_served)" -eq "$before" ]; then
+        verdict 66-signature-policy-refused works "said, and the server was not asked"
+    else
+        verdict 66-signature-policy-refused wrong "$(grep -m1 'signature policy' "$LOG" || echo "no policy line: $LOG")"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
     # The worker reads the outline on a thread of its own after the open, and its next answer
@@ -2715,6 +2947,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         script_beep
         located
         located_displayed
+        signature_policy
         continue
     fi
     drive
@@ -2741,9 +2974,11 @@ for WINDOW in "${WINDOWS[@]}"; do
     popup_leader
     note_window
     note_typed
+    note_caret
     reply_threaded
     located
     located_displayed
+    signature_policy
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"
