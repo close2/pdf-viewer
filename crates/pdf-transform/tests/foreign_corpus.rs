@@ -481,6 +481,8 @@ fn run_within(command: &mut Command) -> Option<ExitStatus> {
             let _ = child.wait();
             return None;
         }
+        // A poll interval, kept as a timed bound: the verdict is the exit status and never the
+        // time; the interval is only how late an exit is seen (ADR 1800).
         std::thread::sleep(POLL);
     }
 }

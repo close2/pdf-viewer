@@ -2051,6 +2051,49 @@ fn a_note_s_caret_stands_where_its_window_draws_the_text_and_a_press_there_finds
     );
 }
 
+/// A carriage return followed by a line feed is one paragraph break in the note's window (ADR
+/// 1798): §12.5.6.2 makes the carriage return the separator and §3.23 the pair one end-of-line
+/// marker, so `"one\r\ntwo"` draws its second paragraph on the line under the first, where
+/// `"one\ntwo"` draws it — and `"one\n\ntwo"`, two breaks, is the control that draws an empty
+/// line between. The byte between the two halves of the pair is no place for a caret.
+#[test]
+fn a_carriage_return_and_line_feed_are_one_paragraph_break_in_a_note_s_window() {
+    let chrome = Chrome::compiled_in_only().expect("§9.6.2.2's fourteen are compiled in");
+    let caret = |text: &str, offset| {
+        viewer_ui::chrome::popup_caret(&chrome, &window(text, Some("A")), offset, 1.0)
+            .unwrap_or_else(|| panic!("a place for offset {offset} of {text:?}"))
+    };
+    let pair = caret("one\r\ntwo", 5);
+    assert_eq!(
+        pair,
+        caret("one\ntwo", 4),
+        "the pair breaks where a line feed does"
+    );
+    assert!(
+        (caret("one\r\ntwo", 0).0.0 - pair.0.0).abs() < f32::EPSILON,
+        "and starts its paragraph at the edge"
+    );
+    let (_, two_breaks) = caret("one\n\ntwo", 5);
+    assert!(
+        two_breaks.1 > pair.1.1,
+        "two breaks draw an empty line the pair does not: {} against {}",
+        two_breaks.1,
+        pair.1.1
+    );
+    let note = window("one\r\ntwo", Some("A"));
+    let ((x, top), (_, bottom)) = caret("one\r\ntwo", 3);
+    assert_eq!(
+        viewer_ui::chrome::popup_offset(&chrome, &note, (x, f32::midpoint(top, bottom)), 1.0),
+        Some(3),
+        "the end of the first paragraph is a press's place"
+    );
+    assert_eq!(
+        caret("one\r\ntwo", 4),
+        caret("one\r\ntwo", 3),
+        "between the carriage return and the line feed stands where the paragraph ends"
+    );
+}
+
 /// A rich note's caret stands at the glyphs `rich::draw` lays out and on the `/Contents` offsets
 /// their characters are (ADR 1770): every place round-trips through a press, a run twice the
 /// window's size is on the same line as its neighbours, the double space `/Contents` holds where

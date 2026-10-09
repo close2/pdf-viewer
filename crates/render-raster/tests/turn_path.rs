@@ -124,6 +124,14 @@ const DEVICE_READING_GAP: std::time::Duration = std::time::Duration::from_millis
 /// How long a planted busy device keeps the device busy unless told otherwise.
 const BUSY_SECONDS: &str = "PDFVIEWER_TURN_BUSY_SECONDS";
 
+/// How long [`a_planted_busy_device_is_seen_as_busy`]'s plant keeps the device busy, counted from
+/// just before the first dispatch that [`BUSY_FROM_HERE`] follows.
+const PLANT_SECONDS: u64 = 6;
+
+/// The line a planted busy device prints once its first dispatch has been answered: the device is
+/// busy from here (ADR 1800).
+const BUSY_FROM_HERE: &str = "busy device: the first dispatch is answered";
+
 /// Held by each `#[ignore]`d test for its whole run, so that `-- --ignored` — which is how
 /// `tools/batch.sh gates` runs this file — never has the planted busy device of
 /// [`a_planted_busy_device_is_seen_as_busy`] running on a thread beside the gate it calibrates.
@@ -257,6 +265,8 @@ fn device_busy() -> Option<f64> {
     let mut sums = vec![0.0_f64; counters.len()];
     for reading in 0..DEVICE_READINGS {
         if reading > 0 {
+            // A cadence, not a wait for an event: the figure is a mean over an interval, and the
+            // gap is what spreads the readings across it (ADR 1800).
             std::thread::sleep(DEVICE_READING_GAP);
         }
         for (sum, path) in sums.iter_mut().zip(&counters) {
@@ -334,6 +344,9 @@ fn keep_the_device_busy(for_how_long: std::time::Duration) {
         queue.submit([encoder.finish()]);
         gpu.poll(wgpu::PollType::wait_indefinitely())
             .expect("the busy device answers");
+        if dispatches == 0 {
+            println!("{BUSY_FROM_HERE}");
+        }
         dispatches = dispatches.saturating_add(1);
     }
     println!(
@@ -608,6 +621,9 @@ fn take(row: &Row, check: &Check, pinning: Option<&(String, usize)>, ceiling: f6
             if load <= ceiling && quiet(before) {
                 break;
             }
+            // A timed back-off, kept: a neighbour's load is nothing this test owns or can be told
+            // the end of, and the one-minute load average the kernel recomputes every five
+            // seconds cannot have moved much sooner than this (ADR 1800).
             std::thread::sleep(std::time::Duration::from_secs(10));
             (load, before) = (load_average(), device_busy());
         }
@@ -899,19 +915,46 @@ fn a_planted_busy_device_is_seen_as_busy() {
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .env(PHASE, "busy")
-        .env(BUSY_SECONDS, "6")
-        .stdout(std::process::Stdio::null())
+        .env(BUSY_SECONDS, PLANT_SECONDS.to_string())
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("the plant starts");
-    // The plant's own bring-up is a few hundred milliseconds of instance, adapter and pipeline;
-    // read after it, inside its six seconds.
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    let busy = device_busy().expect("the counter read a moment ago");
+    // Held at the plant's own line rather than at a guess at its bring-up of instance, adapter
+    // and pipeline: its seconds start at that line, however long the bring-up took (ADR 1800).
+    let mut said = std::io::BufReader::new(plant.stdout.take().expect("the plant's stdout"));
+    let mut line = String::new();
+    // `ends_with`, because the harness may have begun the line with the test's name.
+    while !line.trim_end().ends_with(BUSY_FROM_HERE) {
+        line.clear();
+        let read = std::io::BufRead::read_line(&mut said, &mut line).expect("the plant's stdout");
+        assert!(
+            read > 0,
+            "the plant ended before its first dispatch was answered"
+        );
+    }
+    let busy_from = Instant::now();
+    // The gate reads a neighbour that has been busy for a while, and the driver's counter is an
+    // average that lags: read straight after the first dispatch it was barely over the threshold,
+    // and far above it once the plant had ended (ADR 1800). So readings are taken until one is
+    // above the threshold, for as long as the plant is still busy, with a second to spare.
+    let mut readings = Vec::new();
+    let busy = loop {
+        let busy = device_busy().expect("the counter read a moment ago");
+        readings.push(format!("{busy:.1}"));
+        let left =
+            std::time::Duration::from_secs(PLANT_SECONDS).saturating_sub(busy_from.elapsed());
+        if busy > threshold || left < std::time::Duration::from_secs(1) {
+            break busy;
+        }
+    };
+    // Drained to its end, so the plant's last line has somewhere to go and it exits on its own.
+    std::io::copy(&mut said, &mut std::io::sink()).expect("the plant's stdout");
     let status = plant.wait().expect("the plant ends");
     let after = device_busy().expect("the counter read a moment ago");
     println!(
-        "device busy: {idle:.1}% before, {busy:.1}% planted, {after:.1}% after; threshold \
-         {threshold}%"
+        "device busy: {idle:.1}% before, {busy:.1}% planted (readings {}), {after:.1}% after; \
+         threshold {threshold}%",
+        readings.join(", ")
     );
     assert!(status.success(), "the plant ran to its end");
     assert!(

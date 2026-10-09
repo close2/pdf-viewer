@@ -147,8 +147,8 @@ impl Host {
             // `MALLOC_ARENA_MAX` is read by `glibc` at start-up, so it has to be set *here*,
             // by whoever spawns: the worker itself is already past it by `main`, and the
             // confinement cannot be moved after the pool because the Landlock domain is
-            // per-thread. One arena is also what these workers want on their own account —
-            // both run their rasterisation on one thread by `pdf_vfs::serve`'s own finding.
+            // per-thread. With the limit set, both workers build a pool as wide as the machine
+            // inside their confinement, and no thread of it asks the kernel (ADRs 1554, 1804).
             .env("MALLOC_ARENA_MAX", "1")
             .stdin(worker_end)
             .stdout(Stdio::piped())

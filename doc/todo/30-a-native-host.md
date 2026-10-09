@@ -166,8 +166,11 @@ These are the places where a native host's shape differs from the tier-2 host's,
   interpreted, a timer's included, a script reads each window's Shift and Control, and its console
   requests are said by name, every window's console being its log (ADR 1771). A choice field's
   selection runs its Table 199 `/K` once, and every window says when an arrow made it, so the
-  script reads `event.keyDown` true there: `quorra`'s drawn list takes Up and Down, GTK's list and
-  Qt's list and closed combo box take theirs (ADRs 1786, 1787).
+  script reads `event.keyDown` true there: `quorra`'s drawn list takes Up and Down, GTK's list, its
+  drop-down's open list and its editable combo box's list, and Qt's list and closed combo box take
+  theirs (ADRs 1786, 1787, 1799). A carriage return followed by a line feed is one paragraph break
+  in every note window, the replies' thread included, split once by `viewer_host::popup::paragraphs`
+  (ADR 1798).
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font
@@ -191,6 +194,11 @@ These are the places where a native host's shape differs from the tier-2 host's,
 ## What is left, and none of it is architecture
 
 Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows with their readings.
+
+- **A note typed into writes a line feed where §12.5.6.2 asks for a carriage return**: "When
+  separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used". `quorra`'s Enter inserts
+  `\n`, and the toolkits' editors hand back their own line feeds with `Edit::SetNoteText`. The fix
+  touches all three windows' editors and their offset arithmetic (ADR 1798 section 3).
 
 - **`quorra` shows what would print and has no printer of its own** (ADR 1180 section 6), where
   `quorra-gtk` prints through `GtkPrintOperation` and `quorra-qt` through a `QPrinter`.

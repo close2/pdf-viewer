@@ -1389,6 +1389,80 @@ fn arms_exports_only_head_and_never_over_another_commits_export() {
     );
 }
 
+/// `arms` says when its hold of the lock ended, in the lock log's own words (ADR 1806): `done` is
+/// written inside the hold, so the README's last line is the wrapper's own line for this export's
+/// `arms-held` up to its `cmd=`, after the clock's time at the wrapper's return. A stand-in `cargo`
+/// that fails makes the export end at its build, which is the shortest hold that reaches the line.
+/// Calibrated (trap 13): against the script before the line existed the README ended at `build exit
+/// 1`, and this test failed; and a second export of the same directory, which rewrites the README,
+/// carries one `released` line, the second hold's, so the line is matched by the export's own ask.
+#[test]
+fn arms_says_when_its_hold_of_the_lock_ended_in_the_logs_own_words() {
+    let sandbox = Sandbox::with_files("released", &[("Cargo.toml", "[workspace]\n")]);
+    let bin = sandbox.base.join("failing-bin");
+    std::fs::create_dir_all(&bin).expect("a directory for the stand-in");
+    let cargo = bin.join("cargo");
+    std::fs::write(&cargo, "#!/bin/sh\nexit 1\n").expect("the stand-in cargo");
+    let made_executable = Command::new("chmod")
+        .arg("+x")
+        .arg(&cargo)
+        .status()
+        .is_ok_and(|status| status.success());
+    assert!(
+        made_executable,
+        "the stand-in cargo could not be made executable"
+    );
+    let mut path = std::ffi::OsString::from(&bin);
+    if let Some(inherited) = std::env::var_os("PATH") {
+        path.push(":");
+        path.push(inherited);
+    }
+    let out = sandbox.base.join("export");
+    let arms = || {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("PATH", &path)
+            .arg(sandbox.repo().join("tools/batch.sh"))
+            .arg("arms")
+            .arg(&out)
+            .output()
+            .expect("bash runs tools/batch.sh")
+    };
+    let held_lines = || {
+        std::fs::read_to_string(sandbox.base.join("heavy-walk.log"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.contains(" round=arms "))
+            .map(|line| line.split(" cmd=").next().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    for export in 1..=2 {
+        let run = arms();
+        assert!(
+            !run.status.success() && text(&run).contains("the build failed"),
+            "export {export} did not end at the stand-in's failed build: {}",
+            text(&run)
+        );
+        let held = held_lines();
+        let readme = std::fs::read_to_string(out.join("README")).unwrap_or_default();
+        let released: Vec<&str> = readme
+            .lines()
+            .filter(|line| line.starts_with("released "))
+            .collect();
+        let last = readme.lines().last().unwrap_or_default();
+        assert!(
+            held.len() == export
+                && released.len() == 1
+                && last.starts_with("released ")
+                && held
+                    .last()
+                    .is_some_and(|words| last.ends_with(&format!(", the lock's line: {words}")))
+                && last.contains(" exit=1 "),
+            "export {export}'s README does not end with its own hold's line of the lock log:\n{readme}\nthe log's arms lines: {held:?}"
+        );
+    }
+}
+
 /// `open` starts the warm build and then the arms export, each detached into a session of its own,
 /// and returns while both still run: the caller reads `open`'s output to its end, as an agent's
 /// shell and `Command::output` do, so a job that kept the caller's pipe would hold `open` for as

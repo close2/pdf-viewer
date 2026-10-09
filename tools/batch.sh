@@ -182,8 +182,34 @@ export_arms() {
     # A large walk, on the lock's first lane: its two builds run inside the hold and a cold build
     # is not held to a small walk's 6 GiB, and a killed export costs the batch its pixels baseline.
     # A round's small walks run beside it on the second lane (ADR 1684).
+    local asked rc=0
+    asked=$(date +%s)
     "$wt/tools/bounded.sh" --lock --round arms --tree 12 -- \
-        "$wt/tools/batch.sh" arms-held "$out" "$commit" "$(date +%s)"
+        "$wt/tools/batch.sh" arms-held "$out" "$commit" "$asked" || rc=$?
+    arms_released "$out" "$commit" "$asked"
+    return "$rc"
+}
+
+# When the export's hold of the lock ended, in the lock log's own words (ADR 1806). `done` is written
+# by `arms-held` inside the hold, so it says when the walking ended and what the README's own clock
+# read since the ask; the hold ends after it, when the wrapper writes its line and lets the lanes
+# go. So once the wrapper has returned, the line it wrote — the one whose command is this export's
+# own `arms-held` with the second it asked at — is copied into the README up to its `cmd=`, after the
+# clock's time at the return, which is the release. A README this run did not write — an export the
+# hold found complete, whose `released` line is its first hold's — is left as it is, and a hold on
+# no line of the log is said rather than left out.
+arms_released() {
+    local out=$1 commit=$2 asked=$3 log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log} words line
+    [ -f "$out/README" ] && ! grep -q '^released ' "$out/README" || return 0
+    # The command as the wrapper words it on its line, cut where it cuts it, so a long path matches.
+    words=$(printf '%s ' "$wt/tools/batch.sh" arms-held "$out" "$commit" "$asked" | tr '\n\t' '  ' | cut -c1-200)
+    line=$(awk -v words="$words" '$3 == "round=arms" && index($0, " cmd=") &&
+        substr($0, index($0, " cmd=") + 5) == words' "$log" 2>/dev/null | tail -1)
+    if [ -n "$line" ]; then
+        echo "released $(date '+%Y-%m-%d %H:%M:%S'), the lock's line: ${line%% cmd=*}" >> "$out/README"
+    else
+        echo "released $(date '+%Y-%m-%d %H:%M:%S'), on no line of $log" >> "$out/README"
+    fi
 }
 
 # Whether this process runs under a hold of the heavy-walk lock. The wrapper keeps the lock's

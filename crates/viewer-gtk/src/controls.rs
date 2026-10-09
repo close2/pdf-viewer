@@ -512,6 +512,7 @@ fn combo(
     }
     let name = field.name.qualified.clone();
     let count = options.len();
+    let arrow = arrows_choose(&drop, suppress);
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
     drop.connect_selected_notify(move |drop| {
@@ -524,6 +525,10 @@ fn combo(
         if index >= count {
             return;
         }
+        let arrows = arrow.get();
+        if arrows {
+            change(FieldChange::Arrows { held: true });
+        }
         // §12.7.5.4's item, named by its position in Table 234's `/Opt` rather than by the label
         // `/V` will hold. The clause makes the label the value — of a two-element `/Opt` entry it
         // is the second element — and the position is what says *which* label, where two entries
@@ -533,8 +538,52 @@ fn combo(
             field: name.clone(),
             value: Entered::Chosen(vec![index]),
         });
+        if arrows {
+            change(FieldChange::Arrows { held: false });
+        }
     });
     drop.upcast()
+}
+
+/// An arrow in a `GtkDropDown`'s open list selects the option it moves to, as it does in
+/// [`list`], and the answer says while an arrow is down (ADR 1799).
+///
+/// **The drop-down alone would never say so.** Its own `selected` changes only when a row of its
+/// popover is activated — a click, or Enter — while the arrows move the popover's list's
+/// selection, a second model the drop-down copies from at the activation. So an arrow is marked on
+/// that list, and where the list's selection moves under a marked arrow the drop-down is given the
+/// same option at once: its `notify::selected` then runs inside the key press, reads the mark, and
+/// sends the edit between the arrows going down and up, which is what Table 199's `/K` reads as
+/// Adobe's `event.keyDown`. The Enter that closes the list afterwards activates what is already
+/// selected, which GTK does not notify, so the selection is sent once.
+///
+/// The list's selection also follows the pointer as it passes over the rows, because the template
+/// sets `single-click-activate`; a move with no arrow down is that, and selects nothing. A
+/// drop-down whose list is not found has no mark that is ever set, and behaves as it did.
+fn arrows_choose(drop: &gtk4::DropDown, suppress: &Rc<Cell<bool>>) -> Rc<Cell<bool>> {
+    let Some(view) = list_view_under(drop.upcast_ref()) else {
+        return Rc::new(Cell::new(false));
+    };
+    let arrow = marks_arrows(&view);
+    if let Some(popup) = view.model() {
+        let arrow = Rc::clone(&arrow);
+        let suppress = Rc::clone(suppress);
+        let drop = drop.downgrade();
+        popup.connect_selection_changed(move |popup, _, _| {
+            if !arrow.get() || suppress.get() {
+                return;
+            }
+            let Some(drop) = drop.upgrade() else {
+                return;
+            };
+            // The popover's list is a filter over the drop-down's model with no search set, so a
+            // position in one is the same position in the other.
+            if let Some(position) = (0..popup.n_items()).find(|at| popup.is_selected(*at)) {
+                drop.set_selected(position);
+            }
+        });
+    }
+    arrow
 }
 
 /// Table 233 bit 19 set: "an editable text box as well as a drop-down list", composed.
@@ -560,14 +609,19 @@ fn editable_combo(
     entry.set_hexpand(true);
     // Before the signal is connected, so that seeding the control is not a keystroke.
     entry.set_text(field.value.as_ref().map_or("", |shown| shown.text.as_str()));
+    // The row an arrow in the list last sent, so that the Enter which then closes the list does
+    // not send the same selection a second time; typing makes the value the characters again.
+    let arrowed: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
     {
         let name = name.clone();
         let suppress = Rc::clone(suppress);
         let change = Rc::clone(change);
+        let arrowed = Rc::clone(&arrowed);
         entry.connect_changed(move |entry| {
             if suppress.get() {
                 return;
             }
+            arrowed.set(None);
             change(FieldChange::Set {
                 field: name.clone(),
                 value: Entered::Text(entry.text().to_string()),
@@ -602,6 +656,7 @@ fn editable_combo(
     let button = gtk4::MenuButton::new();
     button.set_icon_name("pan-down-symbolic");
     button.set_popover(Some(&popover));
+    arrows_choose_rows(&list, &name, options.len(), &arrowed, suppress, change);
     {
         let count = options.len();
         let change = Rc::clone(change);
@@ -613,6 +668,9 @@ fn editable_combo(
                 return;
             }
             popover.popdown();
+            if arrowed.take() == Some(index) {
+                return;
+            }
             change(FieldChange::Set {
                 field: name.clone(),
                 value: Entered::Chosen(vec![index]),
@@ -632,6 +690,43 @@ fn editable_combo(
     composed.append(&entry);
     composed.append(&button);
     composed.upcast()
+}
+
+/// An arrow in an [`editable_combo`]'s list selects the row it moves to, as it does in [`list`]
+/// and in the plain drop-down (ADR 1799): `GtkListBox` selects the row its cursor moves to inside
+/// the key press, so `row-selected` reads the mark there, and the list stays open on the option.
+/// `arrowed` keeps the row sent, for the Enter that closes the list to find it already sent.
+fn arrows_choose_rows(
+    list: &gtk4::ListBox,
+    name: &str,
+    count: usize,
+    arrowed: &Rc<Cell<Option<usize>>>,
+    suppress: &Rc<Cell<bool>>,
+    change: &Rc<dyn Fn(FieldChange)>,
+) {
+    let arrow = marks_arrows(list);
+    let name = name.to_owned();
+    let suppress = Rc::clone(suppress);
+    let change = Rc::clone(change);
+    let arrowed = Rc::clone(arrowed);
+    list.connect_row_selected(move |_, row| {
+        if !arrow.get() || suppress.get() {
+            return;
+        }
+        let Some(index) = row
+            .and_then(|row| usize::try_from(row.index()).ok())
+            .filter(|index| *index < count)
+        else {
+            return;
+        };
+        arrowed.set(Some(index));
+        change(FieldChange::Arrows { held: true });
+        change(FieldChange::Set {
+            field: name.clone(),
+            value: Entered::Chosen(vec![index]),
+        });
+        change(FieldChange::Arrows { held: false });
+    });
 }
 
 /// Gives a placed control the keyboard: the control itself, or the text box of an
@@ -712,30 +807,7 @@ fn list(
         item.set_child(Some(&label));
     });
     let view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
-    // GTK's list moves its selection with the arrows inside the key press, so a press seen in the
-    // capture phase is down while the model's `selection-changed` runs, and an idle lets it go
-    // once GTK has finished with the key (ADR 1786).
-    let arrow = Rc::new(Cell::new(false));
-    let keys = gtk4::EventControllerKey::new();
-    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    {
-        let arrow = Rc::clone(&arrow);
-        keys.connect_key_pressed(move |_, key, _, _| {
-            if matches!(
-                key,
-                gtk4::gdk::Key::Up
-                    | gtk4::gdk::Key::Down
-                    | gtk4::gdk::Key::KP_Up
-                    | gtk4::gdk::Key::KP_Down
-            ) {
-                arrow.set(true);
-                let arrow = Rc::clone(&arrow);
-                gtk4::glib::idle_add_local_once(move || arrow.set(false));
-            }
-            gtk4::glib::Propagation::Proceed
-        });
-    }
-    view.add_controller(keys);
+    let arrow = marks_arrows(&view);
     let name = field.name.qualified.clone();
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
@@ -761,6 +833,55 @@ fn list(
     scroller.set_child(Some(&view));
     scroll_to_top_index(&scroller, top, options.len());
     scroller.upcast()
+}
+
+/// Whether an arrow key is down on `widget`, for a selection the key is making to read
+/// (ADR 1786).
+///
+/// GTK's lists — a `GtkListView`, a `GtkListBox`, and the one inside a `GtkDropDown`'s popover —
+/// move their selection with the arrows inside the key press, so a press seen in the capture phase
+/// is down while the model's `selection-changed` runs, and an idle lets it go once GTK has finished
+/// with the key.
+fn marks_arrows(widget: &impl IsA<gtk4::Widget>) -> Rc<Cell<bool>> {
+    let arrow = Rc::new(Cell::new(false));
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    {
+        let arrow = Rc::clone(&arrow);
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if matches!(
+                key,
+                gtk4::gdk::Key::Up
+                    | gtk4::gdk::Key::Down
+                    | gtk4::gdk::Key::KP_Up
+                    | gtk4::gdk::Key::KP_Down
+            ) {
+                arrow.set(true);
+                let arrow = Rc::clone(&arrow);
+                gtk4::glib::idle_add_local_once(move || arrow.set(false));
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+    }
+    widget.add_controller(keys);
+    arrow
+}
+
+/// The first `GtkListView` among `widget`'s descendants, depth first: in a `GtkDropDown`, the list
+/// its popover shows. GTK names it in the widget's template and hands no accessor for it, and the
+/// popover is a child of the drop-down like any other, so the tree is where it is found.
+fn list_view_under(widget: &gtk4::Widget) -> Option<gtk4::ListView> {
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if let Some(view) = current.downcast_ref::<gtk4::ListView>() {
+            return Some(view.clone());
+        }
+        if let Some(view) = list_view_under(&current) {
+            return Some(view);
+        }
+        child = current.next_sibling();
+    }
+    None
 }
 
 /// Table 234's `/TI`, as a position for the list's own scrollbar (ISO 32000-2 §12.7.5.4).

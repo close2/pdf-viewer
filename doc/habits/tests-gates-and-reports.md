@@ -614,3 +614,19 @@ Round 1471's record placed its slow units under `scratchpad/r1471/`, which the n
 removed; round 1478's premise named that path and found nothing there, and the unit had to be found
 again as `fuzz/corpus/page/021ace25…`. A finding a later round may need is named by its hash under
 `fuzz/corpus/` or `fuzz/artifacts/`, where it survives the batch.
+
+## A value set from several places is tested pair by pair, in both orders
+
+A field's value can be stated by the file, a reset, an import and a person's edit; the forms rows'
+fixtures each exercised one of them, so "performed" and "applied" read true while a reset or an
+import after a person had typed still showed, saved and submitted the typed value (round 1480,
+ADR 1796). Where more than one place can state a value, the test takes each pair in both orders and
+asserts which statement stands.
+
+## A hold that replaces a timed wait is checked for the second wait the timer covered
+
+`turn_path`'s 2 s sleep stood in for the plant's bring-up; held at the line the plant prints after its
+first dispatch, the test read the driver's `gpu_busy_percent` at 23.9 % against a 20 % threshold,
+because the counter lags and the same 2 s had been covering that too (round 1482, ADR 1800). When a
+timed wait becomes a hold, the next assertion is read for a second quantity the timer let settle,
+and that one gets its own hold or its own bounded read.

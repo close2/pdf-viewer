@@ -720,15 +720,15 @@ fn an_xfdf_submission_is_read_back_by_the_importer_that_reads_one() {
 /// nor stays quiet about it.
 #[test]
 fn the_bits_table_240_puts_aside_for_xfdf_are_named_one_by_one() {
-    // Bits 3, 4, 5, 6, 7, 8, 10, 11, 12 and 14 together.
-    let submission = composed(4 | 8 | 16 | 32 | 64 | 128 | 512 | 1024 | 2048 | 8192, "");
+    // Bits 3, 4, 5, 6, 7, 8, 11, 12 and 14 together.
+    let submission = composed(4 | 8 | 16 | 32 | 64 | 128 | 1024 | 2048 | 8192, "");
     assert_eq!(
         submission.format,
         Format::Xfdf,
         "bit 3 is meaningful only where bit 6 is clear, so bit 6 decides"
     );
     for bit in [
-        "bit 3", "bit 4", "bit 5", "bit 7", "bit 8", "bit 10", "bit 11", "bit 12", "bit 14",
+        "bit 3", "bit 4", "bit 5", "bit 7", "bit 8", "bit 11", "bit 12", "bit 14",
     ] {
         assert!(
             submission.owed.iter().any(|owed| owed.contains(bit)),
@@ -827,21 +827,17 @@ fn coordinates_asked_for_without_a_click_are_owed_rather_than_invented() {
 /// Trap 5 at the level of a whole table: every flag of Table 240 that this composition does not
 /// carry out arrives as a sentence, because a submission quietly missing one reports nothing.
 ///
-/// Two are left, and each is somebody else's knowledge rather than unwritten code. Bit 10's
-/// `CanonicalFormat` converts "any submitted field values representing dates", and its own NOTE 1
-/// says which those are is "not specified explicitly in the field itself but only in the
-/// ECMAScript code that processes it" — which `CLAUDE.md` excludes. Bit 11's `ExclNonUserAnnots`
-/// narrows by a name "determined by the remote server".
+/// One is left, and it is somebody else's knowledge rather than unwritten code: bit 11's
+/// `ExclNonUserAnnots` narrows by a name "determined by the remote server". Bit 10's
+/// `CanonicalFormat` is applied, and `canonical_dates.rs` holds it (ADR 1796).
 #[test]
 fn every_flag_the_composition_does_not_apply_is_named() {
-    let submission = composed(512 | 1024, "");
+    let submission = composed(1024, "");
     let owed = submission.owed.join("\n");
-    for named in ["CanonicalFormat", "ExclNonUserAnnots"] {
-        assert!(
-            owed.contains(named),
-            "{named} is not silently dropped: {owed}"
-        );
-    }
+    assert!(
+        owed.contains("ExclNonUserAnnots"),
+        "ExclNonUserAnnots is not silently dropped: {owed}"
+    );
 }
 
 /// §12.7.6.2 gives a push-button its own sentence:

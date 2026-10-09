@@ -81,14 +81,16 @@ fn children_left_by(test: &str, worker: &std::path::Path) -> String {
         .to_owned()
 }
 
-/// The inner half: the refusal, a settle, and the count.
+/// The inner half: the refusal, and the count straight after it.
+///
+/// No settle between them: the reap is `Connection`'s `Drop`, a kill and a wait inside the refusal,
+/// so a reaped worker is gone from `/proc` before `confinement` returns, and a worker nobody reaped
+/// is counted whether it is still running or a zombie by then (ADR 1800).
 fn inner() {
     assert!(
         Sandbox::shared().confinement().is_err(),
         "the worker must be refused"
     );
-    // Long enough for a worker that was still running at the refusal to have exited.
-    std::thread::sleep(std::time::Duration::from_millis(300));
     println!("children={}", children());
 }
 

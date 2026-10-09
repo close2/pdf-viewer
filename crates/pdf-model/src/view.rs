@@ -1674,12 +1674,13 @@ impl ViewState {
         };
         let mut named = NamedPageAppearances::default();
         let mut awaiting = Vec::new();
+        // An import is the later statement about every field it replaces, after a reset and after
+        // what a person typed alike (ADR 1796).
+        let replaced: BTreeSet<ObjectId> = matched.iter().map(|(widget, _)| *widget).collect();
+        self.forget_statements(&table, &replaced);
         for (widget, import) in &matched {
             let mut import = import.clone();
             named.resolve(document, *widget, &mut import, &mut outcome, &mut awaiting);
-            // The two sets answer the same question, so a widget belongs to exactly one of
-            // them: an import after a reset is the later statement about this field's value.
-            self.reset.remove(widget);
             self.imported.insert(*widget, import);
         }
         self.awaiting.append(&mut awaiting);
@@ -2981,7 +2982,9 @@ impl ViewState {
     /// ([`ViewState::write_retypings`]) — which is §7.5.6's second case, "objects that have been
     /// changed, replaced, or deleted", and the producer's own bytes are still in the file beneath
     /// it. Every field an import replaced and nobody typed into since, with the entries Table 249
-    /// states and the appearance the value is drawn with ([`ViewState::write_imported_values`]).
+    /// states and the appearance the value is drawn with ([`ViewState::write_imported_values`]);
+    /// and every field §12.7.6.3's reset set back to a default its `/V` was not already
+    /// ([`ViewState::write_resets`]).
     ///
     /// **Table 224's `/NeedAppearances` is written for what is left over, and the entry's own row
     /// states that condition** (§12.7.3):
@@ -3117,6 +3120,7 @@ impl ViewState {
             // whichever ancestor §12.7.4.1 keeps the value on.
             update.stamp_annotation(document, widget);
         }
+        self.write_resets(document, &mut update);
         self.write_imported_values(document, &mut update, &mut withheld);
         self.write_scripted(document, &mut update);
         self.write_scripted_annotations(document, &mut update);
@@ -3153,6 +3157,68 @@ impl ViewState {
             unconstructed,
             still_reached,
         })
+    }
+
+    /// Writes §12.7.6.3's reset onto the fields it reached and nothing has replaced since.
+    ///
+    /// > Upon invocation of a reset-form action, an interactive PDF processor shall reset selected
+    /// > interactive form fields to their default values; that is, it shall set the value of the V
+    /// > entry in the field dictionary to that of the DV entry … If no default value is defined for
+    /// > a field, its V entry shall be removed.
+    ///
+    /// The log holds the reset and a save is where the sentence reaches the file, so a document
+    /// saved after one opens again showing the defaults the viewer showed (ADR 1796). The value goes
+    /// where [`holder`] finds the document keeping one, with the appearance it is drawn with, as a
+    /// typed value's does. A field whose `/V` already is its `/DV` is not written: the reset changed
+    /// nothing there, and a save that rewrote every field of a form reset whole would be a file
+    /// stating changes nobody made. Table 234's `/I` goes, as it goes for a typed value, because it
+    /// describes the value the reset replaced.
+    fn write_resets(&self, document: &Document, update: &mut Update) {
+        for widget in &self.reset {
+            let widget = *widget;
+            // [`Self::forget_statements`] keeps the four statements disjoint; a later one is
+            // written by its own pass.
+            if self.edited.contains_key(&widget) || self.imported.contains_key(&widget) {
+                continue;
+            }
+            let Some(dict) = document.get(widget).as_dict().cloned() else {
+                continue;
+            };
+            let stored = crate::appearance::Field::read(document, &dict, FieldValue::Stored).value;
+            let default =
+                crate::appearance::Field::read(document, &dict, FieldValue::Default).value;
+            if stored == default {
+                continue;
+            }
+            let (id, mut field) = holder(document, widget, dict.clone());
+            let toggling = toggles(document, &dict);
+            match default.as_ref() {
+                Some(object) if toggling => {
+                    field.insert(Name::new(&b"V"[..]), state_name(object));
+                }
+                Some(object) => {
+                    field.insert(Name::new(&b"V"[..]), object.clone());
+                }
+                None => {
+                    field.remove("V");
+                }
+            }
+            crate::rich_text::write_beside(document, &dict, default.as_ref(), &mut field);
+            field.remove("I");
+            update.put(id, Object::Dictionary(field));
+            update.write_appearance(
+                document,
+                widget,
+                &dict,
+                FieldValue::Default,
+                self.displayed(widget),
+                self.scripted(widget),
+            );
+            if toggling {
+                update.write_state(document, widget, default.as_ref());
+            }
+            update.stamp_annotation(document, widget);
+        }
     }
 
     /// Writes §12.7.8's imported values onto the fields that took them: Table 249's `/V`, `/RV`,
@@ -4126,12 +4192,25 @@ impl ViewState {
     ///   specified fields in the field hierarchy are also exempt from being reset.)*, in italics
     ///   because an erratum's added text is in no clause of `doc/md/` — so the two
     ///   branches are one subtree question asked twice, which is what the set built below is.
+    ///
+    /// **The reset is the latest statement about each field it reaches**, so what a person typed
+    /// and what an import replaced go with it: the clause sets `/V` to `/DV` whatever `/V` was,
+    /// and [`ViewState::annotation`] reads a person's edit first (ADR 1796).
     fn reset_form(&mut self, document: &Document, action: &ResetForm) {
         let table = widgets_by_field_name(document);
+        let reached = Self::reached_by_reset(document, &table, action);
+        self.forget_statements(&table, &reached);
+        self.reset.extend(reached);
+    }
+
+    /// The widgets one reset-form action reaches, by Table 241's and Table 242's three shapes.
+    fn reached_by_reset(
+        document: &Document,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        action: &ResetForm,
+    ) -> BTreeSet<ObjectId> {
         if action.fields.is_empty() {
-            self.reset.extend(table.values().flatten().copied());
-            self.imported.clear();
-            return;
+            return table.values().flatten().copied().collect();
         }
         let named: BTreeSet<ObjectId> = action
             .fields
@@ -4151,19 +4230,40 @@ impl ViewState {
             })
             .collect();
         if action.exclude {
-            for widget in table.values().flatten() {
-                if !named.contains(widget) {
-                    self.reset.insert(*widget);
-                }
-            }
+            table
+                .values()
+                .flatten()
+                .copied()
+                .filter(|widget| !named.contains(widget))
+                .collect()
         } else {
-            self.reset.extend(named);
+            named
         }
-        // §12.7.8's import and this are two statements about one field's value, so the later
-        // one stands alone — see the `imported` field. A reset performed after an import is the
-        // person asking for the document's own defaults back.
-        self.imported
-            .retain(|widget, _| !self.reset.contains(widget));
+    }
+
+    /// Forgets every earlier statement about these widgets' values but the file's own.
+    ///
+    /// A person's edit, an import's value, a reset and Table 226's `/V` answer one question about
+    /// a widget, and the one performed last stands alone. [`ViewState::annotation`] asks them in a
+    /// fixed order, so a later statement has to take the earlier ones away rather than rely on
+    /// being read first. A field whose widgets are reached also loses its typing in progress and
+    /// §12.7.5.3's chosen file, which belong to the value being replaced.
+    fn forget_statements(
+        &mut self,
+        table: &BTreeMap<String, Vec<ObjectId>>,
+        widgets: &BTreeSet<ObjectId>,
+    ) {
+        for widget in widgets {
+            self.edited.remove(widget);
+            self.imported.remove(widget);
+            self.reset.remove(widget);
+        }
+        for (name, held) in table {
+            if held.iter().any(|widget| widgets.contains(widget)) {
+                self.uncommitted.remove(name);
+                self.chosen.remove(name);
+            }
+        }
     }
 
     /// Whether this widget's value has been reset to its default (§12.7.6.3).

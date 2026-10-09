@@ -1324,6 +1324,14 @@ the bound's *own* report, so a fixture that stops reaching the bound fails by na
 moves to a route that still reaches it — here a form cycle through a tiling cell, which ADR 0793 bounds
 by depth alone.
 
+### 139. A census is declared `--long` only once a log line shows its peak
+
+A `--long` run holds the second lane, whose ceiling is 6 GiB, and is refused above it. Round 1478's
+nesting census over 90 763 first pages had never run on that population; declared `--long`, it was
+killed at 6.77 GiB after 828.5 s and then queued 844.8 s to run again as a large walk, so the hold was
+paid twice (round 1485, ADR 1806). A census not yet run on its population is declared large, and is
+declared `--long` only once a line of `/home/AI/heavy-walk.log` shows its peak under 6 GiB.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

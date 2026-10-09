@@ -340,10 +340,12 @@ section_golden() {
 }
 
 # `pdfref-hayro` is the oracle's fourth reading (`Reference::Hayro`) and another package's binary, so
-# the walk builds it beside the sandbox worker (trap 10's second program, ADR 0222).
+# the walk builds it beside the sandbox worker (trap 10's second program, ADR 0222). The filter keeps
+# the census of which bound keeps the references apart on the dense-text groups, because those groups'
+# notes cite its line rather than restating its figures (ADR 1802).
 section_oracle() {
     run "oracle (poppler, mupdf, ghostscript)" \
-        '^[0-9]+ pages in|^  (agrees|contradicted|ambiguous|our geometry|reference geometry|not comparable|no render) |undiagnosed' \
+        '^[0-9]+ pages in|^  (agrees|contradicted|ambiguous|our geometry|reference geometry|not comparable|no render) |undiagnosed|^  which bound keeps|^    AMBIGUOUS_(DENSE_)?TEXT_AT_[A-Z_]+: ' \
         walk clock --build '--profile gates -p hayro-compare --bin pdfref-hayro' -- \
         cargo test --profile gates -p pdf-model --test oracle -- --ignored --nocapture
 }
@@ -898,7 +900,9 @@ section_gates_cost() {
 }
 
 # What the rounds paid for the heavy-walk lock: every line `tools/bounded.sh --lock` appended for
-# the log's last batch, then each round's runs, queue and hold summed. The sums are this section's,
+# the log's last batch — or the batch `LOCK_COST_BATCH` names, `batch-<first>-<last>`, since the next
+# batch's first line makes it the last before anyone has read it — then each round's runs, queue and
+# hold summed. The sums are this section's,
 # taken from the lines printed above them in the same run, so they cannot drift from what they add
 # up; the log is the wrapper's and is read, never written (ADR 1646). A run that took the lock with
 # a bare `flock` is on no line, which is why every lock is taken through `--lock`: the rounds'
@@ -933,11 +937,21 @@ section_gates_cost() {
 # same command at another hour is not counted against it. A run's wait is its whole queue, and a run
 # that waited for both lanes names both holders, so the sum is what those runs paid while a long
 # hold was one of the things in front of them, not what the long hold alone cost.
+#
+# **And a walk granted before one that asked first is named** (ADR 1790 section 6, ADR 1806). A walk
+# is granted lane N only where no live ticket asked before its own takes N — a small walk's ticket
+# takes both lanes, a large one's the first, a long one's the second — so two lines whose asks are
+# whole seconds apart, the later granted (ask plus `wait=`) a lane the earlier takes more than a
+# second before the earlier was, are a defect of that rule where both wrappers took a ticket, and the
+# pollers' race where either did not. A clock run takes no ticket and is not read. The re-take of
+# ADR 1756 section 5 and ADR 1790 section 6, which replays the same lines under each rule, is the
+# command the section's last line prints with the batch filled in; its script is kept outside the
+# tree, beside the replays it was built from.
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
-    heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock" "$log"
+    heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock, or LOCK_COST_BATCH's" "$log"
     [ -r "$log" ] || { printf 'no lock log at %s — no run on this machine has taken the lock through --lock\n' "$log"; return 0; }
-    awk '
+    awk -v want="${LOCK_COST_BATCH:-}" -v replay=/home/AI/lock-replay-1485 '
         function named(field) { return field ~ /^batch=batch-[0-9]+-[0-9]+$/ }
         # Seconds from a fixed origin for a stamp `YYYY-MM-DDTHH:MM:SS` of the log, by the civil calendar
         # rather than `mktime`, which not every awk has; only differences are taken.
@@ -961,6 +975,10 @@ lock_cost() {
             next
         }
         FNR == 1 && last == "" { print "the lock log holds no line naming a batch-<first>-<last> branch"; exit }
+        FNR == 1 && want != "" {
+            if (!(want in first)) { printf "the lock log holds no line naming batch=%s\n", want; last = ""; exit }
+            last = want
+        }
         $2 ~ /^batch=/ && $3 ~ /^round=/ {
             batch = $2; sub(/^batch=/, "", batch)
             round = $3; sub(/^round=/, "", round)
@@ -1024,6 +1042,18 @@ lock_cost() {
                 }
             }
             printf "%d long hold(s) of batch %s, %.1fs held; %d run(s) queued behind one or more of them, %.1fs of their queue\n", longs, last, long_held, behind_long, behind_wait
+            takes["small"] = " 1 2 "; takes["large"] = " 1 "; takes["long"] = " 2 "
+            for (i = 1; i <= seen; i++) {
+                if (!(kinds[i] in takes) || lanes[i] !~ /^[12]$/) continue
+                for (j = 1; j <= seen; j++) {
+                    if (!(kinds[j] in takes) || lanes[j] !~ /^[12]$/ || at[i] >= at[j]) continue
+                    if (at[j] + waits[j] >= at[i] + waits[i] - 1 || index(takes[kinds[i]], " " lanes[j] " ") == 0) continue
+                    out_of_order++
+                    printf "  out of ask order: %s  round %-5s %-5s granted lane %s after %.1fs, before %s  round %-5s %-5s which asked first and waited %.1fs\n", stamps[j], rounds_of[j], kinds[j], lanes[j], waits[j], stamps[i], rounds_of[i], kinds[i], waits[i]
+                }
+            }
+            printf "%d pair(s) of batch %s granted out of ask order, the later ask taking a lane the earlier takes while it waited\n", out_of_order, last
+            printf "the re-take of ADR 1756 section 5 and ADR 1790 section 6 over these lines: cd %s && PYTHONDONTWRITEBYTECODE=1 python3 retake.py %s\n", replay, last
         }' "$log" "$log"
 }
 

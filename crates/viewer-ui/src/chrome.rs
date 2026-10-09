@@ -3020,11 +3020,8 @@ fn draw_thread(
             );
             continue;
         }
-        for paragraph in reply
-            .text
-            .as_deref()
-            .unwrap_or_default()
-            .split(['\r', '\n'])
+        for (_, paragraph) in
+            viewer_host::popup::paragraphs(reply.text.as_deref().unwrap_or_default())
         {
             for run in wrap(chrome, paragraph, size, room) {
                 if line > bottom {
@@ -3063,9 +3060,10 @@ fn draw_body(
     rich::say_what_was_not_drawn(chrome, list, note, (left, line, room, bottom), size)
 }
 
-/// Table 166's `/Contents` as the window's text: each paragraph wrapped to `room` and set in the
-/// window's own face, from the baseline `line` down to `bottom`; the answer is where the next line
-/// would go, past `bottom` where the text did not fit.
+/// Table 166's `/Contents` as the window's text: each of §12.5.6.2's paragraphs, as
+/// `viewer_host::popup::paragraphs` splits them, wrapped to `room` and set in the window's own
+/// face, from the baseline `line` down to `bottom`; the answer is where the next line would go,
+/// past `bottom` where the text did not fit.
 fn draw_plain(
     chrome: &Chrome,
     list: &mut DisplayList,
@@ -3073,7 +3071,7 @@ fn draw_plain(
     (left, mut line, room, bottom): (f32, f32, f32, f32),
     size: f32,
 ) -> f32 {
-    for paragraph in text.split(['\r', '\n']) {
+    for (_, paragraph) in viewer_host::popup::paragraphs(text) {
         for run in wrap(chrome, paragraph, size, room) {
             if line > bottom {
                 return line;
@@ -3235,8 +3233,7 @@ fn plain_carets(
     size: f32,
 ) -> Vec<PopupCaret> {
     let mut carets = Vec::new();
-    let mut start = 0_usize;
-    for paragraph in text.split(['\r', '\n']) {
+    for (start, paragraph) in viewer_host::popup::paragraphs(text) {
         let wrapped = Wrapped::new(chrome, paragraph, size, room);
         // Each word's place in the paragraph as written and in the collapsed text the lines are
         // cut from, which differ wherever the paragraph has a run of white space.
@@ -3281,8 +3278,6 @@ fn plain_carets(
             }
             line += size * 1.25;
         }
-        // The separator is one byte, `\r` or `\n`, whichever split the paragraph off.
-        start = start.saturating_add(paragraph.len()).saturating_add(1);
     }
     carets
 }

@@ -22,7 +22,7 @@
 //! - It **parses** a document handed to it as a descriptor, through the same
 //!   `pdf_syntax::FileBytes`, so the same `recvmsg` and `pread64` ADR 0812 admitted, and no
 //!   `openat`, `statx`, `lseek` or `fstat`.
-//! - It **draws** pages with the same `render-cpu` on the same one-thread `rayon` pool, so the
+//! - It **draws** pages with the same `render-cpu` on a `rayon` pool built the same way, so the
 //!   same `clone3`, `rseq`, `set_robust_list` and `sched_getaffinity`.
 //! - It **decodes** §7.4.7's JBIG2 and §7.4.9's JPEG 2000 in-process, because a confined process
 //!   cannot spawn `pdf-sandbox-worker` and setting [`pdf_sandbox::Isolation::InProcess`] is what
@@ -58,13 +58,24 @@ pub const WORKER_PROGRAM: &str = "pdf-vfs-worker";
 /// a test binary that Cargo has put in `target/<profile>/deps/`.
 pub const WORKER_PATH_VARIABLE: &str = "PDF_VFS_WORKER";
 
-/// How many threads a confined process rasterises with.
+/// The variable whose being set is what makes a pool wider than one thread safe to build here.
 ///
-/// **One, and it is a finding rather than a preference.** `glibc`'s allocator sizes its arena
-/// count from `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — so the first
-/// allocation in a thread of a many-threaded confined process is an `openat` the filter kills the
-/// process for (ADR 0218). It costs speed and not bytes, because the bytes are [`STRIPS`]'s.
-pub(crate) const RASTERISING_THREADS: u32 = 1;
+/// **`glibc`'s allocator would otherwise kill a wide pool.** It creates a per-thread arena at a
+/// thread's first allocation and, past a count of its own, sizes the number of arenas from
+/// `__get_nprocs`, which reads `/sys/devices/system/cpu/online` — an `openat` the filter kills the
+/// process for (ADR 0218). Where `MALLOC_ARENA_MAX` is set, `glibc` takes the limit from it and
+/// never asks; it is read at the process's start, so it is the spawner's to set, and
+/// `confined_transport::Host::start` sets it to one for every worker it starts. A process started
+/// any other way — a probe calling [`confine`] in its own process — draws on one thread, which
+/// cannot reach the question at all (ADRs 1554, 1804).
+const ARENA_LIMIT_VARIABLE: &str = "MALLOC_ARENA_MAX";
+
+/// The stack each rasterising thread is given, stated rather than defaulted.
+///
+/// The standard library's own default for a spawned thread, written here because it is what the
+/// pool costs the address-space ceiling: [`message_budget`] takes `threads` of it off what a
+/// message may be, since the pool is built after the address space in use was read.
+const RASTERISING_STACK: usize = 2 << 20;
 
 /// How many strips a page this worker draws is cut into: **one, stated rather than asked.**
 ///
@@ -73,8 +84,8 @@ pub(crate) const RASTERISING_THREADS: u32 = 1;
 /// the machine would make the PNG a mount serves a function of the processors its worker was
 /// given. ADR 1742's rule decides which count to state: one where a comparison holds bytes, and
 /// `tests/read_corpus.rs` holds every render a mount serves to `pdf_transform`'s own at one strip,
-/// byte for byte. One is also all that [`RASTERISING_THREADS`] can draw at once, so it costs no
-/// time (ADR 1774).
+/// byte for byte (ADR 1774). The pool [`confine`] builds is wider than one strip, and what it is
+/// wide for is the parallel work inside a page that is not the strip split (ADR 1804).
 pub(crate) const STRIPS: u32 = 1;
 
 /// How many copies of an answer live at once, at the moment the peak is reached.
@@ -97,6 +108,9 @@ pub struct WorkerLimits {
     pub confinement: pdf_sandbox::lockdown::Confinement,
     /// How many strips a page's raster is cut into, which is [`STRIPS`] on every machine.
     pub strips: u32,
+    /// How many threads this process's pool draws with: the machine's processors where the spawner
+    /// limited the allocator's arenas, and one where it did not ([`ARENA_LIMIT_VARIABLE`]).
+    pub threads: usize,
     /// The largest message this process will read or write, in bytes.
     ///
     /// Derived rather than chosen — see [`message_budget`]. [`u64::MAX`] where there is no ceiling
@@ -121,7 +135,8 @@ pub struct WorkerLimits {
 /// - `reserved` is what one rendered page may claim beside the message. `pdf_transform::Budget`'s
 ///   own `max_pixels` is the ceiling on a page, and RGBA is four bytes of it — the same
 ///   arithmetic `INTERPRETER_ADDRESS_SPACE_LIMIT` was itself derived from. The default budget's
-///   2²⁸ pixels is a gibibyte.
+///   2²⁸ pixels is a gibibyte. `threads` × [`RASTERISING_STACK`] is added to it, because the pool
+///   is built after `already` was read and its stacks are therefore not in that figure.
 ///
 /// **What this bounds is the answer as much as the question**, which is the direction that
 /// matters here: a mount will be asked for a 300 dpi render of a large page, and the frame that
@@ -129,34 +144,38 @@ pub struct WorkerLimits {
 /// refuses it *by name* rather than writing a frame the broker will not hold — see
 /// [`unaffordable`].
 #[must_use]
-pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64) -> u64 {
+pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64, threads: usize) -> u64 {
+    let stacks = u64::try_from(threads.saturating_mul(RASTERISING_STACK)).unwrap_or(u64::MAX);
     confined_transport::ceiling::message_budget(
         ceiling,
         already,
-        max_pixels.saturating_mul(4),
+        max_pixels.saturating_mul(4).saturating_add(stacks),
         COPIES_OF_AN_ANSWER,
     )
 }
 
 /// Confines this process for deriving files from a document, and says what that settled.
 ///
-/// **Four steps in this order, and each is where it is for a reason the next one makes true.**
+/// **Five steps in this order, and each is where it is for a reason the next one makes true.**
 ///
-/// 1. **Image decoding moves in-process**, because after step 3 nothing can be spawned, and
-///    **the machine's fonts are declared unreachable**, because after step 3 there is no
+/// 1. **Image decoding moves in-process**, because after step 4 nothing can be spawned, and
+///    **the machine's fonts are declared unreachable**, because after step 4 there is no
 ///    filesystem and `pdf_font::substitute` would otherwise walk `/usr/share/fonts` and be
 ///    *killed* rather than told no (ADR 0870).
-/// 2. **How much address space this process already occupies is read**, because
-///    `/proc/self/status` is a file, and after step 3 there are none.
-/// 3. **The confinement itself**, with [`pdf_sandbox::lockdown::Profile::Interpreter`] — the
+/// 2. **How many processors this machine has is asked now**, because
+///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
+///    process asking it is *killed* rather than told no. The answer sets the pool's width where
+///    the spawner limited the allocator's arenas ([`ARENA_LIMIT_VARIABLE`]) and nothing else: a
+///    page's strips are [`STRIPS`], stated, so the processors a worker was given reach no byte
+///    it draws (ADRs 1774, 1804).
+/// 3. **How much address space this process already occupies is read**, because
+///    `/proc/self/status` is a file, and after step 4 there are none.
+/// 4. **The confinement itself**, with [`pdf_sandbox::lockdown::Profile::Interpreter`] — the
 ///    viewer's profile, unchanged, because this worker needs nothing the viewer's does not.
-/// 4. **`rayon`'s pool, [`RASTERISING_THREADS`] wide**, built *after* the confinement so that its
-///    thread inherits both the Landlock domain and the seccomp filter.
-///
-/// **Nothing here asks how many processors the machine has.** The pool's width and a page's strips
-/// are both stated, so neither the filter — `std::thread::available_parallelism` reads
-/// `/proc/self/cgroup` on Linux, and a confined process asking it is *killed* — nor the processors
-/// a worker was given can reach a page it draws (ADRs 0218, 1774).
+/// 5. **`rayon`'s pool, with that width stated**, built *after* the confinement so that every
+///    thread of it inherits both the Landlock domain, which `landlock_restrict_self` gives only to
+///    the calling thread and its future children, and the seccomp filter. Stated rather than
+///    defaulted because rayon's own default asks the machine, at step 2's system call.
 ///
 /// # Errors
 ///
@@ -181,7 +200,27 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     pdf_font::provider::faces_come_from(confined_transport::link::ask_the_host);
     confined_transport::link::requests_go_to_the_host(WORKER_PROGRAM);
 
-    let threads = usize::try_from(RASTERISING_THREADS).unwrap_or(1);
+    // **As wide as the machine, and the measurement is why** (ADR 1804): a face asks one question
+    // at a time of its mount's worker, so a person copying a page out waits for exactly this
+    // process, and the work inside one page that is not the strip split — an image decoded and
+    // converted in bands, a shading's rows, the per-pixel pass — runs on every thread of this
+    // pool. Pinned to the eight fast processors, the minimum of fifteen asks: `issue19971.pdf`'s
+    // photograph page drawn at 150 dpi in 116.0 ms on one thread and 78.2 ms on eight, its text
+    // read in 74.1 ms and 35.5 ms, and no question on five documents slower beyond noise. What it
+    // does not buy is a shorter corpus walk — `tests/read_corpus.rs` took 147.3 and 163.0 s on one
+    // thread and 155.1 and 163.0 s on eight — because that walk's four lanes are each serial and
+    // half of every lane is the walk computing its own expectation. None of it moves a byte: a band
+    // boundary changes which rows are computed together and never what a row is, and that walk
+    // holds every render at this width to `pdf_transform`'s own at one strip.
+    let arenas_limited = std::env::var(ARENA_LIMIT_VARIABLE)
+        .ok()
+        .and_then(|limit| limit.parse::<u32>().ok())
+        .is_some_and(|limit| limit > 0);
+    let threads = if arenas_limited {
+        std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
+    } else {
+        1
+    };
     let already = confined_transport::ceiling::address_space_in_use();
 
     let confinement = pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Interpreter)
@@ -189,12 +228,14 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
+        .stack_size(RASTERISING_STACK)
         .build_global()
         .map_err(std::io::Error::other)?;
 
     Ok(WorkerLimits {
         confinement,
         strips: STRIPS,
+        threads,
         // The budget the *default* ceilings imply, so that the first frame — the open frame,
         // which carries the document — has a bound before the document's own budget is known.
         // Replaced by the opened document's own once it has been read.
@@ -202,6 +243,7 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
             confinement.address_space_limit,
             already,
             pdf_transform::Budget::default().max_pixels,
+            threads,
         ),
         address_space: already,
     })
@@ -443,6 +485,7 @@ fn open(
         limits.confinement.address_space_limit,
         limits.address_space,
         opening.budget.max_pixels,
+        limits.threads,
     );
     let source = match opening.password {
         Some(password) => TransformSource::with_password(bytes, Secret::from(password)),
@@ -454,4 +497,21 @@ fn open(
         opening.budget,
         Some(limits.strips),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{COPIES_OF_AN_ANSWER, RASTERISING_STACK, message_budget};
+
+    /// A pool's stacks come off what a message may be, in its copies: the pool is built after the
+    /// address space in use was read, so no other term of the budget counts them (ADR 1804).
+    #[test]
+    fn a_message_budget_leaves_room_for_two_copies_a_page_and_the_pools_stacks() {
+        let (ceiling, already, max_pixels) = (4 << 30, 16 << 20, 1 << 20);
+        let one = message_budget(ceiling, already, max_pixels, 1);
+        let wide = message_budget(ceiling, already, max_pixels, 24);
+        let stacks = 23 * RASTERISING_STACK as u64;
+        assert_eq!(one - wide, stacks / COPIES_OF_AN_ANSWER.get());
+        assert_eq!(message_budget(0, already, max_pixels, 24), u64::MAX);
+    }
 }

@@ -632,7 +632,42 @@ fn a_confined_generator_can_still_derive_every_file() {
     );
 }
 
-/// The child half of the six confinement tests, and not a test of anything by itself.
+/// **The arrangement the worker ships**: confined first, then a pool as wide as the machine, under
+/// the `MALLOC_ARENA_MAX` its spawner sets (ADRs 1554, 1804).
+///
+/// The probe is started with that variable, as `confined_transport::Host::start` starts every
+/// worker, and with the width this unconfined process reads for the machine, which the probe holds
+/// [`pdf_vfs::confine`]'s pool to. It then extracts the two images of the page that killed the
+/// worker when its pool had more than one thread and no arena limit (ADR 0865), and broadcasts
+/// twenty rounds of four-mebibyte allocations to every thread, because the allocator's question is
+/// asked on a later allocation and not the first. A pool whose threads asked it would be killed
+/// with `SIGSYS` here; a pool that came out one thread wide would exit `REFUSED`.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_pool_built_inside_the_confinement_under_an_arena_limit_is_as_wide_as_the_machine() {
+    let width = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let status = std::process::Command::new(
+        std::env::current_exe().expect("a test binary knows where it is"),
+    )
+    .args(["--exact", "confined_probe", "--test-threads=1"])
+    .env(PROBE_VARIABLE, "derive-wide")
+    .env(WIDTH_VARIABLE, width.to_string())
+    .env("MALLOC_ARENA_MAX", "1")
+    .output()
+    .expect("the probe runs")
+    .status;
+    assert_eq!(
+        status.code(),
+        Some(DERIVED),
+        "a pool built inside the confinement could not derive on {width} threads: {status:?}"
+    );
+}
+
+/// Carries the machine's width from the unconfined test to its confined probe, which cannot ask.
+#[cfg(target_os = "linux")]
+const WIDTH_VARIABLE: &str = "PDF_VFS_TEST_WIDTH";
+
+/// The child half of the confinement tests, and not a test of anything by itself.
 ///
 /// Run normally it does nothing, because the variable is unset. Run by [`run_probe`] it confines
 /// itself exactly as `pdf-vfs-worker` does and then attempts the thing in question, reporting the
@@ -649,6 +684,8 @@ fn confined_probe() {
     // is that descriptor, for the two probes about what a confined process may do with one.
     let handle = std::fs::File::open(committed(FIVE_PAGES)).expect("the committed document opens");
     let bytes = pdf_syntax::FileBytes::on_disk(&committed(FIVE_PAGES)).expect("a document");
+    let two_images =
+        pdf_syntax::FileBytes::on_disk(&committed(TWO_IMAGES_ON_A_PAGE)).expect("a document");
 
     let limits = pdf_vfs::confine().expect("a probe that cannot confine itself proves nothing");
 
@@ -700,6 +737,38 @@ fn confined_probe() {
             .iter()
             .all(|question| worker.ask(question).is_ok());
             std::process::exit(if derived { DERIVED } else { REFUSED });
+        }
+        "derive-wide" => {
+            // The width the unconfined parent read: this process can no longer ask the machine.
+            let width = std::env::var(WIDTH_VARIABLE)
+                .ok()
+                .and_then(|width| width.parse::<usize>().ok());
+            let wide =
+                width == Some(limits.threads) && rayon::current_num_threads() == limits.threads;
+            let worker = pdf_vfs::worker::InProcess::new(
+                pdf_transform::Source::new(two_images),
+                pdf_transform::Policy::default(),
+                pdf_transform::Budget::default(),
+                Some(limits.strips),
+            );
+            let derived = [
+                Query::ExtractImages {
+                    page: THE_PAGE_WITH_TWO,
+                },
+                Query::RenderPage {
+                    page: THE_PAGE_WITH_TWO,
+                    dpi: 300,
+                },
+            ]
+            .iter()
+            .all(|question| worker.ask(question).is_ok());
+            for _ in 0..20 {
+                rayon::broadcast(|_| {
+                    let more: Vec<u8> = vec![3u8; 4 << 20];
+                    std::hint::black_box(more.len());
+                });
+            }
+            std::process::exit(if wide && derived { DERIVED } else { REFUSED });
         }
         other => panic!("no probe named {other}"),
     };

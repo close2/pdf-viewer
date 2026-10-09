@@ -59,13 +59,15 @@
 //! | 7 | `IncludeAppendSaves` | applied: Table 246's `/Differences` holds what the update appended |
 //! | 8 | `IncludeAnnotations` | applied: §12.7.8.3.4's annotation dictionaries, with Table 254's `/Page` |
 //! | 9 | `SubmitPDF` | applied |
-//! | 10 | `CanonicalFormat` | owed: which fields hold dates "is not specified explicitly in the field itself but only in the ECMAScript code that processes it" (its NOTE 1), and ECMAScript is excluded |
+//! | 10 | `CanonicalFormat` | applied by [`canonical_dates`] to a field whose format or keystroke script is one of the library's date calls, the code its NOTE 1 names; owed by name for one that does not parse, states no year, or whose script is not one call |
 //! | 11 | `ExclNonUserAnnots` | owed: the name it narrows by is the *server*'s, so bit 8's annotations are withheld whole rather than sent past the narrowing |
 //! | 12 | `ExclFKey` | applied: it is what bit 14's `/F` is written against |
 //! | 14 | `EmbedForm` | applied: §7.11.4's embedded file stream, minus the path Table 43 asks for and this crate has none of |
 //!
-//! **Two are reported rather than applied and the table is why neither can be**: bit 10's dates
-//! are known only to ECMAScript, and bit 11's user name is the *server*'s. Every other row is
+//! **One is reported rather than applied and the table is why it cannot be**: bit 11's user name
+//! is the *server*'s. Bit 10's dates are known only to ECMAScript, and the one-call scripts
+//! `crate::aform` reads are that ECMAScript, so a date the library's call states is converted and
+//! one a longer script states is named (ADR 1796). Every other row is
 //! applied on the path the table makes it meaningful on — and where a document sets one the table
 //! puts aside in the format it asked for, it is named on [`Submission::owed`] by its bit number
 //! rather than obeyed or dropped. [`excluded_by_xfdf`] does that for bit 6's path and [`Carried`]
@@ -295,7 +297,11 @@ pub fn compose(
 
     let table = widgets_by_field_name(document);
     let chosen = chosen(document, view, action, format, &table, &mut owed);
-    let entries = chosen.entries;
+    let entries = if flags.canonical_format() {
+        canonical_dates(document, &table, chosen.entries, &mut owed)
+    } else {
+        chosen.entries
+    };
     let fields = entries.len();
     let (url, method, body, media_type) = if html {
         html_body(
@@ -334,6 +340,136 @@ pub fn compose(
     })
 }
 
+/// §12.7.6.2's Table 240 bit 10, `CanonicalFormat`, over the entries a submission carries.
+///
+/// > (PDF 1.4) If set, any submitted field values representing dates shall be converted to the
+/// > standard format described in 7.9.4, "Dates".
+///
+/// The bit's NOTE 1 says where a date is stated: "[t]he interpretation of a form field as a date
+/// is not specified explicitly in the field itself but only in the ECMAScript code that processes
+/// it". That code is the field's Table 199 `/F` or `/K` script, and where it is one call of
+/// `AFDate_Format`, `AFDate_FormatEx`, `AFDate_Keystroke` or `AFDate_KeystrokeEx` its picture says
+/// that the field holds a date and how to read it — the same picture `crate::aform` formats the
+/// field's display with. The format's picture is asked first, because it is the one that reads the
+/// value to show it.
+///
+/// The value is written to the precision the picture states, field by field from the year, because
+/// §7.9.4 lets a date stop early: "the year field (YYYY) shall be present and all other fields may
+/// be present but only if all of their preceding fields are also present". No offset from UT is
+/// written, since the field states none, and the clause's own reading of that absence — "the
+/// relationship of the specified time to UT shall be considered to be GMT" — is said where the
+/// picture states a time.
+///
+/// Named on `owed` by field rather than converted: a value its picture does not read, a picture
+/// with no year, and a field whose script is longer than one call, whose ECMAScript this tier does
+/// not interpret and which may or may not hold a date (trap 5). ADR 1796.
+fn canonical_dates(
+    document: &Document,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    entries: Vec<Entry>,
+    owed: &mut Vec<String>,
+) -> Vec<Entry> {
+    let mut zoneless = false;
+    let mut converted = Vec::with_capacity(entries.len());
+    for mut entry in entries {
+        let widget = table
+            .get(&entry.name)
+            .and_then(|widgets| widgets.first())
+            .and_then(|widget| document.get(*widget).as_dict().cloned());
+        let (picture, not_run) = match widget {
+            Some(widget) => date_picture(document, &widget),
+            None => (None, false),
+        };
+        if not_run {
+            owed.push(format!(
+                "Table 240 bit 10's CanonicalFormat: {}'s format or keystroke script is not one call of the \
+                 library, so whether it holds a date is not read and its value is sent as it is",
+                entry.name
+            ));
+        }
+        if let (Some(picture), Some(Object::String(bytes))) = (picture, entry.value.as_ref()) {
+            let text = pdf_syntax::text_string(bytes);
+            let stated = crate::aform::stated_date_fields(&picture);
+            let moment = crate::aform::parse_date(&text, &picture);
+            match moment {
+                // An empty value states no date, and a field with none is sent as it is.
+                _ if text.trim().is_empty() => {}
+                _ if stated == 0 => owed.push(format!(
+                    "Table 240 bit 10's CanonicalFormat: {}'s picture {picture:?} states no year, which §7.9.4 \
+                     requires of a date, so its value is sent as it is",
+                    entry.name
+                )),
+                Some(moment) => match pdf_date(moment, stated) {
+                    Some(date) => {
+                        zoneless |= stated > 3;
+                        entry.value = Some(Object::String(
+                            pdf_syntax::text_string::encode_text_string(&date).into(),
+                        ));
+                    }
+                    None => owed.push(format!(
+                        "Table 240 bit 10's CanonicalFormat: {}'s year is outside §7.9.4's four digits, so its \
+                         value is sent as it is",
+                        entry.name
+                    )),
+                },
+                None => owed.push(format!(
+                    "Table 240 bit 10's CanonicalFormat: {}'s value {text:?} is not a date under its picture \
+                     {picture:?}, so it is sent as it is",
+                    entry.name
+                )),
+            }
+        }
+        converted.push(entry);
+    }
+    if zoneless {
+        owed.push(
+            "Table 240 bit 10's CanonicalFormat: a converted date states a time and no offset from UT, because the \
+             field states none, and §7.9.4 reads a date with no UT information as GMT"
+                .to_owned(),
+        );
+    }
+    converted
+}
+
+/// The date picture a field's `/F` or `/K` script states, and whether either is a script
+/// `crate::aform` does not run.
+fn date_picture(document: &Document, widget: &Dictionary) -> (Option<String>, bool) {
+    use crate::aform::Trigger;
+    use crate::aform::site::{Site, of_widget};
+    let mut not_run = false;
+    for trigger in [Trigger::Format, Trigger::Keystroke] {
+        match of_widget(document, widget, trigger) {
+            Site::Library(call) => {
+                if let Some(picture) = call.date_picture() {
+                    return (Some(picture), false);
+                }
+            }
+            Site::NotRun(_) => not_run = true,
+            Site::Absent => {}
+        }
+    }
+    (None, not_run)
+}
+
+/// §7.9.4's `D:YYYYMMDDHHmmSS`, cut after the `fields` leading fields a picture states.
+///
+/// `None` for a year outside the four digits the clause gives it.
+fn pdf_date(moment: crate::aform::DateTime, fields: usize) -> Option<String> {
+    if !(0..=9999).contains(&moment.year) {
+        return None;
+    }
+    let parts = [
+        format!("{:04}", moment.year),
+        format!("{:02}", moment.month),
+        format!("{:02}", moment.day),
+        format!("{:02}", moment.hour),
+        format!("{:02}", moment.minute),
+        format!("{:02}", moment.second),
+    ];
+    let stated: String = parts.iter().take(fields).map(String::as_str).collect();
+    Some(format!("D:{stated}"))
+}
+
 /// §12.7.6.2's "HTML Form format (described in the HTML 4.01 Specification)", composed.
 ///
 /// A function of its own rather than a branch, because that specification's section 17.13.4 gives
@@ -364,13 +500,6 @@ fn html_body(
             "Table 239's /CharSet {charset} is not applied; names and values are written \
              in UTF-8"
         ));
-    }
-    if flags.canonical_format() {
-        owed.push(
-            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
-             stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
-                .to_owned(),
-        );
     }
     let placed = flags
         .submit_coordinates()
@@ -983,13 +1112,6 @@ impl Carried {
                     .to_owned(),
             );
         }
-        if flags.canonical_format() {
-            owed.push(
-                "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
-                 stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
-                    .to_owned(),
-            );
-        }
         carried.save(document, view, action, owed);
         carried.mark_up(document, view, action, owed);
         carried
@@ -1588,8 +1710,8 @@ fn hexadecimal(bytes: &[u8]) -> String {
 /// — and three more reach the same place by the chain bit 3 starts: bit 3 is "[m]eaningful only if
 /// the `SubmitPDF` and XFDF flags are clear", and bits 4 and 5 are meaningful only when bit 3 is
 /// set. A document setting one of them beside bit 6 has asked for something the table forbids, so
-/// what it gets is a sentence rather than a silence — and bit 10, which no format restricts, gets
-/// the same sentence here it gets on the other two paths.
+/// what it gets is a sentence rather than a silence. Bit 10 is not among them: no format restricts
+/// it, and [`canonical_dates`] applies it on all three paths.
 fn excluded_by_xfdf(flags: crate::action::SubmitFlags, owed: &mut Vec<String>) {
     for (set, why) in [
         (
@@ -1617,11 +1739,6 @@ fn excluded_by_xfdf(flags: crate::action::SubmitFlags, owed: &mut Vec<String>) {
             flags.include_annotations(),
             "Table 240 bit 8's IncludeAnnotations \"shall be used only when the form is being \
              submitted in Forms Data Format\"; this XFDF states field data and no <annots>",
-        ),
-        (
-            flags.canonical_format(),
-            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
-             stated only by ECMAScript, which CLAUDE.md principle 5 excludes",
         ),
         (
             flags.exclude_non_user_annotations(),

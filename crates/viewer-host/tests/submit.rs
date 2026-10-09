@@ -20,7 +20,7 @@
 use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pdf_model::action::{Action, DataFormat, SubmitForm};
 use pdf_model::submission::{Method, Submission, compose};
@@ -29,6 +29,10 @@ use pdf_syntax::{Document, Object, ObjectId};
 use viewer_core::{Command, DocumentId, Event, Viewer};
 use viewer_host::submit::{Reply, Submitter, TransmitError, UrlRefusal, check_url, transmit};
 use viewer_host::{ActLevel, Restrictions, Row, Sending, Submissions, may_submit};
+
+/// How long a loopback answer may take before the test calls it lost. A bound on a failure only:
+/// the wait ends at the submitter's wake, which comes as soon as the answer is on its channel.
+const ANSWERED_WITHIN: Duration = Duration::from_secs(30);
 
 /// A form of two fields with values and one without, beside §7.5.4's table.
 fn form() -> Vec<u8> {
@@ -331,24 +335,29 @@ fn an_fdf_answer_is_imported_into_the_document_that_sent_the_form() {
         .for_each(drop);
 
     let mut submitter = Submitter::new();
+    // Waited for at the wake a window's loop is given, so the test looks once the answer is there
+    // rather than on a timer of its own (ADR 1800).
+    let (wake, woken) = std::sync::mpsc::channel();
     submitter
-        .send(document, composed(&url, 1 << 2), None, None)
+        .send(
+            document,
+            composed(&url, 1 << 2),
+            None,
+            Some(Box::new(move || {
+                // A test that already failed has dropped the receiver, and nobody is owed a wake.
+                let _ = wake.send(());
+            })),
+        )
         .expect("a thread to send on");
     assert!(
         submitter.interval().is_some(),
         "a window's timer runs while one is out"
     );
-    let started = Instant::now();
-    let returned = loop {
-        if let Some(returned) = submitter.collect().pop() {
-            break returned;
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "the loopback answers"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    woken
+        .recv_timeout(ANSWERED_WITHIN)
+        .expect("the loopback answers and the submission wakes the window");
+    let [returned] = <[_; 1]>::try_from(submitter.collect())
+        .expect("the wake comes after the answer is on the channel, and there is one");
     assert!(submitter.interval().is_none(), "and stops once it is in");
     let _ = server.join().expect("the server thread returns");
 

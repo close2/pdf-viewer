@@ -21,7 +21,7 @@
 use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pdf_model::action::DataFormat;
 use viewer_core::{Answered, Command, DocumentId, Event, Purpose, Viewer};
@@ -123,28 +123,37 @@ fn notes(events: impl IntoIterator<Item = Event>) -> Vec<String> {
         .collect()
 }
 
-/// One fetch on the submitter's thread, waited for.
+/// How long a loopback answer may take before the test calls it lost. A bound on a failure only:
+/// the wait ends at the submitter's wake, which comes as soon as the answer is on its channel.
+const ANSWERED_WITHIN: Duration = Duration::from_mins(1);
+
+/// One fetch on the submitter's thread, waited for at the wake a window's loop is given, so the
+/// test looks once the answer is there rather than on a timer of its own (ADR 1800).
 fn fetched(document: DocumentId, url: &str) -> Returned {
     let mut submitter = Submitter::new();
+    let (wake, woken) = std::sync::mpsc::channel();
     submitter
-        .fetch(document, url.to_owned(), None, None)
+        .fetch(
+            document,
+            url.to_owned(),
+            None,
+            Some(Box::new(move || {
+                // A test that already failed has dropped the receiver, and nobody is owed a wake.
+                let _ = wake.send(());
+            })),
+        )
         .expect("a thread to fetch on");
     assert!(
         submitter.interval().is_some(),
         "a window's timer runs while one is out"
     );
-    let started = Instant::now();
-    loop {
-        if let Some(returned) = submitter.collect().pop() {
-            assert!(submitter.interval().is_none(), "and stops once it is in");
-            return returned;
-        }
-        assert!(
-            started.elapsed() < Duration::from_mins(1),
-            "the loopback answers"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    woken
+        .recv_timeout(ANSWERED_WITHIN)
+        .expect("the loopback answers and the fetch wakes the window");
+    let [returned] = <[_; 1]>::try_from(submitter.collect())
+        .expect("the wake comes after the answer is on the channel, and there is one");
+    assert!(submitter.interval().is_none(), "and stops once it is in");
+    returned
 }
 
 /// The whole path a window takes at `send`: the fragment's URI crosses as `Event::NeedsFile`, the

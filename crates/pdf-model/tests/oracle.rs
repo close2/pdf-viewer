@@ -7423,10 +7423,10 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// # The band, over all 364, and the one page it caught
 ///
 /// A sample is a sample, so the *whole* population's printed metrics were read as well. Re-derived
-/// from the gate's own per-page lines over the list as it stands (ADR 0495, ADR 0685):
-/// `freeculture`'s 317 sit at mean 2.43 to 8.99, worst tile 11.60 to 29.05, differing 5.61% to
-/// 15.37% and similarity 0.7210 to 0.9648, and `pdkids`'s 52 at mean 5.80 to 11.67, worst tile
-/// 28.27 to 39.45, similarity 0.8075 to 0.9033. One band, no gaps, and the text tolerance — 0.90
+/// from the gate's own per-page lines over the list as it stands (ADR 0495, ADR 0685, ADR 1802):
+/// `freeculture`'s 317 sit at mean 2.39 to 8.70, worst tile 11.77 to 29.05, differing 5.63% to
+/// 15.78% and similarity 0.7292 to 0.9652, and `pdkids`'s 52 at mean 5.84 to 11.81, worst tile
+/// 28.27 to 39.61, similarity 0.8063 to 0.9029. One band, no gaps, and the text tolerance — 0.90
 /// similarity, measured over 153 reference-against-reference pairs — running through the middle
 /// of it.
 ///
@@ -7447,6 +7447,26 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// now, beside page 171, with the four ladders that settle it (ADR 0685). **A disclaimer inside a
 /// group note is a page nobody is holding**, and the honest form of it is a page in the group that
 /// describes it.
+///
+/// # Which bound keeps the references apart, which is the verdict's own question
+///
+/// The band is ours, and the verdict is not about us: these pages are `ambiguous` because no two
+/// voting references form a consensus, so what decides each one is reference against reference.
+/// The gate prints it on every run as *which bound keeps the voting references apart on the
+/// dense-text groups* ([`what_keeps_the_dense_text_apart`]), and over this group the line reads
+/// **1107 of 1107 voting pairs past the differing fraction, every pair on all 369 pages**, the
+/// nearest pair at 5.03% against the class's 5.00% — so that one bound would keep every page
+/// here ambiguous by itself. Taken out of formation, a consensus forms on **322**: 313 of
+/// `freeculture`'s 317 and 9 of `pdkids`'s 52, whose other pairs fail the structural similarity or
+/// the mean as well, on the gate's own panels reconciled to one size and measured pair by pair
+/// with `examples/compare_rasters`, which is the census's calibration (ADR 1802).
+///
+/// So `freeculture` is ambiguous by ADR 0243's bound — the one of the four set below the spread
+/// it was measured on — and `pdkids` mostly by a scatter no bound of the text class forgives.
+/// Neither is a defect to look for, and the first is not a bound to move: what a consensus formed
+/// without the fraction would conclude about us is ADR 0776's counterfactual, which convicts 272
+/// of these pages, nearly all on the similarity and mostly through a pair that is not the page's
+/// closest reading. The clause is §10.7.4's last sentence, for the references as for us.
 const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 369] = [
     "freeculture.pdf page 2",
     "freeculture.pdf page 7",
@@ -13423,6 +13443,12 @@ struct RaisedFormation {
     /// more closely than anybody agrees with us — `bug766086.pdf` page 1 is that shape, where the
     /// two that agree are two that draw no link border at all (trap 9's shared gap, ADR 0663).
     nearer_than_the_pair: bool,
+    /// Which bound keeps the voting references from forming any consensus at all, asked of the
+    /// same comparisons by the same `rejudged`.
+    ///
+    /// `None` wherever a consensus formed or no two references voted. See [`FormationStop`] for
+    /// the question and [`what_keeps_the_dense_text_apart`] for the census it feeds.
+    stop: Option<FormationStop>,
 }
 
 /// The three standings a page can have in this census, which is [`Verdict`] with its detail off.
@@ -13489,6 +13515,121 @@ fn raised_formation(class: &Tolerance) -> Tolerance {
     }
 }
 
+/// Which bound keeps a page's voting references from forming any consensus at all.
+///
+/// # The question
+///
+/// An `ambiguous` page without a consensus is one where every pair of voting references failed
+/// the class bound on at least one of `Tolerance::accepts`' four measures, and *which* measure is
+/// a fact about the references rather than about us. It decides what kind of statement the
+/// verdict is. ADR 0243 found `Tolerance::TEXT_HEAVY`'s differing fraction set below the spread
+/// it was measured on, so a page kept apart by that bound alone is ambiguous by a number this
+/// tree chose, and a page whose pairs also fail structural similarity or the mean is ambiguous by
+/// a scatter no bound of the class forgives. §10.7.4 licenses both — "[s]can conversion of
+/// character glyphs may be performed by a different algorithm from the preceding one" — and
+/// separates neither (ADR 1802).
+///
+/// # The two counts, and the control they rest on
+///
+/// [`Self::pairs_past_the_fraction`] counts the voting pairs over the class's differing fraction.
+/// [`Self::forms_without_it`] re-judges the page through `pdfref::Triangulation::rejudged` with
+/// that one bound taken out of formation and the floor left at the class value, so the rule that
+/// decides whether a set forms is `decide`'s own and not a second implementation of it. The
+/// control is the one [`RaisedFormation`] already asserts on every page: re-judging at the page's
+/// own bounds reproduces its verdict.
+#[derive(Debug, Clone, Copy)]
+struct FormationStop {
+    /// Voting reference pairs on the page: every pair neither of whose members abstained.
+    pairs: usize,
+    /// How many of them differ on more channels than the class's differing fraction admits.
+    pairs_past_the_fraction: usize,
+    /// Whether a consensus forms once the differing fraction is taken out of formation.
+    forms_without_it: bool,
+}
+
+impl FormationStop {
+    /// The two counts for one page, or `None` where a consensus formed or no two references voted.
+    fn of(triangulation: &pdfref::Triangulation, class: &Tolerance) -> Option<Self> {
+        if !triangulation.consensuses.is_empty() {
+            return None;
+        }
+        let voting: Vec<&raster_compare::Comparison> = triangulation
+            .between_references
+            .iter()
+            .filter(|(left, right, _)| {
+                !triangulation.abstained.contains(left) && !triangulation.abstained.contains(right)
+            })
+            .map(|(_, _, comparison)| comparison)
+            .collect();
+        if voting.is_empty() {
+            return None;
+        }
+        let without_the_fraction = Tolerance {
+            max_differing_fraction: 1.0,
+            ..*class
+        };
+        Some(Self {
+            pairs: voting.len(),
+            pairs_past_the_fraction: voting
+                .iter()
+                .filter(|comparison| comparison.differing_fraction > class.max_differing_fraction)
+                .count(),
+            forms_without_it: !triangulation
+                .rejudged(&without_the_fraction, class, Judgement::CORPUS)
+                .2
+                .is_empty(),
+        })
+    }
+}
+
+/// Which bound keeps the voting references apart on the three dense-text groups, which are
+/// three quarters of the ambiguous bucket.
+///
+/// A census and not a ratchet. Every number in it is reference against reference, so no change
+/// of this tree's can move it; a reference release or a page joining a group is what does, and
+/// a group's note cites this line rather than restating its figures (ADR 1802).
+fn what_keeps_the_dense_text_apart(results: &[Examined]) {
+    let groups: [(&str, &[&str]); 3] = [
+        (
+            "AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE",
+            &AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE,
+        ),
+        (
+            "AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE",
+            &AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE,
+        ),
+        (
+            "AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE",
+            &AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE,
+        ),
+    ];
+    println!(
+        "  which bound keeps the voting references apart on the dense-text groups, the differing \
+         fraction taken out of formation as the counterfactual (ADR 1802):"
+    );
+    for (group, pages) in groups {
+        let stops: Vec<FormationStop> = results
+            .iter()
+            .filter(|examined| pages.contains(&examined.name.as_str()))
+            .filter_map(|examined| examined.raised_formation.as_ref()?.stop)
+            .collect();
+        let pairs: usize = stops.iter().map(|stop| stop.pairs).sum();
+        let past: usize = stops.iter().map(|stop| stop.pairs_past_the_fraction).sum();
+        let every = stops
+            .iter()
+            .filter(|stop| stop.pairs_past_the_fraction == stop.pairs)
+            .count();
+        let forms = stops.iter().filter(|stop| stop.forms_without_it).count();
+        println!(
+            "    {group}: {} pages, no consensus on {}; {past} of {pairs} voting pairs past the \
+             differing fraction, every pair on {every} pages; without it a consensus forms on \
+             {forms}",
+            pages.len(),
+            stops.len()
+        );
+    }
+}
+
 impl RaisedFormation {
     /// Runs the counterfactual for one page, and the control beside it.
     ///
@@ -13550,6 +13691,7 @@ impl RaisedFormation {
             }),
             formed_at: widest.map(|(fraction, _)| fraction),
             identical: widest.is_some_and(|(_, error)| error == 0),
+            stop: FormationStop::of(triangulation, class),
             convicted_on,
             nearer_than_the_pair: convicted_on.is_some_and(|(_, measure)| {
                 let widest_in_the_set = set.and_then(|consensus| {
@@ -14767,7 +14909,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     rank_the_pools(results);
 }
 
-/// The five things this gate counts that no ratchet holds, in the order they are read.
+/// The six things this gate counts that no ratchet holds, in the order they are read.
 ///
 /// Each of them is a fact about the *references* rather than about this tree — how often one of
 /// them drew nothing, how often a third could not read the file, how often the two that agreed
@@ -14781,6 +14923,7 @@ fn the_censuses_beside_the_verdicts(results: &[Examined]) {
     what_the_flat_sheets_said(results);
     what_the_consensus_was_made_of(results);
     a_raised_formation_bound(results);
+    what_keeps_the_dense_text_apart(results);
 }
 
 /// How many verdicts rest on a consensus that is one raster counted twice, and which ones.

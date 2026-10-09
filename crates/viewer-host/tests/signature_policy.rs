@@ -227,6 +227,45 @@ fn a_named_specification_is_said_where_the_constraints_are_not_enforced() {
     );
 }
 
+/// How long a loopback answer may take before the test calls it lost. A bound on a failure only:
+/// the wait ends at the submitter's wake, which comes as soon as the answer is on its channel.
+const ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_mins(1);
+
+/// `Submitter::fetch_policy` for document 7, with the wake a window's loop is given sending on the
+/// channel returned, so the test looks once the answer is there rather than on a timer of its own
+/// (ADR 1800).
+fn fetch_policy_woken(
+    submitter: &mut viewer_host::submit::Submitter,
+    policy: PublishedPolicy,
+) -> std::sync::mpsc::Receiver<()> {
+    let (wake, woken) = std::sync::mpsc::channel();
+    submitter
+        .fetch_policy(
+            viewer_core::DocumentId(7),
+            policy,
+            None,
+            Some(Box::new(move || {
+                // A test that already failed has dropped the receiver, and nobody is owed a wake.
+                let _ = wake.send(());
+            })),
+        )
+        .expect("a thread to fetch on");
+    woken
+}
+
+/// The one answer the wake on `woken` says has arrived.
+fn collected(
+    submitter: &mut viewer_host::submit::Submitter,
+    woken: &std::sync::mpsc::Receiver<()>,
+) -> viewer_host::submit::Returned {
+    woken
+        .recv_timeout(ANSWERED_WITHIN)
+        .expect("the loopback answers and the fetch wakes the window");
+    let [returned] = <[_; 1]>::try_from(submitter.collect())
+        .expect("the wake comes after the answer is on the channel, and there is one");
+    returned
+}
+
 /// The window's path rather than the function's: `Submitter::fetch_policy` puts the GET on a
 /// thread of its own, the answer is collected as a submission's is, and what it comes to is the
 /// same [`Reply`] the blocking function gives — a bound PDF to open beside the document whose
@@ -236,24 +275,14 @@ fn a_window_s_fetch_of_a_policy_is_collected_as_its_bound_copy() {
     let (base, server) = serve_once("200 OK", "application/pdf", POLICY.to_vec());
     let policy = published(&format!("{base}/politica_de_firma.pdf"));
     let mut submitter = viewer_host::submit::Submitter::new();
-    submitter
-        .fetch_policy(viewer_core::DocumentId(7), policy, None, None)
-        .expect("a thread to fetch on");
+    let woken = fetch_policy_woken(&mut submitter, policy);
     assert_eq!(
         submitter.interval(),
         Some(viewer_host::submit::LOOK),
         "an answer is outstanding, so the window's timer runs"
     );
-    let mut returned = Vec::new();
-    for _ in 0..500 {
-        returned.extend(submitter.collect());
-        if !returned.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    let returned = collected(&mut submitter, &woken);
     let _ = server.join();
-    let [returned] = <[_; 1]>::try_from(returned).expect("one answer arrives");
     assert_eq!(returned.document, viewer_core::DocumentId(7));
     assert_eq!(
         submitter.interval(),
@@ -274,19 +303,9 @@ fn a_window_s_fetch_of_a_policy_that_is_not_found_is_said() {
     let (base, server) = serve_once("404 Not Found", "text/html", b"<p>no</p>".to_vec());
     let policy = published(&format!("{base}/politica_de_firma.pdf"));
     let mut submitter = viewer_host::submit::Submitter::new();
-    submitter
-        .fetch_policy(viewer_core::DocumentId(7), policy, None, None)
-        .expect("a thread to fetch on");
-    let mut returned = Vec::new();
-    for _ in 0..500 {
-        returned.extend(submitter.collect());
-        if !returned.is_empty() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
+    let woken = fetch_policy_woken(&mut submitter, policy);
+    let returned = collected(&mut submitter, &woken);
     let _ = server.join();
-    let [returned] = <[_; 1]>::try_from(returned).expect("one answer arrives");
     let Reply::Say(note) = returned.reply() else {
         panic!("a 404 is said, not opened");
     };

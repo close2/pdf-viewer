@@ -1678,6 +1678,100 @@ fn the_lock_cost_lists_each_wait_that_ended_before_a_grant() {
     );
 }
 
+/// `tools/state.sh gates-cost` names each pair of walks granted out of ask order — the later ask
+/// granted, more than a second before the earlier, a lane the earlier ask's ticket takes (ADR 1790
+/// section 6) — reads the batch `LOCK_COST_BATCH` names in place of the last, and prints the re-take
+/// command with that batch filled in (ADR 1806). The controls are the rule's own exceptions: a small
+/// walk granted the second lane while an earlier large walk waits for the first, two asks in the
+/// same second, a clock run, and a stop before a grant. Calibrated by planting (trap 13): with the
+/// lane test removed the small walk on the second lane was named and this test failed; the same
+/// pairs are what `retake.py` names on batch seventy-four's and seventy-five's real lines.
+#[test]
+fn the_lock_cost_names_a_walk_granted_before_one_that_asked_first() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("ask-order-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    let line = |batch: &str, at: &str, round: &str, wait: &str, kind: &str, lane: &str| {
+        format!(
+            "2026-10-09T{at} batch=batch-{batch} round={round} wait={wait}s hold=10.0s exit=0 peak=0.00GiB behind=- kind={kind} lane={lane} cmd=walk {round} \n"
+        )
+    };
+    let planted = [
+        line("90-95", "04:00:00", "91", "300.0", "small", "1"),
+        line("90-95", "04:01:00", "92", "0.0", "small", "1"),
+        line("100-105", "05:00:00", "101", "600.0", "large", "1"),
+        line("100-105", "05:01:00", "102", "0.0", "small", "2"),
+        line("100-105", "05:02:00", "103", "60.0", "small", "1"),
+        line("100-105", "05:02:00", "104", "0.0", "small", "1"),
+        line("100-105", "05:03:00", "105", "0.0", "clock", "1+2"),
+        line("100-105", "05:04:00", "102", "1.0", "small", "-"),
+    ]
+    .concat();
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let cost = |batch: Option<&str>| {
+        let mut command = Command::new("bash");
+        command
+            .arg(repository_root().join("tools/state.sh"))
+            .arg("gates-cost")
+            .env("HEAVY_WALK_LOG", &log)
+            .env("BATCH_GATES_LOG", &gates)
+            .env_remove("LOCK_COST_BATCH");
+        if let Some(batch) = batch {
+            command.env("LOCK_COST_BATCH", batch);
+        }
+        let output = command.output().expect("bash runs tools/state.sh");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let last = cost(None);
+    let earlier = cost(Some("batch-90-95"));
+    let absent = cost(Some("batch-1-2"));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let pairs = |stdout: &str| -> Vec<String> {
+        stdout
+            .lines()
+            .filter(|line| line.trim_start().starts_with("out of ask order:"))
+            .map(|line| {
+                let words: Vec<&str> = line.split_whitespace().collect();
+                format!(
+                    "{} granted before {}",
+                    words.get(6).copied().unwrap_or_default(),
+                    words.get(16).copied().unwrap_or_default()
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        pairs(&last),
+        ["103 granted before 101", "104 granted before 101"],
+        "the pairs granted out of ask order are not the planted ones:\n{last}"
+    );
+    assert!(
+        last.contains("2 pair(s) of batch batch-100-105 granted out of ask order")
+            && last.contains("python3 retake.py batch-100-105\n"),
+        "the pairs are not counted, or the re-take command does not name the batch read:\n{last}"
+    );
+    assert_eq!(
+        pairs(&earlier),
+        ["92 granted before 91"],
+        "LOCK_COST_BATCH did not select the batch it names:\n{earlier}"
+    );
+    assert!(
+        earlier.contains("batch batch-90-95, by round:")
+            && earlier.contains("python3 retake.py batch-90-95\n"),
+        "LOCK_COST_BATCH's batch is not the one summed and re-taken:\n{earlier}"
+    );
+    assert!(
+        absent.contains("the lock log holds no line naming batch=batch-1-2")
+            && !absent.contains("by round:"),
+        "a batch the log does not hold was not said, or another was read in its place:\n{absent}"
+    );
+}
+
 /// The targets a seed census names: the words after `fuzz/seeds.sh` and its mode — `check` or the
 /// corpus directory — up to the first word that is not a target's name, a quote or a backtick
 /// trimmed from each.

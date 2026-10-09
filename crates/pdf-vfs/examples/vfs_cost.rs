@@ -165,14 +165,18 @@ fn measure(path: &std::path::Path) {
         bytes_of(size),
         bytes_of(high_water())
     );
+    // The worker's pool is as wide as this machine, because `confined_transport::Host::start`
+    // limits its allocator's arenas (ADR 1804), so its stacks are that many.
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     println!(
         "  the answer the confinement will not carry is anything past {:>10} \
-         (a 4 GiB ceiling, {} pixels a page, two copies)",
+         (a 4 GiB ceiling, {} pixels a page, {threads} threads' stacks, two copies)",
         bytes_of(
             usize::try_from(pdf_vfs::message_budget(
                 4 << 30,
                 16 << 20,
-                budget.max_pixels
+                budget.max_pixels,
+                threads
             ))
             .unwrap_or(usize::MAX)
         ),

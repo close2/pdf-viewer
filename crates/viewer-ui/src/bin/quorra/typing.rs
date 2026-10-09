@@ -34,7 +34,17 @@ fn caret_boundary(value: &str, offset: usize) -> usize {
     // truncation, which is the case this function exists for.
     let offset = offset.min(value.len());
     if value.is_char_boundary(offset) {
-        return offset;
+        // Between the two halves of a carriage return and line feed is no place either: the pair
+        // is one paragraph break (ADR 1798), so the caret stands before it.
+        let inside_a_break = value.get(..offset).is_some_and(|head| head.ends_with('\r'))
+            && value
+                .get(offset..)
+                .is_some_and(|tail| tail.starts_with('\n'));
+        return if inside_a_break {
+            offset.saturating_sub(1)
+        } else {
+            offset
+        };
     }
     value
         .char_indices()
@@ -44,22 +54,32 @@ fn caret_boundary(value: &str, offset: usize) -> usize {
         .unwrap_or(value.len())
 }
 
-/// The offset one character before `caret`, or the start of the value.
+/// The offset one character before `caret`, or the start of the value — a carriage return and
+/// line feed together counting as one, since the pair is one paragraph break wherever this host
+/// draws text (ADR 1798) and an arrow or a Backspace that took half of it would change nothing
+/// on the screen.
 fn before(value: &str, caret: usize) -> usize {
-    value
-        .get(..caret)
-        .and_then(|prefix| prefix.char_indices().next_back().map(|(at, _)| at))
-        .unwrap_or(0)
+    let Some(prefix) = value.get(..caret) else {
+        return 0;
+    };
+    if prefix.ends_with("\r\n") {
+        return caret.saturating_sub(2);
+    }
+    prefix.char_indices().next_back().map_or(0, |(at, _)| at)
 }
 
-/// The offset one character after `caret`, or the end of the value.
+/// The offset one character after `caret`, or the end of the value — [`before`]'s pair counted
+/// as one from the other side.
 fn after(value: &str, caret: usize) -> usize {
-    value
-        .get(caret..)
-        .and_then(|rest| rest.chars().next())
-        .map_or(value.len(), |character| {
-            caret.saturating_add(character.len_utf8())
-        })
+    let Some(rest) = value.get(caret..) else {
+        return value.len();
+    };
+    if rest.starts_with("\r\n") {
+        return caret.saturating_add(2);
+    }
+    rest.chars().next().map_or(value.len(), |character| {
+        caret.saturating_add(character.len_utf8())
+    })
 }
 
 /// The value with `from..to` replaced by `insert`.
@@ -1298,5 +1318,37 @@ mod tests {
         // Backspace at the end, and an insertion in the middle.
         assert_eq!(spliced(value, before(value, 5), 5, ""), "caf");
         assert_eq!(spliced(value, 1, 1, "X"), "cXafé");
+    }
+
+    /// A carriage return and line feed is one paragraph break where the note's window draws it
+    /// (ADR 1798), so the caret steps over the pair in one press and Backspace takes both halves:
+    /// half a break would leave the window drawing the same text and the person seeing nothing
+    /// happen. A lone carriage return or line feed is still one character.
+    #[test]
+    fn a_carriage_return_and_line_feed_are_one_step_for_the_caret() {
+        let value = "ab\r\ncd";
+        assert_eq!(
+            after(value, 2),
+            4,
+            "Right from the end of a paragraph crosses the pair"
+        );
+        assert_eq!(
+            before(value, 4),
+            2,
+            "and Left from the start of the next crosses it back"
+        );
+        assert_eq!(spliced(value, before(value, 4), 4, ""), "abcd");
+        assert_eq!(
+            caret_boundary(value, 3),
+            2,
+            "between the halves stands before the pair"
+        );
+        assert_eq!(after("ab\rcd", 2), 3);
+        assert_eq!(before("ab\ncd", 3), 2);
+        assert_eq!(
+            before("a\n\rb", 3),
+            2,
+            "a line feed then a carriage return is two breaks"
+        );
     }
 }

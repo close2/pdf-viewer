@@ -67,6 +67,7 @@ pub mod printf;
 pub mod site;
 
 pub use call::{Call, Literal, NotOneCall};
+pub(crate) use date::stated_date_fields;
 pub use date::{DateTime, parse_date, print_date};
 pub use mask::print_mask;
 pub use number::{extract_nums, make_number, number_text};
@@ -460,6 +461,27 @@ fn picture(
 }
 
 impl Call {
+    /// The `printd` picture this call reads a field's value under as a date, where it is one of
+    /// `AFDate_Format`, `AFDate_FormatEx`, `AFDate_Keystroke` or `AFDate_KeystrokeEx`.
+    ///
+    /// What ISO 32000-2 Table 240 bit 10's NOTE 1 points at: "[t]he interpretation of a form field
+    /// as a date is not specified explicitly in the field itself but only in the ECMAScript code
+    /// that processes it". A picture the menu does not have is no picture (ADR 1796).
+    pub(crate) fn date_picture(&self) -> Option<String> {
+        match self.function {
+            Function::DateFormat
+            | Function::DateFormatEx
+            | Function::DateKeystroke
+            | Function::DateKeystrokeEx => picture(
+                &Arguments(&self.arguments),
+                &date::DATE_PICTURES,
+                self.function,
+            )
+            .ok(),
+            _ => None,
+        }
+    }
+
     /// Runs a call at the trigger it was found at, refusing one that serves another.
     fn serving(&self, trigger: Trigger) -> Result<Arguments<'_>, Refusal> {
         match self.function.trigger() {

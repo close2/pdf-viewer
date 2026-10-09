@@ -157,3 +157,11 @@ quoted, and `every_held_page_names_whose_departure_it_is` holds that each group 
 clause (ADR 1483). The test catches a clause the note no longer cites, not a verdict that flipped
 while the row stayed: when a note's reading changes, its row changes in the same edit. The ranking
 names the next page itself; a round takes the page it names, not the one its brief guesses.
+
+## An ambiguous group is read by the bound that keeps its references apart
+
+`AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`'s note compared our own figures against the class bound, but an
+ambiguous verdict is decided reference against reference: all 1 107 voting pairs of the book's 369
+pages fail the text class's differing-fraction bound, and a pair would form on 322 of them without
+it (round 1483, ADR 1802). Read such a group by the bound its references fail, and let the gate print
+the figures — ours copied into a note had drifted by up to 0.29 of 255 since ADR 0685.

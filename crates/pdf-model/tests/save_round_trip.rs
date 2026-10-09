@@ -370,43 +370,58 @@ fn witness_for(document: &Document, name: &str) -> String {
 /// Runs one witness script with [`REFERENCE_BUDGET`] and hands back its stdout.
 ///
 /// Polls and kills rather than waiting, `pdfref::Reference::render_within`'s rule: a reference
-/// that never returns must cost this gate thirty seconds, not forever.
+/// that never returns must cost this gate thirty seconds, not forever. Both streams go to files
+/// rather than pipes, the same function's other rule: a pipe nobody drains while polling fills
+/// at the kernel's pipe buffer and stops the witness mid-sentence, and the mupdf witness prints
+/// every terminal field with its whole value (ADR 1800).
 fn ask(mut command: std::process::Command) -> Result<String, String> {
-    use std::io::Read as _;
-
+    let stem = std::env::temp_dir().join(format!(
+        "pdfviewer-witness-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let (out, err) = (stem.with_extension("out"), stem.with_extension("err"));
+    let file = |path: &Path| {
+        std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))
+    };
     command
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stdout(file(&out)?)
+        .stderr(file(&err)?);
+    let waited = wait_within(command);
+    let stdout = std::fs::read_to_string(&out).unwrap_or_default();
+    let stderr = std::fs::read_to_string(&err).unwrap_or_default();
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(&err);
+    let status = waited?;
+    if status.success() {
+        Ok(stdout)
+    } else {
+        Err(format!(
+            "exited {status}: {}",
+            stderr.lines().next().unwrap_or("")
+        ))
+    }
+}
+
+/// Starts `command` and waits for it at most [`REFERENCE_BUDGET`], killing it there.
+fn wait_within(mut command: std::process::Command) -> Result<std::process::ExitStatus, String> {
     let mut child = command.spawn().map_err(|error| format!("spawn: {error}"))?;
     let started = Instant::now();
-    let status = loop {
+    loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => return Ok(status),
             Ok(None) if started.elapsed() > REFERENCE_BUDGET => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!("timed out after {REFERENCE_BUDGET:?}"));
             }
+            // A poll interval, kept as a timed bound: the standard library waits on a child with
+            // no deadline, so its exit is looked for. The verdict is the exit status and never
+            // the time; the interval is only how late an exit is seen (ADR 1800).
             Ok(None) => std::thread::sleep(Duration::from_millis(25)),
             Err(error) => return Err(format!("wait: {error}")),
         }
-    };
-    let mut stdout = String::new();
-    if let Some(mut pipe) = child.stdout.take() {
-        let _ = pipe.read_to_string(&mut stdout);
-    }
-    if status.success() {
-        Ok(stdout)
-    } else {
-        let mut stderr = String::new();
-        if let Some(mut pipe) = child.stderr.take() {
-            let _ = pipe.read_to_string(&mut stderr);
-        }
-        Err(format!(
-            "exited {status}: {}",
-            stderr.lines().next().unwrap_or("")
-        ))
     }
 }
 
@@ -1396,4 +1411,18 @@ fn the_witness_readers_see_one_documents_saved_edit() {
         tally.on.reference_failed,
         tally.on.disagreed
     );
+}
+
+/// A witness that prints more than a pipe holds is read whole, inside the budget: [`ask`]'s
+/// streams go to files, so the child is never stopped against a buffer nobody drains while the
+/// loop polls (ADR 1800). Four times Linux's default pipe buffer of 64 KiB.
+#[test]
+fn a_witness_that_says_more_than_a_pipe_holds_is_read_whole() {
+    const SAID: usize = 4 * 65_536;
+    let mut command = std::process::Command::new("sh");
+    command
+        .arg("-c")
+        .arg(format!("head -c {SAID} /dev/zero | tr '\\0' x"));
+    let said = ask(command).expect("the witness answers rather than being killed at the budget");
+    assert_eq!(said.len(), SAID, "every byte the witness printed");
 }

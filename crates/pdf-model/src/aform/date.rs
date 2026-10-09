@@ -507,6 +507,29 @@ fn matches_name(word: &str, name: &str) -> bool {
             .starts_with(&word.to_ascii_lowercase())
 }
 
+/// How many of ISO 32000-2 §7.9.4's leading fields a picture states — year, month, day, hour,
+/// minute, second, in that order — counted until the first it does not state.
+///
+/// §7.9.4 lets a date stop early: "the year field (YYYY) shall be present and all other fields
+/// may be present but only if all of their preceding fields are also present". So a picture with
+/// no year states no date the clause can write and answers zero, and `m/d/yy h:MM tt` answers
+/// five. A picture this module cannot read answers zero too (ADR 1796).
+pub(crate) fn stated_date_fields(picture: &str) -> usize {
+    let Ok(tokens) = tokens(picture) else {
+        return 0;
+    };
+    let states = |wanted: fn(&Token) -> bool| tokens.iter().any(wanted);
+    let fields: [fn(&Token) -> bool; 6] = [
+        |token| matches!(token, Token::Year(_)),
+        |token| matches!(token, Token::Month(_)),
+        |token| matches!(token, Token::Day(_)),
+        |token| matches!(token, Token::Hour24(_) | Token::Hour12(_)),
+        |token| matches!(token, Token::Minute(_)),
+        |token| matches!(token, Token::Second(_)),
+    ];
+    fields.iter().take_while(|field| states(**field)).count()
+}
+
 /// The fourteen pictures `AFDate_Format` numbers, in the order the Interapplication reference's
 /// `SetJavaScriptAction` lists them.
 ///

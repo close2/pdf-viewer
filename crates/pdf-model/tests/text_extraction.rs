@@ -212,6 +212,9 @@ fn reference_text(path: &Path) -> Option<String> {
             let _ = std::fs::remove_file(&out);
             return None;
         }
+        // A poll interval, kept as a timed bound: the standard library waits on a child with no
+        // deadline, so its exit is looked for. The verdict is the extracted text and never the
+        // time; the interval is only how late an exit is seen (ADR 1800).
         std::thread::sleep(POLL);
     };
     let text = status

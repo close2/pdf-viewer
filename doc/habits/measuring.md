@@ -855,3 +855,12 @@ round 1470's `--tree 12` walk asked at 23:01 and was granted at about 00:13, whi
 asked at 23:56 took a lane first. A round that needs a gate's result in order asks for it as early as
 its edits allow, and its record says how long the grant took, so the lock's cost is counted where it
 fell rather than inferred from the round's wall.
+
+## 82. A paired corpus walk's wall is read as CPU over lanes before it measures a worker-side lever
+
+`read_corpus` asks a mount and then computes the same page itself, so its wall is about (the test's
+CPU plus the workers' CPU) divided by its four lanes: 267–274 s plus 295–319 s against 147–163 s of
+wall, and a pool six times wider moved the walk nowhere while the wait a face's user sees halved
+(round 1484, ADR 1804). Before such a walk is the figure for a worker-side speed lever, read
+`utime` and `cutime` from `/proc/<pid>/stat` to see the ceiling the lever can reach, and measure the
+lever on the question a user asks.

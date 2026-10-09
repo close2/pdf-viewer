@@ -195,7 +195,8 @@ confinement — every thread inherits the Landlock domain and the filter — as 
 is not (a test confining its own process). `tests/confined.rs`'s
 `a_pool_built_inside_the_confinement_under_an_arena_limit_draws_on_every_thread` draws a page on
 every strip inside the confinement and then broadcasts twenty rounds of 4 MiB allocations to every
-thread; the pool's stacks are a term of the message budget.
+thread; the pool's stacks are a term of the message budget. `pdf_vfs::serve::confine` builds the
+file-system face's worker the same way, its strips still one (ADR 1804).
 
 What it was worth, measured with `--trace` on `quorra-confined`, fifteen launches an arm, one
 binary, the arm chosen at spawn: `bug1815476.pdf`, whose page crosses as pixels, from the device to

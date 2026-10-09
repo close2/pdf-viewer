@@ -1635,8 +1635,9 @@ fn a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves
     // **The distinction this exists to defend is the one the refusal test above used to hold.**
     // A reader that dropped the action on the floor and one that handed the request over are
     // indistinguishable from the click; only the second lets a person see where their form was
-    // going. `Submission::owed` is the same claim one level in: Table 240 bit 10 is set here and
-    // is not applied, and a submission that had silently dropped it would report nothing.
+    // going. `Submission::owed` is the same claim one level in: Table 240 bit 10 is set here, the
+    // field's own script calls it a date, and its value is not one, so it is sent as it is and
+    // said; a submission that had silently dropped the flag would report nothing (ADR 1796).
     //
     // The button is a `/Widget` and not a `/Link`, which is what real forms carry and what makes
     // the coordinates reachable at all: `link::links` reads `/Link` annotations, so a submit
@@ -1652,7 +1653,8 @@ fn a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves
          5 0 obj\n<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/cgi) >> \
          /Flags 516 >>\nendobj\n\
          6 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [10 100 190 130] /F 4 /FT /Tx \
-         /T (name) /V (Ada) >>\nendobj\n\
+         /T (name) /V (Ada) /AA << /F << /S /JavaScript /JS (AFDate_FormatEx(\"yyyy\")) >> >> \
+         >>\nendobj\n\
          trailer\n<< /Root 1 0 R /Size 7 >>\n"
         .to_owned()
         .into_bytes();
@@ -1697,9 +1699,9 @@ fn a_click_on_a_submit_button_hands_the_host_the_request_and_says_what_it_leaves
     );
     assert_eq!(submitted.fields, 1, "the push-button itself is not a value");
 
-    // Table 240 bit 10's `CanonicalFormat`, which this composition does not apply because which
-    // fields hold dates "is not specified explicitly in the field itself but only in the
-    // ECMAScript code that processes it" — and ECMAScript is excluded outright.
+    // Table 240 bit 10's `CanonicalFormat`: which fields hold dates "is not specified explicitly
+    // in the field itself but only in the ECMAScript code that processes it", and this field's
+    // script says its value is a year, which "Ada" is not.
     let notes: Vec<&String> = events
         .iter()
         .filter_map(|event| match event {
@@ -8773,6 +8775,8 @@ fn reference_word_boxes(path: &Path) -> Option<(f32, f32, Vec<ReferenceWord>)> {
                 let _ = child.wait();
                 return None;
             }
+            // A poll interval, kept as a timed bound: the verdict is the reference's boxes and
+            // never the time; the interval is only how late an exit is seen (ADR 1800).
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
         }
     }

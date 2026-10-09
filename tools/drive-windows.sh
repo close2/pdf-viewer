@@ -612,7 +612,8 @@ pdf.save(f"{out}/drive-keys.pdf")
 
 # drive-arrows.pdf: a list box whose Table 199 /K logs the option it is handed and `event.keyDown`,
 # numbered so each line is new: a selection a press made reads false and one an arrow made true
-# (ADR 1786).
+# (ADR 1786); and beside it a combo box, Table 233 bit 18 set and bit 19 clear, whose /K logs the
+# same under its own letter, for an arrow in its open list (ADR 1799).
 pdf = pikepdf.new()
 font = helv(pdf)
 a1 = page(pdf, font, "Arrows")
@@ -624,8 +625,17 @@ picked = pdf.make_indirect(Dictionary(
     AA=Dictionary(K=Dictionary(S=Name.JavaScript, JS=String(
         'global.k = (global.k || 0) + 1; console.println("K " + global.k + " " + event.change'
         ' + " keyDown " + event.keyDown);')))))
-a1.obj.Annots = Array([picked])
-pdf.Root.AcroForm = Dictionary(Fields=Array([picked]), DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
+dropped = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Dropped"), TU=String("Dropped"),
+    Rect=[320, 400, 520, 430], F=4, P=a1.obj, FT=Name.Ch, Ff=1 << 17, DA=text,
+    Opt=[String("One"), String("Two"), String("Three")], V=String("One"),
+    MK=Dictionary(BC=[0, 0, 0], BG=[1, 0.95, 0.9]),
+    AA=Dictionary(K=Dictionary(S=Name.JavaScript, JS=String(
+        'global.c = (global.c || 0) + 1; console.println("C " + global.c + " " + event.change'
+        ' + " keyDown " + event.keyDown);')))))
+a1.obj.Annots = Array([picked, dropped])
+pdf.Root.AcroForm = Dictionary(Fields=Array([picked, dropped]), DA=text,
+                               DR=Dictionary(Font=Dictionary(Helv=font)))
 pdf.save(f"{out}/drive-arrows.pdf")
 
 # drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
@@ -2800,6 +2810,48 @@ list_arrows() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# Table 199's /K at a combo box's selection, and `event.keyDown`, in the three windows that run
+# scripts (ADR 1799): the down arrow in the combo box's list selects the option after the field's
+# own and logs keyDown true, once. `quorra`'s press opens its drawn list and the arrow selects there;
+# GTK's press opens the drop-down's popover, the arrow moves its list's selection and the drop-down
+# takes it at once, and the Enter that closes the list sends nothing more; Qt's press opens the
+# combo box's popup, Escape closes it with the keyboard left on the box, and the arrow is the closed
+# box's new value (ADR 1786).
+combo_arrows() {
+    local step=74-combo-arrows picked mark runs
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict "$step" "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "pinned to off: no script runs a keystroke"; return
+    fi
+    launch "$FIXTURES/drive-arrows.pdf" --scripts on
+    # Measured from the list box's place and the text field's in drive-keys.pdf, at Xvfb's
+    # 1400x1100: the combo box's /Rect centre, (420, 415) in default user space.
+    case "$WINDOW" in
+        quorra-gtk) DROPPED="795 544" ;;
+        quorra-qt) DROPPED="805 555" ;;
+        *) DROPPED="543 475" ;;
+    esac
+    asked DROPPED "*" "Dropped"
+    mark=$(lines)
+    click $DROPPED
+    [ "$WINDOW" = quorra-qt ] && key Escape
+    key Down; wait_for 10 said_since "$mark" 'C [0-9]* Two keyDown true'
+    shot "$step"
+    # The Enter that closes GTK's list activates what the arrow already selected.
+    [ "$WINDOW" = quorra-gtk ] && key Return
+    picked=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'C [0-9]* [A-Za-z]* keyDown [a-z]*' | tr '\n' ';')
+    # A run is its number: `quorra` says each console line twice, once per log it keeps.
+    runs=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'C [0-9]* [A-Za-z]* keyDown' | sort -u | wc -l)
+    if said_since "$mark" 'C [0-9]* Two keyDown true' && [ "$runs" -eq 1 ]; then
+        verdict "$step" works "the combo box's /K ran once at the down arrow: $picked"
+    else
+        verdict "$step" wrong "the combo box's /K lines (one expected, Two keyDown true): ${picked:-none}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # Table 172's /RC drawn formatted in the popup window, in the three windows that draw one (ADR
 # 1642): pure red pixels on the photograph where the note colours two words, and none where the same
 # note states /Contents alone — the control that says the red is the run's.
@@ -3324,6 +3376,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_triggers
     script_keys
     list_arrows
+    combo_arrows
     popup_rich
     popup_face
     popup_rtl

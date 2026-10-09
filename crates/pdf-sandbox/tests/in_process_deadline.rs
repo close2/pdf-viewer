@@ -94,6 +94,10 @@ fn an_in_process_decode_past_its_deadline_is_abandoned_counted_and_ended() {
             waiting.elapsed() < RETURNS_WITHIN,
             "an abandoned decode that ends gives its slot back"
         );
+        // A poll interval, kept as a timed bound: the count is all `in_process` says of an
+        // abandoned decode's end, and a notification beside it would be machinery in the decode
+        // path for this test alone. The verdict is the slot's return within `RETURNS_WITHIN`; the
+        // interval is only how late it is seen (ADR 1800).
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(

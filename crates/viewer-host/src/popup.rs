@@ -165,18 +165,49 @@ pub fn thread(window: &Window<'_>) -> String {
             out.push_str(who);
             out.push('\n');
         }
-        for line in reply
-            .text
-            .as_deref()
-            .unwrap_or_default()
-            .split(['\r', '\n'])
-        {
+        for (_, line) in paragraphs(reply.text.as_deref().unwrap_or_default()) {
             out.push_str(&indent);
             out.push_str(line);
             out.push('\n');
         }
     }
     out
+}
+
+/// Table 166's `/Contents` as the paragraphs a note's window draws, each with the byte of the
+/// text it starts at — the one split every window makes, so that a break is one break in all
+/// three of them.
+///
+/// ISO 32000-2 §12.5.6.2 names the separator, in a sentence addressed to the writer:
+///
+/// > When separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for
+/// > example, a LINE FEED character (0Ah).
+///
+/// So a carriage return ends a paragraph, and a line feed ends one too, because a reader that
+/// enforced the writer's rule would show a producer's break as no break at all. **A carriage
+/// return followed immediately by a line feed is one break**, and that is this program's choice
+/// rather than a sentence: §3.23 defines an end-of-line marker as a "one or two character
+/// sequence", and §7.2.3 states that "[t]he combination of a CARRIAGE RETURN followed immediately
+/// by a LINE FEED shall be treated as one EOL marker" — both about the file's syntax rather than
+/// about a text string's display, and both the evidence the choice rests on (ADR 1798). Splitting
+/// on each byte would put an empty paragraph between every two a Windows-written note has.
+///
+/// The text after the last break is a paragraph even when it is empty, as `str::split`'s is, so a
+/// note that ends in a break draws the empty line a caret can stand on.
+pub fn paragraphs(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut next = Some(0_usize);
+    std::iter::from_fn(move || {
+        let start = next?;
+        let rest = text.get(start..).unwrap_or_default();
+        let Some(length) = rest.find(['\r', '\n']) else {
+            next = None;
+            return Some((start, rest));
+        };
+        let after = rest.get(length..).unwrap_or_default();
+        let separator = if after.starts_with("\r\n") { 2 } else { 1 };
+        next = Some(start.saturating_add(length).saturating_add(separator));
+        Some((start, rest.get(..length).unwrap_or_default()))
+    })
 }
 
 /// The smallest a run is drawn, as a multiple of the window's base size.
@@ -908,17 +939,20 @@ pub fn thread_html(window: &Window<'_>, base: f32) -> Option<String> {
     Some(out)
 }
 
-/// Escapes a document's characters for Qt's rich text, a line end as a `br`.
+/// Escapes a document's characters for Qt's rich text, each break [`paragraphs`] finds as a `br`.
 fn escape_into(out: &mut String, text: &str) {
-    for character in text.chars() {
-        match character {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\r' => {}
-            '\n' => out.push_str("<br/>"),
-            other => out.push(other),
+    for (nth, (_, paragraph)) in paragraphs(text).enumerate() {
+        if nth > 0 {
+            out.push_str("<br/>");
+        }
+        for character in paragraph.chars() {
+            match character {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                other => out.push(other),
+            }
         }
     }
 }
@@ -1022,7 +1056,7 @@ pub fn modified(window: &Window<'_>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{modified, windows};
+    use super::{escape_into, modified, windows};
     use viewer_core::PopupWindow;
 
     /// A run as the tests below state one: the window's own size and nothing else.
@@ -1579,5 +1613,32 @@ mod tests {
         };
         let placed = windows(std::slice::from_ref(&none));
         assert_eq!(modified(&placed[0]), None);
+    }
+
+    /// §12.5.6.2's paragraph separator, read as every window splits it (ADR 1798): a carriage
+    /// return, a line feed, and the two together as one break — `"a\r\nb"` is two paragraphs and
+    /// not three, the second starting after both bytes — with the text after a final break a
+    /// paragraph of its own, as `str::split` leaves it.
+    #[test]
+    fn a_carriage_return_and_line_feed_together_are_one_paragraph_break() {
+        let split = |text| super::paragraphs(text).collect::<Vec<_>>();
+        assert_eq!(split("a\r\nb"), [(0, "a"), (3, "b")]);
+        assert_eq!(split("a\rb\nc"), [(0, "a"), (2, "b"), (4, "c")]);
+        assert_eq!(
+            split("a\n\rb"),
+            [(0, "a"), (2, ""), (3, "b")],
+            "a line feed then a carriage return is two breaks: only the clause's order is one"
+        );
+        assert_eq!(split("a\r\n\r\nb"), [(0, "a"), (3, ""), (5, "b")]);
+        assert_eq!(split("a\r\n"), [(0, "a"), (3, "")]);
+        assert_eq!(split(""), [(0, "")]);
+        // The control: splitting on each byte is the defect this replaces.
+        assert_eq!("a\r\nb".split(['\r', '\n']).count(), 3);
+        let mut html = String::new();
+        escape_into(&mut html, "a\r\nb\rc<");
+        assert_eq!(
+            html, "a<br/>b<br/>c&lt;",
+            "and Qt's rich text has one `br` per break"
+        );
     }
 }
