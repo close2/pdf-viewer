@@ -119,7 +119,7 @@
 //! # Running it
 //!
 //! ```text
-//! ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --clock --tree 12 \
+//! ulimit -u 8192; tools/bounded.sh --lock --round <session> --clock --tree 12 \
 //!     --build '--release -p pdf-sandbox --bins' \
 //!     --build '--release -p pdf-script-worker --features engine --bins' -- \
 //!     cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
@@ -2022,10 +2022,10 @@ fn run_phase(phase: &str, document: Option<&Path>) -> Result<Fields, String> {
     //
     // **And rayon is given the cores the child is pinned to, never the caller's
     // `RAYON_NUM_THREADS`** — `turn_path`'s rule (trap 122). A child that inherits the variable
-    // measures the pool its caller chose: the heavy-walk lock's prefix sets four, and
-    // `tools/bounded.sh` sets one a CPU of the machine, so the same binary's first page ran on two
-    // pools of different widths depending on who started the gate. Where the child is not pinned
-    // the variable is removed, and rayon finds the machine by itself (ADR 1646).
+    // measures the pool its caller chose: `tools/bounded.sh` sets four for a locked run and a
+    // share of the machine for an unlocked one (ADR 1766), so the same binary's first page would
+    // run on two pools of different widths depending on who started the gate. Where the child is
+    // not pinned the variable is removed, and rayon finds the machine by itself (ADR 1646).
     let mut child = if let Some(cores) = pinning() {
         let mut wrapper = Child::new("taskset");
         let count = cores.split(',').count();

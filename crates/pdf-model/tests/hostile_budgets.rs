@@ -837,18 +837,75 @@ fn type3_inside_type3_inside_a_tiling(cycle: bool) -> Document {
     )
 }
 
-/// A cycle through two Type 3 fonts and a tiling cell is refused by the bytes its list holds,
-/// inside that bound, and says so with both numbers.
+/// A cycle through two Type 3 fonts and a tiling cell is refused where its first glyph is re-entered,
+/// and the page goes on to draw its second glyph.
 ///
-/// The fuzz target's 3.16 GiB was this shape: four million operators admitted, 3.93 million
-/// commands and 2.05 million clips built, 1.15 GiB of list for one interpretation, and the target
-/// keeps two alive to compare them. `MAX_OPERATIONS` cannot see a clip, and a tiling copy carries
-/// one per site — so the bound that stops it is in bytes (ADR 1507). Asserted as the bound states
-/// it: the charge passes `MAX_LIST_BYTES` by no more than a sixteenth, which is one tiling copy at
-/// most, and the run stops there rather than at four million operators.
+/// §9.6.4, as Errata Collection 3 amends it, makes a glyph description that "refers to itself
+/// directly or indirectly" implementation-dependent, so glyph `rect` met again inside the cell is
+/// refused there by name (ADR 1792). Before that the chain ran to the bytes bound — 3.93 million
+/// commands, 537 MB of list — and the bound dropped everything after it, which on
+/// `ContentStreamCycleType3insideType3.pdf` was the page's own green triangle. The triangle is the
+/// assertion's last command: §9.6.4 step c) runs `triangle` after `rect` returns, and it strokes.
 #[test]
-fn a_type3_cycle_through_a_tiling_cell_is_refused_by_its_list_bytes() {
+fn a_type3_cycle_through_a_tiling_cell_is_refused_at_its_reentry() {
     let document = type3_inside_type3_inside_a_tiling(true);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.unsupported.iter().any(|item| matches!(
+            item,
+            pdf_model::Unsupported::NestingCycle { stream } if stream.contains("/rect")
+        )),
+        "the re-entered glyph is named: {:?}",
+        interpretation.unsupported
+    );
+    assert!(
+        !interpretation.unsupported.iter().any(|item| matches!(
+            item,
+            pdf_model::Unsupported::ListBytes { .. } | pdf_model::Unsupported::LimitReached { .. }
+        )),
+        "no bound is reached once the re-entry is refused: {:?}",
+        interpretation.unsupported
+    );
+    assert!(interpretation.list_bytes < pdf_model::MAX_LIST_BYTES / 64);
+    let last = interpretation.display_list.commands().last();
+    assert!(
+        last.is_some_and(|command| matches!(command, pdf_render::Command::Stroke { .. })),
+        "the page's second glyph, the stroked triangle, is drawn last: {last:?}"
+    );
+}
+
+/// A form filling with a tiling pattern whose cell draws the form, shown as text that fills and
+/// strokes, is refused by the bytes its list holds, inside that bound, and says so with both
+/// numbers.
+///
+/// The fuzz target's 3.16 GiB was a cycle of this kind: four million operators admitted, 3.93
+/// million commands and 2.05 million clips built, 1.15 GiB of list for one interpretation, and the
+/// target keeps two alive to compare them. `MAX_OPERATIONS` cannot see a clip, and a tiling copy
+/// carries one per site — so the bound that stops it is in bytes (ADR 1507). The input was a Type 3
+/// cycle, which is now refused at its re-entry (ADR 1792); a form's re-entry is not (ADR 0793), so
+/// a form is what still reaches this bound, and Helvetica's outlines are what give each copy its
+/// clips. Asserted as the bound states it: the charge passes `MAX_LIST_BYTES` by no more than a
+/// sixteenth, which is one tiling copy at most, and the run stops there rather than at four
+/// million operators.
+#[test]
+fn a_form_cycle_through_a_tiling_cell_is_refused_by_its_list_bytes() {
+    let form = "2 Tr /Pattern cs /P scn BT /H 50 Tf (ccc) Tj ET";
+    let cell = "1 0 0 1 1 1 cm /F Do";
+    let objects = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /Pattern << /P 6 0 R >> /Font << /H 7 0 R >> >> /Length {} >>\nstream\n\
+         {form}\nendstream\nendobj\n\
+         6 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 2 /Matrix [0.9 0 0 0.9 0 0] \
+         /BBox [0 0 60 60] /XStep 55 /YStep 32 /Resources << /XObject << /F 5 0 R >> >> \
+         /Length {} >>\nstream\n{cell}\nendstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        form.len(),
+        cell.len()
+    );
+    let document = page("/F Do", "<< /XObject << /F 5 0 R >> >>", &objects);
     let page = pdf_model::Pages::new(&document)
         .get(0)
         .expect("the fixture has a page");
@@ -880,6 +937,90 @@ fn a_type3_cycle_through_a_tiling_cell_is_refused_by_its_list_bytes() {
         interpretation.display_list.command_count() > 0,
         "the prefix before the bound is drawn"
     );
+}
+
+/// A Type 3 font whose glyph `g` shows `codes` in the font it inherits, then a page that shows one
+/// `g` and fills a square after it.
+///
+/// The shape of the `page` fuzz target's slow unit, generated rather than copied (that unit is two
+/// crawled documents spliced together, ADR 1792): a glyph description that states no `Tf` shows
+/// its string in the font §9.6.4 lets it inherit — "[a]side from the CTM, the graphics state shall
+/// be inherited" — which is the font being drawn, so every code that names `g` is `g` again, and a
+/// description showing four of them is a tree of 4ⁿ runs at depth n. `other` names a second glyph
+/// whose description draws a square and shows nothing, for the control.
+fn a_glyph_showing_its_own_font(codes: &str) -> Document {
+    let description = format!("1000 0 d0 BT ({codes}) Tj ET");
+    let objects = format!(
+        "5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
+         /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /g 6 0 R /other 7 0 R >> \
+         /Encoding << /Type /Encoding /Differences [97 /g /other] >> \
+         /FirstChar 97 /LastChar 98 /Widths [1000 1000] /Resources << >> >>\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{description}\nendstream\nendobj\n\
+         7 0 obj\n<< /Length 30 >>\nstream\n1000 0 d0 0 0 1000 1000 re f\nendstream\nendobj\n",
+        description.len()
+    );
+    page(
+        "BT /T 10 Tf 10 10 Td (a) Tj ET 0 1 0 rg 300 300 50 50 re f",
+        "<< /Font << /T 5 0 R >> >>",
+        &objects,
+    )
+}
+
+/// A glyph whose description shows itself four times over is refused at its first re-entry, and
+/// the page after the text is drawn.
+///
+/// Refused at `MAX_FORM_DEPTH` instead, the four-way tree spent `MAX_OPERATIONS` long before the
+/// depth bound was asked of most of it, and the operator budget stopped the *page*: the square
+/// after the text was never drawn. That is what this asserts, and why it does not time anything —
+/// the budget's report and the missing square are the defect, and both are counts.
+#[test]
+fn a_glyph_showing_itself_in_its_inherited_font_is_refused_at_its_reentry() {
+    let document = a_glyph_showing_its_own_font("aaaa");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("NestingCycle") && reported.contains("/g"),
+        "the re-entered glyph is named: {reported}"
+    );
+    assert!(
+        !reported.contains("MAX_OPERATIONS") && !reported.contains("MAX_FORM_DEPTH"),
+        "no budget is spent on a description refused at its re-entry: {reported}"
+    );
+    let last = interpretation.display_list.commands().last();
+    assert!(
+        last.is_some_and(|command| matches!(command, pdf_render::Command::Fill { .. })),
+        "the square after the text is the page's last command: {last:?}"
+    );
+}
+
+/// A glyph showing a *different* glyph of its own font draws both and reports nothing: the font
+/// is running twice, and no description is.
+///
+/// The control for the test above. §9.6.4's permission is about a description that "refers to
+/// itself", and a composite built out of its font's own glyphs — an accent over a base letter is
+/// the ordinary one — refers to a neighbour.
+#[test]
+fn a_glyph_showing_another_glyph_of_its_own_font_draws_whole() {
+    let document = a_glyph_showing_its_own_font("bb");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.unsupported.is_empty(),
+        "{:?}",
+        interpretation.unsupported
+    );
+    let fills = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, pdf_render::Command::Fill { .. }))
+        .count();
+    assert_eq!(fills, 3, "two squares of `other` and the page's own");
 }
 
 /// The same fonts and pattern with a cell that names no font draw whole and report nothing about

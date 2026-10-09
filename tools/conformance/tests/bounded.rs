@@ -20,7 +20,7 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's twelve cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's fourteen cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
@@ -38,7 +38,11 @@
 //! run queues behind the first with the first lane free while a small walk takes that lane at once,
 //! `--long` refused outside a lock, beside `--clock`, above 6 GiB and inside a hold of the first lane,
 //! and a clock run waiting behind a long run without stopping the first lane while a long run asked
-//! after it waits for it (ADR 1756). Every hand-off between a case's runs waits for the run to say
+//! after it waits for it (ADR 1756) — and walks granted in the order they asked: three small walks
+//! take a freed second lane first-asked first, the last of them asked while the lane was free, and a
+//! large walk's ask holds back no lane but the first — and a wait that ends before a grant on a line:
+//! a walk and a clock run stopped with `TERM` while they queue each leave `lane=-` at once, and a walk
+//! killed with `KILL` leaves a ticket that holds back nobody (ADR 1790). Every hand-off between a case's runs waits for the run to say
 //! what it was asked, never for a hold of so many seconds, and the one cost it bounds is processor
 //! time: a hold an idle machine always outlasted failed inside the merge's whole-workspace test run at
 //! a load of 16 (ADR 1710). This test runs the script and repeats what it said.
@@ -87,7 +91,8 @@
 //! **And a run that is not a walk is named where the lock's cost is read.** The rule line says
 //! `cargo test -p conformance` and crate-scoped tests are not walks; one waited 1 820.8 s behind the
 //! lock all the same (ADR 1706). The last test plants a log and holds `tools/state.sh gates-cost` to
-//! naming those runs, with their queue, and to passing every shape a walk has.
+//! naming those runs, with their queue, and to passing every shape a walk has. Another plants the line
+//! a wait that ended before its grant leaves and holds the reader to listing and summing it (ADR 1790).
 //!
 //! **And a locked run's threads are the wrapper's** (ADR 1766). `--lock` gives a run four rayon
 //! threads, so an instruction that writes `RAYON_NUM_THREADS=4` before it is a copy of a rule the
@@ -1602,6 +1607,77 @@ fn the_lock_cost_names_a_run_that_is_not_a_walk() {
     );
 }
 
+/// `tools/state.sh gates-cost` lists every run of the last batch that stopped while it queued —
+/// the line `tools/bounded.sh` writes with `lane=-` and `hold=0.0s` for a wait that ended before a
+/// grant (ADR 1790) — marks it among the batch's lines, and sums those runs' queue on their own,
+/// while each still counts in its round's queue. Calibrated by planting (trap 13): before the reader
+/// knew the shape, the two planted stops were two lines of lane `-` and no sum. A stop of an earlier
+/// batch and a run that was granted its lane are not listed.
+#[test]
+fn the_lock_cost_lists_each_wait_that_ended_before_a_grant() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("stopped-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    let line = |batch: &str, round: &str, wait: &str, hold: &str, code: &str, lane: &str| {
+        format!(
+            "2026-10-09T05:00:00 batch=batch-{batch} round={round} wait={wait}s hold={hold}s exit={code} peak=0.00GiB behind=- kind=small lane={lane} cmd=walk {round} \n"
+        )
+    };
+    let planted = [
+        line("90-95", "91", "70.0", "0.0", "143", "-"),
+        line("100-105", "101", "600.0", "0.0", "143", "-"),
+        line("100-105", "101", "5.0", "9.0", "0", "2"),
+        line("100-105", "102", "1500.0", "0.0", "124", "-"),
+    ]
+    .concat();
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let listed: Vec<String> = stdout
+        .lines()
+        .filter(|line| line.trim_start().starts_with("stopped before a grant:"))
+        .map(|line| {
+            line.split_whitespace()
+                .skip(5)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            "round 101 wait 600.0s exit 143 walk 101",
+            "round 102 wait 1500.0s exit 124 walk 102",
+        ],
+        "the runs listed as stopped before a grant are not the planted ones:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "2 run(s) of batch batch-100-105 stopped while they queued, before a grant: 2100.0s of queue"
+        ) && stdout.contains("[stopped before a grant] walk 102"),
+        "the stopped runs are not summed, or not marked among the batch's lines:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().any(|line| {
+            line.split_whitespace().collect::<Vec<_>>().join(" ")
+                == "round 101 2 run(s) queued 605.0s held 9.0s"
+        }),
+        "a stopped run's queue is not counted in its round's:\n{stdout}"
+    );
+}
+
 /// The targets a seed census names: the words after `fuzz/seeds.sh` and its mode — `check` or the
 /// corpus directory — up to the first word that is not a target's name, a quote or a backtick
 /// trimmed from each.
@@ -2053,23 +2129,10 @@ fn copies_the_locked_threads(line: &str) -> bool {
         })
 }
 
-/// The files that still write `RAYON_NUM_THREADS=4` before `tools/bounded.sh --lock`, each another
-/// round's to re-spell: a ratchet, so a file leaves this list the day it is re-spelled and none joins
-/// it. The crates' doc comments are their slots' files, and `doc/checks/` is the gates' manifests.
-const HELD_THREAD_PREFIXES: [&str; 12] = [
-    "crates/pdf-model/examples/colour_transform_census.rs",
-    "crates/pdf-model/examples/non_isolated_group_census.rs",
-    "crates/pdf-model/examples/overprint_ink_group_census.rs",
-    "crates/pdf-model/examples/substitution_census.rs",
-    "crates/pdf-model/tests/raster_golden.rs",
-    "crates/pdf-model/tests/script_corpus.rs",
-    "crates/pdf-script-worker/tests/script_column.rs",
-    "crates/pdf-script/tests/script_corpus.rs",
-    "crates/pdf-vfs/tests/read_corpus.rs",
-    "crates/viewer-ui/tests/launch_path.rs",
-    "doc/checks/fixed-documents.toml",
-    "doc/checks/launch-path.toml",
-];
+/// The files that still write `RAYON_NUM_THREADS=4` before `tools/bounded.sh --lock`: a ratchet, so
+/// a file leaves this list the day it is re-spelled and none joins it. It is empty, so the test below
+/// holds every tracked instruction to the wrapper's own spelling.
+const HELD_THREAD_PREFIXES: [&str; 0] = [];
 
 /// **No instruction copies the wrapper's thread count.** Since ADR 1766 `tools/bounded.sh --lock`
 /// gives its run four rayon threads, the figure each lane's ceiling was measured at, so the

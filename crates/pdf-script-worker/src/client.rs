@@ -46,7 +46,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use confined_transport::{Canceller, Host, TransportError};
@@ -188,6 +188,8 @@ pub struct ScriptWorker {
     deadline: Duration,
     /// How long a question waits on the person before the runner answers it.
     answer_wait: Duration,
+    /// The clock that wait is measured against, where a test holds one; [`Instant::now`] otherwise.
+    clock: Option<Arc<HeldClock>>,
     /// The worker and what it holds.
     state: Mutex<State>,
 }
@@ -277,6 +279,7 @@ impl ScriptWorker {
             program: None,
             deadline: DEADLINE,
             answer_wait: ANSWER_WAIT,
+            clock: None,
             state: Mutex::new(State::default()),
         }
     }
@@ -302,6 +305,22 @@ impl ScriptWorker {
     pub fn with_answer_wait(mut self, wait: Duration) -> Self {
         self.answer_wait = wait;
         self
+    }
+
+    /// This runner with its questions' wait measured against `clock`, which stands still until its
+    /// holder moves it: a question is then withdrawn when the holder moves the clock past its wait,
+    /// and never by itself (ADR 1794).
+    #[must_use]
+    pub fn with_clock(mut self, clock: Arc<HeldClock>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
+    /// The moment a question's wait is measured at.
+    fn read_clock(&self) -> Instant {
+        self.clock
+            .as_ref()
+            .map_or_else(Instant::now, |clock| clock.now())
     }
 
     /// How many workers this runner has started.
@@ -448,7 +467,7 @@ impl ScriptWorker {
                 state.waiting = Some(Waiting {
                     question,
                     taken: false,
-                    since: Instant::now(),
+                    since: self.read_clock(),
                     site: event.site,
                     field: event.field.to_owned(),
                     subject,
@@ -547,12 +566,13 @@ impl ScriptWorker {
         waiting.since.checked_add(self.answer_wait)
     }
 
-    /// Answers a question that has waited past [`ANSWER_WAIT`] with its closed-dialogue answer.
+    /// Answers a question whose wait has run out with its closed-dialogue answer: at the moment
+    /// [`Self::question_deadline`] names, so that a host woken then finds it withdrawn.
     fn expire(&self, state: &mut State) {
-        let expired = state
-            .waiting
-            .as_ref()
-            .is_some_and(|waiting| waiting.since.elapsed() > self.answer_wait);
+        let now = self.read_clock();
+        let expired = state.waiting.as_ref().is_some_and(|waiting| {
+            now.saturating_duration_since(waiting.since) >= self.answer_wait
+        });
         if !expired {
             return;
         }
@@ -657,7 +677,7 @@ impl ScriptWorker {
                 state.waiting = Some(Waiting {
                     question,
                     taken: false,
-                    since: Instant::now(),
+                    since: self.read_clock(),
                     site,
                     field,
                     subject: queued.subject,
@@ -891,6 +911,49 @@ impl ScriptWorker {
                 Err(())
             }
         }
+    }
+}
+
+/// A clock that stands still until its holder moves it: what a test hands a runner through
+/// [`ScriptWorker::with_clock`], so that a question's wait runs out when the test says and never
+/// while the machine happens to be slow (ADR 1794).
+///
+/// A runner reads the time for one thing only — how long a question has waited on the person — and
+/// reads it here when it was given this clock.
+#[derive(Debug)]
+pub struct HeldClock {
+    /// The moment the clock reads.
+    now: Mutex<Instant>,
+}
+
+impl HeldClock {
+    /// A clock that reads the moment it was made, until it is moved.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            now: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// The moment it reads.
+    #[must_use]
+    pub fn now(&self) -> Instant {
+        *self.now.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Moves it on by `by`, and answers the moment it then reads; `None`, the clock unmoved, where
+    /// that is past what an [`Instant`] can hold.
+    #[must_use]
+    pub fn advance(&self, by: Duration) -> Option<Instant> {
+        let mut now = self.now.lock().unwrap_or_else(PoisonError::into_inner);
+        *now = now.checked_add(by)?;
+        Some(*now)
+    }
+}
+
+impl Default for HeldClock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

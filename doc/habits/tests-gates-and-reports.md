@@ -591,3 +591,26 @@ wait chosen against a measured duration decays with the code under it; a hold th
 which draws no popup; the whole drive never offers the note steps there, so a `--step` run of them
 reports two `wrong` that the full drive would report as `not offered` (round 1469). Before a forced
 step's `wrong` is called a defect, check which windows the whole drive runs that step in.
+
+## A test whose verdict is one kind of death puts the other killers out of its way
+
+A test asserting the worker's own abort, or the seccomp filter's kill, ran under the 250 ms script
+deadline and raced it: the filter test failed 8 of 80 runs at a load average of 6, every time as
+`Deadline`, and the growth test 2 of 20 on a shared core (round 1479, ADR 1794). Such a test sets
+every other killer a minute out of the way, so its verdict is the death it asserts and a worker that
+never dies fails on the deadline instead of hanging.
+
+## A refusal's doc comment is read against every call site of the reader
+
+`UNKNOWN_LINE_ENDING`'s comment said an unknown `/LE` name is "named beside a drawn line"; the one
+call site put a `?` on the reader, so the name erased the line instead (round 1474, ADR 1784). A
+doc comment that says how a refusal behaves is a claim about its callers: check each one, and give
+the test a drawn-pixel assertion as well as the report's text, because a test that reads only the
+sentence cannot tell *beside* from *instead of*.
+
+## A fuzz finding is named by its hash under `fuzz/`, never by a round's scratch
+
+Round 1471's record placed its slow units under `scratchpad/r1471/`, which the next batch's `open`
+removed; round 1478's premise named that path and found nothing there, and the unit had to be found
+again as `fuzz/corpus/page/021ace25…`. A finding a later round may need is named by its hash under
+`fuzz/corpus/` or `fuzz/artifacts/`, where it survives the batch.

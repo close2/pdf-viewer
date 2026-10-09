@@ -10,7 +10,7 @@
 # small walk, whose worker nothing else builds (trap 10) and which its own `--build` makes inside
 # the hold (trap 109, ADR 1710):
 #
-#   ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 6 \
+#   ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 6 \
 #       --build '--profile gates -p pdf-sandbox --bins' -- \
 #       cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
 #

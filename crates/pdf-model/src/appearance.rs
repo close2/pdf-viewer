@@ -529,9 +529,20 @@ enum Refusal {
     PosterPlacementChosen,
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
+    /// Two of the above for one annotation: a line whose ending and whose caption are each
+    /// named, in that construction's order.
+    Both(Box<[Refusal; 2]>),
 }
 
 impl Refusal {
+    /// Two reports of one construction as one, so that neither hides the other (trap 11).
+    fn both(first: Option<Self>, second: Option<Self>) -> Option<Self> {
+        match (first, second) {
+            (Some(first), Some(second)) => Some(Self::Both(Box::new([first, second]))),
+            (first, second) => first.or(second),
+        }
+    }
+
     /// The report's detail, which follows the subtype's name.
     fn detail(&self) -> String {
         match self {
@@ -554,6 +565,7 @@ impl Refusal {
                  in a third of it — a share this program chose rather than the document"
             ),
             Self::Text(owed) => owed.detail(),
+            Self::Both(pair) => format!("{}; {}", pair[0].detail(), pair[1].detail()),
         }
     }
 }
@@ -605,17 +617,18 @@ pub(crate) fn construct(
              standard names are legends rather than symbols",
         )),
         // **§12.5.6.11 is not the catch-all's case** (ADR 0457). Table 183 states geometry — `/RD`,
-        // in the same left, top, right, bottom order [`insets`] has read for §12.5.6.8's Table 180
-        // and §12.5.6.6's Table 177 all along — and it states a symbol by name and by character: "P
-        // A new paragraph symbol (¶) shall be associated with the caret". What is stated nowhere is
-        // the **caret**, and `/RD`'s own sentence is what keeps the refusal whole: the difference
-        // it measures "can occur. When a paragraph symbol specified by Sy is displayed along with
-        // the caret", so the pilcrow accompanies the mark rather than standing in for it, and
-        // drawing it alone would put a mark on the page beside the mark nobody can derive.
+        // in the same left, top, right, bottom order [`differences`] has read for §12.5.6.8's
+        // Table 180 and §12.5.6.6's Table 177 all along — and it states a symbol by name and by
+        // character: "P A new paragraph symbol (¶) shall be associated with the caret". What is
+        // stated nowhere is the **caret**, and `/RD`'s own sentence is what keeps the refusal
+        // whole: the difference it measures "can occur. When a paragraph symbol specified by Sy is
+        // displayed along with the caret", so the pilcrow accompanies the mark rather than
+        // standing in for it, and drawing it alone would put a mark on the page beside the mark
+        // nobody can derive.
         //
         // The refusal is therefore unchanged and only its *sentence* moves — which is the half a
         // person reads. §12.5.6.11's ledger row had already reasoned this out and had gone on to
-        // say that no source in this tree names `/RD`, which `insets` disproves in one grep.
+        // say that no source in this tree names `/RD`, which `differences` disproves in one grep.
         b"Caret" => Err(Refusal::NotDerivable(
             "its clause states no artwork for the caret itself, and Table 183's paragraph symbol \
              is displayed along with the caret rather than instead of it",
@@ -2151,10 +2164,15 @@ fn polygon(
     stream: &mut Stream,
     subtype: &[u8],
 ) -> Outcome {
-    // As on a line annotation.
-    let endings = line_endings(document, annotation)?;
-
     let closed = subtype == b"Polygon";
+    // Table 181's `/LE` is "(Optional; meaningful only for polyline annotations)", the cell's
+    // wording for `/BE` the other way round, so a polygon's is not read and states nothing to
+    // report (trap 11). A polyline's is read as a line annotation's is.
+    let (endings, unknown_ending) = if closed {
+        ([Ending::None; 2], None)
+    } else {
+        line_endings(document, annotation)
+    };
     // §12.5.6.2: `/C` is a group attribute and `/IC` is not.
     let shared = crate::markup::group_source(document, annotation);
     let border = Border::read(document, annotation, &shared, "C")?;
@@ -2203,8 +2221,8 @@ fn polygon(
         Some(vertices)
     };
 
-    // **A polygon's ends meet, so it has none.** Table 181 gives `/LE` to both subtypes and
-    // §12.5.6.9 gives a polygon no end to put one on: a polyline is what it calls a polygon
+    // **A polygon's ends meet, so it has none**, which is what makes Table 181's "meaningful
+    // only for polyline annotations" the clause's own: a polyline is what it calls a polygon
     // "except that the first and last vertex are not implicitly connected", so a polygon's are.
     // This is therefore the polyline half alone, which is also the only half Table 181's `/IC`
     // is a line-ending colour for.
@@ -2235,7 +2253,10 @@ fn polygon(
     } else if endings != [Ending::None; 2] {
         return Ok(Painted::partly(ENDINGS_WITH_NO_END));
     }
-    Ok(Painted::DRAWN)
+    Ok(Painted {
+        drawn: true,
+        report: unknown_ending,
+    })
 }
 
 /// Draws §12.5.6.10's four text markup annotations, from their `/QuadPoints`.
@@ -2514,7 +2535,7 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// **`/Cap` is drawn** — [`caption`] holds the reading: the sentence that would refuse it is true
 /// and the inference from it is not.
 fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Outcome {
-    let endings = line_endings(document, annotation)?;
+    let (endings, unknown_ending) = line_endings(document, annotation);
     let ends = points(document, annotation, "L").unwrap_or_default();
     let (Some(start), Some(end)) = (ends.first().copied(), ends.get(1).copied()) else {
         return Err(Refusal::Missing("/L"));
@@ -2587,7 +2608,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     }
     Ok(Painted {
         drawn: true,
-        report: caption.owed,
+        report: Refusal::both(unknown_ending, caption.owed),
     })
 }
 
@@ -5780,9 +5801,12 @@ type Outcome = Result<Painted, Refusal>;
 /// The ten styles are the whole of the table and the entry is "[a]n array of two names", so a
 /// name outside it is a file asking for a shape this reader has no description of. Reported
 /// rather than dropped to `None`, which would draw a line that quietly lost its arrowheads.
-/// A `/LE` on a shape with no end this routine holds: a `/Path`, or fewer than two vertices.
+/// A polyline's `/LE` with no end this routine holds: a `/Path`, whose ends Table 181 does not
+/// name — the cell places the endings on "the first and last pairs of coordinates in the Vertices
+/// array" — or fewer than two vertices.
 const ENDINGS_WITH_NO_END: Refusal = Refusal::NotDerivable(
-    "its /LE states line endings and its /Path or /Vertices gives no two points to put them on",
+    "its /LE states line endings and Table 181 places them on the first and last of its \
+     /Vertices, which it does not state as two points",
 );
 
 const UNKNOWN_LINE_ENDING: Refusal =
@@ -6671,26 +6695,33 @@ fn cloudy(document: &Document, annotation: &Dictionary, width: f32) -> Option<f3
     Some(crate::cloud::radius(intensity, width))
 }
 
-/// Whether `/LE` names a line ending other than Table 179's `None`.
-fn line_endings(document: &Document, annotation: &Dictionary) -> Result<[Ending; 2], Refusal> {
+/// Table 178's and Table 181's `/LE`: the two endings, and [`UNKNOWN_LINE_ENDING`] where either
+/// slot names no style of Table 179's.
+///
+/// **The slot is left without an ending and the line keeps its place** (ADR 0106): `/LE` is
+/// optional and the line it decorates is required, so a name this reader has no description of
+/// is reported beside the drawn line rather than instead of it — the reading §12.5.6.6's callout
+/// takes of the same entry.
+fn line_endings(document: &Document, annotation: &Dictionary) -> ([Ending; 2], Option<Refusal>) {
     let entry = document.get_key(annotation, "LE");
     let Some(values) = entry.as_array() else {
-        return Ok([Ending::None; 2]);
+        return ([Ending::None; 2], None);
     };
     let mut endings = [Ending::None; 2];
+    let mut owed = None;
     for (slot, value) in endings.iter_mut().zip(values) {
-        let resolved = document.resolve(value);
-        let Some(name) = resolved.as_name() else {
-            // "An array of two names": an entry that is not a name states no style, and the
-            // table's default answers an *absent* array rather than a malformed one.
-            return Err(UNKNOWN_LINE_ENDING);
-        };
-        let Some(ending) = Ending::read(name.as_bytes()) else {
-            return Err(UNKNOWN_LINE_ENDING);
-        };
-        *slot = ending;
+        // "An array of two names": an entry that is not a name states no style, and the table's
+        // default answers an *absent* array rather than a malformed one.
+        match document
+            .resolve(value)
+            .as_name()
+            .and_then(|name| Ending::read(name.as_bytes()))
+        {
+            Some(ending) => *slot = ending,
+            None => owed = Some(UNKNOWN_LINE_ENDING),
+        }
     }
-    Ok(endings)
+    (endings, owed)
 }
 
 /// Reads one of Table 166's colour arrays.

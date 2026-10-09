@@ -175,7 +175,11 @@ const MAX_OPERANDS: usize = 8192;
 /// always infinite: what a form invokes depends on the state it inherits — the font in force, a
 /// fill that is a pattern whose cell draws the same form in a flat colour — so a re-entry refused
 /// by name would refuse finite files, and a report firing on it would fire on a condition no clause
-/// states. ADR 0793. **Identity names; it does not refuse**: once the bound is reached, a stream
+/// states. ADR 0793. **The one exception is the one the clause states**: a Type 3 glyph description
+/// already running is refused where it is re-entered, because §9.6.4 makes every such case
+/// implementation-dependent whether or not it would end (ADR 1792,
+/// `Interpreter::descriptions_running`). **For every other kind, identity names; it does not
+/// refuse**: once the bound is reached, a stream
 /// already on [`Interpreter::chain`] makes the report `Unsupported::NestingCycle`, naming the
 /// stream re-entered — a chain no value of this bound would finish — and a chain of distinct
 /// streams keeps `LimitReached`, the one a larger value would. `examples/nesting_census` counts the
@@ -1531,6 +1535,7 @@ impl<'a> Interpreter<'a> {
             soft_mask_depth: 0,
             nesting: 0,
             chain: Vec::new(),
+            descriptions_running: Vec::new(),
             uncoloured: false,
             enclosing_knockout: None,
             // §8.4.1 Table 51 gives the alpha source parameter an initial value of `false`,
@@ -1617,6 +1622,7 @@ impl<'a> Interpreter<'a> {
             one_colour: _,
             // Empty at every seam a checkpoint is taken at, because nothing nested is running.
             chain: _,
+            descriptions_running: _,
             // Accumulated: the tail of every one of these is what the annotation pass appends.
             list,
             unsupported,
@@ -2892,9 +2898,17 @@ struct Interpreter<'a> {
     /// Read only when the bound is reached, to say whether the stream refused there is already
     /// running further out — a chain that re-enters itself, which no value of the bound would
     /// finish — or a chain of distinct streams that a larger bound would. The refusal is the
-    /// bound's either way (ADR 0793 declines refusing a re-entry by name); what this changes is
-    /// the sentence (ADR 1411).
+    /// bound's either way (ADR 0793 declines refusing a re-entry by name) except for a glyph
+    /// description, which [`Self::descriptions_running`] refuses sooner; what this changes is the
+    /// sentence (ADR 1411).
     chain: Vec<Option<usize>>,
+    /// Which Type 3 glyph descriptions are running, outermost first, by the stream object each is.
+    ///
+    /// ISO 32000-2 §9.6.4, as Errata Collection 3 amends it, makes a glyph description that
+    /// "refers to itself directly or indirectly" implementation-dependent, so a description already
+    /// here is refused at its re-entry rather than at [`MAX_FORM_DEPTH`] (ADR 1792). Empty at every
+    /// seam a checkpoint is taken at, like [`Self::chain`], because no glyph is being drawn there.
+    descriptions_running: Vec<ObjectId>,
     /// Whether the content being run is a figure whose colour is supplied from outside it.
     ///
     /// ISO 32000-2 §8.6.8 names two such circumstances and gives them one rule: "in any glyph

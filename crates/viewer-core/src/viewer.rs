@@ -5412,10 +5412,6 @@ fn refused_keystroke(open: &Open, done: &crate::open::Done) -> Option<String> {
     else {
         return None;
     };
-    let mut trial = open.view.clone();
-    if trial.set_field(&open.document, field, value) > 0 {
-        return None;
-    }
     let widget = *pdf_model::view::widgets_by_field_name(&open.document)
         .get(field)?
         .first()?;
@@ -5428,6 +5424,12 @@ fn refused_keystroke(open: &Open, done: &crate::open::Done) -> Option<String> {
     ) else {
         return None;
     };
+    // Tried only for a one-call script, which runs in this tree without the runner: a script the
+    // runner runs would run twice for one keystroke, once here on the copy (ADR 1787).
+    let mut trial = open.view.clone();
+    if trial.set_field(&open.document, field, value) > 0 {
+        return None;
+    }
     let kept = open
         .view
         .field_value(&open.document, field)

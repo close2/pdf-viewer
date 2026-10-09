@@ -288,12 +288,24 @@ fn stop_group(group: &str) {
 }
 
 /// Whether the process group `group` leads still has a member.
+///
+/// Asked more than once, for up to two seconds: `open` prints the job's pid the moment the shell
+/// has forked it, and the child is the leader of a group of its own only once it has run
+/// `setsid(2)` — until then its group is the subshell's and `kill -0 -<pid>` names no group. Under
+/// a parallel test run that window was wide enough to read a running job as never started.
 fn group_runs(group: &str) -> bool {
-    Command::new("kill")
-        .args(["-0", "--", &format!("-{group}")])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    let asked = std::time::Instant::now();
+    loop {
+        let runs = Command::new("kill")
+            .args(["-0", "--", &format!("-{group}")])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if runs || asked.elapsed() >= std::time::Duration::from_secs(2) {
+            return runs;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 /// The pid `open` printed after `what`, as `<what>: pid <n>, <log>`.

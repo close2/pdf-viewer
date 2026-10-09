@@ -1599,13 +1599,14 @@ impl Host {
         }
     }
 
-    /// The keyboard's Shift and Control, told to the core where they changed since it was last
-    /// told (ADRs 1762, 1771).
-    pub(crate) fn keys(&mut self, shift: bool, control: bool) {
+    /// The keyboard's Shift and Control, and whether an arrow key is making a choice control's
+    /// selection, told to the core where they changed since it was last told: the field's Table
+    /// 199 `/K` reads the arrows as Adobe's `event.keyDown` (ADRs 1762, 1771, 1786).
+    pub(crate) fn keys(&mut self, shift: bool, control: bool, arrows: bool) {
         let keys = pdf_model::view::Keys {
             shift,
             modifier: control,
-            arrows: false,
+            arrows,
         };
         if keys != self.keys_told {
             self.keys_told = keys;

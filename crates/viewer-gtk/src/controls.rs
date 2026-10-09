@@ -44,6 +44,13 @@ pub(crate) enum FieldChange {
         /// The qualified name.
         field: String,
     },
+    /// An arrow key is making the selection the next [`FieldChange::Set`] carries (`true`), or
+    /// made it (`false`): what Adobe's `event.keyDown` reads at the field's Table 199 `/K`, which
+    /// runs when a person "modifies the selection in a scrollable list box" (ADRs 1762, 1786).
+    Arrows {
+        /// Whether the arrow is down.
+        held: bool,
+    },
 }
 
 /// A control on the screen, and enough to know whether the next frame may keep it.
@@ -705,6 +712,30 @@ fn list(
         item.set_child(Some(&label));
     });
     let view = gtk4::ListView::new(Some(selection.clone()), Some(factory));
+    // GTK's list moves its selection with the arrows inside the key press, so a press seen in the
+    // capture phase is down while the model's `selection-changed` runs, and an idle lets it go
+    // once GTK has finished with the key (ADR 1786).
+    let arrow = Rc::new(Cell::new(false));
+    let keys = gtk4::EventControllerKey::new();
+    keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    {
+        let arrow = Rc::clone(&arrow);
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if matches!(
+                key,
+                gtk4::gdk::Key::Up
+                    | gtk4::gdk::Key::Down
+                    | gtk4::gdk::Key::KP_Up
+                    | gtk4::gdk::Key::KP_Down
+            ) {
+                arrow.set(true);
+                let arrow = Rc::clone(&arrow);
+                gtk4::glib::idle_add_local_once(move || arrow.set(false));
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+    }
+    view.add_controller(keys);
     let name = field.name.qualified.clone();
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
@@ -712,12 +743,19 @@ fn list(
         if suppress.get() {
             return;
         }
+        let arrows = arrow.get();
+        if arrows {
+            change(FieldChange::Arrows { held: true });
+        }
         // Read out of the model rather than accumulated from the signal's range: the signal says
         // *which positions changed*, and what the edit needs is what is selected now.
         change(FieldChange::Set {
             field: name.clone(),
             value: Entered::Chosen(chosen(selection)),
         });
+        if arrows {
+            change(FieldChange::Arrows { held: false });
+        }
     });
     let scroller = gtk4::ScrolledWindow::new();
     scroller.set_child(Some(&view));

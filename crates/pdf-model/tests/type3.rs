@@ -426,14 +426,14 @@ fn a_font_matrix_with_no_inverse_refuses_the_font_rather_than_collapsing_its_gly
     );
 }
 
-/// A Type 3 glyph showing itself is bounded rather than recursing forever.
+/// A Type 3 glyph showing itself is refused where it is re-entered rather than recursing forever.
 ///
-/// `ContentStreamCycleType3insideType3.pdf` in the corpus is a file built to do this. A
-/// glyph description may legitimately show text in another Type 3 font, so the recursion is
-/// real and only its depth is bounded — by the same bound a chain of form `XObject`s has,
-/// because it is the same danger.
+/// `ContentStreamCycleType3insideType3.pdf` in the corpus is a file built to do this. A glyph
+/// description may legitimately show text in another Type 3 font, so the recursion is real; what
+/// §9.6.4's Errata Collection 3 paragraph makes implementation-dependent is a description that
+/// "refers to itself directly or indirectly", and that one is refused at its re-entry (ADR 1792).
 #[test]
-fn a_glyph_that_shows_itself_reaches_a_bound_and_stops() {
+fn a_glyph_that_shows_itself_is_refused_at_its_reentry() {
     let interpretation = Fixture {
         square: "1000 0 d0\nBT /FT3 10 Tf (a) Tj ET",
         ..Fixture::default()
@@ -445,7 +445,7 @@ fn a_glyph_that_shows_itself_reaches_a_bound_and_stops() {
             item,
             pdf_model::Unsupported::NestingCycle { stream } if stream.contains("/square")
         )),
-        "the cycle should reach the nesting bound and name the glyph it re-enters (ADR 1411): \
+        "the cycle should be refused naming the glyph it re-enters (ADR 1792): \
          {:?}",
         interpretation.unsupported
     );

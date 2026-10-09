@@ -2631,6 +2631,13 @@ impl Host {
     /// changed since it was last told: a script reads them at the event the pointer raises next
     /// (ADRs 1762, 1771).
     fn tell_keys(&mut self) {
+        self.tell_keys_with(false);
+    }
+
+    /// [`Self::tell_keys`], with whether an arrow key is making a choice field's selection — true
+    /// only around the edit the arrow made, so that the field's Table 199 `/K` reads Adobe's
+    /// `event.keyDown` true for it alone (ADR 1786).
+    fn tell_keys_with(&mut self, arrows: bool) {
         let Some(held) = gtk4::gdk::Display::default()
             .and_then(|display| display.default_seat())
             .and_then(|seat| seat.keyboard())
@@ -2641,7 +2648,7 @@ impl Host {
         let keys = pdf_model::view::Keys {
             shift: held.contains(gtk4::gdk::ModifierType::SHIFT_MASK),
             modifier: held.contains(gtk4::gdk::ModifierType::CONTROL_MASK),
-            arrows: false,
+            arrows,
         };
         if keys != self.keys_told {
             self.keys_told = keys;
@@ -2832,6 +2839,15 @@ impl Host {
                             page.grab_focus();
                         });
                     }
+                }
+                FieldChange::Arrows { held } => {
+                    if held {
+                        host.trace.say(
+                            Topic::Panel,
+                            format_args!("the selection is an arrow key's"),
+                        );
+                    }
+                    host.tell_keys_with(held);
                 }
                 FieldChange::Holds { .. } => {
                     let fields = match host.viewer.query(Query::Fields) {

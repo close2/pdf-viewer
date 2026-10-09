@@ -550,13 +550,21 @@ impl App {
         if self.typing.is_some() && self.typed(key) {
             return;
         }
-        // **An open list takes the key that dismisses it and nothing else.** It is a control over
-        // the page rather than a modal card, so a person who has opened one has not stopped
-        // reading the document — but Escape has to reach it before the table turns Escape into
+        // **An open list takes the key that dismisses it and the two that move it.** It is a
+        // control over the page rather than a modal card, so a person who has opened one has not
+        // stopped reading the document — but Escape has to reach it before the table turns Escape into
         // "clear the selection", or the only way to close a list would be to press somewhere else.
         if self.choosing.is_some()
             && matches!(key, Key::Named(NamedKey::Escape))
             && self.close_choices()
+        {
+            return;
+        }
+        // **And the up and down arrows, which move its selection** (ADR 1786): the keys a native
+        // list takes, so that Table 199's `/K` sees the selection an arrow made in this window too.
+        if self.choosing.is_some()
+            && let Key::Named(arrow @ (NamedKey::ArrowUp | NamedKey::ArrowDown)) = key
+            && self.arrow_on_choices(*arrow == NamedKey::ArrowDown)
         {
             return;
         }

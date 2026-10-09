@@ -610,6 +610,24 @@ pdf.Root.OpenAction = Dictionary(S=Name.JavaScript, JS=String(
     'console.show(); console.clear(); console.hide();'))
 pdf.save(f"{out}/drive-keys.pdf")
 
+# drive-arrows.pdf: a list box whose Table 199 /K logs the option it is handed and `event.keyDown`,
+# numbered so each line is new: a selection a press made reads false and one an arrow made true
+# (ADR 1786).
+pdf = pikepdf.new()
+font = helv(pdf)
+a1 = page(pdf, font, "Arrows")
+picked = pdf.make_indirect(Dictionary(
+    Type=Name.Annot, Subtype=Name.Widget, T=String("Picked"), TU=String("Picked"),
+    Rect=[72, 360, 272, 440], F=4, P=a1.obj, FT=Name.Ch, DA=text,
+    Opt=[String("Alpha"), String("Beta"), String("Gamma"), String("Delta")],
+    MK=Dictionary(BC=[0, 0, 0], BG=[0.9, 0.95, 1]),
+    AA=Dictionary(K=Dictionary(S=Name.JavaScript, JS=String(
+        'global.k = (global.k || 0) + 1; console.println("K " + global.k + " " + event.change'
+        ' + " keyDown " + event.keyDown);')))))
+a1.obj.Annots = Array([picked])
+pdf.Root.AcroForm = Dictionary(Fields=Array([picked]), DA=text, DR=Dictionary(Font=Dictionary(Helv=font)))
+pdf.save(f"{out}/drive-arrows.pdf")
+
 # drive-rich.pdf and drive-rich-plain.pdf: a note whose popup opens with the page, its Table 172
 # /RC colouring two words pure red and bold, and the same note with /Contents alone — the control,
 # under which no red may be drawn (ADR 1642).
@@ -2743,6 +2761,45 @@ script_keys() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# Table 199's /K at a list box's selection, and `event.keyDown`, in the three windows that run
+# scripts (ADR 1786): a selection a press made logs keyDown false and one the down arrow made logs
+# it true — each control the other's. The toolkits' press lands on a row of their own list, and the
+# arrow moves on from it; `quorra`'s press opens its drawn list, the arrow selects its first option
+# and a press on the second row picks that one.
+list_arrows() {
+    local step=73-list-arrows picked mark
+    if [ ! -x "$BIN/pdf-script-worker" ]; then
+        verdict "$step" "not offered" "no $BIN/pdf-script-worker beside the windows"; return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "pinned to off: no script runs a keystroke"; return
+    fi
+    launch "$FIXTURES/drive-arrows.pdf" --scripts on
+    case "$WINDOW" in
+        quorra-gtk) PICKED="556 558" ;;
+        quorra-qt) PICKED="555 570" ;;
+        *) PICKED="230 494" ;;
+    esac
+    asked PICKED "*" "Picked"
+    mark=$(lines)
+    click $PICKED
+    if [ "$WINDOW" != quorra ]; then
+        wait_for 10 said_since "$mark" 'keyDown false'
+    fi
+    key Down; wait_for 10 said_since "$mark" 'keyDown true'
+    if [ "$WINDOW" = quorra ]; then
+        click 140 578; wait_for 10 said_since "$mark" 'keyDown false'
+    fi
+    shot "$step"
+    picked=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'K [0-9]* [A-Za-z]* keyDown [a-z]*' | tr '\n' ';')
+    if said_since "$mark" ' keyDown true' && said_since "$mark" ' keyDown false'; then
+        verdict "$step" works "the list box's /K ran at a press and at the down arrow: $picked"
+    else
+        verdict "$step" wrong "the list box's /K lines: ${picked:-none}: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 # Table 172's /RC drawn formatted in the popup window, in the three windows that draw one (ADR
 # 1642): pure red pixels on the photograph where the note colours two words, and none where the same
 # note states /Contents alone — the control that says the red is the run's.
@@ -3266,6 +3323,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     script_beep
     script_triggers
     script_keys
+    list_arrows
     popup_rich
     popup_face
     popup_rtl

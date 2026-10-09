@@ -3080,20 +3080,37 @@ fn a_reversed_arrowhead_is_not_the_one_it_reverses() {
     assert_ne!(ending("ClosedArrow"), ending("RClosedArrow"));
 }
 
-/// A `/LE` naming something Table 179 does not is reported rather than dropped.
+/// A `/LE` naming something Table 179 does not is reported rather than dropped — and beside the
+/// line rather than instead of it, because the line is required and the ending optional (ADR
+/// 0106). The same holds for a polyline, whose Table 181 `/LE` is the same entry.
 #[test]
-fn a_line_ending_style_the_table_does_not_have_is_reported() {
-    let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Line /Rect [0 0 100 100] /F 4 /L [30 50 70 50] /C [0 0 0] \
-         /LE [/Wedge /None] >>",
-        "/BBox [0 0 10 10]",
-        "",
-    ));
-    assert!(
-        format!("{:?}", interpretation.unsupported).contains("Table 179"),
-        "{:?}",
-        interpretation.unsupported
-    );
+fn a_line_ending_style_the_table_does_not_have_is_reported_beside_the_line() {
+    for (annotation, geometry) in [
+        ("Line", "/L [30 50 70 50]"),
+        ("PolyLine", "/Vertices [20 20 50 80 80 20]"),
+    ] {
+        let with = |ending: &str| {
+            pdf_with(
+                &format!(
+                    "<< /Type /Annot /Subtype /{annotation} /Rect [0 0 100 100] /F 4 {geometry} \
+                     /C [0 0 0] /BS << /W 3 >> /LE [{ending} /None] >>"
+                ),
+                "/BBox [0 0 10 10]",
+                "",
+            )
+        };
+        let interpretation = interpret(with("/Wedge"));
+        assert!(
+            format!("{:?}", interpretation.unsupported).contains("Table 179"),
+            "{annotation}: {:?}",
+            interpretation.unsupported
+        );
+        assert_eq!(
+            render_incomplete(&interpretation).data,
+            render(with("/None")).data,
+            "{annotation}: the line is drawn, without the ending it cannot name"
+        );
+    }
 }
 
 /// Table 178's `/Cap` puts the annotation's own words on the line, which is a `shall`.
@@ -3241,19 +3258,47 @@ fn a_polylines_endings_follow_its_first_and_last_leg() {
     assert_ne!(bent.data, plain.data, "the arrowheads are drawn");
 }
 
-/// A polygon's ends meet, so §12.5.6.9 gives it none to decorate — and it says so.
+/// A polygon's ends meet, so §12.5.6.9 gives it none to decorate, and Table 181 says so in the
+/// entry's own cell: `/LE` is "(Optional; meaningful only for polyline annotations)". So a
+/// polygon stating one — a style the table names, or one it does not — draws exactly what it
+/// draws without one and reports nothing, which is the same cell's `/BE` reading the other way
+/// round (trap 11).
+///
+/// A polyline whose shape is Table 181's `/Path` is still named: the cell places the endings on
+/// "the first and last pairs of coordinates in the Vertices array", which a `/Path` replaces.
 #[test]
-fn a_polygons_line_endings_are_reported_because_it_has_no_ends() {
-    let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] /F 4 \
-         /Vertices [20 20 50 80 80 20] /C [0 0 0] /BS << /W 3 >> /LE [/OpenArrow /OpenArrow] >>",
+fn a_polygons_line_endings_are_not_meaningful_and_a_path_polylines_are_named() {
+    let polygon = |ending: &str| {
+        pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Polygon /Rect [0 0 100 100] /F 4 \
+                 /Vertices [20 20 50 80 80 20] /C [0 0 0] /BS << /W 3 >> {ending} >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        )
+    };
+    let plain = render(polygon("")).data;
+    for ending in ["/LE [/OpenArrow /OpenArrow]", "/LE [/Wedge /None]"] {
+        let interpretation = interpret(polygon(ending));
+        assert!(
+            interpretation.unsupported.is_empty(),
+            "{ending}: {:?}",
+            interpretation.unsupported
+        );
+        assert_eq!(render(polygon(ending)).data, plain, "{ending}");
+    }
+
+    let path = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /PolyLine /Rect [0 0 100 100] /F 4 \
+         /Path [[20 20] [50 80] [80 20]] /C [0 0 0] /BS << /W 3 >> /LE [/OpenArrow /OpenArrow] >>",
         "/BBox [0 0 10 10]",
         "",
     ));
     assert!(
-        format!("{:?}", interpretation.unsupported).contains("no two points"),
+        format!("{:?}", path.unsupported).contains("first and last of its /Vertices"),
         "{:?}",
-        interpretation.unsupported
+        path.unsupported
     );
 }
 

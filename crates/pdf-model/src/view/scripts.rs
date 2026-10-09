@@ -425,6 +425,18 @@ pub(super) enum Verdict {
     Rewritten(String),
 }
 
+/// What Table 199's `/K` made of a choice field's selection (ADR 1786).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Selected {
+    /// The selection stands as the person made it.
+    Stands,
+    /// A script rejected the keystroke.
+    Rejected,
+    /// A script rewrote `event.change` to the text of this option of Table 234's `/Opt`, which is
+    /// what the field selects.
+    Chooses(usize),
+}
+
 /// What one widget showed before a person began typing into its field.
 ///
 /// The three statements about a value a typed one replaces, kept so that a refused commit puts
@@ -1683,6 +1695,69 @@ impl ViewState {
                         ));
                         Verdict::Stands
                     }
+                }
+            }
+        }
+    }
+
+    /// What Table 199's `/K` makes of a choice field's new selection.
+    ///
+    /// The entry is performed when the user "modifies the selection in a scrollable list box", and
+    /// for a combo box when the user "modifies a character", which a drop-down's pick is the whole
+    /// of. The keystroke is the one [`Self::keystroke_verdict`] runs, its change the text a person
+    /// sees for the option the selection names and its `changeEx` that option's export value: the
+    /// lowest of the indices, which is the option a single selection keeps (Table 233 bit 22), and
+    /// empty where nothing is selected. The reference states no change for a selection of several
+    /// options, so the first of them is this tree's choice. A script that rewrites the change to
+    /// the text of an option selects that option; one that rewrites it to text no option shows is
+    /// reported, and the selection stands as made, since a list box holds no value outside `/Opt`
+    /// (ADR 1786).
+    pub(super) fn selection_verdict(
+        &mut self,
+        document: &Document,
+        taking: &[ObjectId],
+        indices: &[usize],
+    ) -> Selected {
+        let Some(first) = taking.first().copied() else {
+            return Selected::Stands;
+        };
+        let Some(stored) = document.get(first).as_dict().cloned() else {
+            return Selected::Stands;
+        };
+        let annotation =
+            crate::appearance::with_rewritten_options(document, &stored, self.scripted(first));
+        let field =
+            crate::appearance::Field::read(document, &annotation, super::FieldValue::Stored);
+        if !matches!(
+            field.kind,
+            Some(crate::appearance::FieldKind::Choice { .. })
+        ) {
+            // Not §12.7.5.4's field: `set_field` refuses the choice itself.
+            return Selected::Stands;
+        }
+        let options = crate::form::options(document, &field);
+        let change = indices
+            .iter()
+            .copied()
+            .filter(|index| *index < options.len())
+            .min()
+            .and_then(|index| options.get(index))
+            .map(|option| option.label.clone())
+            .unwrap_or_default();
+        match self.keystroke_verdict(document, taking, &change) {
+            Verdict::Stands => Selected::Stands,
+            Verdict::Rejected => Selected::Rejected,
+            Verdict::Rewritten(text) if text == change => Selected::Stands,
+            Verdict::Rewritten(text) => {
+                if let Some(option) = options.iter().position(|option| option.label == text) {
+                    Selected::Chooses(option)
+                } else {
+                    let name = super::field_name_of(document, first);
+                    self.report(format!(
+                        "{name}: the field's keystroke script changed the selection to \"{text}\", \
+                         which no option of /Opt shows, so the selection stands as made"
+                    ));
+                    Selected::Stands
                 }
             }
         }

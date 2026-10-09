@@ -59,7 +59,7 @@
 //! # Running it
 //!
 //! ```text
-//! ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --tree 12 \
+//! ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 12 \
 //!     --build '--profile gates -p pdf-sandbox --bins' -- \
 //!     cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 //! ```
@@ -72,7 +72,7 @@
 //! **To regenerate, after a change that moves pixels on purpose:**
 //!
 //! ```text
-//! ulimit -u 8192; PDFVIEWER_RASTER_GOLDEN=update RAYON_NUM_THREADS=4 tools/bounded.sh --lock \
+//! ulimit -u 8192; PDFVIEWER_RASTER_GOLDEN=update tools/bounded.sh --lock \
 //!     --round <session> --tree 12 --build '--profile gates -p pdf-sandbox --bins' -- \
 //!     cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 //! ```

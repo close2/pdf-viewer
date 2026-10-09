@@ -25,11 +25,21 @@ use std::time::{Duration, Instant};
 
 use pdf_model::aform::Trigger;
 use pdf_model::view::{Entered, ScriptEvent, ScriptRunner, ScriptSite, ViewState};
-use pdf_script_worker::{Cause, DEADLINE, MAX_DEATHS, ScriptWorker};
+use pdf_script_worker::{ANSWER_WAIT, Cause, DEADLINE, HeldClock, MAX_DEATHS, ScriptWorker};
 use pdf_syntax::Document;
 
 /// The worker program Cargo built beside this test.
 const WORKER: &str = env!("CARGO_BIN_EXE_pdf-script-worker");
+
+/// A deadline no run of these tests is meant to reach, for a test whose verdict is the worker's own
+/// death: the run then ends at the worker's signal, however slow the machine, and a worker that
+/// does not die fails the test on [`Cause::Deadline`] after this rather than hanging it (ADR 1794).
+const OUT_OF_THE_WAY: Duration = Duration::from_mins(1);
+
+/// A moment short of `wait`, so that a test can stand its held clock just before the wait ends.
+fn just_short_of(wait: Duration) -> Duration {
+    wait.saturating_sub(Duration::from_nanos(1))
+}
 
 /// RFC 0008 section 6.3's level, as far as a host that has no dialogue needs it: `ask` and `warn`
 /// supply a runner as `on` does, and differ in what the host says around it.
@@ -311,10 +321,14 @@ fn a_run_past_its_deadline_is_killed_named_and_the_next_trigger_starts_another()
 
 /// Growth through an operator, which no per-call budget sees, meets the ceiling: the worker aborts
 /// with the allocator's sentence, the host names the trigger, and the next trigger is run.
+///
+/// The verdict is the worker's own death, so the runner's deadline is put out of its way: at
+/// [`DEADLINE`] the growth would race the watchdog, and on a slow enough machine the watchdog's
+/// kill would be read as a missing abort.
 #[cfg(target_os = "linux")]
 #[test]
 fn growth_past_the_ceiling_ends_the_worker_and_is_named() {
-    let worker = ScriptWorker::with_program(WORKER);
+    let worker = ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY);
     let lost = worker.run(&format_event(
         "var s = 'x'; for (var i = 0; i < 30; i++) { s += s; } event.value = String(s.length);",
     ));
@@ -378,9 +392,14 @@ fn a_script_crosses_once_per_worker() {
 /// The allow-list of `pdf_sandbox::lockdown::Profile::Script` is what a worker issued under
 /// `strace` running these (ADR 1608); a call the engine needs and the list lacks shows here as a
 /// lost worker rather than as a field that stopped formatting in somebody's form.
+///
+/// The deadline is put out of the way, so that a lost worker here is the filter's kill and nothing
+/// else: the sort below calls back into script from inside one native call, which the engine's
+/// budgets do not see (ADR 1590), and at [`DEADLINE`] it was killed in 8 of 80 runs at a load
+/// average of five to six, where its run took 138 to 152 ms when it lived (ADR 1794).
 #[test]
 fn the_engines_library_runs_inside_the_filter() {
-    let worker = ScriptWorker::with_program(WORKER);
+    let worker = ScriptWorker::with_program(WORKER).with_deadline(OUT_OF_THE_WAY);
     let scripts = [
         "event.value = String(Math.random() < 1);",
         "event.value = new Date(2024, 0, 5).toISOString() + Date.now();",
@@ -590,9 +609,13 @@ fn a_question_holds_its_script_in_the_worker_and_the_answer_resumes_it() {
 /// Triggers handed over while a script waits are queued behind it and run, in order, once it has
 /// its answer; a question nobody answers is withdrawn after its wait, and answered as a closed
 /// dialogue answers.
+///
+/// The wait is [`ANSWER_WAIT`] on a clock the test holds, so it runs out where the test moves the
+/// clock and not while the runs before it are slow (ADR 1794).
 #[test]
 fn triggers_wait_behind_a_question_and_a_question_nobody_answers_is_withdrawn() {
-    let worker = ScriptWorker::with_program(WORKER).with_answer_wait(Duration::from_millis(200));
+    let clock = Arc::new(HeldClock::new());
+    let worker = ScriptWorker::with_program(WORKER).with_clock(Arc::clone(&clock));
     let asked = worker.run(&format_event(
         "global.n = app.response('Name?'); event.value = String(global.n);",
     ));
@@ -605,15 +628,20 @@ fn triggers_wait_behind_a_question_and_a_question_nobody_answers_is_withdrawn() 
         worker.take_question().is_some(),
         "the host puts the question"
     );
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(worker.question_withdrawn());
+    clock
+        .advance(just_short_of(ANSWER_WAIT))
+        .expect("two minutes on fit in an Instant");
+    assert!(!worker.question_withdrawn(), "the wait has not run out");
+    assert!(worker.take_resumed().is_none(), "the script still waits");
+    clock
+        .advance(Duration::from_nanos(1))
+        .expect("a nanosecond on fits in an Instant");
+    assert!(worker.question_withdrawn(), "withdrawn as the wait ends");
     assert!(!worker.question_withdrawn(), "said once");
     let first = worker.take_resumed().expect("the held run finished");
     assert_eq!(first.result.value.as_deref(), Some("null"), "{first:?}");
-    assert!(
-        first.result.report[0].contains("was not answered within 200 ms"),
-        "{first:?}"
-    );
+    let within = format!("was not answered within {} ms", ANSWER_WAIT.as_millis());
+    assert!(first.result.report[0].contains(&within), "{first:?}");
     let second = worker.take_resumed().expect("the queued run ran");
     assert_eq!(
         second.result.value.as_deref(),
@@ -637,9 +665,12 @@ fn asked(question: &pdf_script::Question) -> &str {
 
 /// A card is dropped once its question's wait runs out, and a press on it that arrives after is
 /// never handed to the question a queued script asked since, which nobody has read (ADR 1641).
+///
+/// The wait runs out where the test moves its held clock past it (ADR 1794).
 #[test]
 fn a_late_answer_is_never_handed_to_the_question_asked_after_it() {
-    let worker = ScriptWorker::with_program(WORKER).with_answer_wait(Duration::from_millis(200));
+    let clock = Arc::new(HeldClock::new());
+    let worker = ScriptWorker::with_program(WORKER).with_clock(Arc::clone(&clock));
     worker.run(&format_event(
         "event.value = String(app.response('First?'));",
     ));
@@ -655,8 +686,15 @@ fn a_late_answer_is_never_handed_to_the_question_asked_after_it() {
     let deadline = worker
         .question_deadline()
         .expect("a taken question has a deadline");
-    assert!(deadline > Instant::now(), "{deadline:?}");
-    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        Some(deadline),
+        clock.now().checked_add(ANSWER_WAIT),
+        "the wait is counted from the question, on the clock that has not moved since"
+    );
+    let moved = clock
+        .advance(ANSWER_WAIT)
+        .expect("two minutes on fit in an Instant");
+    assert_eq!(moved, deadline);
 
     // The first card's answer, after its wait ran out and before the host polled again.
     worker.answer(pdf_script::Answer::Typed(Some("late".to_owned())));

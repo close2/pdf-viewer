@@ -2567,14 +2567,18 @@ impl ViewState {
     /// name — a caller's mistake rather than a document's — that every widget of it is Table 227's
     /// `ReadOnly`, which is the document refusing, that [`Entered::Chosen`] named §12.7.5.4's
     /// options on a field that is not one of §12.7.5.4's, which is a caller's mistake again, or
-    /// that the field's one-call keystroke script refused the characters — Table 199's `/K` "may
-    /// check the added text for validity and reject or modify it", which is the document refusing
-    /// again, one character at a time (ADR 1579).
+    /// that the field's keystroke script refused the characters or the selection — Table 199's
+    /// `/K` "may check the added text for validity and reject or modify it", which is the document
+    /// refusing again, one character at a time (ADR 1579).
     ///
     /// # Table 199's scripts, and the commit
     ///
     /// A text value is *typed*: `/K` judges it here, the field shows it as typed, and its format,
-    /// its validation and the keystroke's commit form wait for [`Self::commit_field`]. Every value
+    /// its validation and the keystroke's commit form wait for [`Self::commit_field`]. A choice is
+    /// judged by `/K` too, since the entry is performed when the user "modifies the selection in a
+    /// scrollable list box": the change handed to it is the option the selection names, and a
+    /// script that rewrites the change to another option's text selects that option (ADR 1786).
+    /// Every value
     /// this takes is a value change, so Table 224's `/CO` is walked after it, which is what keeps a
     /// total following its lines while they are typed (ADR 1579).
     ///
@@ -2657,8 +2661,10 @@ impl ViewState {
             .filter(|widget| !read_only.unwrap_or_else(|| is_read_only(document, *widget)))
             .collect();
         // Table 199's `/K`, which "may check the added text for validity and reject or modify it":
-        // a one-call keystroke script judges the characters before any widget takes them, and a
-        // refusal leaves the field as it was (ADR 1579).
+        // a keystroke script judges the characters before any widget takes them, and a refusal
+        // leaves the field as it was (ADR 1579). The entry's trigger is also when the user
+        // "modifies the selection in a scrollable list box", so a choice is judged the same way,
+        // its change being the option the selection names (ADR 1786).
         let rewritten;
         let value = match value {
             Entered::Text(text) => match self.keystroke_verdict(document, &taking, text) {
@@ -2669,7 +2675,15 @@ impl ViewState {
                     &rewritten
                 }
             },
-            Entered::Cleared | Entered::Chosen(_) => value,
+            Entered::Chosen(indices) => match self.selection_verdict(document, &taking, indices) {
+                scripts::Selected::Stands => value,
+                scripts::Selected::Rejected => return 0,
+                scripts::Selected::Chooses(option) => {
+                    rewritten = Entered::Chosen(vec![option]);
+                    &rewritten
+                }
+            },
+            Entered::Cleared => value,
         };
         let entry = match value {
             Entered::Cleared => Entry {

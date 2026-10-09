@@ -7746,17 +7746,17 @@ fn an_annotation_the_removal_leaves_behind_still_owes_the_appearance_it_cannot_h
 #[test]
 fn an_appearance_drawn_as_far_as_its_entries_reach_is_refused_as_partial() {
     // **The other half of that calibration.** `doc/adr/1105` split one refusal into two, and a
-    // split whose second arm nothing reaches is a split that says nothing. §12.5.6.9's polygon
-    // states its shape in Table 181's `/Vertices`, so the construction draws it; the same table
-    // gives the subtype a `/LE`, and a polygon has no end to put a line ending on — a polyline is
-    // what the clause calls a polygon "except that the first and last vertex are not implicitly
-    // connected". So the endings are owed beside marks that were drawn, which is the shape this
-    // arm is for.
+    // split whose second arm nothing reaches is a split that says nothing. §12.5.6.9's polyline
+    // may state its shape as Table 181's `/Path`, a sequence of curves the construction draws;
+    // the same table gives the subtype a `/LE`, placed on "the first and last pairs of
+    // coordinates in the Vertices array", which a `/Path` replaces — so the endings are owed
+    // beside marks that were drawn, which is the shape this arm is for. (A polygon's `/LE` is
+    // not read at all: Table 181 makes it "meaningful only for polyline annotations", ADR 1784.)
     let source = Conforming {
         page: "/Annots [6 0 R]".to_owned(),
         objects: vec![
-            "<< /Type /Annot /Subtype /Polygon /Rect [10 10 90 90] /F 4 \
-             /Vertices [20 20 80 20 80 80] /IC [0 0 1] /LE [/OpenArrow /None] >>"
+            "<< /Type /Annot /Subtype /PolyLine /Rect [10 10 90 90] /F 4 \
+             /Path [[20 20] [80 20] [80 80]] /C [0 0 1] /LE [/OpenArrow /None] >>"
                 .to_owned(),
         ],
         contents: Some(paints_in_device_rgb()),

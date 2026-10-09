@@ -47,7 +47,7 @@
 //!
 //! ```sh
 //! cargo build --profile gates -p pdf-model --example overprint_ink_group_census
-//! RAYON_NUM_THREADS=4 tools/bounded.sh --lock --round <session> --data 12 --tree 12 -- \
+//! tools/bounded.sh --lock --round <session> --data 12 --tree 12 -- \
 //!     <target-dir>/gates/examples/overprint_ink_group_census @paths.txt
 //! ```
 //!

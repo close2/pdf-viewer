@@ -371,3 +371,10 @@ GTK's entry and Qt's line edit swallowed a press before the core saw it, so no c
 ever reached a script site (round 1458, ADR 1752). A hit test asks the placed widgets themselves, and
 a capture-phase controller reads the press without taking it from the control.
 
+### 137. A replayed log re-runs every side effect inside it
+
+`Open::commit` rebuilt the view state by replaying the whole edit log at every edit, so every
+keystroke script already logged ran again under whatever keys were held at that moment: one arrow
+selection logged two `/K` runs and the first carried the earlier option (round 1475, ADR 1787). A
+log is replayed to *rebuild* — after an undo or a redo — and an entry's side effects happen once,
+when it is committed. The tell is a script, a report or a verdict that happens once per later edit.

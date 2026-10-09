@@ -1345,65 +1345,76 @@ impl Open {
         self.view.clear_all_free_text();
         self.view.clear_all_attachments();
         for edit in log.iter().take(self.cursor) {
-            match edit {
-                // An attach the log holds was accepted when it was made, and the name it was
-                // refused for cannot have arrived since — the log is the only writer — so a
-                // refusal here is not a case; `let _ =` says so rather than unwrapping.
-                Done::Attach { filing } => {
-                    let _ = self.view.attach(&self.document, filing.clone());
-                }
-                Done::Detach { name } => {
-                    self.view.detach(&self.document, name);
-                }
-                Done::SetField { field, value } => {
-                    self.view.set_field(&self.document, field, value);
-                }
-                // The sentence a refusal carries was said when the commit was made; a replay
-                // reaches the same outcome and has nobody new to tell.
-                Done::CommitField { field } => {
-                    let _ = self.view.commit_field(&self.document, field);
-                }
-                Done::ChooseFile {
-                    field,
-                    pathname,
-                    bytes,
-                    mime,
-                } => {
-                    self.view.choose_file(
-                        &self.document,
-                        field,
-                        pdf_model::view::ChosenFile {
-                            pathname: pathname.clone(),
-                            media_type: mime.clone(),
-                            bytes: bytes.as_ref().to_vec(),
-                        },
-                    );
-                }
-                Done::Markup {
-                    pages,
-                    kind,
-                    colour,
-                } => {
-                    for (page, quads) in pages {
-                        self.view
-                            .add_markup(&self.document, *page, *kind, *colour, quads);
-                    }
-                }
-                Done::FreeText { page, rect, colour } => {
-                    self.view
-                        .add_free_text(&self.document, *page, *rect, "", *colour);
-                }
-                Done::SetFreeText { annotation, text } => {
-                    self.view.set_free_text(&self.document, *annotation, text);
-                }
-                Done::SetNoteText { annotation, text } => {
-                    self.view.set_note_text(&self.document, *annotation, text);
-                }
-            }
+            self.apply(edit);
         }
         self.log = log;
         // The page's ink depends on the values, so the display list and every readback are stale.
         self.stale();
+    }
+
+    /// Applies one entry of the log to the state the entries before it made.
+    ///
+    /// [`Self::replay`] applies each surviving entry in turn, and [`Self::commit`] applies the one
+    /// it adds and no other, so a document's scripts run once for what a person did when they did
+    /// it — Table 199's `/K` "shall be performed when the user modifies a character in a text
+    /// field or combo box or modifies the selection in a scrollable list box", not again at every
+    /// later edit — and run again only where an undo or a redo rebuilds the state (ADR 1787).
+    fn apply(&mut self, edit: &Done) {
+        match edit {
+            // An attach the log holds was accepted when it was made, and the name it was
+            // refused for cannot have arrived since — the log is the only writer — so a
+            // refusal here is not a case; `let _ =` says so rather than unwrapping.
+            Done::Attach { filing } => {
+                let _ = self.view.attach(&self.document, filing.clone());
+            }
+            Done::Detach { name } => {
+                self.view.detach(&self.document, name);
+            }
+            Done::SetField { field, value } => {
+                self.view.set_field(&self.document, field, value);
+            }
+            // The sentence a refusal carries was said when the commit was made; a replay
+            // reaches the same outcome and has nobody new to tell.
+            Done::CommitField { field } => {
+                let _ = self.view.commit_field(&self.document, field);
+            }
+            Done::ChooseFile {
+                field,
+                pathname,
+                bytes,
+                mime,
+            } => {
+                self.view.choose_file(
+                    &self.document,
+                    field,
+                    pdf_model::view::ChosenFile {
+                        pathname: pathname.clone(),
+                        media_type: mime.clone(),
+                        bytes: bytes.as_ref().to_vec(),
+                    },
+                );
+            }
+            Done::Markup {
+                pages,
+                kind,
+                colour,
+            } => {
+                for (page, quads) in pages {
+                    self.view
+                        .add_markup(&self.document, *page, *kind, *colour, quads);
+                }
+            }
+            Done::FreeText { page, rect, colour } => {
+                self.view
+                    .add_free_text(&self.document, *page, *rect, "", *colour);
+            }
+            Done::SetFreeText { annotation, text } => {
+                self.view.set_free_text(&self.document, *annotation, text);
+            }
+            Done::SetNoteText { annotation, text } => {
+                self.view.set_note_text(&self.document, *annotation, text);
+            }
+        }
     }
 
     /// Whether anything a person did is unsaved.
@@ -1433,9 +1444,14 @@ impl Open {
         let before = self.dirty();
         let attachments = done.moves_attachments();
         self.log.truncate(self.cursor);
+        // The state is the replay of the log up to the cursor already — an undo or a redo replayed
+        // it and every commit since applied its own entry — so the new entry is applied to it
+        // alone (ADR 1787).
+        self.apply(&done);
         self.log.push(done);
         self.cursor = self.log.len();
-        self.replay();
+        // The page's ink depends on the values, so the display list and every readback are stale.
+        self.stale();
         Committed {
             dirty_changed: self.dirty() != before,
             attachments,

@@ -133,6 +133,9 @@ pub(crate) struct Choosing {
     /// Which of the field's widgets was pressed, since §12.7.4.1's `/Kids` lets a terminal field
     /// refer to "one or more separate widget annotations".
     pub(crate) annotation: ObjectId,
+    /// The option an arrow scrolled the list to start at, where one has: until then a list box
+    /// starts at Table 234's `/TI` and a drop-down at its value (ADR 1786).
+    pub(crate) first: Option<usize>,
 }
 
 /// A person typing into a form field: which field, and where in its value.
@@ -470,6 +473,7 @@ impl App {
         self.choosing = Some(Choosing {
             field: pressed.field,
             annotation: pressed.annotation,
+            first: None,
         });
         self.redraw();
         true
@@ -516,6 +520,7 @@ impl App {
             } => (options.clone(), selected.clone(), *top),
             _ => return None,
         };
+        let first = choosing.first.unwrap_or(first);
         // Device pixels of the *page's* viewport, which begins where the panel ends — the same one
         // addition every other overlay makes.
         #[expect(
@@ -591,6 +596,70 @@ impl App {
         }));
         if !stays {
             self.close_choices();
+        }
+        self.redraw();
+        true
+    }
+
+    /// An up or down arrow while §12.7.5.4's options are on the screen. Answers whether the list
+    /// took it.
+    ///
+    /// The arrow selects one option ([`viewer_ui::chrome::ChoiceList::stepped`]) and the list stays
+    /// up, scrolled where the option has left its rows. The window says the arrows are down for the
+    /// edit alone — `Command::Keys` before it and after it — so the field's Table 199 `/K`, which
+    /// runs when a person "modifies the selection in a scrollable list box", reads Adobe's
+    /// `event.keyDown` true for this selection and false for a press (ADRs 1762, 1786). An arrow at
+    /// the end of the list selects what is already selected, which modifies nothing and sends
+    /// nothing.
+    pub(crate) fn arrow_on_choices(&mut self, down: bool) -> bool {
+        let Some(choosing) = self.choosing.clone() else {
+            return false;
+        };
+        let Some((_, kind)) = self.choices() else {
+            return false;
+        };
+        let (selected, count, first) = match &kind {
+            ControlKind::Combo {
+                options, selected, ..
+            } => (
+                selected.map(|index| vec![index]).unwrap_or_default(),
+                options.len(),
+                selected.unwrap_or_default(),
+            ),
+            ControlKind::List {
+                options,
+                selected,
+                top,
+                ..
+            } => (selected.clone(), options.len(), *top),
+            _ => return false,
+        };
+        let Some(option) = viewer_ui::chrome::ChoiceList::stepped(&selected, count, down) else {
+            return true;
+        };
+        let first = choosing.first.unwrap_or(first);
+        if let Some(open) = self.choosing.as_mut() {
+            open.first = Some(viewer_ui::chrome::ChoiceList::showing(first, option, count));
+        }
+        if selected != [option] {
+            let held = |arrows| {
+                Command::Keys(pdf_model::view::Keys {
+                    shift: self.shift,
+                    modifier: self.control,
+                    arrows,
+                })
+            };
+            let (down, up) = (held(true), held(false));
+            println!(
+                "note: {}: option {option} of Table 234's /Opt selected with an arrow",
+                choosing.field
+            );
+            self.dispatch(down);
+            self.dispatch(Command::Edit(Edit::SetField {
+                field: choosing.field,
+                value: Entered::Chosen(vec![option]),
+            }));
+            self.dispatch(up);
         }
         self.redraw();
         true

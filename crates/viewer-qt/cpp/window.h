@@ -502,8 +502,9 @@ private:
     /// window's place, holding its text, every change sent whole (ADR 1726). Escape, or the window
     /// closing, gives the keyboard back to the page.
     void editNote(const QtPopup& window, int position);
-    /// Tells the host the keyboard's Shift and Control before a pointer message (ADR 1771).
-    void keys();
+    /// Tells the host the keyboard's Shift and Control before a pointer message (ADR 1771), and
+    /// whether an arrow key is making a choice control's selection (ADR 1786).
+    void keys(bool arrows = false);
     /// Takes the note's editor away.
     void endNote();
     /// Sets the note's editor in the runs' faces `window` answers and says under it what it does
@@ -727,6 +728,9 @@ private:
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.
     bool writing_ = false;
+    /// Set while a list box or a combo box handles an up or down arrow, which is when Qt moves
+    /// its selection: the field's Table 199 `/K` reads it as Adobe's `event.keyDown` (ADR 1786).
+    bool arrowKey_ = false;
     /// Set while a call into the host is running, and refused rather than nested.
     ///
     /// **This is the one thing the C++ side has to promise that Rust's compiler used to check.**

@@ -715,8 +715,10 @@ pub mod ffi {
         /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
         /// What the keyboard holds, read by the window before each pointer message it sends: a
-        /// script reads Shift and Control at the event the pointer raises (ADR 1771).
-        fn keys(self: &mut Host, shift: bool, control: bool);
+        /// script reads Shift and Control at the event the pointer raises (ADR 1771), and whether
+        /// an arrow key is making a choice control's selection, which the window says around the
+        /// selection alone (ADR 1786).
+        fn keys(self: &mut Host, shift: bool, control: bool, arrows: bool);
         /// The wheel turned, in device pixels of the viewport.
         fn scrolled(self: &mut Host, dx: f32, dy: f32);
         /// Control and the wheel: `amount` turned away from the person, in notches or — where

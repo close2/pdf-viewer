@@ -34,7 +34,9 @@ pub mod wire;
 #[cfg(feature = "engine")]
 mod worker;
 
-pub use client::{ANSWER_WAIT, Cause, DEADLINE, Death, MAX_DEATHS, OpenCost, ScriptWorker};
+pub use client::{
+    ANSWER_WAIT, Cause, DEADLINE, Death, HeldClock, MAX_DEATHS, OpenCost, ScriptWorker,
+};
 
 #[cfg(feature = "engine")]
 pub use worker::serve;

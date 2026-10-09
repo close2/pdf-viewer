@@ -273,7 +273,8 @@ a window now ticks while a person reads, a tick advances §12.4.4.1's `/Dur` onl
 `event.shift`, `event.modifier` and `event.keyDown` are facts only a host has, so
 `Command::Keys(pdf_model::view::Keys)` carries them, sent by each window as Shift or Control
 changes — `quorra` at winit's `ModifiersChanged`, GTK and Qt read off the keyboard before each
-pointer message — and held for every open document and every one opened after. `console.show`,
+pointer message — and around a choice field's selection an arrow key made (ADR 1786), and held for
+every open document and every one opened after. `console.show`,
 `hide` and `clear` are `Event::Console { document, request }`, a host's act as a sound is; every
 window's console is its log, so each says the request by name. The wire, the trace line, both
 toolkits and the confined window failed to compile (command kind 41, event kind 27);

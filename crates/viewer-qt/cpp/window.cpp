@@ -2216,6 +2216,17 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return true;
     }
     pointerThroughControl(watched, event);
+    // A list box or a combo box moves its selection inside its own handling of an arrow, so the
+    // press is marked before the control sees it and let go once Qt has finished with it; the
+    // selection signal that runs in between says the arrow made it (ADR 1786).
+    if (event->type() == QEvent::KeyPress
+        && (qobject_cast<QListWidget*>(watched) != nullptr || qobject_cast<QComboBox*>(watched) != nullptr)) {
+        const int pressed = static_cast<QKeyEvent*>(event)->key();
+        if (pressed == Qt::Key_Up || pressed == Qt::Key_Down) {
+            arrowKey_ = true;
+            QTimer::singleShot(0, this, [this] { arrowKey_ = false; });
+        }
+    }
     if (watched == page_ && event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         const bool tab = key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab;
@@ -2901,6 +2912,11 @@ void MainWindow::rebuildControls()
                     return;
                 }
                 Busy guard(busy_);
+                // A closed combo box takes the arrows as a new value (ADR 1786).
+                const bool arrows = arrowKey_;
+                if (arrows) {
+                    keys(true);
+                }
                 // An editable combo box's text need not be one of Table 234's options at all —
                 // bit 19 lets "the user … type a value other than the predefined choices" — so
                 // that one sends characters and a plain drop-down sends the position it picked.
@@ -2910,6 +2926,9 @@ void MainWindow::rebuildControls()
                 } else {
                     const std::uint32_t one = static_cast<std::uint32_t>(combo->currentIndex());
                     host_->choose_control(index, rust::Slice<const std::uint32_t>(&one, 1));
+                }
+                if (arrows) {
+                    keys(false);
                 }
                 applyUpdates();
             });
@@ -2949,7 +2968,16 @@ void MainWindow::rebuildControls()
                         chosen.push_back(static_cast<std::uint32_t>(row));
                     }
                 }
+                // Table 199's /K runs when a person "modifies the selection in a scrollable list
+                // box", and reads whether an arrow made it as Adobe's event.keyDown (ADR 1786).
+                const bool arrows = arrowKey_;
+                if (arrows) {
+                    keys(true);
+                }
                 host_->choose_control(index, rust::Slice<const std::uint32_t>(chosen.data(), chosen.size()));
+                if (arrows) {
+                    keys(false);
+                }
                 applyUpdates();
             });
             widget = list;
@@ -3145,12 +3173,12 @@ void MainWindow::styleNote(const QtPopup& window)
     noteSaid_->setVisible(says);
 }
 
-void MainWindow::keys()
+void MainWindow::keys(bool arrows)
 {
     // What the keyboard holds as the pointer message is sent, for a script that reads Shift or
     // Control at the event the message raises (ADR 1771).
     const Qt::KeyboardModifiers held = QGuiApplication::keyboardModifiers();
-    host_->keys(held.testFlag(Qt::ShiftModifier), held.testFlag(Qt::ControlModifier));
+    host_->keys(held.testFlag(Qt::ShiftModifier), held.testFlag(Qt::ControlModifier), arrows);
 }
 
 void MainWindow::endNote()

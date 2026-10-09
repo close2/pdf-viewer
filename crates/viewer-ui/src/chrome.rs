@@ -3506,6 +3506,40 @@ impl ChoiceList {
         })
     }
 
+    /// The option an up or down arrow selects, from `selected` among `count` options, or `None`
+    /// where there are none.
+    ///
+    /// Table 199's `/K` runs when a person "modifies the selection in a scrollable list box", and
+    /// Adobe's `event.keyDown` says whether an arrow key made it (ADR 1762); the clause states no
+    /// key, so the step is this host's and the toolkits' convention (ADR 1786): one option after
+    /// the last selected, or one before the first, held at either end, the first option where
+    /// nothing is selected. An arrow selects that one option alone, a list of several included,
+    /// as a native list's arrow does.
+    #[must_use]
+    pub fn stepped(selected: &[usize], count: usize, down: bool) -> Option<usize> {
+        let last = count.checked_sub(1)?;
+        let step = if down {
+            selected.iter().max().map(|at| at.saturating_add(1))
+        } else {
+            selected.iter().min().map(|at| at.saturating_sub(1))
+        };
+        Some(step.unwrap_or(0).min(last))
+    }
+
+    /// The first option to list so that `option` is among the rows [`Self::of`] shows: `first`
+    /// where it already is, and otherwise the start that moves the list least.
+    #[must_use]
+    pub fn showing(first: usize, option: usize, count: usize) -> usize {
+        let shown = count.clamp(1, CHOICE_ROWS);
+        if option < first {
+            option
+        } else if option >= first.saturating_add(shown) {
+            option.saturating_add(1).saturating_sub(shown)
+        } else {
+            first
+        }
+    }
+
     /// Which of Table 234's options a point landed on, if any.
     ///
     /// A point outside every row is `None`, which the caller reads as "not on the list" — the
@@ -4485,8 +4519,40 @@ impl Refusal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Chrome, PASSWORD_ECHO, PasswordCard, RestrictionsCard, Set, Style};
+    use super::{
+        CHOICE_ROWS, ChoiceList, Chrome, PASSWORD_ECHO, PasswordCard, RestrictionsCard, Set, Style,
+    };
     use pdf_render::{Color, DisplayList};
+
+    /// An arrow moves one option from the selection's edge, is held at either end of `/Opt`, and
+    /// starts at the first option where nothing is selected (ADR 1786).
+    #[test]
+    fn an_arrow_selects_the_next_option_and_holds_at_the_ends() {
+        assert_eq!(ChoiceList::stepped(&[1], 4, true), Some(2));
+        assert_eq!(ChoiceList::stepped(&[1], 4, false), Some(0));
+        assert_eq!(ChoiceList::stepped(&[3], 4, true), Some(3));
+        assert_eq!(ChoiceList::stepped(&[0], 4, false), Some(0));
+        assert_eq!(ChoiceList::stepped(&[], 4, true), Some(0));
+        assert_eq!(ChoiceList::stepped(&[], 4, false), Some(0));
+        // Several selected: down from the last of them, up from the first.
+        assert_eq!(ChoiceList::stepped(&[1, 2], 4, true), Some(3));
+        assert_eq!(ChoiceList::stepped(&[1, 2], 4, false), Some(0));
+        assert_eq!(ChoiceList::stepped(&[], 0, true), None);
+    }
+
+    /// The list scrolls only where the arrow's option has left the rows on the screen.
+    #[test]
+    fn the_list_scrolls_to_keep_the_arrow_s_option_on_the_screen() {
+        let count = CHOICE_ROWS + 8;
+        assert_eq!(ChoiceList::showing(2, 5, count), 2);
+        assert_eq!(ChoiceList::showing(2, 1, count), 1);
+        assert_eq!(
+            ChoiceList::showing(2, 2 + CHOICE_ROWS, count),
+            3,
+            "one row past the last shown moves the list one row"
+        );
+        assert_eq!(ChoiceList::showing(0, 3, 4), 0);
+    }
 
     /// The fills a line of chrome draws, as text, for comparing two drawings of it.
     fn drawn(chrome: &Chrome, text: &str) -> String {

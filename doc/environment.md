@@ -16,7 +16,7 @@ names; a round reads this block, and opens the section only where a line bites (
   a walk that stays under 6 GiB says `--tree 6` and may run beside another, and a run whose verdict is
   a time — a band, a floor, an A/B, a reference program on a budget — says `--clock` and runs alone,
   declared by the outermost wrapper (ADR 1684); a run whose length is its own choice — a fuzz campaign,
-  a seed census — says `--long` and holds the second lane only, never the first (ADR 1756); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
+  a seed census — says `--long` and holds the second lane only, never the first (ADR 1756); walks are granted in the order they asked, and a wait stopped before its grant is a line too, `lane=-` (ADR 1790); the wrapper taking the lock so that the wait is a line of `/home/AI/heavy-walk.log` — never a bare
   `flock`, which is on no line (ADR 1646) and hands its descriptor to whatever daemon the walk
   starts, where the wrapper keeps it and hands the command `HEAVY_WALK_HELD_BY` (ADR 1674); a `tools/state.sh` section takes the lock itself, each walk in the lane it declares, so it
   runs bare as `tools/state.sh --round <session> <section>` and never walks unlocked (ADR 1698); `--data` never above 12 GiB; a corpus gate rebuilds `pdf-sandbox --bins` for its profile inside

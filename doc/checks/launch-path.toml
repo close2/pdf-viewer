@@ -8,7 +8,7 @@
 # two workers it spawns, which nothing else builds (trap 10), are its own `--build`s inside the hold
 # (trap 109, ADRs 1620, 1710):
 #
-#   ulimit -u 8192; RAYON_NUM_THREADS=4 tools/bounded.sh --lock --clock --round <session> --tree 12 \
+#   ulimit -u 8192; tools/bounded.sh --lock --clock --round <session> --tree 12 \
 #       --build '--release -p pdf-sandbox --bins' \
 #       --build '--release -p pdf-script-worker --features engine --bins' -- \
 #       cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture

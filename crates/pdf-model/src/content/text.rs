@@ -1879,19 +1879,24 @@ impl Interpreter<'_> {
             return;
         };
 
-        // A glyph description may show text in another Type 3 font, which is a recursion a
-        // file can build a cycle out of — `ContentStreamCycleType3insideType3.pdf` in the
-        // corpus is exactly that. It shares the bound with form XObjects because it is the
-        // same danger and the same cost: a nested content stream, and `Interpreter::run` is
-        // where the bound is asked (`MAX_FORM_DEPTH`).
+        // A glyph description may show text in a Type 3 font — another one, or its own — so a
+        // file can build a recursion out of glyphs, and §9.6.4 says what one is worth since
+        // Errata Collection 3 (Issue #111) inserted a paragraph below NOTE 1: "Implementations
+        // also need to avoid potential infinite recursion if a Type 3 glyph description refers to
+        // itself directly or indirectly. The result in all such cases is implementation-dependent."
+        // So a description already running further out is refused where it is re-entered, below,
+        // and reported by name; every other nesting — a glyph showing a different glyph of its
+        // own font, a form, a tiling cell — is bounded by depth alone, at `MAX_FORM_DEPTH` in
+        // `Interpreter::run`. The permission is the glyph's, and ADR 0793's argument against
+        // refusing by identity is about the rest (ADR 1792).
         //
-        // §9.6.4 says so itself since Errata Collection 3 (Issue #111), which inserts a
-        // paragraph below NOTE 1: "Implementations also need to avoid potential infinite
-        // recursion if a Type 3 glyph description refers to itself directly or indirectly. The
-        // result in all such cases is implementation-dependent." The bound was written from
-        // principle 3's budgets rather than from the clause, and the clause now states it —
-        // which leaves only *which* implementation-dependent result to produce, and this one
-        // is reported rather than silent.
+        // **At the re-entry rather than at the depth bound, because of what the bound costs a
+        // glyph.** A description showing codes that reach itself runs a number of times
+        // exponential in the bound before the bound is asked, so `MAX_OPERATIONS` is what ended
+        // it — 2.2 s of one page in a release build, with every mark after the text dropped — and
+        // the same page interprets in 71 ms refused here (ADR 1792 has the profile). The question
+        // costs one comparison per description running, at most `MAX_FORM_DEPTH` of them, and is
+        // asked before the stream is decoded.
 
         // Table 110's `/CharProcs`: each value "shall be a content stream that constructs and
         // paints the glyph for that character. The stream shall include as its first operator
@@ -1909,10 +1914,16 @@ impl Interpreter<'_> {
             || "?".to_owned(),
             |name| String::from_utf8_lossy(name.as_bytes()).into_owned(),
         );
-        let Some(data) = self.content_stream(
-            &glyph,
-            &format!("a Type 3 glyph description /{name} (§9.6.4)"),
-        ) else {
+        let detail = format!("a Type 3 glyph description /{name} (§9.6.4)");
+        // By the stream object, because that is what "itself" is: two codes, or two fonts, that
+        // reach one description reach the same glyph procedure. A `/CharProcs` value that is not
+        // a reference is not the stream Table 110 requires and is not asked about.
+        let reference = font.glyph_reference(self.document, code);
+        if reference.is_some_and(|reference| self.descriptions_running.contains(&reference)) {
+            self.note(Unsupported::NestingCycle { stream: detail });
+            return;
+        }
+        let Some(data) = self.content_stream(&glyph, &detail) else {
             self.note(Unsupported::Font {
                 detail: format!("Type 3 glyph for code {code} could not be decoded"),
             });
@@ -1943,10 +1954,10 @@ impl Interpreter<'_> {
 
         let saved_uncoloured = self.uncoloured;
         self.glyph_depth = self.glyph_depth.saturating_add(1);
-        self.enter_ledger_frame(
-            super::ledger::Route::Type3Glyph,
-            font.glyph_reference(self.document, code),
-        );
+        self.enter_ledger_frame(super::ledger::Route::Type3Glyph, reference);
+        if let Some(reference) = reference {
+            self.descriptions_running.push(reference);
+        }
         // §7.8.3's search for a glyph description's resources ends at the page: the glyph
         // stream's own dictionary, then the Type 3 font dictionary that held `/CharProcs`, then
         // the page and what §7.7.3.4 gave it — Errata Collection 3's Issue #128, stated in full
@@ -1964,6 +1975,9 @@ impl Interpreter<'_> {
             &inner,
         );
         self.leave_ledger_frame();
+        if reference.is_some() {
+            self.descriptions_running.pop();
+        }
         self.glyph_depth = self.glyph_depth.saturating_sub(1);
         // `d1` inside the description raised this; the description is over. Restoring rather
         // than clearing is what lets an uncoloured glyph invoke another one without the

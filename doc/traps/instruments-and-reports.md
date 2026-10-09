@@ -1306,6 +1306,24 @@ fourth part — the keys and a rich value — and the realm's pages have words. 
 covered, check that the target lets the input the member reads *vary*, and confirm it the way trap 13
 confirms a test: take the input away and watch the edge count fall.
 
+### 136. A foreground `flock` holds back every trap until it is granted
+
+A clock run waited for the gate in a foreground `flock`; bash defers a trap until the foreground
+command returns, so a TERM sent while the run queued did nothing until the lane was granted, and
+then the wrapper exited on no line (round 1477, ADR 1790). The wait now runs in the background under
+`wait`, which a signal interrupts, and a stopped wait writes `hold=0.0s exit=<status> lane=-`. The
+test of any wrapper that must speak on a signal is the signal sent *while it waits*, with the line
+timed against the moment of the signal and not the end of the hold.
+
+### 138. A budget's fixture is checked for still reaching the budget
+
+`MAX_LIST_BYTES`'s test built a Type 3 glyph that showed itself, which reached the list-bytes bound at
+HEAD; the glyph re-entry refusal (ADR 1792) stopped the same fixture at 44 commands, and the test
+would have gone on passing on a refusal it was not about (round 1478). A hostile-budget test asserts
+the bound's *own* report, so a fixture that stops reaching the bound fails by name, and the fixture
+moves to a route that still reaches it — here a form cycle through a tiling cell, which ADR 0793 bounds
+by depth alone.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

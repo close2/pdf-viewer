@@ -164,9 +164,10 @@ These are the places where a native host's shape differs from the tier-2 host's,
   1738, 1753). A widget's and a page's `/AA` scripts are raised in all three, a press on a
   toolkit's own control included (ADR 1752); a script that changes nothing drawn leaves the page
   interpreted, a timer's included, a script reads each window's Shift and Control, and its console
-  requests are said by name, every window's console being its log (ADR 1771). `event.keyDown`
-  reads false: no window reports an arrow key's choice selection, `quorra`'s list takes no arrow
-  at all, and a choice selection raises no Table 199 `/K` in the view state to read it at.
+  requests are said by name, every window's console being its log (ADR 1771). A choice field's
+  selection runs its Table 199 `/K` once, and every window says when an arrow made it, so the
+  script reads `event.keyDown` true there: `quorra`'s drawn list takes Up and Down, GTK's list and
+  Qt's list and closed combo box take theirs (ADRs 1786, 1787).
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font
@@ -209,8 +210,9 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
 - **Ctrl + C inside a field is the toolkit's binding** in the two native windows, because they place
   a real `GtkEntry` and `QLineEdit`. `viewer-ui` draws its own field and makes the call the page's
   copy makes.
-- **`quorra`'s drawn choice list takes no keyboard**: Up, Down and Enter would be this host's
-  convention, and no clause states one.
+- **`quorra`'s drawn choice list takes Up and Down and not Enter**: the arrows are the toolkits'
+  convention and what Adobe's `event.keyDown` names, and a pick is whole when it is made, so there
+  is nothing for Enter to commit (ADR 1786).
 - **`quorra-gtk` places no window**: GTK 4 gives a program no way to set its own position, so
   §12.2's `/CenterWindow` is said when the document opens rather than obeyed (ADR 1429).
 - **`quorra` plays no sound for a script's `app.beep`**: winit has no system sound, so the window

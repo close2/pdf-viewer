@@ -913,7 +913,9 @@ section_gates_cost() {
 # none and said once. The last batch is the last branch of that shape on the log (ADR 1675).
 #
 # A line names the lane it held, `1`, `2` or `1+2` for a clock run's both; a line written before the
-# lock had two lanes names none and held the only one, the first (ADR 1684).
+# lock had two lanes names none and held the only one, the first (ADR 1684). `lane=-` is a run that
+# stopped while it queued — a `timeout`, a round that gave up — and held nothing; its queue is a
+# round's like any other, and the batch's are listed and summed once more on their own (ADR 1790).
 #
 # **And a run the rule line says is not a walk is named.** `doc/environment.md`'s rule line says
 # `cargo test -p conformance` and crate-scoped unit tests are not walks, and one round queued 1 820.8 s
@@ -976,6 +978,11 @@ lock_cost() {
             cmd = $0; sub(/.* cmd=/, "", cmd)
             lane = "1"; if (match($0, / lane=[^ ]+/)) lane = substr($0, RSTART + 6, RLENGTH - 6)
             mark = (by_round == "") ? "" : "[" $2 ", by its round] "
+            if (lane == "-") {
+                mark = mark "[stopped before a grant] "
+                gave_up[++stopped] = sprintf("  stopped before a grant: %s  round %-5s wait %8.1fs  exit %-3s %s", $1, round, wait, code, substr(cmd, 1, 60))
+                stopped_wait += wait
+            }
             kind = ""; if (match($0, / kind=[^ ]+/)) kind = substr($0, RSTART + 6, RLENGTH - 6)
             behind = ""; if (match($0, / behind=[^ ]+/)) behind = substr($0, RSTART + 8, RLENGTH - 8)
             seen++; at[seen] = epoch($1); waits[seen] = wait + 0; holds[seen] = hold + 0
@@ -1001,6 +1008,8 @@ lock_cost() {
             if (unplaced) printf "%d line(s) of the log name no batch branch and a round no batch on the log holds, counted for none\n", unplaced
             for (i = 1; i <= unwalked; i++) print not_walks[i]
             printf "%d run(s) of batch %s took the lock for a dev-profile test asking no --ignored, which the rule line says is not a walk: %.1fs of queue\n", unwalked, last, unwalked_wait
+            for (i = 1; i <= stopped; i++) print gave_up[i]
+            printf "%d run(s) of batch %s stopped while they queued, before a grant: %.1fs of queue\n", stopped, last, stopped_wait
             for (i = 1; i <= seen; i++) {
                 if (kinds[i] != "long") continue
                 longs++; long_held += holds[i]

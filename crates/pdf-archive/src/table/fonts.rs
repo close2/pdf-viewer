@@ -479,11 +479,20 @@ fn carries_a_program(document: &Document, descriptor: &Dictionary) -> bool {
 ///
 /// `None` where there is no descriptor or no `/Flags`, because a rule that starts "for all
 /// symbolic TrueType fonts" cannot be applied to a font whose file never said which it is.
+///
+/// The word itself is [`pdf_font::descriptor_flags`]'s, the one reading of `/Flags` in this tree:
+/// a negative or over-wide integer, which §9.8.2's unsigned 32-bit word excludes, is every bit
+/// clear. Such a font is therefore judged non-symbolic, because that is how a reader of this tree
+/// draws it; passing the rules over instead would leave a font that is drawn through a base
+/// encoding judged by neither of section 6.2.11.6's encoding rules.
 fn is_symbolic(document: &Document, font: &Dictionary) -> Option<bool> {
-    let flags = descriptor(document, font)
-        .map(|descriptor| document.get_key(&descriptor, "Flags"))?
-        .as_integer()?;
-    Some(flags & 0b100 != 0)
+    /// Table 121's bit position 3, counting from one as the specification does.
+    const SYMBOLIC: u32 = 1 << 2;
+
+    let descriptor = descriptor(document, font)?;
+    // Absent, or not an integer at all: the file never said which the font is.
+    document.get_key(&descriptor, "Flags").as_integer()?;
+    Some(pdf_font::descriptor_flags(document, &descriptor) & SYMBOLIC != 0)
 }
 
 /// The encoding a simple font names, whether directly or through an encoding dictionary.
@@ -2811,6 +2820,30 @@ mod tests {
             findings(&no_flags, non_symbolic_truetype_uses_a_standard_encoding).is_empty(),
             "a font that never said whether it is symbolic is not judged by either rule"
         );
+    }
+
+    /// §9.8.2: "The value of the Flags entry in a font descriptor shall be an unsigned 32-bit
+    /// integer". `-4` and `2^32 + 4` both carry bit position 3 as an integer's bits, and neither is
+    /// such a word, so each is every bit clear: the font is judged non-symbolic, as it is drawn.
+    #[test]
+    fn a_flags_word_outside_thirty_two_unsigned_bits_is_judged_non_symbolic() {
+        for word in ["-4", "4294967300"] {
+            let excluded = document(&format!(
+                "1 0 obj\n<< /Type /Catalog >>\nendobj\n\
+                 2 0 obj\n<< /Type /Font /Subtype /TrueType /FontDescriptor 3 0 R \
+                 /Encoding /MacExpertEncoding >>\nendobj\n\
+                 3 0 obj\n<< /Type /FontDescriptor /Flags {word} >>\nendobj\n",
+            ));
+            assert_eq!(
+                findings(&excluded, non_symbolic_truetype_uses_a_standard_encoding).len(),
+                1,
+                "/Flags {word} is no flags word, so the font is non-symbolic"
+            );
+            assert!(
+                findings(&excluded, symbolic_truetype_states_no_encoding).is_empty(),
+                "/Flags {word} does not make the font symbolic"
+            );
+        }
     }
 
     #[test]
