@@ -418,9 +418,10 @@ fn a_tiling_inside_the_bound_still_paints() {
 ///
 /// **The one bound of the four whose population is mostly legitimate.** Of the 31 documents of
 /// 65 944 that reach it under the *token* count it used to keep, every one *terminates* with the
-/// bound lifted a hundredfold, and they are maps, plans and charts rather than bombs. It is left
-/// at four million because the worst case at a raised count is not bounded either: one operator
-/// can paint the whole page, so a count is not a cost. ADRs 0271 and 0306.
+/// bound lifted a hundredfold, and they are maps, plans and charts rather than bombs. It is forty
+/// million since ADR 1808, which admitted a 29-million-operator engineering drawing, and no higher
+/// count would bound the worst case either: one operator can paint the whole page, so a count is
+/// not a cost. ADRs 0271, 0306 and 1808.
 ///
 /// The fixture states one operand per operator on purpose. `0 g` is §8.6.8's "set the colour
 /// space to `DeviceGray` … and set the gray level", two lexer tokens and **one** operator, so a
@@ -428,12 +429,12 @@ fn a_tiling_inside_the_bound_still_paints() {
 /// would pass for the wrong reason.
 #[test]
 fn a_content_stream_longer_than_the_bound_is_refused_by_name() {
-    let content = "0 g\n".repeat(4_000_002);
+    let content = "0 g\n".repeat(40_000_002);
     let document = page(&content, "<< >>", "");
     let reported = reported(&document);
     assert!(
         reported.contains("MAX_OPERATIONS"),
-        "four million operators must be refused by name: {reported}"
+        "forty million operators must be refused by name: {reported}"
     );
 }
 
@@ -793,7 +794,7 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
     );
     let commands = commands(&document);
     assert!(
-        commands <= 4_000_000 + 1_000,
+        commands <= 40_000_000 + 1_000,
         "the list is bounded by the operator budget plus one cell, not by nine times it: {commands}"
     );
 }

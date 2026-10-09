@@ -115,13 +115,15 @@ const MAX_STATE_DEPTH: usize = 256;
 /// text and about 7 for cubic Béziers. So correcting the unit hands back forty pages of a
 /// million and refuses the eight that really are programs of that length.
 ///
-/// **It is a bound on slowness rather than on exhaustion.** All 31 of 65 944 documents that reach
-/// it *terminate* when it was lifted a hundredfold — they are maps, plans and charts rather than
-/// bombs. The bound stays at four million for the reason a raised one would not help: **a count is
-/// not a cost.** One `sh` can paint the whole page, so no number here bounds the time, and what
-/// actually bounds it is the confined worker's cancel — a kill, at 0.83–1.97 ms (ADR 0241). ADRs
-/// 0271 and 0306.
-const MAX_OPERATIONS: usize = 4_000_000;
+/// **It is a bound on slowness rather than on exhaustion, and it is forty million.** All 31 of
+/// 65 944 documents that reached the earlier four million *terminate* when it was lifted a
+/// hundredfold — they are maps, plans and charts rather than bombs — and the project owner's A1
+/// engineering drawing states 28 992 250 operators in one 278 MB content stream, which four million
+/// cut at a seventh after 16 s of work. The figure admits that drawing with headroom; it does not
+/// try to bound the time, for the reason a raised count could not: **a count is not a cost.** One
+/// `sh` can paint the whole page, so what actually bounds the time is the confined worker's cancel
+/// — a kill, at 0.83–1.97 ms (ADR 0241). ADRs 0271, 0306 and 1808.
+const MAX_OPERATIONS: usize = 40_000_000;
 
 /// Most operands one operator may take before the rest are refused.
 ///

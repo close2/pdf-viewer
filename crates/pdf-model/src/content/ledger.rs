@@ -35,8 +35,8 @@ use pdf_syntax::{Object, ObjectId};
 ///
 /// A ledger is asked for by a test over a corpus, and every entry it keeps is one a content
 /// stream produced by naming a distinct resource — which a hostile stream can do once per
-/// operator. `MAX_OPERATIONS` bounds those at four million per interpretation; this is a quarter
-/// of that, and reaching it is reported by [`Ledger::truncated`] rather than silently dropped.
+/// operator. `MAX_OPERATIONS` bounds those at forty million per interpretation; this is about a
+/// fortieth of that, and reaching it is reported by [`Ledger::truncated`] rather than silently dropped.
 pub const MAX_SELECTIONS: usize = 1 << 20;
 
 /// By which of §7.8.2's routes a content stream was entered.
