@@ -307,7 +307,11 @@ fn main() {
     // `viewer-core`'s rule 4 is "no threads the core was not handed", and this keeps it: the core
     // is *made* on that thread and moved back, so it is still single-threaded and still owns none
     // of its own scheduling. What crosses is a `Viewer` and a `Vec<Event>`, both `Send`.
-    let opening = std::thread::spawn({
+    //
+    // **And the thread is a [`viewer_host::Loading`]**, so that page one's interpretation publishes
+    // how far it has got, and a page that outlasts `WARN` is a bar in the title rather than a
+    // window that waits for it (ADR 1811).
+    let opening = viewer_host::Loading::start({
         let path = path.clone();
         let fragment = fragment.clone();
         move || {
@@ -453,6 +457,7 @@ fn main() {
         metadata: None,
         state: None,
         opening: Some(opening),
+        loading: None,
         instancing,
         launch,
         frames: FrameLog::default(),

@@ -157,6 +157,24 @@ impl ApplicationHandler for App {
     /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
     /// is a ceiling on latency and never a duty to draw.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // A document still opening past `WARN`: its bar, until the tick that finds it ready, and
+        // nothing else this loop does — every branch below is about a document this window does
+        // not have yet (ADR 1811).
+        if self.state.is_some() && self.opening.is_some() {
+            if self
+                .opening
+                .as_ref()
+                .is_some_and(viewer_host::Loading::ended)
+            {
+                self.take_the_opening();
+            } else {
+                self.mind_the_opening();
+                let now = std::time::Instant::now();
+                let wake = now.checked_add(viewer_host::loading::TICK).unwrap_or(now);
+                event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+                return;
+            }
+        }
         // A script's question whose wait has run out: a tick of no time is the command after which
         // the viewer asks, and the withdrawal it then sends takes the card down (ADR 1643).
         if self
@@ -304,11 +322,6 @@ impl ApplicationHandler for App {
             std::process::exit(1);
         };
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a display's scale factor is a small ratio"
-        )]
-        let scale = window.scale_factor() as f32;
         self.state = Some(State {
             window,
             surface,
@@ -322,39 +335,16 @@ impl ApplicationHandler for App {
         // `graphics device`, the document was ready and waiting; if it reads milliseconds later,
         // this thread waited, which is a document large enough for the overlap to have been worth
         // more than it took.
-        if let Some(opening) = self.opening.take() {
-            let (viewer, events) = opening.join().expect("the thread opening the document");
-            self.viewer = viewer;
-            self.launch.mark("document joined");
-            // **What page one does not need is read beside it** (ADR 1543): the outline and the
-            // placed page tree, which the open no longer reads, on a thread of their own while
-            // this one draws. Taken before `receive`, so that the panel's lists do not ask for
-            // the outline on this thread first.
-            self.preparing = self.viewer.preparation().map(|preparation| {
-                let (send, answer) = std::sync::mpsc::channel();
-                let waker = self.waker.clone();
-                std::thread::spawn(move || {
-                    // A window that has closed has nobody to give the answer to.
-                    if send.send(preparation.run()).is_ok()
-                        && let Some(waker) = waker
-                    {
-                        let _ = waker.send_event(());
-                    }
-                });
-                answer
-            });
-            self.receive(events);
+        //
+        // **And it waits no longer than `WARN`** (ADR 1811): a document still opening then is
+        // left to its thread, the title carries the bar, and `about_to_wait` takes the document in
+        // on the tick that finds it ready.
+        if self.opening.as_ref().is_some_and(|opening| !opening.wait()) {
+            self.launch.mark("document still opening");
+            self.mind_the_opening();
+            return;
         }
-        self.retitle();
-        // The window's size is the first thing the core has been told about the viewport, and
-        // it is what makes page one render. **Less the sidebar**, which Table 29's `/PageMode`
-        // may already have opened: the document was opened before this window existed, so the
-        // first `Resize` is the first chance to say how much of it the page has.
-        self.dispatch(Command::Resize {
-            width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
-            height: size.height.max(1),
-            scale,
-        });
+        self.take_the_opening();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -886,6 +876,92 @@ impl App {
         now.checked_add(wait)
     }
 }
+
+impl App {
+    /// Takes in the document the opening thread opened, and tells it the window's size.
+    ///
+    /// Called by `resumed` for a document ready inside `WARN`, which is the launch path exactly as
+    /// it was, and by `about_to_wait` for one that was not — where the size is the window's *now*,
+    /// because a person may have resized it while the bar was up and the core was told nothing.
+    fn take_the_opening(&mut self) {
+        if let Some(opening) = self.opening.take() {
+            let (viewer, events) = opening.join().expect("the thread opening the document");
+            self.viewer = viewer;
+            self.launch.mark("document joined");
+            if self.loading.take().is_some() {
+                println!("note: {}", viewer_host::loading::READ);
+            }
+            // **What page one does not need is read beside it** (ADR 1543): the outline and the
+            // placed page tree, which the open no longer reads, on a thread of their own while
+            // this one draws. Taken before `receive`, so that the panel's lists do not ask for
+            // the outline on this thread first.
+            self.preparing = self.viewer.preparation().map(|preparation| {
+                let (send, answer) = std::sync::mpsc::channel();
+                let waker = self.waker.clone();
+                std::thread::spawn(move || {
+                    // A window that has closed has nobody to give the answer to.
+                    if send.send(preparation.run()).is_ok()
+                        && let Some(waker) = waker
+                    {
+                        let _ = waker.send_event(());
+                    }
+                });
+                answer
+            });
+            self.receive(events);
+        }
+        self.retitle();
+        let Some(state) = self.state.as_ref() else {
+            return;
+        };
+        let size = state.window.inner_size();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a display's scale factor is a small ratio"
+        )]
+        let scale = state.window.scale_factor() as f32;
+        // The window's size is the first thing the core has been told about the viewport, and
+        // it is what makes page one render. **Less the sidebar**, which Table 29's `/PageMode`
+        // may already have opened: the document was opened before this window existed, so the
+        // first `Resize` is the first chance to say how much of it the page has.
+        self.dispatch(Command::Resize {
+            width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
+            height: size.height.max(1),
+            scale,
+        });
+    }
+
+    /// Puts the opening's bar in the title, and says so once on the way in.
+    ///
+    /// The title is where this window says everything about a wait (`App::mind_a_long_draw`),
+    /// because it has no status band; it is rewritten only when the sentence changes.
+    fn mind_the_opening(&mut self) {
+        let Some(reading) = self
+            .opening
+            .as_ref()
+            .and_then(viewer_host::Loading::showing)
+        else {
+            return;
+        };
+        let sentence = viewer_host::loading::reading(reading);
+        let said = match viewer_host::loading::bar(reading, BAR_CELLS) {
+            Some(bar) => format!("{bar} {sentence}"),
+            None => sentence.clone(),
+        };
+        if self.loading.as_deref() == Some(said.as_str()) {
+            return;
+        }
+        if self.loading.is_none() {
+            println!("note: {sentence}");
+        }
+        self.loading = Some(said);
+        self.retitle();
+    }
+}
+
+/// How many characters the title's bar is: a twentieth of the page each, which is as fine as a
+/// title bar's text can be read and short enough to leave the document's name in front of it.
+const BAR_CELLS: usize = 20;
 
 #[cfg(test)]
 mod tests {

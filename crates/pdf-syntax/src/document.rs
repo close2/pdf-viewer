@@ -2119,8 +2119,10 @@ impl Document {
     /// **What bounds a pumped chain is not here, and that is the road's whole argument.** A
     /// window has no allocation to bound, so it makes no `TooLarge`: the aggregate bound is the
     /// reader's, §7.7.3.3's, applied over the whole content by `pdf_model::content::reader`, and
-    /// what stops a bomb is `MAX_OPERATIONS` over the program it decodes to. The memory a chain
-    /// costs is `LINK` bytes per stage regardless of what it names.
+    /// what ends a bomb is that bound — Table 31's `max_stream_len` over the concatenation, since
+    /// every token takes at least one byte — or the person's stop, never a count of the operators
+    /// it decodes to (ADR 1809). The memory a chain costs is `LINK` bytes per stage regardless of
+    /// what it names.
     ///
     /// **The chain comes back beside the route, and both are the same two reads.** Deciding
     /// whether a stream pumps means reading `/Filter` and every `/DecodeParms`, which is also

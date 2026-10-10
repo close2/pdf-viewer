@@ -370,9 +370,9 @@ fn chain_of_cells(body: &mut String, depth: usize, first: usize) {
     // inside it; the last cell paints the square. **This kind cannot be measured past
     // about six deep**: the tiling's span takes a neighbouring cell on each side even
     // for a fill inside one, so every level multiplies the one below it ninefold, and
-    // eight deep is 8.5 million commands and 2 GiB before `MAX_OPERATIONS` stops it —
-    // the display list's memory rather than the stack, which the probe cannot tell
-    // from an overflow. ADR 0793 records the figure and `doc/todo/49` carries it.
+    // eight deep is 8.5 million commands and 2 GiB, which is `MAX_LIST_BYTES` (ADR 1810)
+    // and stops it — the display list's memory rather than the stack, which the probe
+    // cannot tell from an overflow. ADR 0793 records the figure and `doc/todo/49` carries it.
     let _ = write!(
         body,
         "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \

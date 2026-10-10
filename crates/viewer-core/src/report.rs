@@ -54,10 +54,10 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         }
         Unsupported::Annotation { detail } => format!("an annotation was not drawn: {detail}"),
         // Worded as *something is missing* rather than as *the page stopped*, because both
-        // shapes reach here: `MAX_OPERATIONS` does end the run, while `max_clips` and
-        // `max_cmap_ranges` leave the page drawn to its end with a clip unapplied or a code
-        // sent to CID 0 (ADR 0963). The old sentence claimed the first of those for every
-        // bound, which is trap 11 in a message rather than in a condition.
+        // shapes reach here: `MAX_TILE_COPIES` ends a tiling and `MAX_FORM_DEPTH` a nested
+        // stream, while `max_clips` and `max_cmap_ranges` leave the page drawn to its end with a
+        // clip unapplied or a code sent to CID 0 (ADR 0963). No count of operators reaches here:
+        // a page is never refused for its length (ADR 1809).
         Unsupported::LimitReached { limit } => format!(
             "the page reached this program's {limit} bound, so part of what the document asked \
              for is not on it"
@@ -65,8 +65,9 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         // The run stopped, so the sentence says so; the two numbers are what tell a bomb from a
         // page that wanted a little more than the bound (ADR 1507).
         Unsupported::ListBytes { charged, bound } => format!(
-            "the page built {charged} bytes of drawing where this program allows {bound} \
-             (MAX_LIST_BYTES), so it stopped and part of what the document asked for is not on it"
+            "the page built {charged} bytes of drawing and its text where this program allows \
+             {bound} (MAX_LIST_BYTES), so it stopped and part of what the document asked for is \
+             not on it"
         ),
         Unsupported::NestingCycle { stream } => format!(
             "{stream} draws itself again from inside itself, so the page stopped it at this \

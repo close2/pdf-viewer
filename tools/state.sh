@@ -528,6 +528,49 @@ turn_provenance() {
     ' doc/performance.md || status=1
 }
 
+# The window path on one heavy document, timed end to end in all four windows (ADR 1815): step 80 of
+# `tools/drive-windows.sh` under Xvfb — launch to window, the window's own first-frame stamp, each
+# process's peak memory, what the page crossed the confined boundary as, and the longest a key
+# waited while the page loaded — and then what ADR 0607's rule says the page would cross as, in
+# bytes. `HEAVY_FILE` names the document, by default the owner's drawing that asked for this
+# section; a file that is not there is the step's `not offered`, said rather than skipped.
+#
+# **A clock walk, at the caller's priority.** The figures are times, so the walk holds both lanes,
+# and it runs at nice 0 rather than the wrapper's 19, because a window timed behind every build on
+# the machine measures the builds (trap 122). `HEAVY_BIN` names binaries built elsewhere — an export
+# of another commit, for a before and after — which are measured as they are; otherwise this tree's
+# four windows and their workers are built inside the hold (trap 109). The second line's example
+# is always this tree's, so under `HEAVY_BIN` it is said and not run.
+#
+# **The second line is a byte count, so it is a small walk** — the owner's page peaks near half of
+# the lane's 6 GiB — **and a bound in one direction.** It prices the page at scale 1, a raster larger
+# than a default window asks for, and a display list is the same size at every scale: a list larger
+# than that raster is larger than the window's, so the page crosses as pixels; a list smaller than
+# it decides nothing, and the confined window's own `crossed-as` line above is then the answer.
+section_heavy() {
+    local out file=${HEAVY_FILE:-/tmp/demo_heavy_engineering_A1.pdf} builds=() bins=()
+    out=$(mktemp -d)
+    if [ -n "${HEAVY_BIN:-}" ]; then
+        bins=(--bin "$HEAVY_BIN")
+    else
+        builds=(--build '--release -p viewer-ui --bin quorra --bin quorra-confined -p viewer-gtk --bin quorra-gtk -p viewer-qt --bin quorra-qt -p viewer-confined --bin pdf-view-worker'
+            --build '--release -p pdf-sandbox --bins')
+    fi
+    run "a heavy document through the four windows (tools/drive-windows.sh step 80, ADR 1815)" \
+        '^heavy	|^80-heavy-open	|^drive-windows: ' \
+        walk clock --nice 0 "${builds[@]}" -- env HEAVY_FILE="$file" \
+        tools/drive-windows.sh --out "$out" --step heavy_open --display "${HEAVY_DISPLAY:-:95}" "${bins[@]}"
+    # The temporary directory is kept: its photographs are the only witness that the page drawn was
+    # the page (trap 1), and the drive's last line names it.
+    if [ -n "${HEAVY_BIN:-}" ]; then
+        heading "what the page would cross as (ADR 0607's rule)" "not run: HEAVY_BIN names binaries this tree's example is not"
+        return 0
+    fi
+    run "what the page would cross as, at scale 1 (ADR 0607's rule; a list is the same size at every scale)" \
+        '^[^#]|^# [0-9]+ page' \
+        walk small -- cargo run --release -q -p viewer-confined --example list_over_the_wire -- "$file"
+}
+
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
 # the core opens. `pdf-vfs-worker` is this package's own binary, so the test's build builds it
 # (trap 10 is about another package's). There is no third line here: `awkward_classes` is the read
@@ -1686,7 +1729,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn dates xmp scripts save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1745,6 +1788,7 @@ for section in $sections; do
     launch) section_launch ;;
     frame) section_frame ;;
     turn) section_turn ;;
+    heavy) section_heavy ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     scripts) section_scripts ;;

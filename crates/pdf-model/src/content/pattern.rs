@@ -26,7 +26,7 @@ use super::transparency::{
     AlphaSourcesSeen, Painted, any_command, command_blends, command_composites,
     group_alpha_is_shape,
 };
-use super::{GraphicsState, Interpreter, KnockoutKind, MAX_OPERATIONS, list_budget};
+use super::{GraphicsState, Interpreter, KnockoutKind, list_budget};
 
 mod reach;
 
@@ -909,8 +909,8 @@ impl Interpreter<'_> {
     /// retired for — a loop whose trip count a file states and whose body a budget cannot see —
     /// one level in, so it is answered the same way: in the unit of the work.
     ///
-    /// **Page-wide rather than per tiling**, because a page may state as many fills as
-    /// [`MAX_OPERATIONS`] affords and a per-tiling allowance would multiply by that. Four
+    /// **Page-wide rather than per tiling**, because a page may state as many fills as its
+    /// stream has room for and a per-tiling allowance would multiply by that. Four
     /// million tests is about forty milliseconds here, and **the value is fifteen times the
     /// heaviest page measured** (ADR 0810): `7680183.pdf`, 249 hatched polygons of a plan and
     /// the page every other figure in that ADR is worst on, spends **under 300 000** across all
@@ -919,7 +919,7 @@ impl Interpreter<'_> {
     /// Running out is not a refusal and is not reported: the caller stops asking and keeps
     /// every site, which is what it does for a stroke and what it did before `reach.rs` existed.
     /// The direction is the safe one — more sites, never fewer — and those sites are still
-    /// bounded by [`Self::MAX_TILE_COPIES`] and [`MAX_OPERATIONS`].
+    /// bounded by [`Self::MAX_TILE_COPIES`] and by `MAX_LIST_BYTES`.
     const MAX_REACH_SCAN: usize = 4_194_304;
 
     /// Draws every site of a tiling but the one its cell was interpreted at.
@@ -930,11 +930,11 @@ impl Interpreter<'_> {
     ///
     /// # What bounds it, which is what bounded it before
     ///
-    /// Each copy is charged to [`MAX_OPERATIONS`], the budget the cell's *operators* were
-    /// charged to when every site interpreted the content stream again. The trade is exact in
-    /// the direction that matters: a command costs at least one operator to state, so no page
-    /// that finished its tiling before reaches the bound now, and a cell that copies four
-    /// million commands stops at the same place a cell that ran four million operators did.
+    /// Each copy is charged, before it is made, to the tiling's own [`Self::MAX_TILE_COPIES`]
+    /// and to the page's `MAX_LIST_BYTES` — the memory the copy keeps, every command and every
+    /// clip in it. No count of operators is asked (ADR 1809): a copy is not an operator, and what a
+    /// runaway replication can exhaust is the list, which the second budget measures in its own
+    /// unit.
     ///
     /// **Three things bound the site count, and none of them is a count of sites** (ADR 0810).
     /// A charge per copy cannot see one case: a cell that draws *nothing* copies nothing, so a
@@ -944,8 +944,8 @@ impl Interpreter<'_> {
     /// §8.7.3.1's replication has nothing to replicate, so the loop is not entered at all. Every
     /// other cell costs at least one command a site, charged to the page's budget above and to
     /// [`Self::MAX_TILE_COPIES`], the tiling's own — the same cost bounded twice, once for the
-    /// page and once so that one operator's expansion cannot take the page from the operators
-    /// after it. And a site is only copied where the fill's interior can reach its cell at all
+    /// page and once so that one operator's expansion cannot take the page's memory from the
+    /// operators after it. And a site is only copied where the fill's interior can reach its cell at all
     /// (`reach.rs`), so a hatched wall costs its own area and not its hull's.
     ///
     /// The prefix a budget affords is whole rows, on the same argument ADR 0477 made for the
@@ -1006,19 +1006,14 @@ impl Interpreter<'_> {
             // ran out mid-row would put a ragged edge where the file states none (ADR 0477).
             // Where one row alone is over budget the row is cut instead, by the check inside
             // the loop, since a prefix of one row is all there is to keep.
-            let (bound, remaining) = tighter_of(
-                (
-                    "MAX_OPERATIONS",
-                    MAX_OPERATIONS.saturating_sub(self.operations),
-                ),
-                (
-                    "MAX_TILE_COPIES",
-                    Self::MAX_TILE_COPIES.saturating_sub(spent),
-                ),
-            );
-            let affordable = remaining.checked_div(cell.len()).unwrap_or(0);
+            let affordable = Self::MAX_TILE_COPIES
+                .saturating_sub(spent)
+                .checked_div(cell.len())
+                .unwrap_or(0);
             if count > affordable && rows_laid > 0 {
-                self.note(Unsupported::LimitReached { limit: bound });
+                self.note(Unsupported::LimitReached {
+                    limit: "MAX_TILE_COPIES",
+                });
                 return;
             }
             for (low, high) in sites {
@@ -1041,12 +1036,6 @@ impl Interpreter<'_> {
                     // and a minute the day the nesting bound was raised past its cycle (ADR
                     // 0793). Refusing the copy that would cross the budget bounds the whole
                     // list at the budget plus one cell.
-                    if self.operations.saturating_add(cell.len()) > MAX_OPERATIONS {
-                        self.note(Unsupported::LimitReached {
-                            limit: "MAX_OPERATIONS",
-                        });
-                        return;
-                    }
                     if spent.saturating_add(cell.len()) > Self::MAX_TILE_COPIES {
                         self.note(Unsupported::LimitReached {
                             limit: "MAX_TILE_COPIES",
@@ -1068,13 +1057,6 @@ impl Interpreter<'_> {
                             }
                             copy_bytes = self.list_budget.charged().saturating_sub(before);
                             spent = spent.saturating_add(copied);
-                            self.operations = self.operations.saturating_add(copied);
-                            if self.operations > MAX_OPERATIONS {
-                                self.note(Unsupported::LimitReached {
-                                    limit: "MAX_OPERATIONS",
-                                });
-                                return;
-                            }
                         }
                         Err(error) => {
                             self.note(Unsupported::LimitReached {
@@ -2378,11 +2360,6 @@ fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i3
             cell[1].max(cell[3]),
         ),
     )
-}
-
-/// Whichever of two named budgets has less left, and how much that is.
-fn tighter_of(a: (&'static str, usize), b: (&'static str, usize)) -> (&'static str, usize) {
-    if b.1 < a.1 { b } else { a }
 }
 
 /// How many columns or rows an inclusive index range spans, and never fewer than one.

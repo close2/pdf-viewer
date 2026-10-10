@@ -756,11 +756,12 @@ impl CpuRasterizer {
                 (pixmap.width(), pixmap.height()),
                 &mut scratch,
             )?;
+            let outline = SolidOutline::of(&converted, &style, at);
             if !draw_sub_pixel_rule(
                 pixmap,
                 (&geometry, &converted),
                 (&style, stroke.cap),
-                at,
+                (at, &outline),
                 &brush,
                 clip,
             ) && !draw_long_mitres(
@@ -770,7 +771,7 @@ impl CpuRasterizer {
                 at,
                 &brush,
                 clip,
-            ) && !draw_stroked_outline(pixmap, &converted, &style, at, &brush, clip)
+            ) && !draw_stroked_outline(pixmap, (&converted, &outline), &style, at, &brush, clip)
             {
                 scan::stroke(
                     pixmap,
@@ -2419,7 +2420,7 @@ fn draw_sub_pixel_rule(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     geometry: (&Path, &tiny_skia::Path),
     (style, cap): (&tiny_skia::Stroke, pdf_render::LineCap),
-    at: Transform,
+    (at, outline): (Transform, &SolidOutline<'_>),
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
@@ -2433,7 +2434,7 @@ fn draw_sub_pixel_rule(
     }
     // The resolution scale bounds how finely a curve is measured while it is offset, and is what
     // `stroke_path` would have used had the hairline test not fired.
-    let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
+    let scale = outline.scale;
     // The cheap questions come first: a path of straight axis-aligned rules is one walk over the
     // commands, and only such a path can reach the exact construction at all.
     // **The exact construction stays strictly under the quantum.** A rule *thinner* than a device
@@ -2447,7 +2448,7 @@ fn draw_sub_pixel_rule(
         && style.dash.is_none()
         && at.preserves_axes()
         && pdf_render::only_flat_subpaths(geometry.0)
-        && draw_rule_as_bands(pixmap, geometry.1, style, at, scale, brush, clip)
+        && draw_rule_as_bands(pixmap, outline, at, brush, clip)
     {
         return true;
     }
@@ -2500,20 +2501,21 @@ fn at_or_under_the_quantum(width: f32, one_pixel: f32) -> bool {
 /// to the construction below — for an outline [`pdf_render::sub_pixel_bands`] cannot measure
 /// exactly, which is every case its module comment argues: a round cap's arc, two rules meeting in
 /// one pixel row, a subpath that is not a rectangle.
+///
+/// Asked only of an undashed rule, so the outline it measures is the solid one
+/// [`draw_stroked_outline`] fills when this declines — and [`SolidOutline`] builds it once for both.
 fn draw_rule_as_bands(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    path: &tiny_skia::Path,
-    style: &tiny_skia::Stroke,
+    outline: &SolidOutline<'_>,
     at: Transform,
-    scale: f32,
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
-    let Some(outline) = path.stroke(style, scale) else {
+    let Some(outline) = outline.get() else {
         return false;
     };
     let Some(bands) = pdf_render::sub_pixel_bands(
-        &convert::from_skia_path(&outline),
+        &convert::from_skia_path(outline),
         at,
         pdf_render::FillRule::NonZero,
     ) else {
@@ -2792,6 +2794,50 @@ fn rectangular_mark(path: &Path, at: Transform) -> scan::Exact {
 /// more corners.
 const RECTANGULAR_OUTLINE_VERBS: usize = 8;
 
+/// One stroke's undashed outline, built by the stroker at most once however many constructions ask
+/// for it.
+///
+/// [`draw_rule_as_bands`] and [`draw_stroked_outline`] both measure the outline `tiny_skia`'s
+/// stroker makes of the same path, under the same style and at the same resolution, and the first
+/// declines whenever the outline has an arc in it — every round-capped rule. Stroking it twice
+/// was the largest single waste on the owner's `demo_heavy_engineering_A1.pdf`, a drawing of
+/// 4 400 060 round-capped strokes each under a device pixel: `tiny_skia::Path::stroke` was 39.3 G
+/// of the 217.6 G instructions `examples/callgrind_rasterise` counted for the page at 150 dpi,
+/// half of them a second build of an outline already in hand (ADR 1813). The stroker is a pure
+/// function of its three inputs, so the outline handed out is the one each construction built
+/// before, and the pixels are those it drew.
+struct SolidOutline<'a> {
+    /// The path, in the space `at` maps from.
+    path: &'a tiny_skia::Path,
+    /// The stroke's style with its dashes withdrawn: both constructions stroke a dash-free path.
+    solid: tiny_skia::Stroke,
+    /// The resolution the stroker offsets curves at, `PathStroker::compute_resolution_scale`'s.
+    scale: f32,
+    /// The outline, once asked for; `None` inside where the stroker refuses the path.
+    built: std::cell::OnceCell<Option<tiny_skia::Path>>,
+}
+
+impl<'a> SolidOutline<'a> {
+    /// The outline of `path` stroked under `style` and drawn under `at`, not yet built.
+    fn of(path: &'a tiny_skia::Path, style: &tiny_skia::Stroke, at: Transform) -> Self {
+        let mut solid = style.clone();
+        solid.dash = None;
+        Self {
+            path,
+            solid,
+            scale: tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at)),
+            built: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// The outline, built on the first call; `None` where the stroker refuses the path.
+    fn get(&self) -> Option<&tiny_skia::Path> {
+        self.built
+            .get_or_init(|| self.path.stroke(&self.solid, self.scale))
+            .as_ref()
+    }
+}
+
 /// ISO 32000-2 §8.4.3's stroked outline, filled — which is the shape §10.7.4's clipping paragraph
 /// can meet as a *set* where a hairline and a library-internal fill cannot.
 ///
@@ -2845,7 +2891,7 @@ const RECTANGULAR_OUTLINE_VERBS: usize = 8;
 /// levels apart before this.
 fn draw_stroked_outline(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    path: &tiny_skia::Path,
+    (path, solid_outline): (&tiny_skia::Path, &SolidOutline<'_>),
     style: &tiny_skia::Stroke,
     at: Transform,
     brush: &tiny_skia::Paint<'_>,
@@ -2857,7 +2903,8 @@ fn draw_stroked_outline(
     if pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
         return false;
     }
-    let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
+    let scale = solid_outline.scale;
+    let solid = &solid_outline.solid;
     // §8.4.3.6's pattern is measured along the path and the stroker knows nothing about it, which
     // is the order `stroke_path` dispenses them in too.
     let dashed;
@@ -2871,27 +2918,33 @@ fn draw_stroked_outline(
             &dashed
         }
     };
-    let mut solid = style.clone();
-    solid.dash = None;
     let at_device = convert::transform(at);
     // A curve bending more tightly than the half-width is stroked piece by piece (ADR 1348). The
     // question is not asked of one straight segment, which states no curve and is most strokes:
     // `issue12295.pdf` draws 65 859 of them.
     let straight = is_one_straight_segment(path);
-    if !straight && let Some(pieces) = folding_stroke_outline(path, &solid, scale) {
+    if !straight && let Some(pieces) = folding_stroke_outline(path, solid, scale) {
         scan::fill_pieces(pixmap, &pieces, brush, at_device, clip);
         return true;
     }
-    let Some(outline) = path.stroke(&solid, scale) else {
+    // An undashed path's outline is the one [`draw_rule_as_bands`] may already have built.
+    let built;
+    let outline = if style.dash.is_none() {
+        solid_outline.get()
+    } else {
+        built = path.stroke(solid, scale);
+        built.as_ref()
+    };
+    let Some(outline) = outline else {
         return false;
     };
     if outline.len() <= RECTANGULAR_OUTLINE_VERBS
-        && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(&outline), at)
+        && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(outline), at)
         && let Some(rect) = convert::to_skia_rect(rect)
     {
         scan::fill_rectangles(
             pixmap,
-            (&outline, &scan::Exact::One(rect)),
+            (outline, &scan::Exact::One(rect)),
             brush,
             at_device,
             clip,
@@ -2904,14 +2957,14 @@ fn draw_stroked_outline(
     if straight {
         scan::fill(
             pixmap,
-            &outline,
+            outline,
             brush,
             tiny_skia::FillRule::Winding,
             at_device,
             clip,
         );
     } else {
-        scan::fill_outline(pixmap, &outline, brush, at_device, clip);
+        scan::fill_outline(pixmap, outline, brush, at_device, clip);
     }
     true
 }

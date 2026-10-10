@@ -512,10 +512,40 @@ impl<'a> ContentReader<'a> {
         strings: Strings,
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
-        if strings == Strings::StepOver && self.step_over_a_string() {
+        if strings == Strings::StepOver && self.may_open_a_string() && self.step_over_a_string() {
             return read(Some(Token::String(Vec::new())));
         }
         self.with_token(read)
+    }
+
+    /// Whether the next token can be a string, read off the first byte past the white space at
+    /// the cursor: §7.3.4's `(` and `<`, or a comment, which only [`Self::step_over_a_string`]'s
+    /// lexer passes over correctly. `false` is exact — the token is not a string, and
+    /// [`Self::step_over_a_string`] would have declined it after building a lexer to say so.
+    ///
+    /// A page with no font in force asks this of every operand it reads, which is every token of
+    /// a drawing that states no text: on the owner's `demo_heavy_engineering_A1.pdf`, 78 173 320
+    /// tokens, and stepping over strings that were numbers was 5.39 G of the 48.0 G instructions
+    /// `examples/callgrind_interpret` counted for the page. Asked first, it moves 0.70 G into the
+    /// lexer's own skip and saves 2.39 G, 5.0% of the interpretation (ADR 1813). Inside a comment
+    /// the window cut, the bytes at the cursor are the comment's and the answer may be `false`; the
+    /// question then goes to [`Self::with_token`], which is where [`Self::step_over_a_string`]
+    /// would have sent it.
+    #[inline]
+    fn may_open_a_string(&self) -> bool {
+        let (bytes, at) = match &self.held {
+            Held::Whole { bytes, at } => (*bytes, *at),
+            Held::Window(window) => (
+                window.buffer.get(..window.filled).unwrap_or_default(),
+                window.at,
+            ),
+        };
+        bytes
+            .get(at..)
+            .unwrap_or_default()
+            .iter()
+            .find(|&&byte| !pdf_syntax::lexer::is_whitespace(byte))
+            .is_none_or(|&byte| matches!(byte, b'(' | b'<' | b'%'))
     }
 
     /// Steps over a string at the cursor where the bytes hold the whole of it, and says whether
@@ -583,6 +613,24 @@ impl<'a> ContentReader<'a> {
                 rest
             }
             Held::Window(window) => window.read_to_end(),
+        }
+    }
+
+    /// How far a page's `/Contents` has been read, as input bytes taken over input bytes held —
+    /// or `None` for anything that is not a page's `/Contents`.
+    ///
+    /// **Input bytes, because they are the only bytes with a known end** (`pdf_syntax::Pump::taken`
+    /// says why): a part pumped through a filter counts its encoded bytes, and a part decoded whole
+    /// counts the decoded ones it has handed over, which for an unfiltered part are the same bytes.
+    /// Table 31's parts are summed, since they "form a single stream". `None` for §7.8.2's other
+    /// four, because a window showing how far a *page* has got would otherwise jump back each time
+    /// a form or a glyph began — what a form costs is part of the page's wait and not of its
+    /// figure (ADR 1811). Asked every few dozen operators, never per token.
+    #[must_use]
+    pub fn progress(&self) -> Option<(usize, usize)> {
+        match &self.held {
+            Held::Whole { .. } => None,
+            Held::Window(window) => window.progress(),
         }
     }
 }
@@ -1184,6 +1232,20 @@ impl Window {
                 return out;
             }
         }
+    }
+
+    /// See [`ContentReader::progress`].
+    fn progress(&self) -> Option<(usize, usize)> {
+        if self.shape != Shape::Contents {
+            return None;
+        }
+        Some(self.parts.iter().fold((0, 0), |(taken, held), part| {
+            let (more, of) = match &part.source {
+                PartSource::Bytes { data, at } => (*at, data.len()),
+                PartSource::Pumped(pump) => pump.taken(),
+            };
+            (taken.saturating_add(more), held.saturating_add(of))
+        }))
     }
 }
 

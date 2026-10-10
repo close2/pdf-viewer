@@ -138,6 +138,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         separation,
         text,
         list_bytes,
+        operators,
         glyphs,
         codes_without_a_glyph,
         codes_reaching_a_blank_glyph,
@@ -165,6 +166,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
     differs(text == &whole.text, "readback");
     differs(glyphs == &whole.glyphs, "glyphs");
     differs(list_bytes == &whole.list_bytes, "the list's bytes");
+    differs(operators == &whole.operators, "the operators run");
     differs(
         codes_without_a_glyph == &whole.codes_without_a_glyph,
         "codes with no glyph",

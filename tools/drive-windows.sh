@@ -62,6 +62,10 @@
 # turn's Table 198 pair each run their script — through a toolkit's own control in the two that
 # place one — and none runs in the confined window (ADR 1752).
 #
+# And one step outside the list, run by `--step heavy_open` alone: a heavy document's window path
+# timed in all four windows — the first frame, each process's peak memory, what the page crossed as,
+# and how long a key waited while it loaded (ADR 1815); `tools/state.sh heavy` is its clock walk.
+#
 # And two things a screen reader does, through AT-SPI alone: it asks which window is the active one,
 # whose frame says so with the keyboard in it and not without (ADR 1565), and it clicks a text field
 # in the document's tree and types into it, which the saved file then holds (ADR 1566).
@@ -3307,6 +3311,66 @@ signature_policy() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# loading_bar (75): a page whose interpretation outlasts `WARN` opens behind a bar (ADR 1811). The
+# fixture is this step's own — fifty million `0 g` and a red page-sized fill, 200 MB of content in a
+# 195 kB `FlateDecode` stream — so the drive does not depend on a file outside the tree. The window
+# says it is reading, its bar is photographed twice a second apart and must have moved (the window
+# answered its loop while the page was read; in `quorra` and `quorra-confined` the bar is the title,
+# and the confined window's figure is the worker's, relayed across the pipe), and then the page
+# arrives red. Last in each window's list, because it is a wait of seconds by construction.
+loading_bar() {
+    local heavy="$FIXTURES/drive-heavy.pdf" first second launched=$LAUNCHED
+    [ -s "$heavy" ] || python3 - "$heavy" <<'PY'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+content = pikepdf.Stream(pdf, zlib.compress(b"0 g\n" * 50_000_000 + b"1 0 0 rg 0 0 612 792 re f\n", 9))
+content.Filter = Name.FlateDecode
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1], compress_streams=False)
+PY
+    # The first frame is the page, and the page is what is late: the step waits for the window.
+    LAUNCHED=a_window
+    launch "$heavy"
+    LAUNCHED=$launched
+    if ! wait_for 20 said_since 0 "^note: reading the"; then
+        verdict 75-loading-bar wrong "no reading sentence: $(tail -n 2 "$LOG" | tr '\n' ' ')"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    sleep 0.5
+    shot 75-loading-bar
+    first=$(title)
+    sleep 1
+    shot 75-loading-bar-later
+    second=$(title)
+    local moved
+    # Both photographs must be of the wait: a page that arrived between them moved the picture for
+    # a reason that is not the bar's.
+    if [ "$(said '^note: the page has been read')" -gt 0 ]; then
+        verdict 75-loading-bar wrong "the page was read before the bar could be seen to move: $second"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+        [ "$first" != "$second" ] && moved=yes
+    else
+        [ "$(magick compare -metric AE "$OUT/shots/$WINDOW/75-loading-bar.png" \
+            "$OUT/shots/$WINDOW/75-loading-bar-later.png" null: 2>&1 | cut -d' ' -f1)" != 0 ] && moved=yes
+    fi
+    local arrived=""
+    wait_for 120 said_since 0 "^note: the page has been read" && wait_for 120 holds_colour 75-loading-bar-page "#ff0000" && arrived=yes
+    if [ -z "${moved:-}" ]; then
+        verdict 75-loading-bar wrong "the bar did not move in a second: $second"
+    elif [ -z "$arrived" ]; then
+        verdict 75-loading-bar wrong "the page never arrived: $(grep -m1 '^note: reading' "$LOG")"
+    else
+        verdict 75-loading-bar works "$(grep -m1 '^note: reading' "$LOG" | cut -c7-); moved, then the page; title: $second"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 confined() {
     [ -x "$BIN/quorra-confined" ] || { verdict 28-confined-refusal "not offered" "no $BIN/quorra-confined"; return; }
     # The worker reads the outline on a thread of its own after the open, and its next answer
@@ -3335,6 +3399,163 @@ confined() {
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 
+# --- step 80: one heavy document through the window path, timed (ADR 1815) -------------------------
+# heavy_open: `HEAVY_FILE` — by default the owner's one-page drawing of twenty-nine million operators
+# that asked for this step — opened in the window and timed from the launch to the page on the
+# screen, with what the window's process and its children peaked at, what the page crossed the
+# confined boundary as, and how long a key waited for the window while the page was loading. Run by
+# `--step heavy_open` alone and never in the default list, because its verdict is a set of times:
+# `tools/state.sh heavy` runs it under a clock walk.
+#
+# Every figure is a line `heavy<TAB>window<TAB>figure<TAB>value<TAB>unit` on standard output and in
+# `$OUT/heavy.tsv`, and the step's one verdict says whether the page reached the screen at all. What
+# each figure is, and what it cannot see:
+#
+# - **launch-to-mapped** is the drive's clock from the launch to xdotool finding the window mapped;
+# - **first-frame** is the window's own `--trace=launch` stamp on its first-frame sentence — the
+#   words `first_frame` waits for — which in all four windows is said when a frame holding the page
+#   is presented, not when the empty ground is or a loading bar;
+# - **bar-shown** and **document-joined** are the window's stamps on its word that the document is
+#   still opening past `WARN` (ADR 1811), and on the open's join, page one read — `never` for a
+#   window that says neither;
+# - **key-wait** is the longest a key waited between `xdotool key Right` and the window's trace line
+#   handing that key's `GoTo(Next)` to the viewer, the keys pressed every half second from the window
+#   mapping to the page landing; the k-th key's answer is the k-th such line, the stamps are the
+#   window's own seconds since its `main` against the drive's seconds since the launch, so the two
+#   clocks differ by the process's exec, a few milliseconds. ArrowRight is chosen because on a
+#   one-page document it is a command that changes nothing; a file of more pages is refused rather
+#   than turned while it is timed;
+# - **peak-resident** is each process's `VmHWM`, the kernel's high-water mark, which counts mapped
+#   libraries and the page cache's whims (trap 35), and **peak-anonymous** the largest `Anonymous`
+#   of `smaps_rollup` sampled every tenth of a second, which is the program's own memory and can miss
+#   a spike shorter than a tick; the window is `host`, each child by its command name;
+# - **crossed-as** is the confined window's own `frame:` line — a page counted `as marks` crossed as
+#   `Payload::List`, any other as `Payload::Raster` — and in the three windows that interpret in
+#   their own process, `nothing crosses`; the bytes it would cross as are `tools/state.sh heavy`'s
+#   second line, which runs ADR 0607's rule itself.
+#
+# The window traces `frames` beside the drive's two topics, because the confined window's crossing
+# and the toolkits' draws are said there, and it runs with the rayon pool it would choose for
+# itself: the lock's four threads are the walk's, and the environment would hand them to the window
+# (trap 122).
+HEAVY_FILE=${HEAVY_FILE:-/tmp/demo_heavy_engineering_A1.pdf}
+# The ceiling is about ten times the slowest window on the owner's file when the step was written.
+HEAVY_CEILING=${HEAVY_CEILING:-240}
+heavy_figure() { # figure value unit
+    printf 'heavy\t%s\t%s\t%s\t%s\n' "$WINDOW" "$1" "$2" "$3" | tee -a "$OUT/heavy.tsv"
+}
+# heavy_sample PID LABEL: folds one reading of a process's two figures into HEAVY_HWM and HEAVY_ANON.
+heavy_sample() {
+    local hwm anon
+    hwm=$(awk '/^VmHWM:/ {print $2}' "/proc/$1/status" 2>/dev/null)
+    anon=$(awk '/^Anonymous:/ {print $2}' "/proc/$1/smaps_rollup" 2>/dev/null)
+    [ -n "$hwm" ] && [ "$hwm" -gt "${HEAVY_HWM[$2]:-0}" ] && HEAVY_HWM[$2]=$hwm
+    [ -n "$anon" ] && [ "$anon" -gt "${HEAVY_ANON[$2]:-0}" ] && HEAVY_ANON[$2]=$anon
+}
+# heavy_descendants PID: every process under PID, one `pid name` a line.
+heavy_descendants() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do
+        printf '%s %s\n' "$child" "$(cat "/proc/$child/comm" 2>/dev/null)"
+        heavy_descendants "$child"
+    done
+}
+heavy_open() {
+    local step=80-heavy-open pages start now mapped= landed= sent=() tick=0 line label answers
+    if [ ! -r "$HEAVY_FILE" ]; then
+        verdict "$step" "not offered" "no readable HEAVY_FILE at $HEAVY_FILE"
+        return
+    fi
+    pages=$(python3 -c 'import sys, pikepdf; print(len(pikepdf.open(sys.argv[1]).pages))' "$HEAVY_FILE" 2>/dev/null)
+    if [ "${pages:-0}" != 1 ]; then
+        verdict "$step" "not offered" "$HEAVY_FILE has ${pages:-no readable} page(s): the timing key would turn a page of more than one"
+        return
+    fi
+    [ -n "$APP" ] && { kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; }
+    LOG="$OUT/$WINDOW.heavy.log"
+    declare -gA HEAVY_HWM=() HEAVY_ANON=()
+    start=${EPOCHREALTIME/[.,]/}
+    if [ "$WINDOW" = quorra-qt ]; then
+        env -u RAYON_NUM_THREADS QT_XCB_NO_XI2=1 "$BIN/$WINDOW" --trace=events,launch,frames "$HEAVY_FILE" > "$LOG" 2>&1 &
+    else
+        env -u RAYON_NUM_THREADS "$BIN/$WINDOW" --trace=events,launch,frames "$HEAVY_FILE" > "$LOG" 2>&1 &
+    fi
+    APP=$!
+    while :; do
+        now=${EPOCHREALTIME/[.,]/}
+        [ $((now - start)) -ge $((HEAVY_CEILING * 1000000)) ] && break
+        kill -0 "$APP" 2>/dev/null || break
+        heavy_sample "$APP" host
+        while read -r line label; do
+            [ -n "$line" ] && heavy_sample "$line" "$label"
+        done <<< "$(heavy_descendants "$APP")"
+        if [ -z "$mapped" ] && a_window; then
+            mapped=$now
+            xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+        fi
+        first_frame && { landed=$now; break; }
+        # A key every fifth tick once there is a window to press it in.
+        if [ -n "$mapped" ] && [ $((tick % 5)) -eq 0 ]; then
+            xdotool key Right 2>/dev/null && sent+=("$(( ${EPOCHREALTIME/[.,]/} - start ))")
+        fi
+        tick=$((tick + 1))
+        sleep 0.1
+    done
+    # The keys still queued when the page landed are answered once the window is free; a few seconds
+    # for that, read off the answers' own count.
+    wait_for 10 heavy_answered "${#sent[@]}"
+    heavy_sample "$APP" host
+    answers=$(grep -E 'GoTo\(Next\)|go to Next' "$LOG" | awk '{print $2}')
+    heavy_figure launch-to-mapped "$( [ -n "$mapped" ] && awk -v a="$start" -v b="$mapped" 'BEGIN { printf "%.2f", (b - a) / 1e6 }' || echo never)" s
+    line=$(grep -m1 -E 'launch path, process start to first present|first frame presented|first frame on the screen at' "$LOG" | awk '{print $2}')
+    heavy_figure first-frame "${line:-never}" s
+    # The bar, since ADR 1811: the window's word that the document is still opening past `WARN` — a
+    # line of its own, or in `quorra` a row of the launch summary in milliseconds — and the open's
+    # join, which is page one read.
+    line=$(grep -m1 -E '^trace: +[0-9.]+ document still opening' "$LOG" | awk '{print $2}')
+    [ -n "$line" ] || line=$(grep -m1 -E '^trace: +document still opening +[0-9.]+ ms' "$LOG" | awk '{printf "%.3f", $5 / 1000}')
+    heavy_figure bar-shown "${line:-never}" s
+    line=$(grep -m1 -E '^trace: +[0-9.]+ (document joined|opened on its own thread)' "$LOG" | awk '{print $2}')
+    heavy_figure document-joined "${line:-never}" s
+    printf '%s\n' "${sent[@]}" > "$OUT/$WINDOW.heavy.sent"
+    printf '%s\n' "$answers" | awk -v sent="$OUT/$WINDOW.heavy.sent" -v window="$WINDOW" '
+        BEGIN { while ((getline s < sent) > 0) if (s != "") at[++keys] = s / 1e6 }
+        NF { answered++; if (answered <= keys) { wait = $1 - at[answered]; if (wait > worst) worst = wait } }
+        END {
+            printf "heavy\t%s\tkeys-pressed\t%d\tkeys\n", window, keys
+            printf "heavy\t%s\tkeys-answered\t%d\tkeys\n", window, (answered > keys ? keys : answered)
+            if (keys) printf "heavy\t%s\tkey-wait\t%.2f\ts\n", window, worst
+            else printf "heavy\t%s\tkey-wait\tno key pressed\t-\n", window
+        }' | tee -a "$OUT/heavy.tsv"
+    for label in "${!HEAVY_HWM[@]}"; do
+        heavy_figure "peak-resident $label" "$(awk -v k="${HEAVY_HWM[$label]}" 'BEGIN { printf "%.0f", k / 1024 }')" MiB
+        heavy_figure "peak-anonymous $label" "$(awk -v k="${HEAVY_ANON[$label]:-0}" 'BEGIN { printf "%.0f", k / 1024 }')" MiB
+    done
+    if [ "$WINDOW" = quorra-confined ]; then
+        line=$(grep -m1 -oE 'frame: [0-9]+ page\(s\), [0-9]+ as marks' "$LOG")
+        case "$line" in
+            '') heavy_figure crossed-as "no frame crossed" - ;;
+            *', 0 as marks') heavy_figure crossed-as "Payload::Raster ($line)" - ;;
+            *) heavy_figure crossed-as "Payload::List ($line)" - ;;
+        esac
+    else
+        heavy_figure crossed-as "nothing crosses: this window interprets in its own process" -
+    fi
+    # Where the page was drawn, in the window's words: the device's refusal, or a processor's draw.
+    line=$(grep -m1 -E 'drawn on the processor|graphics device refused|page 1 rasterised' "$LOG" | sed 's/^trace: *[0-9.]* //')
+    heavy_figure drawn-by "${line:-the window said nothing of a refusal or a processor draw}" -
+    if [ -z "$landed" ]; then
+        verdict "$step" wrong "no first frame within ${HEAVY_CEILING} s; $LOG holds what the window said"
+    elif ! drawn_on_the_shot "$step"; then
+        verdict "$step" wrong "the first frame was said and the screen holds no page"
+    else
+        verdict "$step" works "the page on the screen at $(grep "	first-frame	" "$OUT/heavy.tsv" | tail -1 | cut -f4) s by the window's clock"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# heavy_answered N: whether the window's log holds N answers to the timing key.
+heavy_answered() { [ "$(grep -cE 'GoTo\(Next\)|go to Next' "$LOG" 2>/dev/null)" -ge "$1" ]; }
+
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
     # `--step FUNCTION` runs the named step functions alone, in each window asked for.
@@ -3358,6 +3579,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         located
         located_displayed
         signature_policy
+        loading_bar
         continue
     fi
     drive
@@ -3394,6 +3616,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     located
     located_displayed
     signature_policy
+    loading_bar
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

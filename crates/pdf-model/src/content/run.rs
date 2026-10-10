@@ -22,8 +22,8 @@ use super::report::{
 };
 use super::text::TextObject;
 use super::{
-    GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH,
-    line_cap, line_join, miter_limit, set_dash,
+    GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERANDS, MAX_STATE_DEPTH, line_cap, line_join,
+    miter_limit, set_dash,
 };
 
 impl Interpreter<'_> {
@@ -307,9 +307,10 @@ impl Interpreter<'_> {
         // Every `BMC` and `BDC` pushes, so an `EMC` closes the section it actually belongs
         // to rather than the last optional one — which is why this is not just a counter.
         //
-        // It carries no bound of its own because it already has one: a section costs an
-        // operator, and `MAX_OPERATIONS` bounds those at four million. A stream that nests
-        // that deep has spent its whole budget doing so.
+        // It carries no bound of its own: it lives for one stream, a section costs at least the
+        // five bytes of `/ BMC` in it, and Table 31's `Limits::max_stream_len` bounds those —
+        // the same bound the token loop below has. What a closed section leaves behind is a
+        // span, and the spans are charged to `MAX_LIST_BYTES` (ADR 1810).
         let mut marked: Vec<Marked> = Vec::new();
         // §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
         // flag because the clause says the pair "may be nested".
@@ -442,37 +443,32 @@ impl Interpreter<'_> {
                 Step::Operator(word) => word,
             };
 
-            // **Here rather than at the top of the loop, and that is the whole of ADR 0306.**
-            // `MAX_OPERATIONS` names operators and this is the only place the interpreter knows
-            // it has one: §7.8.2's grammar puts the operator after its operands, so a `c` is
-            // seven tokens and one operator, and counting the loop's turns charged a curve seven
-            // times over. Everything above this line is an operand, an array bracket or a
-            // keyword inside an array, and none of those is an operator.
+            // **Counted here rather than at the top of the loop, and that is the whole of ADR
+            // 0306**: this is the only place the interpreter knows it has an operator, because
+            // §7.8.2's grammar puts the operator after its operands — a `c` is seven tokens and
+            // one operator. Everything above this line is an operand, an array bracket or a
+            // keyword inside an array.
             //
-            // What bounds the *token* loop is the stream's own length — every token consumes at
-            // least one byte — and `Limits::max_stream_len` bounds that.
-            //
-            // **Under a window that bound stops being spent in advance, which is ADR 0362's
-            // consequence and ADR 0365's arithmetic.** A bomb's gibibyte used to be allocated
-            // before the first operator was counted, so this bound guarded nothing it was
-            // reached by; the same bomb read through a window reaches four million operators a
-            // few megabytes in, and stops there.
+            // **The count is a figure and refuses nothing** (ADR 1809): it is how far the run has
+            // got, for the window's progress and for a census, and a page that states more
+            // operators than any figure is drawn whole. What ends the token loop is the stream's
+            // own length — every token consumes at least one byte, and Table 31's
+            // `Limits::max_stream_len` bounds the concatenation — and what ends a run that
+            // *re-reads* streams, a form or a glyph or a cell invoked again and again, is the
+            // memory its marks take (`MAX_LIST_BYTES`) or the person's stop, which in the
+            // confined worker is a kill (ADR 0241).
             let operator = word.as_slice();
             self.operations = self.operations.saturating_add(1);
-            // One comparison asks both budgets: `next_check` is never past `MAX_OPERATIONS`, so
-            // the count's bound is reached here exactly as before, and the list's is asked every
-            // few dozen operators in the same branch (ADR 1507). Either stops the run the same
-            // way: no operator after it is dispatched, here or in any stream enclosing this one.
+            // The list's budget is asked every few dozen operators, in this one branch (ADR
+            // 1507), and a charge past it stops the run: no operator after it is dispatched, here
+            // or in any stream enclosing this one.
             if self.operations >= self.list_budget.next_check() {
-                if self.operations > MAX_OPERATIONS {
-                    self.note(Unsupported::LimitReached {
-                        limit: "MAX_OPERATIONS",
-                    });
-                    return;
-                }
                 if self.list_spent(state.stroke.dash_array.len()) {
                     return;
                 }
+                // The window's figure rides the same check, so it costs the loop nothing between
+                // checks and a thread nobody is watching one thread-local look (ADR 1811).
+                crate::progress::publish(self.operations, || reader.progress());
             }
             if let Some(ledger) = self.ledger {
                 ledger.borrow_mut().operator(operator);
@@ -656,8 +652,14 @@ impl Interpreter<'_> {
                 }
 
                 // --- path painting ---
+                //
+                // Every operator below but `n` keeps the path in the list, so each charges its
+                // segments to `MAX_LIST_BYTES` first: a path costs its segments once however many
+                // commands share it, and a form invoked a million times builds a million (ADR
+                // 1810). `n` keeps none, and a clip is charged where the table takes it.
                 b"n" => self.end_path(&mut path, &mut pending_clip, &mut state, None, None),
                 b"f" | b"F" => {
+                    self.charge_painted(&path);
                     self.end_path(
                         &mut path,
                         &mut pending_clip,
@@ -667,6 +669,7 @@ impl Interpreter<'_> {
                     );
                 }
                 b"f*" => {
+                    self.charge_painted(&path);
                     self.end_path(
                         &mut path,
                         &mut pending_clip,
@@ -675,12 +678,17 @@ impl Interpreter<'_> {
                         None,
                     );
                 }
-                b"S" => self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(false)),
+                b"S" => {
+                    self.charge_painted(&path);
+                    self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(false));
+                }
                 b"s" => {
                     close_subpath(&mut path);
+                    self.charge_painted(&path);
                     self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(true));
                 }
                 b"B" => {
+                    self.charge_painted(&path);
                     self.end_path(
                         &mut path,
                         &mut pending_clip,
@@ -690,6 +698,7 @@ impl Interpreter<'_> {
                     );
                 }
                 b"B*" => {
+                    self.charge_painted(&path);
                     self.end_path(
                         &mut path,
                         &mut pending_clip,
@@ -705,6 +714,7 @@ impl Interpreter<'_> {
                     } else {
                         FillRule::NonZero
                     };
+                    self.charge_painted(&path);
                     self.end_path(
                         &mut path,
                         &mut pending_clip,

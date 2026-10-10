@@ -4270,7 +4270,7 @@ const RENDERINGS_OF_ONE_PROFILE: usize = 7;
 /// about it worth saying out loud** (ADR 0417). A `static` table filled from the front and never
 /// evicted would refuse the ninth distinct press a *process* met, and which document that fell
 /// on would be decided by the order the scheduler ran the eight before it in. Every other
-/// budget in this tree — `MAX_OPERATIONS`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
+/// budget in this tree — `MAX_LIST_BYTES`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
 /// document that reaches it, and this one is too: a page naming more than this many presses
 /// is refused the next one on every run and on every machine, and a page naming one is never
 /// refused whatever else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s

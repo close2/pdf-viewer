@@ -128,6 +128,12 @@ These are the places where a native host's shape differs from the tier-2 host's,
   nothing on the screen yet waits for page one from a one-refresh budget rather than polling
   (`Drawing::settle`, ADR 0678). Two hosts on one arrangement are a differential instrument: one
   host cannot tell its toolkit's cost from its own, and two disagreeing localise it in one reading.
+- **Opening is off the event thread too, past `WARN`** (`viewer_host::Loading`, ADR 1811): the
+  document's thread is waited for no longer than `drawing::WARN`, and a page still being read then
+  is a bar — GTK's and Qt's own widget in the status bar, the title in `quorra` and
+  `quorra-confined` — until the look that finds it read. What is still owed: a page interpreted
+  *after* the launch (a turn, a re-interpretation) is read on the toolkit's thread with no bar, and
+  an in-process interpretation has no stop but the window's close.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

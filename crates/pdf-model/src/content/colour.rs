@@ -278,10 +278,18 @@ impl Interpreter<'_> {
         // **The table is asked before the shape is tested**, and the order is the whole cost
         // argument: a hit is one map lookup, and [`is_icc_based`] — which resolves the array
         // and so copies it — runs once per *distinct* object rather than once per operator.
+        //
+        // **Both ways a resource dictionary states the array are remembered** — behind a
+        // reference, and written in place as `/Cs1 [/ICCBased 5 0 R]` — because the second is
+        // as much a pure function of its stream as the first. Remembering only the first left
+        // the owner's `demo_heavy_engineering_A1.pdf` reading its profile again at each of its
+        // 1 288 210 `CS` operators: 17.7 G of its 68.7 G interpretation instructions (25.7%,
+        // 13.4 G of them `icc::Profile::parse`) under `examples/callgrind_interpret`. ADR 1813.
         let stated = self
             .resource_entry(resources, "ColorSpace", &name)
-            .and_then(|entry| entry.as_reference());
-        if let Some(id) = stated
+            .as_ref()
+            .and_then(Stated::of);
+        if let Some(id) = stated.map(Stated::id)
             && let Some(space) = self.icc_spaces.get(&id)
         {
             let space = space.clone();
@@ -296,10 +304,10 @@ impl Interpreter<'_> {
             resources,
             Reading::new(self.output_intent.as_ref()).under_separations(self.separations()),
         );
-        if let (Some(id), Some(parsed)) = (stated, space.as_ref())
-            && is_icc_based(self.document, id)
+        if let (Some(stated), Some(parsed)) = (stated, space.as_ref())
+            && stated.is_icc_based(self.document)
         {
-            self.icc_spaces.insert(id, parsed.clone());
+            self.icc_spaces.insert(stated.id(), parsed.clone());
         }
         // §8.6.8's initial colour is the *selected* family's, which a default or an output
         // intent standing in for a device family does not change: `initial_colour_of` says why.
@@ -661,6 +669,53 @@ fn first_usable_intent(document: &Document, intents: &Object) -> Option<ColourSp
         }
     }
     None
+}
+
+/// The object that identifies a colour space a resource dictionary states, where one can.
+///
+/// [`Interpreter::icc_spaces`] is keyed by it. Two objects can be that identity, and they cannot
+/// be confused in one table because no object is both an array and a stream: the array itself
+/// where the entry refers to it, and the profile stream where the entry *is* the array.
+#[derive(Debug, Clone, Copy)]
+enum Stated {
+    /// `/Cs1 7 0 R`: the object the entry refers to, which is `[/ICCBased <stream>]` or is
+    /// not — [`is_icc_based`] asks, once, when it is first parsed.
+    Referred(ObjectId),
+    /// `/Cs1 [/ICCBased 5 0 R]`: the profile stream, which is all the array says.
+    Profile(ObjectId),
+}
+
+impl Stated {
+    /// The identity of `entry`, a resource dictionary's `/ColorSpace` entry, if it has one.
+    fn of(entry: &Object) -> Option<Self> {
+        match entry {
+            Object::Reference(id) => Some(Self::Referred(*id)),
+            Object::Array(items) => match items.as_slice() {
+                [Object::Name(family), Object::Reference(stream), ..]
+                    if family.as_bytes() == b"ICCBased" =>
+                {
+                    Some(Self::Profile(*stream))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The key it is remembered under.
+    fn id(self) -> ObjectId {
+        match self {
+            Self::Referred(id) | Self::Profile(id) => id,
+        }
+    }
+
+    /// Whether the space it identifies is `[/ICCBased <stream>]`; the profile form already is.
+    fn is_icc_based(self, document: &Document) -> bool {
+        match self {
+            Self::Referred(id) => is_icc_based(document, id),
+            Self::Profile(_) => true,
+        }
+    }
 }
 
 /// Whether this object is `[/ICCBased <stream>]` — §8.6.5.5's one-element array form.

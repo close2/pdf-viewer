@@ -40,6 +40,7 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QResizeEvent>
@@ -1456,6 +1457,13 @@ MainWindow::MainWindow(rust::Box<Host> host)
 
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     statusBar()->addWidget(status_, 1);
+    // Qt's own bar, beside the sentence: in thousandths, so that a page of tens of millions of
+    // operators moves it visibly, and hidden until the host says a document has outlasted `WARN`.
+    loading_ = new QProgressBar;
+    loading_->setRange(0, 1000);
+    loading_->setTextVisible(false);
+    loading_->setVisible(false);
+    statusBar()->addPermanentWidget(loading_);
 
     // CLAUDE.md's four restriction levels, in a bar of their own. Only the headings are asked
     // for here: what is under them is a function of a policy that changes while the window is up,
@@ -2395,6 +2403,13 @@ void MainWindow::applyUpdates()
         // refusal whose tail names the way out. The same tooltip `viewer-gtk` sets, for the same
         // reason and found on the same screenshot.
         status_->setToolTip(text(host_->status()));
+    }
+    // Asked on every update rather than flagged, because it is one integer and the bar has to go
+    // the moment the document is taken in, whatever update that happened inside.
+    const int permille = host_->loading_permille();
+    loading_->setVisible(permille >= 0);
+    if (permille >= 0 && loading_->value() != permille) {
+        loading_->setValue(permille);
     }
     pumpSearch();
     pumpPresentation();

@@ -622,12 +622,18 @@ pub(crate) struct App {
     /// How many rows §12.3.4's tab has, which is the document's page count.
     pub(crate) page_count: usize,
     pub(crate) state: Option<State>,
-    /// The thread opening the document, until the window and the device have been brought up.
+    /// The thread opening the document, until the window and the device have been brought up and
+    /// the document is ready.
     ///
-    /// `None` from the moment it is joined, which is the first thing `resumed` does after the
-    /// presenter exists — so every later event, command and query sees an ordinary `Viewer` and
-    /// nothing else in this file knows a thread was involved.
-    pub(crate) opening: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// `None` from the moment it is joined — in `resumed`, for a document ready inside
+    /// `viewer_host::drawing::WARN`, or on the [`viewer_host::loading::TICK`] that finds it ready
+    /// for one that is not (ADR 1811). So every later event, command and query sees an ordinary
+    /// `Viewer`, and what this file knows of the thread is the bar [`Self::loading`] carries.
+    pub(crate) opening: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
+    /// What the title says about a document still opening past `WARN`, or nothing.
+    ///
+    /// Kept so that a tick rewrites the title only when the sentence changes.
+    pub(crate) loading: Option<String>,
     /// The thread creating the graphics instance, which is 80% of what bring-up blocks for.
     ///
     /// **`None` under `--cpu`, where it was never spawned** — the one place in this program that
@@ -740,10 +746,15 @@ impl App {
     pub(crate) fn retitle(&self) {
         if let Some(state) = self.state.as_ref() {
             let mark = if self.dirty { "• " } else { "" };
+            // No caption before the document is taken in, which is when a bar is in the title.
+            let caption = if self.caption.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", self.caption)
+            };
             state.window.set_title(&format!(
-                "{mark}{} — {}{}",
+                "{mark}{}{caption}{}",
                 self.named(),
-                self.caption,
                 self.said_about_the_drawing()
             ));
         }
@@ -1013,6 +1024,7 @@ impl App {
         let mut drawing = self
             .still_drawing
             .as_ref()
+            .or(self.loading.as_ref())
             .map_or_else(String::new, |said| format!(" — {said}"));
         if let Some(said) = &self.on_the_processor {
             drawing.push_str(" — ");

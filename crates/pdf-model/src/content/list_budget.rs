@@ -1,36 +1,41 @@
-//! The bytes one interpretation may build into its display list, and what each mark costs.
+//! The bytes one interpretation may keep — its display list and what is read off it — and what
+//! each mark costs.
 //!
-//! # Why the operator budget does not bound this
+//! # Why this, and not a count, is what bounds a run
 //!
-//! `MAX_OPERATIONS` counts operators, and an operator's cost in memory is not one thing. A `re f`
-//! is one command; a tiling cell is replayed once per site and every site's copy is charged to
-//! the operator budget as one operator a command, but the copy also carries the cell's clips, and
-//! a Type 3 glyph inside a Type 3 glyph inside a tiling pattern multiplies both. The corpus's
-//! `ContentStreamCycleType3insideType3.pdf` spends its four million on 3.93 million commands and
-//! **2.05 million clips**, 1.15 GiB of list and a 1.8 GiB peak for a 2440-byte file, and under
-//! the fuzz target's purity check, which keeps two interpretations alive at once, 3.16 GiB
-//! (ADR 1507). Principle 3 asks for "[e]xplicit memory and time budgets" against "pathological
+//! A content stream is a program, and what it can exhaust is memory: time it can only spend, and
+//! spending time is the person's to stop (ADR 0657, ADR 0241). So no count of operators refuses a
+//! page (ADR 1809), and this budget is the one that has to see every route by which a run keeps
+//! something. An operator's cost in memory is not one thing: a `re f` is one command; a tiling
+//! cell is replayed once per site, and each copy carries the cell's clips; a form invoked a million
+//! times builds its path a million times; and a Type 3 glyph inside a Type 3 glyph inside a tiling
+//! pattern multiplies all of them. The corpus's `ContentStreamCycleType3insideType3.pdf` builds
+//! 3.93 million commands and **2.05 million clips**, 1.15 GiB of list for a 2440-byte file (ADR
+//! 1507). Principle 3 asks for "[e]xplicit memory and time budgets" against "pathological
 //! content", and a bound in the unit of the work is the memory one.
 //!
 //! # What is charged, and when
 //!
-//! The charge is asked where the operator loop already asks `MAX_OPERATIONS`, and folded into
-//! that one comparison: the loop compares its count against [`ListBudget::next_check`], which is
-//! never past `MAX_OPERATIONS`, and only when it is reached does the slow path run — every
-//! [`CHECK_EVERY`] operators. So an ordinary operator pays nothing for this bound beyond the
-//! comparison it already made, and no mark pays anything as it is drawn (ADR 1507 section 2).
-//! The slow path charges, from the list's own counts:
+//! The loop compares its operator count against [`ListBudget::next_check`], and only when it is
+//! reached does the slow path run — every [`CHECK_EVERY`] operators. So an ordinary operator pays
+//! nothing for this bound beyond that one comparison, and no mark pays anything as it is drawn
+//! (ADR 1507 section 2). The slow path charges, from the list's and the readback's own counts:
 //!
 //! - **each command added since the last check**, at a command's own size plus the dash array the
-//!   graphics state then carries — a stroke clones it, and it is the one part of a mark a content
-//!   stream can make large without spending operators. A path is not charged: its segments each
-//!   cost an operator, and a copy shares it. A group's elements were counted as they were drawn,
-//!   so a list that shrank because they were wrapped is taken where it now stands;
+//!   graphics state then carries — a stroke clones it. A group's elements were counted as they were
+//!   drawn, so a list that shrank because they were wrapped is taken where it now stands;
 //! - **each clip added since**, at its own size and its path's, which it owns and which a
 //!   tiling's copy clones — walking the table from where the last check stopped, so neither the
 //!   places that add one nor the copies a cell's replication makes can miss a route;
-//! - **a tiling's copies**, charged as they are made rather than at the check, every command and
-//!   every element inside it, because one operator's replication can be the whole budget.
+//! - **what the readback gained since**: the text, one placement per code shown, and one span per
+//!   marked-content section closed with something to record, with the strings a span copies out of
+//!   its property list — none of which is a mark, and all of which a run re-reading one form
+//!   keeps once per reading (ADR 1810).
+//!
+//! Two charges are made where the thing is made rather than at the check, because one operator can
+//! be the whole budget: **a painted path's segments**, at the painting operator, once however many
+//! commands share the path (`Interpreter::charge_painted`); and **a tiling's copies**, every
+//! command and every element inside each, before the next copy is made.
 //!
 //! A run may therefore pass the bound by what [`CHECK_EVERY`] operators add before it is asked —
 //! one tiling copy at most, since replication asks before every copy.
@@ -50,21 +55,29 @@ use pdf_render::{ClipId, Command, Paint};
 use super::Interpreter;
 use super::report::Unsupported;
 
-/// Most bytes one interpretation may charge to its display list (ADR 1507).
+/// Most bytes one interpretation may keep: its display list and its readback (ADRs 1507, 1810).
 ///
-/// **The value is a census's, and a stated multiple of it.** `examples/display_list_census`
-/// over the first page of 90 150 documents — `doc/pdf.js`, `doc/corpora` and the three corpus
-/// caches — finds the largest list a page builds inside every other bound at 214.3 MiB
-/// (`poppler-12206-0.pdf` of the Tika tracker: 957 898 commands, 435 681 clips, nothing
-/// reported); 512 MiB is 2.4 times that. The one other page past 256 MiB,
-/// `GHOSTSCRIPT-697013-0.pdf`, is stopped by `MAX_OPERATIONS` at 441.6 MiB, so this bound moves
-/// no refusal a page already had. The cycle this exists for built 1.15 GiB of
-/// list before `MAX_OPERATIONS` stopped it, and is refused at under half of that (ADR 1507).
+/// **The value is the confined worker's, and it is half of it.** The worker that interprets a
+/// page runs under `pdf_sandbox`'s `INTERPRETER_ADDRESS_SPACE_LIMIT` of 4 GiB, which is the
+/// machine's answer to "is this a resource problem": a list that fits under it can be drawn, and
+/// one that does not kills the worker. Two gibibytes leaves the other half for what is alive
+/// beside the list at its largest — the frame or the encoded list that crosses to the host (ADR
+/// 0607), or a second interpretation where a check keeps two — so a page the worker could have
+/// shown is never refused here, and a page it could not is refused by name before the kill.
 ///
-/// A charge past the bound stops the run as `MAX_OPERATIONS` does — every enclosing stream stops
-/// at its next operator, and a tiling stops before its next copy — and is reported once, as
-/// [`Unsupported::ListBytes`] with the charge and the bound.
-pub const MAX_LIST_BYTES: usize = 512 << 20;
+/// **What it admits, measured.** The project owner's A1 engineering drawing,
+/// `demo_heavy_engineering_A1.pdf` (28 992 250 operators in one stream, 4 408 405 commands),
+/// charges 740.1 MiB with its painted paths counted, and stood at 504.7 MiB of the earlier 512 MiB
+/// with them uncounted — under it by 1.4%, and only because a path's segments were left to an
+/// operator count (ADR 1810). Its interpretation peaks at 1.23 GiB resident.
+/// `examples/display_list_census` over the first page of 90 150 documents found the largest list
+/// a corpus page builds inside every other bound at 214.3 MiB, uncounted paths again (ADR 1507).
+/// The cycle this budget exists for is refused at it, with the same report.
+///
+/// A charge past the bound stops the run — every enclosing stream stops at its next operator, and a
+/// tiling stops before its next copy — and is reported once, as [`Unsupported::ListBytes`] with
+/// the charge and the bound.
+pub const MAX_LIST_BYTES: usize = 2 << 30;
 
 /// A command's own size, before anything it carries.
 pub(super) const COMMAND_BYTES: usize = size_of::<Command>();
@@ -88,8 +101,11 @@ pub(super) struct ListBudget {
     commands_seen: usize,
     /// How many entries of the list's clip table have been charged — the table only grows.
     clips_charged: usize,
-    /// The operator count at which the loop next asks either bound.
+    /// The operator count at which the loop next asks this bound.
     next_check: usize,
+    /// How much of each part of the readback has been charged, which only ever grows but for
+    /// `truncate_readback` — and a readback that shrank is charged again only past where it was.
+    readback_seen: Readback,
     /// Whether the refusal has been reported, so it is reported once.
     reported: bool,
 }
@@ -100,10 +116,22 @@ impl ListBudget {
         self.charged
     }
 
-    /// The operator count at which the loop next asks `MAX_OPERATIONS` and this bound.
+    /// The operator count at which the loop next asks this bound.
     pub(super) const fn next_check(self) -> usize {
         self.next_check
     }
+}
+
+/// How long each part of an interpretation's readback is: its text in bytes, and its placements
+/// and spans in entries.
+#[derive(Debug, Clone, Copy, Default)]
+struct Readback {
+    text: usize,
+    placed: usize,
+    described: usize,
+    artifacts: usize,
+    marked: usize,
+    associated: usize,
 }
 
 /// An `Arc`'s two reference counts, which sit in front of what it shares.
@@ -157,6 +185,18 @@ fn clip_bytes(clip: &Clip) -> usize {
 }
 
 impl Interpreter<'_> {
+    /// Charges a path about to be painted: its segments, which the command that keeps it holds.
+    ///
+    /// Charged at the painting operator rather than at the check, because a command does not say
+    /// whether its path is the one a glyph's every occurrence shares — a glyph's outline is built
+    /// once per font and never comes through here — or one this run just built, which is every
+    /// path that does. `B` and `b` paint one path twice and charge it once. A path under hidden
+    /// optional content is charged and then not kept, which errs towards refusing sooner.
+    pub(super) fn charge_painted(&mut self, path: &pdf_render::geom::Path) {
+        let bytes = elements(path.commands().len(), size_of::<PathCommand>());
+        self.list_budget.charged = self.list_budget.charged.saturating_add(bytes);
+    }
+
     /// Charges the last `copied` commands of the list, which a tiling's replication just made.
     pub(super) fn charge_copied(&mut self, copied: usize) {
         let commands = self.list.commands();
@@ -179,10 +219,7 @@ impl Interpreter<'_> {
     /// the dash array's length in the graphics state the commands were drawn under.
     pub(super) fn list_spent(&mut self, dash: usize) -> bool {
         self.charge_gained(dash);
-        self.list_budget.next_check = self
-            .operations
-            .saturating_add(CHECK_EVERY)
-            .min(super::MAX_OPERATIONS.saturating_add(1));
+        self.list_budget.next_check = self.operations.saturating_add(CHECK_EVERY);
         self.list_past(0)
     }
 
@@ -202,6 +239,69 @@ impl Interpreter<'_> {
         budget.charged = budget.charged.saturating_add(elements(added, each));
         budget.commands_seen = count;
         self.charge_clips();
+        self.charge_readback();
+    }
+
+    /// Charges what the readback gained since the last charge: each part's new entries at their
+    /// own size, and a described span's strings, which it copies out of its property list on every
+    /// reading of the stream that states it.
+    fn charge_readback(&mut self) {
+        let seen = self.list_budget.readback_seen;
+        let now = Readback {
+            text: self.text.len(),
+            placed: self.text_layer.len(),
+            described: self.described.len(),
+            artifacts: self.artifacts.len(),
+            marked: self.marked.len(),
+            associated: self.associated.len(),
+        };
+        let strings = self
+            .described
+            .get(seen.described..)
+            .unwrap_or_default()
+            .iter()
+            .fold(0_usize, |total, described| {
+                [&described.alt, &described.expansion, &described.language]
+                    .into_iter()
+                    .flatten()
+                    .fold(total, |total, string| total.saturating_add(string.len()))
+            });
+        let gained =
+            |now: usize, seen: usize, size: usize| elements(now.saturating_sub(seen), size);
+        let bytes = [
+            gained(now.text, seen.text, 1),
+            gained(now.placed, seen.placed, size_of::<super::Placed>()),
+            gained(
+                now.described,
+                seen.described,
+                size_of::<crate::accessibility::Described>(),
+            ),
+            gained(
+                now.artifacts,
+                seen.artifacts,
+                size_of::<super::ArtifactSpan>(),
+            ),
+            gained(now.marked, seen.marked, size_of::<super::MarkedSpan>()),
+            gained(
+                now.associated,
+                seen.associated,
+                size_of::<(std::ops::Range<usize>, crate::attachment::Attachment)>(),
+            ),
+            strings,
+        ]
+        .into_iter()
+        .fold(0_usize, usize::saturating_add);
+        let budget = &mut self.list_budget;
+        budget.charged = budget.charged.saturating_add(bytes);
+        // A part that shrank is charged again only past its longest, which is what was allocated.
+        budget.readback_seen = Readback {
+            text: seen.text.max(now.text),
+            placed: seen.placed.max(now.placed),
+            described: seen.described.max(now.described),
+            artifacts: seen.artifacts.max(now.artifacts),
+            marked: seen.marked.max(now.marked),
+            associated: seen.associated.max(now.associated),
+        };
     }
 
     /// Whether `more` bytes on top of what is charged would pass [`MAX_LIST_BYTES`] — asked

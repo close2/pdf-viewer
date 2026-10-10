@@ -864,3 +864,12 @@ wall, and a pool six times wider moved the walk nowhere while the wait a face's 
 (round 1484, ADR 1804). Before such a walk is the figure for a worker-side speed lever, read
 `utime` and `cutime` from `/proc/<pid>/stat` to see the ceiling the lever can reach, and measure the
 lever on the question a user asks.
+
+## 83. A profiled page is checked for drawing on one thread before a lever is built
+
+The owner's A1 drawing was profiled instruction by instruction, three wastes were cut and the page
+fell from 15.37 s to 11.24 s; its largest lever was none of them — the page rasterises on one thread
+because `pdf_render::strips` marks a stroke's whole height uncuttable and the page frame's `re S`
+spans every row, so wall time equalled user time at four threads (round 1488, ADR 1813). Before a
+lever is built from an instruction profile, compare the walk's wall with its user time: an
+instruction count cannot show idle processors.

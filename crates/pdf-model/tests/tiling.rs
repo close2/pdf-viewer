@@ -368,8 +368,8 @@ fn the_pattern_matrix_moves_the_tiling() {
 /// [`span`](../src/content/pattern.rs)'s floor and ceil make 102 columns by 102 rows — past a
 /// fixed cap of 4096 sites, which would paint the lowest forty rows and report the rest (ADR
 /// 0477, on `7803372.pdf` of the crawl, two hatched table columns left white). The sites are
-/// copies charged to `MAX_OPERATIONS` and to the tiling's own `MAX_TILE_COPIES` (ADR 0430, ADR
-/// 0810), an empty cell loops nothing, a site the fill cannot reach is not copied, and the count
+/// copies charged to the page's `MAX_LIST_BYTES` and to the tiling's own `MAX_TILE_COPIES` (ADR
+/// 0430, ADR 0810), an empty cell loops nothing, a site the fill cannot reach is not copied, and the count
 /// a file states is bounded by the commands it costs rather than by a number of its own. So the
 /// whole square carries the pattern and nothing is reported — the top row is the control for
 /// "the budget was not the question". `hostile_budgets.rs` holds the case that *does* reach the
@@ -828,10 +828,9 @@ fn a_pattern_that_composites_trivially_is_not_wrapped_in_a_group() {
 /// §8.7.3.1 defines the cell as "the painting operators needed to paint one instance of the
 /// cell" and then replicates *the cell*, not the reading of it — so a site is the cell's marks
 /// moved. This asserts the difference where it is observable: the operators inside a cell are
-/// charged to `MAX_OPERATIONS` once rather than once per site, so a cell of two hundred thousand
-/// operators over a hundred and sixty-nine sites is thirty-four million operators when it is
-/// re-read and two hundred thousand when it is read once. The first refuses the page by name;
-/// the second draws it.
+/// run once rather than once per site, so a cell of two hundred thousand operators over a hundred
+/// and sixty-nine sites is thirty-four million operators when it is re-read and two hundred
+/// thousand when it is read once — which `Interpretation::operators` counts (ADR 1809).
 ///
 /// It is the observable that matters rather than the arithmetic: a route decision is invisible
 /// in its output (`nested_content_window.rs` says the same about the window), and this is the
@@ -856,8 +855,13 @@ fn a_cells_operators_are_read_once_and_not_once_per_site() {
 
     assert!(
         interpretation.is_complete(),
-        "the cell is read once, so its operators are counted once: {:?}",
+        "nothing is refused: {:?}",
         interpretation.unsupported
+    );
+    assert!(
+        interpretation.operators < 300_000,
+        "the cell is read once, so its operators are run once: {}",
+        interpretation.operators
     );
     let fills = interpretation
         .display_list

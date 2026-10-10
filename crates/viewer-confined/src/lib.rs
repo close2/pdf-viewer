@@ -104,6 +104,7 @@
 // Nothing here needs it. The confinement is `pdf-sandbox`'s, which reaches seccomp-BPF and
 // Landlock through safe wrappers, and everything else in this crate is bytes and pipes.
 
+mod notice;
 mod protocol;
 mod resume;
 mod worker;
@@ -789,6 +790,21 @@ impl Confined {
         self.host.offer(Box::new(|request| {
             pdf_font::provider::open_a_face(request)
                 .map(|(identity, content)| confined_transport::Provided { identity, content })
+        }));
+    }
+
+    /// Stores how far the worker's page has got into `progress`, for a window to read while it
+    /// waits on this viewer (ADR 1811).
+    ///
+    /// The worker relays a reading every `pdf_model::progress::RELAY_EVERY` operators of a page's
+    /// own stream, whether anybody listens or not; this is the host listening. A reading arrives
+    /// inside whichever exchange the page is being interpreted in, on the thread that holds this
+    /// viewer, so the figure moves while that thread is blocked and a window's thread reads it.
+    pub fn report_progress_to(&mut self, progress: pdf_model::progress::Progress) {
+        self.host.listen(Box::new(move |payload| {
+            if let Some(reading) = notice::decode(payload) {
+                progress.store(reading);
+            }
         }));
     }
 

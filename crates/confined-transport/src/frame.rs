@@ -68,6 +68,24 @@ pub const RESOURCE_REQUEST: u8 = 0xF0;
 /// kill in a build with library-UB checks on. `doc/todo/61` carries it.
 pub const RESOURCE_ANSWER: u8 = 0xF1;
 
+/// The kind a confined worker tells its host something with, which nothing answers.
+///
+/// **The second kind this crate defines, on the first one's argument and in the other half of
+/// it.** [`RESOURCE_REQUEST`] is a request from the confined side that the host answers inside
+/// [`crate::Host`]; this is a *notice* from the confined side that the host hands to whatever it
+/// registered with `Host::listen` and answers with nothing, so the worker writes it and carries on
+/// without reading. What it is for is a figure of how far a long piece of work has got — a page of
+/// tens of millions of operators, interpreted while the host waits for the reply (ADR 1811) — and
+/// the payload is the asking protocol's: this crate does not read it. Past both protocols' ranges
+/// for the same reason as the pair above.
+pub const NOTICE: u8 = 0xF2;
+
+/// Largest notice a host will read before throwing it away.
+///
+/// A figure is a few numbers. The bound is here because the worker is the untrusted side and a
+/// length it states is a claim; a notice longer than this is read past and handed to nobody.
+pub const MAX_NOTICE: usize = 256;
+
 /// Largest resource request a host will read before refusing it.
 ///
 /// A description is a family, a weight and a handful of characters. The bound is here because the

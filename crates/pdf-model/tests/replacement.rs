@@ -193,6 +193,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         separation,
         text,
         list_bytes,
+        operators,
         glyphs,
         codes_without_a_glyph,
         codes_reaching_a_blank_glyph,
@@ -220,6 +221,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
     assert_eq!(text, &whole.text, "readback, {where_}");
     assert_eq!(glyphs, &whole.glyphs, "glyphs, {where_}");
     assert_eq!(list_bytes, &whole.list_bytes, "the list's bytes, {where_}");
+    assert_eq!(operators, &whole.operators, "the operators run, {where_}");
     assert_eq!(
         codes_without_a_glyph, &whole.codes_without_a_glyph,
         "codes with no glyph, {where_}"

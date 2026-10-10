@@ -378,3 +378,11 @@ keystroke script already logged ran again under whatever keys were held at that 
 selection logged two `/K` runs and the first carried the earlier option (round 1475, ADR 1787). A
 log is replayed to *rebuild* — after an undo or a redo — and an entry's side effects happen once,
 when it is committed. The tell is a script, a report or a verdict that happens once per later edit.
+
+### 141. A join on the toolkit thread is a wait with no limit
+
+Every window started a thread to overlap the launch (ADR 1531) and then joined it with no time
+limit, so the owner's 15 s page froze the toolkit thread for the whole read while the window drew
+nothing and answered nothing (round 1487, ADR 1811). `viewer_host::Loading` waits at most `WARN`
+and then polls every 33 ms, showing how far the read has got. A wait on the toolkit thread is
+bounded by `WARN`; what runs longer is a sentence and a bar, and the window keeps answering.

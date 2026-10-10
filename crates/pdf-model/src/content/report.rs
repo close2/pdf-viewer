@@ -544,6 +544,14 @@ pub struct Interpretation {
     /// other field: a page rebuilt from a checkpoint charges what the whole interpretation did
     /// (`tests/replacement.rs` holds the two equal).
     pub list_bytes: usize,
+    /// How many operators the run dispatched, over every content stream it read — the page's,
+    /// and each form, glyph description, tiling cell and soft-mask group as often as it was read.
+    ///
+    /// **A figure, never a bound** (ADR 1809): no count refuses a page. It is what tells a stream
+    /// read once from one read once per use — a tiling's cell is read once and copied (ADR 0430)
+    /// — and what a census of what pages cost counts; a function of the document like every other
+    /// field.
+    pub operators: usize,
     /// Codes this page showed that reached no glyph at all, over every font it used.
     ///
     /// The complement of [`Self::glyphs`] for a `Font::Program`: a code whose font resolved it
@@ -1158,11 +1166,10 @@ impl Shortfall {
 /// What one page could not be drawn as, each item once, in the order a report prints them.
 ///
 /// **A repeat costs a lookup and nothing else** (ADR 1521). A hostile stream raises the same few
-/// hundred items millions of times: a Type 3 glyph whose description shows its own font runs that
-/// description once per code until `MAX_OPERATIONS`, and every malformed keyword in it is noted on
-/// every run. One of the `page` fuzz target's slow units is 4 000 001 operators and 3 794 874 notes
-/// of a few hundred distinct items, and building each sentence and inserting it into the ordered
-/// set was 18% of the page's instructions (ADR 1521).
+/// hundred items millions of times: a form or a glyph description re-read once per invocation notes
+/// every malformed keyword in it on every reading. One of the `page` fuzz target's slow units is
+/// 4 000 001 operators and 3 794 874 notes of a few hundred distinct items, and building each
+/// sentence and inserting it into the ordered set was 18% of the page's instructions (ADR 1521).
 ///
 /// So the two costs are taken apart. [`Notes::insert`] asks the ordered set before copying, which
 /// is what every item pays; and the three sentences a content stream's *keyword* produces — an

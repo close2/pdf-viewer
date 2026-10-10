@@ -56,7 +56,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF13";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF14";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,

@@ -77,6 +77,14 @@ pub struct Provided {
 /// not itself talk to that worker.
 pub type Broker = Box<dyn Fn(&[u8]) -> Option<Provided> + Send + Sync>;
 
+/// What a host hands a confined worker's notices to ([`frame::NOTICE`]).
+///
+/// Called on the host's thread, inside the exchange the worker is working on, with the notice's
+/// payload; it answers nothing and must not itself talk to that worker. The default is none, and a
+/// host with none throws every notice away, which is what a worker that sends them is written to
+/// expect.
+pub type Listener = Box<dyn Fn(&[u8]) + Send + Sync>;
+
 /// A running confined worker, and the frames a host exchanges with it.
 ///
 /// **Every call here blocks for as long as the work takes**, and that is deliberate — see
@@ -92,9 +100,11 @@ pub struct Host {
     confinement: Confinement,
     /// What this host answers a resource request with, if it answers one at all.
     resources: Option<Broker>,
+    /// What this host hands a notice to, if it listens at all.
+    notices: Option<Listener>,
 }
 
-/// Written by hand because a [`Broker`] is a closure and has nothing to print.
+/// Written by hand because a [`Broker`] and a [`Listener`] are closures and have nothing to print.
 impl std::fmt::Debug for Host {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Host")
@@ -103,6 +113,7 @@ impl std::fmt::Debug for Host {
             .field("from_worker", &self.from_worker)
             .field("confinement", &self.confinement)
             .field("resources", &self.resources.as_ref().map(|_| "a broker"))
+            .field("notices", &self.notices.as_ref().map(|_| "a listener"))
             .finish()
     }
 }
@@ -207,6 +218,7 @@ impl Host {
             from_worker,
             confinement,
             resources: None,
+            notices: None,
         })
     }
 
@@ -221,6 +233,14 @@ impl Host {
     /// round trip per distinct description and changes no result.
     pub fn offer(&mut self, broker: Broker) {
         self.resources = Some(broker);
+    }
+
+    /// States what this host hands the worker's notices to ([`frame::NOTICE`]).
+    ///
+    /// Nothing about the worker changes either: it writes its notices whether anybody listens or
+    /// not, because it cannot tell, and a host that never calls this reads past every one.
+    pub fn listen(&mut self, listener: Listener) {
+        self.notices = Some(listener);
     }
 
     /// What confinement the worker reached.
@@ -303,6 +323,12 @@ impl Host {
                 self.answer_a_resource_request(length)?;
                 continue;
             }
+            // A notice is not an answer either, and the worker is not waiting for one: it is handed
+            // on, or read past, and the loop goes back to reading.
+            if kind == frame::NOTICE {
+                self.take_a_notice(length)?;
+                continue;
+            }
             return self.read_payload(kind, length);
         }
     }
@@ -337,6 +363,23 @@ impl Host {
         payload.extend_from_slice(&provided.identity);
         payload.extend_from_slice(&provided.content);
         self.write_frame(frame::RESOURCE_ANSWER, &payload, None)
+    }
+
+    /// Reads a worker's notice, and hands it to the listener where there is one.
+    ///
+    /// A notice past [`frame::MAX_NOTICE`] is read past rather than allocated for, for
+    /// `answer_a_resource_request`'s reason; nothing about it is an error, because a notice is
+    /// something the worker said in passing and the exchange it arrived inside goes on.
+    fn take_a_notice(&mut self, length: usize) -> Result<(), TransportError> {
+        if length > frame::MAX_NOTICE {
+            return self.discard(length);
+        }
+        let mut notice = vec![0u8; length];
+        self.read_exactly(&mut notice)?;
+        if let Some(listener) = self.notices.as_ref() {
+            listener(&notice);
+        }
+        Ok(())
     }
 
     /// Reads a frame's payload, once its header has been recognised as a message.

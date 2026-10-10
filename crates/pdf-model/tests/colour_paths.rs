@@ -471,6 +471,40 @@ fn an_icc_spaces_range_decides_what_its_operands_mean() {
     );
 }
 
+/// A profile a resource dictionary writes in place, selected again, is the same space and starts
+/// at its initial colour again.
+///
+/// ISO 32000-2 §8.6.8 has `cs` and `CS` "also set the current colour to its initial value, which
+/// depends on the colour space", and for an `ICCBased` space that value is every component at 0,
+/// or the nearest value its range admits — `L* = 0` here, the connection space's black. The page
+/// selects `/CS0` three times, so the second and third selections are the interpreter's memo of
+/// the first (`Interpreter::icc_spaces`, ADR 1813): the left half is filled at the colour the
+/// second selection starts at, and the right half at `L* = 50` after the third, which must be the
+/// 188 of [`an_icc_spaces_range_decides_what_its_operands_mean`] that the first selection draws.
+#[test]
+fn a_profile_selected_again_starts_at_its_initial_colour_and_reads_its_operands_as_before() {
+    let raster = raster_of(lab_icc_page(
+        "",
+        "/CS0 cs 50 0 0 scn 0 0 20 20 re f \
+         /CS0 cs 0 0 10 20 re f \
+         /CS0 cs 50 0 0 scn 10 0 10 20 re f",
+    ));
+    let pixel = |column: usize| {
+        let at = (10 * 20 + column) * 4;
+        (raster[at], raster[at + 1], raster[at + 2])
+    };
+    assert_eq!(
+        pixel(5),
+        (0, 0, 0),
+        "the space selected again starts at L* = 0"
+    );
+    let right = pixel(15);
+    assert!(
+        right.0.abs_diff(188) <= 1 && right.1.abs_diff(188) <= 1 && right.2.abs_diff(188) <= 1,
+        "L* = 50 after the third selection is half the white point, got {right:?}"
+    );
+}
+
 /// Table 88's default `/Decode` for an `ICCBased` image is the profile's own range.
 ///
 /// Table 88's row for the family is one sentence: the default is the "[s]ame as the value of

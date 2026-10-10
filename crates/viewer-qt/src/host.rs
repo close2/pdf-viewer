@@ -556,8 +556,13 @@ pub struct Host {
     playing: Option<pdf_render::Raster>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
-    /// The document opening on its own thread, until the first resize joins it (ADR 1539).
-    anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// The document opening on its own thread, until the first resize joins it (ADR 1539) — or,
+    /// where it is not ready inside `viewer_host::drawing::WARN`, until the drawing timer's look
+    /// that finds it ready (ADR 1811).
+    anticipated: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
+    /// The latest viewport the window was given while the document was still opening, which the
+    /// join tells the core rather than the first one.
+    awaiting: Option<Command>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -625,7 +630,7 @@ impl Host {
             None,
             fragment.clone(),
         );
-        let anticipated = std::thread::spawn(move || {
+        let anticipated = viewer_host::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent. The core is made here and moved back, so it is still
             // single-threaded — `viewer-core`'s rule 4 as `quorra` keeps it (ADR 0182).
@@ -715,6 +720,7 @@ impl Host {
             playing: None,
             viewport: (1, 1),
             anticipated: Some(anticipated),
+            awaiting: None,
             preparing: None,
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
@@ -751,6 +757,11 @@ impl Host {
             self.join_the_opening(resize);
             return;
         }
+        // A document still opening past `WARN` is told the window's size when it is taken in.
+        if self.awaiting.is_some() {
+            self.awaiting = Some(resize);
+            return;
+        }
         self.dispatch(resize);
         // A window asked to fit the first displayed page is measured again once it has taken
         // the size it was asked for, because a frame is not always drawn for a viewport the page
@@ -767,8 +778,87 @@ impl Host {
     /// against the viewer a first open with a viewport would have left — the order this window
     /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
     /// document opened on this one instead.
+    ///
+    /// **It waits no longer than `viewer_host::drawing::WARN`** (ADR 1811). A document still
+    /// opening then is left to its thread: the status bar carries how far page one has got, Qt's
+    /// loop goes on answering the window, and [`Self::drawing_pump`] joins it on the
+    /// [`viewer_host::loading::TICK`] that finds it ready, with the window's size as it is then.
     fn join_the_opening(&mut self, resize: Command) {
-        let joined = self.anticipated.take().map(std::thread::JoinHandle::join);
+        if self
+            .anticipated
+            .as_ref()
+            .is_some_and(|opening| !opening.wait())
+        {
+            self.trace
+                .say(Topic::Launch, format_args!("document still opening"));
+            self.awaiting = Some(resize);
+            self.show_the_opening();
+            // Said once, here: the label moves every tick and the terminal is not a label.
+            println!("note: {}", self.message);
+            return;
+        }
+        self.take_the_opening(resize);
+    }
+
+    /// One look at a document still opening: joins it where it is ready, and otherwise moves the
+    /// bar.
+    fn mind_the_opening(&mut self) {
+        if !self
+            .anticipated
+            .as_ref()
+            .is_some_and(viewer_host::Loading::ended)
+        {
+            self.show_the_opening();
+            return;
+        }
+        self.say(viewer_host::loading::READ);
+        if let Some(resize) = self.awaiting.take() {
+            self.take_the_opening(resize);
+        }
+    }
+
+    /// Puts how far page one has got on the status bar: the sentence on the label, and the share
+    /// [`Self::loading_permille`] hands Qt's own bar.
+    fn show_the_opening(&mut self) {
+        let Some(reading) = self
+            .anticipated
+            .as_ref()
+            .and_then(viewer_host::Loading::showing)
+        else {
+            return;
+        };
+        let sentence = viewer_host::loading::reading(reading);
+        if sentence != self.message {
+            // Not `say`: a sentence that changes every tick is not one for the terminal.
+            self.message = sentence;
+            self.update.status = true;
+        }
+    }
+
+    /// How much of page one has been read, in thousandths, while the document is still opening past
+    /// `WARN` — `-1` where there is no bar to show, and `0` for a wait with no share yet.
+    pub(crate) fn loading_permille(&self) -> i32 {
+        if self.awaiting.is_none() {
+            return -1;
+        }
+        let showing = self
+            .anticipated
+            .as_ref()
+            .and_then(viewer_host::Loading::showing);
+        showing.map_or(-1, |reading| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a share in [0, 1], times a thousand"
+            )]
+            reading
+                .fraction()
+                .map_or(0, |fraction| (fraction * 1000.0).round() as i32)
+        })
+    }
+
+    /// Takes in the document the opening thread opened, and tells it its viewport.
+    fn take_the_opening(&mut self, resize: Command) {
+        let joined = self.anticipated.take().map(viewer_host::Loading::join);
         let Some(Ok((viewer, opened))) = joined else {
             if joined.is_some() {
                 eprintln!("the thread opening the document panicked; opening it here instead");
@@ -4113,6 +4203,12 @@ impl Host {
             (None, true) => Some(viewer_host::drawing::POLL),
             (interval, false) => interval,
         };
+        // And for a document still opening past `WARN`, at the bar's own tick (ADR 1811).
+        let interval = match (interval, self.awaiting.is_some()) {
+            (Some(interval), true) => Some(interval.min(viewer_host::loading::TICK)),
+            (None, true) => Some(viewer_host::loading::TICK),
+            (interval, false) => interval,
+        };
         interval.map_or(-1, |interval| {
             i32::try_from(interval.as_millis()).unwrap_or(i32::MAX)
         })
@@ -4125,6 +4221,9 @@ impl Host {
     /// second, and rebuilding this window's `QImage` at that rate would copy megabytes for a
     /// picture that has not changed.
     pub(crate) fn drawing_pump(&mut self) {
+        if self.awaiting.is_some() {
+            self.mind_the_opening();
+        }
         self.take_the_answers();
         self.take_the_preparation();
         let mut queue = VecDeque::new();

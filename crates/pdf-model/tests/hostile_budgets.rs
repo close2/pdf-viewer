@@ -13,14 +13,17 @@
 //!
 //! # A fixture whose two numbers agree measures neither
 //!
-//! `MAX_OPERATIONS` counted lexer tokens for its whole life while its name and its comment said
-//! operators, and the reason no test saw it is in this file: the fixture below was
-//! `"n\n".repeat(4_000_002)` — a *zero-operand* operator, chosen "so this measures the bound
-//! rather than the operator", which is the one input shape where tokens and operators are the
-//! same number. §7.8.2 puts an operator after its operands, so a `c` is seven tokens and one
-//! operator and a real drawing was refused at a seventh of the advertised bound. Every fixture
-//! here now states operands, and the control that would have caught it — many tokens, few
-//! operators — is `a_stream_of_many_tokens_and_few_operators_still_draws`. ADR 0306.
+//! A count of operators that read the lexer's turns would agree with one that read the operators
+//! only on a stream of *zero-operand* operators, which is the one shape where tokens and operators
+//! are the same number; §7.8.2 puts an operator after its operands, so a `c` is seven tokens and
+//! one operator (ADR 0306). Every fixture here states operands for that reason.
+//!
+//! # What a count no longer does
+//!
+//! No count of operators refuses a page (ADR 1809): what a run can exhaust is memory, and the
+//! bounds below are each in the unit of what they guard. A stream that only spends time —
+//! `a_hundred_million_operators_are_run_to_the_end_of_their_stream` — ends where its bytes end,
+//! and Table 31's `max_stream_len` is what ends a longer one, by name.
 //!
 //! # Where the standard is on a nested construct
 //!
@@ -242,11 +245,10 @@ fn a_form_that_draws_itself_is_refused_by_name() {
 /// A tiling pattern whose cell is **empty** costs nothing however many sites the file states.
 ///
 /// This fixture used to be the case that made a second constant, `MAX_TILES`, load-bearing:
-/// every other runaway a pattern can state is caught by `MAX_OPERATIONS`, because a cell's
-/// content stream runs through the same interpreter and its operators are counted, and since
-/// ADR 0430 every further site is a copy charged to the same budget — but an *empty* cell
-/// executes no operator and copies no command, so the loop over `columns × rows` ran the number
-/// of times the file's `/XStep` and `/YStep` say and no counter ever moved. **Measured rather
+/// every further site of a marking cell is a copy, charged to the tiling's `MAX_TILE_COPIES` and to
+/// the page's `MAX_LIST_BYTES` — but an *empty* cell copies no command, so the loop over
+/// `columns × rows` ran the number of times the file's `/XStep` and `/YStep` say and no budget
+/// ever moved. **Measured rather
 /// than reasoned about** (ADR 0271): with that constant lifted, an empty cell stepped to give
 /// 1 000 000 sites interpreted in 889 ms reporting nothing — 0.89 µs a trip — and this fixture
 /// states a `/XStep` of 0.001 over a 600-unit fill, 600 000 columns and as many rows,
@@ -280,12 +282,10 @@ fn a_tiling_whose_cell_is_empty_loops_nothing_and_reports_nothing() {
 ///
 /// The lattice of the test above with one square in the cell, at a step of 1/1024 — exact in
 /// binary, so the arithmetic below is the file's and not the rounding's: 3.8 × 10¹¹ sites of
-/// one command each. Every copy is charged to the page's four million operators and to the
-/// tiling's own 65 536 copies before it is made (`Interpreter::repeat_cell`), so what this
-/// fixture costs is the tiling's budget and not one command more — `commands` is the copies plus
-/// the one site the cell was interpreted at — and the page's budget is left for the operators
-/// after it, which is why the fill's own four operators are still counted and the page is not
-/// refused as a whole.
+/// one command each. Every copy is charged to the tiling's own 65 536 copies and to the page's
+/// list bytes before it is made (`Interpreter::repeat_cell`), so what this fixture costs is the
+/// tiling's budget and not one command more — `commands` is the copies plus the one site the cell
+/// was interpreted at — and the page's budget is left for the operators after it.
 #[test]
 fn a_tiling_whose_cell_marks_is_bounded_by_its_own_budget() {
     let cell = "0 0 1 1 re f";
@@ -301,7 +301,7 @@ fn a_tiling_whose_cell_marks_is_bounded_by_its_own_budget() {
     );
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_TILE_COPIES") && !reported.contains("MAX_OPERATIONS"),
+        reported.contains("MAX_TILE_COPIES") && !reported.contains("ListBytes"),
         "a marking cell stepped every thousandth of a unit must be refused by the tiling's own \
          budget, by name, and by nothing else: {reported}"
     );
@@ -354,7 +354,7 @@ fn a_tiling_over_its_budget_keeps_whole_rows() {
 ///
 /// `reach.rs` cuts the lattice to the sites a fill's interior can touch, and asking costs one
 /// pass over the path's edges **per row band**. A row that reaches no site copies nothing, so
-/// neither `MAX_OPERATIONS` nor `MAX_TILE_COPIES` sees it — which is exactly the shape ADR 0810
+/// neither `MAX_LIST_BYTES` nor `MAX_TILE_COPIES` sees it — which is exactly the shape ADR 0810
 /// retired `MAX_TILES` for, one level in. This fixture is that shape: twenty thousand unit
 /// squares stacked at the origin and one more six hundred units above them, so `span` states a
 /// lattice of a million rows at `/YStep 0.0006` of which all but three thousand reach nothing,
@@ -414,44 +414,159 @@ fn a_tiling_inside_the_bound_still_paints() {
     );
 }
 
-/// A content stream longer than `MAX_OPERATIONS` is refused, and says which bound refused it.
+/// A content stream of a hundred million operators is run to its end and refused nothing.
 ///
-/// **The one bound of the four whose population is mostly legitimate.** Of the 31 documents of
-/// 65 944 that reach it under the *token* count it used to keep, every one *terminates* with the
-/// bound lifted a hundredfold, and they are maps, plans and charts rather than bombs. It is forty
-/// million since ADR 1808, which admitted a 29-million-operator engineering drawing, and no higher
-/// count would bound the worst case either: one operator can paint the whole page, so a count is
-/// not a cost. ADRs 0271, 0306 and 1808.
+/// **No count refuses a page** (ADR 1809). The project owner's A1 drawing states 28 992 250
+/// operators and an operator budget cut it, first at four million and then at forty; a count is a
+/// bound on time, and time is the person's to stop rather than the program's to ration (ADR 0657).
+/// So what ends this stream is its own end: every token spends at least a byte, and Table 31's
+/// `max_stream_len` bounds the bytes, which the next test reaches by name. The square after the
+/// hundred million `0 g` is what says the run got there.
 ///
-/// The fixture states one operand per operator on purpose. `0 g` is §8.6.8's "set the colour
-/// space to `DeviceGray` … and set the gray level", two lexer tokens and **one** operator, so a
-/// counter reading the lexer would refuse this stream at half its length and this assertion
-/// would pass for the wrong reason.
+/// `0 g` is §8.6.8's "set the colour space to `DeviceGray` … and set the gray level", two lexer
+/// tokens and one operator, and it keeps nothing — the shape a memory budget cannot see, which is
+/// why it is the one whose end is asserted. Its 400 MB are deflated into the fixture, so the file
+/// is under a megabyte and the 400 MB are read through the window a few kilobytes at a time.
 #[test]
-fn a_content_stream_longer_than_the_bound_is_refused_by_name() {
-    let content = "0 g\n".repeat(40_000_002);
-    let document = page(&content, "<< >>", "");
+fn a_hundred_million_operators_are_run_to_the_end_of_their_stream() {
+    let document = deflated_page(
+        &zero_g(100_000_000, "0 0 0 rg 10 10 100 100 re f\n"),
+        Limits::DEFAULT,
+    );
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.unsupported.is_empty(),
+        "a hundred million operators are refused nothing: {:?}",
+        interpretation.unsupported
+    );
+    assert_eq!(
+        interpretation.display_list.command_count(),
+        1,
+        "and the square after them is drawn"
+    );
+}
+
+/// …and the same stream past `max_stream_len` is ended by that bound, by name, with its prefix.
+///
+/// The bound is lowered to four megabytes rather than the stream raised past a gibibyte; what is
+/// under test is which bound ends a stream that keeps nothing, and that it says so.
+#[test]
+fn a_stream_of_operators_past_its_byte_bound_is_ended_by_it_by_name() {
+    let limits = Limits {
+        max_stream_len: 4 << 20,
+        ..Limits::DEFAULT
+    };
+    let document = deflated_page(&zero_g(2_000_000, "0 0 0 rg 10 10 100 100 re f\n"), limits);
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_OPERATIONS"),
-        "forty million operators must be refused by name: {reported}"
+        reported.contains("TooLarge") && reported.contains(&(4_usize << 20).to_string()),
+        "eight megabytes against a bound of four are ended by `max_stream_len`, by name: {reported}"
+    );
+    assert_eq!(
+        commands(&document),
+        0,
+        "and what is past the bound is not drawn"
+    );
+}
+
+/// `count` lines of `0 g`, and `tail` after them, deflated by zlib.
+fn zero_g(count: usize, tail: &str) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let chunk = "0 g\n".repeat(1 << 16);
+    let mut left = count;
+    while left > 0 {
+        let lines = left.min(1 << 16);
+        encoder
+            .write_all(&chunk.as_bytes()[..lines * 4])
+            .expect("writing to a vector cannot fail");
+        left -= lines;
+    }
+    encoder
+        .write_all(tail.as_bytes())
+        .expect("writing to a vector cannot fail");
+    encoder
+        .finish()
+        .expect("finishing into a vector cannot fail")
+}
+
+/// A one-page PDF whose content stream is `deflated`, carried as hexadecimal so that the body
+/// stays text, opened under `limits`.
+fn deflated_page(deflated: &[u8], limits: Limits) -> Document {
+    let mut hex = String::with_capacity(deflated.len() * 2 + 1);
+    for byte in deflated {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex.push('>');
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+         /Resources << >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} /Filter [/ASCIIHexDecode /FlateDecode] >>\nstream\n{hex}\n\
+         endstream\nendobj\n",
+        hex.len()
+    );
+    assemble(&body, limits)
+}
+
+/// A form read again and again charges what it keeps every time it is read: its painted path's
+/// segments and the strings its spans copy out of their property list (ADR 1810).
+///
+/// Neither is a mark the list's commands carry, and before ADR 1810 neither was charged: an
+/// operator budget bounded them by counting the segments and the sections. With no count, a form
+/// invoked through a fan-out of `Do`s builds its path and copies its `/Alt` once per invocation
+/// at no cost to the operators of the page, so the budget has to see both. The fixture invokes
+/// one form sixty-four times; the assertion is the floor the two charges alone make.
+#[test]
+fn a_form_read_again_and_again_charges_what_it_keeps_every_time() {
+    const SEGMENTS: usize = 1000;
+    const ALT: usize = 65_536;
+    const READS: usize = 64;
+    let mut form = String::from("/Span /P0 BDC EMC 0 0 m\n");
+    form.push_str(&"1 1 l\n".repeat(SEGMENTS));
+    form.push_str("f\n");
+    let objects = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+         /Resources << /Properties << /P0 6 0 R >> >> /Length {} >>\nstream\n{form}\nendstream\nendobj\n\
+         6 0 obj\n<< /Alt ({}) >>\nendobj\n",
+        form.len(),
+        "a".repeat(ALT)
+    );
+    let document = page(
+        &"/F Do\n".repeat(READS),
+        "<< /XObject << /F 5 0 R >> >>",
+        &objects,
+    );
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.unsupported.is_empty(),
+        "nothing is refused: {:?}",
+        interpretation.unsupported
+    );
+    let segment = size_of::<pdf_render::geom::PathCommand>();
+    let floor = READS * (SEGMENTS * segment + ALT);
+    assert!(
+        interpretation.list_bytes >= floor,
+        "sixty-four reads charge sixty-four paths and sixty-four copies of the string: {} < {floor}",
+        interpretation.list_bytes
     );
 }
 
 /// …and a stream of *many tokens and few operators* is not refused at all.
 ///
-/// **The control that was missing for the whole life of the bound**, and the shape of the
-/// document that found it: a hand-traced drawing, all cubic Béziers and no text. §7.8.2 puts an
-/// operator after its operands, so `x1 y1 x2 y2 x3 y3 c` is seven tokens and one operator, and a
-/// counter reading the loop's turns charges a curve seven times over. The fixture below states
-/// **6.05 million lexer tokens and 1.65 million operators**: it was refused before ADR 0306 and
-/// draws after it, and no other assertion in this file can tell the two counters apart.
-///
-/// **The fixture used to write its curves with no `m` in front of them**, which ISO 32000-2
-/// §8.5.2.1 makes an error — and nothing said so until ADR 0563 raised
-/// `Unsupported::UndefinedCurrentPoint` for it, at which point this assertion failed with 550 000
-/// refused segments. The stream is a conforming one now: the bound is what is under test here, and
-/// a fixture that violates a *different* clause tests the two at once.
+/// The shape of a hand-traced drawing, all cubic Béziers and no text: §7.8.2 puts an operator
+/// after its operands, so `x1 y1 x2 y2 x3 y3 c` is seven tokens and one operator. The fixture
+/// states **6.05 million lexer tokens and 1.65 million operators**, a curve and an `n` at a time,
+/// so it keeps nothing a memory budget sees, and it is refused nothing (ADRs 0306, 1809). Its
+/// curves each follow an `m`, because ISO 32000-2 §8.5.2.1 makes a curve with no current point an
+/// error and `Unsupported::UndefinedCurrentPoint` would report it.
 #[test]
 fn a_stream_of_many_tokens_and_few_operators_still_draws() {
     // `m` gives §8.5.2.1 the current point the `c` after it starts from, `c` appends a cubic
@@ -463,8 +578,7 @@ fn a_stream_of_many_tokens_and_few_operators_still_draws() {
     let reported = reported(&document);
     assert_eq!(
         reported, "[]",
-        "1.65 million operators are inside a four-million-operator bound, whatever the token \
-         count is"
+        "1.65 million operators and 6.05 million tokens are refused nothing: {reported}"
     );
     assert!(
         commands(&document) > 0,
@@ -761,22 +875,21 @@ fn a_form_that_reenters_itself_under_another_colour_draws_whole() {
     assert!(commands(&document) > 0, "and the black square is drawn");
 }
 
-/// A cycle through a tiling cell that marks the page at every level stays inside the operator
-/// budget in *commands*, not only in operators.
+/// A cycle through a tiling cell that marks the page at every level stays inside the list's
+/// budget.
 ///
 /// The corpus's `ContentStreamCycleType3insideType3.pdf` shape with the marks kept: each level
 /// paints a square and then fills the whole cell with the same pattern, so the span takes the
 /// neighbouring cells and every level is nine copies of the one below it. With the copy charged
-/// after it was made, the innermost tiling stopped at four million and every enclosing one
-/// copied that list nine times over — 25 GB and a minute for a document of a few kilobytes on the
-/// day the nesting bound was raised past sixteen (ADR 0793). The budget is asked before the copy
-/// now, so the list is at most the budget plus one cell, and this asserts the count rather than
-/// the time because a count is what the bound states. Since ADR 0810 each tiling of the chain
-/// also has a budget of its own, `MAX_TILE_COPIES`, which the ninefold growth reaches long
-/// before the page's — so which of the two names the refusal is the tighter one at each level,
-/// and the assertion admits either; what it holds is that the list is bounded by the page's.
+/// after it was made, the innermost tiling stopped at its budget and every enclosing one copied
+/// that list nine times over — 25 GB and a minute for a document of a few kilobytes on the day
+/// the nesting bound was raised past sixteen (ADR 0793). The budgets are asked before the copy, so
+/// the list is at most a budget plus one cell. Each tiling of the chain has a budget of its own,
+/// `MAX_TILE_COPIES`, which the ninefold growth reaches long before the page's `MAX_LIST_BYTES`
+/// — so which of the two names the refusal is the tighter one at each level, and the assertion
+/// admits either; what it holds is that the list is bounded by the page's.
 #[test]
-fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
+fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_list_budget() {
     let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
                    /XStep 612 /YStep 792 /Resources << /Pattern << /P 5 0 R >> >> \
                    /Length 59 >>\nstream\n\
@@ -786,16 +899,20 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
         "<< /Pattern << /P 5 0 R >> >>",
         pattern,
     );
-    let reported = reported(&document);
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture has a page");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let reported = format!("{:?}", interpretation.unsupported);
     assert!(
         reported.contains("NestingCycle")
-            && (reported.contains("MAX_OPERATIONS") || reported.contains("MAX_TILE_COPIES")),
+            && (reported.contains("ListBytes") || reported.contains("MAX_TILE_COPIES")),
         "the cycle reaches the nesting bound and the copies reach a budget by name: {reported}"
     );
-    let commands = commands(&document);
     assert!(
-        commands <= 40_000_000 + 1_000,
-        "the list is bounded by the operator budget plus one cell, not by nine times it: {commands}"
+        interpretation.list_bytes <= pdf_model::MAX_LIST_BYTES + pdf_model::MAX_LIST_BYTES / 16,
+        "the list is bounded by the page's budget plus one cell, not by nine times it: {}",
+        interpretation.list_bytes
     );
 }
 
@@ -884,13 +1001,13 @@ fn a_type3_cycle_through_a_tiling_cell_is_refused_at_its_reentry() {
 ///
 /// The fuzz target's 3.16 GiB was a cycle of this kind: four million operators admitted, 3.93
 /// million commands and 2.05 million clips built, 1.15 GiB of list for one interpretation, and the
-/// target keeps two alive to compare them. `MAX_OPERATIONS` cannot see a clip, and a tiling copy
-/// carries one per site — so the bound that stops it is in bytes (ADR 1507). The input was a Type 3
+/// target keeps two alive to compare them. A count of operators cannot see a clip, and a tiling
+/// copy carries one per site — so the bound that stops it is in bytes (ADR 1507), and no count
+/// stops it now (ADR 1809). The input was a Type 3
 /// cycle, which is now refused at its re-entry (ADR 1792); a form's re-entry is not (ADR 0793), so
 /// a form is what still reaches this bound, and Helvetica's outlines are what give each copy its
 /// clips. Asserted as the bound states it: the charge passes `MAX_LIST_BYTES` by no more than a
-/// sixteenth, which is one tiling copy at most, and the run stops there rather than at four
-/// million operators.
+/// sixteenth, which is one tiling copy at most, and the run stops there.
 #[test]
 fn a_form_cycle_through_a_tiling_cell_is_refused_by_its_list_bytes() {
     let form = "2 Tr /Pattern cs /P scn BT /H 50 Tf (ccc) Tj ET";
@@ -970,10 +1087,10 @@ fn a_glyph_showing_its_own_font(codes: &str) -> Document {
 /// A glyph whose description shows itself four times over is refused at its first re-entry, and
 /// the page after the text is drawn.
 ///
-/// Refused at `MAX_FORM_DEPTH` instead, the four-way tree spent `MAX_OPERATIONS` long before the
-/// depth bound was asked of most of it, and the operator budget stopped the *page*: the square
-/// after the text was never drawn. That is what this asserts, and why it does not time anything —
-/// the budget's report and the missing square are the defect, and both are counts.
+/// Refused at `MAX_FORM_DEPTH` instead, the four-way tree would run 4⁶⁴ descriptions that keep
+/// nothing, and with no count of operators to stop it (ADR 1809) the square after the text would
+/// wait for the person's stop. That is what this asserts, and why it does not time anything — a
+/// budget's report and the missing square are the defect, and both are counts.
 #[test]
 fn a_glyph_showing_itself_in_its_inherited_font_is_refused_at_its_reentry() {
     let document = a_glyph_showing_its_own_font("aaaa");
@@ -987,7 +1104,7 @@ fn a_glyph_showing_itself_in_its_inherited_font_is_refused_at_its_reentry() {
         "the re-entered glyph is named: {reported}"
     );
     assert!(
-        !reported.contains("MAX_OPERATIONS") && !reported.contains("MAX_FORM_DEPTH"),
+        !reported.contains("ListBytes") && !reported.contains("MAX_FORM_DEPTH"),
         "no budget is spent on a description refused at its re-entry: {reported}"
     );
     let last = interpretation.display_list.commands().last();
@@ -1297,8 +1414,8 @@ const FONTLESS_LINE: &str = "BT (a(b)c) Tj [(\\)) -250 <41 42\n43> 120 (\\\\)] T
 /// The `page` fuzz target's slow units, generated: text shown with no font, the same malformed
 /// keywords again and again, and nothing drawn for it.
 ///
-/// The two units are Type 3 glyph descriptions that invoke themselves until `MAX_OPERATIONS`
-/// and show text with no font in force: 553 483 and 16 716 558 such shows, and 3 794 874 reports
+/// The two units are Type 3 glyph descriptions that invoked themselves until an operator budget
+/// stopped them, before ADR 1792 refused the re-entry, and show text with no font in force: 553 483 and 16 716 558 such shows, and 3 794 874 reports
 /// of a few hundred distinct items in the first. ISO 32000-2 §9.3.1's Table 103 makes such a show
 /// the file's defect — "they shall be specified explicitly by using Tf before any text is shown"
 /// — so it is counted, once per page, and draws nothing; what this holds is that it costs only that (ADR 1521): no string a fontless show

@@ -267,8 +267,11 @@ struct Host {
     /// `None` under `--cpu`, where no driver may be loaded at all.
     instancing: Option<std::thread::JoinHandle<raster_gpu::wgpu::Instance>>,
     /// The thread starting the worker and opening the document in it while the window and the
-    /// device come up (ADR 1539), until `resumed` joins it.
-    opening: Option<std::thread::JoinHandle<Result<Opened, String>>>,
+    /// device come up (ADR 1539), until `resumed` joins it — or, for a page still being read in the
+    /// worker past `viewer_host::drawing::WARN`, until the tick that finds it ready (ADR 1811).
+    opening: Option<viewer_host::Loading<Result<Opened, String>>>,
+    /// What the title says about a document still opening past `WARN`, or nothing.
+    loading: Option<String>,
     /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
     /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
     /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
@@ -385,6 +388,7 @@ impl Host {
             // thread — the flagship's rule (ADR 0221), kept here for the same crash.
             instancing: (!processor).then(|| std::thread::spawn(QuorraWindowRenderer::instance)),
             opening: None,
+            loading: None,
             drawing: Drawing::new(),
             screen: if processor {
                 Screen::new()
@@ -436,9 +440,12 @@ impl Host {
             self.trace,
             self.reader.clone(),
         );
-        self.opening = Some(std::thread::spawn(move || {
+        self.opening = Some(viewer_host::Loading::start_reporting(move |progress| {
             let starting = Instant::now();
             let mut confined = start_worker(&canceller, faces).map_err(|e| e.to_string())?;
+            // The worker relays how far its page has got inside the exchange this thread waits on,
+            // and the window reads the figure this stores it in (ADR 1811).
+            confined.report_progress_to(progress);
             trace.say(
                 Topic::Launch,
                 format_args!(
@@ -1324,9 +1331,13 @@ impl Host {
                 .on_the_processor
                 .as_ref()
                 .map_or_else(String::new, |said| format!(" — {said}"));
+            let loading = self
+                .loading
+                .as_ref()
+                .map_or_else(String::new, |said| format!(" — {said}"));
             let title = match &self.stopped {
                 Some(said) => format!("{} — {said}{drawn} — confined", self.heading),
-                None => format!("{}{drawn} — confined", self.heading),
+                None => format!("{}{loading}{drawn} — confined", self.heading),
             };
             window.set_title(&title);
         }
@@ -1455,40 +1466,30 @@ impl Host {
     }
 }
 
-impl ApplicationHandler for Host {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
+impl Host {
+    /// Takes in the worker and the document the opening thread started, and tells it the
+    /// window's size as it is now.
+    fn take_the_opening(&mut self) {
+        let Some(window) = self.window.as_ref() else {
             return;
-        }
-        let attributes = Window::default_attributes()
-            .with_title(format!("{} — confined", self.heading))
-            .with_inner_size(winit::dpi::LogicalSize::new(800.0, 1000.0));
-        let window = Arc::new(
-            event_loop
-                .create_window(attributes)
-                .expect("window creation"),
-        );
-        self.trace.say(Topic::Launch, format_args!("window up"));
-        self.presentation = Some(self.bring_up(&window));
-        if matches!(self.presentation, Some(Presentation::Software(_)))
-            && self.screen.draws_on_the_device()
-        {
-            // The device did not come up, so the screen must not hold pages for one: nothing
-            // has crossed yet — the worker has no viewport until the `Resize` below — so the
-            // replacement costs nothing.
-            self.screen = Screen::new();
-        }
+        };
         let extent = window.inner_size();
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = window.scale_factor() as f32;
-        self.window = Some(window);
-
-        // The worker and the document, from the thread `anticipate` started before the window:
-        // the worker starts when there is a document for it, which is at launch (ADR 1539).
-        let opened = match self.opening.take().map(std::thread::JoinHandle::join) {
+        if self.loading.take().is_some() {
+            println!("note: {}", viewer_host::loading::READ);
+        }
+        // A reader who pressed Escape while the bar was up has ended this worker already, and the
+        // window says so; what the thread then answers is the cancel it was told.
+        if self.stopped.is_some() {
+            drop(self.opening.take().map(viewer_host::Loading::join));
+            self.retitle();
+            return;
+        }
+        let opened = match self.opening.take().map(viewer_host::Loading::join) {
             Some(Ok(Ok(opened))) => opened,
             Some(Ok(Err(problem))) => {
                 self.stop(problem);
@@ -1533,6 +1534,70 @@ impl ApplicationHandler for Host {
             self.screen.landed(finished);
         }
         self.redraw();
+    }
+
+    /// Puts the worker's figure for the page in the title, and says so once on the way in.
+    fn mind_the_opening(&mut self) {
+        let Some(reading) = self
+            .opening
+            .as_ref()
+            .and_then(viewer_host::Loading::showing)
+        else {
+            return;
+        };
+        let sentence = viewer_host::loading::reading(reading);
+        let said = match viewer_host::loading::bar(reading, 20) {
+            Some(bar) => format!("{bar} {sentence}"),
+            None => sentence.clone(),
+        };
+        if self.loading.as_deref() == Some(said.as_str()) {
+            return;
+        }
+        if self.loading.is_none() {
+            println!("note: {sentence}");
+        }
+        self.loading = Some(said);
+        self.retitle();
+    }
+}
+
+impl ApplicationHandler for Host {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attributes = Window::default_attributes()
+            .with_title(format!("{} — confined", self.heading))
+            .with_inner_size(winit::dpi::LogicalSize::new(800.0, 1000.0));
+        let window = Arc::new(
+            event_loop
+                .create_window(attributes)
+                .expect("window creation"),
+        );
+        self.trace.say(Topic::Launch, format_args!("window up"));
+        self.presentation = Some(self.bring_up(&window));
+        if matches!(self.presentation, Some(Presentation::Software(_)))
+            && self.screen.draws_on_the_device()
+        {
+            // The device did not come up, so the screen must not hold pages for one: nothing
+            // has crossed yet — the worker has no viewport until the `Resize` below — so the
+            // replacement costs nothing.
+            self.screen = Screen::new();
+        }
+        self.window = Some(window);
+
+        // The worker and the document, from the thread `anticipate` started before the window:
+        // the worker starts when there is a document for it, which is at launch (ADR 1539). Waited
+        // for no longer than `WARN`: a page still being read in the worker then is a bar in the
+        // title, the window answers its loop — Escape included, which ends the worker — and
+        // `about_to_wait` takes the document in on the tick that finds it ready (ADR 1811).
+        if self.opening.as_ref().is_some_and(|opening| !opening.wait()) {
+            self.trace
+                .say(Topic::Launch, format_args!("document still opening"));
+            self.mind_the_opening();
+            return;
+        }
+        self.take_the_opening();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -1606,6 +1671,24 @@ impl ApplicationHandler for Host {
             self.drawing.superseded(false);
             event_loop.exit();
             return;
+        }
+        // A document still opening past `WARN`: its bar, until the tick that finds it ready
+        // (ADR 1811). Nothing below has a worker to talk to yet.
+        if self.window.is_some() && self.opening.is_some() {
+            if self
+                .opening
+                .as_ref()
+                .is_some_and(viewer_host::Loading::ended)
+            {
+                self.take_the_opening();
+            } else {
+                self.mind_the_opening();
+                let at = Instant::now()
+                    .checked_add(viewer_host::loading::TICK)
+                    .unwrap_or_else(Instant::now);
+                event_loop.set_control_flow(ControlFlow::WaitUntil(at));
+                return;
+            }
         }
         // The one place a worker is started again, and it is here rather than where the death
         // was seen so that no restart runs inside another one ([`Host::resume`]).

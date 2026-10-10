@@ -93,38 +93,6 @@ pub use report::{
 /// than moving to admit one file. ADR 0271, `tests/hostile_budgets.rs`.
 const MAX_STATE_DEPTH: usize = 256;
 
-/// Most operators executed for one page.
-///
-/// A content stream is a program, and this bounds how long it may run. Without it a
-/// compressed stream of a few kilobytes can expand into tens of millions of operations —
-/// a decompression bomb aimed at the renderer rather than at memory.
-///
-/// **It said "operators" and counted lexer tokens for its whole life, and the value has not
-/// moved: the unit has.** §7.8.2 puts an operator after its operands — "all of the operands
-/// needed by an operator shall immediately precede that operator" — so `x1 y1 x2 y2 x3 y3 c` is
-/// seven tokens and one operator, and the single increment site was the token loop. For a
-/// hand-traced drawing that is a budget about seven times tighter than this constant advertises,
-/// and the project owner's witness was truncated at 19% of its artwork while stating 814 705
-/// *fewer* operators than the bound. The counter now increments where the interpreter knows it
-/// has an operator, which is after the keyword arm and before the dispatch.
-///
-/// **What that costs, measured rather than argued.** Over **926 680 pages of 65 967 crawled
-/// documents** (`cargo run --release -p pdf-model --example content_budget_census`), 48 pages
-/// state more than four million lexer tokens and **8** state more than four million operators;
-/// the corpus-wide ratio is 3.76 tokens per operator and is not a constant — it is about 2 for
-/// text and about 7 for cubic Béziers. So correcting the unit hands back forty pages of a
-/// million and refuses the eight that really are programs of that length.
-///
-/// **It is a bound on slowness rather than on exhaustion, and it is forty million.** All 31 of
-/// 65 944 documents that reached the earlier four million *terminate* when it was lifted a
-/// hundredfold — they are maps, plans and charts rather than bombs — and the project owner's A1
-/// engineering drawing states 28 992 250 operators in one 278 MB content stream, which four million
-/// cut at a seventh after 16 s of work. The figure admits that drawing with headroom; it does not
-/// try to bound the time, for the reason a raised count could not: **a count is not a cost.** One
-/// `sh` can paint the whole page, so what actually bounds the time is the confined worker's cancel
-/// — a kill, at 0.83–1.97 ms (ADR 0241). ADRs 0271, 0306 and 1808.
-const MAX_OPERATIONS: usize = 40_000_000;
-
 /// Most operands one operator may take before the rest are refused.
 ///
 /// Every operator in the specification takes at most six operands except `TJ` and `d`,
@@ -2346,6 +2314,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         separation,
         text: interpreter.text,
         list_bytes: interpreter.list_budget.charged(),
+        operators: interpreter.operations,
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
@@ -2615,6 +2584,23 @@ struct Interpreter<'a> {
     /// Codes shown that §9.10.2 could not name; see
     /// `Interpretation::codes_without_a_character`.
     codes_without_a_character: UnnamedCodes,
+    /// Operators dispatched so far, over every stream this run has read — counted after the
+    /// operands, where §7.8.2's grammar puts the operator (ADR 0306).
+    ///
+    /// **A figure, and never a budget** (ADR 1809). It is how far a run has got, which is what the
+    /// window's progress is drawn from and what `examples/content_budget_census` counts; it refuses
+    /// nothing, because what a count bounds is time, and **a count is not a cost** — one `sh` can
+    /// paint the whole page and one `Do` can run a form a million operators long. It also paces
+    /// the list's budget, asked every few dozen of these (`list_budget::CHECK_EVERY`).
+    ///
+    /// What it was a budget for has a bound of its own in the unit of the work: the top-level
+    /// stream's length is Table 31's `Limits::max_stream_len`, which every token spends at least a
+    /// byte of; what a run keeps, however many times it re-reads a stream, is `MAX_LIST_BYTES`; a
+    /// tiling's copies are `MAX_TILE_COPIES`; and how deep streams nest is `MAX_FORM_DEPTH`. What is
+    /// left is a run that re-reads a stream which keeps nothing — the time a document's author
+    /// chose, which the person stops (ADR 0657, ADR 0241). The project owner's A1 drawing, which an
+    /// operator budget cut at four million and then admitted at forty (ADR 1808), states
+    /// 28 992 250 and is drawn whole by no figure at all.
     operations: usize,
     /// Edge tests spent proving which sites of a tiling its fill can reach; see
     /// [`Interpreter::MAX_REACH_SCAN`], which is the page-wide bound on this.

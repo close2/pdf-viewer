@@ -132,6 +132,7 @@ pub mod fit;
 pub mod form;
 pub mod geometry;
 pub mod keys;
+pub mod loading;
 pub mod machine_faces;
 pub mod measuring;
 pub mod modification;
@@ -160,6 +161,7 @@ pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
 pub use keys::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, meaning};
+pub use loading::Loading;
 pub use measuring::Measuring;
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,

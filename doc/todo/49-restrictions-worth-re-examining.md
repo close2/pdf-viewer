@@ -81,7 +81,7 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   `viewer-ffi` lift it; neither parses a document).
 - **The sandbox, and `--no-sandbox` as the flag that trades it.** Already a flag, already the safe
   default, already prints what it gave up.
-- **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_LIST_BYTES` 512 MiB, `MAX_FORM_DEPTH`,
+- **The resource budgets** (`MAX_OPERATIONS` until ADR 1809, `MAX_LIST_BYTES` 2 GiB, `MAX_FORM_DEPTH`,
   `MAX_TILES` until ADR 0810, the decode deadline). These are what stand between a decompression bomb and the machine. A "trusted
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,

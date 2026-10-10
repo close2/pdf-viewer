@@ -1,6 +1,7 @@
 # 1808 — The operator bound is forty million, for a drawing that stated twenty-nine
 
-Asked by the project owner on 2026-10-09, built at the merge. Status: **accepted** and **built**.
+Asked by the project owner on 2026-10-09, built at the merge. Status: **superseded by ADR 1809**, which
+makes the count a figure that refuses nothing; ADR 1810 is the memory bound that took its place.
 Amends ADRs 0271 and 0306 in one figure. Context: ADRs 0241, 0271, 0306; `tests/hostile_budgets.rs`.
 Code: `crates/pdf-model/src/content.rs` (`MAX_OPERATIONS`). Tests:
 `crates/pdf-model/tests/hostile_budgets.rs` (`a_content_stream_longer_than_the_bound_is_refused_by_name`,

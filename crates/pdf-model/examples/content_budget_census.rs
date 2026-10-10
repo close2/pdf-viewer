@@ -1,12 +1,14 @@
 //! What a real page's content costs: operators, lexer tokens, and decoded bytes.
 //!
-//! The instrument behind `doc/todo/10`'s three bounds. Each of them is a number that refuses a
-//! document, and each was set before anybody had measured the quantity it names:
+//! The instrument behind `doc/todo/10`'s three quantities, each set as a bound before anybody had
+//! measured it:
 //!
-//! - **`MAX_OPERATIONS`** says "operators" and counts operators rather than lexer *tokens*
-//!   (ADR 0306). This census prints both, per page, so the ratio
-//!   between them is a measurement rather than an estimate — and it is not a constant: it is
-//!   about 2 for text and about 7 for cubic Bézier artwork.
+//! - **Operators and lexer tokens.** An operator count refused pages until ADR 1809 made it a
+//!   figure that refuses nothing (`Interpretation::operators`); this census still prints both,
+//!   per page, because what a page costs to read is what the window's progress is drawn over, and
+//!   the ratio between them is not a constant: it is about 2 for text and about 7 for cubic Bézier
+//!   artwork (ADR 0306). The four-million line it prints is the old bound's, kept as the figure
+//!   the crawl's populations were counted at (ADRs 0271, 0306).
 //! - **`Limits::max_stream_len`** bounds one stream's decoded data. This prints the largest one
 //!   a corpus actually contains, which is what says whether the bound is near anything real.
 //! - **The total of a page's `/Contents` parts** had no bound at all. This prints the largest
@@ -63,9 +65,9 @@ struct Tally {
     documents: usize,
     pages: usize,
     streams: usize,
-    /// Pages whose token count passes four million — what the bound refused before.
+    /// Pages whose token count passes four million — what the first operator bound refused.
     pages_over_tokens: usize,
-    /// Pages whose operator count passes four million — what it refuses now.
+    /// Pages whose operator count passes four million — what the second refused, until ADR 1809.
     pages_over_operators: usize,
     largest_stream: Largest,
     largest_content: Largest,

@@ -1332,6 +1332,15 @@ killed at 6.77 GiB after 828.5 s and then queued 844.8 s to run again as a large
 paid twice (round 1485, ADR 1806). A census not yet run on its population is declared large, and is
 declared `--long` only once a line of `/home/AI/heavy-walk.log` shows its peak under 6 GiB.
 
+### 142. A reading on the owner's display is taken from inside a clock hold
+
+The owner's loop runs a script on their display whenever one appears, beside whatever walks hold
+the heavy-walk lock at that moment; it knows nothing about the lock. Round 1489's first after arm
+ran beside a sibling's six corpus arms at a load average of 11.3 and read `quorra`'s first frame on
+the witness at 32.94 s against 22.08 s at HEAD; retaken from inside a `--clock` hold, with both
+arms in the one hold, it read 12.33 s (ADR 1815). A script for the loop is written and waited for
+from inside a clock hold, and a before/after pair goes through the loop inside one hold.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

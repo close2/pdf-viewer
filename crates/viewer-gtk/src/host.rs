@@ -100,8 +100,9 @@ pub struct Opening {
     bytes: pdf_syntax::FileBytes,
     /// Annex O's fragment, as the command line carried it.
     fragment: Option<String>,
-    /// The thread, until the first allocation joins it.
-    thread: std::thread::JoinHandle<(Viewer, Vec<Event>)>,
+    /// The thread, until the first allocation joins it — a [`viewer_host::Loading`], so that page
+    /// one publishes how far it has got (ADR 1811).
+    thread: viewer_host::Loading<(Viewer, Vec<Event>)>,
 }
 
 impl Opening {
@@ -137,7 +138,7 @@ impl Opening {
             None,
             fragment.clone(),
         );
-        let thread = std::thread::spawn(move || {
+        let thread = viewer_host::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
             let mut viewer = Viewer::new(0, 0, 1.0);
@@ -335,6 +336,9 @@ struct Ui {
     status_bar: gtk4::Box,
     /// Trap 5's channel reaching a person: what the page could not draw, and what was refused.
     status: gtk4::Label,
+    /// How far page one has got while the document is still opening past `WARN`, and hidden
+    /// otherwise (ADR 1811).
+    loading: gtk4::ProgressBar,
     /// The find bar, which is a real [`gtk4::SearchBar`] and not a rectangle this host draws.
     find: gtk4::SearchBar,
     /// The string in it.
@@ -685,8 +689,13 @@ pub struct Host {
     )>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
-    /// The document opening on [`Opening`]'s thread, until the first allocation joins it.
-    anticipated: Option<std::thread::JoinHandle<(Viewer, Vec<Event>)>>,
+    /// The document opening on [`Opening`]'s thread, until the first allocation joins it — or,
+    /// where it is not ready inside `viewer_host::drawing::WARN`, until the tick that finds it
+    /// ready (ADR 1811).
+    anticipated: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
+    /// The latest viewport the window was given while the document was still opening, which the
+    /// join tells the core rather than the first one.
+    awaiting: Option<Command>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -836,6 +845,7 @@ impl Host {
                 shown: None,
                 viewport: (1, 1),
                 anticipated: Some(thread),
+                awaiting: None,
                 preparing: None,
             })
         })
@@ -881,6 +891,11 @@ impl Host {
             self.join_the_opening(resize);
             return;
         }
+        // A document still opening past `WARN` is told the window's size when it is taken in.
+        if self.awaiting.is_some() {
+            self.awaiting = Some(resize);
+            return;
+        }
         self.dispatch(resize);
         // A window asked to fit the first displayed page is measured again once it has taken
         // the size it was asked for, because a frame is not always drawn for a viewport the page
@@ -896,8 +911,89 @@ impl Host {
     /// against the viewer a first open with a viewport would have left — the order this window
     /// had when it opened the document here (ADR 1539). A thread that panicked is said, and the
     /// document opened on this one instead.
+    ///
+    /// **It waits no longer than `viewer_host::drawing::WARN`** (ADR 1811). A document still
+    /// opening then is left to its thread: the status bar carries how far page one has got, GTK's
+    /// loop goes on answering the window, and [`Self::mind_the_opening`] joins it on the
+    /// [`viewer_host::loading::TICK`] that finds it ready, with the window's size as it is then.
     fn join_the_opening(&mut self, resize: Command) {
-        let joined = self.anticipated.take().map(std::thread::JoinHandle::join);
+        if self
+            .anticipated
+            .as_ref()
+            .is_some_and(|opening| !opening.wait())
+        {
+            self.trace
+                .say(Topic::Launch, format_args!("document still opening"));
+            self.awaiting = Some(resize);
+            self.show_the_opening();
+            let me = self.me.clone();
+            glib::timeout_add_local(viewer_host::loading::TICK, move || {
+                let Some(host) = me.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                // A host busy with one of its own writes is asked again at the next look.
+                let Ok(mut host) = host.try_borrow_mut() else {
+                    return glib::ControlFlow::Continue;
+                };
+                if host.mind_the_opening() {
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
+            });
+            return;
+        }
+        self.take_the_opening(resize);
+    }
+
+    /// One look at a document still opening: joins it where it is ready, and otherwise moves the
+    /// bar. Answers whether to look again.
+    fn mind_the_opening(&mut self) -> bool {
+        if !self
+            .anticipated
+            .as_ref()
+            .is_some_and(viewer_host::Loading::ended)
+        {
+            self.show_the_opening();
+            return self.anticipated.is_some();
+        }
+        self.ui.loading.set_visible(false);
+        self.say(viewer_host::loading::READ);
+        if let Some(resize) = self.awaiting.take() {
+            self.take_the_opening(resize);
+        }
+        false
+    }
+
+    /// Puts how far page one has got on the status bar: the sentence on the label, the share on
+    /// GTK's own bar beside it.
+    fn show_the_opening(&mut self) {
+        let Some(reading) = self
+            .anticipated
+            .as_ref()
+            .and_then(viewer_host::Loading::showing)
+        else {
+            return;
+        };
+        let sentence = viewer_host::loading::reading(reading);
+        if self.ui.status.text() != sentence.as_str() {
+            // Not `say`: a sentence that changes every tick is not one for the terminal.
+            if !self.ui.loading.is_visible() {
+                println!("note: {sentence}");
+            }
+            self.ui.status.set_text(&sentence);
+            self.ui.status.set_tooltip_text(Some(&sentence));
+        }
+        match reading.fraction() {
+            Some(fraction) => self.ui.loading.set_fraction(fraction),
+            None => self.ui.loading.pulse(),
+        }
+        self.ui.loading.set_visible(true);
+    }
+
+    /// Takes in the document the opening thread opened, and tells it its viewport.
+    fn take_the_opening(&mut self, resize: Command) {
+        let joined = self.anticipated.take().map(viewer_host::Loading::join);
         let Some(Ok((viewer, opened))) = joined else {
             if joined.is_some() {
                 eprintln!("the thread opening the document panicked; opening it here instead");
@@ -6463,6 +6559,12 @@ fn build_window(
     let status_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     status_bar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
     status_bar.append(&status);
+    let loading = gtk4::ProgressBar::new();
+    loading.set_margin_start(6);
+    loading.set_margin_end(6);
+    loading.set_margin_bottom(3);
+    loading.set_visible(false);
+    status_bar.append(&loading);
 
     let documents = gtk4::Notebook::new();
     documents.set_scrollable(true);
@@ -6568,6 +6670,7 @@ fn build_window(
         menu,
         status_bar,
         status,
+        loading,
         find,
         find_entry,
     }

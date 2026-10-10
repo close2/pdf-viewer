@@ -237,6 +237,13 @@ pub fn serve() -> Result<(), std::io::Error> {
 
     let mut viewer = Viewer::new(INITIAL_VIEWPORT.0, INITIAL_VIEWPORT.1, 1.0);
     let mut rasterizer = CpuRasterizer::new().with_strips(limits.strips);
+    // **How far a page has got, told to the host as it goes** (ADR 1811): every command is
+    // performed under a figure that relays a reading every `RELAY_EVERY` operators as a notice the
+    // host reads inside the exchange it is waiting on. A host that does not listen reads past them.
+    let progress = pdf_model::progress::Progress::relaying(Box::new(|reading| {
+        // A figure nobody saw is a figure nobody needed: the work goes on either way.
+        let _ = confined_transport::link::tell_the_host(&crate::notice::encode(reading));
+    }));
     let mut marks = protocol::Marks::default();
     let mut preparing = Preparing::default();
 
@@ -250,13 +257,15 @@ pub fn serve() -> Result<(), std::io::Error> {
                 kind,
                 payload,
                 descriptors,
-            } => answer(
-                &mut viewer,
-                &mut rasterizer,
-                &mut marks,
-                &mut preparing,
-                (kind, payload, descriptors),
-            ),
+            } => progress.watch(|| {
+                answer(
+                    &mut viewer,
+                    &mut rasterizer,
+                    &mut marks,
+                    &mut preparing,
+                    (kind, payload, descriptors),
+                )
+            }),
             Incoming::NoRoom { length } => refuse(&unaffordable(length, &limits)),
         };
         output.write_all(&protocol::header(kind, response.len()))?;

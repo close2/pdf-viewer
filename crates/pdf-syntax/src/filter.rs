@@ -2066,6 +2066,20 @@ impl Pump {
             }
         }
     }
+
+    /// How many of the still-encoded bytes the first stage has taken, and how many there are.
+    ///
+    /// **The one figure a decode in progress can state about how far it has got**, because it is
+    /// the only one with a known end: a filter's output length is not written anywhere before the
+    /// decode reaches it (§7.4's filters state none, and §7.3.8.2 Table 5's `/DL` is optional and
+    /// "only a hint"), while the input is the stream object's own bytes and its length is the
+    /// buffer's. So a window that wants to say how much of a page is left reads this, and reads a
+    /// figure that ends at exactly the length it states (ADR 1811). A rewind under raw framing sets the first figure
+    /// back to zero, which is the truth about the input at that moment.
+    #[must_use]
+    pub fn taken(&self) -> (usize, usize) {
+        (self.at, self.data.len())
+    }
 }
 
 impl Inflate {

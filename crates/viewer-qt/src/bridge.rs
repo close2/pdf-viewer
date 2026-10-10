@@ -1098,6 +1098,9 @@ pub mod ffi {
         fn title(self: &Host) -> String;
         /// The most recent sentence for a person.
         fn status(self: &Host) -> String;
+        /// How much of page one has been read, in thousandths, while the document is still opening
+        /// past `viewer_host::drawing::WARN`; `-1` where there is no bar to show (ADR 1811).
+        fn loading_permille(self: &Host) -> i32;
         /// The window's initial size in logical pixels: width, then height.
         fn window_size(self: &Host) -> Vec<i32>;
         /// Table 147's `/FitWindow` and `/CenterWindow` for the window's own extents, as

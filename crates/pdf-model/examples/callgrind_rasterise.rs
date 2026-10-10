@@ -34,6 +34,11 @@
 //! the draw (ADR 0650), and it is here rather than in a wall-clock example for this file's own
 //! reason: the difference being asked about is one relaxed atomic load per command, which is
 //! below the noise of a loaded machine and exact under callgrind.
+//!
+//! A `--scale=<pixels per unit>` argument after the repeat count draws at that scale instead of
+//! 1.0. The default keeps old figures comparable; `--scale=2.0833333` is 150 dpi, the scale
+//! `quorra-transform render` draws at by default, and a page of hairlines costs per command
+//! rather than per pixel only at the scale a person actually sees it at.
 #[expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
@@ -55,7 +60,12 @@ fn main() {
     let repeats = args
         .next()
         .map_or(20, |n| n.parse::<usize>().expect("a repeat count"));
-    let interruptible = args.next().is_some_and(|flag| flag == "--interruptible");
+    let flags: Vec<String> = args.collect();
+    let interruptible = flags.iter().any(|flag| flag == "--interruptible");
+    let scale = flags
+        .iter()
+        .find_map(|flag| flag.strip_prefix("--scale="))
+        .map_or(1.0, |n| n.parse::<f32>().expect("a scale"));
 
     let bytes = std::fs::read(&path).expect("the document is readable");
     let document = pdf_syntax::Document::open(bytes).expect("valid PDF");
@@ -70,7 +80,7 @@ fn main() {
     // The last argument is a ceiling on *total pixels*, not on either extent: a page-sized
     // raster is half a million of them, and passing a plausible-looking 4096 here made every
     // run of this example panic while callgrind dutifully counted the panic.
-    let target = pdf_render::TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a valid target");
+    let target = pdf_render::TargetSpec::for_page(&list, scale, 1 << 30).expect("a valid target");
 
     // Made once, outside the loop, and never raised: what is being counted is the *checking*,
     // which is what a draw that is never abandoned pays.

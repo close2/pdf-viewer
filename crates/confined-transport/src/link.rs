@@ -295,6 +295,30 @@ mod resources {
         Some((identity, content))
     }
 
+    /// Tells the host something it does not answer ([`frame::NOTICE`]), and answers whether the
+    /// notice was written.
+    ///
+    /// **Over the port [`ask_the_host`] armed, and under its lock**, so that a notice never lands
+    /// inside a request's bytes; written with `write` on the descriptor for the same reason, so it
+    /// adds no system call to the allow-list. Nothing is read back, which is the difference from a
+    /// request: the work that sent it goes on at once. `false` where nothing is armed, where the
+    /// notice is longer than a host will read, or where the write failed — and a caller treats all
+    /// three the same way, as a figure nobody saw.
+    #[must_use]
+    pub fn tell_the_host(notice: &[u8]) -> bool {
+        use std::os::fd::AsFd as _;
+
+        let Ok(held) = ASKING.lock() else {
+            return false;
+        };
+        if held.is_none() || notice.len() > frame::MAX_NOTICE {
+            return false;
+        }
+        let stdout = std::io::stdout();
+        write_all(stdout.as_fd(), &frame::header(frame::NOTICE, notice.len())).is_ok()
+            && write_all(stdout.as_fd(), notice).is_ok()
+    }
+
     /// Writes a whole buffer to a descriptor, retrying a short write.
     fn write_all(
         descriptor: std::os::fd::BorrowedFd<'_>,
@@ -326,6 +350,12 @@ mod resources {
     pub fn ask_the_host(_request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         None
     }
+
+    /// Tells nobody, always.
+    #[must_use]
+    pub fn tell_the_host(_notice: &[u8]) -> bool {
+        false
+    }
 }
 
-pub use resources::{ask_the_host, requests_go_to_the_host};
+pub use resources::{ask_the_host, requests_go_to_the_host, tell_the_host};

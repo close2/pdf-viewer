@@ -35,6 +35,7 @@ class QTextDocument;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class QProgressBar;
 class QListView;
 class QSplitter;
 class QStackedWidget;
@@ -680,6 +681,9 @@ private:
     PageModel* pageModel_ = nullptr;
     PageArea* page_;
     QLabel* status_;
+    /// How far page one has got while the document is still opening past `WARN`, beside the
+    /// sentence that says so; hidden otherwise. ADR 1811.
+    QProgressBar* loading_ = nullptr;
     /// The find bar, hidden until Ctrl+F or `/`.
     QToolBar* find_;
     /// The navigate bar, which with the find bar is what §12.2's `/HideToolbar` names.

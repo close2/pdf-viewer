@@ -1892,9 +1892,10 @@ impl Interpreter<'_> {
         //
         // **At the re-entry rather than at the depth bound, because of what the bound costs a
         // glyph.** A description showing codes that reach itself runs a number of times
-        // exponential in the bound before the bound is asked, so `MAX_OPERATIONS` is what ended
-        // it — 2.2 s of one page in a release build, with every mark after the text dropped — and
-        // the same page interprets in 71 ms refused here (ADR 1792 has the profile). The question
+        // exponential in the bound before the bound is asked, so what ends it otherwise is the
+        // memory its marks take (`MAX_LIST_BYTES`) or the person's stop, never a count (ADR 1809)
+        // — 2.2 s of one page in a release build when ADR 1792 profiled it, and the same page
+        // interprets in 71 ms refused here. The question
         // costs one comparison per description running, at most `MAX_FORM_DEPTH` of them, and is
         // asked before the stream is decoded.
 

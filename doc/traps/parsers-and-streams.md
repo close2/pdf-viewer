@@ -378,6 +378,16 @@ left to the whole decoder (ADR 1495). A partial decode is held to the whole by a
 target, not by a fixture; and a campaign passes `-artifact_prefix` to its INITED runs as well, or
 an OOM on a seed is written to the worktree root.
 
+### 140. A bound's removal is priced by what it alone was charging
+
+`MAX_OPERATIONS` went, on the owner's word that a valid page is never cut by a count, and two
+memory holes opened that the count had been closing without anybody saying so: painted paths were
+left uncharged because "its segments each cost an operator", and the readback a form re-read
+keeps — text, placements, spans, the `/Alt` and `/E` strings — was charged to nothing (round 1486,
+ADRs 1809, 1810). Before a bound is removed or raised, every comment that says "X bounds this" is
+found, and each thing it was bounding is charged to a budget that remains; the hostile fixture
+that reached the old bound is re-pointed at the budget that now ends it.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

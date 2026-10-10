@@ -304,15 +304,10 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 0] = [];
 /// A name leaving is an allocation, a tiling or a ceiling that changed upstream, which is
 /// exactly what [`REFUSED_BY_THE_DEVICE_AT_FOUR`]'s own note records happening twice.
 ///
-/// **`ContentStreamCycleType3insideType3.pdf` is the exception to "raster's to move", and it is
-/// this tree's by design.** It is a cycle — a `d1` glyph whose pattern's cell shows the glyph —
-/// and until ADR 0793 it was refused at a nesting depth of sixteen the moment its cell ran,
-/// drawing nothing. The bound is sixty-four now and counts the cell, so the cycle is entered
-/// sixty-four deep, every level is nine copies of the one below it, and the page spends the whole
-/// of `MAX_OPERATIONS` on it: 3 995 603 commands, which raster prices at *383577888
-/// scene-derived bytes, over the stated budget of 268435456*. The CPU backend draws the page and
-/// says so. Nothing here is an upstream ask — a budget that refuses four million commands of a
-/// cycle is doing what a budget is for — and what would take the name off is `doc/todo/49`'s
+/// **`ContentStreamCycleType3insideType3.pdf` is a cycle, and it is drawn.** It is a `d1` glyph
+/// whose pattern's cell shows the glyph; a glyph description already running is refused where it
+/// is re-entered (ADR 1792), so the page is 44 commands, its own triangle is drawn, and every lane
+/// draws it. What would take a runaway page of this shape off a refusal list is `doc/todo/49`'s
 /// standing item, a bound on the interpreter's *work* rather than on its count.
 ///
 /// **`issue19517.pdf` is not here, and the capability it met is answered by tiling (ADR 1472).**
@@ -325,11 +320,11 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 0] = [];
 ///
 /// **The list is empty, and the page that used to be on it says why.**
 /// `ContentStreamCycleType3insideType3.pdf` was refused by the device's frame budget (377 M
-/// scene-derived bytes) or, in its place in the walk, by the resource ceiling; since `MAX_LIST_BYTES`
-/// bounds a display list at 512 MiB per interpretation (ADR 1507) the interpreter stops the cycle
-/// first, reports it once with both numbers, and hands the device a list it draws. The budget
-/// nearest the producer's defect is the one that fires; the device's stay for the pages below at
-/// four times the scale.
+/// scene-derived bytes) until its cycle was refused at the glyph's re-entry (ADR 1792); and a
+/// display list is bounded by `MAX_LIST_BYTES`, 2 GiB per interpretation (ADR 1810), so a runaway
+/// list is the interpreter's to stop and report before the device sees it. The budget nearest the
+/// producer's defect is the one that fires; the device's stay for the pages below at four times
+/// the scale.
 const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
@@ -398,10 +393,6 @@ const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 /// is checked on the default lane only, because the two lanes put *different tiles* in the
 /// coverage sheet this refusal is against — the encoder chooses per command (raster's ADR 0029)
 /// — so the sheet a frame commits is a property of the lane, and a lane's refusals are its own.
-///
-/// `ContentStreamCycleType3insideType3.pdf` is here for [`REFUSED_BY_THE_DEVICE`]'s reason and
-/// with the same message, measured on this lane (ADR 0793): the scene-byte budget is scale-free,
-/// and four million commands are over it at any scale.
 ///
 /// **Two are here because of [`PIXEL_BUDGET`]'s raise and not for anything the device did**, and
 /// they are the two pages this scale's *budget* would otherwise refuse before the device could

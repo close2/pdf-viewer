@@ -142,8 +142,9 @@ pub fn speech(text: &str, described: &[Described], default: Option<&str>) -> Vec
 /// Deepest nesting of marked-content sequences whose entries are applied.
 ///
 /// The interpreter puts no bound on how deeply a content stream may nest `BDC` … `EMC` — a
-/// section costs an operator and `MAX_OPERATIONS` bounds those — so a file may state a million
-/// nested sequences, each with a `/Lang`, and this walk descends one level per sequence.
+/// section costs a few bytes of its stream, and only the stream's length bounds those — so a file
+/// may state a million nested sequences, each with a `/Lang`, and this walk descends one level per
+/// sequence.
 /// Legitimate tagging is a handful of levels; a document past this bound has its remaining
 /// nesting flattened into the language in force at the bound, which loses an override no real
 /// file states and costs nothing that can be seen.

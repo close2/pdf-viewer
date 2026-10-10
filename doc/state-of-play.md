@@ -656,7 +656,10 @@ after `viewer_host::drawing::WARN` puts a sentence in the status bar naming Esca
 takes the drawing thread back without reporting anything to the core, so the page keeps its picture
 and is drawn again when the view moves (ADR 0729). It is the owner's "warn the user and allow the
 user to abort, however don't block", and it is a *warning* rather than the deadline ADR 0657
-measured and refused. **The
+measured and refused. **A page still being read at launch is a loading bar**: each of the four
+windows waits for its opening thread no longer than the same `WARN`, then answers its toolkit and
+shows how much of the page's `/Contents` has been read and how many operators that was — the
+confined window's figure relayed from its worker — until the page is in (ADR 1811). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, `/FitWindow`
