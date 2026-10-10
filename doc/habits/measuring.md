@@ -873,3 +873,11 @@ because `pdf_render::strips` marks a stroke's whole height uncuttable and the pa
 spans every row, so wall time equalled user time at four threads (round 1488, ADR 1813). Before a
 lever is built from an instruction profile, compare the walk's wall with its user time: an
 instruction count cannot show idle processors.
+
+## 84. A census of marks by device extent maps the hull before it grows it by the width
+
+`Stroke::device_width` answers a path-space width; a census that grew a mark's mapped box by that
+figure called 0.2 px dots marks of 2–4 px and would have sent a batch after the wrong population
+(round 1490, ADR 1817). The hull is grown by the stroke's width in path space and then mapped, or
+the width is mapped first; and a census whose population decides a lever is checked on a handful of
+marks by hand before the lever is priced.

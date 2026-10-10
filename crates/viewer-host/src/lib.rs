@@ -156,7 +156,7 @@ pub use arrangement::next_layout;
 pub use clock::{Clock, face, face_target};
 pub use copying::{ContentOrder, Copied, copied};
 pub use documents::{Arrivals, Arriving, Close, Documents, Named};
-pub use drawing::{DrawRequest, Drawing, Finished};
+pub use drawing::{DrawRequest, Drawing, Finished, Partial};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};

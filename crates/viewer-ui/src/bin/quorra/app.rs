@@ -214,9 +214,10 @@ pub(crate) struct App {
     /// the screen could not draw — the title, beside [`App::retitle_incomplete`] — and on standard
     /// output like every other note here.
     ///
-    /// `None` on the device path, always: the render thread's frame is raster's and there is no
-    /// interrupt that reaches it (ADR 0725), so this window warns about what it can also stop and
-    /// says nothing about what it cannot. `--cpu` is the path with the interruptible thread.
+    /// On the device path only for a page the device refused, while the processor draws it: the
+    /// render thread's own frame is raster's and no interrupt reaches it (ADR 0725), and the
+    /// processor's draw of a refused one takes the same interrupt `--cpu`'s does (ADR 1821). This
+    /// window warns about what it can also stop and says nothing about what it cannot.
     pub(crate) still_drawing: Option<String>,
     /// What the window says while the frame on it was drawn on the processor because the graphics
     /// device refused it, or nothing.
@@ -1051,7 +1052,10 @@ impl App {
     pub(crate) fn mind_a_long_draw(&mut self) {
         let overlong = self
             .composer_ref()
-            .is_some_and(crate::composer::Composer::overlong);
+            .is_some_and(crate::composer::Composer::overlong)
+            || self
+                .device_window_ref()
+                .is_some_and(crate::renderer::Window::overlong);
         if overlong == self.still_drawing.is_some() {
             return;
         }
@@ -1085,16 +1089,17 @@ impl App {
     /// Nothing is reported to the core for it (trap 20), so the window keeps whatever it was
     /// showing and draws again the next time the view changes, which is what the sentence says.
     ///
-    /// **The device path never gets here, and that is stated rather than guarded against.** Raster
-    /// has no interrupt, so a frame on the render thread cannot be taken back at all (ADR 0725);
-    /// [`App::mind_a_long_draw`] therefore says nothing on that surface, Escape never comes to
-    /// mean this there, and a branch here refusing an act the table cannot produce would be a path
-    /// nothing can reach. `--cpu` is the surface with the interruptible thread, and it is the one
-    /// this window's warning is about.
+    /// **On the device path it reaches one frame only**: raster has no interrupt, so a frame the
+    /// device is drawing cannot be taken back at all (ADR 0725), and [`App::mind_a_long_draw`]
+    /// offers the key there only while the processor draws a page the device refused, which takes
+    /// the interrupt (ADR 1821). `--cpu` is the other surface with an interruptible thread.
     pub(crate) fn stop_the_long_draw(&mut self) {
         let stopped = self
             .composer()
-            .is_some_and(crate::composer::Composer::abandon);
+            .is_some_and(crate::composer::Composer::abandon)
+            || self
+                .device_window()
+                .is_some_and(crate::renderer::Window::abandon);
         self.still_drawing = None;
         if stopped {
             println!("note: {}", viewer_host::stopped_drawing(None));

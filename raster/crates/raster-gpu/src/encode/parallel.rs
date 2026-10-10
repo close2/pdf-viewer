@@ -111,7 +111,8 @@ mod commit;
 ///
 /// Derived from the host's own number rather than picked, for the reason `residue.rs`
 /// gives about its own share: a caller who lowers `max_frame_bytes` is describing a
-/// machine. A sixty-fourth of the 268 MiB default is 4 MB, which is about twenty thousand
+/// machine, up to the 256 MiB it was measured at ([`crate::startup::working_budget`]). A
+/// sixty-fourth of that is 4 MiB, which is about twenty thousand
 /// of the caller's three-pixel marks or two full-page tiles — enough work to divide
 /// twenty-four ways many times over, and small next to a budget the frame may spend in
 /// full.
@@ -124,7 +125,7 @@ const IN_FLIGHT_BUDGET_SHARE: u64 = 64;
 /// What a frame's queue may hold in coverage the commit has not reached, given the
 /// frame's own budget.
 pub(super) fn in_flight_limit(frame_budget_bytes: u64) -> u64 {
-    frame_budget_bytes.saturating_div(IN_FLIGHT_BUDGET_SHARE)
+    crate::startup::working_budget(frame_budget_bytes).saturating_div(IN_FLIGHT_BUDGET_SHARE)
 }
 
 /// The queued weight below which a frame rasterises on the walk's thread, in a filled
@@ -999,9 +1000,14 @@ mod tests {
     #[test]
     fn the_in_flight_limit_follows_the_frame_budget_and_refuses_nothing() {
         assert_eq!(
-            in_flight_limit(268 * 1024 * 1024),
-            268 * 1024 * 1024 / IN_FLIGHT_BUDGET_SHARE,
-            "a sixty-fourth of the default frame budget"
+            in_flight_limit(200 * 1024 * 1024),
+            200 * 1024 * 1024 / IN_FLIGHT_BUDGET_SHARE,
+            "a sixty-fourth of a budget below the one it was measured at"
+        );
+        assert_eq!(
+            in_flight_limit(crate::startup::DEFAULT_MAX_FRAME_BYTES),
+            256 * 1024 * 1024 / IN_FLIGHT_BUDGET_SHARE,
+            "and a sixty-fourth of the measured 256 MiB above it, so admission is all a raise buys"
         );
         assert_eq!(
             in_flight_limit(0),

@@ -372,6 +372,15 @@ impl Screen {
             .all(|slot| !matches!(slot.content, Content::Drawing(..)))
     }
 
+    /// Whether any page of the arrangement has an answer to show — pixels, marks, or a refusal's
+    /// sentence — rather than the surround alone.
+    #[must_use]
+    pub(crate) fn shows_a_page(&self) -> bool {
+        self.slots
+            .iter()
+            .any(|slot| !matches!(slot.content, Content::Drawing(..)))
+    }
+
     /// The sentences of every page the rasteriser refused, for a status line.
     pub(crate) fn refusals(&self) -> impl Iterator<Item = (usize, &str)> {
         self.slots.iter().filter_map(|slot| match &slot.content {

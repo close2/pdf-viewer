@@ -55,7 +55,8 @@ face's own `OS/2` — among the faces that draw as much of its script as any, wh
 for a page's font and an interface's label alike (ADR 1441). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
-lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+lattice — a row at a time, so that a page is cut into strips across any straight stroke it draws
+that way, and a tall mark is measured in runs of rows rather than handed back (ADR 1819) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -659,7 +660,16 @@ user to abort, however don't block", and it is a *warning* rather than the deadl
 measured and refused. **A page still being read at launch is a loading bar**: each of the four
 windows waits for its opening thread no longer than the same `WARN`, then answers its toolkit and
 shows how much of the page's `/Contents` has been read and how many operators that was — the
-confined window's figure relayed from its worker — until the page is in (ADR 1811). **The
+confined window's figure relayed from its worker — until the page is in (ADR 1811). **The confined
+window answers while its worker draws**: each command goes to the worker on a thread of its own,
+waited for no longer than `WARN`; past it the title says what the worker is doing, Escape, `q` and
+the close act at once, and every other key is held and done in order once the worker is free (ADR
+1827). **A page that draws for seconds is shown as it is built** in the two toolkit windows: past
+half a second the drawing thread is asked for the page so far four times a second, in painting
+order, and the bar carries how much is drawn until the page lands (ADR 1825). **A page the graphics device
+refuses is paid once** in `quorra`: the device is not asked again for those pages at that
+magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
+`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, `/FitWindow`

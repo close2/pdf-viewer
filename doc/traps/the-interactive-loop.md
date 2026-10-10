@@ -386,3 +386,12 @@ limit, so the owner's 15 s page froze the toolkit thread for the whole read whil
 nothing and answered nothing (round 1487, ADR 1811). `viewer_host::Loading` waits at most `WARN`
 and then polls every 33 ms, showing how far the read has got. A wait on the toolkit thread is
 bounded by `WARN`; what runs longer is a sentence and a bar, and the window keeps answering.
+
+### 143. A frame's cost read from its last call is the cost of that call
+
+`quorra`'s sharp pass predicted its cost from `last_built`, which after a processor fallback was the
+raster upload — 3 to 5 ms for a frame whose processor draw had taken seconds — so the device was
+asked again after every fallback frame and the whole-page picture retried for ever (round 1492,
+ADR 1821). A frame's cost is the whole frame's, the fallback included, and every prediction
+downstream reads that figure; a refusal that is a fact about the frame is remembered by the pages
+and the zoom level, and the device is not asked again for it.

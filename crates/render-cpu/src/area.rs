@@ -74,9 +74,13 @@
 //! - **An overlapping row past [`SET_WORK`].** The second measurement is quadratic in the edges
 //!   one row holds where they all overlap in `x`, so a mark that would spend more is left to the
 //!   library's converter, which applies the rule per sample. A cost guard and not a condition.
-//! - **A region past [`CELL_BUDGET`].** The accumulator is one `f32` per pixel of the mark's own
-//!   device extent, so a mark larger than the budget is left to the library's converter rather
-//!   than given a buffer nobody bounded. It is a cost guard and not a condition.
+//! - **A row wider than [`CELL_BUDGET`].** The accumulator is one `f32` per pixel of the mark's
+//!   own device extent, so a region past the budget is measured a run of its rows at a time
+//!   ([`Region::runs`]), and only a single row past it is left to the library's converter. Both are
+//!   cost guards and neither is a condition — and the runs are what keep it so: a decline decided
+//!   by the region's *height* is decided by how many rows the surface holds, which is a strip's
+//!   choice rather than the mark's, and a page cut into strips then drew the same mark through two
+//!   converters on either side of a cut (ADR 1819).
 //! - **A mark outside the raster, or a transform that states no bounds.** There is nothing to
 //!   measure.
 //! - **Anything the caller has already withdrawn anti-aliasing from**, which is `scan`'s range
@@ -87,9 +91,10 @@ use tiny_skia::{FillRule, Path, PathSegment, Point, Transform};
 /// The largest accumulator this module will build, in cells.
 ///
 /// Four million is a page of ISO 32000-2 at 150 dpi with room over, and sixteen megabytes of
-/// `f32` — the buffer is kept for the length of a band and grows to the largest mark that band
-/// holds, so the figure bounds the buffer rather than a per-mark allocation. A mark past it is
-/// drawn by `tiny-skia`'s converter, which is what drew every mark before this module existed.
+/// `f32` — the buffer is kept for the length of a band and grows to the largest run of rows that
+/// band holds, so the figure bounds the buffer rather than a per-mark allocation. A mark past it is
+/// measured in runs of rows ([`Region::runs`]); only a row wider than it is drawn by `tiny-skia`'s
+/// converter, which is what drew every mark before this module existed.
 const CELL_BUDGET: usize = 1 << 22;
 
 /// How far a flattened curve may lie from the curve it stands for, in device pixels.
@@ -130,6 +135,32 @@ impl Region {
         let columns = (self.width as usize).checked_add(1)?;
         columns.checked_mul(self.height as usize)
     }
+
+    /// The region as runs of whole rows, in order, none of whose accumulators is past
+    /// [`CELL_BUDGET`] — the whole region where it fits.
+    ///
+    /// **A run is exactly what a strip is**, and that is why measuring in runs changes no pixel a
+    /// region measured whole would have: every row's crossings are evaluated from the edges'
+    /// device coordinates and the region's own corner, and a run's first row is the region's row
+    /// at the same device height, so [`Accumulator::accumulate`] computes the same two `x` for it
+    /// either way. What a run does not see is the rows outside it, which is what a strip does not
+    /// see either: [`Accumulator::measure_overlapping_rows`] suspects a run by its own rows, and
+    /// [`SET_WORK`] is spent per run (ADR 1819).
+    ///
+    /// [`region`] has already refused a row wider than the budget, so a run holds at least one row.
+    fn runs(self) -> impl Iterator<Item = Self> {
+        let columns = (self.width as usize).saturating_add(1);
+        let rows = u32::try_from(CELL_BUDGET.checked_div(columns).unwrap_or(0))
+            .unwrap_or(u32::MAX)
+            .max(1);
+        (0..self.height)
+            .step_by(rows as usize)
+            .map(move |offset| Self {
+                top: self.top.saturating_add(offset),
+                height: rows.min(self.height.saturating_sub(offset)),
+                ..self
+            })
+    }
 }
 
 /// The pixels `path` drawn under `at` can reach on a `width` by `height` surface.
@@ -137,8 +168,9 @@ impl Region {
 /// Rounded outwards by a whole pixel on every side, which is `scan::reached_pixels`' own margin
 /// and for its reason: the extent comes from control points and the coverage from this converter,
 /// and a mark must not lose ink to a rectangle. `None` where the transform states no rectangle,
-/// where the mark falls outside the surface, or where the accumulator would be past
-/// [`CELL_BUDGET`].
+/// where the mark falls outside the surface, or where one row's accumulator would be past
+/// [`CELL_BUDGET`] — a taller region is measured in [`Region::runs`], so its height declines
+/// nothing.
 pub(crate) fn region(path: &Path, at: Transform, (width, height): (u32, u32)) -> Option<Region> {
     let bounds = path.bounds().transform(at)?;
     let left = clamped(bounds.left() - 1.0, width);
@@ -154,7 +186,13 @@ pub(crate) fn region(path: &Path, at: Transform, (width, height): (u32, u32)) ->
         width: right.saturating_sub(left),
         height: bottom.saturating_sub(top),
     };
-    region.cells().filter(|cells| *cells <= CELL_BUDGET)?;
+    Region {
+        height: 1,
+        ..region
+    }
+    .cells()
+    .filter(|cells| *cells <= CELL_BUDGET)?;
+    region.cells()?;
     Some(region)
 }
 
@@ -199,7 +237,59 @@ fn clamped(value: f32, limit: u32) -> u32 {
 /// half a level, which is every shape this converter is the right instrument for — and it keeps
 /// the accumulator's own residue, of the order of `2^-24` per cell summed along a row, an order
 /// of magnitude below the first level rather than lifted on to it.
+///
+/// # A tall region is measured a run of rows at a time
+///
+/// [`Region::runs`] says why that is the same measurement. Where a later run spends [`SET_WORK`]
+/// the rows the earlier ones wrote are cleared again before `false` is returned, so the caller's
+/// fallback still finds the clear region this function's contract promises it.
 pub(crate) fn fill(
+    buffers: &mut Buffers,
+    target: &mut [u8],
+    (width, region): (u32, Region),
+    (path, overlapping): (&Path, bool),
+    fill_rule: FillRule,
+    at: Transform,
+) -> bool {
+    for run in region.runs() {
+        if !fill_run(
+            buffers,
+            target,
+            (width, run),
+            (path, overlapping),
+            fill_rule,
+            at,
+        ) {
+            let written = Region {
+                height: run.top.saturating_sub(region.top),
+                ..region
+            };
+            clear(target, (width, written));
+            return false;
+        }
+    }
+    true
+}
+
+/// Zeroes the pixels of `region` in `target`, a `width`-pixel-wide mask.
+fn clear(target: &mut [u8], (width, region): (u32, Region)) {
+    let stride = width as usize;
+    for row in 0..region.height as usize {
+        let Some(start) = (region.top as usize)
+            .checked_add(row)
+            .and_then(|line| line.checked_mul(stride))
+            .and_then(|line| line.checked_add(region.left as usize))
+        else {
+            continue;
+        };
+        if let Some(scanline) = target.get_mut(start..start.saturating_add(region.width as usize)) {
+            scanline.fill(0);
+        }
+    }
+}
+
+/// [`fill`] for one run of rows the budget admits whole.
+fn fill_run(
     buffers: &mut Buffers,
     target: &mut [u8],
     (width, region): (u32, Region),

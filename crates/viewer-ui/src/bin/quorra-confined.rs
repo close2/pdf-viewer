@@ -86,14 +86,17 @@
 
 #[path = "quorra-confined/device.rs"]
 mod device;
+#[path = "quorra-confined/exchange.rs"]
+mod exchange;
 #[path = "quorra-confined/screen.rs"]
 mod screen;
 #[path = "quorra-confined/typing.rs"]
 mod typing;
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use render_raster::QuorraWindowRenderer;
 use viewer_confined::{
@@ -112,6 +115,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::device::{Device, Presented};
+use crate::exchange::{Exchanging, Held, Waiting};
 use crate::screen::{Draw, Screen};
 
 /// The one document this window opens; the identity is the host's to choose.
@@ -272,6 +276,15 @@ struct Host {
     opening: Option<viewer_host::Loading<Result<Opened, String>>>,
     /// What the title says about a document still opening past `WARN`, or nothing.
     loading: Option<String>,
+    /// A command still out with the worker past `WARN`, on a thread of its own, until the tick
+    /// that finds it answered (ADR 1827).
+    exchanging: Option<Exchanging>,
+    /// What the reader did while the worker was busy, to be done in order once it answers.
+    held: VecDeque<Held>,
+    /// What the title says about the command still out, or nothing.
+    waiting: Option<Waiting>,
+    /// How long the act being done now was held, for the trace line of the command it sends.
+    held_for: Option<Duration>,
     /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
     /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
     /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
@@ -389,6 +402,10 @@ impl Host {
             instancing: (!processor).then(|| std::thread::spawn(QuorraWindowRenderer::instance)),
             opening: None,
             loading: None,
+            exchanging: None,
+            held: VecDeque::new(),
+            waiting: None,
+            held_for: None,
             drawing: Drawing::new(),
             screen: if processor {
                 Screen::new()
@@ -501,6 +518,9 @@ impl Host {
         eprintln!("{said}");
         self.stopped = Some(said);
         self.confined = None;
+        // Nothing is left to do what the reader did meanwhile, and nothing is being waited for.
+        self.held.clear();
+        self.waiting = None;
         self.retitle();
     }
 
@@ -591,32 +611,37 @@ impl Host {
         self.canceller = canceller;
         self.confined = Some(confined);
 
-        if let Some(window) = self.window.as_ref() {
-            let extent = window.inner_size();
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a display's scale factor is a small ratio"
-            )]
-            let scale = window.scale_factor() as f32;
-            self.dispatch(&Command::Resize {
-                width: extent.width,
-                height: extent.height,
-                scale,
+        // The restart goes in front of whatever the reader did while the last worker was dying:
+        // those acts are for the view this puts back.
+        self.ahead_of_the_held(|host| {
+            if let Some(window) = host.window.as_ref() {
+                let extent = window.inner_size();
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a display's scale factor is a small ratio"
+                )]
+                let scale = window.scale_factor() as f32;
+                host.dispatch(Command::Resize {
+                    width: extent.width,
+                    height: extent.height,
+                    scale,
+                });
+            }
+            // The new worker is a new viewer, so it is told again what the first one was told.
+            for command in host.reader.commands().commands {
+                host.dispatch(command);
+            }
+            host.dispatch(Command::Open {
+                id: DOCUMENT,
+                bytes,
+                // The password is deliberately not kept on this side (`password_answered` says
+                // why), so an encrypted document asks for it again — §7.6.4.1's card, exactly as
+                // at launch.
+                password: None,
+                fragment: None,
             });
-        }
-        // The new worker is a new viewer, so it is told again what the first one was told.
-        for command in self.reader.commands().commands {
-            self.dispatch(&command);
-        }
-        self.dispatch(&Command::Open {
-            id: DOCUMENT,
-            bytes,
-            // The password is deliberately not kept on this side (`password_answered` says why),
-            // so an encrypted document asks for it again — §7.6.4.1's card, exactly as at launch.
-            password: None,
-            fragment: None,
+            host.dispatch(Command::View(reopen.view));
         });
-        self.dispatch(&Command::View(reopen.view));
     }
 
     /// The file's own name, for the title.
@@ -627,28 +652,20 @@ impl Host {
         )
     }
 
-    /// Sends one command, hands its events on, and pulls the frame the view now shows.
-    fn dispatch(&mut self, command: &Command) {
+    /// Sends one command, hands its events on, and pulls the frame the view now shows — or, while
+    /// the worker is busy, holds it to be sent once the worker answers (ADR 1827).
+    fn dispatch(&mut self, command: Command) {
         if self.stopped.is_some() {
             return;
         }
-        if self.trace.on(Topic::Events) {
-            self.trace
-                .say(Topic::Events, format_args!("-> {}", brief(command)));
+        if self.must_hold() {
+            self.hold(Held::Command {
+                command,
+                at: Instant::now(),
+            });
+            return;
         }
-        let outcome = match self.confined.as_mut() {
-            Some(confined) => confined.handle(command),
-            None => return,
-        };
-        match outcome {
-            Ok(events) => {
-                for event in events {
-                    self.event(event);
-                }
-                self.pull_frame();
-            }
-            Err(problem) => self.died(&problem),
-        }
+        self.send(command);
     }
 
     /// §7.6.4.1's prompt, which is the one arm of [`Self::event`] long enough to be its own.
@@ -847,7 +864,7 @@ impl Host {
                     )
                 };
                 eprintln!("{}", viewer_host::policy::supply_note(purpose, &why));
-                self.dispatch(&Command::Supply {
+                self.dispatch(Command::Supply {
                     purpose,
                     bytes: None,
                 });
@@ -933,7 +950,7 @@ impl Host {
                 document, notes, ..
             } => {
                 eprintln!("note: {}", viewer_host::unanswerable(&notes));
-                self.dispatch(&Command::Answer {
+                self.dispatch(Command::Answer {
                     document,
                     proceed: false,
                 });
@@ -946,7 +963,7 @@ impl Host {
                     "note: {SCRIPTS_PINNED}",
                     SCRIPTS_PINNED = viewer_host::SCRIPTS_PINNED
                 );
-                self.dispatch(&Command::AnswerScripts {
+                self.dispatch(Command::AnswerScripts {
                     document,
                     proceed: false,
                 });
@@ -957,7 +974,7 @@ impl Host {
             // runs out (ADR 1628).
             Event::ScriptAsking { document, .. } => {
                 eprintln!("note: {}", viewer_host::script_asks::UNANSWERABLE);
-                self.dispatch(&Command::AnswerScript {
+                self.dispatch(Command::AnswerScript {
                     document,
                     answer: viewer_core::ScriptAnswer::Unanswerable,
                 });
@@ -1074,6 +1091,17 @@ impl Host {
             "aborted: the confined viewer for {} was ended by the reader",
             self.path.display()
         ));
+    }
+
+    /// Ends a worker that is still performing something as this window leaves.
+    ///
+    /// The command's thread holds the worker's handle, and a process that leaves does not run that
+    /// thread's drop, which is what would otherwise have ended it: the worker would draw on into a
+    /// pipe nobody reads. The kill is the abort's own (ADR 0241).
+    fn end_a_busy_worker(&self) {
+        if self.busy() {
+            self.canceller.cancel();
+        }
     }
 
     /// Brings up whatever will put pixels on this window (ADR 0725).
@@ -1243,13 +1271,7 @@ impl Host {
         self.screen.resize(extent.width, extent.height);
         match self.presentation.as_mut() {
             Some(Presentation::Device(device)) => match device.present() {
-                Presented::Shown => {
-                    if self.presented.is_none() {
-                        self.trace
-                            .say(Topic::Launch, format_args!("first frame presented"));
-                    }
-                    self.presented = Some((extent.width, extent.height));
-                }
+                Presented::Shown => self.shown(extent),
                 // Before the first frame lands the grounded surround stays up, which is the
                 // window's honest picture of having nothing yet.
                 Presented::Nothing | Presented::Waited => {}
@@ -1272,10 +1294,10 @@ impl Host {
         // file behind the filter. Once per opened document; `viewer_host::report::Due` is the
         // rule all four hosts follow. ADR 1044.
         if self.presented.is_some() && self.report_due.after_a_frame() {
-            self.dispatch(&Command::Report);
+            self.dispatch(Command::Report);
             // And its open sequence, which runs in the worker beside the scripts' view, after the
             // first present and never in front of it (ADR 1602).
-            self.dispatch(&Command::Presented);
+            self.dispatch(Command::Presented);
         }
     }
 
@@ -1308,15 +1330,23 @@ impl Host {
         });
         let overlays: Vec<&pdf_render::DisplayList> = card.iter().collect();
         match surface.present(&composed, &overlays) {
-            Ok(()) => {
-                if self.presented.is_none() {
-                    self.trace
-                        .say(Topic::Launch, format_args!("first frame presented"));
-                }
-                self.presented = Some((extent.width, extent.height));
-            }
+            Ok(()) => self.shown(extent),
             Err(problem) => eprintln!("the frame could not be presented: {problem}"),
         }
+    }
+
+    /// A frame reached the window. It is the *first* frame only once a page is in it: the window
+    /// presents the bare surround while its worker draws (ADR 1827), and the launch stamp, the
+    /// presentation gate and the document's report all mean the reader's page.
+    fn shown(&mut self, extent: winit::dpi::PhysicalSize<u32>) {
+        if !self.screen.shows_a_page() {
+            return;
+        }
+        if self.presented.is_none() {
+            self.trace
+                .say(Topic::Launch, format_args!("first frame presented"));
+        }
+        self.presented = Some((extent.width, extent.height));
     }
 
     fn redraw(&self) {
@@ -1333,7 +1363,8 @@ impl Host {
                 .map_or_else(String::new, |said| format!(" — {said}"));
             let loading = self
                 .loading
-                .as_ref()
+                .as_deref()
+                .or_else(|| self.waiting_said())
                 .map_or_else(String::new, |said| format!(" — {said}"));
             let title = match &self.stopped {
                 Some(said) => format!("{} — {said}{drawn} — confined", self.heading),
@@ -1406,7 +1437,7 @@ impl Host {
         // same process: the document's descriptor crosses once more, which since ADR 0812 costs
         // an `open` and a `sendmsg` rather than the file's whole length down a pipe, however
         // many of `ATTEMPTS` it is paid.
-        self.dispatch(&Command::Open {
+        self.dispatch(Command::Open {
             id: DOCUMENT,
             bytes,
             password: Some(secret),
@@ -1419,38 +1450,51 @@ impl Host {
         if event.state != ElementState::Pressed {
             return;
         }
+        self.press(&event.logical_key);
+    }
+
+    /// A pressed key: held while the worker is busy, unless it is one about the wait itself
+    /// (ADR 1827), and otherwise what it means now.
+    fn press(&mut self, key: &Key) {
+        if self.must_hold() && !self.acts_at_once(key) {
+            self.hold(Held::Key {
+                key: key.clone(),
+                modifiers: self.modifiers,
+                at: Instant::now(),
+            });
+            return;
+        }
         if self.password.shown {
-            let key = event.logical_key.as_ref();
-            self.password_key(&key);
+            self.password_key(&key.as_ref());
             return;
         }
-        if let typing::Typed::Taken = self.field_key(&event.logical_key.as_ref()) {
+        if let typing::Typed::Taken = self.field_key(&key.as_ref()) {
             return;
         }
-        match &event.logical_key {
+        match key {
             Key::Named(NamedKey::ArrowRight | NamedKey::PageDown | NamedKey::Space) => {
-                self.dispatch(&Command::GoTo(PageTarget::Next));
+                self.dispatch(Command::GoTo(PageTarget::Next));
             }
             Key::Named(NamedKey::ArrowLeft | NamedKey::PageUp) => {
-                self.dispatch(&Command::GoTo(PageTarget::Previous));
+                self.dispatch(Command::GoTo(PageTarget::Previous));
             }
-            Key::Named(NamedKey::ArrowDown) => self.dispatch(&Command::Scroll {
+            Key::Named(NamedKey::ArrowDown) => self.dispatch(Command::Scroll {
                 dx: 0.0,
                 dy: WHEEL_NOTCH,
             }),
-            Key::Named(NamedKey::ArrowUp) => self.dispatch(&Command::Scroll {
+            Key::Named(NamedKey::ArrowUp) => self.dispatch(Command::Scroll {
                 dx: 0.0,
                 dy: -WHEEL_NOTCH,
             }),
-            Key::Named(NamedKey::Home) => self.dispatch(&Command::GoTo(PageTarget::First)),
-            Key::Named(NamedKey::End) => self.dispatch(&Command::GoTo(PageTarget::Last)),
+            Key::Named(NamedKey::Home) => self.dispatch(Command::GoTo(PageTarget::First)),
+            Key::Named(NamedKey::End) => self.dispatch(Command::GoTo(PageTarget::Last)),
             Key::Named(NamedKey::Escape) => self.abort(),
             Key::Character(text) => match text.as_str() {
-                "+" | "=" => self.dispatch(&Command::Zoom {
+                "+" | "=" => self.dispatch(Command::Zoom {
                     zoom: Zoom::In,
                     at: None,
                 }),
-                "-" => self.dispatch(&Command::Zoom {
+                "-" => self.dispatch(Command::Zoom {
                     zoom: Zoom::Out,
                     at: None,
                 }),
@@ -1512,13 +1556,26 @@ impl Host {
             eprintln!("confinement shortfall: {short}");
         }
         self.confined = Some(opened.confined);
-        for event in opened.events {
-            self.event(event);
-        }
-        self.dispatch(&Command::Resize {
-            width: extent.width,
-            height: extent.height,
-            scale,
+        // The size sent below is the window's now, so a size taken while the open was out is owed
+        // to nobody; the keys taken then go after what the open itself caused (ADR 1827).
+        self.held.retain(|held| {
+            !matches!(
+                held,
+                Held::Command {
+                    command: Command::Resize { .. },
+                    ..
+                }
+            )
+        });
+        self.ahead_of_the_held(|host| {
+            for event in opened.events {
+                host.event(event);
+            }
+            host.dispatch(Command::Resize {
+                width: extent.width,
+                height: extent.height,
+                scale,
+            });
         });
         // A window with nothing on the screen yet waits for page one instead of polling for it,
         // out of the launch's one-refresh budget (ADR 0678) — same rule, same numbers, third
@@ -1606,6 +1663,7 @@ impl ApplicationHandler for Host {
                 // The drawing thread is joined on the way out; a hostile page still on it would
                 // hold the join for as long as it liked, so it is taken back first.
                 self.drawing.superseded(false);
+                self.end_a_busy_worker();
                 event_loop.exit();
             }
             WindowEvent::Resized(extent) => {
@@ -1620,7 +1678,7 @@ impl ApplicationHandler for Host {
                 if let Some(Presentation::Device(device)) = self.presentation.as_mut() {
                     device.resize(extent.width, extent.height);
                 }
-                self.dispatch(&Command::Resize {
+                self.dispatch(Command::Resize {
                     width: extent.width,
                     height: extent.height,
                     scale,
@@ -1642,7 +1700,16 @@ impl ApplicationHandler for Host {
                 state: ElementState::Pressed,
                 button: winit::event::MouseButton::Left,
                 ..
-            } if self.measuring.is_on() => self.measure_at(),
+            } if self.measuring.is_on() => {
+                if self.must_hold() {
+                    self.hold(Held::Point {
+                        cursor: self.cursor,
+                        at: Instant::now(),
+                    });
+                } else {
+                    self.measure_at();
+                }
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
@@ -1657,7 +1724,7 @@ impl ApplicationHandler for Host {
                         (-position.x as f32, -position.y as f32)
                     }
                 };
-                self.dispatch(&Command::Scroll { dx, dy });
+                self.dispatch(Command::Scroll { dx, dy });
             }
             WindowEvent::RedrawRequested => self.present(),
             _ => {}
@@ -1669,6 +1736,7 @@ impl ApplicationHandler for Host {
             // The drawing thread is joined on the way out; a hostile page still on it would hold
             // the join for as long as it liked, so it is taken back first.
             self.drawing.superseded(false);
+            self.end_a_busy_worker();
             event_loop.exit();
             return;
         }
@@ -1690,10 +1758,16 @@ impl ApplicationHandler for Host {
                 return;
             }
         }
+        // A command still out past `WARN`: its sentence, or its answer if it has come (ADR 1827).
+        self.mind_the_exchange();
         // The one place a worker is started again, and it is here rather than where the death
         // was seen so that no restart runs inside another one ([`Host::resume`]).
         if let Some(reopen) = self.resume.take() {
             self.reopen(reopen);
+        }
+        // What the reader did while the worker was busy, now that it is not.
+        if !self.busy() && !self.held.is_empty() {
+            self.release_held();
         }
         let mut changed = false;
         for finished in self.drawing.collect() {
@@ -1722,13 +1796,14 @@ impl ApplicationHandler for Host {
                 self.presentation.as_ref(),
                 Some(Presentation::Device(device)) if device.busy()
             );
-        if waiting {
-            let at = Instant::now()
-                .checked_add(viewer_host::drawing::POLL)
-                .unwrap_or_else(Instant::now);
-            event_loop.set_control_flow(ControlFlow::WaitUntil(at));
+        let next = if waiting {
+            Some(viewer_host::drawing::POLL)
         } else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            self.exchange_tick()
+        };
+        match next.and_then(|after| Instant::now().checked_add(after)) {
+            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 }

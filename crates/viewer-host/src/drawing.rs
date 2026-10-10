@@ -32,8 +32,9 @@
 //! | does | asks, collects, answers the viewer, repaints | `render-cpu` over one page's display list |
 //! | costs | a channel drain, measured in nanoseconds | a page, measured in milliseconds to seconds |
 //!
-//! What crosses is a request one way and a [`Finished`] the other, and both are owned: the page by
-//! the `Arc<DisplayList>` that is its identity, the pixels by value. The thread never sees a
+//! What crosses is a request one way and a [`Finished`] the other — and, for a draw somebody is
+//! looking at, its [`render_cpu::Glimpse`]s — and all are owned: the page by the
+//! `Arc<DisplayList>` that is its identity, the pixels by value. The thread never sees a
 //! `Document`, a `Viewer` or a widget, which is what keeps `interpret` the pure function of the
 //! bytes and the view state the oracle's whole comparison rests on.
 //!
@@ -96,15 +97,27 @@
 //! the whole launch. Nothing is interrupted, so a page that outlasts the budget arrives through the
 //! poll exactly as before; what the budget buys is that page one is in the toolkit's first frame
 //! rather than its second.
+//!
+//! # A page that draws for seconds is shown as it is built
+//!
+//! A draw still running [`GLIMPSE_AFTER`] after it was handed over is asked for its picture so
+//! far, and again every [`GLIMPSE_EVERY`] until it lands: [`render_cpu::Glance`] is the flag, and
+//! what comes back is the page drawn through its first so many commands, finished as the page will
+//! be ([`render_cpu::Glimpse`]). [`Drawing::partial`] holds the latest, [`Drawing::glimpsed`] says
+//! a new one has arrived, and [`over_frames`] puts it where the page belongs, so a window shows the
+//! page filling in rather than a blank for the length of the draw — the project owner's "step by
+//! step … better than waiting". **A look changes nothing the viewer is told**: the `RenderReady` is
+//! the finished raster as before, and a partial is shown only for the request in flight, at the
+//! size the arrangement now places that page at. ADR 1825.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{DisplayList, Interrupt, Rasterizer as _, TargetSpec};
-use render_cpu::{CpuRasterError, CpuRasterizer};
-use viewer_core::{RenderRequest, Rendered};
+use pdf_render::{DisplayList, Interrupt, Raster, RasterFormat, Rasterizer as _, TargetSpec};
+use render_cpu::{CpuRasterError, CpuRasterizer, Glance, Glimpse};
+use viewer_core::{FrameView, PageGeometry, RenderRequest, Rendered};
 
 /// What one drawing needs to know about the page it was asked for.
 ///
@@ -165,6 +178,10 @@ struct Job<R> {
     request: R,
     /// The flag the toolkit's thread raises to take this thread back.
     interrupt: Interrupt,
+    /// The flag it raises to see the page so far — see [`GLIMPSE_AFTER`].
+    glance: Glance,
+    /// Which job this is, so that a glimpse arriving after its job is known for a stale one.
+    serial: u64,
 }
 
 /// One page's rasterisation, on its way back.
@@ -187,6 +204,89 @@ struct InFlight {
     asked: Instant,
     /// Raised where the viewer has stopped wanting the answer, and never otherwise.
     interrupt: Interrupt,
+    /// Asked on the poll once the draw has run [`GLIMPSE_AFTER`], every [`GLIMPSE_EVERY`].
+    glance: Glance,
+    /// When it was last asked, `None` before the first time.
+    glanced: Option<Instant>,
+    /// [`Job::serial`], which the glimpses coming back carry.
+    serial: u64,
+    /// The target the page is drawn at, which a glimpse's rows are rows of.
+    target: TargetSpec,
+}
+
+/// The page being drawn, as it stood at the last glimpse of it.
+///
+/// Rows a strip has not answered for yet are transparent, so a window shows its own ground there
+/// rather than a colour the page has not been given.
+#[derive(Debug)]
+pub struct Partial {
+    page: usize,
+    document: Option<viewer_core::DocumentId>,
+    raster: Raster,
+    /// Per run of rows answered for: its first row, its height, and how far through the page's
+    /// commands it had got.
+    bands: Vec<(u32, u32, usize, usize)>,
+}
+
+impl Partial {
+    /// Which page this is a picture of.
+    #[must_use]
+    pub fn page(&self) -> usize {
+        self.page
+    }
+
+    /// Which document that page is of, where the request said ([`DrawRequest::document`]).
+    #[must_use]
+    pub fn document(&self) -> Option<viewer_core::DocumentId> {
+        self.document
+    }
+
+    /// The pixels, at the target the page is being drawn at.
+    #[must_use]
+    pub fn raster(&self) -> &Raster {
+        &self.raster
+    }
+
+    /// How much of the page's drawing these pixels hold, weighted by the rows each strip owns —
+    /// what a window's bar shows once the page has been read and is being drawn.
+    #[must_use]
+    pub fn fraction(&self) -> f64 {
+        let rows = f64::from(self.raster.height.max(1));
+        self.bands
+            .iter()
+            .map(|&(_, height, drawn, of)| {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a share of a command count, for a bar"
+                )]
+                let share = if of == 0 {
+                    1.0
+                } else {
+                    drawn as f64 / of as f64
+                };
+                share * f64::from(height)
+            })
+            .sum::<f64>()
+            / rows
+    }
+
+    /// Writes a strip's rows in, where they fit the target; a glimpse that does not is dropped.
+    fn take(&mut self, glimpse: &Glimpse) {
+        let stride = (self.raster.width as usize).saturating_mul(4);
+        let start = (glimpse.top as usize).saturating_mul(stride);
+        let end = start.saturating_add(glimpse.rows.data.len());
+        if glimpse.rows.width != self.raster.width || end > self.raster.data.len() {
+            return;
+        }
+        if let Some(rows) = self.raster.data.get_mut(start..end) {
+            rows.copy_from_slice(&glimpse.rows.data);
+        }
+        let band = (glimpse.top, glimpse.rows.height, glimpse.drawn, glimpse.of);
+        match self.bands.iter_mut().find(|held| held.0 == glimpse.top) {
+            Some(held) => *held = band,
+            None => self.bands.push(band),
+        }
+    }
 }
 
 /// One finished page, on its way to the viewer that asked for it.
@@ -217,6 +317,8 @@ pub struct Finished<R = RenderRequest> {
 struct Link<R> {
     jobs: Sender<Job<R>>,
     done: Receiver<Done<R>>,
+    /// What the draw in flight shows when it is glanced at, with the job it belongs to.
+    glimpses: Receiver<(u64, Glimpse)>,
     /// Joined on the way out, so the thread ends with the window rather than being abandoned.
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -264,6 +366,12 @@ pub struct Drawing<R: DrawRequest = RenderRequest> {
     queued: VecDeque<R>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
     landed: Vec<Finished<R>>,
+    /// The page in flight as it stood at its last glimpse — see [`Drawing::partial`].
+    partial: Option<Partial>,
+    /// Whether a glimpse has arrived since a host last asked [`Drawing::glimpsed`].
+    fresh: bool,
+    /// The next [`Job::serial`].
+    serial: u64,
     /// How much of [`SETTLE`] has been spent waiting — see [`Drawing::settle`].
     ///
     /// **Time actually spent blocked, and nothing else.** A launch's budget is a bound on how long
@@ -335,6 +443,24 @@ pub const SETTLE: Duration = Duration::from_nanos(1_000_000_000 / 60);
 /// rather than about the document, and [`crate::status::still_drawing`] is worded for that.
 pub const WARN: Duration = Duration::from_secs(1);
 
+/// How long a draw runs before the window asks to see it as it stands.
+///
+/// **Half of [`WARN`], and the population that decides it is `WARN`'s own**: over `doc/pdf.js`'s
+/// 957 first pages at twice device scale the slowest draws in 315.9 ms and none at all outlasts
+/// half a second, so no page of that population is ever looked at — and a look is a cost on the
+/// draw (ADR 1825). Below it, a page that is about to arrive whole would be shown half-drawn for
+/// the moment before it did, which is a flicker rather than progress. Above it, the page this was
+/// built for — a drawing that draws for six seconds — is blank for longer than a person waits
+/// before assuming the window is stuck.
+pub const GLIMPSE_AFTER: Duration = Duration::from_millis(500);
+
+/// How often a draw past [`GLIMPSE_AFTER`] is looked at again.
+///
+/// **Four times a second**: often enough that a page filling in reads as moving, and rare enough
+/// that the looks cost the draw little — each copies the target's rows and finishes them on the
+/// drawing thread, which ADR 1825 measures on the owner's drawing.
+pub const GLIMPSE_EVERY: Duration = Duration::from_millis(250);
+
 impl<R: DrawRequest> Default for Drawing<R> {
     fn default() -> Self {
         Self {
@@ -342,6 +468,9 @@ impl<R: DrawRequest> Default for Drawing<R> {
             in_flight: None,
             queued: VecDeque::new(),
             landed: Vec::new(),
+            partial: None,
+            fresh: false,
+            serial: 0,
             spent: Duration::ZERO,
         }
     }
@@ -495,6 +624,7 @@ impl<R: DrawRequest> Drawing<R> {
     /// Everything in the answer is owed to the viewer except a [`Finished`] whose
     /// [`outcome`](Finished::outcome) is `None`, which is owed to nobody.
     pub fn collect(&mut self) -> Vec<Finished<R>> {
+        self.look();
         let mut finished = std::mem::take(&mut self.landed);
         let mut arrived = Vec::new();
         if let Some(link) = self.link.as_ref() {
@@ -507,10 +637,79 @@ impl<R: DrawRequest> Drawing<R> {
         }
         for done in arrived {
             let asked = self.in_flight.take().map(|in_flight| in_flight.asked);
+            self.partial = None;
             finished.push(landed(done, asked));
         }
         self.dispatch();
         finished
+    }
+
+    /// Takes in what the draw in flight has shown, and asks it again when a look is due.
+    ///
+    /// On the poll a host already runs while something is drawn, so nothing new wakes for it.
+    fn look(&mut self) {
+        self.look_after(GLIMPSE_AFTER, GLIMPSE_EVERY);
+    }
+
+    /// [`Self::look`] against stated waits rather than the shipped ones — private for
+    /// [`Self::overlong_after`]'s reason, so that a test asks the mechanical question without
+    /// asserting anything about a clock (ADR 0714).
+    fn look_after(&mut self, after: Duration, every: Duration) {
+        let Some(in_flight) = self.in_flight.as_mut() else {
+            return;
+        };
+        if let Some(link) = self.link.as_ref() {
+            while let Ok((serial, glimpse)) = link.glimpses.try_recv() {
+                // A glimpse of a job that has since landed or been replaced shows nothing the
+                // window is still waiting for.
+                if serial != in_flight.serial {
+                    continue;
+                }
+                let partial = self.partial.get_or_insert_with(|| Partial {
+                    page: in_flight.page,
+                    document: in_flight.document,
+                    raster: Raster {
+                        width: in_flight.target.width,
+                        height: in_flight.target.height,
+                        format: RasterFormat::Rgba8,
+                        data: vec![
+                            0;
+                            (in_flight.target.width as usize)
+                                .saturating_mul(in_flight.target.height as usize)
+                                .saturating_mul(4)
+                        ],
+                    },
+                    bands: Vec::new(),
+                });
+                partial.take(&glimpse);
+                self.fresh = true;
+            }
+        }
+        let due = !in_flight.interrupt.raised()
+            && in_flight.asked.elapsed() >= after
+            && in_flight
+                .glanced
+                .is_none_or(|glanced| glanced.elapsed() >= every);
+        if due {
+            in_flight.glance.ask();
+            in_flight.glanced = Some(Instant::now());
+        }
+    }
+
+    /// The page being drawn as it stood at its last glimpse, where it has been looked at.
+    ///
+    /// Only ever the request in flight: the partial goes when its draw lands, is abandoned or is
+    /// replaced, so a window that shows it shows the page it is waiting for. [`over_frames`] is
+    /// where it goes on the screen.
+    #[must_use]
+    pub fn partial(&self) -> Option<&Partial> {
+        self.partial.as_ref()
+    }
+
+    /// Whether a glimpse has arrived since this was last asked — which is when a window repaints
+    /// for one, and never otherwise.
+    pub fn glimpsed(&mut self) -> bool {
+        std::mem::take(&mut self.fresh)
     }
 
     /// [`Self::collect`], having first waited for the page in flight out of a `budget`.
@@ -548,6 +747,7 @@ impl<R: DrawRequest> Drawing<R> {
         };
         if let Some(done) = arrived {
             let asked = self.in_flight.take().map(|in_flight| in_flight.asked);
+            self.partial = None;
             self.landed.push(landed(done, asked));
         }
         self.collect()
@@ -583,12 +783,20 @@ impl<R: DrawRequest> Drawing<R> {
                 self.link = spawn();
             }
             let interrupt = Interrupt::new();
+            let glance = Glance::new();
             let asked = Instant::now();
             let page = request.page();
             let document = request.document();
+            let target = request.target();
+            let serial = self.serial;
+            self.serial = self.serial.wrapping_add(1);
+            // A new draw is a new picture; the last one's glimpses are of something else.
+            self.partial = None;
             let job = Job {
                 request,
                 interrupt: interrupt.clone(),
+                glance: glance.clone(),
+                serial,
             };
             let returned = match self.link.as_ref() {
                 Some(link) => link.jobs.send(job).err().map(|refused| refused.0),
@@ -600,11 +808,15 @@ impl<R: DrawRequest> Drawing<R> {
                     document,
                     asked,
                     interrupt,
+                    glance,
+                    glanced: None,
+                    serial,
+                    target,
                 });
                 return;
             };
             self.link = None;
-            let done = draw(job);
+            let done = draw(job, None);
             self.landed.push(landed(done, Some(asked)));
         }
     }
@@ -630,13 +842,15 @@ fn landed<R>(done: Done<R>, asked: Option<Instant>) -> Finished<R> {
 fn spawn<R: DrawRequest>() -> Option<Link<R>> {
     let (jobs, incoming) = channel::<Job<R>>();
     let (outgoing, done) = channel::<Done<R>>();
+    let (shown, glimpses) = channel::<(u64, Glimpse)>();
     let thread = std::thread::Builder::new()
         .name("page rasteriser".to_owned())
-        .spawn(move || draw_until_told_to_stop(&incoming, &outgoing))
+        .spawn(move || draw_until_told_to_stop(&incoming, &outgoing, &shown))
         .ok()?;
     Some(Link {
         jobs,
         done,
+        glimpses,
         thread: Some(thread),
     })
 }
@@ -644,10 +858,14 @@ fn spawn<R: DrawRequest>() -> Option<Link<R>> {
 /// The drawing thread's whole life: draw what is asked for and send it back.
 ///
 /// Ends when the host drops its sender, which is when the window is closing.
-fn draw_until_told_to_stop<R: DrawRequest>(jobs: &Receiver<Job<R>>, done: &Sender<Done<R>>) {
+fn draw_until_told_to_stop<R: DrawRequest>(
+    jobs: &Receiver<Job<R>>,
+    done: &Sender<Done<R>>,
+    shown: &Sender<(u64, Glimpse)>,
+) {
     while let Ok(job) = jobs.recv() {
         // A send that fails is a host that has gone, and there is nobody left to draw for.
-        if done.send(draw(job)).is_err() {
+        if done.send(draw(job, Some(shown))).is_err() {
             return;
         }
     }
@@ -666,13 +884,26 @@ fn draw_until_told_to_stop<R: DrawRequest>(jobs: &Receiver<Job<R>>, done: &Sende
 /// device backend was deliberately given no such method rather than one it would ignore, so a
 /// parameter here would be a choice between one implementation and one that silently could not
 /// stop.
-fn draw<R: DrawRequest>(job: Job<R>) -> Done<R> {
-    let Job { request, interrupt } = job;
+///
+/// **`shown` is `None` only for the draw on the host's own thread** ([`Drawing::dispatch`]'s
+/// fallback), which nobody can glance at because the thread that would ask is the one drawing.
+fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> Done<R> {
+    let Job {
+        request,
+        interrupt,
+        glance,
+        serial,
+    } = job;
     let began = Instant::now();
-    let outcome = match CpuRasterizer::new()
-        .interruptible(interrupt)
-        .rasterize(request.list(), request.target())
-    {
+    let mut rasteriser = CpuRasterizer::new().interruptible(interrupt);
+    if let Some(shown) = shown {
+        let shown = shown.clone();
+        rasteriser = rasteriser.showing(glance, move |glimpse| {
+            // A host that has gone has nobody to show.
+            let _ = shown.send((serial, glimpse));
+        });
+    }
+    let outcome = match rasteriser.rasterize(request.list(), request.target()) {
         Ok(raster) => Some(Rendered::Raster(raster)),
         // **Asked of the error rather than of the flag**, which is not fastidiousness: the flag can
         // go up in the moment between the last command and the return, and a page that was finished
@@ -687,6 +918,46 @@ fn draw<R: DrawRequest>(job: Job<R>) -> Done<R> {
         outcome,
         cost: began.elapsed(),
     }
+}
+
+/// The frames a window shows: the viewer's, with the page being drawn put where it belongs as it
+/// stands.
+///
+/// `geometry` is `viewer_core::Query::PageGeometry`'s answer for a page, which this crate holds no
+/// viewer to ask. **The partial is shown only where the arrangement places that page at the size
+/// it is being drawn at**, which is what makes it the page the window is waiting for rather than a
+/// picture from before a zoom; and only for `focused`, the document in front, because a draw for a
+/// tab behind it belongs to that tab. It takes the place of whatever the viewer holds for the page
+/// — a stand-in or the page at its last size — and is added where the viewer holds nothing yet,
+/// which is a first frame.
+#[must_use]
+pub fn over_frames<'a>(
+    mut frames: Vec<FrameView<'a>>,
+    partial: Option<&'a Partial>,
+    focused: viewer_core::DocumentId,
+    geometry: impl FnOnce(usize) -> Option<PageGeometry>,
+) -> Vec<FrameView<'a>> {
+    let Some(partial) = partial.filter(|partial| partial.document.is_none_or(|of| of == focused))
+    else {
+        return frames;
+    };
+    let Some(placed) = geometry(partial.page).filter(|placed| {
+        (placed.width, placed.height) == (partial.raster.width, partial.raster.height)
+    }) else {
+        return frames;
+    };
+    let shown = FrameView {
+        page: partial.page,
+        raster: &partial.raster,
+        origin: placed.origin,
+    };
+    if let Some(frame) = frames.iter_mut().find(|frame| frame.page == partial.page) {
+        *frame = shown;
+    } else {
+        frames.push(shown);
+        frames.sort_by_key(|frame| frame.page);
+    }
+    frames
 }
 
 /// Whether what the rasteriser refused with is the interrupt coming back.
@@ -709,7 +980,7 @@ mod tests {
     };
     use viewer_core::{Command, DocumentId, Event, RenderRequest, Rendered, Viewer};
 
-    use super::{Drawing, Finished, POLL, SETTLE, WARN};
+    use super::{Drawing, Finished, POLL, Partial, SETTLE, WARN, over_frames};
 
     /// How long a test waits for a thread before calling it stuck.
     ///
@@ -1184,5 +1455,97 @@ mod tests {
             std::thread::sleep(POLL);
         }
         assert_eq!(drawn, vec![DocumentId(2), DocumentId(1)]);
+    }
+
+    /// A draw that is looked at shows the page in flight as it stands, at the size it is drawn
+    /// at, and the picture goes when the draw does (ADR 1825).
+    ///
+    /// No clock is asserted, for [`a_draw_is_warned_about_only_once_it_has_outlasted_the_wait`]'s
+    /// reason: the look is asked with no wait at all, and what is asserted is what comes back.
+    #[test]
+    fn a_draw_looked_at_shows_its_page_as_it_stands_and_the_picture_goes_with_it() {
+        let request = a_real_request();
+        let target = request.target;
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        let began = Instant::now();
+        while drawing.partial().is_none() {
+            drawing.look_after(Duration::ZERO, Duration::ZERO);
+            assert!(
+                drawing.collect().is_empty(),
+                "twenty thousand fills outlast a look"
+            );
+            assert!(
+                began.elapsed() < GIVE_UP,
+                "the draw never answered the look"
+            );
+            std::thread::sleep(POLL);
+        }
+        let partial = drawing.partial().expect("the loop above ends on one");
+        assert_eq!(partial.page(), 0);
+        assert_eq!(
+            (partial.raster().width, partial.raster().height),
+            (target.width, target.height)
+        );
+        assert!((0.0..=1.0).contains(&partial.fraction()));
+        assert!(drawing.glimpsed(), "a glimpse that arrived is said once");
+        assert!(!drawing.glimpsed(), "and only once");
+        assert_eq!(drawing.abandon(), Some(0));
+        let _ = wait(&mut drawing);
+        assert!(
+            drawing.partial().is_none(),
+            "the picture goes with its draw"
+        );
+    }
+
+    /// A draw nobody looks at sends nothing back but its page.
+    #[test]
+    fn a_draw_that_lands_before_a_look_has_no_partial() {
+        let mut drawing = Drawing::new();
+        drawing.ask(a_real_request());
+        let finished = wait(&mut drawing);
+        assert!(finished.iter().all(|done| done.outcome.is_some()));
+        assert!(drawing.partial().is_none());
+        assert!(!drawing.glimpsed());
+    }
+
+    /// The partial goes where the arrangement places its page, and only where the arrangement
+    /// places it at the size it is being drawn at, for the document in front.
+    #[test]
+    fn a_partial_is_shown_only_where_its_page_is_placed_at_its_size() {
+        let partial = Partial {
+            page: 2,
+            document: Some(DocumentId(1)),
+            raster: pdf_render::Raster {
+                width: 4,
+                height: 3,
+                format: pdf_render::RasterFormat::Rgba8,
+                data: vec![7; 48],
+            },
+            bands: vec![(0, 3, 5, 10)],
+        };
+        let placed = |width, height| {
+            move |page: usize| {
+                (page == 2).then_some(viewer_core::PageGeometry {
+                    page: pdf_render::Size::new(4.0, 3.0),
+                    scale: 1.0,
+                    width,
+                    height,
+                    origin: (10.0, 20.0),
+                })
+            }
+        };
+        let shown = over_frames(Vec::new(), Some(&partial), DocumentId(1), placed(4, 3));
+        assert_eq!(shown.len(), 1);
+        assert_eq!((shown[0].page, shown[0].origin), (2, (10.0, 20.0)));
+        assert!(
+            over_frames(Vec::new(), Some(&partial), DocumentId(1), placed(8, 6)).is_empty(),
+            "a page placed at another size is not the page being drawn"
+        );
+        assert!(
+            over_frames(Vec::new(), Some(&partial), DocumentId(2), placed(4, 3)).is_empty(),
+            "a draw for a tab behind is that tab's"
+        );
+        assert!((partial.fraction() - 0.5).abs() < 1e-9);
     }
 }

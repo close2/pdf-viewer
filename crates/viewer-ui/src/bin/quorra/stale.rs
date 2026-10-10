@@ -204,7 +204,7 @@ impl Picture {
     /// shown again, so it is dropped rather than left to age out of the store — the same answer
     /// `viewer_core::open`'s own invalidation gives for the same reason, which is that the state
     /// is what *every* held page was interpreted against.
-    fn same_ink(self, other: Self) -> bool {
+    pub(crate) fn same_ink(self, other: Self) -> bool {
         self.document == other.document && self.ink == other.ink
     }
 }

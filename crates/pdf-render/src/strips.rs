@@ -27,7 +27,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{ClipId, Command, DisplayList, Rect, TargetSpec, Transform};
+use crate::{ClipId, Command, DisplayList, Path, Rect, Stroke, TargetSpec, Transform};
 
 /// The device extent of every command a backend draws, in target pixels, in painting order.
 ///
@@ -166,7 +166,9 @@ pub fn row_costs(extents: &[Option<Rect>], target: TargetSpec) -> Vec<f64> {
 ///
 /// One entry per target row, `true` where some segment that a cut would re-state — a curve, an
 /// oblique edge, anything a stroker touches — spans that row, whether it belongs to a fill, a
-/// stroke, a clip path or a soft mask's group. Cutting there chops the segment against the
+/// stroke, a clip path or a soft mask's group. Every stroke counts its whole extent here; a backend
+/// that can say which of its strokes it draws a row at a time asks
+/// [`unsplittable_rows_where`] instead. Cutting there chops the segment against the
 /// strip's edge and changes the coverage of an edge pixel by up to a quarter of a channel
 /// (ADR 0138 measured the consequence; ADR 0139 measured the rule, and
 /// [`crate::Path::oblique_spans`] is where the three cases are tabulated).
@@ -180,33 +182,106 @@ pub fn row_costs(extents: &[Option<Rect>], target: TargetSpec) -> Vec<f64> {
 /// the strips exact.
 #[must_use]
 pub fn unsplittable_rows(list: &DisplayList, target: TargetSpec) -> Vec<bool> {
+    unsplittable_rows_where(list, target, &|_| false)
+}
+
+/// A stroke as the planner meets it, for a backend to say whether it draws it a row at a time.
+///
+/// Every field is a fact the backend's drawing of the stroke is decided by, stated in the target's
+/// own pixels: none of them is a strip's, which is what lets one answer stand for every division.
+#[derive(Clone, Copy, Debug)]
+pub struct PlannedStroke<'a> {
+    /// The path, in its own space.
+    pub path: &'a Path,
+    /// How it is stroked.
+    pub stroke: &'a Stroke,
+    /// The path's own space onto the target's pixels — the page's, never a strip's.
+    pub at: Transform,
+    /// What it can mark on the target, as [`Command::device_bounds`] bounds it; `None` where that
+    /// cannot say.
+    pub extent: Option<Rect>,
+    /// Whether it may be composited by anything but painting over what is below it: an element
+    /// of a knockout group (§11.4.6), a half of a [`Command::Shaped`], or a mark in a soft mask's
+    /// group, the last two counted here because the planner does not follow how they are drawn.
+    pub replaces: bool,
+}
+
+/// [`unsplittable_rows`], with the strokes `row_local` answers `true` for forbidding no row.
+///
+/// # Why a stroke is the backend's question
+///
+/// A cut is exact where every mark crossing it draws the same bytes into the two strips as into
+/// the whole page. ADR 0139 measured which marks do that under `tiny-skia`'s scan converter —
+/// axis-aligned edges, never a curve or an oblique edge — and a stroke's outline is a stroker's
+/// construction: a round cap or join puts a curve on a straight path. So under that converter a
+/// stroke has to forbid the rows of everything it can put there, which [`unsplittable_rows`] takes
+/// to be its whole extent.
+///
+/// A converter that evaluates each row from the edges' own device coordinates owes no row at
+/// all: a row of the page and the same row of a strip are the same two evaluations, wherever the
+/// strip begins. That is a fact about one backend's drawing, decided by its anti-aliasing, the
+/// width it stroke at and the composition it uses, so the backend answers it per stroke and this
+/// keeps the rows of everything else — fills, clips, and the strokes it answers `false` for —
+/// exactly as [`unsplittable_rows`] does. ADR 1819.
+///
+/// The stroke's clip chain and soft mask are counted whatever the answer: they are marks of their
+/// own, drawn by their own rules.
+#[must_use]
+pub fn unsplittable_rows_where(
+    list: &DisplayList,
+    target: TargetSpec,
+    row_local: &dyn Fn(PlannedStroke<'_>) -> bool,
+) -> Vec<bool> {
     let mut rows = vec![false; target.height as usize];
     let mut clips = HashSet::new();
-    segments(
+    let walk = Walk {
         list,
-        list.commands(),
-        target.transform,
-        &mut rows,
-        &mut clips,
-    );
+        to_device: target.transform,
+        row_local,
+    };
+    walk.segments(list.commands(), false, &mut rows, &mut clips);
     rows
 }
 
-/// Walks a command list, marking the rows every segment it can reach would be re-stated in.
-fn segments(
-    list: &DisplayList,
-    commands: &[Command],
+/// What a walk of [`unsplittable_rows_where`] carries unchanged into every level of it.
+struct Walk<'a> {
+    list: &'a DisplayList,
     to_device: Transform,
-    rows: &mut [bool],
-    seen: &mut HashSet<ClipId>,
-) {
-    for command in commands {
-        if let Some(id) = command.clip() {
-            clip_segments(list, id, to_device, rows, seen);
+    row_local: &'a dyn Fn(PlannedStroke<'_>) -> bool,
+}
+
+impl Walk<'_> {
+    /// Walks a command list, marking the rows every segment it can reach would be re-stated in.
+    ///
+    /// `replaces` is [`PlannedStroke::replaces`] for the commands of this list.
+    fn segments(
+        &self,
+        commands: &[Command],
+        replaces: bool,
+        rows: &mut [bool],
+        seen: &mut HashSet<ClipId>,
+    ) {
+        let (list, to_device) = (self.list, self.to_device);
+        for command in commands {
+            if let Some(id) = command.clip() {
+                clip_segments(list, id, to_device, rows, seen);
+            }
+            if let Some(mask) = command.mask().and_then(|id| list.soft_mask(id)) {
+                self.segments(&mask.commands, true, rows, seen);
+            }
+            self.command(command, replaces, rows, seen);
         }
-        if let Some(mask) = command.mask().and_then(|id| list.soft_mask(id)) {
-            segments(list, &mask.commands, to_device, rows, seen);
-        }
+    }
+
+    /// Marks the rows one command's own segments would be re-stated in.
+    fn command(
+        &self,
+        command: &Command,
+        replaces: bool,
+        rows: &mut [bool],
+        seen: &mut HashSet<ClipId>,
+    ) {
+        let to_device = self.to_device;
         match command {
             Command::Fill {
                 path, transform, ..
@@ -216,16 +291,32 @@ fn segments(
                     path.oblique_spans(at, |top, bottom| mark(rows, top, bottom));
                 }
             }
-            // A stroke's whole extent, whatever its geometry. Two reasons, and the second is
-            // why the first is not enough: a stroker turns a path into an outline, so a round
-            // cap or join puts a curve on a straight path; and a stroke thin enough to be a
-            // hairline is not turned into an outline at all but scan-converted by
-            // `tiny-skia`'s own hairline path, which clips the *line* against the target and
-            // so re-states its endpoints. Distinguishing the cases would be a claim about a
-            // dependency's internals, and strokes are a small share of the rows on every page
-            // measured — page 101 of ISO 32000-2 loses 3% of its legal rows to this.
-            Command::Stroke { .. } => {
-                if let Some(extent) = command.device_bounds(to_device) {
+            // A stroke's whole extent unless the backend draws it a row at a time. Two reasons
+            // the extent is the default, and the second is why the first is not enough: a
+            // stroker turns a path into an outline, so a round cap or join puts a curve on a
+            // straight path; and a stroke thin enough to be a hairline is not turned into an
+            // outline at all but scan-converted by `tiny-skia`'s own hairline path, which clips
+            // the *line* against the target and so re-states its endpoints. Which of its strokes
+            // escape both is the backend's to say, because it is a fact about its drawing
+            // (ADR 1819).
+            Command::Stroke {
+                path,
+                transform,
+                stroke,
+                ..
+            } => {
+                let extent = command.device_bounds(to_device);
+                let planned = PlannedStroke {
+                    path,
+                    stroke,
+                    at: transform.then(to_device),
+                    extent,
+                    replaces,
+                };
+                if (self.row_local)(planned) {
+                    return;
+                }
+                if let Some(extent) = extent {
                     mark(rows, extent.min.y, extent.max.y);
                 } else {
                     rows.fill(true);
@@ -234,12 +325,14 @@ fn segments(
             // An image is drawn into the parallelogram its transform names, whose edges are
             // straight, and its samples are read at absolute device positions.
             Command::Image { .. } => {}
-            Command::Group { commands, .. } => segments(list, commands, to_device, rows, seen),
+            Command::Group {
+                commands, knockout, ..
+            } => self.segments(commands, *knockout, rows, seen),
             // Both halves mark, and both are drawn: the shape empties the rows the object
             // then paints, so a strip boundary has to be legal for each.
             Command::Shaped { object, shape } => {
-                segments(list, std::slice::from_ref(object), to_device, rows, seen);
-                segments(list, std::slice::from_ref(shape), to_device, rows, seen);
+                self.segments(std::slice::from_ref(object), true, rows, seen);
+                self.segments(std::slice::from_ref(shape), true, rows, seen);
             }
         }
     }
@@ -291,7 +384,7 @@ fn clip_segments(
 ///
 /// A path that names no point reaches no row, so it settles nothing and falls through to a walk
 /// that marks nothing either — the cheap honest answer rather than a second `None` branch.
-fn settled(rows: &[bool], path: &crate::Path, at: Transform) -> bool {
+fn settled(rows: &[bool], path: &Path, at: Transform) -> bool {
     let Some(extent) = path.bounds(at) else {
         return false;
     };
@@ -558,10 +651,15 @@ fn feasible(
 mod tests {
     use std::sync::Arc;
 
-    use super::{row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows};
+    use std::cell::Cell;
+
+    use super::{
+        row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
+        unsplittable_rows_where,
+    };
     use crate::{
         BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rect,
-        Size, TargetSpec, Transform,
+        Size, Stroke, TargetSpec, Transform,
     };
 
     fn target(width: u32, height: u32) -> TargetSpec {
@@ -629,6 +727,89 @@ mod tests {
 
         wide.push(wedge(20.0, 30.0, 50.0));
         assert_eq!(unsplittable_rows(&wide, target(100, 100)), alone);
+    }
+
+    /// A frame round a 100 × 100 page, `re S`: the stroke whose whole extent is every row.
+    fn frame() -> Command {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(5.0, 5.0)));
+        path.push(PathCommand::LineTo(Point::new(95.0, 5.0)));
+        path.push(PathCommand::LineTo(Point::new(95.0, 95.0)));
+        path.push(PathCommand::LineTo(Point::new(5.0, 95.0)));
+        path.push(PathCommand::Close);
+        Command::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke: Stroke {
+                width: 2.0,
+                ..Stroke::default()
+            },
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    /// The default answer is ADR 0139's: a stroke forbids its whole extent, so a frame round the
+    /// page forbids every row inside it, and a backend that draws it a row at a time frees them all.
+    #[test]
+    fn a_stroke_forbids_its_extent_unless_its_backend_draws_it_by_rows() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(frame());
+        let target = target(100, 100);
+
+        let forbidden = unsplittable_rows(&list, target);
+        assert!(forbidden.iter().skip(6).take(88).all(|row| *row));
+        assert_eq!(
+            unsplittable_rows_where(&list, target, &|_| false),
+            forbidden
+        );
+        assert!(
+            unsplittable_rows_where(&list, target, &|_| true)
+                .iter()
+                .all(|row| !*row)
+        );
+    }
+
+    /// A fill beside it keeps its own rows whatever the backend says of the stroke: the question
+    /// is asked of strokes and of nothing else.
+    #[test]
+    fn a_fill_keeps_its_rows_whatever_a_stroke_is_answered() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(frame());
+        list.push(wedge(10.0, 40.0, 50.0));
+
+        let rows = unsplittable_rows_where(&list, target(100, 100), &|_| true);
+        for (row, forbidden) in rows.iter().enumerate() {
+            assert_eq!(*forbidden, (11..40).contains(&row), "row {row}");
+        }
+    }
+
+    /// An element of a knockout group is asked about as one that replaces what is below it,
+    /// and an element of an ordinary group as one that does not (§11.4.6).
+    #[test]
+    fn a_knockout_element_is_asked_about_as_one_that_replaces() {
+        for knockout in [false, true] {
+            let mut list = DisplayList::new(Size::new(100.0, 100.0));
+            list.push(Command::Group {
+                commands: vec![frame()],
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+                isolated: true,
+                knockout,
+                alpha_is_shape: false,
+                blending: None,
+            });
+            let asked = Cell::new(None);
+            let _ = unsplittable_rows_where(&list, target(100, 100), &|stroke| {
+                asked.set(Some(stroke.replaces));
+                true
+            });
+            assert_eq!(asked.get(), Some(knockout));
+        }
     }
 
     fn rect(top: f32, bottom: f32, width: f32) -> Rect {

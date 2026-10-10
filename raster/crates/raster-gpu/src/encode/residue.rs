@@ -67,7 +67,8 @@ pub(super) use flats::{LinkFlats, LinkKey};
 /// Derived from the caller's own `Options::max_frame_bytes` rather than stated as a
 /// constant of its own, because a caller who lowers that number is describing a machine
 /// rather than a lane, and a budget nobody can reach from the API is a budget nobody can
-/// plan against (brief section 5). At the 268 MiB default this is 67 MB, which holds two full-page
+/// plan against (brief section 5). Taken from the budget up to the 256 MiB it was measured at
+/// ([`crate::startup::working_budget`]): a quarter of that is 64 MiB, which holds two full-page
 /// regions at 4× magnification.
 const RESIDUE_BUDGET_SHARE: u64 = 4;
 
@@ -81,7 +82,7 @@ const PIECE_BYTES: u64 = 16;
 
 /// What one frame's residue regions may hold, given the frame's own budget.
 pub(super) fn budget(frame_budget_bytes: u64) -> u64 {
-    frame_budget_bytes.saturating_div(RESIDUE_BUDGET_SHARE)
+    crate::startup::working_budget(frame_budget_bytes).saturating_div(RESIDUE_BUDGET_SHARE)
 }
 
 /// What one fill of a chain's residue would cover, for [`ResidueRegions::admit`]'s price.

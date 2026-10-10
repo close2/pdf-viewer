@@ -65,14 +65,44 @@ pub enum WarmUp {
     Abandoned,
 }
 
-/// The default per-frame budget for scene-derived allocations, in bytes.
+/// The default per-frame budget for scene-derived allocations, in bytes: 2 GiB, which a
+/// device lowers to its own single-buffer ceiling ([`Limits::max_frame_bytes`]).
 ///
 /// A stated number rather than an implicit one, because a GPU buffer sized from
 /// document-derived arithmetic is a decompression bomb with a different name
-/// (CLAUDE.md principle 3). 256 MiB of instance data is roughly eight million
-/// rectangle commands — beyond any real page by orders of magnitude, while still
-/// refusing runaway input long before an allocator does.
-pub const DEFAULT_MAX_FRAME_BYTES: u64 = 256 * 1024 * 1024;
+/// (CLAUDE.md principle 3). The encoder charges every command a rectangle instance and a
+/// coverage quad before the walk, 96 bytes, so this admits about 22 million commands
+/// before anything else a frame holds is counted.
+///
+/// **Why two gibibytes** (doc/adr/1823). The caller's own heavy drawing — an A1 sheet
+/// whose rack shading is 4 408 405 strokes, each 0.12 of a pixel long — states a frame the
+/// device draws in 21 to 67 ms of execution, and an 8th of this number refused it on the
+/// count alone, at 423 206 976 bytes. Two gibibytes is the caller's own ceiling on one
+/// interpreted page (its ADR 1810's display-list budget), so the device no longer refuses a
+/// stroke-heavy page the interpreter admitted; and it is the largest buffer either of this
+/// machine's adapters will make, so a frame inside it holds no buffer the device cannot.
+///
+/// [`Limits::max_frame_bytes`]: crate::device::Limits::max_frame_bytes
+pub const DEFAULT_MAX_FRAME_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// The frame budget every working-set share of it was measured at, in bytes: 256 MiB.
+///
+/// Three structures hold a share of the frame's budget rather than a constant of their own —
+/// the residue regions, the kept stroke expansions and the encode queue — so that a caller who
+/// lowers the budget is describing a smaller machine to all of them at once. Raising the budget
+/// past this does not raise them: what the raise of doc/adr/1823 buys is **admission**,
+/// and a cache or a queue sized for a page eight times heavier is a cost every page pays.
+pub(crate) const MEASURED_WORKING_BUDGET: u64 = 256 * 1024 * 1024;
+
+/// The part of a frame's budget its working-set shares are taken from: the stated budget, up
+/// to [`MEASURED_WORKING_BUDGET`].
+pub(crate) const fn working_budget(frame_budget_bytes: u64) -> u64 {
+    if frame_budget_bytes < MEASURED_WORKING_BUDGET {
+        frame_budget_bytes
+    } else {
+        MEASURED_WORKING_BUDGET
+    }
+}
 
 /// The default budget for resident resources — outlines, images, ramps, meshes — in
 /// bytes.
@@ -235,6 +265,10 @@ pub struct Options {
     /// a [`RenderError::FrameBudgetExceeded`] naming both numbers, before anything is
     /// allocated — including, for a [`Target::Surface`] frame, before the swapchain
     /// texture is acquired, so a refusal costs the surface nothing.
+    ///
+    /// A **request**, as [`Options::atlas_budget`] is: the device holds the frame to the
+    /// smaller of this and the largest buffer it can make and bind, and
+    /// [`Limits::max_frame_bytes`](crate::device::Limits::max_frame_bytes) reports which.
     ///
     /// [`RenderError::FrameBudgetExceeded`]: crate::error::RenderError::FrameBudgetExceeded
     /// [`Target::Surface`]: crate::target::Target::Surface

@@ -623,8 +623,9 @@ const RARE: usize = 1_000;
 /// them moves, and what the moved pixels are.
 ///
 /// Held as ceilings rather than as digests: a page here that moves more fails, and a page that
-/// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement.
-const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
+/// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement; the
+/// three pages a stroke's cut first divided are ADR 1819's.
+const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     (
         "blendmode.pdf p1",
         83,
@@ -633,6 +634,13 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
          photograph's sample moved one level by the shifted origin, through the blend function's \
          slope at that pixel, which reaches three under ColorDodge and Hue — \
          `strip_parallelism.rs` holds the sample to its one level (ADR 1768)",
+    ),
+    (
+        "bug1743245.pdf p1",
+        417,
+        1,
+        "one horizontal rule of the grid, its edge row on a rounding step at the shifted origin of \
+         the strip below the cut its strokes now grant (ADR 1819)",
     ),
     (
         "comments.pdf p1",
@@ -659,6 +667,14 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
         "five rows of the form's three boxes, each horizontal edge on a sample row",
     ),
     (
+        "issue14117.pdf p1",
+        608,
+        2,
+        "row 87, where a grey box's fill, its 0.05-pixel stroke and a one-pixel rule all end, on the \
+         first row of the strip a stroke's cut now begins there: three marks' edges in one pixel \
+         row at a shifted origin (ADR 1819)",
+    ),
+    (
         "issue7014.pdf p1",
         327,
         2,
@@ -676,6 +692,13 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 8] = [
         713,
         1,
         "the heading rules and glyph tops, on sample rows",
+    ),
+    (
+        "prefilled_f1040.pdf p1",
+        946,
+        1,
+        "the horizontal edges of the form's answer boxes and the flat tops of glyphs, on sample \
+         rows at the shifted origins of the strips its strokes now grant (ADR 1819)",
     ),
 ];
 

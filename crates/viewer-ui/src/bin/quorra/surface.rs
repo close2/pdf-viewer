@@ -261,9 +261,19 @@ impl App {
     /// before touching another field of `App`: the clock and the stand-in policy are fields
     /// beside `state`, and a window held across a call to either is a borrow the compiler is
     /// right to refuse.
-    fn device_window(&mut self) -> Option<&mut crate::renderer::Window> {
+    pub(crate) fn device_window(&mut self) -> Option<&mut crate::renderer::Window> {
         match self.state.as_mut()?.surface {
             Surface::Device(ref mut window) => Some(window),
+            Surface::Processor(_) => None,
+        }
+    }
+
+    /// [`Self::device_window`] to look at rather than to ask of — [`Self::composer_ref`]'s reason:
+    /// [`App::mind_a_long_draw`] asks the one frame on this window that can be stopped whether it
+    /// is overlong (ADR 1821).
+    pub(crate) fn device_window_ref(&self) -> Option<&crate::renderer::Window> {
+        match self.state.as_ref()?.surface {
+            Surface::Device(ref window) => Some(window),
             Surface::Processor(_) => None,
         }
     }
@@ -318,6 +328,10 @@ impl App {
     ) -> Option<Rendered> {
         let now = std::time::Instant::now();
         self.adopt(now, stages);
+        // After the adopt and before the ask, for `on_the_processor`'s reason: a frame collected a
+        // line above is no longer taking a long time. On this window the warning is about the one
+        // frame it can stop — a page the device refused, being drawn on the processor (ADR 1821).
+        self.mind_a_long_draw();
         let overlays = chrome.owned();
         let choice = self.coverage;
         let last_lane = self.lane;
@@ -362,11 +376,20 @@ impl App {
                         Arc::ptr_eq(&drawn.list, &asked.list) && drawn.target == asked.target
                     })
             }) && window.chrome_asked() == overlays;
-            if !of_this_view {
+            // **Asked before the ask, as on the processor's window** (ADR 1821): a processor draw
+            // of a magnification the view has left is taken back here, and the job this clears the
+            // way for is sent by the tick that collects it. And not a view the person stopped
+            // drawing, for `Window::declined`'s reason.
+            let mut superseded = false;
+            if !of_this_view && !window.declined(pages) {
+                superseded = window.superseded(pages);
                 window.ask(pages.to_vec(), overlays, coverage, now);
             }
-            (was_out, coverage)
+            (was_out, coverage, superseded)
         };
+        if drawing.2 {
+            self.said_taken_back();
+        }
         // What the sticky half of `lane_for` reads next tick: the lane this view was
         // (or already had been) asked in — and, for the revisit rule, which
         // magnifications the atlas has drawn (a short ring; older entries age out as
@@ -468,6 +491,17 @@ impl App {
         self.put_up(base, &under, stages)
     }
 
+    /// Rule 3 for `Window::superseded`: a frame taken back is a frame the trace says was.
+    fn said_taken_back(&self) {
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "the frame being drawn is of a magnification this view has left, so whatever of \
+                 it is still to be drawn on the processor is taken back"
+            ),
+        );
+    }
+
     /// Takes whatever the render thread has finished, and records what it is.
     ///
     /// Everything a landed frame says about itself is said here, once: the launch timeline's
@@ -494,6 +528,42 @@ impl App {
         let Some(landed) = landed else {
             return;
         };
+        // What a refused frame cost, in its two halves: the device's attempt is what the memory of
+        // refusals saves, the processor's draw is what the interrupt can shorten (ADR 1821).
+        if let Some(problem) = &landed.fell_back {
+            let tried = landed.device_tried.map_or_else(
+                || {
+                    "the device was not asked: it refused these pages at this magnification before"
+                        .to_owned()
+                },
+                |tried| format!("the device refused in {:.1} ms", tried.as_secs_f64() * 1e3),
+            );
+            let drew = match (landed.abandoned, landed.processor_drew) {
+                (true, Some(drew)) => format!(
+                    "the processor was taken back after {:.1} ms",
+                    drew.as_secs_f64() * 1e3
+                ),
+                (true, None) => "the processor was not started".to_owned(),
+                (false, Some(drew)) => {
+                    format!(
+                        "the processor drew it in {:.1} ms",
+                        drew.as_secs_f64() * 1e3
+                    )
+                }
+                (false, None) => "the processor did not draw it".to_owned(),
+            };
+            self.trace.say(
+                Topic::Frames,
+                format_args!("refused frame: {tried}; {drew} — {problem}"),
+            );
+        }
+        // **An abandoned frame is answered to nobody and settles nothing** — `adopt_composed`'s
+        // rule, for its reason (ADR 0657, trap 20): no pixels of it exist, so recording it as the
+        // base would reproject a picture that was never drawn. The refusal it learned is kept by
+        // the window all the same.
+        if landed.abandoned {
+            return;
+        }
         stages.gpu = landed.cost;
         // The first frame's scene translation is a launch milestone — the other half, with
         // interpretation, of what used to sit unnamed between `document joined` and `first
@@ -519,18 +589,20 @@ impl App {
         }
         // A page drawn by the slower of two backends is a fact about this build worth saying out
         // loud: said, it makes a report a sentence rather than a mystery (ADR 0125). Said on the
-        // terminal for every frame, and in the title once, while it holds (ADR 1466).
-        if let Some(problem) = &landed.fell_back {
-            println!(
-                "note: the graphics device {problem}, so the page was drawn on the processor \
-                 instead"
-            );
-        }
+        // terminal and in the title when the answer changes and not at every frame (ADR 1466,
+        // ADR 1821): a zoom gesture over a refused page draws a frame per magnification it stops
+        // at, and the person needs the sentence once. Every refusal is still in the trace.
         let on_the_processor = landed
             .fell_back
             .as_ref()
             .map(|problem| format!("drawn on the processor: the graphics device {problem}"));
         if on_the_processor != self.on_the_processor {
+            if let Some(problem) = &landed.fell_back {
+                println!(
+                    "note: the graphics device {problem}, so the page was drawn on the processor \
+                     instead"
+                );
+            }
             self.on_the_processor = on_the_processor;
             self.retitle();
             self.retitle_incomplete();

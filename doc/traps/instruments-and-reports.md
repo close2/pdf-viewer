@@ -1341,6 +1341,32 @@ the witness at 32.94 s against 22.08 s at HEAD; retaken from inside a `--clock` 
 arms in the one hold, it read 12.33 s (ADR 1815). A script for the loop is written and waited for
 from inside a clock hold, and a before/after pair goes through the loop inside one hold.
 
+### 144. A partial picture gets its own trace line, and "first frame" keeps meaning the finished page
+
+The toolkit windows now show a page as it is built, 0.5 s into a long draw and every 250 ms after
+(ADR 1825). Had that picture been traced as the first frame, step 80 and `tools/state.sh heavy`,
+which grep that line, would have started timing a half-drawn page without anybody changing them
+(round 1494). A partial picture logs "page N shown as it stands, P % drawn"; the first-frame line
+means the finished page; and an instrument that reads a trace line is re-read whenever the line's
+meaning could move.
+
+### 145. A directory for the owner's loop belongs to group `coders` with the setgid bit
+
+The owner's loop runs as `cl`; a directory this user makes under `tmp/` is in group `AI`, so the
+loop's script cannot write into it. Round 1495's first owner's-display run wrote nothing and
+reported "never" for every figure instead of an error (ADR 1827). Before a script is placed,
+`chgrp coders` and `chmod g+ws` its directory, and have the script fail loudly on any write it
+cannot make, so a missing figure is a refusal and not a number.
+
+### 147. A refusal's byte figure is traced to its site, not factorised
+
+The device refused the witness at 423 206 976 B, which is 4 408 406 marks × 96, and 96 = 6 × 16 read
+as six flattened edges of 16 B each (ADR 1817). It was the encoder's pre-count — one rect instance
+and one quad instance, 32 + 64 B, charged to every command before any edge exists — which is why the
+refusal came with the encode at 0 ms and the scene at 2.1 s (round 1493, ADR 1823). A refusal's
+figure is traced by which phase was still at zero when it came, and the ADR that prices a lever on
+it names the site.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

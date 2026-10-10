@@ -89,8 +89,8 @@ pub(crate) fn render_in_tiles(
 
 /// The side of a square tile: the largest power of two no greater than the adapter's side
 /// limit whose RGBA target takes at most a quarter of the frame budget, leaving the rest to the
-/// layers and coverage the page's own marks ask for. 4 096 on a 16 384-texel adapter with a
-/// 256 MiB budget.
+/// layers and coverage the page's own marks ask for. 8 192 on a 16 384-texel adapter with raster's
+/// 2 GiB default, and 4 096 under 256 MiB (ADR 1823).
 fn tile_side(max_side: u32, max_frame_bytes: u64) -> u32 {
     let mut side = MIN_TILE_SIDE;
     while let Some(next) = side.checked_mul(2) {

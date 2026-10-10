@@ -91,8 +91,8 @@ mod corpus_passwords;
 /// the pages whose verdict can move are exactly those between the old bound and this one at that
 /// scale, which is 4 194 304 to 16 777 216 pixels at [`SCALE`]; the corpus holds three pages above
 /// the first of those figures, and they are `issue19517.pdf` (past this budget at 4x too, 3 390 240
-/// 768 pixels), `issue14497.pdf` (agrees) and `issue12810.pdf` (refused by the device, and named in
-/// [`REFUSED_BY_THE_DEVICE_AT_FOUR`]).
+/// 768 pixels), `issue14497.pdf` (agrees) and `issue12810.pdf` (agrees, under the device budget of
+/// ADR 1823).
 ///
 /// The standard states no ceiling this has to clear. ISO 32000-2's Annex C is informative, its
 /// Table C.1 states no page extent at all, and Table 31's `/UserUnit` (§7.7.3.3) scales the unit
@@ -338,9 +338,10 @@ const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 /// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
 /// anything is allocated more tightly, and raster's ADRs 0036 to 0039 allocated every plan, mask
 /// and root to what it marks. **What that allocation left refused at this scale is four pages**:
-/// `issue12810.pdf` at *609086160 scene-derived bytes* over 268435456, by far more than any
-/// allocation reaches; `issue1905.pdf` and `issue9418.pdf` at the coverage sheet's ceiling; and the
-/// cycle's resource bytes. The scene-byte budget is sized for what a frame draws, and at this scale
+/// `issue12810.pdf` at *609086160 scene-derived bytes* over the 268435456 then stated, which the
+/// device's own 2 GiB ceiling now admits (ADR 1823); `issue1905.pdf` and `issue9418.pdf` at the
+/// coverage sheet's ceiling; and the cycle's resource bytes. The scene-byte budget is sized for
+/// what a frame draws, and at this scale
 /// the whole page is a frame no window asks for — `issue12810.pdf` is 71.7 megapixels here — so a
 /// refusal of it is the instrument asking past the window, not a budget set wrong (ADR 1435). The
 /// two bullets below are what left and what stayed:
@@ -394,12 +395,12 @@ const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 /// coverage sheet this refusal is against — the encoder chooses per command (raster's ADR 0029)
 /// — so the sheet a frame commits is a property of the lane, and a lane's refusals are its own.
 ///
-/// **Two are here because of [`PIXEL_BUDGET`]'s raise and not for anything the device did**, and
-/// they are the two pages this scale's *budget* would otherwise refuse before the device could
-/// answer. `issue12810.pdf` is 6912x10368 here and prices at *609086160
-/// scene-derived bytes, over the stated budget of 268435456*. `issue9418.pdf` is 111 476 736
-/// pixels here and meets the sheet: *a 4541x2842 tile would not fit a sheet at 13841x13561
-/// holding 122 tiles and 143672336 texels* — a capability, and the same ceiling `issue1905.pdf`
+/// **One is here because of [`PIXEL_BUDGET`]'s raise and not for anything the device did**: a page
+/// this scale's *budget* would otherwise refuse before the device could answer. `issue12810.pdf`
+/// is 6912x10368 here and priced at *609086160 scene-derived bytes*, past the 256 MiB raster used
+/// to state; under the 2 GiB its device can make it is drawn and agrees with the oracle (ADR
+/// 1823). `issue9418.pdf` is 111 476 736 pixels here and meets the sheet: *a 4541x2842 tile
+/// would not fit a sheet at 13841x13561 holding 122 tiles and 143672336 texels* — a capability, and the same ceiling `issue1905.pdf`
 /// used to print. `issue19517.pdf` is **not** here: it is past this budget at 4x as well, 3 390
 /// 240 768 pixels, so this scale is where [`NotComparable::PastThePixelBudget`] is not empty.
 /// `issue14497.pdf`, the third page the raise admits at this scale, agrees with the oracle.
@@ -409,8 +410,7 @@ const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
 /// predicted it: `pdfinfo` over the corpus answered for 953 of 974 documents, the 21 silences
 /// were read as the documents that do not open, and this was not one of them (trap 25). The
 /// bound, the page and the adapter were all unchanged; only the list was wrong.
-const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 3] =
-    ["issue12810.pdf", "issue1905.pdf", "issue9418.pdf"];
+const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 2] = ["issue1905.pdf", "issue9418.pdf"];
 
 /// The stage-free refusals and the device's, as one list sorted the way the run produces them.
 ///

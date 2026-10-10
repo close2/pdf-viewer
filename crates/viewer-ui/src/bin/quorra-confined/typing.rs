@@ -21,6 +21,7 @@ use viewer_host::form::{ControlKind, control_kind};
 use winit::keyboard::{Key, NamedKey};
 
 use crate::Host;
+use crate::exchange::Held;
 
 /// What a key did while this window was asked about a field.
 pub(crate) enum Typed {
@@ -42,16 +43,19 @@ impl Host {
             } else {
                 FocusMove::Next
             };
-            self.dispatch(&Command::Focused(direction));
-            self.typing = self.focused_text_field();
-            if let Some(field) = &self.typing {
-                eprintln!("note: typing into the field {field}");
+            self.dispatch(Command::Focused(direction));
+            // A move still out with the worker has moved nothing yet, so the question of where
+            // the keyboard is waits behind it (ADR 1827).
+            if self.must_hold() {
+                self.hold(Held::Focus);
+            } else {
+                self.ask_the_focus();
             }
             return Typed::Taken;
         }
         // Control and S is the save, from the page or from a field.
         if self.modifiers.control_key() && matches!(key, Key::Character("s" | "S")) {
-            self.dispatch(&Command::Save);
+            self.dispatch(Command::Save);
             return Typed::Taken;
         }
         let Some(field) = self.typing.clone() else {
@@ -75,7 +79,7 @@ impl Host {
             // character and commits what was typed (ADR 1592).
             Key::Named(NamedKey::Enter) => {
                 self.typing = None;
-                self.dispatch(&Command::CommitField { field });
+                self.dispatch(Command::CommitField { field });
                 eprintln!("note: the keyboard is back on the page");
                 return Typed::Taken;
             }
@@ -89,12 +93,20 @@ impl Host {
             _ => return Typed::Taken,
         };
         if next != current {
-            self.dispatch(&Command::Edit(Edit::SetField {
+            self.dispatch(Command::Edit(Edit::SetField {
                 field,
                 value: Entered::Text(next),
             }));
         }
         Typed::Taken
+    }
+
+    /// Asks which field the keyboard is in after a Tab, and says so where it is one to type into.
+    pub(crate) fn ask_the_focus(&mut self) {
+        self.typing = self.focused_text_field();
+        if let Some(field) = &self.typing {
+            eprintln!("note: typing into the field {field}");
+        }
     }
 
     /// The qualified name of the single-line text field, or editable combo box, §12.5.1's focus is

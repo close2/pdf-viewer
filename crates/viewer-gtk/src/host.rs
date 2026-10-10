@@ -1862,6 +1862,10 @@ impl Host {
         } else {
             self.drawing.settle(viewer_host::drawing::SETTLE)
         };
+        // A draw that ended takes the bar it was showing with it.
+        if !drawn.is_empty() {
+            self.show_the_drawing();
+        }
         for finished in drawn {
             self.trace.say(
                 Topic::Frames,
@@ -2070,10 +2074,32 @@ impl Host {
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         if queue.is_empty() {
+            // A page still being drawn has shown how it stands: that is a picture worth the
+            // copy, where a look that found nothing is not (ADR 1825).
+            if self.drawing.glimpsed() {
+                self.refresh();
+                self.show_the_drawing();
+            }
             self.pump_drawing();
             return;
         }
         self.pump(queue);
+    }
+
+    /// The bar a page still being read showed, handed over to the page being drawn (ADR 1825):
+    /// while a draw is shown as it stands the bar carries how much of the page's drawing there is,
+    /// and it goes when the page lands. The bar of a document still opening is that opening's.
+    fn show_the_drawing(&mut self) {
+        match self.drawing.partial() {
+            Some(partial) => {
+                self.ui.loading.set_fraction(partial.fraction());
+                self.ui.loading.set_visible(true);
+            }
+            None if self.awaiting.is_none() && self.ui.loading.is_visible() => {
+                self.ui.loading.set_visible(false);
+            }
+            None => {}
+        }
     }
 
     /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
@@ -2302,35 +2328,75 @@ impl Host {
         }
     }
 
+    /// The textures to put on the screen, and where.
+    ///
+    /// **One texture per page of Table 29's arrangement**, since `/PageLayout` was obeyed; under
+    /// `SinglePage` this is the one placement it has always been. §12.4.4.1: while one of Table
+    /// 164's effects is in flight the window shows the effect and not the page — one texture at the
+    /// viewport's own origin, because a frame is already a picture of two pages placed where they
+    /// belong. And a page still being drawn is shown as it stands where it belongs
+    /// (`viewer_host::drawing::over_frames`, ADR 1825), which is why [`Pictures::held`] counts the
+    /// viewer's own pixels apart: the first frame is a finished page, so a page shown part-way is
+    /// not what `first frame on the screen` says.
+    fn placements(&mut self) -> Pictures {
+        if let Some(frame) = self.transition_placement() {
+            return Pictures {
+                placements: vec![frame],
+                held: 1,
+                glimpsed: None,
+            };
+        }
+        let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
+            return Pictures {
+                placements: Vec::new(),
+                held: 0,
+                glimpsed: None,
+            };
+        };
+        let held = frames.len();
+        let partial = self.drawing.partial();
+        let frames =
+            viewer_host::drawing::over_frames(frames, partial, self.documents.focused(), |page| {
+                match self.viewer.query(Query::PageGeometry(page)) {
+                    Answer::Geometry(geometry) => Some(geometry),
+                    _ => None,
+                }
+            });
+        let glimpsed = partial
+            .filter(|partial| {
+                frames
+                    .iter()
+                    .any(|frame| std::ptr::eq(frame.raster, partial.raster()))
+            })
+            .map(|partial| (partial.page(), partial.fraction()));
+        let placements = frames
+            .into_iter()
+            .filter_map(|frame| match page::texture(frame.raster) {
+                Ok(texture) => Some((texture, frame.origin, frame.raster.data.len())),
+                Err(error) => {
+                    eprintln!("note: {error}");
+                    None
+                }
+            })
+            .collect();
+        Pictures {
+            placements,
+            held,
+            glimpsed,
+        }
+    }
+
     /// Puts the frame on the screen, the controls over it, and the chrome over both.
     ///
     /// Idempotent and called after every pump, which is what keeps the window a function of the
     /// viewer's state rather than of the order events arrived in.
     fn refresh(&mut self) {
         let began = std::time::Instant::now();
-        // **One texture per page of Table 29's arrangement**, since `/PageLayout` was obeyed.
-        // Under `SinglePage` this is the one placement it has always been.
-        // §12.4.4.1: while one of Table 164's effects is in flight the window shows the effect
-        // and not the page. One texture at the viewport's own origin, because a frame is already
-        // a picture of two pages placed where they belong.
-        let placements: Vec<(gtk4::gdk::MemoryTexture, (f32, f32), usize)> =
-            if let Some(frame) = self.transition_placement() {
-                vec![frame]
-            } else {
-                match self.viewer.query(Query::Frame) {
-                    Answer::Frame(frames) => frames
-                        .into_iter()
-                        .filter_map(|frame| match page::texture(frame.raster) {
-                            Ok(texture) => Some((texture, frame.origin, frame.raster.data.len())),
-                            Err(error) => {
-                                eprintln!("note: {error}");
-                                None
-                            }
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                }
-            };
+        let Pictures {
+            placements,
+            held,
+            glimpsed,
+        } = self.placements();
         if !placements.is_empty() {
             // Tier 1's whole cost, in the one place it is paid: `doc/ui-boundary.md` prices the
             // tier at "one copy per frame" and this is that copy, timed rather than assumed
@@ -2372,7 +2438,17 @@ impl Host {
                 spare.set_visible(false);
             }
             self.ui.fixed.set_visible(true);
-            if !self.presented {
+            if let Some((page, fraction)) = glimpsed {
+                self.trace.say(
+                    Topic::Frames,
+                    format_args!(
+                        "page {} shown as it stands, {:.0} % drawn",
+                        page.saturating_add(1),
+                        fraction * 100.0
+                    ),
+                );
+            }
+            if !self.presented && held > 0 {
                 self.presented = true;
                 self.trace.say(
                     Topic::Launch,
@@ -7344,6 +7420,16 @@ const fn notebook_page(tab: Tab) -> u32 {
         Tab::Articles => 4,
         Tab::Document => 5,
     }
+}
+
+/// What [`Host::placements`] puts on the screen.
+struct Pictures {
+    /// One texture per page shown, where it goes, and how many bytes it copied.
+    placements: Vec<(gtk4::gdk::MemoryTexture, (f32, f32), usize)>,
+    /// How many of them are the viewer's own pixels — a finished page or a transition's face.
+    held: usize,
+    /// The page shown as it stands, and how much of it is drawn, where one is.
+    glimpsed: Option<(usize, f64)>,
 }
 
 #[cfg(test)]

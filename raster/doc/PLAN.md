@@ -798,8 +798,8 @@ worth stating as design rather than leaving implicit in the phases:
   (§5).
 
   A **cache** is the one place where the answer is *decline* rather than `Err`: the
-  residue regions of ADR 0049 are checked against a quarter of `max_frame_bytes` before
-  allocation, and a region that does not fit is not built — the frame draws it per tile
+  residue regions of ADR 0049 are checked against a quarter of `max_frame_bytes`, taken up to
+  the 256 MiB it was measured at (the caller's `doc/adr/1823`), before allocation, and a region that does not fit is not built — the frame draws it per tile
   instead, which is what every frame did before. Refusing a drawable frame because a cache
   filled up would be principle 6 pointed the wrong way, and the atlas has said so since
   ADR 0029.

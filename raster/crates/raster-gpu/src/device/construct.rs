@@ -277,7 +277,7 @@ impl Device {
         let atlas = AtlasStore::new(options.atlas_budget, max_dimension);
         let limits = Limits {
             max_target_size: max_dimension,
-            max_frame_bytes: options.max_frame_bytes,
+            max_frame_bytes: frame_ceiling(options.max_frame_bytes, &gpu.limits()),
             max_resource_bytes: options.max_resource_bytes,
             atlas_bytes: atlas.byte_size(),
         };
@@ -451,5 +451,47 @@ impl Drop for Device {
             // so `warm_up` still answers for as long as the device exists.
             drop(handle.join());
         }
+    }
+}
+
+/// The frame budget a device holds itself to: the caller's request, lowered to the largest
+/// buffer this device can make and to the largest it can bind as storage.
+///
+/// A frame's scene-derived bytes are charged as **one sum** before any of them is allocated,
+/// so a sum inside both ceilings is a set of buffers each of which the device can create and
+/// the compute lane can bind; a budget above them would admit a frame whose instance stream or
+/// edge list the device then fails to make, which is a validation error rather than a refusal
+/// with a name (CLAUDE.md principle 6). On this machine's RADV both ceilings are about 2 GiB,
+/// so the default stands; llvmpipe binds 128 MiB of storage, and a frame there is held to that
+/// on every lane, which is the conservative half of one number serving three lanes
+/// (doc/adr/1823 section 3 prices it).
+fn frame_ceiling(requested: u64, limits: &wgpu::Limits) -> u64 {
+    requested
+        .min(limits.max_buffer_size)
+        .min(limits.max_storage_buffer_binding_size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_ceiling;
+
+    /// The request stands where the device can hold it, and the smaller ceiling wins where it
+    /// cannot — the buffer's or the binding's, whichever is lower.
+    #[test]
+    fn a_frame_budget_is_lowered_to_what_the_device_can_make_and_bind() {
+        let radv = wgpu::Limits {
+            max_buffer_size: 2_147_483_647,
+            max_storage_buffer_binding_size: 2_147_483_644,
+            ..wgpu::Limits::default()
+        };
+        assert_eq!(frame_ceiling(256 << 20, &radv), 256 << 20);
+        assert_eq!(frame_ceiling(2 << 30, &radv), 2_147_483_644);
+        let llvmpipe = wgpu::Limits {
+            max_buffer_size: 2_147_483_647,
+            max_storage_buffer_binding_size: 134_217_728,
+            ..wgpu::Limits::default()
+        };
+        assert_eq!(frame_ceiling(2 << 30, &llvmpipe), 134_217_728);
+        assert_eq!(frame_ceiling(1 << 20, &llvmpipe), 1 << 20);
     }
 }

@@ -45,9 +45,9 @@ use crate::keyhash::FastMap;
 use crate::raster::{self, DeviceTransform, Polyline};
 
 /// The share of the caller's `max_frame_bytes` the frame's kept expansions may hold
-/// together: a sixteenth of the 268 MiB default is 16 MiB, about two hundred of the Type 3
-/// page's glyph expansions (ADR 1445 has their size), and a caller who lowers the frame
-/// budget lowers this with it.
+/// together: a sixteenth of the 256 MiB it was measured at is 16 MiB, about two hundred of the
+/// Type 3 page's glyph expansions (ADR 1445 has their size), and a caller who lowers the frame
+/// budget lowers this with it ([`crate::startup::working_budget`]).
 const HELD_BUDGET_SHARE: u64 = 16;
 
 /// A stroke's pieces under its linear part, before any translation, and whether they tile
@@ -218,7 +218,7 @@ impl Expansions {
     /// [`HELD_BUDGET_SHARE`]th.
     pub(super) fn of(scene: &Scene, frame_budget_bytes: u64) -> Self {
         let mut expansions = Self {
-            limit: frame_budget_bytes / HELD_BUDGET_SHARE,
+            limit: crate::startup::working_budget(frame_budget_bytes) / HELD_BUDGET_SHARE,
             ..Self::default()
         };
         expansions.count(scene.commands());

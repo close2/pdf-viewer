@@ -45,7 +45,8 @@ use crate::keyhash::FastMap;
 use crate::raster::CoverageMask;
 
 /// The share of the frame budget one render's kept meets may hold: a sixteenth, so that the
-/// two renders held at once stay under an eighth of what one frame may spend.
+/// two renders held at once stay under an eighth of what one frame may spend — of the budget
+/// up to the 256 MiB it was measured at ([`crate::startup::working_budget`]).
 const KEPT_BUDGET_SHARE: u64 = 16;
 
 /// What an entry costs beside its words and bytes: the map's slot and the two boxes' headers.
@@ -92,7 +93,7 @@ impl KeptMeets {
         self.previous_regions = std::mem::take(&mut self.regions);
         self.previous_chains = std::mem::take(&mut self.chains);
         self.by_leaf.clear();
-        self.budget = frame_budget_bytes / KEPT_BUDGET_SHARE;
+        self.budget = crate::startup::working_budget(frame_budget_bytes) / KEPT_BUDGET_SHARE;
         self.spent = 0;
     }
 

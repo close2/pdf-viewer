@@ -22,6 +22,7 @@
 mod area;
 mod blend;
 mod convert;
+mod glimpse;
 mod images;
 mod scan;
 mod shading;
@@ -30,6 +31,8 @@ use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, Paral
 use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+
+pub use glimpse::{Glance, Glimpse};
 
 use pdf_render::{
     BackendError, ClipId, Command, DisplayList, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Medium,
@@ -77,6 +80,8 @@ pub struct CpuRasterizer {
     anti_alias: bool,
     strips: Option<u32>,
     interrupt: Option<Interrupt>,
+    /// Where the page as it is being built goes when somebody asks for a look — [`Self::showing`].
+    showing: Option<glimpse::Showing>,
     /// Deeply reduced image samples, so that the strips of one draw — and the draws of one
     /// rasteriser — pay for a reduction once between them. See [`images`] for what is shared
     /// and why an address is a sound key for it.
@@ -108,6 +113,7 @@ impl CpuRasterizer {
             anti_alias: true,
             strips: None,
             interrupt: None,
+            showing: None,
             reduced_images: Arc::default(),
         }
     }
@@ -140,6 +146,21 @@ impl CpuRasterizer {
         self
     }
 
+    /// Hands the rasteriser a flag another thread raises to see the page as it is being built, and
+    /// where to send what it sees.
+    ///
+    /// Each time `glance` is asked, every strip of the page answers at its next command with its
+    /// rows as they stand, finished the way the page will be, and a strip that ends while anybody
+    /// has asked answers once more with its final rows. The draw itself is the same draw: a look
+    /// copies rows out and writes nothing back. A page this cannot show truthfully is drawn
+    /// without answering — the `glimpse` module's comment says which, and ADR 1825 why the unit is
+    /// painting order rather than a tile.
+    #[must_use]
+    pub fn showing(mut self, glance: Glance, to: impl Fn(Glimpse) + Send + Sync + 'static) -> Self {
+        self.showing = Some(glimpse::Showing::new(glance, to));
+        self
+    }
+
     /// Asks for a fixed number of horizontal strips instead of one per available core.
     ///
     /// **This changes how long a page takes and almost nothing about what it looks like**, which
@@ -157,6 +178,17 @@ impl CpuRasterizer {
     pub fn with_strips(mut self, strips: u32) -> Self {
         self.strips = Some(strips);
         self
+    }
+
+    /// The rows this rasteriser cuts `target` at for `list`: the first `0`, the last the target's
+    /// height, and a single pair where it draws the page as one strip.
+    ///
+    /// The plan [`Rasterizer::rasterize`] draws by, for an instrument or a test that has to know
+    /// whether a page it compares was cut at all — a comparison of a page drawn whole and in
+    /// strips that were never made says nothing (ADR 1819).
+    #[must_use]
+    pub fn strip_plan(&self, list: &DisplayList, target: TargetSpec) -> Vec<u32> {
+        plan_strips(list, target, self.strips, self.anti_alias)
     }
 
     /// Sets what the page is imposed on: §11.4.7's 𝑊, and what lies outside the page.
@@ -292,7 +324,11 @@ impl Rasterizer for CpuRasterizer {
         // page's elements composite onto transparency and the medium's colour is applied to
         // the result — see `impose_on_medium`, which both backends end with.
 
-        self.encode_in_strips(&mut pixmap, list, target)?;
+        let showing = self
+            .showing
+            .as_ref()
+            .filter(|_| glimpse::Showing::admits(list));
+        self.encode_in_strips_watched(&mut pixmap, list, target, showing)?;
 
         // §11.4.7 puts a colour space under the whole page — "[a]ll page-level compositing
         // shall be done in the default blending colour space of the page, and the entire
@@ -540,7 +576,19 @@ impl CpuRasterizer {
         list: &DisplayList,
         target: TargetSpec,
     ) -> Result<(), CpuRasterError> {
-        let boundaries = plan_strips(list, target, self.strips);
+        self.encode_in_strips_watched(pixmap, list, target, None)
+    }
+
+    /// [`Self::encode_in_strips`], with each strip answering `showing`'s glances for its own rows
+    /// where a caller is looking — the page itself, and never a plane drawn beside it.
+    fn encode_in_strips_watched(
+        &self,
+        pixmap: &mut tiny_skia::Pixmap,
+        list: &DisplayList,
+        target: TargetSpec,
+        showing: Option<&glimpse::Showing>,
+    ) -> Result<(), CpuRasterError> {
+        let boundaries = plan_strips(list, target, self.strips, self.anti_alias);
         let strips = boundaries.len().saturating_sub(1);
         // Computed once per rasterisation, before any mask is built, so that every build —
         // serial, in a strip, or nested inside another mask's — restricts against the same
@@ -553,15 +601,7 @@ impl CpuRasterizer {
         if strips < 2 {
             let surface = Surface::whole(target);
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
-            return self.encode(
-                &mut pixmap.as_mut(),
-                list,
-                list.commands(),
-                surface,
-                &mut masks,
-                0,
-                Compose::Over,
-            );
+            return self.encode_page(&mut pixmap.as_mut(), list, surface, &mut masks, showing);
         }
 
         // A strip is a replay of the whole list, so a deeply reduced image is reduced once per
@@ -606,15 +646,7 @@ impl CpuRasterizer {
                 )?;
                 let mut masks =
                     MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
-                self.encode(
-                    &mut piece,
-                    list,
-                    list.commands(),
-                    surface,
-                    &mut masks,
-                    0,
-                    Compose::Over,
-                )
+                self.encode_page(&mut piece, list, surface, &mut masks, showing)
             })
     }
 
@@ -5054,27 +5086,6 @@ fn note_mask_consumers(
     true
 }
 
-/// The rows at which to cut this target, or one strip's worth if it may not be cut.
-///
-/// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
-/// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
-/// curve crosses. **The picture is very nearly independent of the answer**, which is the property
-/// ADR 0139 exists to establish and `strip_parallelism.rs` asserts: over the tracked corpus's 967
-/// first pages, 814 draw the same bytes at one strip and at every count from two to sixteen, and
-/// the page that moves most moves 0.36% of its pixels (ADR 1758).
-///
-/// **"Very nearly" is measured, and both halves are worth carrying.** A confined process draws a
-/// page in one strip, because it may not ask how many cores it has (ADR 0218), so one strip and
-/// every division above one have to agree — `doc/PDF20_AN001-BPC.pdf` page 1 is the witness. A
-/// strip's offset is applied *after* a mark's own transform is composed with the page's, because
-/// folding it in first makes the sum round at another magnitude (ADR 0219), and that page is exact
-/// — see [`ToDevice`].
-///
-/// What survives is a dependency's. `tiny-skia` maps a point as `y·sy + ty`, and shifting `ty` by
-/// a whole number of rows moves the sum into another binade; ADR 0219 says why no arrangement of
-/// this crate's arithmetic closes it, and ADR 1758 measures what is left over the corpus: one level
-/// for one coverage, and up to three where a pixel takes several rounded results or a blend
-/// function steeper than one — `raster_golden.rs` holds every first page to it.
 /// The whole target, as a rectangle in its own pixel space.
 ///
 /// One caller — [`images::ReducedImages::warm`], which asks whether a command marks the raster at
@@ -5092,7 +5103,34 @@ fn whole_target(target: TargetSpec) -> pdf_render::Rect {
     )
 }
 
-fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
+/// The rows at which to cut this target, or one strip's worth if it may not be cut.
+///
+/// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
+/// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
+/// curve crosses — where a stroke is not one this backend draws a row at a time, its whole extent
+/// ([`drawn_row_by_row`], ADR 1819). **The picture is very nearly independent of the answer**,
+/// which is the property ADR 0139 exists to establish and `strip_parallelism.rs` asserts: over the
+/// tracked corpus's 967 first pages, 794 draw the same bytes at one strip and at every count from
+/// two to sixteen, and the page that moves most moves 0.36% of its pixels (ADRs 1758, 1819).
+///
+/// **"Very nearly" is measured, and both halves are worth carrying.** A confined process draws a
+/// page in one strip, because it may not ask how many cores it has (ADR 0218), so one strip and
+/// every division above one have to agree — `doc/PDF20_AN001-BPC.pdf` page 1 is the witness. A
+/// strip's offset is applied *after* a mark's own transform is composed with the page's, because
+/// folding it in first makes the sum round at another magnitude (ADR 0219), and that page is exact
+/// — see [`ToDevice`].
+///
+/// What survives is a dependency's. `tiny-skia` maps a point as `y·sy + ty`, and shifting `ty` by
+/// a whole number of rows moves the sum into another binade; ADR 0219 says why no arrangement of
+/// this crate's arithmetic closes it, and ADR 1758 measures what is left over the corpus: one level
+/// for one coverage, and up to three where a pixel takes several rounded results or a blend
+/// function steeper than one — `raster_golden.rs` holds every first page to it.
+fn plan_strips(
+    list: &DisplayList,
+    target: TargetSpec,
+    asked: Option<u32>,
+    anti_alias: bool,
+) -> Vec<u32> {
     // Asked of the machine only where the caller did not say, and that is not tidiness:
     // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a
     // confinement with no filesystem is *killed* for it rather than told no. Such a caller states
@@ -5111,7 +5149,9 @@ fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Ve
     }
     let extents = pdf_render::command_extents(list, target);
     let costs = pdf_render::row_costs(&extents, target);
-    let unsplittable = pdf_render::unsplittable_rows(list, target);
+    let unsplittable = pdf_render::unsplittable_rows_where(list, target, &|stroke| {
+        drawn_row_by_row(stroke, anti_alias, target.height)
+    });
 
     // Asked for from the most strips downwards, taking the first division whose replay is
     // affordable. A strip pays again for every command that reaches it — see
@@ -5130,6 +5170,68 @@ fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Ve
         count = count.checked_div(2).unwrap_or(0);
     }
     vec![0, target.height]
+}
+
+/// Whether this backend draws `stroke` a row at a time, so that a strip cut anywhere across it
+/// draws the bytes the whole page does — the question [`pdf_render::unsplittable_rows_where`]
+/// leaves to a backend (ADR 1819).
+///
+/// It does where the stroke's outline reaches [`area`]: that converter evaluates every row's
+/// crossings from the outline's own device coordinates, so a row of a strip and the same row of
+/// the page are the same two evaluations, a curve's chords included, and nothing is clipped
+/// against the strip's edge to be re-stated. What is left is ADR 0219's shifted origin, which
+/// every mark in every strip but the first already carries whether or not a cut crosses it.
+///
+/// Every condition below is a road [`CpuRasterizer::draw_stroke`] can take *away* from that
+/// converter, asked of the page rather than of a strip so that one answer holds for every
+/// division:
+///
+/// - **Anti-aliasing withdrawn, or a knockout element**: [`carries_coverage_as_alpha`] is false
+///   and `scan` hands the outline to `tiny-skia`'s converter, which clips it. A half of a shaped
+///   pair and a mark in a soft mask's group are counted with them because the planner does not
+///   follow how they are composed.
+/// - **A curve in the path**: one bending tighter than its half-width is stroked as convex pieces
+///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`; the round caps and joins a stroker
+///   puts on a straight path are not that, and reach [`area`] as any outline does.
+/// - **A width under one level of a pixel**: §10.7.4's substitutions draw it, through `tiny-skia`'s
+///   hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR 1102).
+/// - **An extent the anti-aliased converter's range cannot hold in every strip**: outside
+///   `scan::SUPERSAMPLED_LIMIT` the aliased converter draws, and a strip moves every coordinate up
+///   by its first row, so the page's extent has to fit both before and after any such move.
+/// - **No extent at all**, which states nothing a range can be asked of.
+///
+/// What it does not need to ask is the region's size: [`area`] measures a tall region a run of
+/// rows at a time, so no strip's height decides which converter draws a mark.
+fn drawn_row_by_row(stroke: pdf_render::PlannedStroke<'_>, anti_alias: bool, height: u32) -> bool {
+    if !anti_alias || stroke.replaces {
+        return false;
+    }
+    if stroke
+        .path
+        .commands()
+        .iter()
+        .any(|segment| matches!(segment, pdf_render::PathCommand::CurveTo(..)))
+    {
+        return false;
+    }
+    let width = stroke.stroke.device_width(stroke.at);
+    if pdf_render::unmeasurable_width(stroke.at).is_none_or(|floor| width <= floor) {
+        return false;
+    }
+    let Some(extent) = stroke.extent else {
+        return false;
+    };
+    // A row of margin beyond the bound, which already counts a mitre at its limit.
+    let limit = scan::SUPERSAMPLED_LIMIT - 1.0;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24 rows, exact in f32"
+    )]
+    let rows = height as f32;
+    extent.min.x >= -limit
+        && extent.max.x <= limit
+        && extent.min.y - rows >= -limit
+        && extent.max.y <= limit
 }
 
 /// One clip of a chain, ready to be drawn into a mask.

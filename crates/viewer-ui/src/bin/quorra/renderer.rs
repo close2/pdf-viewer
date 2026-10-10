@@ -76,12 +76,15 @@
 //! which `PresentCost::compiled` reports, exactly as any first frame of any lane does.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{DisplayList, TargetSpec, Transform};
+use pdf_render::{DisplayList, Interrupt, TargetSpec, Transform};
 use raster_gpu::wgpu;
-use render_raster::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
+use render_raster::{
+    FrameCost, PresentFrame, QuorraRasterError, QuorraWindowRenderer, WindowTextures,
+};
 
 /// The two window-sized textures one frame is drawn into, travelling as one thing.
 ///
@@ -140,6 +143,19 @@ struct Job {
     coverage: raster_gpu::Coverage,
     /// The pair the event thread has finished with, for this frame to draw into.
     reuse: Option<Pair>,
+    /// What the device said when it last refused these pages at this magnification, where it has
+    /// — and then the device is not asked again, and the processor draws at once ([`Refusals`]).
+    known_refusal: Option<String>,
+    /// The flag the event thread raises to take the processor's half of this frame back.
+    ///
+    /// The device's half cannot be taken back — raster draws a frame in one call (ADR 0725) — so
+    /// a raise that arrives while the device is still being asked is honoured where the device
+    /// refuses: the processor is then not started at all.
+    interrupt: Interrupt,
+    /// Set by the render thread the moment the processor starts on this frame, and by the event
+    /// thread at the ask where [`Self::known_refusal`] says it will — which is what lets the
+    /// window warn about a long draw it can stop, and only about one it can.
+    on_the_processor: Arc<AtomicBool>,
 }
 
 /// One finished window frame, on its way back to the thread that will present it.
@@ -148,9 +164,22 @@ struct Done {
     textures: Pair,
     pages: Vec<crate::stale::Placed>,
     cost: FrameCost,
-    /// What the device refused, where the processor then drew the page instead. A note the host
-    /// prints once per occurrence, as it always has.
+    /// What the device refused, where the processor then drew the page instead — or was asked to
+    /// and did not, where [`Self::abandoned`] says so.
     fell_back: Option<String>,
+    /// Whether the refusal in [`Self::fell_back`] was the device's answer to *this* frame and is a
+    /// fact about these pages at this magnification, which is what [`Refusals`] keeps. `false` for
+    /// a refusal the job already carried and for one that says nothing about the page (a device
+    /// lost, a pipeline missing), which is asked again next frame as it always was.
+    refused_now: bool,
+    /// How long the device was asked before it refused — the part of a refused frame nothing on
+    /// this side can interrupt, and the part [`Refusals`] exists to stop paying twice.
+    device_tried: Option<Duration>,
+    /// How long the processor drew for, where it drew.
+    processor_drew: Option<Duration>,
+    /// Whether the event thread raised [`Job::interrupt`] and this thread honoured it: no pixels
+    /// were drawn and [`Self::textures`] holds nothing worth showing.
+    abandoned: bool,
     /// What refused when neither the device nor the processor could draw the page.
     refused: Option<String>,
     /// §8.7.4.5.2 programs the device declined, in raster's own words (ADR 0376).
@@ -263,8 +292,138 @@ pub(crate) struct Landed {
     /// be late: rule 5's *observation* reads how long the ask has been out.
     pub(crate) drew: Duration,
     pub(crate) fell_back: Option<String>,
+    /// How long the device was asked before it refused, where it was asked and refused — `None`
+    /// where it accepted, and where it was not asked because it had refused this frame before.
+    pub(crate) device_tried: Option<Duration>,
+    /// How long the processor drew for, where it drew.
+    pub(crate) processor_drew: Option<Duration>,
+    /// Whether the processor's draw was taken back: no pixels landed, and nothing about this frame
+    /// may be recorded as the view settled or answered to the core.
+    pub(crate) abandoned: bool,
     pub(crate) refused: Option<String>,
     pub(crate) function_refusals: Vec<String>,
+}
+
+/// The frames the graphics device refused, so that it is not asked for them again (ADR 1821).
+///
+/// **A refused frame costs the device's whole attempt before the processor starts**: raster prices
+/// a frame's edges after it has flattened them (`raster-gpu`'s `ComputePersist::price`), so on the
+/// project owner's drawing every refusal is the scene built, the edges counted, the frame priced
+/// and turned down — and then the processor's draw on top. The answer does not change while the
+/// question does not, so it is asked once.
+///
+/// **The question is the pages and the magnification, not the whole view.** Raster culls what
+/// reaches no pixel of the target, so a pan at a magnification well past the page's fit could in
+/// principle bring a refused frame under the budget; remembering by magnification means such a
+/// pan is drawn by the processor, which is the correctness oracle and draws the same page, more
+/// slowly. The other choice — the whole transform — would ask the device again at every pan of a
+/// refused page and pay the attempt each time, which is the cost this exists to remove.
+///
+/// Only a refusal that is a fact about the frame is kept ([`remembered`]); a device lost or a
+/// pipeline missing says nothing about the page and is asked again, as it always was.
+#[derive(Debug, Default)]
+struct Refusals {
+    /// Newest first, at most [`Self::KEPT`].
+    held: Vec<Refused>,
+}
+
+/// One frame the device refused: which pictures, at which magnification, and what it said.
+#[derive(Debug)]
+struct Refused {
+    pictures: Vec<crate::stale::Picture>,
+    linear: [u32; 4],
+    said: String,
+}
+
+impl Refusals {
+    /// How many refusals are kept: a zoom gesture's worth of magnifications of one page, and the
+    /// pages a column shows beside it. An entry that ages out costs one device attempt, once.
+    const KEPT: usize = 32;
+
+    /// The key a frame is remembered by: its pictures, and the linear part of the first page's
+    /// placement — the arrangement's magnification, since `viewer_core::layout` places every page
+    /// of a column at the same one.
+    fn key(pages: &[crate::stale::Placed]) -> Option<(Vec<crate::stale::Picture>, [u32; 4])> {
+        let first = pages.first()?;
+        Some((
+            pages.iter().map(|placed| placed.of).collect(),
+            crate::surface::linear_bits_of(first.target.transform),
+        ))
+    }
+
+    /// What the device said when it refused exactly these pages at exactly this magnification.
+    fn said(&self, pages: &[crate::stale::Placed]) -> Option<&str> {
+        let (pictures, linear) = Self::key(pages)?;
+        self.held
+            .iter()
+            .find(|held| held.linear == linear && held.pictures == pictures)
+            .map(|held| held.said.as_str())
+    }
+
+    /// Keeps a refusal, newest first.
+    fn remember(&mut self, pages: &[crate::stale::Placed], said: &str) {
+        let Some((pictures, linear)) = Self::key(pages) else {
+            return;
+        };
+        self.held
+            .retain(|held| !(held.linear == linear && held.pictures == pictures));
+        self.held.insert(
+            0,
+            Refused {
+                pictures,
+                linear,
+                said: said.to_owned(),
+            },
+        );
+        self.held.truncate(Self::KEPT);
+    }
+}
+
+/// Whether a refusal is a fact about the frame — its pages at its magnification — rather than
+/// about the device.
+///
+/// The budgets and the limits are: raster prices what the frame asks for against what it states
+/// it will hold, and the same frame is priced the same way next time. So is what the display list
+/// itself carries — a value the scene boundary refuses, a clip or a soft mask it does not define, a
+/// paint this backend cannot draw — because the list is the same list. A device lost, a readback
+/// failed, a pipeline still missing or an allocation the machine could not make at that moment is
+/// none of these, and a page refused for one of those is asked again.
+fn remembered(problem: &QuorraRasterError) -> bool {
+    use raster_gpu::RenderError;
+    match problem {
+        QuorraRasterError::Render(refusal) => matches!(
+            refusal,
+            RenderError::FrameBudgetExceeded { .. }
+                | RenderError::ScratchExhausted { .. }
+                | RenderError::OutlineConversionBudgetExceeded { .. }
+                | RenderError::TargetTooLarge { .. }
+                | RenderError::ViewportTransformTooLarge { .. }
+        ),
+        QuorraRasterError::Scene(_)
+        | QuorraRasterError::UnknownClip(_)
+        | QuorraRasterError::CyclicClip(_)
+        | QuorraRasterError::UnknownSoftMask(_)
+        | QuorraRasterError::Unsupported(_)
+        | QuorraRasterError::Target(_) => true,
+        // The device, an allocation, and whatever `render-raster` adds later: asked again until
+        // somebody argues that the new one is a fact about the frame.
+        _ => false,
+    }
+}
+
+/// The frame the render thread is drawing, as the event thread remembers it.
+///
+/// **The pages and the interrupt are what is new** (ADR 1821), and they are the shape
+/// [`crate::composer`]'s `InFlight` has had since ADR 0657: the pages so that this window can ask
+/// whether the frame being drawn is still worth finishing, and the interrupt so that it can say
+/// no — which reaches the processor's half of a refused frame and nothing else, because the
+/// device's half is one call raster cannot take back.
+#[derive(Debug)]
+struct Flight {
+    asked: Instant,
+    pages: Vec<crate::stale::Placed>,
+    interrupt: Interrupt,
+    on_the_processor: Arc<AtomicBool>,
 }
 
 /// This window's half of the arrangement: the surface, and a handle on the thread that draws.
@@ -328,7 +487,14 @@ pub(crate) struct Window {
     /// frame of a heavy page takes thirteen of them, and every job in it would be answering a view
     /// the person had already left. When a frame lands and the view has moved, the next job is
     /// asked for then — with the view as it is by then.
-    in_flight: Option<Instant>,
+    in_flight: Option<Flight>,
+    /// The frames the device refused, which it is not asked for again (ADR 1821).
+    refusals: Refusals,
+    /// The arrangement the **person** stopped drawing, which is not asked for again until the
+    /// view changes — [`crate::composer`]'s field of the same name, for its reason: this window
+    /// asks for itself once a tick for as long as the frame on hand is not of the view, so an
+    /// abort without it would be answered by the next tick asking for the same frame again.
+    declined: Vec<crate::stale::Placed>,
     /// How many jobs this window has asked for.
     serial: u64,
     /// What the adapter is, and what bringing it up cost — read before the device left this
@@ -502,6 +668,8 @@ impl Window {
             coverage,
             waker,
             in_flight: None,
+            refusals: Refusals::default(),
+            declined: Vec::new(),
             serial: 0,
             description,
             startup,
@@ -560,11 +728,85 @@ impl Window {
         self.in_flight.is_some()
     }
 
+    /// Whether the frame in flight is being drawn on the processor and has been out for longer
+    /// than `viewer_host::drawing::WARN` — [`crate::composer::Composer::overlong`]'s question,
+    /// asked of the one frame on this window that can be stopped.
+    ///
+    /// **A frame on the device is never overlong here, and that is not an oversight**: raster
+    /// draws it in one call nothing can take back (ADR 0725), so a warning offering a key would
+    /// offer one that does nothing. A frame the device refused is drawn by the same processor the
+    /// `--cpu` window draws with, and that draw takes the interrupt (ADR 1821).
+    pub(crate) fn overlong(&self) -> bool {
+        self.in_flight.as_ref().is_some_and(|flight| {
+            flight.on_the_processor.load(Ordering::Acquire)
+                && !flight.interrupt.raised()
+                && flight.asked.elapsed() >= viewer_host::drawing::WARN
+        })
+    }
+
+    /// Takes the processor's draw back because the **person** asked —
+    /// [`crate::composer::Composer::abandon`], on this window.
+    ///
+    /// Answers whether it took anything back: `false` where nothing is being drawn on the
+    /// processor, which is also the race between the key and the frame's last command.
+    pub(crate) fn abandon(&mut self) -> bool {
+        let Some(flight) = self.in_flight.as_ref() else {
+            return false;
+        };
+        if flight.interrupt.raised() || !flight.on_the_processor.load(Ordering::Acquire) {
+            return false;
+        }
+        flight.interrupt.raise();
+        self.declined.clone_from(&flight.pages);
+        true
+    }
+
+    /// Whether this is the arrangement the person stopped drawing — see [`Self::declined`].
+    pub(crate) fn declined(&self, pages: &[crate::stale::Placed]) -> bool {
+        !self.declined.is_empty() && same_pages(&self.declined, pages)
+    }
+
+    /// Takes the processor's draw back where finishing it would buy a picture of a magnification
+    /// the view has already left (ADR 1821).
+    ///
+    /// [`crate::composer::Composer::superseded`] interrupts where the finished frame could not
+    /// stand in for the view at all, and lets a zoom of one page run on, because there the frame
+    /// in flight is an ordinary page's and what it costs is hundreds of milliseconds. Here it is
+    /// the frame the device *refused*, and what a refusal states is that the page is beyond what a
+    /// frame was budgeted to be: finishing it at a magnification the gesture has moved past puts
+    /// the remainder of a processor draw in front of the frame the person will stop at. So it is
+    /// interrupted at the first notch that leaves its magnification, and the window stands in
+    /// with what it has until the magnification settles. A pan is not a reason: the frame in
+    /// flight is of the magnification the view is at, and carries onto it.
+    ///
+    /// The raise is harmless to a frame the device accepts — the device's half takes no
+    /// interrupt — and where the device refuses, the processor is not started at all. Answers
+    /// whether it raised one, for the trace.
+    pub(crate) fn superseded(&mut self, wanted: &[crate::stale::Placed]) -> bool {
+        let Some(flight) = self.in_flight.as_ref() else {
+            return false;
+        };
+        if flight.interrupt.raised() {
+            return false;
+        }
+        let magnification = |pages: &[crate::stale::Placed]| {
+            pages
+                .first()
+                .map(|placed| crate::surface::linear_bits_of(placed.target.transform))
+        };
+        let left = magnification(&flight.pages) != magnification(wanted)
+            || !crate::stale::could_stand_in(&flight.pages, wanted);
+        if left {
+            flight.interrupt.raise();
+        }
+        left
+    }
+
     /// How long the render asked for at an earlier tick has been out, or `None` where
     /// none is. Rule 5's observation is measured from this, against the period: a
     /// render out for two milliseconds has missed nothing yet, whatever is in flight.
     pub(crate) fn out_for(&self) -> Option<Duration> {
-        self.in_flight.map(|began| began.elapsed())
+        self.in_flight.as_ref().map(|flight| flight.asked.elapsed())
     }
 
     /// What the window is currently able to draw, and what it is a picture of.
@@ -605,6 +847,31 @@ impl Window {
             self.sharp = Some(*sharpened);
         }
         let done = newest?;
+        self.pipelines = self.pipelines.or(done.pipelines);
+        self.in_flight = None;
+        let drew = done.finished.saturating_duration_since(done.started);
+        if done.refused_now
+            && let Some(said) = done.fell_back.as_deref()
+        {
+            self.refusals.remember(&done.pages, said);
+        }
+        if done.abandoned {
+            // **Nothing of it reaches the window**: the processor was taken back before it drew,
+            // so the pair holds whatever the device left in it, and it goes back to be drawn into
+            // next. The frame on hand stays the newest true picture there is.
+            self.spare = Some(done.textures);
+            return Some(Landed {
+                pages: done.pages,
+                cost: done.cost,
+                drew,
+                fell_back: done.fell_back,
+                device_tried: done.device_tried,
+                processor_drew: done.processor_drew,
+                abandoned: true,
+                refused: done.refused,
+                function_refusals: done.function_refusals,
+            });
+        }
         // A frame of other pages makes the sharp picture a bystander; the present-time
         // match would decline it, but holding four windows of texels for a picture nobody
         // will draw again is not worth the allocation it saves.
@@ -613,9 +880,6 @@ impl Window {
         {
             self.sharp = None;
         }
-        self.pipelines = self.pipelines.or(done.pipelines);
-        self.in_flight = None;
-        let drew = done.finished.saturating_duration_since(done.started);
         // The pair being displaced goes back to the render thread with the next job; the one
         // displaced before it, if the host never asked again, is simply dropped.
         self.spare = self
@@ -630,6 +894,9 @@ impl Window {
             cost: done.cost,
             drew,
             fell_back: done.fell_back,
+            device_tried: done.device_tried,
+            processor_drew: done.processor_drew,
+            abandoned: false,
             refused: done.refused,
             function_refusals: done.function_refusals,
         })
@@ -674,6 +941,20 @@ impl Window {
         // Recorded before the move, and only here: every path above this line declines the job, so
         // a window that remembered chrome it never asked for would stop asking for it.
         self.chrome.clone_from(&overlays);
+        // A view the person did not stop is a view change, which is what lets the one they did
+        // stop be drawn again when they come back to it.
+        if !self.declined.is_empty() && !same_pages(&self.declined, &pages) {
+            self.declined.clear();
+        }
+        let known_refusal = self.refusals.said(&pages).map(str::to_owned);
+        let interrupt = Interrupt::new();
+        let on_the_processor = Arc::new(AtomicBool::new(known_refusal.is_some()));
+        let flight = Flight {
+            asked: now,
+            pages: pages.clone(),
+            interrupt: interrupt.clone(),
+            on_the_processor: Arc::clone(&on_the_processor),
+        };
         let job = Job {
             width,
             height,
@@ -681,11 +962,14 @@ impl Window {
             overlays,
             coverage,
             reuse: self.spare.take(),
+            known_refusal,
+            interrupt,
+            on_the_processor,
         };
         // A send that fails is a render thread that has ended, which is a device that has gone;
         // the frame is not in flight, so the window keeps presenting what it has and asks again.
         if link.jobs.send(job).is_ok() {
-            self.in_flight = Some(now);
+            self.in_flight = Some(flight);
         }
     }
 
@@ -882,6 +1166,11 @@ fn draw_until_told_to_stop(
     // texture is kept for whatever size the proxies are and remade when a page of another shape
     // arrives. One allocation per page shape rather than one per proxy.
     let mut scratch: Option<(u32, u32, wgpu::Texture)> = None;
+    // The pages whose whole-page picture the device would not draw, which are not asked for again
+    // (ADR 1821). `draw_whole_page`'s silence stays: a proxy is a picture nobody asked for. What
+    // changes is that its refusal stops being paid once per frame — on a page the device refuses
+    // that was the scene built and priced again after every frame, in front of the next one.
+    let mut no_proxy: Vec<crate::stale::Picture> = Vec::new();
     let mut waiting: Option<Job> = None;
     loop {
         let job = match waiting.take() {
@@ -901,6 +1190,12 @@ fn draw_until_told_to_stop(
             showing.clone_from(&job.pages);
             shown_size = (job.width, job.height);
             let finished = draw(&mut renderer, job);
+            // **A view the device refused is not sharpened by it** (ADR 1821): the pass is the
+            // same view at four times the pixels, which raster prices higher rather than lower,
+            // so asking would build and price a scene to hear the answer this frame already gave.
+            if finished.fell_back.is_some() {
+                sharpened = true;
+            }
             if !matches!(
                 finished.cost.encode_source,
                 Some(raster_gpu::EncodeSource::Replayed)
@@ -958,19 +1253,29 @@ fn draw_until_told_to_stop(
                 continue;
             }
         }
-        if let Some(page) = proxies.wanted(&showing)
-            && let Some(retained) = draw_whole_page(&mut renderer, &page, &mut scratch)
-        {
-            // Kept here as well as sent, because this thread is the one that decides what to draw
-            // next and a store that forgot would draw the same page for ever.
-            proxies.keep(crate::stale::Retained {
-                of: retained.of,
-                target: retained.target,
-                pixels: Arc::clone(&retained.pixels),
-            });
-            if done.send(Finished::Page(retained)).is_err() {
-                return;
+        let drawable: Vec<crate::stale::Placed> = showing
+            .iter()
+            .filter(|placed| !no_proxy.contains(&placed.of))
+            .cloned()
+            .collect();
+        if let Some(page) = proxies.wanted(&drawable) {
+            if let Some(retained) = draw_whole_page(&mut renderer, &page, &mut scratch) {
+                // Kept here as well as sent, because this thread is the one that decides what to
+                // draw next and a store that forgot would draw the same page for ever.
+                proxies.keep(crate::stale::Retained {
+                    of: retained.of,
+                    target: retained.target,
+                    pixels: Arc::clone(&retained.pixels),
+                });
+                if done.send(Finished::Page(retained)).is_err() {
+                    return;
+                }
+                continue;
             }
+            // The next page that wants one is asked for at the next idle turn, and this one never
+            // again for this ink; the store stays a document's pages long, as `Proxies` is.
+            no_proxy.retain(|picture| picture.same_ink(page.of));
+            no_proxy.push(page.of);
             continue;
         }
         match jobs.recv() {
@@ -1107,9 +1412,8 @@ fn draw_sharp(
 /// `None` where the page states no usable extent, or where the device refused it — **and it is
 /// deliberately silent**, because this is a picture nobody asked for: a refusal costs a stand-in
 /// that will not be as good and nothing else, and reporting it would be a note about work the
-/// person did not request. It cannot spin: the caller falls through to a blocking `recv` when this
-/// answers `None`, so a page the device will not draw is retried once per frame at most rather
-/// than once per turn round the loop.
+/// person did not request. It cannot spin, and it is not paid twice: the caller keeps the page out
+/// of every later idle turn for as long as its ink stands (ADR 1821).
 fn draw_whole_page(
     renderer: &mut QuorraWindowRenderer,
     page: &crate::stale::Placed,
@@ -1157,6 +1461,42 @@ fn draw_whole_page(
     })
 }
 
+/// The processor's half of a frame the device refused: `None` where the interrupt took it back,
+/// and how long the processor drew, where it was started.
+///
+/// **The one half of a refused frame that can be taken back** (ADR 1821): the event thread raises
+/// the interrupt where the view has left this magnification or the person has pressed the key, and
+/// a raise that came while the device was being asked is honoured here, before anything starts.
+fn draw_on_the_processor(
+    pages: &[crate::stale::Placed],
+    interrupt: &Interrupt,
+    on_the_processor: &AtomicBool,
+) -> (Option<Result<pdf_render::Raster, String>>, Option<Duration>) {
+    if interrupt.raised() {
+        return (None, None);
+    }
+    if pages.is_empty() {
+        return (
+            Some(Err("there is no page to draw on the processor".to_owned())),
+            None,
+        );
+    }
+    let borrowed: Vec<(&DisplayList, TargetSpec)> = pages
+        .iter()
+        .map(|placed| (placed.list.as_ref(), placed.target))
+        .collect();
+    on_the_processor.store(true, Ordering::Release);
+    let began = Instant::now();
+    let drawn = viewer_ui::software::compose_pages_interruptibly(&borrowed, Some(interrupt));
+    let drew = Some(began.elapsed());
+    match drawn {
+        // Asked of the error rather than of the flag, for `crate::composer`'s reason: a frame
+        // finished before the raise is a frame this window can present.
+        Err(problem) if viewer_ui::software::was_interrupted(&problem) => (None, drew),
+        drawn => (Some(drawn.map_err(|problem| problem.to_string())), drew),
+    }
+}
+
 /// One job, drawn — on the device, or on the processor where the device refused.
 fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     let started = Instant::now();
@@ -1167,6 +1507,9 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         overlays,
         coverage,
         reuse,
+        known_refusal,
+        interrupt,
+        on_the_processor,
     } = job;
     let textures = reuse
         .filter(|pair| pair.fits(width, height))
@@ -1190,28 +1533,37 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         raster: None,
         overlays: &borrowed,
     };
-    let mut fell_back = None;
     let mut refused = None;
-    if let Err(problem) = renderer.render(frame, into) {
+    let mut device_tried = None;
+    let mut processor_drew = None;
+    let mut abandoned = false;
+    // **A refusal already known is not asked again** (ADR 1821): the device's attempt is the
+    // whole scene built and priced before it says no, and it would say the same thing.
+    let (fell_back, refused_now) = if let Some(said) = known_refusal {
+        (Some(said), false)
+    } else {
+        let asked = Instant::now();
+        match renderer.render(frame, into) {
+            Ok(()) => (None, false),
+            Err(problem) => {
+                device_tried = Some(asked.elapsed());
+                (Some(problem.to_string()), remembered(&problem))
+            }
+        }
+    };
+    if fell_back.is_some() {
         // **One of the two jobs `CLAUDE.md` keeps the CPU backend for**: a page the device refuses
         // is a page this program can still show, more slowly, which is a cost a person can see
         // past where a page that never appears is not. The raster goes back through the device as
         // one image, because a window's pixels have one path and this is it — and it is the whole
         // arrangement's raster since ADR 0442, because a column the device refused is still a
         // column.
-        fell_back = Some(problem.to_string());
-        let borrowed_pages: Vec<(&DisplayList, TargetSpec)> = pages
-            .iter()
-            .map(|placed| (placed.list.as_ref(), placed.target))
-            .collect();
-        let drawn = if borrowed_pages.is_empty() {
-            Err("there is no page to draw on the processor".to_owned())
-        } else {
-            viewer_ui::software::compose_pages(&borrowed_pages)
-                .map_err(|problem| problem.to_string())
-        };
+        //
+        let (drawn, drew) = draw_on_the_processor(&pages, &interrupt, &on_the_processor);
+        processor_drew = drew;
         match drawn {
-            Ok(raster) => {
+            None => abandoned = true,
+            Some(Ok(raster)) => {
                 let second = renderer.render(
                     PresentFrame {
                         width,
@@ -1226,14 +1578,23 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
                     refused = Some(format!("and the processor's page {second}"));
                 }
             }
-            Err(second) => refused = Some(format!("and {second}")),
+            Some(Err(second)) => refused = Some(format!("and {second}")),
         }
     }
     Done {
         textures,
         pages,
-        cost: renderer.last_frame(),
+        // An abandoned frame drew nothing, and the device's last frame is somebody else's.
+        cost: if abandoned {
+            FrameCost::default()
+        } else {
+            renderer.last_frame()
+        },
         fell_back,
+        refused_now,
+        device_tried,
+        processor_drew,
+        abandoned,
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
         pipelines: renderer.startup().pipeline_compilation,
@@ -1266,6 +1627,88 @@ mod tests {
     #[test]
     fn the_sharp_pass_waits_for_a_built_frame_to_predict_from() {
         assert!(!sharp_pass_affordable(None));
+    }
+
+    /// A page of `page`'s number in document 1, placed at `magnification` and shifted right by
+    /// `pan` device pixels — the two things a view change does to one page.
+    fn placed(page: usize, magnification: f32, pan: f32) -> Vec<crate::stale::Placed> {
+        vec![crate::stale::Placed {
+            of: crate::stale::Picture::new(viewer_core::DocumentId(1), page, 0),
+            list: Arc::new(DisplayList::new(pdf_render::Size::new(595.0, 842.0))),
+            target: TargetSpec {
+                width: 800,
+                height: 1000,
+                transform: Transform::scale(magnification, -magnification)
+                    .then(Transform::translate(pan, 842.0 * magnification)),
+            },
+        }]
+    }
+
+    /// **A refusal is remembered by its pages and its magnification, and not by where the page
+    /// sits** (ADR 1821): a pan of a refused page is the same question, a notch of zoom or another
+    /// page is a different one.
+    #[test]
+    fn a_refusal_is_remembered_by_its_pages_and_magnification() {
+        let mut refusals = Refusals::default();
+        refusals.remember(&placed(0, 1.0, 0.0), "frame refused: too much");
+        assert_eq!(
+            refusals.said(&placed(0, 1.0, 120.0)),
+            Some("frame refused: too much"),
+            "a pan of the refused page is not asked again"
+        );
+        assert_eq!(
+            refusals.said(&placed(0, 1.25, 0.0)),
+            None,
+            "a notch of zoom is asked"
+        );
+        assert_eq!(
+            refusals.said(&placed(1, 1.0, 0.0)),
+            None,
+            "another page is asked"
+        );
+        assert_eq!(refusals.said(&[]), None, "no page is never refused");
+    }
+
+    /// The memory is bounded, newest first, and the same refusal learned twice is one entry.
+    #[test]
+    fn the_memory_of_refusals_keeps_the_newest() {
+        let mut refusals = Refusals::default();
+        for step in 0..=Refusals::KEPT {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a step count far below f32's exact integer range"
+            )]
+            let magnification = 1.0 + step as f32 / 8.0;
+            refusals.remember(&placed(0, magnification, 0.0), "refused");
+            refusals.remember(&placed(0, magnification, 0.0), "refused");
+        }
+        assert_eq!(refusals.held.len(), Refusals::KEPT);
+        assert_eq!(
+            refusals.said(&placed(0, 1.0, 0.0)),
+            None,
+            "the oldest aged out"
+        );
+        assert!(refusals.said(&placed(0, 1.125, 0.0)).is_some());
+    }
+
+    /// Only a refusal that is a fact about the frame is kept: the budget is, a lost device is not.
+    #[test]
+    fn only_a_refusal_about_the_frame_is_remembered() {
+        assert!(remembered(&QuorraRasterError::Render(
+            raster_gpu::RenderError::FrameBudgetExceeded {
+                needed: 423_206_976,
+                budget: 268_435_456,
+            }
+        )));
+        assert!(!remembered(&QuorraRasterError::Render(
+            raster_gpu::RenderError::DeviceLost {
+                detail: "gone".to_owned(),
+            }
+        )));
+        assert!(!remembered(&QuorraRasterError::Allocation {
+            width: 1,
+            height: 1,
+        }));
     }
 }
 
@@ -1373,6 +1816,9 @@ mod gesture {
             overlays: Vec::new(),
             coverage: raster_gpu::Coverage::Compute,
             reuse: None,
+            known_refusal: None,
+            interrupt: Interrupt::new(),
+            on_the_processor: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1442,6 +1888,71 @@ mod gesture {
         assert!(
             same_pages(&sharp.pages, &second),
             "the sharp pass is of the view that stayed"
+        );
+    }
+
+    /// **A frame the device refused before is drawn on the processor without asking it, and is not
+    /// sharpened by it** (ADR 1821).
+    ///
+    /// The job carries the refusal the window remembered; what comes back says the device was not
+    /// asked, the processor drew, the pixels landed — and nothing follows, because the 2× pass is
+    /// the same view at four times the pixels and would only hear the same answer.
+    #[test]
+    fn a_frame_the_device_refused_before_is_drawn_on_the_processor_without_asking_it() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            println!("skipped: no adapter on this machine");
+            return;
+        };
+        let size = (400_u32, 500_u32);
+        let (viewer, mut requests) = opened(size);
+        let pages = arrangement(&viewer, &mut requests, size);
+        assert!(!pages.is_empty(), "the document shows a page");
+        let link = spawn(renderer, 0, 2, crate::arguments::CoverageChoice::Auto, None);
+        let mut asked = job(&pages, size);
+        asked.known_refusal = Some("frame refused: remembered".to_owned());
+        link.jobs.send(asked).expect("the thread is running");
+        let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
+            panic!("the first answer is the frame asked for");
+        };
+        assert_eq!(done.fell_back.as_deref(), Some("frame refused: remembered"));
+        assert!(done.device_tried.is_none(), "the device was not asked");
+        assert!(done.processor_drew.is_some(), "the processor drew it");
+        assert!(
+            !done.abandoned && done.refused.is_none(),
+            "{:?}",
+            done.refused
+        );
+        assert!(!done.refused_now, "nothing new was learned");
+        match link.done.recv_timeout(Duration::from_secs(3)) {
+            Err(_) => {}
+            Ok(Finished::Sharp(_)) => panic!("a view the device refused was sharpened by it"),
+            Ok(_) => panic!("nothing else was asked for"),
+        }
+    }
+
+    /// **An interrupt raised before the processor starts abandons the frame**, and nothing is drawn
+    /// for it (ADR 1821) — the shape a notch of zoom takes while the device is still being asked.
+    #[test]
+    fn an_interrupt_raised_before_the_processor_starts_abandons_the_frame() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            println!("skipped: no adapter on this machine");
+            return;
+        };
+        let size = (400_u32, 500_u32);
+        let (viewer, mut requests) = opened(size);
+        let pages = arrangement(&viewer, &mut requests, size);
+        let link = spawn(renderer, 0, 1, crate::arguments::CoverageChoice::Auto, None);
+        let mut asked = job(&pages, size);
+        asked.known_refusal = Some("frame refused: remembered".to_owned());
+        asked.interrupt.raise();
+        link.jobs.send(asked).expect("the thread is running");
+        let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
+            panic!("the first answer is the frame asked for");
+        };
+        assert!(done.abandoned, "the frame was taken back");
+        assert!(
+            done.processor_drew.is_none(),
+            "the processor was not started"
         );
     }
 
@@ -1641,6 +2152,9 @@ mod gesture {
                     overlays: Vec::new(),
                     coverage,
                     reuse: spare.take(),
+                    known_refusal: None,
+                    interrupt: Interrupt::new(),
+                    on_the_processor: Arc::new(AtomicBool::new(false)),
                 };
                 if link.jobs.send(job).is_ok() {
                     in_flight = Some(now);

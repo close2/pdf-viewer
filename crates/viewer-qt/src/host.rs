@@ -837,9 +837,20 @@ impl Host {
 
     /// How much of page one has been read, in thousandths, while the document is still opening past
     /// `WARN` — `-1` where there is no bar to show, and `0` for a wait with no share yet.
+    ///
+    /// **And while a page is shown as it stands, how much of its drawing there is**: the bar that
+    /// showed the page being read hands over to the page being drawn, and goes when it lands
+    /// (ADR 1825).
     pub(crate) fn loading_permille(&self) -> i32 {
         if self.awaiting.is_none() {
-            return -1;
+            return self.drawing.partial().map_or(-1, |partial| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a share in [0, 1], times a thousand"
+                )]
+                let permille = (partial.fraction() * 1000.0).round() as i32;
+                permille
+            });
         }
         let showing = self
             .anticipated
@@ -2892,9 +2903,24 @@ impl Host {
         if self.playing.is_some() {
             return 1;
         }
+        self.frames().len()
+    }
+
+    /// The pages this window paints: the viewer's frames, with a page still being drawn put where
+    /// it belongs as it stands — `viewer_host::drawing::over_frames`, the rule `viewer-gtk` paints
+    /// by too (ADR 1825).
+    fn frames(&self) -> Vec<viewer_core::FrameView<'_>> {
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frames) => frames.len(),
-            _ => 0,
+            Answer::Frame(frames) => viewer_host::drawing::over_frames(
+                frames,
+                self.drawing.partial(),
+                self.documents.focused(),
+                |page| match self.viewer.query(Query::PageGeometry(page)) {
+                    Answer::Geometry(geometry) => Some(geometry),
+                    _ => None,
+                },
+            ),
+            _ => Vec::new(),
         }
     }
 
@@ -2917,9 +2943,7 @@ impl Host {
                 }
             };
         }
-        let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
-            return no_frame();
-        };
+        let frames = self.frames();
         let Some(frame) = frames.get(index) else {
             return no_frame();
         };
@@ -2952,12 +2976,9 @@ impl Host {
                 &[]
             };
         }
-        match self.viewer.query(Query::Frame) {
-            Answer::Frame(frames) => frames
-                .get(index)
-                .map_or(&[][..], |frame| frame.raster.data.as_slice()),
-            _ => &[],
-        }
+        self.frames()
+            .get(index)
+            .map_or(&[][..], |frame| frame.raster.data.as_slice())
     }
 
     /// One panel's rows, depth first.
@@ -3894,7 +3915,26 @@ impl Host {
                 std::time::Duration::from_nanos(nanos)
             ),
         );
-        if !self.presented {
+        // A page still being drawn, shown as it stands, is said as that and is not the first
+        // frame: `first frame on the screen` is a finished page in every window (ADR 1825).
+        if let Some(partial) = self.drawing.partial()
+            && self
+                .frames()
+                .iter()
+                .any(|frame| std::ptr::eq(frame.raster, partial.raster()))
+        {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} shown as it stands, {:.0} % drawn",
+                    partial.page().saturating_add(1),
+                    partial.fraction() * 100.0
+                ),
+            );
+        }
+        let held = self.playing.is_some()
+            || matches!(self.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
+        if !self.presented && held {
             self.presented = true;
             self.trace.say(
                 Topic::Launch,
@@ -4229,6 +4269,12 @@ impl Host {
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         if queue.is_empty() {
+            // A page still being drawn has shown how it stands: a picture worth the copy, where a
+            // look that found nothing is not (ADR 1825). The bar follows it.
+            if self.drawing.glimpsed() {
+                self.update.frame = true;
+                self.update.status = true;
+            }
             return;
         }
         self.pump(queue.into());

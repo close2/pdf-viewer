@@ -231,8 +231,8 @@ impl Encoder<'_> {
     ///
     /// `as u32` is a truncation only above four billion instances in one stream, which is
     /// 137 GB of rectangle instances; `encode` refuses the frame at
-    /// `Options::max_frame_bytes` (268 MiB by default) long before, having charged one
-    /// rect and one quad per command up front.
+    /// `Options::max_frame_bytes` (2 GiB by default, and never above the largest buffer the
+    /// device makes) long before, having charged one rect and one quad per command up front.
     #[expect(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
     fn note_batch(&mut self, kind: BatchKind, style: DrawStyle, mask: Option<u32>) {
         let index = match kind {

@@ -53,7 +53,7 @@
 /// by two before it becomes 16.16 fixed point, and `8192 << 2` is 32768, which its `Fixed` type
 /// cannot hold. The library applies it to the pixmap it draws into; this module applies it to
 /// the geometry, which is the half it leaves open.
-const SUPERSAMPLED_LIMIT: f32 = 8191.0;
+pub(crate) const SUPERSAMPLED_LIMIT: f32 = 8191.0;
 
 /// Whether `bounds` lies inside [`SUPERSAMPLED_LIMIT`] on both axes.
 fn within(bounds: Option<tiny_skia::Rect>) -> bool {

@@ -133,7 +133,16 @@ These are the places where a native host's shape differs from the tier-2 host's,
   is a bar — GTK's and Qt's own widget in the status bar, the title in `quorra` and
   `quorra-confined` — until the look that finds it read. What is still owed: a page interpreted
   *after* the launch (a turn, a re-interpretation) is read on the toolkit's thread with no bar, and
-  an in-process interpretation has no stop but the window's close.
+  an in-process interpretation has no stop but the window's close. `quorra-confined` owes neither:
+  every command goes to its worker on a thread past `WARN` and the reader's keys are held meanwhile
+  (ADR 1827); what it owes is a worker that takes a command while it draws, so that a held key
+  reaches the viewer sooner.
+- **A long draw is shown as it is built** (`viewer_host::drawing::over_frames`, ADR 1825): past
+  `GLIMPSE_AFTER` the drawing thread is glanced at every `GLIMPSE_EVERY` and the page part-way is
+  painted where it belongs, in painting order because the strips ADR 0139 grants are the only exact
+  tiles. What is still owed: `quorra`'s processor fallback and the confined window's host draw do
+  not ask, and a zoom shows the page part-way at its new size where a reprojected old picture might
+  read better.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

@@ -575,6 +575,14 @@ has them (round 1467, ADR 1768). And a fixture page that is byte-identical at 4 
 see a stated count — the transform's `verbs.rs` tests passed with one side unstated, and only page
 100's bytes caught it (ADR 1769).
 
+### 146. A converter chosen from the surface's size changes with the page's division
+
+`area::region` declined a mark whose height passed a limit clamped to the surface, so the witness's
+page frame was drawn by `tiny-skia` on the whole page and by `area` inside a strip, and the same
+mark came out of two converters on either side of a cut (round 1491, ADR 1819). A converter is
+chosen from the mark and the device transform alone, never from the target's extent, and a tall
+region is measured a run of rows at a time; `tests/stroke_cuts.rs` holds the frame to it.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in
