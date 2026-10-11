@@ -25,6 +25,7 @@
 //! box as though it were inked. Both errors apply to every row alike, which is the direction
 //! that matters for choosing *where* to cut rather than for predicting a time.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::{ClipId, Command, DisplayList, Path, Rect, Stroke, TargetSpec, Transform};
@@ -166,9 +167,9 @@ pub fn row_costs(extents: &[Option<Rect>], target: TargetSpec) -> Vec<f64> {
 ///
 /// One entry per target row, `true` where some segment that a cut would re-state — a curve, an
 /// oblique edge, anything a stroker touches — spans that row, whether it belongs to a fill, a
-/// stroke, a clip path or a soft mask's group. Every stroke counts its whole extent here; a backend
-/// that can say which of its strokes it draws a row at a time asks
-/// [`unsplittable_rows_where`] instead. Cutting there chops the segment against the
+/// stroke, a clip path or a soft mask's group. Every stroke counts its whole extent here and every
+/// fill its curves' and oblique edges' rows; a backend that can say which of its marks it draws a
+/// row at a time asks [`unsplittable_rows_where`] instead. Cutting there chops the segment against the
 /// strip's edge and changes the coverage of an edge pixel by up to a quarter of a channel
 /// (ADR 0138 measured the consequence; ADR 0139 measured the rule, and
 /// [`crate::Path::oblique_spans`] is where the three cases are tabulated).
@@ -183,6 +184,34 @@ pub fn row_costs(extents: &[Option<Rect>], target: TargetSpec) -> Vec<f64> {
 #[must_use]
 pub fn unsplittable_rows(list: &DisplayList, target: TargetSpec) -> Vec<bool> {
     unsplittable_rows_where(list, target, &|_| false)
+}
+
+/// A fill as the planner meets it, for a backend to say whether it draws it a row at a time.
+///
+/// Stated in the target's own pixels, as [`PlannedStroke`] is and for its reason: none of the
+/// fields is a strip's, so one answer stands for every division.
+#[derive(Clone, Copy, Debug)]
+pub struct PlannedFill<'a> {
+    /// The path, in its own space.
+    pub path: &'a Path,
+    /// The path's own space onto the target's pixels — the page's, never a strip's.
+    pub at: Transform,
+    /// What it can mark on the target, as [`Command::device_bounds`] bounds it; `None` where that
+    /// cannot say.
+    pub extent: Option<Rect>,
+    /// Whether it may be composited by anything but painting over what is below it, as
+    /// [`PlannedStroke::replaces`] states it.
+    pub replaces: bool,
+}
+
+/// A mark the planner would forbid rows for, put to the backend that draws it.
+#[derive(Clone, Copy, Debug)]
+pub enum PlannedMark<'a> {
+    /// A fill, which forbids its curves' and oblique edges' rows unless the backend answers
+    /// otherwise.
+    Fill(PlannedFill<'a>),
+    /// A stroke, which forbids its whole extent unless the backend answers otherwise.
+    Stroke(PlannedStroke<'a>),
 }
 
 /// A stroke as the planner meets it, for a backend to say whether it draws it a row at a time.
@@ -206,9 +235,9 @@ pub struct PlannedStroke<'a> {
     pub replaces: bool,
 }
 
-/// [`unsplittable_rows`], with the strokes `row_local` answers `true` for forbidding no row.
+/// [`unsplittable_rows`], with the marks `row_local` answers `true` for forbidding no row.
 ///
-/// # Why a stroke is the backend's question
+/// # Why a mark is the backend's question
 ///
 /// A cut is exact where every mark crossing it draws the same bytes into the two strips as into
 /// the whole page. ADR 0139 measured which marks do that under `tiny-skia`'s scan converter —
@@ -220,17 +249,23 @@ pub struct PlannedStroke<'a> {
 /// A converter that evaluates each row from the edges' own device coordinates owes no row at
 /// all: a row of the page and the same row of a strip are the same two evaluations, wherever the
 /// strip begins. That is a fact about one backend's drawing, decided by its anti-aliasing, the
-/// width it stroke at and the composition it uses, so the backend answers it per stroke and this
-/// keeps the rows of everything else — fills, clips, and the strokes it answers `false` for —
-/// exactly as [`unsplittable_rows`] does. ADR 1819.
+/// width it strokes at and the composition it uses, so the backend answers it per stroke and this
+/// keeps the rows of everything else — clips, and the strokes it answers `false` for — exactly as
+/// [`unsplittable_rows`] does. ADR 1819.
 ///
-/// The stroke's clip chain and soft mask are counted whatever the answer: they are marks of their
+/// **A fill is the same question about the same converter**, and ADR 0139's geometric rule for it
+/// — a curve's rows and an oblique edge's — is the same statement about a clipping scan converter
+/// that the stroke rule was. So a fill that would forbid a row under that rule is asked too, as a
+/// [`PlannedFill`]; one already inside forbidden rows is not asked, because no answer could
+/// change them. ADR 1837.
+///
+/// A mark's clip chain and soft mask are counted whatever the answer: they are marks of their
 /// own, drawn by their own rules.
 #[must_use]
 pub fn unsplittable_rows_where(
     list: &DisplayList,
     target: TargetSpec,
-    row_local: &dyn Fn(PlannedStroke<'_>) -> bool,
+    row_local: &dyn Fn(PlannedMark<'_>) -> bool,
 ) -> Vec<bool> {
     let mut rows = vec![false; target.height as usize];
     let mut clips = HashSet::new();
@@ -238,16 +273,47 @@ pub fn unsplittable_rows_where(
         list,
         to_device: target.transform,
         row_local,
+        freed: None,
     };
     walk.segments(list.commands(), false, &mut rows, &mut clips);
     rows
+}
+
+/// [`unsplittable_rows_where`], and beside it the rows the fills it freed would have forbidden by
+/// ADR 0139's rule, from one walk of the list.
+///
+/// A freed row is a permission, and a division the cost estimate prefers through the freed rows
+/// can still be one a caller would rather not take — it replays the fills it cuts, or it makes
+/// fewer strips than the rows between the fills afford. The union of the two vectors is that
+/// second division's rows, and walking the list once for both keeps the planner's serial work
+/// where it was on the page that most needs the render divided (ADR 1837).
+#[must_use]
+pub fn unsplittable_rows_and_freed_fills(
+    list: &DisplayList,
+    target: TargetSpec,
+    row_local: &dyn Fn(PlannedMark<'_>) -> bool,
+) -> (Vec<bool>, Vec<bool>) {
+    let mut rows = vec![false; target.height as usize];
+    let mut clips = HashSet::new();
+    let walk = Walk {
+        list,
+        to_device: target.transform,
+        row_local,
+        freed: Some(RefCell::new(vec![false; target.height as usize])),
+    };
+    walk.segments(list.commands(), false, &mut rows, &mut clips);
+    let freed = walk.freed.map(RefCell::into_inner).unwrap_or_default();
+    (rows, freed)
 }
 
 /// What a walk of [`unsplittable_rows_where`] carries unchanged into every level of it.
 struct Walk<'a> {
     list: &'a DisplayList,
     to_device: Transform,
-    row_local: &'a dyn Fn(PlannedStroke<'_>) -> bool,
+    row_local: &'a dyn Fn(PlannedMark<'_>) -> bool,
+    /// Where the rows of the fills `row_local` frees are marked, for
+    /// [`unsplittable_rows_and_freed_fills`]; `None` where nobody asked.
+    freed: Option<RefCell<Vec<bool>>>,
 }
 
 impl Walk<'_> {
@@ -283,12 +349,30 @@ impl Walk<'_> {
     ) {
         let to_device = self.to_device;
         match command {
+            // A fill's curves and oblique edges, unless the backend draws it a row at a time:
+            // ADR 0139's rule is a statement about a converter that clips a path at the strip's
+            // edge, and the backend says which of its fills never meet one (ADR 1837). A fill
+            // inside rows already forbidden is not asked, because no answer could change them.
             Command::Fill {
                 path, transform, ..
             } => {
                 let at = transform.then(to_device);
-                if !settled(rows, path, at) {
+                if settled(rows, path, at) {
+                    return;
+                }
+                let planned = PlannedFill {
+                    path,
+                    at,
+                    extent: command.device_bounds(to_device),
+                    replaces,
+                };
+                if !(self.row_local)(PlannedMark::Fill(planned)) {
                     path.oblique_spans(at, |top, bottom| mark(rows, top, bottom));
+                } else if let Some(freed) = &self.freed {
+                    let mut freed = freed.borrow_mut();
+                    if !settled(&freed, path, at) {
+                        path.oblique_spans(at, |top, bottom| mark(&mut freed, top, bottom));
+                    }
                 }
             }
             // A stroke's whole extent unless the backend draws it a row at a time. Two reasons
@@ -313,7 +397,7 @@ impl Walk<'_> {
                     extent,
                     replaces,
                 };
-                if (self.row_local)(planned) {
+                if (self.row_local)(PlannedMark::Stroke(planned)) {
                     return;
                 }
                 if let Some(extent) = extent {
@@ -654,8 +738,8 @@ mod tests {
     use std::cell::Cell;
 
     use super::{
-        row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
-        unsplittable_rows_where,
+        PlannedMark, row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
+        unsplittable_rows_and_freed_fills, unsplittable_rows_where,
     };
     use crate::{
         BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rect,
@@ -772,18 +856,81 @@ mod tests {
         );
     }
 
-    /// A fill beside it keeps its own rows whatever the backend says of the stroke: the question
-    /// is asked of strokes and of nothing else.
+    /// A fill beside it keeps its own rows whatever the backend says of the stroke: each mark is
+    /// answered for itself.
     #[test]
     fn a_fill_keeps_its_rows_whatever_a_stroke_is_answered() {
         let mut list = DisplayList::new(Size::new(100.0, 100.0));
         list.push(frame());
         list.push(wedge(10.0, 40.0, 50.0));
 
-        let rows = unsplittable_rows_where(&list, target(100, 100), &|_| true);
+        let rows = unsplittable_rows_where(&list, target(100, 100), &|mark| {
+            matches!(mark, PlannedMark::Stroke(_))
+        });
         for (row, forbidden) in rows.iter().enumerate() {
             assert_eq!(*forbidden, (11..40).contains(&row), "row {row}");
         }
+    }
+
+    /// And a fill the backend draws a row at a time forbids nothing, while one it does not keeps
+    /// ADR 0139's rows exactly: the answer frees a fill and never moves the rule (ADR 1837).
+    #[test]
+    fn a_fill_forbids_its_oblique_rows_unless_its_backend_draws_it_by_rows() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(wedge(10.0, 40.0, 50.0));
+        let target = target(100, 100);
+
+        assert_eq!(
+            unsplittable_rows_where(&list, target, &|_| false),
+            unsplittable_rows(&list, target)
+        );
+        assert!(
+            unsplittable_rows_where(&list, target, &|mark| {
+                matches!(mark, PlannedMark::Fill(_))
+            })
+            .iter()
+            .all(|row| !*row)
+        );
+    }
+
+    /// The rows a freed fill would have forbidden are kept beside the rows, so that the two together
+    /// are ADR 0139's rows for fills exactly (ADR 1837).
+    #[test]
+    fn the_freed_fills_rows_and_the_rows_are_the_rule_for_fills_together() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(frame());
+        list.push(wedge(10.0, 40.0, 50.0));
+        list.push(wedge(60.0, 70.0, 50.0));
+        let target = target(100, 100);
+        let strokes_only = |mark: PlannedMark<'_>| matches!(mark, PlannedMark::Stroke(_));
+        let (rows, freed) = unsplittable_rows_and_freed_fills(&list, target, &|_| true);
+        assert!(rows.iter().all(|row| !*row));
+        let union: Vec<bool> = rows.iter().zip(&freed).map(|(a, b)| *a || *b).collect();
+        assert_eq!(union, unsplittable_rows_where(&list, target, &strokes_only));
+        assert_eq!(
+            unsplittable_rows_and_freed_fills(&list, target, &|_| false),
+            (unsplittable_rows(&list, target), vec![false; 100])
+        );
+    }
+
+    /// A fill whose rows are already forbidden is not asked, and the one asked is stated in the
+    /// target's pixels with the extent its command bounds.
+    #[test]
+    fn a_fill_inside_forbidden_rows_is_not_put_to_the_backend() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(wedge(10.0, 40.0, 50.0));
+        list.push(wedge(20.0, 30.0, 50.0));
+        let asked = Cell::new(0);
+        let extent = Cell::new(None);
+        let _ = unsplittable_rows_where(&list, target(100, 100), &|mark| {
+            if let PlannedMark::Fill(fill) = mark {
+                asked.set(asked.get() + 1);
+                extent.set(fill.extent);
+            }
+            false
+        });
+        assert_eq!(asked.get(), 1);
+        assert_eq!(extent.get(), Some(rect(10.0, 40.0, 50.0)));
     }
 
     /// An element of a knockout group is asked about as one that replaces what is below it,
@@ -804,8 +951,10 @@ mod tests {
                 blending: None,
             });
             let asked = Cell::new(None);
-            let _ = unsplittable_rows_where(&list, target(100, 100), &|stroke| {
-                asked.set(Some(stroke.replaces));
+            let _ = unsplittable_rows_where(&list, target(100, 100), &|mark| {
+                if let PlannedMark::Stroke(stroke) = mark {
+                    asked.set(Some(stroke.replaces));
+                }
                 true
             });
             assert_eq!(asked.get(), Some(knockout));

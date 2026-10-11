@@ -26,6 +26,8 @@ use crate::instrument::EncodeClock;
 pub(crate) struct Encoded {
     pub rect_instances: Vec<u8>,
     pub quad_instances: Vec<u8>,
+    /// The line lane's instances (ADR 0097).
+    pub line_instances: Vec<u8>,
     /// The page's own plan; child layers live in `layers`.
     pub root: LayerPlan,
     pub layers: Vec<LayerPlan>,
@@ -131,6 +133,7 @@ impl Encoded {
         [
             self.rect_instances.len() as u64,
             self.quad_instances.len() as u64,
+            self.line_instances.len() as u64,
             self.replay
                 .as_ref()
                 .map_or(0, super::ReplayList::retained_bytes),
@@ -219,6 +222,7 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
         replay,
         rect_instances: encoder.rect_instances,
         quad_instances: encoder.quad_instances,
+        line_instances: encoder.line_instances,
         root: encoder.root,
         layers: encoder.layers,
         mask_plans: encoder.mask_plans,

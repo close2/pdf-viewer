@@ -11,11 +11,11 @@
 //! is stated where the shape is.
 
 use crate::blend::{BlendMode, Compose, FillRule};
-use crate::geom::{Affine, Rect};
+use crate::geom::{Affine, Point, Rect};
 use crate::ids::ClipId;
 use crate::ids::{ImageId, MaskId, OutlineId};
 use crate::mask::{MaskKind, Transfer};
-use crate::paint::{Color, Paint, Stroke};
+use crate::paint::{Color, LineCap, Paint, Stroke};
 
 /// How an image's samples map to pixels for one placement — the caller's
 /// already-taken decision (brief section 4.5), never re-taken here.
@@ -257,6 +257,41 @@ pub enum Command {
         clip: Option<ClipId>,
         /// How the result combines with the backdrop (§11.3.5).
         blend: BlendMode,
+        /// Active soft mask, or `None`.
+        mask: Option<MaskId>,
+    },
+    /// Stroke one straight line segment with a solid colour under `BlendMode::Normal`
+    /// (ISO 32000-2 §8.4.3), holding no uploaded outline.
+    ///
+    /// The command a page's one-segment strokes are written as when nothing about them
+    /// needs a general outline: two points, a width and a cap. §8.4.3.3's cap is the
+    /// only shape decision a single open segment has — it has no join (§8.4.3.4 applies
+    /// where "consecutive segments of a path connect") and no dash (dashing is the
+    /// caller's, brief section 4.5) — so the mark is wholly stated by these fields, and
+    /// a device can compute its area in a pixel in closed form rather than upload,
+    /// flatten and expand an outline for it (`raster/doc/adr/0097`). A page drawn as
+    /// millions of such marks then holds millions of these and no outline at all.
+    ///
+    /// `from` and `to` must differ: a zero-length subpath is §8.5.3.2's degenerate
+    /// case, which the caller settles before a scene is built (brief section 4.5).
+    Line {
+        /// Where the segment starts, in the command's own space.
+        from: Point,
+        /// Where it ends, in the same space.
+        to: Point,
+        /// The command's absolute transform.
+        transform: Affine,
+        /// The width in the command's own space, resolved per placement exactly as
+        /// [`Stroke::width`] is (ADR 0085): zero is §8.4.3.2's thinnest line.
+        width: f32,
+        /// §10.7.5's automatic stroke adjustment, as [`Stroke::adjust`].
+        adjust: bool,
+        /// How both open ends are finished (§8.4.3.3).
+        cap: LineCap,
+        /// Solid device-RGB colour with straight alpha.
+        color: Color,
+        /// Active clip, or `None` for unclipped.
+        clip: Option<ClipId>,
         /// Active soft mask, or `None`.
         mask: Option<MaskId>,
     },

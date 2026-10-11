@@ -70,6 +70,7 @@ pub(crate) struct Executor<'a> {
     /// Lane instance buffers.
     pub rect_buffer: Option<wgpu::Buffer>,
     pub quad_buffer: Option<wgpu::Buffer>,
+    pub line_buffer: Option<wgpu::Buffer>,
     /// Lane bind groups per mask index (`None` key = no mask), built lazily.
     pub lane_binds: HashMap<Option<u32>, wgpu::BindGroup>,
     pub scratch_view: Option<wgpu::TextureView>,

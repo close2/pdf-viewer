@@ -43,6 +43,7 @@ pub mod shading;
 pub mod soft_mask;
 pub mod strips;
 pub mod sub_pixel;
+pub mod thin_segment;
 pub mod transfer_channel;
 
 pub use backend::{
@@ -91,13 +92,17 @@ pub use shading::{
 };
 pub use soft_mask::{BlackHalf, Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{
-    PlannedStroke, command_extents, replay_ratio, row_costs, strip_boundaries,
-    strip_boundaries_avoiding, unsplittable_rows, unsplittable_rows_where,
+    PlannedFill, PlannedMark, PlannedStroke, command_extents, replay_ratio, row_costs,
+    strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
+    unsplittable_rows_and_freed_fills, unsplittable_rows_where,
 };
 pub use sub_pixel::{
     EnlargedMark, PointMark, SubPixelBand, band_substitute_width, enlarged_mark, enlarged_mark_at,
     expressible_coverage, marks_in_their_pixels, only_flat_subpaths, pixel_containing, point_mark,
     sub_pixel_bands, sub_pixel_caps, substitute_width, substitute_width_across, unmeasurable_width,
+};
+pub use thin_segment::{
+    InkBox, PixelBlock, THIN_SEGMENT_BLOCK, ThinSegment, disc_in_triangle, thin_segment,
 };
 pub use transfer_channel::{
     TransferBuilder, TransferChannel, TransferMap, TransferRun, resolve_transfers, shape_of,

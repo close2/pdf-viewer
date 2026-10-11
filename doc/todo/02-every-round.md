@@ -113,7 +113,11 @@ its `tools/state.sh --round <session> <section>` runs it: under the wrapper, in 
 declares, with the sandbox worker it spawns built for its own profile as the wrapper's `--build`
 inside the hold — Cargo does not build another package's binary for a test (trap 10), and a build
 before the lock is as old as the moment the walk stopped queueing (trap 109, ADR 1710). The block's
-first line is that shape; the lines after it are what goes after its `--`.
+first line is that shape; the lines after it are what goes after its `--`. At the merge,
+`tools/batch.sh gates` runs every line of this block and of tier 3, after building the two programs
+a gate spawns from another package, **except `launch_path`, which it does not run**: that line is
+the round's whose change reaches the launch path, as `tools/state.sh launch`. A line whose verdict
+is a time runs as a `--clock`, and `tools/batch.sh`'s `clock_gates` names which.
 
 ```sh
 ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree <6|12> --build '--profile gates -p pdf-sandbox --bins' (or `--release`, as the line's profile is) -- <the line>
@@ -235,7 +239,8 @@ run in a batch owes no such sequence: the merge runs all three tiers on every ba
 the map five times as often as the fifth-round rule did, and six rounds each owing a twenty-five
 minute walk the merge then repeats is the duplicated work ADR 1638 retires.
 
-**5. A merge runs everything, always — all three tiers**, and the paragraph below the table is not
+**5. A merge runs everything, always — all three tiers, but tier 2's `launch_path`, which
+`tools/batch.sh gates` does not run** — and the paragraph below the table is not
 relaxed by any of this. This rule is what makes tier 3's demotion safe rather than a hole: every
 walk still runs over every change, once per batch on `main`, which is where its catches have
 actually happened.
@@ -412,8 +417,8 @@ list it had read rather than the list it left:
   `corpus-cache/` is machine-local, and it **fails rather than passing quietly** when none of them
   is there.
 
-- **The `launch_path` line is `CLAUDE.md` principle 2's, and it is the one line here that is
-  `--release`.** That principle names four numbers — cold open, time-to-first-page, page-turn
+- **The `launch_path` line is `CLAUDE.md` principle 2's, and it is `--release`, as `turn_path`
+  and the raster examples are.** That principle names four numbers — cold open, time-to-first-page, page-turn
   latency, memory high-water — makes cold graphics bring-up a fifth gate of its own, and this line is the
   command that prints them. `crates/viewer-ui/tests/launch_path.rs` is the harness, `doc/checks/launch-path.toml`
   holds a band on each figure, and ADR 0884 is why a wall-clock gate can be believed here at all:

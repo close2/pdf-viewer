@@ -581,7 +581,11 @@ see a stated count — the transform's `verbs.rs` tests passed with one side uns
 page frame was drawn by `tiny-skia` on the whole page and by `area` inside a strip, and the same
 mark came out of two converters on either side of a cut (round 1491, ADR 1819). A converter is
 chosen from the mark and the device transform alone, never from the target's extent, and a tall
-region is measured a run of rows at a time; `tests/stroke_cuts.rs` holds the frame to it.
+region is measured a run of rows at a time; `tests/stroke_cuts.rs` holds the frame to it. The same
+holds for any decision taken from the rows a converter was given: `area` judged whether a mark
+overlaps itself from its surface's rows, so a glyph cut by a strip was measured one way beside the
+cut and another on the whole page, 36 levels on `bug1820909.1.pdf` (round 1500, ADR 1837) — the
+suspicion is taken over the whole mark, and the division test is planted back to check.
 
 ## Things worth knowing
 

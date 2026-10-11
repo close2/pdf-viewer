@@ -383,10 +383,12 @@ fn compare(
                 },
             );
             println!(
-                "    drawn in {device_ms:.0} ms: {} commands encoded, {} culled, {} bytes uploaded; \
-                 {differ} of {} bytes differ from the oracle, by up to {most} levels; {verdict}",
+                "    drawn in {device_ms:.0} ms: {} commands encoded, {} culled, {} resources and \
+                 {} bytes uploaded; {differ} of {} bytes differ from the oracle, by up to {most} \
+                 levels; {verdict}",
                 cost.commands,
                 cost.commands_culled,
+                cost.uploads,
                 cost.bytes_uploaded,
                 oracle.data.len()
             );

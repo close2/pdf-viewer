@@ -387,6 +387,7 @@ fn main() {
         caption: String::new(),
         still_drawing: None,
         on_the_processor: None,
+        drawn_so_far: None,
         measuring: viewer_host::Measuring::default(),
         measured: String::new(),
         requests: Vec::new(),

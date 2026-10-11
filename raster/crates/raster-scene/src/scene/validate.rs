@@ -24,7 +24,7 @@ use crate::blend::{BlendMode, Compose};
 use crate::error::{
     GroupComposeReason, NonIsolatedReason, OverprintComposeReason, SceneError, StagedComposeReason,
 };
-use crate::geom::{Affine, Rect};
+use crate::geom::{Affine, Point, Rect};
 use crate::ids::{ClipId, MaskId};
 use crate::mask::MaskKind;
 use crate::paint::{Color, Paint, Stroke};
@@ -116,6 +116,22 @@ impl SceneBuilder {
             Ok(())
         } else {
             Err(SceneError::InvalidStroke(stroke))
+        }
+    }
+
+    /// A line's two points and its width: finite, inside [`MAX_COORDINATE`], distinct, and a
+    /// width that [`Stroke::is_valid`] would accept. Equal points are refused rather than
+    /// drawn, because what a zero-length subpath marks is §8.5.3.2's question and the
+    /// caller's to answer (brief section 4.5) — a line has no direction to put a square
+    /// cap along.
+    pub(super) fn check_line(from: Point, to: Point, width: f32) -> Result<(), SceneError> {
+        let inside =
+            |p: Point| p.is_finite() && p.x.abs() <= MAX_COORDINATE && p.y.abs() <= MAX_COORDINATE;
+        let width_valid = width.is_finite() && (0.0..=MAX_COORDINATE).contains(&width);
+        if inside(from) && inside(to) && from != to && width_valid {
+            Ok(())
+        } else {
+            Err(SceneError::InvalidLine { from, to, width })
         }
     }
 

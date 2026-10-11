@@ -3461,16 +3461,19 @@ PY
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
-# page_as_built_heavy: `HEAVY_FILE` in a toolkit window, with the window's stamps on the first picture
-# of the page in flight and on the finished page, and whether that first picture held ink — figures
-# `built<TAB>window<TAB>figure<TAB>value<TAB>unit` in `$OUT/built.tsv`. Outside the list, because its
+# page_as_built_heavy: `HEAVY_FILE` in a toolkit window or in `quorra`, with the window's stamps on
+# the first picture of the page in flight and on the finished page, and whether that first picture
+# held ink — figures `built<TAB>window<TAB>figure<TAB>value<TAB>unit` in `$OUT/built.tsv`. `quorra`
+# shows the page as it is built where the processor draws it, refused by the device or predicted
+# the faster lane (ADR 1831); its finished page is its launch summary. Outside the list, because its
 # verdict is a time.
 page_as_built_heavy() {
-    local step=81-page-as-built-heavy shown framed inked=no
-    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
-        verdict "$step" "not offered" "this window does not draw through viewer_host::Drawing"
+    local step=81-page-as-built-heavy shown framed inked=no finished='first frame on the screen'
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "this window draws in its worker or from crossed marks, and neither shows a page as it is built"
         return
     fi
+    [ "$WINDOW" = quorra ] && finished='launch path, process start to first present'
     [ -r "$HEAVY_FILE" ] || { verdict "$step" "not offered" "no readable HEAVY_FILE at $HEAVY_FILE"; return; }
     [ -n "$APP" ] && { kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; }
     LOG="$OUT/$WINDOW.built.log"
@@ -3480,14 +3483,14 @@ page_as_built_heavy() {
         env -u RAYON_NUM_THREADS "$BIN/$WINDOW" --trace=events,launch,frames "$HEAVY_FILE" > "$LOG" 2>&1 &
     fi
     APP=$!
-    if wait_for "$HEAVY_CEILING" said_since 0 "shown as it stands\|first frame on the screen"; then
-        if [ "$(said 'first frame on the screen')" -eq 0 ] && drawn_on_the_shot "$step-built"; then
+    if wait_for "$HEAVY_CEILING" said_since 0 "shown as it stands\\|$finished"; then
+        if [ "$(said "$finished")" -eq 0 ] && drawn_on_the_shot "$step-built"; then
             inked=yes
         fi
     fi
     wait_for "$HEAVY_CEILING" first_frame
     shown=$(grep -m1 'shown as it stands' "$LOG" | awk '{print $2}')
-    framed=$(grep -m1 'first frame on the screen' "$LOG" | awk '{print $2}')
+    framed=$(grep -m1 "$finished" "$LOG" | awk '{print $2}')
     printf 'built\t%s\t%s\t%s\t%s\n' "$WINDOW" first-shown "${shown:-never}" s "$WINDOW" first-frame "${framed:-never}" s \
         "$WINDOW" read "$(grep -m1 -E '^trace: +[0-9.]+ document joined' "$LOG" | awk '{print $2}')" s \
         "$WINDOW" first-shown-inked "$inked" - | tee -a "$OUT/built.tsv"

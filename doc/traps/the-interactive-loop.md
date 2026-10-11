@@ -395,3 +395,12 @@ asked again after every fallback frame and the whole-page picture retried for ev
 ADR 1821). A frame's cost is the whole frame's, the fallback included, and every prediction
 downstream reads that figure; a refusal that is a fact about the frame is remembered by the pages
 and the zoom level, and the device is not asked again for it.
+
+### 148. A flag for another thread's idle work is raised after the job is sent, and the work is routed by where the frame went
+
+Two mistakes in round 1497's exploratory runs each put an uninterruptible device whole-page draw of
+several seconds in front of a zoom notch: an interrupt flag handed to the render thread's idle work
+was raised before the job carrying it had been sent, so nobody saw it; and the idle work was routed by
+whether the frame's draw had begun rather than by which lane the frame had been sent to, so a frame
+sent to the processor still started the device's whole-page picture (ADR 1831). The flag is raised
+after the send, and idle work follows the frame's lane.

@@ -316,6 +316,7 @@ impl<'a> Lexer<'a> {
     /// A comment runs from `%` to the next end of line. This is folded in with whitespace
     /// because the specification permits a comment anywhere whitespace is allowed, so
     /// every caller that skips one must skip the other.
+    #[inline]
     pub fn skip_whitespace(&mut self) {
         while let Some(byte) = self.peek() {
             if is_whitespace(byte) {
@@ -338,13 +339,45 @@ impl<'a> Lexer<'a> {
     /// Unrecognised bytes are consumed as a keyword rather than raising an error, so the
     /// parser sees `Keyword` and decides. That keeps recovery policy in one place instead
     /// of spread between lexer and parser.
+    ///
+    /// **Two kinds of token are read in this body and every other in [`Self::next_token_at`]**,
+    /// and the split is a measurement, not a second grammar. A number §7.3.3's fixed format
+    /// reads whole and a keyword are what a content stream is made of — 76.9 million of the
+    /// 78.2 million tokens on the owner's `demo_heavy_engineering_A1.pdf` — and each is the
+    /// first thing [`Self::next_token_at`]'s own match would have done with its first byte:
+    /// a byte that may begin a number goes to the same [`Self::fixed_format_token`] that
+    /// [`Self::read_number`] asks first, and a regular byte that cannot begin one is that
+    /// match's last arm. Anything else, and a number the fixed format declines, takes the
+    /// match unchanged. What the split buys is a body of 730 bytes where the whole match, with
+    /// its strings and names, was 4 095, on the path almost every token takes. On the witness it
+    /// took lexing from 15.33 G to 14.39 G instructions (callgrind, one thread) and the page's
+    /// interpretation from 2.180 s to 2.153 s (pinned, the minimum of three interleaved runs).
+    /// Inlining the content reader's wrapper into its loop as well cut another 1.09 G and cost
+    /// 0.41 s, so it is not done (ADR 1833).
+    #[inline]
     pub fn next_token(&mut self) -> Option<Token<'a>> {
         // Cleared before anything is read, so that the answer to [`Self::salvaged`] is always
         // about the token this call returns and never about an earlier one.
         self.salvage = None;
         self.skip_whitespace();
         let byte = self.peek()?;
+        if matches!(byte, b'+' | b'-' | b'.' | b'0'..=b'9') {
+            if let Some(token) = self.fixed_format_token() {
+                return Some(token);
+            }
+        } else if is_regular(byte) {
+            return Some(Token::Keyword(self.read_regular_run()));
+        }
+        self.next_token_at(byte)
+    }
 
+    /// [`Self::next_token`] for every token but the two its own body reads, from the token's
+    /// first byte.
+    ///
+    /// Out of line so that the reads that allocate — a name, a string — and the delimiters
+    /// stay out of the body every token runs; see [`Self::next_token`].
+    #[inline(never)]
+    fn next_token_at(&mut self, byte: u8) -> Option<Token<'a>> {
         match byte {
             b'[' => {
                 self.position = self.position.saturating_add(1);
@@ -422,6 +455,24 @@ impl<'a> Lexer<'a> {
             self.position = self.position.saturating_add(1);
         }
         self.input.get(start..self.position).unwrap_or_default()
+    }
+
+    /// The number at the cursor where §7.3.3's fixed format reads the whole token, and nothing
+    /// otherwise: [`fixed_format_number`] read off the cursor, standing only where the byte it
+    /// stopped at also ends the token. [`Self::read_number`] explains the condition, and both
+    /// [`Self::next_token`] and it ask this one statement of it.
+    #[inline]
+    fn fixed_format_token(&mut self) -> Option<Token<'a>> {
+        let rest = self.input.get(self.position..).unwrap_or_default();
+        let (value, taken) = fixed_format_number(rest)?;
+        if rest.get(taken).copied().is_some_and(is_regular) {
+            return None;
+        }
+        self.position = self.position.saturating_add(taken);
+        Some(match value {
+            Fixed::Integer(value) => Token::Integer(value),
+            Fixed::Real(value) => Token::Real(value),
+        })
     }
 
     /// Reads a name body, resolving `#xx` escapes.
@@ -630,15 +681,8 @@ impl<'a> Lexer<'a> {
         // answer is thrown away and the slower path below owns the run exactly as it always
         // did. A delimiter or white space, or the end of the input, means the run is over
         // and the parse stands.
-        let rest = self.input.get(self.position..).unwrap_or_default();
-        if let Some((value, taken)) = fixed_format_number(rest)
-            && !rest.get(taken).copied().is_some_and(is_regular)
-        {
-            self.position = self.position.saturating_add(taken);
-            return match value {
-                Fixed::Integer(value) => Token::Integer(value),
-                Fixed::Real(value) => Token::Real(value),
-            };
+        if let Some(token) = self.fixed_format_token() {
+            return token;
         }
 
         let raw = self.read_regular_run();

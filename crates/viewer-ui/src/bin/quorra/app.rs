@@ -227,6 +227,10 @@ pub(crate) struct App {
     /// it goes where [`Self::still_drawing`] goes, the title, and is written only when the answer
     /// changes — a page the device refuses once is one sentence, not one per frame (ADR 1466).
     pub(crate) on_the_processor: Option<String>,
+    /// The bar of how much of the frame in flight the processor has drawn, or nothing — ADR 1811's
+    /// bar carrying the draw's share once the read is over (ADR 1831), in the title for
+    /// [`Self::still_drawing`]'s reason. Written only when the bar changes.
+    pub(crate) drawn_so_far: Option<String>,
     /// §12.9's measuring: whether a press is a point, and the points put down so far.
     ///
     /// `viewer_host::Measuring` is shared with the two native windows — when a press is a point,
@@ -1027,6 +1031,10 @@ impl App {
             .as_ref()
             .or(self.loading.as_ref())
             .map_or_else(String::new, |said| format!(" — {said}"));
+        if let Some(bar) = &self.drawn_so_far {
+            drawing.push_str(" — ");
+            drawing.push_str(bar);
+        }
         if let Some(said) = &self.on_the_processor {
             drawing.push_str(" — ");
             drawing.push_str(said);
@@ -1068,6 +1076,39 @@ impl App {
         };
         println!("note: {said}");
         self.still_drawing = overlong.then_some(said);
+        self.retitle();
+    }
+
+    /// Puts how much of the frame in flight the processor has drawn in the title, and takes it back
+    /// when the frame lands (ADR 1831).
+    ///
+    /// The cells and their two glyphs are `viewer_host::loading::bar`'s, so that the read's bar and
+    /// the draw's look like one bar that has moved on; the share is a fraction of the arrangement's
+    /// commands weighted by the rows each strip owns (`viewer_ui::software::Assembly::fraction`),
+    /// where the read's is a fraction of the page's stream (ADR 1811), and the words say which.
+    pub(crate) fn mind_the_share(&mut self, fraction: Option<f64>) {
+        let bar = fraction.map(|fraction| {
+            let fraction = fraction.clamp(0.0, 1.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss,
+                reason = "a share in [0, 1] of a few dozen cells, and of a hundred"
+            )]
+            let (full, percent) = (
+                ((fraction * DRAWN_CELLS as f64).round() as usize).min(DRAWN_CELLS),
+                (fraction * 100.0).floor() as u32,
+            );
+            format!(
+                "{}{} {percent} % of the page drawn",
+                "\u{2588}".repeat(full),
+                "\u{2591}".repeat(DRAWN_CELLS.saturating_sub(full)),
+            )
+        });
+        if bar == self.drawn_so_far {
+            return;
+        }
+        self.drawn_so_far = bar;
         self.retitle();
     }
 
@@ -1342,3 +1383,7 @@ impl App {
 pub(crate) fn at(cursor: (f64, f64)) -> (f32, f32) {
     (cursor.0 as f32, cursor.1 as f32)
 }
+
+/// How many characters the title's bar of a draw is — the opening's twenty (`window.rs`'s
+/// `BAR_CELLS`), so that the two read as one bar.
+const DRAWN_CELLS: usize = 20;

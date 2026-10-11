@@ -9,6 +9,13 @@ clause a capability came from. **Not read to run a gate or to take a decision**,
 **It carries no counts.** `tools/state.sh` prints those; a population named here is named because
 a *claim* rests on which population it is (ADR 0405), never as bookkeeping.
 
+**The project owner's current target, stated on 2026-10-10, is performance**: loading and display
+time, zooming in and out especially, on the processor and on the graphics device alike, with a
+step back each batch by first principles and by how other programs do it. That is the one
+sentence in this file that is not a capability; what has been built toward it is said below
+where it was built, and what is chosen and not yet built is [todo 69](todo/69-a-mark-sized-before-it-becomes-geometry.md)
+(ADR 1817).
+
 `doc/HANDOVER.md`'s reading table is the pointer to this file. What the program still owes is
 [`doc/todo/README.md`](todo/README.md), one file per item.
 
@@ -56,7 +63,7 @@ for a page's font and an interface's label alike (ADR 1441). **Three rasterisers
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any straight stroke it draws
-that way, and a tall mark is measured in runs of rows rather than handed back (ADR 1819) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -80,7 +87,8 @@ two still differ on held by name to a bound measured against a per-pixel referen
 geometry (ADR 1435), an isolated group that composites in a blending colour space of its own drawn
 as a frame of its own on the same device and placed back as device pixels, which §11.4.5 makes
 exact (ADR 1471), and a target past the adapter's side limit drawn in tiles and stitched (ADR
-1472) — its strokes, fills, clips and images each drawn as the set the clause defines rather
+1472), a frame's budget being the largest buffer the adapter can make rather than a fixed figure
+(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835) — its strokes, fills, clips and images each drawn as the set the clause defines rather
 than as a sample of it, a clip meeting a mark's coverage as §10.7.4's intersection, and every
 frame the same bytes at every thread count, which the corpus gate holds by drawing each page again
 at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each construction (ADRs
@@ -88,11 +96,13 @@ at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each co
 1468, 1479, 1480, 1491, 1492, 1503, 1505, 1513, 1517, 1529, 1541, 1555, 1567, 1582, 1594, 1595). **A shading end
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
 backend rather than a fade squeezed inside the ramp, and within half a texel of Vello's fixed ramp (ADR 1387). A content stream that re-enters
-itself at the nesting bound is reported as the cycle it is, by the stream it re-entered; the list a
-page's interpretation builds is bounded in bytes as well as in operators, its commands, dashes and
-clips charged as they are made, so a page whose tiling copies multiply its clips stops with a
-report rather than past the worker's memory, and the bound is a count rather than a clock, so the
-prefix drawn is a function of the file alone (ADR 1507); text shown before any `Tf`, which §9.3.1
+itself at the nesting bound is reported as the cycle it is, by the stream it re-entered; what a
+page's interpretation keeps is bounded in bytes — its commands, dashes, clips and painted
+paths charged as they are made, the text it reads back as it is copied — so a page whose tiling
+copies multiply its clips stops with a report rather than past the worker's memory, and the bound
+is a count of bytes rather than a clock, so the prefix drawn is a function of the file alone (ADRs
+1507, 1810); no count of operators refuses a page, so a valid drawing of tens of millions of
+operators is drawn whole and a page that is only slow is the person's to stop (ADR 1809); text shown before any `Tf`, which §9.3.1
 says shall come first, reads none of its strings, each stepped over by §7.3.4's own
 grammar, and a report a page repeats is one lookup rather than a sentence built again (ADR 1521);
 and a font
@@ -669,7 +679,7 @@ half a second the drawing thread is asked for the page so far four times a secon
 order, and the bar carries how much is drawn until the page lands (ADR 1825). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
 magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
-`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821). **The
+`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device, and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; whether page one may go to the processor where it is the faster lane is `doc/questions/Q393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, `/FitWindow`

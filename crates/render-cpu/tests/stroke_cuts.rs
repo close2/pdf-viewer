@@ -22,6 +22,13 @@
 //! measured in runs of rows on the whole page and in fewer in a strip. That is the case which drew
 //! one mark through two converters before a region's height stopped deciding the converter, and it
 //! is why the scene is that large.
+//!
+//! **A fill is asked the same question** (ADR 1837): ADR 0139 forbade a fill's curves and oblique
+//! edges for the same reason it forbade a stroke's extent, and the same converter draws both. So
+//! two scenes of fills are held the same way — discs and diamonds stacked so that every row of the
+//! page crosses one, which the old rule left as one strip — and a page of a few large discs is held
+//! to the planner's other half: a cut the freed rows permit but that replays too much gives way to
+//! the cuts between the fills, never to one strip.
 
 #![expect(
     clippy::expect_used,
@@ -164,6 +171,99 @@ fn hatching() -> DisplayList {
     list
 }
 
+/// A filled path through `points`, closed.
+fn polygon(points: &[(f32, f32)]) -> Command {
+    let mut path = Path::new();
+    for (index, (x, y)) in points.iter().enumerate() {
+        let point = Point::new(*x, *y);
+        path.push(if index == 0 {
+            PathCommand::MoveTo(point)
+        } else {
+            PathCommand::LineTo(point)
+        });
+    }
+    path.push(PathCommand::Close);
+    filled(path)
+}
+
+/// A filled disc of radius `r` about `(x, y)`, as four cubics — the curves a glyph is made of.
+fn disc(x: f32, y: f32, r: f32) -> Command {
+    // The usual four-arc approximation's control distance, 4/3 · (√2 − 1).
+    let k = 0.552_284_8 * r;
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(x + r, y)));
+    path.push(PathCommand::CurveTo(
+        Point::new(x + r, y + k),
+        Point::new(x + k, y + r),
+        Point::new(x, y + r),
+    ));
+    path.push(PathCommand::CurveTo(
+        Point::new(x - k, y + r),
+        Point::new(x - r, y + k),
+        Point::new(x - r, y),
+    ));
+    path.push(PathCommand::CurveTo(
+        Point::new(x - r, y - k),
+        Point::new(x - k, y - r),
+        Point::new(x, y - r),
+    ));
+    path.push(PathCommand::CurveTo(
+        Point::new(x + k, y - r),
+        Point::new(x + r, y - k),
+        Point::new(x + r, y),
+    ));
+    path.push(PathCommand::Close);
+    filled(path)
+}
+
+/// A solid black fill of `path` under the non-zero rule.
+fn filled(path: Path) -> Command {
+    Command::Fill {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        fill_rule: pdf_render::FillRule::NonZero,
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    }
+}
+
+/// Discs in staggered columns, each column's discs overlapping the next column's rows, so every
+/// row of the page crosses a curve — a page of glyphs with no gap between its lines.
+fn discs() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(600.0, 900.0));
+    for column in 0..12 {
+        for row in 0..45 {
+            let stagger = if column % 2 == 0 { 0.0 } else { 10.125 };
+            let (x, y) = (
+                25.5 + 48.25 * column as f32,
+                10.75 + 19.5 * row as f32 + stagger,
+            );
+            list.push(disc(x, y, 6.0 + 0.25 * (row % 5) as f32));
+        }
+    }
+    list
+}
+
+/// Diamonds at dyadic coordinates, stacked so that every row crosses an oblique edge — their side
+/// vertices off the device's whole rows, where ADR 0139's rule would leave a cut legal.
+fn diamonds() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(600.0, 900.0));
+    for column in 0..10 {
+        for row in 0..36 {
+            let (x, y) = (30.5 + 56.0 * column as f32, 4.25 + 24.75 * row as f32);
+            list.push(polygon(&[
+                (x, y),
+                (x + 12.5, y + 13.125),
+                (x, y + 26.5),
+                (x - 6.25, y + 13.125),
+            ]));
+        }
+    }
+    list
+}
+
 /// Scenes whose outlines are horizontal and vertical edges at dyadic coordinates only, so a strip's
 /// shifted origin cannot move a pixel and the cut is the only thing compared.
 fn exact_scenes() -> [(&'static str, DisplayList, f32); 2] {
@@ -176,10 +276,12 @@ fn exact_scenes() -> [(&'static str, DisplayList, f32); 2] {
 /// Scenes with round caps, round joins and oblique edges, whose outlines are not dyadic: here a
 /// strip's shifted origin moves pixels whether or not a cut crosses the mark (ADR 0219), and what
 /// is held is ADR 1758's bound for one coverage.
-fn bounded_scenes() -> [(&'static str, DisplayList, f32); 2] {
+fn bounded_scenes() -> [(&'static str, DisplayList, f32); 4] {
     [
         ("round grid", grid(drawing_pen), 2.0),
         ("hatching", hatching(), 2.0),
+        ("discs", discs(), 2.0),
+        ("diamonds", diamonds(), 2.0),
     ]
 }
 
@@ -275,4 +377,39 @@ fn a_round_or_oblique_stroke_cut_by_a_strip_stays_inside_the_division_bound() {
             );
         }
     }
+}
+
+/// A page of a few large discs one above the other: every cut the freed rows permit runs through a
+/// disc and replays it, so the planner's replay bound refuses each count those cuts make, and the
+/// page is cut in the gaps between the discs instead — the division ADR 0139's rule for fills made
+/// — rather than drawn as one strip (ADR 1837).
+#[test]
+fn a_page_of_a_few_large_fills_is_cut_between_them_rather_than_not_at_all() {
+    let mut list = DisplayList::new(Size::new(300.0, 1500.0));
+    for row in 0..6 {
+        list.push(disc(150.0, 125.0 + 250.0 * row as f32, 100.0));
+    }
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("a valid target");
+    let extents = pdf_render::command_extents(&list, target);
+    let costs = pdf_render::row_costs(&extents, target);
+    let freed = pdf_render::unsplittable_rows_where(&list, target, &|_| true);
+    let through = pdf_render::strip_boundaries_avoiding(&costs, &freed, 16, 64);
+    assert!(
+        pdf_render::replay_ratio(&extents, &through) > 1.25,
+        "the freed cuts replay little, so the page does not exercise the fallback"
+    );
+    let plan = CpuRasterizer::new()
+        .with_strips(16)
+        .strip_plan(&list, target);
+    assert_eq!(plan.len(), 7, "six discs, five gaps between them: {plan:?}");
+    assert!(pdf_render::replay_ratio(&extents, &plan) <= 1.25);
+    // The cuts cross no mark, so what may move is ADR 0219's shifted origin on the discs' chords
+    // alone, and ADR 1758's bound for one coverage holds it.
+    let whole = drawn(&list, target, 1);
+    let pixels = (target.width as usize) * (target.height as usize);
+    let (moved, worst, first) = difference(&whole, &drawn(&list, target, 16), target.width);
+    assert!(
+        worst <= 1 && moved * 1000 < pixels,
+        "{moved} of {pixels} pixels differ by up to {worst}, the first at {first:?}"
+    );
 }

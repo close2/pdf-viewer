@@ -211,20 +211,21 @@ impl std::fmt::Display for CoverageSheet {
 /// **Marks, not commands.** A group is a command that draws none of its own, a culled
 /// command draws none at all ([`Counters::commands_culled`]), a command inside a group is
 /// counted where it draws, and a clip residue is coverage no command asked for by name.
-/// So these four sum to the marks the frame put on a target — at most
+/// So these five sum to the marks the frame put on a target — at most
 /// [`Counters::commands`], and on a real page usually fewer.
 ///
 /// **Counts, never a rate.** The share is the reader's arithmetic and depends on which
 /// denominator the question wants; a ratio computed here would fix that choice for
 /// everybody.
 ///
-/// # Why four lanes, where brief section 1.1's table names five
+/// # Why these lanes, where brief section 1.1's table names others
 ///
 /// The plan's table sorts by *what a command is*. The encoder sorts by **how a mark's
 /// coverage is made**, which is the thing that costs, and the two part company on one
 /// entry: a mesh — like every other non-solid paint — is a *paint* over a quad whose
 /// coverage came from the rectangle lane or the path lane, so it is counted in whichever
-/// of those two made it. There is no fifth coverage mechanism for it to have.
+/// of those two made it. The line lane is a coverage mechanism of its own (ADR 0097): a
+/// closed form in the shader, as the rectangle's is, for a shape with round ends.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LaneCounts {
     /// Marks drawn with **analytic** coverage evaluated in the fragment shader: an
@@ -235,6 +236,10 @@ pub struct LaneCounts {
     /// The lane that allocates no coverage memory at all, which is why section 6.4 of the brief
     /// is blunt that a rectangular clip must never become a mask texture.
     pub rectangle: u32,
+    /// One-segment strokes drawn with their exact area computed in the fragment shader
+    /// (`Command::Line`, ADR 0097): a band along a device axis with ISO 32000-2 §8.4.3.3's
+    /// ends, inside a rectangular clip — no outline, no edge and no sheet tile behind it.
+    pub line: u32,
     /// Marks drawn as one quad over a tile of the persistent R8 glyph atlas (ADR 0008,
     /// ADR 0009) — the lane brief section 1.1 calls the dominant case.
     ///

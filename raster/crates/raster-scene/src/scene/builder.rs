@@ -16,11 +16,11 @@ use super::frames::{Knockout, OpenFrame};
 use super::{ClipDef, Command, GroupSpec, MaskDef, Scene, SceneData, cost};
 use crate::blend::{BlendMode, Compose, FillRule};
 use crate::error::SceneError;
-use crate::geom::{Affine, Rect};
+use crate::geom::{Affine, Point, Rect};
 use crate::ids::ClipId;
 use crate::ids::{ImageId, MaskId, OutlineId};
 use crate::mask::{MaskKind, Transfer};
-use crate::paint::{Color, Paint, Stroke};
+use crate::paint::{Color, LineCap, Paint, Stroke};
 use crate::scene::ImageFilter;
 
 /// Builds a [`Scene`], validating every input at this boundary (brief section 4.7).
@@ -160,6 +160,45 @@ impl SceneBuilder {
             paint,
             clip,
             blend,
+            mask,
+        });
+        Ok(())
+    }
+
+    /// Append one straight segment stroked in a solid colour under `BlendMode::Normal`,
+    /// with no outline behind it ([`Command::Line`]).
+    ///
+    /// # Errors
+    ///
+    /// Refuses an invalid transform, colour or line ([`SceneError::InvalidLine`]: points
+    /// not finite, beyond the bound or equal, or a width a [`Stroke`] would refuse), and
+    /// clip or mask identifiers this scene never allocated.
+    // One command's fields, as `stroke`'s are: the call stays one line per mark.
+    #[expect(clippy::too_many_arguments)]
+    pub fn line(
+        &mut self,
+        (from, to): (Point, Point),
+        transform: Affine,
+        (width, adjust): (f32, bool),
+        cap: LineCap,
+        color: Color,
+        clip: Option<ClipId>,
+        mask: Option<MaskId>,
+    ) -> Result<(), SceneError> {
+        Self::check_transform(transform)?;
+        Self::check_line(from, to, width)?;
+        Self::check_color(color)?;
+        self.check_clip(clip)?;
+        self.check_mask(mask)?;
+        self.push(Command::Line {
+            from,
+            to,
+            transform,
+            width,
+            adjust,
+            cap,
+            color,
+            clip,
             mask,
         });
         Ok(())

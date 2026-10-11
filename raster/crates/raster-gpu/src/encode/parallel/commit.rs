@@ -279,6 +279,11 @@ impl<'a> Encoder<'a> {
                 self.write_rect_instance(*rect, job.draw.color, job.draw.style, job.draw.mask);
                 Ok(())
             }
+            Place::Line { line } => {
+                self.drain_queue()?;
+                self.write_line_instance(line, job.draw.color, job.draw.style, job.draw.mask);
+                Ok(())
+            }
             Place::Compute {
                 outline,
                 to_device,

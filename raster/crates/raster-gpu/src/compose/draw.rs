@@ -260,11 +260,9 @@ impl Executor<'_> {
                     continue;
                 }
             };
-            let buffer = match batch.kind {
-                BatchKind::Rect => self.rect_buffer.as_ref(),
-                BatchKind::Quad => self.quad_buffer.as_ref(),
+            let Some(buffer) = self.instances(batch.kind) else {
+                continue;
             };
-            let Some(buffer) = buffer else { continue };
             let bind = &self.lane_binds[&batch.mask];
             let family = batch_family(batch.kind);
             let draw =
@@ -439,6 +437,17 @@ impl Executor<'_> {
     }
 }
 
+impl Executor<'_> {
+    /// The instance buffer a batch of `kind` draws from, or `None` where the frame wrote none.
+    fn instances(&self, kind: BatchKind) -> Option<&wgpu::Buffer> {
+        match kind {
+            BatchKind::Rect => self.rect_buffer.as_ref(),
+            BatchKind::Quad => self.quad_buffer.as_ref(),
+            BatchKind::Line => self.line_buffer.as_ref(),
+        }
+    }
+}
+
 /// One lane family's pipelines, one per [`Style`].
 #[derive(Clone, Copy)]
 struct Family {
@@ -462,6 +471,12 @@ fn batch_family(kind: BatchKind) -> Family {
             erase: Kind::CoverErase,
             add: Kind::CoverAdd,
             dest_over: Kind::CoverDestOver,
+        },
+        BatchKind::Line => Family {
+            over: Kind::LineOver,
+            erase: Kind::LineErase,
+            add: Kind::LineAdd,
+            dest_over: Kind::LineDestOver,
         },
     }
 }

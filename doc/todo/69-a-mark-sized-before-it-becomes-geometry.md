@@ -1,11 +1,12 @@
 # A mark sized before it becomes geometry: the increments ADR 1817 picked
 
-Status: **open — chosen, nothing built.** ADR 1817 argues it and prices it against the other
-candidate; this file is the work, in the order it is to be taken.
+Status: **open — sections 1 and 2 built (ADRs 1829, 1835), sections 3 and 4 not.** ADR 1817 argues it and prices it
+against the other candidate; this file is the work, in the order it is to be taken.
 Priority: 40-band — performance, measured and priced; the band was full when this was written.
 Witness: `/tmp/demo_heavy_engineering_A1.pdf`, the owner's, **not in the repository** — 4 408 405
-marks, 99.0 % of them under a quarter pixel at the window's fit; a deterministic in-tree generator
-of its shape — cubicle grids, hatching, labels — is what a gate can hold, and the gate owes one.
+marks, 99.0 % of them under a quarter pixel at the window's fit; the deterministic in-tree generator
+of its shape — cubicle grids, hatching, labels — is `crates/render-raster/examples/heavy_drawing.rs`
+(ADR 1823), and a gate that holds its ladder is still owed.
 Instrument: `crates/render-raster/examples/tile_price.rs` — its census, its fit row, its floor row.
 Clauses: §8.4.3.3 (Table 53's caps), §8.5.3.2 (a stroke's shape), §10.7.4 (the area a shape paints).
 Code: `crates/render-cpu/src/lib.rs` (`draw_stroke`, the place the classification goes before
@@ -20,6 +21,13 @@ block of device pixels: its exact area in each pixel of the block is computed in
 rectangle's overlap is separable, a round cap's is a disc's segment — and composited once, with
 the clip and the soft mask multiplied as every other mark's are. Nothing of `tiny-skia` is entered.
 That population is the census's whole witness population; everything outside it takes today's path.
+
+**Built** (ADR 1829): `pdf_render::thin_segment` admits the segment in any direction — the axis-only
+first cut left the witness's 667 904 hatching dots on the general path — and
+`render_cpu::thin_segment::draw` paints it. The fit raster on one thread went from 2.9 s to 0.84 s,
+not the 0.46 s priced, and what is left is the command loop: every strip replays every command's
+extent test. Two things are still owed. `drawn_row_by_row` may let a cut pass a stroke this kernel
+draws, whatever its width. A zero-length round dot is a disc this construction already measures.
 
 **Owed beside it**: a unit ladder of the kernel against the clause's closed form — sizes 0.05 to
 2 px, positions across pixel edges, all three caps, both axes — whose expected values are the
@@ -37,6 +45,13 @@ pre-count of one rect and one quad instance (ADR 1823), which the 2 GiB frame bu
 what the primitive removes is the resident outline per one-segment stroke, the 512 MiB resource
 budget's ceiling (ADR 1823's chop 16), and the host's flattening of every such stroke. Byte agreement with the processor's kernel is the oracle's question and is
 stated as raster's ADR 0082 tolerance, not assumed.
+
+**Built** (ADR 1835, raster's ADR 0097): `render-raster` sends every stroke `thin_segment` admits as
+one `Command::Line`, which raster draws from its exact area in the shader — any direction, under a
+transform that keeps the axes — with no outline behind it, 60 B an instance and 64 B of pre-count.
+The witness's device frame at the fit went from 9.7 s to 1.2 s on both lanes, and the generator is
+drawn at chop 24 (12 185 819 commands), where HEAD's resource budget refused chop 12. Still owed: a
+scene holding a line is rebuilt at every view (ADR 0702), so a zoom step pays the scene again.
 
 ## 3. Tiles from a culled list, on a pool — the multiplier
 

@@ -266,7 +266,7 @@ impl<'a> Clip<'a> {
     /// reduces to `min(M, C)`. [`Clip::Value`] is the reverse — a value with no set to
     /// intersect — and it is the one an ordinary mark can leave to the library, because a
     /// product is what §11.3.7.2 asks for there.
-    fn factors(self) -> (Option<&'a tiny_skia::Mask>, Option<&'a [u8]>) {
+    pub(crate) fn factors(self) -> (Option<&'a tiny_skia::Mask>, Option<&'a [u8]>) {
         match self {
             Clip::Unclipped { .. } => (None, None),
             Clip::Region { mask, .. } => (Some(mask), None),

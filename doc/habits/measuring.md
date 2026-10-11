@@ -881,3 +881,27 @@ figure called 0.2 px dots marks of 2–4 px and would have sent a batch after th
 (round 1490, ADR 1817). The hull is grown by the stroke's width in path space and then mapped, or
 the width is mapped first; and a census whose population decides a lever is checked on a handful of
 marks by hand before the lever is priced.
+
+## 85. A census of added files filters git's name list; it never trusts a pathspec glob
+
+`git diff --diff-filter=A <base> HEAD --name-only -- 'crates/*/src/**/*.rs'` printed three of the
+seven modules added since the last re-read, because git's `**` is not the shell's and matches
+without `:(glob)` only where the shell's would not (round 1501, ADR 1839); the brief's figure of five
+came from the same shape. A census of added files takes the whole `--name-only` list and filters it
+with `grep -E '/src/.*\.rs$'`, and a figure in a brief is re-derived by the round at its own HEAD.
+
+## 86. A classification called "the population" is tallied on the witness by what it declines
+
+An axis-only cut of the thin-segment classification looked complete and admitted 3 699 730 of the
+witness's 4 400 060 strokes; the 667 904 it declined were diagonal hatching dots and still 40 % of
+the drawing's instructions (round 1496, ADR 1829). Before a classification is called the population
+a lever was priced on, count on the witness what it declines and why, and read the declined share
+against the profile, not the admitted count against the total.
+
+## 87. A cut in a per-token or per-operator path is kept on the clock, not on the instruction count
+
+Making the content reader's salvage test a cold call inlined the token wrapper into the operator
+loop and cut 1.09 G instructions off the witness's read — and made the read 0.41 s slower, +19 %,
+in one clock hold with the arms interleaved (round 1498, ADR 1833). A cut in a path run once per
+token or per operator is A/B'd on the clock, in one hold, before it is kept; callgrind's count ranks
+candidates and decides nothing.

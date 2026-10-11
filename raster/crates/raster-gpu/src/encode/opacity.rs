@@ -71,7 +71,9 @@ use raster_scene::{Command, Paint};
 /// [`MAX_GROUP_DEPTH`]: raster_scene::MAX_GROUP_DEPTH
 pub(super) fn every_opacity_is_one(commands: &[Command]) -> bool {
     commands.iter().all(|command| match command {
-        Command::Rect { color, mask, .. } => color.a >= 1.0 && mask.is_none(),
+        Command::Rect { color, mask, .. } | Command::Line { color, mask, .. } => {
+            color.a >= 1.0 && mask.is_none()
+        }
         Command::Fill { paint, mask, .. } | Command::Stroke { paint, mask, .. } => {
             mask.is_none() && matches!(paint, Paint::Solid(color) if color.a >= 1.0)
         }

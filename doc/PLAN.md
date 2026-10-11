@@ -104,7 +104,8 @@ annotations from GitHub's public interface with no token (ADR 1563).
 
 **The crate graph.** Acyclic and layered, with the safety attributes of §2 in place: `pdf-render`
 defines the display list, the `Rasterizer` trait and `TargetSpec`, and the three rasterisers depend
-on it and on nothing else of ours. Clean under `clippy::pedantic` with warnings as errors, and
+on it and on nothing else of ours but the renderer `render-raster` drives, `raster-gpu` and
+`raster-scene`. Clean under `clippy::pedantic` with warnings as errors, and
 `cargo fmt --check` clean. **Every lint exception is an `#[expect(..., reason = "...")]` rather
 than a bare `allow`**, so an exception that stops being necessary becomes a warning instead of
 lingering invisibly — trap 7, and the one trap that binds any round writing Rust at all.
@@ -396,8 +397,9 @@ temptation stronger rather than weaker.
 
 ### Speed, measured rather than assumed
 
-`tools/hayro-compare` exists for this. Both renderers are Rust, both forbid unsafe, both rasterise
-on the CPU single-threaded, so what a timing difference measures is the code rather than the
+`tools/hayro-compare` exists for this. Both renderers are Rust, both forbid unsafe, and `hayro-speed`
+rasterises both on the CPU on one thread — `render-cpu` divides a page across every core
+everywhere else (ADR 0139) — so what a timing difference measures is the code rather than the
 language — which is not true of any of the other three references.
 
 **[`doc/performance.md`](performance.md) §4 owns the measurement**, one column per time it was
@@ -686,8 +688,12 @@ Memory safety is necessary, not sufficient.
   `viewer-confined`'s `pdf-view-worker` confines itself before it reads a byte and speaks
   `viewer-core`'s own vocabulary over a pipe, and `quorra-confined` is a window built on it.
   `doc/state-of-play.md` has what crosses and what it cost.
-- **Explicit memory and time budgets** against decompression bombs and pathological content, since
-  Rust prevents corruption and not exhaustion.
+- **Explicit memory budgets** against decompression bombs and pathological content, since Rust
+  prevents corruption and not exhaustion — among them what an interpretation keeps, in bytes (ADR
+  1810). **Time is bounded by a stop rather than by a count**: no count of operators refuses a page,
+  because a count bounds time and not memory; a person watching stops a page that is only slow, and
+  where nobody watches the caller's deadline does — `pdf-sandbox`'s `REQUEST_TIMEOUT`, a script
+  trigger's deadline, a fuzz target's own (ADRs 0241, 0657, 1608, 1809).
 
 **What is not, and is deliberately kept in view:**
 

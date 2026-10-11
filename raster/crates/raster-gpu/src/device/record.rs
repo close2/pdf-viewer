@@ -173,6 +173,7 @@ impl Device {
             masks: (0..mask_count).map(|_| None).collect(),
             rect_buffer: upload.rect_instances,
             quad_buffer: upload.quad_instances,
+            line_buffer: upload.line_instances,
             lane_binds: HashMap::new(),
             scratch_view: upload.scratch_view.as_ref().map(|(_, view)| view.clone()),
             dummy_view,

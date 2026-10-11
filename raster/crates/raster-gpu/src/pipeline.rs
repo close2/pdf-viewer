@@ -119,13 +119,14 @@ pub(crate) fn captured<T>(
     (handle, error.map(|error| error.to_string()))
 }
 
-/// The nine parsed WGSL modules, made together on first need.
+/// The ten parsed WGSL modules, made together on first need.
 ///
 /// Together because they are one artefact: the shaders this crate ships either all
 /// parse on an adapter or the adapter cannot run this renderer, and there is no useful
 /// state in between where some of a page draws.
 struct Modules {
     rect: wgpu::ShaderModule,
+    line: wgpu::ShaderModule,
     cover: wgpu::ShaderModule,
     image: wgpu::ShaderModule,
     shading: wgpu::ShaderModule,
@@ -153,6 +154,7 @@ impl Modules {
         };
         Ok(Self {
             rect: module("raster rect", shaders::RECT)?,
+            line: module("raster line", shaders::LINE)?,
             cover: module("raster coverage", shaders::COVERAGE)?,
             image: module("raster image", shaders::IMAGE)?,
             shading: module("raster shading", shaders::SHADING)?,

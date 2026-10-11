@@ -30,6 +30,14 @@ pub(crate) enum Kind {
     /// Rectangle under §11.7.4.3's destination-over (`fs_main`, factors
     /// `1-dst_alpha`/`ONE`).
     RectDestOver,
+    /// One-segment strokes' exact area, premultiplied over (`line.wgsl` `fs_main`, ADR 0097).
+    LineOver,
+    /// Line shape-erase for knockout (`fs_shape`).
+    LineErase,
+    /// Line additive deposit for knockout.
+    LineAdd,
+    /// Line under §11.7.4.3's destination-over.
+    LineDestOver,
     /// Coverage quads, premultiplied over (`coverage.wgsl` `fs_main`).
     CoverOver,
     /// Coverage shape-erase for knockout.
@@ -107,6 +115,11 @@ const fn both(src: wgpu::BlendFactor, dst: wgpu::BlendFactor) -> wgpu::BlendStat
 /// The analytic rectangle lane's instance: bounds and colour.
 const RECT_ATTRIBUTES: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4];
+/// The line lane's instance: the endpoints, the pen and cap, the colour and the clip's
+/// rectangle (ADR 0097).
+const LINE_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    0 => Float32x4, 1 => Float32x3, 2 => Float32x4, 3 => Float32x4
+];
 /// The winding resolve's instance: one tile's rectangle and its sheet origin.
 const RESOLVE_ATTRIBUTES: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x2];
@@ -200,6 +213,15 @@ impl<'a> Lane<'a> {
         }
     }
 
+    fn line(layouts: &'a Layouts, modules: &'a Modules) -> Self {
+        Lane {
+            label: "raster line",
+            shader: &modules.line,
+            layout: &layouts.lane_pipe,
+            buffer: Some((crate::encode::LINE_INSTANCE_STRIDE, &LINE_ATTRIBUTES)),
+        }
+    }
+
     fn cover(layouts: &'a Layouts, modules: &'a Modules) -> Self {
         Lane {
             label: "raster coverage",
@@ -261,6 +283,10 @@ impl<'a> Spec<'a> {
             Kind::RectErase => Lane::rect(layouts, modules).spec(Style::Erase),
             Kind::RectAdd => Lane::rect(layouts, modules).spec(Style::Add),
             Kind::RectDestOver => Lane::rect(layouts, modules).spec(Style::DestOver),
+            Kind::LineOver => Lane::line(layouts, modules).spec(Style::Over),
+            Kind::LineErase => Lane::line(layouts, modules).spec(Style::Erase),
+            Kind::LineAdd => Lane::line(layouts, modules).spec(Style::Add),
+            Kind::LineDestOver => Lane::line(layouts, modules).spec(Style::DestOver),
             Kind::CoverOver => Lane::cover(layouts, modules).spec(Style::Over),
             Kind::CoverErase => Lane::cover(layouts, modules).spec(Style::Erase),
             Kind::CoverAdd => Lane::cover(layouts, modules).spec(Style::Add),

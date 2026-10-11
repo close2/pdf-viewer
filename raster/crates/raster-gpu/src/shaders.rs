@@ -33,6 +33,8 @@ mod wgsl;
 
 /// The analytic rectangle lane (section 0 of the brief's second fast path).
 pub(crate) const RECT: &str = include_str!("shaders/rect.wgsl");
+/// The line lane: a one-segment stroke's exact area in a pixel (ADR 0097).
+pub(crate) const LINE: &str = include_str!("shaders/line.wgsl");
 /// The coverage-quad lane, which draws a glyph tile or a rasterised shape.
 pub(crate) const COVERAGE: &str = include_str!("shaders/coverage.wgsl");
 /// The image quad (ISO 32000-2 §8.9.5).
@@ -62,6 +64,7 @@ pub(crate) const FUNCTION_LANE: &str = include_str!("shaders/function_lane.wgsl"
 #[cfg(test)]
 pub(crate) const ALL: &[(&str, &str)] = &[
     ("rect.wgsl", RECT),
+    ("line.wgsl", LINE),
     ("coverage.wgsl", COVERAGE),
     ("image.wgsl", IMAGE),
     ("shading.wgsl", SHADING),

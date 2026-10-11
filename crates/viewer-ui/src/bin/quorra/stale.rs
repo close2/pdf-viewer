@@ -984,30 +984,82 @@ fn paint(picture: &mut Raster, layer: &Raster, placement: Transform) {
         most(|point| point.y, picture.height),
     );
     let stride = (picture.width as usize).saturating_mul(4);
-    for row in top..bottom {
-        let start = (row as usize).saturating_mul(stride);
-        let Some(line) = picture.data.get_mut(start..start.saturating_add(stride)) else {
-            continue;
-        };
-        // Stepped along the row rather than transformed per pixel: an affine of
-        // `(column + 1, row)` differs from one of `(column, row)` by exactly `(a, b)`, so a row is
-        // one `apply` and two additions a pixel instead of four multiplications and two additions.
-        // It is the same arithmetic to the last bit for a translation and a scale, which is every
-        // placement this program composes, and within an `f32` rounding of it for one with
-        // rotation in it. **It is not where the time goes** and is not claimed to be: this loop
-        // with the sampling taken out of it is 0.13 ms of a resample that is tens, so what it
-        // saves is inside the noise and what justifies it is that it is also shorter to read.
-        let mut at = back.apply(pdf_render::Point::new(left as f32 + 0.5, row as f32 + 0.5));
-        for column in left..right {
-            if at.x >= 0.0 && at.x < span && at.y >= 0.0 && at.y < rows {
-                let from = (column as usize).saturating_mul(4);
-                if let Some(pixel) = line.get_mut(from..from.saturating_add(4)) {
-                    pixel.copy_from_slice(&bilinear(layer, at.x - 0.5, at.y - 0.5));
+    let (from_byte, to_byte) = (
+        (top as usize).saturating_mul(stride),
+        (bottom as usize).saturating_mul(stride),
+    );
+    let Some(reached) = picture.data.get_mut(from_byte..to_byte) else {
+        return;
+    };
+    // **The rows are shared among the processor's cores** (ADR 1832). The resample runs on the
+    // thread that presents, and rule 4 refuses a stand-in whose resample would not be up a refresh
+    // before the true frame: on one core a 2500 × 1600 window resampled in 130–185 ms against
+    // frames of 30–100 ms, so a zoom of an ordinary page was refused at every other notch and the
+    // window held the previous picture unmoved — the owner's "does not resize previous frames".
+    // Each row is independent of every other, so the split changes no byte; the cost is a scoped
+    // thread a band, a few tens of microseconds against a resample of tens of milliseconds.
+    let bands = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(RESAMPLE_BANDS);
+    let rows_in_a_band = (bottom.saturating_sub(top) as usize).div_ceil(bands).max(1);
+    std::thread::scope(|scope| {
+        for (band, lines) in reached
+            .chunks_mut(rows_in_a_band.saturating_mul(stride).max(1))
+            .enumerate()
+        {
+            let row = (top as usize).saturating_add(band.saturating_mul(rows_in_a_band));
+            scope.spawn(move || {
+                for (offset, line) in lines.chunks_exact_mut(stride).enumerate() {
+                    paint_row(
+                        line,
+                        layer,
+                        &back,
+                        row.saturating_add(offset) as f32,
+                        (left, right),
+                        (span, rows),
+                    );
                 }
-            }
-            at.x += back.a;
-            at.y += back.b;
+            });
         }
+    });
+}
+
+/// The most bands one resample is split into: the cores past it buy a resample nothing a person
+/// could see and take them from the frame being drawn beside it.
+const RESAMPLE_BANDS: usize = 8;
+
+/// One row of [`paint`]: every pixel from `left` to `right` that samples inside the layer.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a column of a raster capped at pdf_render::MAX_EXTENT = 2^24, which f32 represents \
+              exactly"
+)]
+fn paint_row(
+    line: &mut [u8],
+    layer: &Raster,
+    back: &Transform,
+    row: f32,
+    (left, right): (u32, u32),
+    (span, rows): (f32, f32),
+) {
+    // Stepped along the row rather than transformed per pixel: an affine of `(column + 1, row)`
+    // differs from one of `(column, row)` by exactly `(a, b)`, so a row is one `apply` and two
+    // additions a pixel instead of four multiplications and two additions. It is the same
+    // arithmetic to the last bit for a translation and a scale, which is every placement this
+    // program composes, and within an `f32` rounding of it for one with rotation in it. **It is
+    // not where the time goes** and is not claimed to be: this loop with the sampling taken out of
+    // it is 0.13 ms of a resample that is tens, so what it saves is inside the noise and what
+    // justifies it is that it is also shorter to read.
+    let mut at = back.apply(pdf_render::Point::new(left as f32 + 0.5, row + 0.5));
+    for column in left..right {
+        if at.x >= 0.0 && at.x < span && at.y >= 0.0 && at.y < rows {
+            let from = (column as usize).saturating_mul(4);
+            if let Some(pixel) = line.get_mut(from..from.saturating_add(4)) {
+                pixel.copy_from_slice(&bilinear(layer, at.x - 0.5, at.y - 0.5));
+            }
+        }
+        at.x += back.a;
+        at.y += back.b;
     }
 }
 
@@ -1459,6 +1511,9 @@ pub(crate) struct Stale {
     /// graphics device, where nothing resamples on the presenting thread and rule 4 is enforced by
     /// the arrangement instead.
     resampling: Option<Duration>,
+    /// Whether rule 4 has refused against [`Self::resampling`] since the last frame landed — the
+    /// sample is then spent when the view it refused lands, not at the next tick ([`Self::declined`]).
+    spent: bool,
     /// How many have been drawn and of what — rule 3's count, which the frame summary prints.
     count: Drawn,
     /// Rule 3 over the refusals: how many view changes showed the real frame, and of which kind.
@@ -1685,8 +1740,14 @@ impl Stale {
         // that is about the machine as it is now. The cost of being wrong is what rule 4 bounds —
         // `max(0, resample − frame)` on one view change — and the cost of being locked shut is the
         // whole feature, which is the trade ADR 0384 already made once.
+        //
+        // **Spent when the refused view's frame lands, not at the next tick** (ADR 1832). Cleared
+        // here, the very next tick of the same view change permitted, resampled and blocked this
+        // thread for the stand-in it had just called unwise: at a 2500 × 1600 window a 180 ms
+        // resample against a 34 ms frame, so every notch of a zoom put up the true frame a
+        // resample late. What ADR 0461 asks for is the *next view change* to measure afresh.
         if matches!(why, Refusal::TooDear { .. }) {
-            self.resampling = None;
+            self.spent = true;
         }
     }
 
@@ -1720,6 +1781,9 @@ impl Stale {
     /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
     /// measures the replay, and rule 5 is a question about what the *next* render will cost.
     pub(crate) fn settled(&mut self, pages: &[Placed], cost: Duration, built: bool) {
+        if std::mem::take(&mut self.spent) {
+            self.resampling = None;
+        }
         if built {
             self.building = Some(cost);
         }
@@ -3262,10 +3326,12 @@ mod tests {
             0,
             "counted by the caller, not here"
         );
-        // **And the refusal gives up the sample it refused on** (ADR 0461). A measurement taken
-        // while the machine was busy would otherwise refuse every view change after it, and
-        // refusing is what stops another one being taken — ADR 0384's defect a layer along. The
-        // caller is what says the refusal happened, so the caller is where it is given up.
+        // **And the refusal gives up the sample it refused on** (ADR 0461) — when the view it
+        // refused has landed, and not at the next tick of the same view change (ADR 1832). A
+        // measurement taken while the machine was busy would otherwise refuse every view change
+        // after it, and refusing is what stops another one being taken — ADR 0384's defect a
+        // layer along. The caller is what says the refusal happened, so the caller is where it is
+        // given up.
         stale.declined(
             &Refusal::TooDear {
                 resample: REFRESH * 4,
@@ -3275,8 +3341,22 @@ mod tests {
             crate::trace::Trace::off(std::time::Instant::now()),
         );
         assert!(
-            stale
+            !stale
                 .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::Resample)
+                .stands_in(),
+            "the same view change stays refused: a stand-in it called unwise a tick ago would hold \
+             this thread for the resample and put the true frame up late by it"
+        );
+        stale.settled(&asked, REFRESH * 4, true);
+        assert!(
+            stale
+                .plan(
+                    &alone(&page, 1.44),
+                    NONE_HELD,
+                    REFRESH,
+                    LANDED,
+                    Standing::Resample
+                )
                 .stands_in(),
             "the next view change measures again rather than deciding on a spent number"
         );
@@ -3284,7 +3364,7 @@ mod tests {
         // it stands in for there is structurally nothing, and a bound on nothing is not a bound.
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS)
+                .plan(&alone(&page, 1.44), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "rule 4 must not reach the surface ADR 0391 deleted it for"
         );

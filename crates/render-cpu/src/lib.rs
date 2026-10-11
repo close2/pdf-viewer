@@ -26,6 +26,7 @@ mod glimpse;
 mod images;
 mod scan;
 mod shading;
+mod thin_segment;
 
 use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
@@ -189,6 +190,16 @@ impl CpuRasterizer {
     #[must_use]
     pub fn strip_plan(&self, list: &DisplayList, target: TargetSpec) -> Vec<u32> {
         plan_strips(list, target, self.strips, self.anti_alias)
+    }
+
+    /// Whether this rasteriser draws `mark` a row at a time on `target`, so that it forbids no
+    /// cut — its answer to [`pdf_render::unsplittable_rows_where`]'s question, which
+    /// [`CpuRasterizer::strip_plan`] asks of every mark.
+    ///
+    /// For an instrument that has to say which marks forbid a page's rows, and why (ADR 1837).
+    #[must_use]
+    pub fn draws_row_by_row(&self, mark: pdf_render::PlannedMark<'_>, target: TargetSpec) -> bool {
+        drawn_row_by_row(mark, self.anti_alias, target)
     }
 
     /// Sets what the page is imposed on: §11.4.7's 𝑊, and what lies outside the page.
@@ -731,6 +742,19 @@ impl CpuRasterizer {
             return Ok(());
         };
         let at = to_device.of(transform);
+        // A straight stroke whose ink lies in two by two pixels is painted from its closed-form area
+        // before any outline, edge or pipeline is built for it — the population and the reason are
+        // `pdf_render::thin_segment`'s, one copy for every backend (trap 2), and the composition
+        // `thin_segment::draw`'s. ADR 1829.
+        if let Paint::Solid(colour) = paint
+            && self.anti_alias
+            && blend == tiny_skia::BlendMode::SourceOver
+            && let Some(thin) =
+                pdf_render::thin_segment(path, stroke, paint, pdf_render::BlendMode::Normal, at)
+            && thin_segment::draw(pixmap, &thin, *colour, clip)
+        {
+            return Ok(());
+        }
         let width = stroke.device_width(at);
         // §8.5.3.2's marks are circles and squares of the line's width, so a width under the
         // device's coverage quantum makes each of them a shape whose *area* is under the square
@@ -5108,7 +5132,7 @@ fn whole_target(target: TargetSpec) -> pdf_render::Rect {
 /// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
 /// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
 /// curve crosses — where a stroke is not one this backend draws a row at a time, its whole extent
-/// ([`drawn_row_by_row`], ADR 1819). **The picture is very nearly independent of the answer**,
+/// ([`drawn_row_by_row`], ADRs 1819 and 1837). **The picture is very nearly independent of the answer**,
 /// which is the property ADR 0139 exists to establish and `strip_parallelism.rs` asserts: over the
 /// tracked corpus's 967 first pages, 794 draw the same bytes at one strip and at every count from
 /// two to sixteen, and the page that moves most moves 0.36% of its pixels (ADRs 1758, 1819).
@@ -5149,76 +5173,145 @@ fn plan_strips(
     }
     let extents = pdf_render::command_extents(list, target);
     let costs = pdf_render::row_costs(&extents, target);
-    let unsplittable = pdf_render::unsplittable_rows_where(list, target, &|stroke| {
-        drawn_row_by_row(stroke, anti_alias, target.height)
-    });
+    let (unsplittable, freed_fills) =
+        pdf_render::unsplittable_rows_and_freed_fills(list, target, &|mark| {
+            drawn_row_by_row(mark, anti_alias, target)
+        });
+    // ADR 0139's rows for every fill beside the backend's answer for strokes: the division this
+    // backend made before it asked fills at all.
+    let between_fills: Vec<bool> = unsplittable
+        .iter()
+        .zip(&freed_fills)
+        .map(|(forbidden, freed)| *forbidden || *freed)
+        .collect();
 
-    // Asked for from the most strips downwards, taking the first division whose replay is
+    // Asked for from the most strips downwards, keeping a division only where its replay is
     // affordable. A strip pays again for every command that reaches it — see
     // `pdf_render::replay_ratio` — and on a page of a few page-wide commands that is the whole
     // cost: `issue12841_reduced.pdf` is two of them and was 105 ms serially against 166 ms in
     // sixteen strips. The bound is a quarter more work than the list itself, which every text
     // page measured in ADR 0137 sits far inside (1.01 to 1.13 at eight strips) and a page of
     // page-wide commands cannot reach at any count above one.
+    //
+    // **A row a fill no longer forbids is a permission, not a place a cut must go.** The split
+    // balances an estimate and is blind to what a cut crosses: freed, the cuts of a page of a few
+    // large curved fills run through them and replay them, and the bound then refused every count
+    // down to one — `shading_extend.pdf` went from sixteen strips to one at 150 dpi; and the
+    // estimate's balance can make fewer strips than the rows between the fills afford, which drew
+    // the owner's drawing in 2.25 s on eight strips against 2.11 s on nine. So each count is asked
+    // of both rows, and the division kept is the one of most strips either affords within the
+    // bound. No smaller count can make more strips than it asks for, so the search stops once the
+    // best division found has as many. ADR 1837.
+    let affordable = |division: &[u32]| pdf_render::replay_ratio(&extents, division) <= MAX_REPLAY;
+    let mut best: Option<Vec<u32>> = None;
     let mut count = wanted;
-    while count > 1 {
-        let boundaries =
-            pdf_render::strip_boundaries_avoiding(&costs, &unsplittable, count, MIN_STRIP_ROWS);
-        if pdf_render::replay_ratio(&extents, &boundaries) <= MAX_REPLAY {
-            return boundaries;
+    while count > 1 && strips_in(best.as_deref()) < count {
+        for rows in [&unsplittable, &between_fills] {
+            let candidate =
+                pdf_render::strip_boundaries_avoiding(&costs, rows, count, MIN_STRIP_ROWS);
+            if strips_in(Some(&candidate)) > strips_in(best.as_deref()) && affordable(&candidate) {
+                best = Some(candidate);
+            }
         }
         count = count.checked_div(2).unwrap_or(0);
     }
-    vec![0, target.height]
+    best.unwrap_or_else(|| vec![0, target.height])
 }
 
-/// Whether this backend draws `stroke` a row at a time, so that a strip cut anywhere across it
+/// How many strips a division's boundaries make, and none for no division.
+fn strips_in(boundaries: Option<&[u32]>) -> u32 {
+    boundaries.map_or(0, |cuts| {
+        u32::try_from(cuts.len().saturating_sub(1)).unwrap_or(u32::MAX)
+    })
+}
+
+/// Whether this backend draws `mark` a row at a time, so that a strip cut anywhere across it
 /// draws the bytes the whole page does — the question [`pdf_render::unsplittable_rows_where`]
-/// leaves to a backend (ADR 1819).
+/// leaves to a backend (ADRs 1819, 1837).
 ///
-/// It does where the stroke's outline reaches [`area`]: that converter evaluates every row's
-/// crossings from the outline's own device coordinates, so a row of a strip and the same row of
-/// the page are the same two evaluations, a curve's chords included, and nothing is clipped
-/// against the strip's edge to be re-stated. What is left is ADR 0219's shifted origin, which
-/// every mark in every strip but the first already carries whether or not a cut crosses it.
+/// It does where the mark reaches [`area`]: that converter evaluates every row's crossings from
+/// the path's own device coordinates, so a row of a strip and the same row of the page are the
+/// same two evaluations, a curve's chords included, and nothing is clipped against the strip's
+/// edge to be re-stated. What is left is ADR 0219's shifted origin, which every mark in every strip
+/// but the first already carries whether or not a cut crosses it.
 ///
-/// Every condition below is a road [`CpuRasterizer::draw_stroke`] can take *away* from that
-/// converter, asked of the page rather than of a strip so that one answer holds for every
-/// division:
+/// Every condition below is a road [`CpuRasterizer::draw_stroke`] or [`CpuRasterizer::draw_fill`]
+/// can take *away* from that converter, asked of the page rather than of a strip so that one answer
+/// holds for every division. Both kinds of mark share three:
 ///
 /// - **Anti-aliasing withdrawn, or a knockout element**: [`carries_coverage_as_alpha`] is false
-///   and `scan` hands the outline to `tiny-skia`'s converter, which clips it. A half of a shaped
+///   and `scan` hands the shape to `tiny-skia`'s converter, which clips it. A half of a shaped
 ///   pair and a mark in a soft mask's group are counted with them because the planner does not
 ///   follow how they are composed.
-/// - **A curve in the path**: one bending tighter than its half-width is stroked as convex pieces
-///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`; the round caps and joins a stroker
-///   puts on a straight path are not that, and reach [`area`] as any outline does.
-/// - **A width under one level of a pixel**: §10.7.4's substitutions draw it, through `tiny-skia`'s
-///   hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR 1102).
 /// - **An extent the anti-aliased converter's range cannot hold in every strip**: outside
 ///   `scan::SUPERSAMPLED_LIMIT` the aliased converter draws, and a strip moves every coordinate up
 ///   by its first row, so the page's extent has to fit both before and after any such move.
 /// - **No extent at all**, which states nothing a range can be asked of.
 ///
+/// A fill has one of its own, and it is about the measurement rather than the road:
+///
+/// - **A span too tall to be measured in one accumulator**: [`area`] suspects a mark of overlapping
+///   itself as a whole, from every row of it, and settles every row as the filled set where any row
+///   shows it. It asks the rows a surface clamps away as well, so the answer is the mark's in every
+///   division — but only where the whole span fits the cell budget; past it each run of rows is
+///   suspected alone (ADR 1819 §5), which a cut would change. A stroke's outline is suspected
+///   always, so its rows never depend on the span.
+///
+/// A stroke has two more, and a fill neither:
+///
+/// - **A curve in the path**: one bending tighter than its half-width is stroked as convex pieces
+///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`; the round caps and joins a stroker
+///   puts on a straight path are not that, and reach [`area`] as any outline does. A *filled*
+///   curve is never pieces: it reaches [`area`] as a glyph does, flattened there.
+/// - **A width under one level of a pixel**: §10.7.4's substitutions draw it, through `tiny-skia`'s
+///   hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR 1102). A fill's own
+///   substitutions — §10.7.4's sub-pixel bands and the marks of a collapsed subpath — are shapes
+///   drawn by the same `scan::fill` and so by [`area`].
+///
 /// What it does not need to ask is the region's size: [`area`] measures a tall region a run of
-/// rows at a time, so no strip's height decides which converter draws a mark.
-fn drawn_row_by_row(stroke: pdf_render::PlannedStroke<'_>, anti_alias: bool, height: u32) -> bool {
-    if !anti_alias || stroke.replaces {
+/// rows at a time, so no strip's height decides which converter draws a mark. Nor the paint: a
+/// shading drawn as a raster is still put through its shape by `scan::fill`, and a paint is read
+/// at absolute device positions, which is why ADR 0139's rule never asked about it either.
+fn drawn_row_by_row(
+    mark: pdf_render::PlannedMark<'_>,
+    anti_alias: bool,
+    target: TargetSpec,
+) -> bool {
+    let (replaces, extent) = match mark {
+        pdf_render::PlannedMark::Fill(fill) => {
+            // The span `area` takes a fill's suspicion of overlap over: the path's own box
+            // carried onto the device, as its region is, with two rows of margin for the
+            // rounding of a box mapped twice.
+            let span = fill
+                .path
+                .hull()
+                .map(|hull| hull.mapped(fill.at))
+                .map(|on| on.max.y.ceil() - on.min.y.floor() + 4.0);
+            if !span.is_some_and(|rows| area::whole_span_fits(rows, target.width)) {
+                return false;
+            }
+            (fill.replaces, fill.extent)
+        }
+        pdf_render::PlannedMark::Stroke(stroke) => {
+            if stroke
+                .path
+                .commands()
+                .iter()
+                .any(|segment| matches!(segment, pdf_render::PathCommand::CurveTo(..)))
+            {
+                return false;
+            }
+            let width = stroke.stroke.device_width(stroke.at);
+            if pdf_render::unmeasurable_width(stroke.at).is_none_or(|floor| width <= floor) {
+                return false;
+            }
+            (stroke.replaces, stroke.extent)
+        }
+    };
+    if !anti_alias || replaces {
         return false;
     }
-    if stroke
-        .path
-        .commands()
-        .iter()
-        .any(|segment| matches!(segment, pdf_render::PathCommand::CurveTo(..)))
-    {
-        return false;
-    }
-    let width = stroke.stroke.device_width(stroke.at);
-    if pdf_render::unmeasurable_width(stroke.at).is_none_or(|floor| width <= floor) {
-        return false;
-    }
-    let Some(extent) = stroke.extent else {
+    let Some(extent) = extent else {
         return false;
     };
     // A row of margin beyond the bound, which already counts a mitre at its limit.
@@ -5227,7 +5320,7 @@ fn drawn_row_by_row(stroke: pdf_render::PlannedStroke<'_>, anti_alias: bool, hei
         clippy::cast_precision_loss,
         reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24 rows, exact in f32"
     )]
-    let rows = height as f32;
+    let rows = target.height as f32;
     extent.min.x >= -limit
         && extent.max.x <= limit
         && extent.min.y - rows >= -limit

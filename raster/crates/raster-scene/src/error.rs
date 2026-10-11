@@ -22,7 +22,7 @@ use std::fmt;
 
 use crate::blend::Compose;
 use crate::function::FnRange;
-use crate::geom::{Affine, Rect};
+use crate::geom::{Affine, Point, Rect};
 use crate::ids::{ClipId, MaskId};
 use crate::paint::{Color, Stroke};
 
@@ -195,6 +195,18 @@ pub enum SceneError {
     /// A stroke violated [`Stroke::is_valid`] — a non-positive or non-finite width
     /// (widths arrive resolved and positive, brief section 4.5), or a miter limit below 1.
     InvalidStroke(Stroke),
+    /// A [`Command::Line`](crate::scene::Command::Line) had a point that was not finite or
+    /// lay beyond [`MAX_COORDINATE`](crate::scene::MAX_COORDINATE), two equal points —
+    /// §8.5.3.2's zero-length subpath, which the caller settles before a scene is built —
+    /// or a width that was not finite, negative, or beyond the same bound.
+    InvalidLine {
+        /// Where the line started.
+        from: Point,
+        /// Where it ended.
+        to: Point,
+        /// Its width in its own space.
+        width: f32,
+    },
     /// A [`Paint::Function`](crate::paint::Paint::Function)'s §8.7.4.5.2 `Matrix` has no
     /// inverse, so no fragment can be mapped back into the domain the program is
     /// evaluated over.
@@ -397,6 +409,11 @@ impl fmt::Display for SceneError {
                      limit at least 1: {s:?}"
                 )
             }
+            Self::InvalidLine { from, to, width } => write!(
+                f,
+                "a line needs two distinct finite points inside the coordinate bound and a \
+                 finite, non-negative, bounded width: {from:?} to {to:?} at {width}"
+            ),
             Self::SingularFunctionMatrix(matrix) => write!(
                 f,
                 "function matrix has no inverse, so no fragment maps back into the \

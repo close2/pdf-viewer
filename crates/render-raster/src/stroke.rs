@@ -53,6 +53,10 @@ pub(crate) fn encode(
     if path.is_empty() || pdf_render::paint_space(transform).is_none() {
         return Ok(());
     }
+    // A stroke `pdf-render` sized as thin for every backend (trap 2) is one raster line (ADR 1835).
+    if thin_line(enc, builder, path, transform, s, paint, (clip, mask, blend))? {
+        return Ok(());
+    }
     let mask = enc.mask_id(builder, mask)?;
     let Some(raster_paint) = raster_paint(enc, paint)? else {
         return Ok(()); // nothing visible to paint with
@@ -196,6 +200,57 @@ pub(crate) fn encode(
         faint(raster_paint, coverage),
         (clip, mask, blend),
     )
+}
+
+/// A stroke [`pdf_render::thin_segment`] admits, drawn as one [`raster_scene::Command::Line`] —
+/// its exact area in the shader, with no outline behind it (raster's ADR 0097) — and `true`; or
+/// `false`, and nothing drawn, for every stroke it does not admit.
+///
+/// The population is decided at the device transform — the two by two block is this view's
+/// pixels — so a scene holding one is true only at this view (ADR 0702), exactly as a scene
+/// holding §8.5.3.2's dots is. The width crosses resolved, in the path's own space, so that
+/// §8.4.3.2's zero and §10.7.5's adjustment are answered once, here, where the classification
+/// answered them; raster's pen is then half that width under each of the transform's two
+/// stretches, which is the pen `pdf_render::ThinSegment` states, and its area in a pixel the
+/// one `ThinSegment::coverage` states.
+fn thin_line(
+    enc: &mut Encoder<'_>,
+    builder: &mut SceneBuilder,
+    path: &Arc<Path>,
+    transform: Transform,
+    s: &Stroke,
+    paint: &Paint,
+    (clip, mask, blend): (Option<ClipId>, Option<SoftMaskId>, BlendMode),
+) -> Result<bool, QuorraRasterError> {
+    let to_device = transform.then(enc.target().transform);
+    if pdf_render::thin_segment(path, s, paint, blend, to_device).is_none() {
+        return Ok(false);
+    }
+    // `thin_segment` admits exactly one move and one line in a solid paint.
+    let (Paint::Solid(color), [PathCommand::MoveTo(from), PathCommand::LineTo(to)]) =
+        (paint, path.commands())
+    else {
+        return Ok(false);
+    };
+    let mask = enc.mask_id(builder, mask)?;
+    enc.consume_view();
+    let reach = reach(path, transform, s, (&Path::new(), 1.0));
+    let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip, reach)? else {
+        return Ok(true); // the clip admits nothing
+    };
+    builder.line(
+        (
+            raster_scene::Point::new(from.x, from.y),
+            raster_scene::Point::new(to.x, to.y),
+        ),
+        enc.placed(transform),
+        (s.device_width(to_device), false),
+        cap(s.cap),
+        colour(*color),
+        clip,
+        mask,
+    )?;
+    Ok(true)
 }
 
 /// The raster paint this stroke draws with, or `None` where what it names paints nothing.

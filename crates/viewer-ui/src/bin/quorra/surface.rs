@@ -47,6 +47,26 @@ use crate::trace::Topic;
 /// text is rather than to move this number.
 const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 
+/// What the window predicted for a frame it gave the processor, as a person reads it (ADR 1831).
+fn predicted(chose: &crate::renderer::Prediction) -> String {
+    let whence = |measured: bool| {
+        if measured {
+            "as this window measured it"
+        } else {
+            "before this window had measured it"
+        }
+    };
+    format!(
+        "{} commands predicted at {:.1} s on the processor ({}) against {:.1} s on the graphics \
+         device ({})",
+        chose.commands,
+        chose.processor.as_secs_f64(),
+        whence(chose.processor_measured),
+        chose.device.as_secs_f64(),
+        whence(chose.device_measured),
+    )
+}
+
 /// Which coverage lane the next frame should be drawn with.
 ///
 /// Per frame, because the crossover is a magnification and a person zooming crosses it;
@@ -406,7 +426,9 @@ impl App {
                 self.atlas_saw.push(bits);
             }
         }
-        let out_for = drawing.0;
+        if self.as_built(pages, stand_in, now) {
+            return None;
+        }
         // A transition is a picture of two pages moving and no transform of it is any view of
         // either, so the newest is put up at the identity and nothing about it is approximated.
         // A window that has never drawn is the other case with no stand-in to consider: it is not
@@ -429,7 +451,7 @@ impl App {
             pages,
             under.len(),
             self.cadence.period(),
-            out_for,
+            drawing.0,
             // Three textured quads, issued while `crate::renderer` draws on a thread of its own:
             // they take nothing from the frame they stand in for (ADR 0391).
             crate::stale::Standing::Quads,
@@ -489,6 +511,69 @@ impl App {
         stages.approximated = Some(stand.from);
         stages.missed = Some(stand.missed);
         self.put_up(base, &under, stages)
+    }
+
+    /// The share drawn into the title whatever is on the window, and the frame up as it stands
+    /// where the window has no truer picture of these pages — the first frame, a page turn — and
+    /// `true` where it is that, not anything else, this tick puts up (ADR 1831). The clock stays
+    /// armed, so the next look goes up on the tick after it lands; nothing is answered to the
+    /// core, because the frame that answers is the finished one.
+    fn as_built(
+        &mut self,
+        pages: &[crate::stale::Placed],
+        stand_in: bool,
+        now: std::time::Instant,
+    ) -> bool {
+        let share = self
+            .device_window()
+            .and_then(|window| window.drawn_so_far());
+        self.mind_the_share(share);
+        if !stand_in
+            || !self
+                .device_window()
+                .is_some_and(|window| window.shows_as_built(pages))
+        {
+            return false;
+        }
+        self.cadence.owed(now);
+        self.put_up_as_built(pages);
+        true
+    }
+
+    /// Puts the frame the processor is drawing up as it stands, where a newer look has arrived —
+    /// and answers nothing to the core, because the frame that answers is the finished one
+    /// (ADR 1825's rule: `first frame on the screen` stays the finished page).
+    fn put_up_as_built(&mut self, pages: &[crate::stale::Placed]) {
+        let Some(page) = pages
+            .first()
+            .map(|placed| placed.of.page().saturating_add(1))
+        else {
+            return;
+        };
+        let Some(window) = self.device_window() else {
+            return;
+        };
+        match window.present_as_built() {
+            Ok(Some(fraction)) => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a share in [0, 1], times a hundred"
+                )]
+                let percent = (fraction.clamp(0.0, 1.0) * 100.0).floor() as u32;
+                self.trace.say(
+                    Topic::Frames,
+                    format_args!("page {page} shown as it stands, {percent} % drawn"),
+                );
+            }
+            Ok(None) => {}
+            // A swapchain that says "try again" is asked again at the next look; the finished
+            // frame's own present is the one that answers for a surface that is gone.
+            Err(problem) => self.trace.say(
+                Topic::Frames,
+                format_args!("page {page} as it stands was not put up: {problem}"),
+            ),
+        }
     }
 
     /// Rule 3 for `Window::superseded`: a frame taken back is a frame the trace says was.
@@ -557,6 +642,7 @@ impl App {
                 format_args!("refused frame: {tried}; {drew} — {problem}"),
             );
         }
+        self.say_the_lane(&landed);
         // **An abandoned frame is answered to nobody and settles nothing** — `adopt_composed`'s
         // rule, for its reason (ADR 0657, trap 20): no pixels of it exist, so recording it as the
         // base would reproject a picture that was never drawn. The refusal it learned is kept by
@@ -592,15 +678,23 @@ impl App {
         // terminal and in the title when the answer changes and not at every frame (ADR 1466,
         // ADR 1821): a zoom gesture over a refused page draws a frame per magnification it stops
         // at, and the person needs the sentence once. Every refusal is still in the trace.
-        let on_the_processor = landed
-            .fell_back
-            .as_ref()
-            .map(|problem| format!("drawn on the processor: the graphics device {problem}"));
+        let on_the_processor = match (&landed.fell_back, &landed.chose) {
+            (Some(problem), _) => Some(format!(
+                "drawn on the processor: the graphics device {problem}"
+            )),
+            (None, Some(chose)) => Some(format!("drawn on the processor: {}", predicted(chose))),
+            (None, None) => None,
+        };
         if on_the_processor != self.on_the_processor {
             if let Some(problem) = &landed.fell_back {
                 println!(
                     "note: the graphics device {problem}, so the page was drawn on the processor \
                      instead"
+                );
+            } else if let Some(chose) = &landed.chose {
+                println!(
+                    "note: the page was drawn on the processor, the faster of the two here: {}",
+                    predicted(chose)
                 );
             }
             self.on_the_processor = on_the_processor;
@@ -625,6 +719,23 @@ impl App {
             );
             self.stale.settled(&landed.pages, landed.drew, built);
         }
+    }
+
+    /// Rule 3 for a frame given to the processor as the faster lane (ADR 1831): what was
+    /// predicted, and what it then took.
+    fn say_the_lane(&self, landed: &crate::renderer::Landed) {
+        let Some(chose) = &landed.chose else {
+            return;
+        };
+        let drew = match (landed.abandoned, landed.processor_drew) {
+            (true, _) => "it was taken back".to_owned(),
+            (false, Some(drew)) => format!("it drew in {:.1} ms", drew.as_secs_f64() * 1e3),
+            (false, None) => "it did not draw".to_owned(),
+        };
+        self.trace.say(
+            Topic::Frames,
+            format_args!("processor chosen: {}; {drew}", predicted(chose)),
+        );
     }
 
     /// Puts the frame on hand on the window under `placement`, and says what it was.

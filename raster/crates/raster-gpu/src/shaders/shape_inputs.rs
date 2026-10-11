@@ -11,7 +11,7 @@
 //! and §11.6.4.4's `qk`. `fs_shape` computes §11.4.6's `f`, and neither belongs in it.
 //!
 //! **Why this is a text gate and not five device tests.** The property is *the same
-//! statement* about five lanes — `rect`, `coverage`, `image`, `shading` and
+//! statement* about six lanes — `rect`, `line`, `coverage`, `image`, `shading` and
 //! `function_lane` each define an `fs_shape` — and it is an absence, which a rendered
 //! frame can only witness one fixture at a time. `tests/mask_shape_or_opacity.rs` draws
 //! the pixels the clause requires; this module is what makes the claim about *every*
@@ -41,7 +41,7 @@ const SOURCE: &str = "fs_main";
 
 /// How many lanes define a shape entry point. A count, so that deleting or renaming one
 /// `fs_shape` fails here rather than leaving the others to satisfy the gate vacuously.
-const LANES_WITH_A_SHAPE_PASS: usize = 5;
+const LANES_WITH_A_SHAPE_PASS: usize = 6;
 
 /// The shortest chain of module-scope calls from `from` to `target`, or `None` when no
 /// chain exists.

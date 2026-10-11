@@ -24,6 +24,8 @@ pub(super) struct Upload {
     /// `None` for a lane with nothing to draw — wgpu is never handed a zero-length
     /// buffer (brief section 5: the `debug_layers` lesson).
     pub(super) rect_instances: Option<wgpu::Buffer>,
+    /// The line lane's instances (ADR 0097), or `None` where the frame drew no line there.
+    pub(super) line_instances: Option<wgpu::Buffer>,
     pub(super) quad_instances: Option<wgpu::Buffer>,
     /// The frame's scratch coverage texture, kept alive until the submit.
     pub(super) scratch_view: Option<(wgpu::Texture, wgpu::TextureView)>,
@@ -107,21 +109,15 @@ impl Device {
                 Some(buffer)
             }
         };
-        let rect_instances = make_instances(
-            &self.gpu,
-            &self.queue,
-            "raster rect instances",
-            &encoded.rect_instances,
-        );
-        let quad_instances = make_instances(
-            &self.gpu,
-            &self.queue,
-            "raster quad instances",
-            &encoded.quad_instances,
-        );
-        bytes = bytes
-            .saturating_add(encoded.rect_instances.len() as u64)
-            .saturating_add(encoded.quad_instances.len() as u64);
+        let [rect_instances, quad_instances, line_instances] = [
+            ("raster rect instances", &encoded.rect_instances),
+            ("raster quad instances", &encoded.quad_instances),
+            ("raster line instances", &encoded.line_instances),
+        ]
+        .map(|(label, data)| {
+            bytes = bytes.saturating_add(data.len() as u64);
+            make_instances(&self.gpu, &self.queue, label, data)
+        });
         self.flush_atlas_tiles(&mut bytes);
         if !encoded.winding.is_empty()
             && let Some((_, view)) = scratch_view.as_ref()
@@ -149,6 +145,7 @@ impl Device {
             compute_run,
             rect_instances,
             quad_instances,
+            line_instances,
             scratch_view,
             bytes,
             time: started.elapsed(),

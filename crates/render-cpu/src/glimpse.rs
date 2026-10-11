@@ -17,8 +17,9 @@
 //! The obvious shape is spatial: cut the target into tiles, draw the visible ones first and show
 //! each as it lands, which is how a viewer whose tiles are independent does it. **A tile here is a
 //! strip, and a strip may only be cut where the cut draws the same bytes** (ADR 0139): the page
-//! this exists for strokes a frame round its whole sheet, so `pdf_render::unsplittable_rows`
-//! grants it no cut at all and it is one strip. A tile that is not cut at a granted row draws a
+//! this exists for strokes a frame round its whole sheet, and until ADR 1819 that forbade every
+//! cut and it was one strip; a stroke drawn a row at a time now forbids none, so the witness is cut
+//! into strips and each lands as it finishes. A tile that is not cut at a granted row draws a
 //! different picture from the page, and showing that picture and then replacing it is showing a
 //! person something the page is not.
 //!

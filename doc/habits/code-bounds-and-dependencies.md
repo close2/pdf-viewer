@@ -486,3 +486,20 @@ form with a `/DefaultRGB` and from the page took whichever colours were built fi
 beside it had the entry in its key (round 1465, ADR 1765). Where a clause resolves a value "through
 the current resource dictionary", that dictionary's entry is in every cache over the value, and a
 fixture paints the same object under two resource dictionaries.
+
+## A device primitive that answers a classification takes only its yes or no
+
+The device's line primitive was built against the processor kernel's first, axis-only classification;
+when the sibling widened it to any direction mid-round, the primitive had to be rebuilt to any
+direction too (round 1499, ADR 1835). A primitive that answers a classification another slot is still
+building is made general from the start — the whole shape the clause defines, not the subset the
+first census admitted — and takes from the classification only whether a mark qualifies, so a widened
+classification strands nothing.
+
+## A freed row is a permission, not an obligation
+
+Giving the strip planner more legal rows let its cost balance choose fewer strips: `shading_extend.pdf`
+fell from 16 strips to 1 and the witness from 9 to 8, slower, because cuts through a few large fills
+replayed past the bound (round 1500, ADR 1837). A planner handed more rows is asked at every count
+against the rows it had before, and the plan with the most strips is kept, so no page gets fewer
+strips than it had.

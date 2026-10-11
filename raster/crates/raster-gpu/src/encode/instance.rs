@@ -34,11 +34,18 @@ pub(crate) const RECT_INSTANCE_STRIDE: u64 = 32;
 /// `coverage.wgsl`.
 pub(crate) const QUAD_INSTANCE_STRIDE: u64 = 64;
 
+/// Bytes per line instance: the two device endpoints (4 × f32), the pen's semi-axes and the
+/// cap (3 × f32), premultiplied colour (4 × f32) and the rectangle the clip admits (4 × f32) —
+/// fifteen floats. Must match `line.wgsl` (ADR 0097).
+pub(crate) const LINE_INSTANCE_STRIDE: u64 = 60;
+
 /// Which lane a batch draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BatchKind {
     Rect,
     Quad,
+    /// One-segment strokes whose area `line.wgsl` computes (ADR 0097).
+    Line,
 }
 
 /// Where a coverage quad's texels come from — the glyph lane's atlas, or the frame's
@@ -96,6 +103,29 @@ pub(crate) struct Batch {
     pub style: DrawStyle,
     /// The soft mask sampled by these draws, as a mask index.
     pub mask: Option<u32>,
+}
+
+/// One line instance's geometry, as [`Encoder::push_line_instance`] writes it and a queued
+/// job carries it to its commit.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LineInstance {
+    /// The device endpoints.
+    pub ends: (Point, Point),
+    /// The pen's device semi-axes, and Table 53's end.
+    pub pen: ((f32, f32), raster_scene::LineCap),
+    /// The rectangle the clip and the target admit.
+    pub admit: Rect,
+    /// The mark's box inside `admit`, for the plan.
+    pub ink: Rect,
+}
+
+/// The number `line.wgsl` reads Table 53's end by: 0 a butt, 1 a round, 2 a projecting end.
+fn cap_code(cap: raster_scene::LineCap) -> f32 {
+    match cap {
+        raster_scene::LineCap::Butt => 0.0,
+        raster_scene::LineCap::Round => 1.0,
+        raster_scene::LineCap::Square => 2.0,
+    }
 }
 
 /// Bytes to reserve for one instance stream, from the command count the frame budget
@@ -161,6 +191,76 @@ impl Encoder<'_> {
         self.note_batch(BatchKind::Rect, style, mask);
     }
 
+    /// One instance of the line lane (ADR 0097), in the scene's order: queued behind
+    /// anything queued, as a rectangle is (ADR 1409).
+    ///
+    /// `ends` are the device endpoints, `pen` the pen's device semi-axes and the cap, `admit`
+    /// the rectangle the clip and the target leave — which the shader meets every pixel with —
+    /// and `ink` the part of the mark's box inside it, which is the plan's.
+    pub(super) fn push_line_instance(
+        &mut self,
+        ends: (Point, Point),
+        pen: ((f32, f32), raster_scene::LineCap),
+        color: raster_scene::Color,
+        (admit, ink): (Rect, Rect),
+        mask: Option<u32>,
+    ) -> Result<(), RenderError> {
+        let style = self.style;
+        let line = LineInstance {
+            ends,
+            pen,
+            admit,
+            ink,
+        };
+        if !self.queue.is_empty() {
+            return self.enqueue(Job::line(line, Draw::new(color, admit, style, mask)));
+        }
+        self.write_line_instance(&line, color, style, mask);
+        Ok(())
+    }
+
+    /// Write one line instance, with nothing queued ahead of it.
+    pub(super) fn write_line_instance(
+        &mut self,
+        line: &LineInstance,
+        color: raster_scene::Color,
+        style: DrawStyle,
+        mask: Option<u32>,
+    ) {
+        let ink = line.ink;
+        self.plan_mut()
+            .mark([ink.min.x, ink.min.y, ink.max.x, ink.max.y]);
+        let premultiplied = [
+            color.r * color.a,
+            color.g * color.a,
+            color.b * color.a,
+            color.a,
+        ];
+        let ((from, to), ((half_x, half_y), cap)) = (line.ends, line.pen);
+        let values = [
+            from.x,
+            from.y,
+            to.x,
+            to.y,
+            half_x,
+            half_y,
+            cap_code(cap),
+            premultiplied[0],
+            premultiplied[1],
+            premultiplied[2],
+            premultiplied[3],
+            line.admit.min.x,
+            line.admit.min.y,
+            line.admit.max.x,
+            line.admit.max.y,
+        ];
+        for value in values {
+            self.line_instances.extend_from_slice(&value.to_le_bytes());
+        }
+        self.lanes.line = self.lanes.line.saturating_add(1);
+        self.note_batch(BatchKind::Line, style, mask);
+    }
+
     #[expect(clippy::too_many_arguments)] // one instance layout, one writer
     pub(super) fn push_quad_instance(
         &mut self,
@@ -220,7 +320,7 @@ impl Encoder<'_> {
     ///
     /// # Why the `- 1` cannot wrap, and the `as u32` cannot truncate
     ///
-    /// This is private and both callers append **one whole instance** immediately before
+    /// This is private and every caller appends **one whole instance** immediately before
     /// calling it, so the stream holds at least one stride and the index of its last
     /// instance is at least zero. There is no third caller and no path that notes a batch
     /// before writing one; if one were added, the subtraction would wrap to `u32::MAX` in
@@ -238,6 +338,7 @@ impl Encoder<'_> {
         let index = match kind {
             BatchKind::Rect => (self.rect_instances.len() as u64 / RECT_INSTANCE_STRIDE) - 1,
             BatchKind::Quad => (self.quad_instances.len() as u64 / QUAD_INSTANCE_STRIDE) - 1,
+            BatchKind::Line => (self.line_instances.len() as u64 / LINE_INSTANCE_STRIDE) - 1,
         } as u32;
         if let Some(Op::Draw(last)) = self.plan_mut().ops.last_mut()
             && last.kind == kind

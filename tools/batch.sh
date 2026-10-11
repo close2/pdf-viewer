@@ -483,7 +483,7 @@ check_batch() {
     # `data/cie/` holds them as the CSV the CIE publishes, `NOTICE` section 6 and
     # `data/cie/PROVENANCE.md` are what they owe, and a `.csv` anywhere else is somebody's export (ADR 1713).
     found=$(untracked_paths |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg|patch)$' |
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg|patch|wgsl)$' |
         grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '^data/cie/[^/]+\.csv$' |
         grep -vE '(^|/)Cargo\.lock$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"

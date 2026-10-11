@@ -52,6 +52,8 @@
 //!
 //! - `rect` — ADR 0007's analytic lane, and the device rectangle both commands that
 //!   reach it are held to.
+//! - `line` — a one-segment stroke's exact area in the shader, and the stroke road for the
+//!   lines the closed form does not reach (ADR 0097).
 //! - `fill` — which of three lanes draws a fill, and the description all three are
 //!   handed.
 //! - `stroke` — a width brief section 4.5 resolved before it reached us, expanded into a fill, plus
@@ -99,6 +101,7 @@ mod function;
 mod hull;
 mod instance;
 mod layer;
+mod line;
 mod meet;
 mod opacity;
 mod overprint;
@@ -139,7 +142,7 @@ use crate::viewport::Viewport;
 pub(crate) use encoded::Encoded;
 pub(crate) use function::{FunctionOp, empty_stack_reports};
 pub(crate) use instance::{
-    Batch, BatchKind, DrawStyle, QUAD_INSTANCE_STRIDE, RECT_INSTANCE_STRIDE,
+    Batch, BatchKind, DrawStyle, LINE_INSTANCE_STRIDE, QUAD_INSTANCE_STRIDE, RECT_INSTANCE_STRIDE,
 };
 pub(crate) use layer::{ChildOp, MaskPlan};
 pub(crate) use meet::KeptMeets;
@@ -194,6 +197,7 @@ struct Encoder<'a> {
     scratch: ScratchPacker,
     rect_instances: Vec<u8>,
     quad_instances: Vec<u8>,
+    line_instances: Vec<u8>,
     /// The walk's viewport-free half, recorded as it goes (`replay.rs`, ADR 0087):
     /// `Some` while every structure met so far can be replayed per record, `None` the
     /// moment one cannot. Attempted only under [`Coverage::Compute`].
@@ -325,10 +329,8 @@ pub(crate) fn encode(
 ) -> Result<Encoded, RenderError> {
     let commands = scene.commands();
 
-    // Count, check against the stated budget, then allocate — in that order. Every
-    // command costs at most one rect and one quad instance.
-    let per_command = RECT_INSTANCE_STRIDE.saturating_add(QUAD_INSTANCE_STRIDE);
-    let needed = (commands.len() as u64).saturating_mul(per_command);
+    // Count, check against the stated budget, then allocate — in that order.
+    let (needed, lines) = instance_precount(commands);
     if needed > frame_budget_bytes {
         return Err(RenderError::FrameBudgetExceeded {
             needed,
@@ -350,7 +352,7 @@ pub(crate) fn encode(
         coverage_samples,
         instrument,
         threads,
-        needed,
+        (needed, lines),
         match coverage {
             // The lane the caller moves views on; the other lanes' encodes name atlas
             // and winding tiles, which are frame-wide state no record replays.
@@ -369,6 +371,30 @@ pub(crate) fn encode(
     encoder.drain_last()?;
 
     finish(encoder, commands.len())
+}
+
+/// What a frame's instance streams can need before any command is walked, and how many of
+/// the top-level commands are lines.
+///
+/// A line writes one line instance and nothing else, or — off a device axis or under a
+/// residue clip — the one coverage quad a stroke writes; every other command at most one
+/// rectangle and one quad instance. So a line is charged the larger of its two roads and
+/// every other command both of the others: what is charged here is an upper bound on what
+/// the walk writes, which is what lets the streams be reserved from it (brief section 5:
+/// count, then allocate). A page of millions of one-segment strokes is charged 64 bytes a
+/// mark rather than 96 (ADR 0097).
+fn instance_precount(commands: &[Command]) -> (u64, usize) {
+    let lines = commands
+        .iter()
+        .filter(|command| matches!(command, Command::Line { .. }))
+        .count();
+    let others = commands.len().saturating_sub(lines) as u64;
+    let per_line = LINE_INSTANCE_STRIDE.max(QUAD_INSTANCE_STRIDE);
+    let per_command = RECT_INSTANCE_STRIDE.saturating_add(QUAD_INSTANCE_STRIDE);
+    let needed = others
+        .saturating_mul(per_command)
+        .saturating_add((lines as u64).saturating_mul(per_line));
+    (needed, lines)
 }
 
 /// The walk, replayed from its records at a new viewport (`replay.rs`, ADR 0087).
@@ -401,8 +427,7 @@ pub(crate) fn replay(
     list: &ReplayList,
 ) -> Result<Encoded, RenderError> {
     let commands = scene.commands();
-    let per_command = RECT_INSTANCE_STRIDE.saturating_add(QUAD_INSTANCE_STRIDE);
-    let needed = (commands.len() as u64).saturating_mul(per_command);
+    let (needed, lines) = instance_precount(commands);
     if needed > frame_budget_bytes {
         return Err(RenderError::FrameBudgetExceeded {
             needed,
@@ -423,7 +448,7 @@ pub(crate) fn replay(
         coverage_samples,
         instrument,
         threads,
-        needed,
+        (needed, lines),
         Some(ReplayList::default()),
         Some((list.distinct_outlines, list.segments)),
     );
@@ -498,7 +523,7 @@ fn encoder_for<'a>(
     coverage_samples: u32,
     instrument: bool,
     threads: usize,
-    needed: u64,
+    (needed, lines): (u64, usize),
     replay: Option<ReplayList>,
     seeded_counts: Option<(u32, u32)>,
 ) -> Encoder<'a> {
@@ -531,13 +556,14 @@ fn encoder_for<'a>(
         scratch: ScratchPacker::new(max_dimension, max_dimension),
         // Sized from the count the caller just checked (brief section 5: count then allocate).
         rect_instances: Vec::with_capacity(instance_reserve(
-            scene.commands().len(),
+            scene.commands().len().saturating_sub(lines),
             RECT_INSTANCE_STRIDE,
         )),
         quad_instances: Vec::with_capacity(instance_reserve(
-            scene.commands().len(),
+            scene.commands().len().saturating_sub(lines),
             QUAD_INSTANCE_STRIDE,
         )),
+        line_instances: Vec::with_capacity(instance_reserve(lines, LINE_INSTANCE_STRIDE)),
         replay,
         current_command: 0,
         command_records_start: 0,
@@ -634,6 +660,27 @@ impl Encoder<'_> {
             } => self.encode_stroke(
                 index, *outline, *transform, *stroke, *paint, *clip, *blend, *mask,
             ),
+            Command::Line {
+                from,
+                to,
+                transform,
+                width,
+                adjust,
+                cap,
+                color,
+                clip,
+                mask,
+            } => self.encode_line(&line::LineMark {
+                from: *from,
+                to: *to,
+                transform: *transform,
+                width: *width,
+                adjust: *adjust,
+                cap: *cap,
+                color: *color,
+                clip: *clip,
+                mask: *mask,
+            }),
             Command::Image {
                 image,
                 transform,

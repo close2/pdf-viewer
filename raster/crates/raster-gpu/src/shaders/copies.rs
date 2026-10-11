@@ -1,6 +1,6 @@
 //! The WGSL helpers that promise to be copies are held to it.
 //!
-//! WGSL has no `#include`. A helper needed by six shaders is therefore written six
+//! WGSL has no `#include`. A helper needed by seven shaders is therefore written seven
 //! times, and each copy carries a comment saying the copies are kept textually the
 //! same — a promise that nothing enforced, so the copies could drift apart silently
 //! and the divergence would show up as one lane masking differently from the others
@@ -44,12 +44,12 @@ use super::wgsl::function_text;
 
 /// The functions that promise to be copies, and how many copies must exist.
 ///
-/// `soft_mask_value` is ADR 0037's mask lookup: the six shaders that sample a soft
-/// mask are the rectangle and coverage lanes, the image, shading and function passes,
-/// and the compositor. Its per-shader wrapper `soft_mask_at` is *not* listed, and must
+/// `soft_mask_value` is ADR 0037's mask lookup: the seven shaders that sample a soft
+/// mask are the rectangle, line and coverage lanes, the image, shading and function
+/// passes, and the compositor. Its per-shader wrapper `soft_mask_at` is *not* listed, and must
 /// not be: each lane reads the placement from a different uniform, and pushing that
 /// difference into the wrapper is what leaves this function copyable at all.
-const PROMISED_COPIES: &[(&str, usize)] = &[("soft_mask_value", 6)];
+const PROMISED_COPIES: &[(&str, usize)] = &[("soft_mask_value", 7)];
 
 /// The sentence a copied helper's comment carries.
 const PROMISE: &str = "the copies are kept textually the same";

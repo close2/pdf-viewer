@@ -241,6 +241,9 @@ enum Place<'a> {
     /// An instance of the analytic rectangle lane (ADR 0007): no geometry, only a place
     /// in the draw order (ADR 1409).
     Rect { rect: Rect },
+    /// An instance of the line lane (ADR 0097), likewise geometry-free: the endpoints and the
+    /// pen, with the clip's rectangle in the draw.
+    Line { line: super::instance::LineInstance },
     /// A tile of the compute lane (ADR 0080): the device flattens and fills it, so the
     /// host's part is a seat and a record, taken at the commit (ADR 1409).
     Compute {
@@ -460,6 +463,14 @@ impl<'a> Job<'a> {
         }
     }
 
+    /// A line instance, queued behind the marks before it as a rectangle is (ADR 1409).
+    pub(super) fn line(line: super::instance::LineInstance, draw: Draw) -> Self {
+        Self {
+            place: Place::Line { line },
+            ..Self::rect(line.ink, draw)
+        }
+    }
+
     /// Whether this job has any geometry to make: a placement the atlas already holds, a
     /// repeat of a queued key and a rectangle cost an instance and nothing else, and the
     /// instrument must not time the nothing (a second interpretation of one page is
@@ -476,6 +487,7 @@ impl<'a> Job<'a> {
             | Place::Follows { .. }
             | Place::Sheet
             | Place::Rect { .. }
+            | Place::Line { .. }
             | Place::Compute { .. } => None,
         }
     }

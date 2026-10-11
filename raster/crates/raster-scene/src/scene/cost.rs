@@ -85,7 +85,7 @@ fn walk(commands: &[Command], depth: usize, seen: &mut HashSet<FunctionId>, cost
                     cost.function_programs = cost.function_programs.saturating_add(1);
                 }
             }
-            Command::Rect { .. } | Command::Image { .. } => {}
+            Command::Rect { .. } | Command::Line { .. } | Command::Image { .. } => {}
         }
     }
 }

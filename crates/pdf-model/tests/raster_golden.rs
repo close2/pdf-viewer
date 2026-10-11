@@ -644,15 +644,17 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     ),
     (
         "comments.pdf p1",
-        113,
+        115,
         2,
-        "single glyph pixels under the highlight annotations' Multiply composite",
+        "single glyph pixels under the highlight annotations' Multiply composite, and one level \
+         on five pixels beside the cuts a glyph's fill now grants (ADR 1837)",
     ),
     (
         "highlights.pdf p1",
-        112,
+        115,
         2,
-        "single glyph pixels under the highlight annotations' Multiply composite",
+        "single glyph pixels under the highlight annotations' Multiply composite, and one level \
+         on pixels beside the cuts a glyph's fill now grants (ADR 1837)",
     ),
     (
         "issue12810.pdf p1",
@@ -676,10 +678,11 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     ),
     (
         "issue7014.pdf p1",
-        327,
+        329,
         2,
         "row 369, where the underline's bar ends and the highlight below it is clipped: two marks' \
-         edges in one pixel row",
+         edges in one pixel row; and one level on six pixels beside the cuts a glyph's fill now \
+         grants (ADR 1837)",
     ),
     (
         "issue7020.pdf p1",

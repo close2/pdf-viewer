@@ -11,9 +11,17 @@
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example stroke_cut_census -- <file.pdf> [page] [scale] [--draw] [--dump <dir>]
+//! cargo run --release -p pdf-model --example stroke_cut_census -- --corpus <dir> [scale]
 //! ```
 //!
 //! The default scale is 150 dpi, which is `quorra-transform render`'s.
+//!
+//! `--corpus` asks the same of every first page in a directory instead, one tab-separated line a
+//! page — its rows, the strips the backend's plan grants of sixteen asked, the rows it leaves
+//! legal, and the rows only a fill forbids where fills are not asked (ADR 0139's rule for them) —
+//! with what every curved fill alone forbids beside it, so a fill's share of a page's forbidden
+//! rows is a number rather than a guess (ADR 1837). The default scale there is 1, the corpus
+//! gates'.
 #![expect(
     clippy::expect_used,
     clippy::print_stdout,
@@ -35,6 +43,14 @@ use pdf_render::{
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(at) = args.iter().position(|arg| arg == "--corpus") {
+        let dir = args.get(at + 1).expect("a directory").clone();
+        let scale = args
+            .get(at + 2)
+            .map_or(1.0, |n| n.parse().expect("a scale"));
+        corpus(&dir, scale);
+        return;
+    }
     let draw = args.iter().any(|arg| arg == "--draw");
     args.retain(|arg| arg != "--draw");
     // `--dump <dir>` writes each raster the comparison drew as raw RGBA, `<strips>-<w>x<h>.rgba`,
@@ -105,9 +121,11 @@ fn main() {
     println!(
         "  legal cut rows with every stroke's extent forbidden: {} of {height}; with none: {}",
         legal(&before),
-        legal(&pdf_render::unsplittable_rows_where(&list, target, &|_| {
-            true
-        })),
+        legal(&pdf_render::unsplittable_rows_where(
+            &list,
+            target,
+            &|mark| { matches!(mark, pdf_render::PlannedMark::Stroke(_)) }
+        )),
     );
     let costs = pdf_render::row_costs(&pdf_render::command_extents(&list, target), target);
     let cuts = pdf_render::strip_boundaries_avoiding(&costs, &before, 16, 64);
@@ -121,9 +139,122 @@ fn main() {
         planning.as_secs_f64() * 1000.0
     );
 
+    search(&list, target, &costs);
+
     if draw {
         divisions(&list, target, dump.as_deref());
     }
+}
+
+/// The plan's own search, count by count: the cuts the backend's rows allow and what each division
+/// replays, which is what decides where the search stops.
+fn search(list: &DisplayList, target: pdf_render::TargetSpec, costs: &[f64]) {
+    let backend = render_cpu::CpuRasterizer::new().with_strips(16);
+    let rows = pdf_render::unsplittable_rows_where(list, target, &|mark| {
+        backend.draws_row_by_row(mark, target)
+    });
+    let extents = pdf_render::command_extents(list, target);
+    println!(
+        "  legal cut rows under the backend's answer: {} of {}",
+        rows.iter().filter(|row| !**row).count(),
+        target.height
+    );
+    for asked in [16, 8, 4, 2] {
+        let cuts = pdf_render::strip_boundaries_avoiding(costs, &rows, asked, 64);
+        println!(
+            "    {asked:>2} asked: {} made, replay {:.3}, cuts {cuts:?}",
+            cuts.len() - 1,
+            pdf_render::replay_ratio(&extents, &cuts)
+        );
+    }
+}
+
+/// One line per first page of every PDF in `dir`, and a summary: what each page's plan grants and
+/// which of its forbidden rows only a fill forbids.
+fn corpus(dir: &str, scale: f32) {
+    use rayon::prelude::{IntoParallelRefIterator as _, ParallelIterator as _};
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .expect("a readable directory")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|extension| extension == "pdf"))
+        .collect();
+    files.sort();
+    println!("page\trows\tgranted\tlegal\tfill_only\tcurved_fill_only\tforbidden_without_fills");
+    let lines: Vec<Option<[usize; 6]>> = files
+        .par_iter()
+        .map(|path| {
+            let line = first_page(path, scale);
+            let name = path
+                .file_name()
+                .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+            match line {
+                Some(counts) => {
+                    let [rows, granted, legal, fill_only, curved, without] = counts;
+                    println!(
+                        "{name}\t{rows}\t{granted}\t{legal}\t{fill_only}\t{curved}\t{without}"
+                    );
+                }
+                None => println!("{name}\t-"),
+            }
+            line
+        })
+        .collect();
+    let drawn: Vec<[usize; 6]> = lines.into_iter().flatten().collect();
+    let cut = drawn.iter().filter(|counts| counts[1] > 1).count();
+    let by_fills = drawn.iter().filter(|counts| counts[3] > 0).count();
+    println!(
+        "# {} of {} first pages planned; {cut} cut into more than one strip; {by_fills} with rows \
+         only a fill forbids where fills are not asked",
+        drawn.len(),
+        files.len()
+    );
+}
+
+/// `[rows, strips granted of sixteen, legal rows, rows only a fill forbids where fills are not
+/// asked, the same for curved fills alone, rows forbidden with every fill freed]` for a document's
+/// first page, or `None` where it does not open or has no target.
+fn first_page(path: &std::path::Path, scale: f32) -> Option<[usize; 6]> {
+    let bytes = std::fs::read(path).ok()?;
+    let document = pdf_syntax::Document::open(bytes).ok()?;
+    let page = pdf_model::Pages::new(&document).get(0)?;
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let target = pdf_render::TargetSpec::for_page(&list, scale, 64 << 20).ok()?;
+    let backend = render_cpu::CpuRasterizer::new().with_strips(16);
+    let plan = backend.strip_plan(&list, target);
+    let asked = |mark: pdf_render::PlannedMark<'_>| backend.draws_row_by_row(mark, target);
+    let rows_where = |free: &dyn Fn(pdf_render::PlannedMark<'_>) -> bool| {
+        pdf_render::unsplittable_rows_where(&list, target, free)
+    };
+    let now = rows_where(&|mark| asked(mark));
+    // ADR 0139's rule for fills, the backend's for strokes: what a page forbade before fills were
+    // asked, and the same with every fill — and then every curved fill — freed.
+    let fills_unasked =
+        rows_where(&|mark| matches!(mark, pdf_render::PlannedMark::Stroke(_)) && asked(mark));
+    let fills_free =
+        rows_where(&|mark| matches!(mark, pdf_render::PlannedMark::Fill(_)) || asked(mark));
+    let curved_free = rows_where(&|mark| match mark {
+        pdf_render::PlannedMark::Fill(fill) => fill
+            .path
+            .commands()
+            .iter()
+            .any(|segment| matches!(segment, PathCommand::CurveTo(..))),
+        pdf_render::PlannedMark::Stroke(_) => asked(mark),
+    });
+    let only = |freed: &[bool]| {
+        fills_unasked
+            .iter()
+            .zip(freed)
+            .filter(|(before, after)| **before && !**after)
+            .count()
+    };
+    Some([
+        target.height as usize,
+        plan.len() - 1,
+        now.iter().filter(|row| !**row).count(),
+        only(&fills_free),
+        only(&curved_free),
+        fills_free.iter().filter(|row| **row).count(),
+    ])
 }
 
 /// The page drawn whole and in two, four and sixteen strips, compared byte for byte, with the clock
@@ -165,7 +296,7 @@ fn divisions(list: &DisplayList, target: pdf_render::TargetSpec, dump: Option<&s
             "  {strips:>2} strips: {near} of the moved pixels lie within two rows of a cut of {cuts:?}"
         );
         println!(
-            "  {strips:>2} strips: {:.2} s against {:.2} s whole; {moved} pixels differ, worst {worst}, first {first:?}",
+            "  {strips:>2} strips: {:.4} s against {:.4} s whole; {moved} pixels differ, worst {worst}, first {first:?}",
             split.1, whole.1
         );
     }

@@ -302,6 +302,7 @@ fn count(commands: &[Command], uses: &mut [u32]) {
     for command in commands {
         match command {
             Command::Rect { clip, .. }
+            | Command::Line { clip, .. }
             | Command::Fill { clip, .. }
             | Command::Stroke { clip, .. }
             | Command::Image { clip, .. } => note(*clip, uses),

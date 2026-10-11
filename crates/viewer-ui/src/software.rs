@@ -215,47 +215,374 @@ pub fn compose_pages_interruptibly(
     pages: &[(&DisplayList, TargetSpec)],
     interrupt: Option<&Interrupt>,
 ) -> Result<Raster, SoftwareError> {
-    /// Which page of the arrangement refused, counting from one.
-    fn refused(index: usize) -> impl Fn(CpuRasterError) -> SoftwareError {
-        move |problem| SoftwareError::Page {
-            page: index.saturating_add(1),
-            problem,
+    let Some((first, rest)) = pages.split_first() else {
+        return Err(SoftwareError::NoExtent);
+    };
+    compose_pages_showing(*first, rest, interrupt, None).map_err(PageRefused::into_error)
+}
+
+/// What a draw of Table 29's arrangement says about itself while somebody is looking at it.
+///
+/// **Two kinds of news, because the arrangement is drawn a page at a time**: a run of one page's
+/// rows as they stand ([`render_cpu::Glimpse`], ADR 1825), and the arrangement composed through a
+/// page that has finished — which is what the next page's rows are drawn over, since every page
+/// after the first is drawn onto transparency and composited ([`compose_pages`]).
+#[derive(Debug)]
+pub enum Seen {
+    /// Rows of the arrangement's page `page`, counting from zero, as they stand part-way.
+    Rows {
+        /// Which page of the arrangement.
+        page: usize,
+        /// The rows.
+        glimpse: render_cpu::Glimpse,
+    },
+    /// The arrangement composed through page `page`, which has finished.
+    Through {
+        /// Which page of the arrangement finished.
+        page: usize,
+        /// Every page up to and including it, composed as the finished frame will have them.
+        composed: Raster,
+    },
+}
+
+/// Which page of the arrangement refused, counting from zero, and what the processor said.
+///
+/// [`SoftwareError::Page`] without the variants that cannot cross a thread — a software surface's
+/// error holds the platform's handles — so that the draw can run on one ([`compose_pages_watched`]).
+#[derive(Debug)]
+struct PageRefused {
+    index: usize,
+    problem: CpuRasterError,
+}
+
+impl PageRefused {
+    /// The refusal a caller reports, counting pages from one as a reader does.
+    fn into_error(self) -> SoftwareError {
+        SoftwareError::Page {
+            page: self.index.saturating_add(1),
+            problem: self.problem,
         }
+    }
+}
+
+/// Where a draw sends what it is asked for, the flag it is asked through, and whether it has been.
+struct Sink {
+    glance: render_cpu::Glance,
+    /// Raised by the watcher the first time it asks, so that a page finishing before anybody
+    /// looked does not copy the arrangement for nobody.
+    looked: std::sync::atomic::AtomicBool,
+    to: Arc<dyn Fn(Seen) + Send + Sync>,
+}
+
+/// [`compose_pages_interruptibly`], with each page answering `showing`'s glances as it is drawn.
+///
+/// A page whose draw the rasteriser does not glimpse — its finish needs a second plane
+/// (`render_cpu`'s glimpse module says which) — answers nothing until it finishes, and then its
+/// [`Seen::Through`] arrives as every page's does. The first page is taken apart from the rest
+/// because an arrangement of none is no frame, which each caller has already said.
+fn compose_pages_showing(
+    (first, target): (&DisplayList, TargetSpec),
+    rest: &[(&DisplayList, TargetSpec)],
+    interrupt: Option<&Interrupt>,
+    showing: Option<&Sink>,
+) -> Result<Raster, PageRefused> {
+    /// Which page of the arrangement refused, counting from zero.
+    fn refused(index: usize) -> impl Fn(CpuRasterError) -> PageRefused {
+        move |problem| PageRefused { index, problem }
     }
     /// A rasteriser that honours `interrupt`, or the plain one where there is none to honour.
     ///
     /// Built per page rather than cloned, which is what the existing shape already did, and the
     /// `Option` is what keeps a caller that hands none over on the path every gate in this tree
     /// runs — 867 instructions a draw against 0.18%, ADR 0650 section 5.
-    fn drawing(interrupt: Option<&Interrupt>, medium: Medium) -> CpuRasterizer {
+    fn drawing(
+        interrupt: Option<&Interrupt>,
+        medium: Medium,
+        showing: Option<&Sink>,
+        page: usize,
+    ) -> CpuRasterizer {
         let rasterizer = CpuRasterizer::new().with_medium(medium);
-        match interrupt {
+        let rasterizer = match interrupt {
             Some(interrupt) => rasterizer.interruptible(interrupt.clone()),
+            None => rasterizer,
+        };
+        match showing {
+            Some(sink) => {
+                let to = Arc::clone(&sink.to);
+                rasterizer.showing(sink.glance.clone(), move |glimpse| {
+                    to(Seen::Rows { page, glimpse });
+                })
+            }
             None => rasterizer,
         }
     }
-    let Some(((first, target), rest)) = pages.split_first() else {
-        return Err(SoftwareError::NoExtent);
-    };
+    /// The arrangement through `page`, where somebody is looking — a window's worth of bytes
+    /// copied once a page, and only for a draw that has been asked for a look.
+    fn through(showing: Option<&Sink>, page: usize, composed: &Raster) {
+        if let Some(sink) = showing
+            && sink.looked.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            (sink.to)(Seen::Through {
+                page,
+                composed: composed.clone(),
+            });
+        }
+    }
     let medium = Medium::WINDOW;
-    let mut composed = drawing(interrupt, medium)
-        .rasterize(first, *target)
+    let mut composed = drawing(interrupt, medium, showing, 0)
+        .rasterize(first, target)
         .map_err(refused(0))?;
     match composed.format {
         RasterFormat::Rgba8 => {}
     }
+    through(showing, 0, &composed);
     for (index, (list, placed)) in rest.iter().enumerate() {
+        let page = index.saturating_add(1);
         // Its own 𝑊 and no surround: this is a layer over what is already drawn, and the
         // ground between the pages was painted once by the page below.
-        let over = drawing(interrupt, medium.on_transparency())
+        let over = drawing(interrupt, medium.on_transparency(), showing, page)
             .rasterize(list, *placed)
-            .map_err(refused(index.saturating_add(1)))?;
+            .map_err(refused(page))?;
         match over.format {
             RasterFormat::Rgba8 => {}
         }
         source_over(&mut composed, &over);
+        through(showing, page, &composed);
     }
     Ok(composed)
+}
+
+/// When a draw is first looked at, and how often after that.
+///
+/// `viewer_host::drawing`'s two waits, which the toolkit windows look at a page in flight by
+/// (ADR 1825): no page of `doc/pdf.js`'s 957 first pages is looked at, and a page that draws for
+/// seconds is shown four times a second.
+#[derive(Debug, Clone, Copy)]
+pub struct Looks {
+    /// How long the draw runs before it is first looked at.
+    pub after: std::time::Duration,
+    /// How long between looks after that.
+    pub every: std::time::Duration,
+}
+
+impl Looks {
+    /// The waits the toolkit windows look by.
+    pub const SHIPPED: Self = Self {
+        after: viewer_host::drawing::GLIMPSE_AFTER,
+        every: viewer_host::drawing::GLIMPSE_EVERY,
+    };
+}
+
+/// [`compose_pages_interruptibly`] on a thread of its own, with the arrangement as it stands
+/// handed to `shown` on the calling thread at every look (ADR 1831).
+///
+/// **The calling thread is the one that keeps time and answers**, because that is the thread a
+/// window's pixels go out through: `quorra`'s render thread owns the graphics device a picture is
+/// uploaded by, and the composing thread of the window with none owns the channel back. So the
+/// draw itself runs on a scoped thread — rayon's strips under it as always — and this thread asks
+/// [`render_cpu::Glance`] for a look at [`Looks::after`] and every [`Looks::every`] after, folds
+/// what comes back into an [`Assembly`], and calls `shown` once per batch of news. The raster at
+/// the end is the unobserved one, byte for byte: a look copies rows out and writes nothing back.
+///
+/// # Errors
+///
+/// As [`compose_pages_interruptibly`].
+pub fn compose_pages_watched(
+    pages: &[(&DisplayList, TargetSpec)],
+    interrupt: Option<&Interrupt>,
+    looks: Looks,
+    mut shown: impl FnMut(&Assembly),
+) -> Result<Raster, SoftwareError> {
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    use std::time::Instant;
+
+    let Some((&(list, target), rest)) = pages.split_first() else {
+        return Err(SoftwareError::NoExtent);
+    };
+    // `None` is the draw saying it has ended, so that the end is noticed when it happens rather
+    // than at the next look.
+    let (sender, news) = channel::<Option<Seen>>();
+    let ended = sender.clone();
+    let glance = render_cpu::Glance::new();
+    let to: Arc<dyn Fn(Seen) + Send + Sync> = Arc::new(move |seen| {
+        // A send that fails is a watcher that has stopped reading, which is a draw that has
+        // ended; the rows are a copy, so dropping them loses nothing of the page.
+        let _ = sender.send(Some(seen));
+    });
+    let sink = Sink {
+        glance: glance.clone(),
+        looked: std::sync::atomic::AtomicBool::new(false),
+        to,
+    };
+    let began = Instant::now();
+    std::thread::scope(|scope| {
+        let drawing = scope.spawn(|| {
+            let drawn = compose_pages_showing((list, target), rest, interrupt, Some(&sink));
+            let _ = ended.send(None);
+            drawn
+        });
+        let mut assembly = Assembly::new(target.width, target.height, pages.len());
+        let mut next_look = began.checked_add(looks.after);
+        loop {
+            let wait = next_look.map_or(looks.every, |at| {
+                at.saturating_duration_since(Instant::now())
+            });
+            match news.recv_timeout(wait.min(looks.every)) {
+                Ok(Some(seen)) => {
+                    assembly.take(seen);
+                    let mut over = false;
+                    while let Ok(more) = news.try_recv() {
+                        match more {
+                            Some(more) => assembly.take(more),
+                            None => over = true,
+                        }
+                    }
+                    if over {
+                        break;
+                    }
+                    shown(&assembly);
+                }
+                Ok(None) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if next_look.is_some_and(|at| Instant::now() >= at) {
+                sink.looked
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                glance.ask();
+                next_look = Instant::now().checked_add(looks.every);
+            }
+        }
+        match drawing.join() {
+            Ok(drawn) => drawn.map_err(PageRefused::into_error),
+            // The scoped thread is this function's own and `compose_pages_showing` returns its
+            // refusals as values, so a panic there is a defect, and it is carried on as one.
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    })
+}
+
+/// The arrangement part-way through its draw, put together from what [`compose_pages_watched`]'s
+/// looks brought back — what a window shows while a page draws for seconds (ADR 1831).
+///
+/// Rows of the page being drawn that no strip has answered for yet are transparent, so a window
+/// shows its own ground there rather than a colour the page has not been given — the toolkit
+/// windows' `viewer_host::drawing::Partial`, for an arrangement of several pages.
+#[derive(Debug)]
+pub struct Assembly {
+    /// The picture as it stands.
+    picture: Raster,
+    /// The arrangement composed through the last finished page, which the page being drawn is
+    /// drawn over; `None` while the first page is still being drawn.
+    below: Option<Raster>,
+    /// How many pages the arrangement has.
+    pages: usize,
+    /// How many of them have finished.
+    finished: usize,
+    /// Per run of rows of the page being drawn: its first row, its height, and how far through
+    /// that page's commands it had got.
+    bands: Vec<(u32, u32, usize, usize)>,
+}
+
+impl Assembly {
+    /// Nothing drawn yet, for an arrangement of `pages` pages in a `width` × `height` window.
+    #[must_use]
+    pub fn new(width: u32, height: u32, pages: usize) -> Self {
+        let bytes = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        Self {
+            picture: Raster {
+                width,
+                height,
+                format: RasterFormat::Rgba8,
+                data: vec![0; bytes],
+            },
+            below: None,
+            pages,
+            finished: 0,
+            bands: Vec::new(),
+        }
+    }
+
+    /// The pixels, at the window's size.
+    #[must_use]
+    pub fn picture(&self) -> &Raster {
+        &self.picture
+    }
+
+    /// How much of the arrangement's drawing the picture holds: whole pages for the pages that
+    /// have finished, and the page being drawn by its commands, weighted by the rows each strip
+    /// owns — what a window's bar shows.
+    #[must_use]
+    pub fn fraction(&self) -> f64 {
+        let rows = f64::from(self.picture.height.max(1));
+        let current = self
+            .bands
+            .iter()
+            .map(|&(_, height, drawn, of)| {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a share of a command count, for a bar"
+                )]
+                let share = if of == 0 {
+                    1.0
+                } else {
+                    drawn as f64 / of as f64
+                };
+                share * f64::from(height)
+            })
+            .sum::<f64>()
+            / rows;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a count of an arrangement's pages, which is a handful"
+        )]
+        let (finished, pages) = (self.finished as f64, self.pages.max(1) as f64);
+        ((finished + current.min(1.0)) / pages).min(1.0)
+    }
+
+    /// Folds one piece of news in; rows that do not fit the window are dropped.
+    pub fn take(&mut self, seen: Seen) {
+        match seen {
+            Seen::Through { page, composed } => {
+                if composed.width != self.picture.width || composed.height != self.picture.height {
+                    return;
+                }
+                self.picture.data.copy_from_slice(&composed.data);
+                self.below = Some(composed);
+                self.finished = page.saturating_add(1);
+                self.bands.clear();
+            }
+            Seen::Rows { page, glimpse } => {
+                if page != self.finished || glimpse.rows.width != self.picture.width {
+                    return;
+                }
+                let stride = (self.picture.width as usize).saturating_mul(4);
+                let start = (glimpse.top as usize).saturating_mul(stride);
+                let end = start.saturating_add(glimpse.rows.data.len());
+                let Some(rows) = self.picture.data.get_mut(start..end) else {
+                    return;
+                };
+                match self
+                    .below
+                    .as_ref()
+                    .and_then(|below| below.data.get(start..end))
+                {
+                    // A later page is a layer over the pages before it, as in the finished frame.
+                    Some(under) => {
+                        rows.copy_from_slice(under);
+                        over_rows(rows, &glimpse.rows.data);
+                    }
+                    None => rows.copy_from_slice(&glimpse.rows.data),
+                }
+                let band = (glimpse.top, glimpse.rows.height, glimpse.drawn, glimpse.of);
+                match self.bands.iter_mut().find(|held| held.0 == glimpse.top) {
+                    Some(held) => *held = band,
+                    None => self.bands.push(band),
+                }
+            }
+        }
+    }
 }
 
 /// Whether a [`SoftwareError`] is the caller's own interrupt coming back rather than a refusal.
@@ -379,14 +706,19 @@ pub fn compose(page: &Raster, overlays: &[&DisplayList]) -> Result<Raster, Softw
 /// are already device pixels at the same extent and neither is in a transparency group. Both
 /// rasters are [`RasterFormat::Rgba8`], which [`compose`] has checked — this function is private
 /// so that the check has exactly one caller to be true of.
+fn source_over(under: &mut Raster, top: &Raster) {
+    over_rows(&mut under.data, &top.data);
+}
+
+/// [`source_over`] on two runs of straight-alpha pixels of the same extent.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "each channel is a ratio of two bytes scaled back to 0..=255 and clamped there \
               before the cast, so neither truncation nor a negative value is reachable"
 )]
-fn source_over(under: &mut Raster, top: &Raster) {
-    for (dst, src) in under.data.chunks_exact_mut(4).zip(top.data.chunks_exact(4)) {
+fn over_rows(under: &mut [u8], top: &[u8]) {
+    for (dst, src) in under.chunks_exact_mut(4).zip(top.chunks_exact(4)) {
         let source_alpha = f32::from(src[3]) / 255.0;
         if source_alpha <= 0.0 {
             continue;
@@ -495,6 +827,112 @@ mod tests {
             drawn,
             compose_pages(&pages).expect("and so does no interrupt at all"),
             "handing one over changes nothing about the pixels"
+        );
+    }
+
+    /// **A draw looked at is the draw unobserved, byte for byte**, and it is looked at: the
+    /// watcher's thread asks, the rows come back folded into the picture, and the share is a share
+    /// (ADR 1831). Two pages, so that the second's rows are composed over the first's.
+    #[test]
+    fn a_watched_arrangement_is_the_arrangement_and_is_shown_on_the_way() {
+        let (width, height) = (32_u32, 16_u32);
+        let mut list = left_half(width, height, Color::rgb(0.2, 0.4, 0.6));
+        // Enough commands that the draw outlasts a look asked for at once.
+        let one: Vec<Command> = list.commands().to_vec();
+        for _ in 0..20_000 {
+            for command in &one {
+                list.push(command.clone());
+            }
+        }
+        let target = TargetSpec {
+            width,
+            height,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let moved = TargetSpec {
+            transform: pdf_render::Transform::translate(16.0, 0.0),
+            ..target
+        };
+        let pages = [(&list, target), (&list, moved)];
+        let mut looks = 0_usize;
+        let looked = super::compose_pages_watched(
+            &pages,
+            None,
+            super::Looks {
+                after: std::time::Duration::ZERO,
+                every: std::time::Duration::from_millis(1),
+            },
+            |assembly| {
+                looks += 1;
+                assert!((0.0..=1.0).contains(&assembly.fraction()));
+                assert_eq!(assembly.picture().data.len(), 32 * 16 * 4);
+            },
+        )
+        .expect("drawn");
+        assert_eq!(
+            looked,
+            compose_pages(&pages).expect("drawn unobserved"),
+            "a look copies rows out and writes nothing back"
+        );
+        assert!(
+            looks > 0,
+            "a draw of forty thousand commands was never looked at"
+        );
+    }
+
+    /// The picture part-way: a first page's rows replace, a later page's are composed over what
+    /// the pages before it left, and the share counts the finished pages whole.
+    #[test]
+    fn an_assembly_composes_a_later_page_over_the_earlier_ones() {
+        let rows = |colour: [u8; 4]| Raster {
+            width: 2,
+            height: 1,
+            format: RasterFormat::Rgba8,
+            data: colour.repeat(2),
+        };
+        let glimpse = |top, colour, drawn, of| super::Seen::Rows {
+            page: 0,
+            glimpse: render_cpu::Glimpse {
+                top,
+                rows: rows(colour),
+                drawn,
+                of,
+            },
+        };
+        let mut assembly = super::Assembly::new(2, 2, 2);
+        assembly.take(glimpse(0, [255, 0, 0, 255], 5, 10));
+        assert_eq!(&assembly.picture().data[0..4], &[255, 0, 0, 255]);
+        assert_eq!(
+            &assembly.picture().data[8..12],
+            &[0, 0, 0, 0],
+            "a row nobody answered"
+        );
+        assert!(
+            (assembly.fraction() - 0.125).abs() < 1e-9,
+            "half of half of one page of two"
+        );
+        assembly.take(super::Seen::Through {
+            page: 0,
+            composed: page(2, 2, [255, 255, 255, 255]),
+        });
+        assert!((assembly.fraction() - 0.5).abs() < 1e-9);
+        let super::Seen::Rows { glimpse: later, .. } = glimpse(1, [0, 0, 0, 0], 1, 1) else {
+            unreachable!("built as rows a line above");
+        };
+        assembly.take(super::Seen::Rows {
+            page: 1,
+            glimpse: later,
+        });
+        assert_eq!(
+            &assembly.picture().data[8..12],
+            &[255, 255, 255, 255],
+            "a later page's transparent rows leave the page below as it was"
+        );
+        assembly.take(glimpse(0, [0, 255, 0, 255], 10, 10));
+        assert_eq!(
+            &assembly.picture().data[0..4],
+            &[255, 255, 255, 255],
+            "rows of a page that has finished are news of nothing"
         );
     }
 

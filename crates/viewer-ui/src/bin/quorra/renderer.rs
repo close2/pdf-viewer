@@ -146,6 +146,9 @@ struct Job {
     /// What the device said when it last refused these pages at this magnification, where it has
     /// — and then the device is not asked again, and the processor draws at once ([`Refusals`]).
     known_refusal: Option<String>,
+    /// Where the window predicted the processor draws these pages faster than the device does —
+    /// and then the device is not asked at all ([`Costs`], ADR 1831).
+    cheaper: Option<Prediction>,
     /// The flag the event thread raises to take the processor's half of this frame back.
     ///
     /// The device's half cannot be taken back — raster draws a frame in one call (ADR 0725) — so
@@ -153,9 +156,160 @@ struct Job {
     /// refuses: the processor is then not started at all.
     interrupt: Interrupt,
     /// Set by the render thread the moment the processor starts on this frame, and by the event
-    /// thread at the ask where [`Self::known_refusal`] says it will — which is what lets the
-    /// window warn about a long draw it can stop, and only about one it can.
+    /// thread at the ask where [`Self::known_refusal`] or [`Self::cheaper`] says it will — which
+    /// is what lets the window warn about a long draw it can stop, and only about one it can.
     on_the_processor: Arc<AtomicBool>,
+}
+
+/// What the window predicted a frame would cost on each lane, where it predicted the processor
+/// the cheaper (ADR 1831).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Prediction {
+    /// How many commands the arrangement's pages hold between them — the figure both lanes'
+    /// costs are read per.
+    pub(crate) commands: usize,
+    /// What the device was predicted to take, and whether from this window's own measurement of
+    /// these pages or from [`Costs::DEVICE_SEED`].
+    pub(crate) device: Duration,
+    pub(crate) device_measured: bool,
+    /// What the processor was predicted to take, likewise.
+    pub(crate) processor: Duration,
+    pub(crate) processor_measured: bool,
+}
+
+/// What each lane cost per command the last time it drew a frame of these pages (ADR 1831).
+///
+/// **Why a cost per command, and why per page.** ADR 1823 measured where the device's frame goes on
+/// the project owner's drawing: host encode, which walks every command — 7 884 ms for 4 408 405 of
+/// them, nearly two microseconds each, whatever their size. The processor's cost on a page of
+/// hairlines is the same walk at a different price per command, divided among the strips the page
+/// grants; on a page of large fills it is the pixels instead. So the count of commands is the one
+/// figure both lanes scale with that a frame states before it is drawn, and what each lane charges
+/// for one of *this page's* commands is read off the last frame of the page that lane drew. Until a
+/// lane has drawn the page, its price is a seed measured on this machine (the constants say where).
+///
+/// **When it is asked at all.** A frame the device is predicted to draw inside
+/// `viewer_host::drawing::WARN` stays on the device whatever the processor's prediction: that is a
+/// frame nobody waits for, and the device is where `CLAUDE.md` puts a page. Past it, the lane with
+/// the smaller prediction draws — a person waiting seconds is owed the faster of the two, and the
+/// processor's draw is the one that can be shown as it is built, taken back and stopped.
+#[derive(Debug, Default)]
+struct Costs {
+    /// Newest first, at most [`Self::KEPT`].
+    held: Vec<Measured>,
+}
+
+/// One arrangement's last measured price per command on each lane, in nanoseconds.
+#[derive(Debug)]
+struct Measured {
+    pictures: Vec<crate::stale::Picture>,
+    device: Option<f64>,
+    processor: Option<f64>,
+}
+
+/// Which lane drew a frame, for [`Costs::measure`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    Device,
+    Processor,
+}
+
+impl Costs {
+    /// How many arrangements' prices are kept — [`Refusals::KEPT`]'s count, for its reason.
+    const KEPT: usize = 32;
+
+    /// What one command costs the device before it has drawn a page here: the owner's drawing on
+    /// the Radeon 890M's `Cpu` lane, headless, 7 884 ms over 4 408 405 commands (ADR 1823
+    /// section 4).
+    const DEVICE_SEED: f64 = 1_788.0;
+
+    /// What one command costs the processor before it has drawn a page here: the same drawing at
+    /// 150 dpi on this machine's processor, nine strips granted on four rayon threads, 2.94 s over
+    /// 4 408 405 commands (ADR 1819 section 3, `stroke_cut_census --draw`).
+    const PROCESSOR_SEED: f64 = 667.0;
+
+    /// The pictures an arrangement is priced by.
+    fn key(pages: &[crate::stale::Placed]) -> Vec<crate::stale::Picture> {
+        pages.iter().map(|placed| placed.of).collect()
+    }
+
+    /// The prediction for `pages`, where the processor is the lane to take; `None` where the
+    /// device is.
+    fn processor_for(&self, pages: &[crate::stale::Placed]) -> Option<Prediction> {
+        let commands: usize = pages
+            .iter()
+            .map(|placed| placed.list.commands().len())
+            .sum();
+        self.predict(&Self::key(pages), commands)
+    }
+
+    /// [`Self::processor_for`] over the pictures and the count it reads.
+    fn predict(&self, pictures: &[crate::stale::Picture], commands: usize) -> Option<Prediction> {
+        let held = self.held.iter().find(|held| held.pictures == *pictures);
+        let device = held.and_then(|held| held.device);
+        let processor = held.and_then(|held| held.processor);
+        let prediction = Prediction {
+            commands,
+            device: Self::cost(device.unwrap_or(Self::DEVICE_SEED), commands),
+            device_measured: device.is_some(),
+            processor: Self::cost(processor.unwrap_or(Self::PROCESSOR_SEED), commands),
+            processor_measured: processor.is_some(),
+        };
+        (prediction.device >= viewer_host::drawing::WARN
+            && prediction.processor < prediction.device)
+            .then_some(prediction)
+    }
+
+    /// `commands` at `nanoseconds` each.
+    fn cost(nanoseconds: f64, commands: usize) -> Duration {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a count of commands priced for a prediction, far inside f64's exact range"
+        )]
+        let total = nanoseconds * commands as f64 / 1e9;
+        Duration::try_from_secs_f64(total).unwrap_or(Duration::MAX)
+    }
+
+    /// Keeps what `lane` took to draw `pages`, newest first.
+    fn measure(&mut self, pages: &[crate::stale::Placed], lane: Lane, took: Duration) {
+        let commands: usize = pages
+            .iter()
+            .map(|placed| placed.list.commands().len())
+            .sum();
+        self.measured(Self::key(pages), commands, lane, took);
+    }
+
+    /// [`Self::measure`] over the pictures and the count it reads.
+    fn measured(
+        &mut self,
+        pictures: Vec<crate::stale::Picture>,
+        commands: usize,
+        lane: Lane,
+        took: Duration,
+    ) {
+        if commands == 0 {
+            return;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a count of commands priced for a prediction, far inside f64's exact range"
+        )]
+        let each = took.as_secs_f64() * 1e9 / commands as f64;
+        let mut measured = match self.held.iter().position(|held| held.pictures == pictures) {
+            Some(at) => self.held.remove(at),
+            None => Measured {
+                pictures,
+                device: None,
+                processor: None,
+            },
+        };
+        match lane {
+            Lane::Device => measured.device = Some(each),
+            Lane::Processor => measured.processor = Some(each),
+        }
+        self.held.insert(0, measured);
+        self.held.truncate(Self::KEPT);
+    }
 }
 
 /// One finished window frame, on its way back to the thread that will present it.
@@ -177,6 +331,11 @@ struct Done {
     device_tried: Option<Duration>,
     /// How long the processor drew for, where it drew.
     processor_drew: Option<Duration>,
+    /// How long the device drew for, where it drew and built its picture rather than replaying it
+    /// — the figure [`Costs`] reads the device's price per command from.
+    device_drew: Option<Duration>,
+    /// [`Job::cheaper`], carried back so that the window can say why the processor drew.
+    chose: Option<Prediction>,
     /// Whether the event thread raised [`Job::interrupt`] and this thread honoured it: no pixels
     /// were drawn and [`Self::textures`] holds nothing worth showing.
     abandoned: bool,
@@ -234,6 +393,22 @@ enum Finished {
     /// The settled view at twice the window's resolution, drawn while nothing else was
     /// asked for.
     Sharp(Box<Sharpened>),
+    /// The frame in flight as the processor has drawn it so far (ADR 1831).
+    Partial(Box<Partial>),
+}
+
+/// The frame the processor is drawing, as it stood at the last look — on its way to the window.
+///
+/// Uploaded on the render thread, which owns the device, into a pair of its own: the pair the
+/// frame will land in is still being drawn for, and the pair on the window is the last true
+/// picture, so neither may be written while this is shown.
+#[derive(Debug)]
+pub(crate) struct Partial {
+    /// The frame's pages — the job it is a picture of.
+    pages: Vec<crate::stale::Placed>,
+    textures: Pair,
+    /// How much of the arrangement's drawing the picture holds (`viewer_ui::software::Assembly`).
+    pub(crate) fraction: f64,
 }
 
 /// The channels to a running render thread, and the thread itself.
@@ -297,6 +472,8 @@ pub(crate) struct Landed {
     pub(crate) device_tried: Option<Duration>,
     /// How long the processor drew for, where it drew.
     pub(crate) processor_drew: Option<Duration>,
+    /// Where the processor drew because it was predicted the faster lane, the prediction.
+    pub(crate) chose: Option<Prediction>,
     /// Whether the processor's draw was taken back: no pixels landed, and nothing about this frame
     /// may be recorded as the view settled or answered to the core.
     pub(crate) abandoned: bool,
@@ -490,6 +667,16 @@ pub(crate) struct Window {
     in_flight: Option<Flight>,
     /// The frames the device refused, which it is not asked for again (ADR 1821).
     refusals: Refusals,
+    /// What each lane charged per command for the pages it drew last, which picks the lane of a
+    /// frame the device would take seconds over (ADR 1831).
+    costs: Costs,
+    /// The frame in flight as far as the processor has drawn it, and whether it has arrived since
+    /// the window last put it up (ADR 1831).
+    partial: Option<Partial>,
+    partial_news: bool,
+    /// Raised by [`Self::ask`] to take back a whole-page picture the processor is drawing while
+    /// the render thread was otherwise idle (ADR 1831): a job always wins.
+    idle_interrupt: Arc<std::sync::Mutex<Option<Interrupt>>>,
     /// The arrangement the **person** stopped drawing, which is not asked for again until the
     /// view changes — [`crate::composer`]'s field of the same name, for its reason: this window
     /// asks for itself once a tick for as long as the frame on hand is not of the view, so an
@@ -669,6 +856,10 @@ impl Window {
             waker,
             in_flight: None,
             refusals: Refusals::default(),
+            costs: Costs::default(),
+            partial: None,
+            partial_news: false,
+            idle_interrupt: Arc::default(),
             declined: Vec::new(),
             serial: 0,
             description,
@@ -836,6 +1027,17 @@ impl Window {
                     // one of a *different* page.
                     Finished::Page(page) => arrived.push(page),
                     Finished::Sharp(sharpened) => sharp = Some(sharpened),
+                    Finished::Partial(partial) => {
+                        // Only the frame in flight's, and only while it is still wanted: a raise
+                        // means the view has left it, so its pixels are of a view nobody asks for.
+                        let current = self.in_flight.as_ref().is_some_and(|flight| {
+                            !flight.interrupt.raised() && same_pages(&flight.pages, &partial.pages)
+                        });
+                        if current {
+                            self.partial = Some(*partial);
+                            self.partial_news = true;
+                        }
+                    }
                 }
             }
         }
@@ -849,7 +1051,21 @@ impl Window {
         let done = newest?;
         self.pipelines = self.pipelines.or(done.pipelines);
         self.in_flight = None;
+        self.partial = None;
+        self.partial_news = false;
         let drew = done.finished.saturating_duration_since(done.started);
+        // What each lane charged for these pages, which the next frame of them is priced by. A
+        // draw taken back is a sample of nothing (`adopt_composed`'s reason, ADR 0657).
+        if !done.abandoned {
+            if let Some(took) = done.device_drew {
+                self.costs.measure(&done.pages, Lane::Device, took);
+            }
+            if let Some(took) = done.processor_drew
+                && done.refused.is_none()
+            {
+                self.costs.measure(&done.pages, Lane::Processor, took);
+            }
+        }
         if done.refused_now
             && let Some(said) = done.fell_back.as_deref()
         {
@@ -867,6 +1083,7 @@ impl Window {
                 fell_back: done.fell_back,
                 device_tried: done.device_tried,
                 processor_drew: done.processor_drew,
+                chose: done.chose,
                 abandoned: true,
                 refused: done.refused,
                 function_refusals: done.function_refusals,
@@ -896,6 +1113,7 @@ impl Window {
             fell_back: done.fell_back,
             device_tried: done.device_tried,
             processor_drew: done.processor_drew,
+            chose: done.chose,
             abandoned: false,
             refused: done.refused,
             function_refusals: done.function_refusals,
@@ -928,9 +1146,12 @@ impl Window {
             };
             self.thread = Some(spawn(
                 renderer,
-                self.proxies.extent(),
-                self.supersample,
-                self.coverage,
+                Idle {
+                    proxy_pages: self.proxies.extent(),
+                    supersample: self.supersample,
+                    coverage: self.coverage,
+                    interrupt: Arc::clone(&self.idle_interrupt),
+                },
                 self.waker.clone(),
             ));
         }
@@ -947,8 +1168,15 @@ impl Window {
             self.declined.clear();
         }
         let known_refusal = self.refusals.said(&pages).map(str::to_owned);
+        let cheaper = if known_refusal.is_none() {
+            self.costs.processor_for(&pages)
+        } else {
+            None
+        };
         let interrupt = Interrupt::new();
-        let on_the_processor = Arc::new(AtomicBool::new(known_refusal.is_some()));
+        let on_the_processor = Arc::new(AtomicBool::new(
+            known_refusal.is_some() || cheaper.is_some(),
+        ));
         let flight = Flight {
             asked: now,
             pages: pages.clone(),
@@ -963,6 +1191,7 @@ impl Window {
             coverage,
             reuse: self.spare.take(),
             known_refusal,
+            cheaper,
             interrupt,
             on_the_processor,
         };
@@ -970,6 +1199,17 @@ impl Window {
         // the frame is not in flight, so the window keeps presenting what it has and asks again.
         if link.jobs.send(job).is_ok() {
             self.in_flight = Some(flight);
+            self.partial = None;
+            self.partial_news = false;
+        }
+        // **A job always wins over a whole page the processor is drawing for the retained layer**,
+        // and the raise comes after the send on purpose: the render thread leaves its flag under
+        // the same lock and then looks for a job, so either the flag is here to be raised or the
+        // job is there to be found (`retain`).
+        if let Ok(mut idle) = self.idle_interrupt.lock()
+            && let Some(idle) = idle.take()
+        {
+            idle.raise();
         }
     }
 
@@ -1084,6 +1324,76 @@ impl Window {
         Ok(true)
     }
 
+    /// How much of the frame in flight the processor has drawn, where it has been looked at —
+    /// what the title's bar carries (ADR 1831).
+    pub(crate) fn drawn_so_far(&self) -> Option<f64> {
+        self.partial.as_ref().map(|partial| partial.fraction)
+    }
+
+    /// Whether the frame the processor is drawing should go up as it stands for `pages`: it is of
+    /// exactly these pages, and the window holds no picture of any of them (ADR 1831).
+    ///
+    /// **Where the window has an older picture of the same page, that picture stands in instead**,
+    /// reprojected as on every view change (`crate::stale`): a zoom of a page this window has
+    /// drawn shows the page it had, moved, rather than a part of the page at its new size. That is
+    /// the choice `doc/pdf.js`'s viewer makes (`web/base_pdf_page_view.js` shows a canvas as it is
+    /// drawn only where no earlier one of the page exists), taken as evidence about the approach
+    /// and not as a source; what it decides is which of two true pictures a person sees first.
+    pub(crate) fn shows_as_built(&self, pages: &[crate::stale::Placed]) -> bool {
+        let Some(partial) = self.partial.as_ref() else {
+            return false;
+        };
+        same_pages(&partial.pages, pages)
+            && self.shown.as_ref().is_none_or(|shown| {
+                !shown
+                    .pages
+                    .iter()
+                    .any(|held| pages.iter().any(|asked| asked.of == held.of))
+            })
+    }
+
+    /// Puts the frame in flight up as the processor has drawn it so far, where a newer look has
+    /// arrived since it last went up: `Ok(None)` where none has, and `Ok(Some(fraction))` with the
+    /// share it holds where it went up (ADR 1831).
+    ///
+    /// # Errors
+    ///
+    /// Whatever the presenter refused, as [`Self::present`].
+    pub(crate) fn present_as_built(&mut self) -> Result<Option<f64>, raster_gpu::RenderError> {
+        let Some(partial) = self.partial.as_ref().filter(|_| self.partial_news) else {
+            return Ok(None);
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let (width, height) = (self.size.0 as f32, self.size.1 as f32);
+        if (partial.textures.width, partial.textures.height) != self.size {
+            return Ok(None);
+        }
+        let layers = [
+            raster_gpu::Layer {
+                texture: &self.medium,
+                placement: affine(Transform::scale(width, height)),
+                filter: raster_scene::ImageFilter::Nearest,
+            },
+            raster_gpu::Layer {
+                texture: &partial.textures.page,
+                placement: raster_scene::Affine::IDENTITY,
+                filter: raster_scene::ImageFilter::Nearest,
+            },
+            raster_gpu::Layer {
+                texture: &partial.textures.chrome,
+                placement: raster_scene::Affine::IDENTITY,
+                filter: raster_scene::ImageFilter::Nearest,
+            },
+        ];
+        let fraction = partial.fraction;
+        self.presenter.present(&layers)?;
+        self.partial_news = false;
+        Ok(Some(fraction))
+    }
+
     /// What the last present cost, in raster's own units, or `None` before there has been one.
     pub(crate) fn last_present(&self) -> Option<raster_gpu::PresentCost> {
         self.presenter.last()
@@ -1096,12 +1406,24 @@ impl Window {
     }
 }
 
+/// What the render thread does between jobs, as the window configured it.
+#[derive(Debug)]
+struct Idle {
+    /// How many whole pages it retains a low-resolution picture of.
+    proxy_pages: usize,
+    /// `--supersample`'s factor.
+    supersample: u32,
+    /// `--coverage`'s choice.
+    coverage: crate::arguments::CoverageChoice,
+    /// Where it leaves the flag that takes a whole page drawn on the processor back
+    /// ([`Window::idle_interrupt`]).
+    interrupt: Arc<std::sync::Mutex<Option<Interrupt>>>,
+}
+
 /// Starts the render thread around a renderer, and hands back the channels to it.
 fn spawn(
     renderer: QuorraWindowRenderer,
-    proxy_pages: usize,
-    supersample: u32,
-    coverage: crate::arguments::CoverageChoice,
+    idle: Idle,
     waker: Option<winit::event_loop::EventLoopProxy<()>>,
 ) -> Link {
     let (jobs, incoming) = channel::<Job>();
@@ -1112,15 +1434,7 @@ fn spawn(
     let thread = std::thread::Builder::new()
         .name("page renderer".to_owned())
         .spawn(move || {
-            draw_until_told_to_stop(
-                renderer,
-                proxy_pages,
-                supersample,
-                coverage,
-                waker.as_ref(),
-                &incoming,
-                &outgoing,
-            );
+            draw_until_told_to_stop(renderer, &idle, waker.as_ref(), &incoming, &outgoing);
         })
         .ok();
     Link { jobs, done, thread }
@@ -1138,17 +1452,16 @@ fn spawn(
 /// there is one.
 fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
-    proxy_pages: usize,
-    supersample: u32,
-    coverage: crate::arguments::CoverageChoice,
+    idle: &Idle,
     waker: Option<&winit::event_loop::EventLoopProxy<()>>,
     jobs: &Receiver<Job>,
     done: &Sender<Finished>,
 ) {
     use std::sync::mpsc::TryRecvError;
 
+    let (supersample, coverage) = (idle.supersample, idle.coverage);
     let mut proxies: crate::stale::Proxies<Arc<wgpu::Texture>> =
-        crate::stale::Proxies::new(proxy_pages);
+        crate::stale::Proxies::new(idle.proxy_pages);
     // What the last frame drew, which is the only set of pages this thread has display lists for.
     let mut showing: Vec<crate::stale::Placed> = Vec::new();
     // The window size the last frame was drawn for — what the sharp pass doubles.
@@ -1171,6 +1484,11 @@ fn draw_until_told_to_stop(
     // changes is that its refusal stops being paid once per frame — on a page the device refuses
     // that was the scene built and priced again after every frame, in front of the next one.
     let mut no_proxy: Vec<crate::stale::Picture> = Vec::new();
+    // The pages whose last frame the processor drew — refused by the device, or predicted cheaper
+    // there (ADR 1831). Their whole-page picture is the processor's too: the device would refuse
+    // it or take as long over it as over the frame, and a device draw cannot be taken back when
+    // the next job arrives, where the processor's can.
+    let mut on_the_processor: Vec<crate::stale::Picture> = Vec::new();
     let mut waiting: Option<Job> = None;
     loop {
         let job = match waiting.take() {
@@ -1189,17 +1507,33 @@ fn draw_until_told_to_stop(
             }
             showing.clone_from(&job.pages);
             shown_size = (job.width, job.height);
-            let finished = draw(&mut renderer, job);
+            let finished = draw(&mut renderer, job, done, waker);
+            // Where the frame was sent, not whether it began: a frame taken back before the
+            // processor started was still the processor's, and its page's picture is too.
+            let drawn_there = finished.fell_back.is_some() || finished.chose.is_some();
+            for placed in &finished.pages {
+                on_the_processor.retain(|picture| *picture != placed.of);
+                if drawn_there {
+                    on_the_processor.push(placed.of);
+                }
+            }
             // **A view the device refused is not sharpened by it** (ADR 1821): the pass is the
             // same view at four times the pixels, which raster prices higher rather than lower,
             // so asking would build and price a scene to hear the answer this frame already gave.
-            if finished.fell_back.is_some() {
+            // Nor one the processor drew because it was the faster lane (ADR 1831): the device
+            // was predicted to take seconds over the view at one times the pixels.
+            let processor_frame = finished.fell_back.is_some() || finished.chose.is_some();
+            if processor_frame {
                 sharpened = true;
             }
-            if !matches!(
-                finished.cost.encode_source,
-                Some(raster_gpu::EncodeSource::Replayed)
-            ) {
+            // A processor's frame is an upload to the device, whose cost says nothing about what
+            // the device would take to build the page (trap 143), so it predicts no pass.
+            if !processor_frame
+                && !matches!(
+                    finished.cost.encode_source,
+                    Some(raster_gpu::EncodeSource::Replayed)
+                )
+            {
                 last_built = Some(finished.cost.total);
             }
             // A send that fails is an event thread that has gone, and there is nobody left to draw
@@ -1253,36 +1587,88 @@ fn draw_until_told_to_stop(
                 continue;
             }
         }
-        let drawable: Vec<crate::stale::Placed> = showing
-            .iter()
-            .filter(|placed| !no_proxy.contains(&placed.of))
-            .cloned()
-            .collect();
-        if let Some(page) = proxies.wanted(&drawable) {
-            if let Some(retained) = draw_whole_page(&mut renderer, &page, &mut scratch) {
-                // Kept here as well as sent, because this thread is the one that decides what to
-                // draw next and a store that forgot would draw the same page for ever.
-                proxies.keep(crate::stale::Retained {
-                    of: retained.of,
-                    target: retained.target,
-                    pixels: Arc::clone(&retained.pixels),
-                });
-                if done.send(Finished::Page(retained)).is_err() {
-                    return;
-                }
+        match retain_one(
+            &mut renderer,
+            (&showing, &on_the_processor),
+            (&mut proxies, &mut no_proxy, &mut scratch),
+            idle,
+            jobs,
+            done,
+        ) {
+            Turn::Drew => continue,
+            Turn::Job(job) => {
+                waiting = Some(*job);
                 continue;
             }
-            // The next page that wants one is asked for at the next idle turn, and this one never
-            // again for this ink; the store stays a document's pages long, as `Proxies` is.
-            no_proxy.retain(|picture| picture.same_ink(page.of));
-            no_proxy.push(page.of);
-            continue;
+            Turn::Stop => return,
+            Turn::Nothing => {}
         }
         match jobs.recv() {
             Ok(job) => waiting = Some(job),
             Err(_) => return,
         }
     }
+}
+
+/// The render thread's own record of the whole pages it holds pictures of.
+type Store = crate::stale::Proxies<Arc<wgpu::Texture>>;
+
+/// The chrome lane's target for a whole page drawn on the device, kept per page shape.
+type Scratch = Option<(u32, u32, wgpu::Texture)>;
+
+/// What one idle turn spent on the retained layer came to.
+enum Turn {
+    /// A page was drawn, or given up on, or taken back: the loop looks for work again.
+    Drew,
+    /// A job arrived first.
+    Job(Box<Job>),
+    /// The event thread has gone.
+    Stop,
+    /// No page wants a picture.
+    Nothing,
+}
+
+/// One idle turn's page for the retained layer, where one wants a picture (ADR 0443, ADR 1831).
+fn retain_one(
+    renderer: &mut QuorraWindowRenderer,
+    (showing, on_the_processor): (&[crate::stale::Placed], &[crate::stale::Picture]),
+    (proxies, no_proxy, scratch): (&mut Store, &mut Vec<crate::stale::Picture>, &mut Scratch),
+    idle: &Idle,
+    jobs: &Receiver<Job>,
+    done: &Sender<Finished>,
+) -> Turn {
+    let drawable: Vec<crate::stale::Placed> = showing
+        .iter()
+        .filter(|placed| !no_proxy.contains(&placed.of))
+        .cloned()
+        .collect();
+    let Some(page) = proxies.wanted(&drawable) else {
+        return Turn::Nothing;
+    };
+    let on_the_device = !on_the_processor.contains(&page.of);
+    let retained = match retain(renderer, &page, on_the_device, scratch, idle, jobs) {
+        Drawn::Picture(retained) => retained,
+        Drawn::Behind(job) => return Turn::Job(job),
+        Drawn::Taken => return Turn::Drew,
+        Drawn::Refused => {
+            // The next page that wants one is asked for at the next idle turn, and this one never
+            // again for this ink; the store stays a document's pages long, as `Proxies` is.
+            no_proxy.retain(|picture| picture.same_ink(page.of));
+            no_proxy.push(page.of);
+            return Turn::Drew;
+        }
+    };
+    // Kept here as well as sent, because this thread is the one that decides what to draw next
+    // and a store that forgot would draw the same page for ever.
+    proxies.keep(crate::stale::Retained {
+        of: retained.of,
+        target: retained.target,
+        pixels: Arc::clone(&retained.pixels),
+    });
+    if done.send(Finished::Page(retained)).is_err() {
+        return Turn::Stop;
+    }
+    Turn::Drew
 }
 
 /// Whether two arrangements are the same pictures at the same placements — [`crate::stale::
@@ -1461,16 +1847,101 @@ fn draw_whole_page(
     })
 }
 
+/// What a whole page drawn for the retained layer came to.
+enum Drawn {
+    /// The picture, uploaded.
+    Picture(crate::stale::Retained<Arc<wgpu::Texture>>),
+    /// A job had arrived before the processor began, and goes first.
+    Behind(Box<Job>),
+    /// A job arrived and took the thread back; the page is asked for again at the next idle turn.
+    Taken,
+    /// Neither lane would draw it.
+    Refused,
+}
+
+/// One whole page for the retained layer: on the device where its frame is drawn there, and on the
+/// processor where the frame is or the device refused this picture (ADR 1831).
+fn retain(
+    renderer: &mut QuorraWindowRenderer,
+    page: &crate::stale::Placed,
+    on_the_device: bool,
+    scratch: &mut Option<(u32, u32, wgpu::Texture)>,
+    idle: &Idle,
+    jobs: &Receiver<Job>,
+) -> Drawn {
+    if on_the_device && let Some(retained) = draw_whole_page(renderer, page, scratch) {
+        return Drawn::Picture(retained);
+    }
+    let interrupt = Interrupt::new();
+    if let Ok(mut held) = idle.interrupt.lock() {
+        *held = Some(interrupt.clone());
+    }
+    // A job that arrived before the flag was left is a job this draw would stand in front of:
+    // asked first, and the page is drawn at the next idle turn.
+    if let Ok(job) = jobs.try_recv() {
+        return Drawn::Behind(Box::new(job));
+    }
+    draw_whole_page_on_the_processor(renderer, page, &interrupt)
+}
+
+/// [`draw_whole_page`] on the processor, for a page whose frame the processor draws (ADR 1831).
+///
+/// Silent for that function's reason — a picture nobody asked for — and interruptible because the
+/// processor's draw is: [`Window::ask`] raises `interrupt` the moment a job is sent, so a view
+/// change waits for the command in progress rather than for a whole page drawn small.
+fn draw_whole_page_on_the_processor(
+    renderer: &mut QuorraWindowRenderer,
+    page: &crate::stale::Placed,
+    interrupt: &Interrupt,
+) -> Drawn {
+    let Some(target) = crate::stale::proxy_target(&page.list) else {
+        return Drawn::Refused;
+    };
+    let drawn = viewer_ui::software::compose_pages_interruptibly(
+        &[(page.list.as_ref(), target)],
+        Some(interrupt),
+    );
+    let raster = match drawn {
+        Ok(raster) => raster,
+        Err(problem) if viewer_ui::software::was_interrupted(&problem) => return Drawn::Taken,
+        Err(_) => return Drawn::Refused,
+    };
+    let texture = renderer.layer_texture("a retained page", target.width, target.height);
+    let uploaded = renderer.render_page_only(
+        PresentFrame {
+            width: target.width,
+            height: target.height,
+            pages: &[],
+            raster: Some(&raster),
+            overlays: &[],
+        },
+        &texture,
+    );
+    if uploaded.is_err() {
+        return Drawn::Refused;
+    }
+    Drawn::Picture(crate::stale::Retained {
+        of: page.of,
+        target,
+        pixels: Arc::new(texture),
+    })
+}
+
 /// The processor's half of a frame the device refused: `None` where the interrupt took it back,
 /// and how long the processor drew, where it was started.
 ///
 /// **The one half of a refused frame that can be taken back** (ADR 1821): the event thread raises
 /// the interrupt where the view has left this magnification or the person has pressed the key, and
 /// a raise that came while the device was being asked is honoured here, before anything starts.
+///
+/// **And the half that can be shown as it is built** (ADR 1831): the draw runs under
+/// [`viewer_ui::software::compose_pages_watched`], and every look is uploaded into a pair of its
+/// own by `shown` and sent to the window, which puts it up where it has no truer picture.
 fn draw_on_the_processor(
     pages: &[crate::stale::Placed],
     interrupt: &Interrupt,
     on_the_processor: &AtomicBool,
+    mut shown: impl FnMut(&viewer_ui::software::Assembly),
 ) -> (Option<Result<pdf_render::Raster, String>>, Option<Duration>) {
     if interrupt.raised() {
         return (None, None);
@@ -1487,7 +1958,16 @@ fn draw_on_the_processor(
         .collect();
     on_the_processor.store(true, Ordering::Release);
     let began = Instant::now();
-    let drawn = viewer_ui::software::compose_pages_interruptibly(&borrowed, Some(interrupt));
+    let drawn = viewer_ui::software::compose_pages_watched(
+        &borrowed,
+        Some(interrupt),
+        viewer_ui::software::Looks::SHIPPED,
+        |assembly| {
+            if !interrupt.raised() {
+                shown(assembly);
+            }
+        },
+    );
     let drew = Some(began.elapsed());
     match drawn {
         // Asked of the error rather than of the flag, for `crate::composer`'s reason: a frame
@@ -1498,7 +1978,12 @@ fn draw_on_the_processor(
 }
 
 /// One job, drawn — on the device, or on the processor where the device refused.
-fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
+fn draw(
+    renderer: &mut QuorraWindowRenderer,
+    job: Job,
+    done: &Sender<Finished>,
+    waker: Option<&winit::event_loop::EventLoopProxy<()>>,
+) -> Done {
     let started = Instant::now();
     let Job {
         width,
@@ -1508,6 +1993,7 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         coverage,
         reuse,
         known_refusal,
+        cheaper,
         interrupt,
         on_the_processor,
     } = job;
@@ -1535,51 +2021,47 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
     };
     let mut refused = None;
     let mut device_tried = None;
+    let mut device_drew = None;
     let mut processor_drew = None;
     let mut abandoned = false;
     // **A refusal already known is not asked again** (ADR 1821): the device's attempt is the
-    // whole scene built and priced before it says no, and it would say the same thing.
+    // whole scene built and priced before it says no, and it would say the same thing. **Nor is a
+    // frame the processor was predicted to draw faster** (ADR 1831).
     let (fell_back, refused_now) = if let Some(said) = known_refusal {
         (Some(said), false)
+    } else if cheaper.is_some() {
+        (None, false)
     } else {
         let asked = Instant::now();
         match renderer.render(frame, into) {
-            Ok(()) => (None, false),
+            Ok(()) => {
+                if !matches!(
+                    renderer.last_frame().encode_source,
+                    Some(raster_gpu::EncodeSource::Replayed)
+                ) {
+                    device_drew = Some(asked.elapsed());
+                }
+                (None, false)
+            }
             Err(problem) => {
                 device_tried = Some(asked.elapsed());
                 (Some(problem.to_string()), remembered(&problem))
             }
         }
     };
-    if fell_back.is_some() {
-        // **One of the two jobs `CLAUDE.md` keeps the CPU backend for**: a page the device refuses
-        // is a page this program can still show, more slowly, which is a cost a person can see
-        // past where a page that never appears is not. The raster goes back through the device as
-        // one image, because a window's pixels have one path and this is it — and it is the whole
-        // arrangement's raster since ADR 0442, because a column the device refused is still a
-        // column.
-        //
-        let (drawn, drew) = draw_on_the_processor(&pages, &interrupt, &on_the_processor);
-        processor_drew = drew;
-        match drawn {
-            None => abandoned = true,
-            Some(Ok(raster)) => {
-                let second = renderer.render(
-                    PresentFrame {
-                        width,
-                        height,
-                        pages: &[],
-                        raster: Some(&raster),
-                        overlays: &borrowed,
-                    },
-                    into,
-                );
-                if let Err(second) = second {
-                    refused = Some(format!("and the processor's page {second}"));
-                }
-            }
-            Some(Err(second)) => refused = Some(format!("and {second}")),
-        }
+    if fell_back.is_some() || cheaper.is_some() {
+        let drawn = processor_half(
+            renderer,
+            (width, height),
+            &pages,
+            &borrowed,
+            (&interrupt, &on_the_processor),
+            (done, waker),
+            into,
+        );
+        processor_drew = drawn.drew;
+        abandoned = drawn.abandoned;
+        refused = drawn.refused;
     }
     Done {
         textures,
@@ -1594,12 +2076,100 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         refused_now,
         device_tried,
         processor_drew,
+        device_drew,
+        chose: cheaper,
         abandoned,
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
         pipelines: renderer.startup().pipeline_compilation,
         started,
         finished: Instant::now(),
+    }
+}
+
+/// What the processor's half of a frame came to.
+struct ProcessorHalf {
+    drew: Option<Duration>,
+    abandoned: bool,
+    refused: Option<String>,
+}
+
+/// The processor's half of a frame: drawn under its looks, each uploaded and sent to the window,
+/// and the finished raster uploaded into the job's pair (ADR 1821, ADR 1831).
+fn processor_half(
+    renderer: &mut QuorraWindowRenderer,
+    (width, height): (u32, u32),
+    pages: &[crate::stale::Placed],
+    borrowed: &[&DisplayList],
+    (interrupt, on_the_processor): (&Interrupt, &AtomicBool),
+    (done, waker): (
+        &Sender<Finished>,
+        Option<&winit::event_loop::EventLoopProxy<()>>,
+    ),
+    into: WindowTextures<'_>,
+) -> ProcessorHalf {
+    // **One of the two jobs `CLAUDE.md` keeps the CPU backend for**: a page the device refuses is
+    // a page this program can still show, more slowly, which is a cost a person can see past where
+    // a page that never appears is not. The raster goes back through the device as one image,
+    // because a window's pixels have one path and this is it — and it is the whole arrangement's
+    // raster since ADR 0442, because a column the device refused is still a column.
+    let looked_at = |assembly: &viewer_ui::software::Assembly| {
+        let pair = Pair::new(renderer, width, height);
+        let uploaded = renderer.render(
+            PresentFrame {
+                width,
+                height,
+                pages: &[],
+                raster: Some(assembly.picture()),
+                overlays: borrowed,
+            },
+            WindowTextures {
+                page: &pair.page,
+                chrome: &pair.chrome,
+            },
+        );
+        // A look the device would not take is a look the window goes without: the frame itself
+        // is still being drawn, and its own upload says what the device refused.
+        if uploaded.is_ok() {
+            let partial = Partial {
+                pages: pages.to_vec(),
+                textures: pair,
+                fraction: assembly.fraction(),
+            };
+            if done.send(Finished::Partial(Box::new(partial))).is_ok()
+                && let Some(waker) = waker
+            {
+                let _ = waker.send_event(());
+            }
+        }
+    };
+    let (drawn, drew) = draw_on_the_processor(pages, interrupt, on_the_processor, looked_at);
+    let (abandoned, refused) = match drawn {
+        None => (true, None),
+        Some(Ok(raster)) => {
+            let second = renderer.render(
+                PresentFrame {
+                    width,
+                    height,
+                    pages: &[],
+                    raster: Some(&raster),
+                    overlays: borrowed,
+                },
+                into,
+            );
+            (
+                false,
+                second
+                    .err()
+                    .map(|second| format!("and the processor's page {second}")),
+            )
+        }
+        Some(Err(second)) => (false, Some(format!("and {second}"))),
+    };
+    ProcessorHalf {
+        drew,
+        abandoned,
+        refused,
     }
 }
 
@@ -1689,6 +2259,57 @@ mod tests {
             "the oldest aged out"
         );
         assert!(refusals.said(&placed(0, 1.125, 0.0)).is_some());
+    }
+
+    /// The owner's drawing, before anything has been measured: the seeds put it on the processor,
+    /// at the figures they were measured as (ADR 1831).
+    #[test]
+    fn a_page_of_millions_of_commands_goes_to_the_processor_on_the_seeds() {
+        let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
+        let chose = Costs::default()
+            .predict(&pictures, 4_408_405)
+            .expect("7.9 s on the device against 2.9 s on the processor");
+        assert!(!chose.device_measured && !chose.processor_measured);
+        assert_eq!(chose.device.as_millis(), 7_882);
+        assert_eq!(chose.processor.as_millis(), 2_940);
+    }
+
+    /// A frame the device is predicted to draw inside `WARN` stays there, whatever the processor
+    /// is predicted to take: nobody waits for it, and the device is where page one goes.
+    #[test]
+    fn a_frame_nobody_waits_for_stays_on_the_device() {
+        let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
+        assert_eq!(Costs::default().predict(&pictures, 500_000), None);
+        assert!(Costs::default().predict(&pictures, 600_000).is_some());
+    }
+
+    /// What a lane measured on these pages replaces its seed, and only on these pages.
+    #[test]
+    fn a_measured_price_replaces_the_seed_for_its_own_pages() {
+        let page = |page| {
+            vec![crate::stale::Picture::new(
+                viewer_core::DocumentId(1),
+                page,
+                0,
+            )]
+        };
+        let mut costs = Costs::default();
+        // Large fills: the processor took twenty seconds over the page, so the device draws it.
+        costs.measured(page(0), 4_408_405, Lane::Processor, Duration::from_secs(20));
+        assert_eq!(costs.predict(&page(0), 4_408_405), None);
+        assert!(
+            costs.predict(&page(1), 4_408_405).is_some(),
+            "another page is still priced by the seeds"
+        );
+        // A device that drew it in half a second keeps it, measured.
+        costs.measured(page(2), 4_408_405, Lane::Device, Duration::from_millis(500));
+        assert_eq!(costs.predict(&page(2), 4_408_405), None);
+        // The processor measured faster than the device measured: the processor, and it says so.
+        costs.measured(page(2), 4_408_405, Lane::Device, Duration::from_secs(8));
+        costs.measured(page(2), 4_408_405, Lane::Processor, Duration::from_secs(2));
+        let chose = costs.predict(&page(2), 4_408_405).expect("2 s against 8 s");
+        assert!(chose.device_measured && chose.processor_measured);
+        assert_eq!(costs.held.len(), 2, "one entry an arrangement");
     }
 
     /// Only a refusal that is a fact about the frame is kept: the budget is, a lost device is not.
@@ -1808,6 +2429,16 @@ mod gesture {
         (viewer, requests)
     }
 
+    /// What the render thread does between jobs, for a test: no flag left anywhere it is read.
+    fn idle(proxy_pages: usize, supersample: u32) -> Idle {
+        Idle {
+            proxy_pages,
+            supersample,
+            coverage: crate::arguments::CoverageChoice::Auto,
+            interrupt: Arc::default(),
+        }
+    }
+
     fn job(pages: &[Placed], size: (u32, u32)) -> Job {
         Job {
             width: size.0,
@@ -1817,6 +2448,7 @@ mod gesture {
             coverage: raster_gpu::Coverage::Compute,
             reuse: None,
             known_refusal: None,
+            cheaper: None,
             interrupt: Interrupt::new(),
             on_the_processor: Arc::new(AtomicBool::new(false)),
         }
@@ -1853,7 +2485,7 @@ mod gesture {
             "the document shows a page"
         );
 
-        let link = spawn(renderer, 0, 2, crate::arguments::CoverageChoice::Auto, None);
+        let link = spawn(renderer, idle(0, 2), None);
         let patience = Duration::from_mins(2);
         let next = || {
             link.done
@@ -1881,6 +2513,7 @@ mod gesture {
                  replaced it"
             ),
             Finished::Page(_) => panic!("no retained page was asked for"),
+            Finished::Partial(_) => panic!("a device frame is not drawn on the processor"),
         }
         let Finished::Sharp(sharp) = next() else {
             panic!("a still view is sharpened");
@@ -1907,7 +2540,7 @@ mod gesture {
         let (viewer, mut requests) = opened(size);
         let pages = arrangement(&viewer, &mut requests, size);
         assert!(!pages.is_empty(), "the document shows a page");
-        let link = spawn(renderer, 0, 2, crate::arguments::CoverageChoice::Auto, None);
+        let link = spawn(renderer, idle(0, 2), None);
         let mut asked = job(&pages, size);
         asked.known_refusal = Some("frame refused: remembered".to_owned());
         link.jobs.send(asked).expect("the thread is running");
@@ -1941,7 +2574,7 @@ mod gesture {
         let size = (400_u32, 500_u32);
         let (viewer, mut requests) = opened(size);
         let pages = arrangement(&viewer, &mut requests, size);
-        let link = spawn(renderer, 0, 1, crate::arguments::CoverageChoice::Auto, None);
+        let link = spawn(renderer, idle(0, 1), None);
         let mut asked = job(&pages, size);
         asked.known_refusal = Some("frame refused: remembered".to_owned());
         asked.interrupt.raise();
@@ -1979,7 +2612,7 @@ mod gesture {
             &mut requests,
         );
         let second = arrangement(&viewer, &mut requests, size);
-        let link = spawn(renderer, 0, 1, crate::arguments::CoverageChoice::Auto, None);
+        let link = spawn(renderer, idle(0, 1), None);
         let asked = Instant::now();
         link.jobs
             .send(job(&first, size))
@@ -2058,13 +2691,7 @@ mod gesture {
             &mut requests,
         );
 
-        let link = spawn(
-            renderer,
-            2,
-            supersample,
-            crate::arguments::CoverageChoice::Auto,
-            None,
-        );
+        let link = spawn(renderer, idle(2, supersample), None);
         let mut stale = Stale::default();
         let mut proxies: crate::stale::Proxies<Arc<wgpu::Texture>> = crate::stale::Proxies::new(2);
         let mut shown: Option<Vec<Placed>> = None;
@@ -2108,6 +2735,9 @@ mod gesture {
                     Finished::Sharp(sharp) => {
                         landed = format!("{landed} sharp {:.1} ms", sharp.took.as_secs_f64() * 1e3);
                     }
+                    // A look at a frame the processor is drawing changes nothing this test
+                    // counts: what it reads is when each true frame landed.
+                    Finished::Partial(_) => {}
                 }
             }
             // The gesture: a notch every `every` refreshes, after a still start that lets the
@@ -2153,6 +2783,7 @@ mod gesture {
                     coverage,
                     reuse: spare.take(),
                     known_refusal: None,
+                    cheaper: None,
                     interrupt: Interrupt::new(),
                     on_the_processor: Arc::new(AtomicBool::new(false)),
                 };

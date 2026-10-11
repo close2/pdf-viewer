@@ -251,12 +251,13 @@ pub(crate) fn fill(
     fill_rule: FillRule,
     at: Transform,
 ) -> bool {
+    let suspect = overlapping || suspected_beyond(&mut buffers.cells, path, at, region);
     for run in region.runs() {
         if !fill_run(
             buffers,
             target,
             (width, run),
-            (path, overlapping),
+            (path, suspect),
             fill_rule,
             at,
         ) {
@@ -269,6 +270,77 @@ pub(crate) fn fill(
         }
     }
     true
+}
+
+/// Whether the rows of the mark **outside** `region` show it overlapping itself — the suspicion
+/// [`Accumulator::measure_overlapping_rows`] takes of a mark as a whole, asked of the rows the
+/// surface clamped away.
+///
+/// A mark is suspect as a whole because an overlap confined to pixels its path only partly covers
+/// shows in no sign of its own row, and the rows beside it are what give it away. So the suspicion
+/// has to be the **mark's**, not the surface's: a strip holding only rows of a glyph that show no
+/// overlap measured them as the winding integral where the page, seeing the overlap in another
+/// row, measured them as the filled set, and the two parted by 36 levels on the row beside the cut
+/// on `bug1820909.1.pdf`'s first page. Accumulating the rows the surface leaves out makes the
+/// answer the same in every division and on the whole page, where the page's own edge clamps a
+/// mark exactly as a strip's does (ADR 1837).
+///
+/// Bounded by the cell budget like everything here: a mark whose whole span passes it
+/// ([`whole_span_fits`]) keeps the suspicion of its own runs, as ADR 1819 §5 leaves it, and
+/// `render_cpu::drawn_row_by_row` keeps such a fill's rows forbidden for that reason. A mark the
+/// surface does not clamp costs one comparison.
+fn suspected_beyond(cells: &mut Vec<f32>, path: &Path, at: Transform, region: Region) -> bool {
+    let Some(bounds) = path.bounds().transform(at) else {
+        return false;
+    };
+    // `region`'s own margins and rounding, without the clamp to the surface.
+    let (top, bottom) = (
+        (bounds.top() - 1.0).floor(),
+        (bounds.bottom() + 1.0).floor(),
+    );
+    let own = (
+        f32_of(region.top),
+        f32_of(region.top.saturating_add(region.height)),
+    );
+    if top >= own.0 && bottom <= own.1 {
+        return false;
+    }
+    let columns = (region.width as usize).saturating_add(1);
+    if !(bottom - top).is_finite() || !whole_span_fits(bottom - top, region.width) {
+        return false;
+    }
+    [(top, own.0), (own.1, bottom)]
+        .into_iter()
+        .filter(|(from, until)| until > from)
+        .any(|(from, until)| {
+            let rows = floored(until - from);
+            cells.clear();
+            cells.resize(columns.saturating_mul(rows), 0.0);
+            let mut accumulator = Accumulator {
+                values: cells,
+                columns,
+                rows,
+                origin: (f32_of(region.left), from),
+                limit: f32_of(region.width),
+            };
+            trace(&mut accumulator, path, at);
+            (0..rows).any(|row| {
+                accumulator
+                    .row_cells(row)
+                    .is_some_and(|cells| overlaps(cells))
+            })
+        })
+}
+
+/// Whether a mark `rows` device rows tall, on a surface `width` pixels wide, is measured in one
+/// accumulator however its surface is divided — so that its suspicion of overlap is its own and
+/// the same in every division ([`suspected_beyond`], ADR 1837).
+///
+/// `width` is the surface's, the widest a region can be, so a caller that knows only the mark's
+/// height and the page's width asks the question no less strictly than [`suspected_beyond`] does.
+pub(crate) fn whole_span_fits(rows: f32, width: u32) -> bool {
+    let columns = (width as usize).saturating_add(1);
+    rows <= index_as_f32(CELL_BUDGET.checked_div(columns).unwrap_or(0))
 }
 
 /// Zeroes the pixels of `region` in `target`, a `width`-pixel-wide mask.
