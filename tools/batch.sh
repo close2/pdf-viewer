@@ -369,7 +369,7 @@ gates() {
     # a gate whose program no build here makes (ADR 1718).
     run build-sandbox  cargo build --profile gates -p pdf-sandbox --bins
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
-    for t in corpus raster_golden script_corpus dates xmp; do
+    for t in corpus raster_golden drawn_while_read script_corpus dates xmp; do
         run "t2-$t" cargo test --profile gates -p pdf-model --test "$t" -- --ignored --nocapture; done
     # The Tier 1 column of RFC 0008 section 6.7: every script Tier 0 does not run, run in its
     # document's realm with the `engine` feature built for this test binary alone, held to its

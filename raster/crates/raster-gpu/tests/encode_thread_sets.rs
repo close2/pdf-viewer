@@ -132,9 +132,12 @@ fn a_drain_whose_commit_records_every_meet_starts_one_set_of_threads() {
         divided == alone,
         "the frame drawn on {THREADS} threads is not the frame drawn on one"
     );
+    // The device holds a request to the machine's parallelism (`Options::encode_threads`), so a
+    // runner with fewer processors than `THREADS` lends that many, less the calling thread.
+    let lent = THREADS.min(std::thread::available_parallelism().map_or(1, std::num::NonZero::get));
     assert_eq!(
         started,
-        THREADS as u64 - 1,
+        lent as u64 - 1,
         "the fan-out's threads, lent to the meets its commit records, are the frame's only set"
     );
 }

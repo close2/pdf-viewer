@@ -10,11 +10,13 @@
 
 #![expect(
     clippy::expect_used,
+    clippy::panic,
     clippy::print_stdout,
     clippy::arithmetic_side_effects,
     clippy::cast_precision_loss,
-    reason = "test code: a fixture that does not open should fail loudly, the corpus sweep \
-              prints what it found, and the fixture's coordinates are small counts"
+    reason = "test code: a fixture that does not open should fail loudly, the gate refuses to run \
+              without the sandboxed decoder, the corpus sweep prints what it found, and the \
+              fixture's coordinates are small counts"
 )]
 
 use std::collections::BTreeMap;
@@ -243,12 +245,26 @@ fn corpus() -> Option<Vec<PathBuf>> {
     (!files.is_empty()).then_some(files)
 }
 
+/// Refuses to measure without the sandboxed decoder — trap 10, ADR 0557 — for the reason every
+/// corpus gate does: a page whose JBIG2, JPX or CCITT image the worker did not decode holds no
+/// command for it on either side of this comparison, so a pass taken without the worker is a pass
+/// of the build and not of the tree.
+fn require_the_sandbox() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
+        panic!(
+            "the sandboxed image decoder is not available, so the comparison below would be of the \
+             build rather than of the tree: {error}"
+        );
+    }
+}
+
 /// The first page of every tracked corpus document drawn while it is read: every page that
 /// finishes is the page drawn whole, and every page that does not says why.
 #[test]
 #[ignore = "the whole tracked corpus interpreted and drawn twice; run explicitly, under the gates \
             profile"]
 fn every_tracked_first_page_drawn_while_read_is_the_page_drawn_whole() {
+    require_the_sandbox();
     let Some(files) = corpus() else {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;

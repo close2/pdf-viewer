@@ -492,6 +492,11 @@ fn run_probe(probe: &str) -> std::process::ExitStatus {
     std::process::Command::new(std::env::current_exe().expect("a test binary knows where it is"))
         .args(["--exact", "confined_probe", "--test-threads=1"])
         .env(PROBE_VARIABLE, probe)
+        // As `confined_transport::Host::start` starts every worker. Without it the probe's test
+        // thread and its pool thread allocate from arenas of their own, and `glibc` shrinking one
+        // opens `/proc/sys/vm/overcommit_memory` the first time it does — inside the confinement
+        // on Ubuntu 24.04's `glibc`, where the filter kills the probe with `SIGSYS`.
+        .env("MALLOC_ARENA_MAX", "1")
         .output()
         .expect("the probe runs")
         .status

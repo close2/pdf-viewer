@@ -66,8 +66,10 @@ pub const WORKER_PATH_VARIABLE: &str = "PDF_VFS_WORKER";
 /// process for (ADR 0218). Where `MALLOC_ARENA_MAX` is set, `glibc` takes the limit from it and
 /// never asks; it is read at the process's start, so it is the spawner's to set, and
 /// `confined_transport::Host::start` sets it to one for every worker it starts. A process started
-/// any other way — a probe calling [`confine`] in its own process — draws on one thread, which
-/// cannot reach the question at all (ADRs 1554, 1804).
+/// any other way draws on one thread, and that does not keep it from the allocator: a thread off
+/// the main one still allocates from an arena of its own, and `glibc` shrinking that arena opens
+/// `/proc/sys/vm/overcommit_memory`, so the tests' probes are started with the variable too
+/// (ADRs 1554, 1804).
 const ARENA_LIMIT_VARIABLE: &str = "MALLOC_ARENA_MAX";
 
 /// The stack each rasterising thread is given, stated rather than defaulted.

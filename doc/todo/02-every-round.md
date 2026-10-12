@@ -128,6 +128,7 @@ option 2 asks for, once a batch, so that a launch regression fails the merge as 
 ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree <6|12> --build '--profile gates -p pdf-sandbox --bins' (or `--release`, as the line's profile is) -- <the line>
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test raster_golden   -- --ignored --nocapture   # ADR 1016: our own output held by name — a change detector; PDFVIEWER_RASTER_GOLDEN=update regenerates
+cargo test  --profile gates -p pdf-model      --test drawn_while_read -- --ignored --nocapture  # ADR 1855: the first page of every tracked corpus document drawn while it is read is the page drawn whole, and a page that is not says why
 cargo test  --profile gates -p pdf-model      --test script_corpus   -- --ignored --nocapture   # RFC 0008 section 6.7's Tier 0 form: every field script of the census population committed once, every displayed value held by name (ADR 1579); PDFVIEWER_SCRIPT_CORPUS=update regenerates
 cargo test  --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture   # RFC 0008 section 6.7's Tier 1 column: every script Tier 0 does not run, run in its document's realm and held to the column's own ceilings (ADR 1625); a walk, through tools/bounded.sh --data 8 --tree 12
 cargo test  --profile gates -p pdf-model      --test dates           -- --ignored --nocapture

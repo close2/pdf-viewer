@@ -339,6 +339,15 @@ section_golden() {
         walk large -- cargo test --profile gates -p pdf-model --test raster_golden -- --ignored --nocapture
 }
 
+# Page one drawn while it is read (ADR 1855): over the tracked corpus, every first page that finishes
+# from the parts the reader hands over is, byte for byte, the page drawn whole, and every page that
+# is drawn whole instead says why. The filter keeps the one line that counts and the reasons' census.
+section_ahead() {
+    run "page one drawn while it is read, over the tracked corpus (ADR 1855)" \
+        '^[0-9]+ documents: ' \
+        walk small -- cargo test --profile gates -p pdf-model --test drawn_while_read -- --ignored --nocapture
+}
+
 # `pdfref-hayro` is the oracle's fourth reading (`Reference::Hayro`) and another package's binary, so
 # the walk builds it beside the sandbox worker (trap 10's second program, ADR 0222). The filter keeps
 # the census of which bound keeps the references apart on the dense-text groups, because those groups'
@@ -1735,7 +1744,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1781,6 +1790,7 @@ for section in $sections; do
     tests) section_tests ;;
     corpus) section_corpus ;;
     golden) section_golden ;;
+    ahead) section_ahead ;;
     oracle) section_oracle ;;
     oracle-held) section_oracle_held ;;
     text) section_text ;;

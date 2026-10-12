@@ -352,7 +352,11 @@ fn rendered(bytes: &[u8], annotations: bool) -> (u32, u32, Vec<u8>) {
             page_box: None,
             annotations,
             names: "p.png".parse().expect("a pattern"),
-            strips: None,
+            // One strip, stated: the two sides of the comparison are two lists, the annotation's
+            // and the bare page's, so a count asked of the machine can plan their cuts at other
+            // rows, and a cut moves a pixel by a rounding level (ADR 0219) — on a runner of two to
+            // twelve processors, one pixel outside the rectangle.
+            strips: Some(1),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

@@ -30,6 +30,11 @@
 //! state and `raster/doc/adr/` the decisions behind it.
 
 #![forbid(unsafe_code)]
+// The warm-up thread's closure is `Send` only through wgpu's dispatch types (`pipeline/warm.rs`),
+// a proof deeper than the default limit of 128 under the trait solver nightly is moving to; its
+// future-incompatibility lint `recursion_depth_exceeding_limit` (rust-lang/rust#159228) names this
+// attribute as the remedy, and the fuzz build, which is nightly's and `-D warnings`, fails without it.
+#![recursion_limit = "256"]
 
 pub mod atlas;
 mod census;

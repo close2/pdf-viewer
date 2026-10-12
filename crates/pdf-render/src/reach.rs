@@ -272,6 +272,10 @@ impl DisplayList {
 
 #[cfg(test)]
 mod tests {
+    //! Every test here declines under Miri, and for one reason: each one measures a list, and
+    //! [`MarkBounds::measure`] and [`DisplayList::reaching`] run on rayon's pool whatever the
+    //! list's length, so each starts the pool and meets `crossbeam-epoch`'s retag that `paint.rs`'s
+    //! test of the divided reduction describes (ADR 0450). Nothing here parses untrusted input.
     use super::*;
     use crate::{Color, Command, FillRule, Paint, Path, PathCommand, Size};
 
@@ -311,6 +315,11 @@ mod tests {
         }
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_window_keeps_the_marks_it_shows_and_the_margin_around_it() {
         let list = row_of(10);
@@ -328,12 +337,22 @@ mod tests {
         assert_eq!(culled.commands(), &list.commands()[3..6]);
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_window_every_mark_reaches_is_the_list_itself() {
         let list = row_of(4);
         assert!(list.reaching(target(40, 10, Transform::IDENTITY)).is_none());
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_scroll_is_served_by_the_bounds_of_the_magnification_and_a_zoom_is_not() {
         let list = row_of(3);
@@ -351,6 +370,11 @@ mod tests {
         );
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_moved_bound_contains_the_bound_measured_where_it_was_moved_to() {
         let list = row_of(5);
@@ -369,6 +393,11 @@ mod tests {
         }
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_bound_of_another_magnification_or_none_misses_nothing() {
         let list = row_of(2);
@@ -382,6 +411,11 @@ mod tests {
         assert!(!bounds.misses_target(7, target(1, 1, Transform::IDENTITY)));
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn a_change_to_the_commands_forgets_the_bounds() {
         let mut list = row_of(2);
@@ -391,6 +425,11 @@ mod tests {
         assert_eq!((before.len(), after.len()), (2, 3));
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn the_kept_bounds_are_invisible_to_equality_and_to_debug() {
         let list = row_of(2);
