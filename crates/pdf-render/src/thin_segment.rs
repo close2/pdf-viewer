@@ -57,9 +57,21 @@
 //!
 //! # The population, and what each exclusion keeps out
 //!
-//! - **One `m` and one `l`, of non-zero length.** A second segment brings a join; a close brings
-//!   a join to the start; a zero-length subpath is §8.5.3.2's dot, which
-//!   [`crate::split_degenerate`] answers.
+//! - **One `m` and one `l`.** A second segment brings a join, and a close brings a join to the
+//!   start. Of no length, only under a round cap: that is §8.5.3.2's dot,
+//!
+//!   > the S operator shall paint it only if round line caps have been specified, producing a
+//!   > filled circle centred at the single point.
+//!
+//!   and the filled circle is this shape at length zero — the two half discs about one point, with
+//!   no band between them — so it is measured by the same closed form and needs no direction
+//!   (ADR 1857). Under a butt or projecting cap the clause asks for no output, which
+//!   [`crate::split_degenerate`] answers. **A dot none of whose pixels holds one level stays there
+//!   too**: [`crate::point_mark`] places it whole in the pixel §10.7.4 names by flooring its
+//!   centre, at the least the raster can state, so that its ink does not depend on where the grid
+//!   falls under it; the processor's floor for a thin segment lifts every pixel such a mark
+//!   touches, which at a pixel's corner is four levels for a mark of two, and the device's line
+//!   lane has no floor and would round each quarter to nothing.
 //! - **No dash.** §8.4.3.6's pattern cuts the segment into pieces this shape is not.
 //! - **A solid paint and §11.3.5's `Normal` blend.** The backend composites the coverage once with
 //!   the paint's own colour; a shading would be evaluated per pixel and a computed blend function
@@ -79,7 +91,8 @@ use crate::paint::{BlendMode, LineCap, Paint, Stroke};
 pub struct ThinSegment {
     /// The segment's first endpoint, in device space.
     pub from: Point,
-    /// The segment's second endpoint, in device space; never equal to [`Self::from`].
+    /// The segment's second endpoint, in device space. Equal to [`Self::from`] only under a round
+    /// cap, where the shape is §8.5.3.2's filled circle (ADR 1857).
     pub to: Point,
     /// The pen's semi-axis along device x: the half-width's disc maps to an axis-aligned ellipse,
     /// and this is how far it reaches horizontally.
@@ -125,7 +138,13 @@ pub fn thin_segment(
         return None;
     }
     let (from, to) = (to_device.apply(*start), to_device.apply(*end));
-    if ![from.x, from.y, to.x, to.y].iter().all(|v| v.is_finite()) || from == to {
+    // A segment of no length on the device is a disc under a round cap — the capsule at length
+    // zero, which is §8.5.3.2's filled circle where the path's own points coincide and the same
+    // set to the rounding where the transform merged two — and under the other two caps it has no
+    // direction to put an end along, so it stays with `split_degenerate`.
+    if ![from.x, from.y, to.x, to.y].iter().all(|v| v.is_finite())
+        || (from == to && stroke.cap != LineCap::Round)
+    {
         return None;
     }
     // The pen — the disc of the half-width — mapped to the device. A transform that keeps the axes
@@ -140,9 +159,24 @@ pub fn thin_segment(
         cap: stroke.cap,
     };
     let positive = |v: f32| v.is_finite() && v > 0.0;
-    (positive(segment.half_x) && positive(segment.half_y) && segment.pixels().is_some())
+    if !(positive(segment.half_x) && positive(segment.half_y)) {
+        return None;
+    }
+    if from != to {
+        return segment.pixels().is_some().then_some(segment);
+    }
+    // The module comment's last word on §8.5.3.2's dot: one under a level everywhere is
+    // `point_mark`'s, on every backend. Its areas are taken here only for a dot, so that a
+    // segment's classification stays the block's four comparisons.
+    let (_, cells) = segment.cells()?;
+    cells
+        .iter()
+        .any(|&area| area >= ONE_LEVEL)
         .then_some(segment)
 }
+
+/// One level of an eight-bit coverage, as a share of a pixel: the least a pixel can be painted at.
+const ONE_LEVEL: f64 = 1.0 / 255.0;
 
 /// A rectangle in device space, by its four sides, in the `f64` the coverage is computed in.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -628,8 +662,11 @@ mod tests {
         let mut closed = segment(&[(10.0, 20.0), (10.0, 21.0)]);
         closed.push(PathCommand::Close);
         assert!(classify(&closed, &round, at).is_none());
-        // A zero-length subpath, which is §8.5.3.2's.
-        assert!(classify(&segment(&[(10.0, 20.0), (10.0, 20.0)]), &round, at).is_none());
+        // A zero-length subpath under the two caps §8.5.3.2 paints nothing for.
+        for cap in [LineCap::Butt, LineCap::Square] {
+            let dot = segment(&[(10.0, 20.0), (10.0, 20.0)]);
+            assert!(classify(&dot, &stroke(2.0, cap), at).is_none(), "{cap:?}");
+        }
         // A dash.
         let mut dashed = round.clone();
         dashed.dash_array = vec![0.5, 0.5];
@@ -764,6 +801,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_zero_length_round_capped_segment_is_the_filled_circle_of_its_width() {
+        // §8.5.3.2's dot: the witness's 28 684 of them are `m` and `l` to the same point.
+        let at = Transform::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+        let dot = classify(
+            &segment(&[(3.5, 7.5), (3.5, 7.5)]),
+            &stroke(0.8, LineCap::Round),
+            at,
+        )
+        .expect("a round dot is the population");
+        let disc = std::f64::consts::PI * 0.4 * 0.4;
+        assert!((dot.area() - disc).abs() < 1e-6, "{}", dot.area());
+        // Centred in one pixel, the whole disc is inside it.
+        assert!((dot.coverage(3.0, 7.0) - disc).abs() < 1e-6);
+        // Centred on a pixel corner, each of the four pixels holds a quarter of it.
+        let corner = classify(
+            &segment(&[(4.0, 8.0), (4.0, 8.0)]),
+            &stroke(0.8, LineCap::Round),
+            at,
+        )
+        .expect("in the block");
+        let (block, cells) = corner.cells().expect("in its block");
+        assert_eq!((block.columns, block.rows), (2, 2));
+        for cell in cells {
+            assert!((cell - disc / 4.0).abs() < 1e-6, "{cells:?}");
+        }
+        // Under unequal scales it is the ellipse of the pen's two semi-axes.
+        let stretched = Transform::new(0.5, 0.0, 0.0, 0.25, 0.0, 0.0);
+        let ellipse = classify(
+            &segment(&[(7.0, 7.0), (7.0, 7.0)]),
+            &stroke(2.0, LineCap::Round),
+            stretched,
+        )
+        .expect("a transform that keeps the axes");
+        let expected = std::f64::consts::PI * 0.5 * 0.25;
+        assert!((ellipse.area() - expected).abs() < 1e-6);
     }
 
     #[test]

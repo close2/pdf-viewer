@@ -182,6 +182,9 @@ struct Job<R> {
     glance: Glance,
     /// Which job this is, so that a glimpse arriving after its job is known for a stale one.
     serial: u64,
+    /// The page already drawn through all but its last part while it was read, where this is
+    /// the request it was drawn for (ADR 1855): finished rather than drawn.
+    ahead: Option<render_cpu::Underway>,
 }
 
 /// One page's rasterisation, on its way back.
@@ -372,6 +375,9 @@ pub struct Drawing<R: DrawRequest = RenderRequest> {
     fresh: bool,
     /// The next [`Job::serial`].
     serial: u64,
+    /// Page one drawn while it was read, until the request it was drawn for is dispatched —
+    /// see [`Drawing::draw_ahead`].
+    ahead: Option<crate::loading::Ahead>,
     /// How much of [`SETTLE`] has been spent waiting — see [`Drawing::settle`].
     ///
     /// **Time actually spent blocked, and nothing else.** A launch's budget is a bound on how long
@@ -471,6 +477,7 @@ impl<R: DrawRequest> Default for Drawing<R> {
             partial: None,
             fresh: false,
             serial: 0,
+            ahead: None,
             spent: Duration::ZERO,
         }
     }
@@ -481,6 +488,13 @@ impl<R: DrawRequest> Drawing<R> {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Hands over page one as it was drawn while it was read (ADR 1855): the request for it at
+    /// the target it was drawn at is finished from it rather than drawn, and every other request
+    /// is drawn as before.
+    pub fn draw_ahead(&mut self, ahead: crate::loading::Ahead) {
+        self.ahead = Some(ahead);
     }
 
     /// Takes a request the viewer has made, and starts it where the thread is free.
@@ -792,11 +806,16 @@ impl<R: DrawRequest> Drawing<R> {
             self.serial = self.serial.wrapping_add(1);
             // A new draw is a new picture; the last one's glimpses are of something else.
             self.partial = None;
+            let ahead = self
+                .ahead
+                .as_ref()
+                .and_then(|ahead| ahead.take_for(request.list(), target));
             let job = Job {
                 request,
                 interrupt: interrupt.clone(),
                 glance: glance.clone(),
                 serial,
+                ahead,
             };
             let returned = match self.link.as_ref() {
                 Some(link) => link.jobs.send(job).err().map(|refused| refused.0),
@@ -893,8 +912,18 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
         interrupt,
         glance,
         serial,
+        ahead,
     } = job;
     let began = Instant::now();
+    // Page one drawn while it was read is finished here, from the list it was read into; a page
+    // whose drawing ahead cannot be its picture is drawn whole below, as every page is (ADR 1855).
+    if let Some(Ok(raster)) = ahead.map(|ahead| ahead.finish(request.list())) {
+        return Done {
+            request,
+            outcome: Some(Rendered::Raster(raster)),
+            cost: began.elapsed(),
+        };
+    }
     let mut rasteriser = CpuRasterizer::new().interruptible(interrupt);
     if let Some(shown) = shown {
         let shown = shown.clone();

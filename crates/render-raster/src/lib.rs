@@ -566,6 +566,16 @@ impl QuorraRasterizer {
         pdf_render::check_group_blit(list, target)?;
 
         let began = std::time::Instant::now();
+        // The marks that reach the target (ADR 1841), as the window's scene takes them: §10.7.4
+        // paints only a pixel a shape's area meets, so a command left out marked no pixel here.
+        // What the whole list changed on the device was not a pixel of those marks but a lane:
+        // raster's census counts a shape's placements over the scene to decide whether the atlas
+        // is worth writing, and a placement beyond the target made a glyph drawn once on the page
+        // read as drawn twice (ADR 1857). Every list a page is drawn from — its plane of black,
+        // its spot planes, its shapes for §11.7.5.2 — has the page's geometry and loses the same
+        // commands, so the passes stay in step.
+        let culled = list.reaching(target);
+        let list = culled.as_ref().unwrap_or(list);
         // A single-list rasterisation is a different scene, and this path evicts: an entry the
         // retained window frame's scene still names could go, leaving that scene holding
         // released ids. Discarding it first is three lines against a class of reasoning about

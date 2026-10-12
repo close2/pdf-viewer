@@ -4,9 +4,8 @@
 //! viewport they share, while everything here is per document: which page is showing, how large
 //! it is drawn, and the pixels that showed it last.
 
-use std::cell::OnceCell;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use pdf_model::content::{Interpretation, Placed};
 use pdf_model::fragment::{Fragment, Parameter};
@@ -69,7 +68,11 @@ pub(crate) struct Open {
     /// whole page tree. [`crate::Preparation`] is how a host has both read off the thread that
     /// draws; a host that does not ask has them read at first use instead — `Query::Outline`, or
     /// the first page turn's section (ADR 1543).
-    pub(crate) outline: OnceCell<Outline>,
+    ///
+    /// A [`OnceLock`] rather than a cell, as [`Self::page_indices`] and [`Self::about`] are, so
+    /// that the document's state may be read from the thread that draws page one while another
+    /// reads it (ADR 1855): the state is consulted there and changed nowhere.
+    pub(crate) outline: OnceLock<Outline>,
     /// §7.7.3's whole page tree, placed once: which page each object in it is.
     ///
     /// **The largest single item in a large document's open, and it was being paid again on
@@ -79,12 +82,12 @@ pub(crate) struct Open {
     /// immutable, so the map is a function of the file and the same map every time; held here,
     /// the walk is paid once for as long as the document is open rather than once per arrow key.
     ///
-    /// A [`OnceCell`] rather than a field of [`Self::around`], because a document with no
+    /// A [`OnceLock`] rather than a field of [`Self::around`], because a document with no
     /// outline never needs it at all — and because the walk is exactly the "full page-tree walk"
     /// `CLAUDE.md` principle 2 says is not on the launch path. Nothing on that path builds it:
     /// the opening announcement states a section only where the outline has already been read
     /// (ADRs 0890, 1543).
-    pub(crate) page_indices: OnceCell<BTreeMap<ObjectId, usize>>,
+    pub(crate) page_indices: OnceLock<BTreeMap<ObjectId, usize>>,
     /// How many pages, counting §12.7.8.3.3's imported template pages after the document's own.
     pub(crate) page_count: usize,
     /// Which page is showing, zero-based.
@@ -401,7 +404,7 @@ pub(crate) struct Open {
     ///
     /// So [`crate::Command::Report`] is what asks, and this is what makes asking twice cost once.
     /// ADR 1044.
-    pub(crate) about: OnceCell<crate::notes::About>,
+    pub(crate) about: OnceLock<crate::notes::About>,
 }
 
 /// One end of a selection: a page, and a byte offset into that page's readback.
@@ -893,8 +896,8 @@ impl Open {
             document,
             view,
             labels,
-            outline: OnceCell::new(),
-            page_indices: OnceCell::new(),
+            outline: OnceLock::new(),
+            page_indices: OnceLock::new(),
             page_count,
             page_index,
             layout,
@@ -936,7 +939,7 @@ impl Open {
             references: Arc::new(pdf_model::reference::Supply::none()),
             losses_said: 0,
             scan_refusal_said: false,
-            about: OnceCell::new(),
+            about: OnceLock::new(),
         }
     }
 
@@ -975,7 +978,7 @@ impl Open {
     ///
     /// The nine clauses [`crate::notes::about`] answers, produced the first time
     /// [`crate::Command::Report`] asks and read from [`Self::about`] every time after. `&self`
-    /// rather than `&mut self` because a [`OnceCell`] is what makes "once" a property of the
+    /// rather than `&mut self` because a [`OnceLock`] is what makes "once" a property of the
     /// value rather than of the caller's discipline — and because the document is immutable, so
     /// the sentences are a function of the file and are the same sentences every time.
     pub(crate) fn about(&self, trust: &crate::TrustPolicy) -> &crate::notes::About {
@@ -989,7 +992,7 @@ impl Open {
     /// the document *and* of whom this reader believes, and the first of those two is immutable
     /// while the second is a host's to change at any moment.
     pub(crate) fn forget_about(&mut self) {
-        self.about = OnceCell::new();
+        self.about = OnceLock::new();
     }
 
     /// Drops everything derived from what the page draws, because the view state moved.
@@ -2287,6 +2290,32 @@ pub(crate) struct Read {
 /// annotation pass and runs that pass again, and `pdf-model`'s
 /// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` compares the two field by field
 /// over every corpus page the clause is about. ADR 0777.
+/// A page's first read, from the parts of [`Open`] it needs and no others — for a read run on a
+/// thread of its own while the document's state is consulted on another (ADR 1855). The same
+/// read [`interpret`] makes of a page that holds no replacement yet, which page one at launch
+/// never does.
+pub(crate) fn first_read(
+    document: &Arc<Document>,
+    page: Page,
+    view: &ViewState,
+    fonts: &pdf_model::FontCache,
+    references: &pdf_model::reference::Supply,
+) -> Read {
+    let (interpretation, replaceable) =
+        pdf_model::content::interpret_replaceable(document, &page, view, fonts, references);
+    let reports = interpretation
+        .unsupported
+        .iter()
+        .map(crate::report::describe)
+        .collect();
+    Read {
+        interpretation,
+        reports,
+        object: page,
+        replaceable,
+    }
+}
+
 pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
     let page = open.page(index)?;
     let replacement = open

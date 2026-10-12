@@ -325,6 +325,102 @@ pub fn face(list: &DisplayList, target: TargetSpec) -> Option<Image> {
     viewer_core::transition::drawable(&raster)
 }
 
+/// One page of a transition as a window that is handed whole-page rasters shows it settled: the
+/// page drawn into the [`TargetSpec`] the core asked for, which is the raster
+/// `viewer_core::Query::Frame` holds byte for byte, put at `origin` — a whole device pixel, which
+/// is where `viewer-gtk` and `viewer-qt` put that raster — over [`pdf_render::SURROUND`], or `None`
+/// where the page will not rasterise.
+///
+/// **Not [`face`], for the edge row.** A page's raster is its extent rounded up, so its last row
+/// and column are partly outside the page and carry the page's white under the marks, which is the
+/// raster [`Medium::PAGE_ONLY`] is for; a face drawn over [`Medium::WINDOW`] carries the surround
+/// under that part of the row instead. Put up side by side, the transition's last frame and the
+/// page that replaces it differed along the page's edge by about a thousand pixels of a 990-wide
+/// page, which is what a person sees as the page jumping when the effect ends (ADR 1865).
+#[must_use]
+pub fn face_as_shown(
+    list: &DisplayList,
+    page: TargetSpec,
+    origin: (f32, f32),
+    viewport: (u32, u32),
+) -> Option<Image> {
+    let raster = CpuRasterizer::new().rasterize(list, page).ok()?;
+    let surround = [
+        pdf_render::SURROUND.r,
+        pdf_render::SURROUND.g,
+        pdf_render::SURROUND.b,
+        pdf_render::SURROUND.a,
+    ]
+    .map(byte);
+    let (width, height) = (
+        usize::try_from(viewport.0).ok()?,
+        usize::try_from(viewport.1).ok()?,
+    );
+    let mut canvas = surround.repeat(width.checked_mul(height)?);
+    let (left, top) = (whole(origin.0), whole(origin.1));
+    let across = usize::try_from(raster.width).ok()?;
+    for (row, line) in raster.data.chunks_exact(across.checked_mul(4)?).enumerate() {
+        let Some(y) = i64::try_from(row).ok().and_then(|row| row.checked_add(top)) else {
+            continue;
+        };
+        let Some(y) = usize::try_from(y).ok().filter(|&y| y < height) else {
+            continue;
+        };
+        for (column, pixel) in line.chunks_exact(4).enumerate() {
+            let Some(x) = i64::try_from(column)
+                .ok()
+                .and_then(|column| column.checked_add(left))
+                .and_then(|x| usize::try_from(x).ok())
+                .filter(|&x| x < width)
+            else {
+                continue;
+            };
+            let at = y.checked_mul(width)?.checked_add(x)?.checked_mul(4)?;
+            let under = canvas.get_mut(at..at.checked_add(4)?)?;
+            over(pixel, under);
+        }
+    }
+    viewer_core::transition::drawable(&pdf_render::Raster {
+        width: viewport.0,
+        height: viewport.1,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: canvas,
+    })
+}
+
+/// One channel of a colour as the byte a raster holds it in, rounded to the nearest.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the channel is clamped to 0..=1 and scaled to 0..=255 before the cast"
+)]
+fn byte(channel: f32) -> u8 {
+    (channel.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// A device position as the whole pixel nearest it, saturating far outside any viewport.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a rounded `f32` is converted with saturation, and a viewport is far inside `i64`"
+)]
+fn whole(position: f32) -> i64 {
+    position.round() as i64
+}
+
+/// `pixel`, straight alpha, composited over the opaque `under` in place.
+fn over(pixel: &[u8], under: &mut [u8]) {
+    let alpha = u16::from(pixel[3]);
+    for (below, &above) in under.iter_mut().zip(pixel).take(3) {
+        let mixed = u16::from(above)
+            .saturating_mul(alpha)
+            .saturating_add(u16::from(*below).saturating_mul(255_u16.saturating_sub(alpha)))
+            .saturating_add(127)
+            / 255;
+        *below = u8::try_from(mixed).unwrap_or(u8::MAX);
+    }
+    under[3] = u8::MAX;
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -579,5 +675,48 @@ mod tests {
             "the corner is {corner:?}"
         );
         assert_eq!(pixel(100, 50), vec![255, 255, 255, 255], "the page");
+    }
+
+    /// A face as a toolkit window shows the page is the page's own raster, byte for byte, at the
+    /// whole pixel nearest the origin: a page 10.5 high is a raster 11 high whose last row is the
+    /// page's white, where [`super::face`] puts the surround under the half of that row outside the
+    /// page — the seam a transition's last frame showed against the settled page (ADR 1865).
+    #[test]
+    fn a_face_as_shown_is_the_pages_raster_at_a_whole_pixel() {
+        let list = pdf_render::DisplayList::new(pdf_render::Size::new(20.0, 10.5));
+        let page = pdf_render::TargetSpec {
+            width: 20,
+            height: 11,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let Some(image) = super::face_as_shown(&list, page, (90.4, 44.6), (200, 100)) else {
+            panic!("an empty page rasterises");
+        };
+        let pixel = |x: usize, y: usize| {
+            let at = (y * 200 + x) * 4;
+            image.data[at..at + 4].to_vec()
+        };
+        assert_eq!(
+            pixel(90, 45),
+            vec![255, 255, 255, 255],
+            "the page's first pixel"
+        );
+        assert_eq!(
+            pixel(109, 55),
+            vec![255, 255, 255, 255],
+            "its last, half outside the page"
+        );
+        assert_eq!(pixel(110, 55), pixel(0, 0), "the surround beside it");
+        assert_eq!(pixel(100, 56), pixel(0, 0), "and below it");
+        assert_eq!(pixel(89, 50), pixel(0, 0), "and left of it");
+        let Some(window) = super::face(&list, face_target(page, (90.0, 45.0), (200, 100))) else {
+            panic!("an empty page rasterises");
+        };
+        let at = (55 * 200 + 100) * 4;
+        assert_ne!(
+            &window.data[at..at + 4],
+            &[255, 255, 255, 255],
+            "over the window's medium, the half row is the surround's"
+        );
     }
 }

@@ -360,6 +360,36 @@ impl<'a> Lexer<'a> {
         // about the token this call returns and never about an earlier one.
         self.salvage = None;
         self.skip_whitespace();
+        self.token_here()
+    }
+
+    /// [`Self::next_token`] for a caller that has skipped the white space and comments before the
+    /// token itself, with [`Self::skip_whitespace`], to ask something of its first byte.
+    ///
+    /// Such a caller skips once rather than twice: the content reader asks whether a string begins
+    /// there before every operand of a page with no font in force (ADR 1861). The cursor must be
+    /// where [`Self::skip_whitespace`] left it — at a byte that begins a token, or at the end; at a
+    /// comment's `%` the comment would be read as tokens.
+    #[inline]
+    pub fn token_at_cursor(&mut self) -> Option<Token<'a>> {
+        self.salvage = None;
+        self.token_here()
+    }
+
+    /// The body [`Self::next_token`] and [`Self::token_at_cursor`] share, from the token's first
+    /// byte.
+    ///
+    /// Always inlined, so that `next_token` is the one function it was before the second entry
+    /// existed and every parser that calls it is compiled as it was: with this body an ordinary
+    /// `#[inline]` function, `next_token` became the skip and a call, and the object parser took
+    /// the skip into itself — 0.2 % more instructions opening ISO 32000-2's first page, and up
+    /// to 0.7 % more on the launch documents (ADR 1861).
+    #[expect(
+        clippy::inline_always,
+        reason = "measured: the object parser's inlining of `next_token` depends on its size"
+    )]
+    #[inline(always)]
+    fn token_here(&mut self) -> Option<Token<'a>> {
         let byte = self.peek()?;
         if matches!(byte, b'+' | b'-' | b'.' | b'0'..=b'9') {
             if let Some(token) = self.fixed_format_token() {

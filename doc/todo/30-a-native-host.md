@@ -145,8 +145,14 @@ These are the places where a native host's shape differs from the tier-2 host's,
 - **A zoom shows the last frame scaled until its own lands** (`viewer_host::stand_in`, ADR 1843):
   each page's pixels are painted into the extent `Query::PageGeometry` gives it now — Qt's
   `drawImage` into a rectangle, GTK's `GtkFixed` child transform — where the shape is the same, and
-  the part-way picture replaces it when it comes. What is still owed: a page arriving with a notch
-  out has no frame to scale and shows the ground, and a rotation keeps the old frame at its own size.
+  the part-way picture replaces it when it comes. **A page with no frame at all** — turned back to,
+  scrolled back into a column — is shown from `viewer_host::stand_in::Retained`, a 512-pixel
+  reduction of its last finished frame at the document's ink, eight pages by default and
+  `--proxy-pages N` in both windows, until its frame lands (ADR 1866). No window has a view rotation,
+  so a turn has nothing to stand in for. **A page's own pixels are shown at a whole device pixel**,
+  and a transition's faces are that picture (`viewer_host::clock::face_as_shown`), so the effect's
+  last frame meets the page without a seam (ADR 1865). What is still owed: a page never drawn before
+  that a notch out brings on screen has no picture of any kind until it is drawn.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

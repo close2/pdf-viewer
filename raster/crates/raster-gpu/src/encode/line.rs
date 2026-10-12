@@ -18,11 +18,19 @@
 //! or rasterised for the mark, and no outline is resident for it, which is the whole of what
 //! the page of millions of such marks needed (ADR 1817, ADR 1823).
 //!
+//! **A line of no length under a round cap is §8.5.3.2's dot**, "a filled circle centred at the
+//! single point", and this set at length zero: the band vanishes and the two half discs about
+//! one point are the disc. The closed form needs no direction for it — the shader takes any unit
+//! vector where the endpoints coincide — so the dot is one instance like any line (viewer ADR
+//! 1857). Under the other two caps a line of no length is refused by the scene.
+//!
 //! **Everything else about a line takes the general road, exactly**: a transform that does
 //! not keep the axes, a clip with a non-rectangular link, or a segment the device transform
 //! collapses to a point. There the segment is a two-point outline expanded and filled as the
 //! stroke arm would expand and fill it, so the line command draws what a stroke of the same
-//! path draws wherever the closed form does not apply.
+//! path draws wherever the closed form does not apply — except the dot, which the stroke arm
+//! expands to nothing and which is drawn there as the stroker's own two round caps instead
+//! ([`raster::dot_pieces`]).
 
 use raster_scene::{Affine, ClipId, Color, LineCap, LineJoin, MaskId, Point, Rect, Segment};
 
@@ -92,8 +100,9 @@ impl Pen {
     }
 }
 
-/// The line's device shape where the closed form applies: two distinct device endpoints and
-/// a pen of positive, finite size under a transform that keeps the axes.
+/// The line's device shape where the closed form applies: two distinct device endpoints — or
+/// one, under a round cap, which is the dot — and a pen of positive, finite size under a
+/// transform that keeps the axes.
 ///
 /// A transform that keeps the axes has one of `a`, `c` and one of `b`, `d` zero, so
 /// `|a| + |c|` and `|b| + |d|` are the stretches the two device axes receive, and the pen's
@@ -102,7 +111,7 @@ impl Pen {
 /// a pixel, are a line one device pixel wide, whose pen is a disc of half a pixel.
 fn pen(line: &LineMark, to_device: &DeviceTransform) -> Option<Pen> {
     let (from, to) = (apply(to_device, line.from), apply(to_device, line.to));
-    if from == to || !(from.is_finite() && to.is_finite()) {
+    if (from == to && line.cap != LineCap::Round) || !(from.is_finite() && to.is_finite()) {
         return None;
     }
     let stroke = raster_scene::Stroke {
@@ -190,6 +199,12 @@ impl Encoder<'_> {
         // once, so the reach that bounds every end is the half-width's diagonal.
         let reach = device_width * 0.5 * std::f32::consts::SQRT_2;
         let (d0, d1) = (apply(to_device, line.from), apply(to_device, line.to));
+        // §8.5.3.2's dot, which the expansion below would drop as a subpath with no length: the
+        // pen where the transform keeps the axes, the resolved width's circle where it does not,
+        // which is the width the expansion strokes everything else at.
+        let dot = (d0 == d1 && line.cap == LineCap::Round).then(|| {
+            pen(line, to_device).map_or((device_width * 0.5, device_width * 0.5), |pen| pen.half)
+        });
         let bounds = (
             d0.x.min(d1.x) - reach,
             d0.y.min(d1.y) - reach,
@@ -202,10 +217,16 @@ impl Encoder<'_> {
         let segments = [Segment::MoveTo(line.from), Segment::LineTo(line.to)];
         self.segments = self.segments.saturating_add(segments.len() as u64);
         let span = self.clock.start();
-        let (stroked, _) = Expansion::placed(
-            expansion::expansion(None, &segments, *to_device, stroke),
-            *to_device,
-        );
+        let stroked = match dot {
+            Some(half) => raster::dot_pieces(d0, half),
+            None => {
+                Expansion::placed(
+                    expansion::expansion(None, &segments, *to_device, stroke),
+                    *to_device,
+                )
+                .0
+            }
+        };
         self.clock.geometry(span);
         self.push_coverage(
             &stroked,
@@ -298,13 +319,26 @@ mod tests {
     }
 
     /// Two endpoints the transform puts on one device point have no direction, and take the
-    /// stroke road.
+    /// stroke road under a butt or projecting cap.
     #[test]
     fn a_collapsed_segment_has_no_pen() {
-        let collapsed = pen(
-            &mark((1.0, 1.0), (1.0, 3.0), 0.5, LineCap::Round),
-            &scale(1.0, 0.0),
-        );
-        assert_eq!(collapsed, None);
+        for cap in [LineCap::Butt, LineCap::Square] {
+            let collapsed = pen(&mark((1.0, 1.0), (1.0, 3.0), 0.5, cap), &scale(1.0, 0.0));
+            assert_eq!(collapsed, None, "{cap:?}");
+        }
+    }
+
+    /// §8.5.3.2's dot keeps its pen: the half discs about one point need no direction, and its
+    /// ink is the pen around the point.
+    #[test]
+    fn a_round_dot_has_the_pen_of_its_width() {
+        let dot = pen(
+            &mark((1.0, 1.0), (1.0, 1.0), 0.5, LineCap::Round),
+            &scale(4.0, 1.0),
+        )
+        .expect("a round dot is the closed form's");
+        assert_eq!(dot.half, (1.0, 0.25));
+        let rect = |x0, y0, x1, y1| Rect::new(Point::new(x0, y0), Point::new(x1, y1));
+        assert_eq!(dot.ink(), rect(13.0, 20.75, 15.0, 21.25));
     }
 }

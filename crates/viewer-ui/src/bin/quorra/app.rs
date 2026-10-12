@@ -635,6 +635,13 @@ pub(crate) struct App {
     /// for one that is not (ADR 1811). So every later event, command and query sees an ordinary
     /// `Viewer`, and what this file knows of the thread is the bar [`Self::loading`] carries.
     pub(crate) opening: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
+    /// Page one drawn while it is read, on the opening thread at the target the window's size
+    /// foretells (ADR 1855): told the window's size, shown while the document opens, and handed to
+    /// the window's renderer when the document is taken in. `None` once it has been handed over,
+    /// and under `--cpu`, whose composer draws every frame unobserved.
+    pub(crate) ahead: Option<viewer_host::Ahead>,
+    /// Whether page one has been put up as it is read, which the launch timeline marks once.
+    pub(crate) read_shown: bool,
     /// What the title says about a document still opening past `WARN`, or nothing.
     ///
     /// Kept so that a tick rewrites the title only when the sentence changes.

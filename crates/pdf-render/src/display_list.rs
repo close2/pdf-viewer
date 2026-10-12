@@ -752,6 +752,86 @@ pub struct DisplayList {
     /// Every top-level command's device bound at the magnification last asked for — derived from
     /// the commands, invisible to equality and to `Debug`. See [`DisplayList::mark_bounds`].
     bounds: crate::reach::KeptBounds,
+    /// The lowest command index taken back since a builder last asked — what says whether a
+    /// part of this list already handed to another thread is still this list's. See
+    /// [`DisplayList::taken_back_since_asked`].
+    taken_back: TakenBack,
+}
+
+/// The lowest command index [`DisplayList::split_off_commands`] has taken from, since asked.
+///
+/// A record of how the list was *built* rather than of what it holds, so it is invisible to
+/// equality and to `Debug` for [`crate::reach::KeptBounds`]'s reason: two lists holding the same
+/// commands are the same list however they were assembled.
+#[derive(Debug, Clone, Copy, Default)]
+struct TakenBack(Option<usize>);
+
+impl PartialEq for TakenBack {
+    /// Always equal: the record is of the building, and the list compares what was built.
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// How much of a list has been stated: the lengths of its three tables.
+///
+/// Every table of a [`DisplayList`] is appended to and never reordered — a clip or a soft mask
+/// is named by its index, and a command taken back is taken from the end — so three lengths
+/// name a prefix of the list exactly, while nothing below them has been taken back
+/// ([`DisplayList::taken_back_since_asked`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Stated {
+    /// Commands at the top of the list.
+    pub commands: usize,
+    /// Clips in its table.
+    pub clips: usize,
+    /// Soft masks in its table.
+    pub soft_masks: usize,
+}
+
+/// What a list stated between two [`Stated`]s, owned, for a thread that draws a list while it
+/// is still being built (ADR 1855).
+///
+/// The commands name clips and soft masks by index into the list they came from, so a part is
+/// drawable only beside the tables of every part before it: [`DisplayList::extend_tables`] is
+/// what a drawer keeps them in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListPart {
+    /// Where the part begins in the list it came from.
+    pub from: Stated,
+    /// The page's size, which the first part's drawer makes its tables' list with.
+    pub page_size: Size,
+    /// §14.11.2.1's boundary, stated on the list before any command is.
+    pub content_clip: Option<Rect>,
+    /// The top-level commands stated since [`Self::from`], in painting order.
+    pub commands: Vec<Command>,
+    clips: Vec<Clip>,
+    soft_masks: Vec<SoftMask>,
+}
+
+impl ListPart {
+    /// Where the next part of the same list begins.
+    #[must_use]
+    pub fn until(&self) -> Stated {
+        Stated {
+            commands: self.from.commands.saturating_add(self.commands.len()),
+            clips: self.from.clips.saturating_add(self.clips.len()),
+            soft_masks: self.from.soft_masks.saturating_add(self.soft_masks.len()),
+        }
+    }
+
+    /// How many soft masks the part adds to the tables.
+    #[must_use]
+    pub fn soft_mask_count(&self) -> usize {
+        self.soft_masks.len()
+    }
+
+    /// Restates the part's collapsed marks as [`DisplayList::restate_collapsed_marks`] restates
+    /// the finished list's — command by command, so that a part restated is what the same
+    /// commands are once the list is finished.
+    pub fn restate_collapsed_marks(&mut self) {
+        restate_collapsed(&mut self.commands);
+    }
 }
 
 /// The derived rendering field for field, with [`DisplayList::separation`] written only where
@@ -809,6 +889,7 @@ impl DisplayList {
             overprinting: false,
             separation: None,
             bounds: crate::reach::KeptBounds::default(),
+            taken_back: TakenBack::default(),
         }
     }
 
@@ -939,6 +1020,7 @@ impl DisplayList {
             overprinting: self.overprinting,
             separation: None,
             bounds: crate::reach::KeptBounds::default(),
+            taken_back: TakenBack::default(),
         }
     }
 
@@ -965,6 +1047,7 @@ impl DisplayList {
             overprinting: self.overprinting,
             separation: None,
             bounds: crate::reach::KeptBounds::default(),
+            taken_back: TakenBack::default(),
         }
     }
 
@@ -1302,7 +1385,80 @@ impl DisplayList {
             return Vec::new();
         }
         self.bounds.forget();
+        self.taken_back = TakenBack(Some(self.taken_back.0.map_or(at, |lowest| lowest.min(at))));
         self.commands.split_off(at)
+    }
+
+    /// The lowest command index [`Self::split_off_commands`] has taken from since this was last
+    /// asked, and the record started again.
+    ///
+    /// **What a builder that hands parts of the list away asks before each part** (ADR 1855): a
+    /// command handed away and then taken back — a text object's glyphs gathered into its clip, a
+    /// run of marks sealed under §11.6.4.3's other reading — is a command the finished list may
+    /// state differently, so a part below the answer is no longer known to be the list's. A
+    /// command taken back is not always changed, so the answer is a bound and errs one way only.
+    pub fn taken_back_since_asked(&mut self) -> Option<usize> {
+        std::mem::take(&mut self.taken_back).0
+    }
+
+    /// How much of this list has been stated so far.
+    #[must_use]
+    pub fn stated(&self) -> Stated {
+        Stated {
+            commands: self.commands.len(),
+            clips: self.clips.len(),
+            soft_masks: self.soft_masks.len(),
+        }
+    }
+
+    /// What this list has stated since `since`, copied out for another thread — `None` where
+    /// `since` is not a prefix of this list's tables.
+    ///
+    /// A copy rather than a share, because the builder goes on pushing into the same vectors; a
+    /// command's geometry is an `Arc` and is not copied with it.
+    #[must_use]
+    pub fn part_since(&self, since: Stated) -> Option<ListPart> {
+        Some(ListPart {
+            from: since,
+            page_size: self.page_size,
+            content_clip: self.content_clip,
+            commands: self.commands.get(since.commands..)?.to_vec(),
+            clips: self.clips.get(since.clips..)?.to_vec(),
+            soft_masks: self.soft_masks.get(since.soft_masks..)?.to_vec(),
+        })
+    }
+
+    /// Takes a part's clips and soft masks into this list's tables, so that its commands name
+    /// the entries they named where they were stated, and answers whether they line up.
+    ///
+    /// **For a drawer's list, which holds the tables of the list being built and none of its
+    /// commands.** The tables line up when this list holds exactly what came before the part —
+    /// and every clip lands at its own index, which [`Self::add_clip`]'s reuse of a region would
+    /// break only for a region the builder's own table holds twice, which that same reuse rules
+    /// out. `false` is a part this list cannot draw, and nothing has been taken.
+    pub fn extend_tables(&mut self, part: &ListPart) -> bool {
+        if self.clips.len() != part.from.clips || self.soft_masks.len() != part.from.soft_masks {
+            return false;
+        }
+        for (offset, clip) in part.clips.iter().enumerate() {
+            let expected = part.from.clips.saturating_add(offset);
+            match self.add_clip(clip.clone()) {
+                Ok(id) if id.index() == expected => {}
+                _ => {
+                    self.clips.truncate(part.from.clips);
+                    self.clip_index.retain(|_, ids| {
+                        ids.retain(|id| id.index() < part.from.clips);
+                        !ids.is_empty()
+                    });
+                    return false;
+                }
+            }
+        }
+        self.soft_masks.extend(part.soft_masks.iter().cloned());
+        if self.content_clip.is_none() {
+            self.content_clip = part.content_clip;
+        }
+        true
     }
 
     /// Registers a clip region and returns its identifier.
@@ -1420,58 +1576,8 @@ impl DisplayList {
     ///
     /// [`collapsed_by_transform`]: crate::collapsed::collapsed_by_transform
     pub fn restate_collapsed_marks(&mut self) {
-        fn restate(commands: &mut [Command]) {
-            for command in commands {
-                match command {
-                    Command::Fill {
-                        path,
-                        transform,
-                        paint: Paint::Solid(_),
-                        ..
-                    } => {
-                        if let Some((flat, frame)) =
-                            crate::collapsed::collapsed_by_transform(path, *transform)
-                        {
-                            *path = Arc::new(flat);
-                            *transform = frame;
-                        }
-                    }
-                    Command::Stroke {
-                        path,
-                        transform,
-                        stroke,
-                        paint: paint @ Paint::Solid(_),
-                        clip,
-                        mask,
-                        blend,
-                    } => {
-                        if let Some((image, frame)) =
-                            crate::collapsed::collapsed_stroke_by_transform(
-                                path, stroke, *transform,
-                            )
-                        {
-                            *command = Command::Fill {
-                                path: Arc::new(image),
-                                transform: frame,
-                                fill_rule: FillRule::NonZero,
-                                paint: paint.clone(),
-                                clip: *clip,
-                                mask: *mask,
-                                blend: *blend,
-                            };
-                        }
-                    }
-                    Command::Group { commands, .. } => restate(commands),
-                    Command::Shaped { object, shape } => {
-                        restate(std::slice::from_mut(object.as_mut()));
-                        restate(std::slice::from_mut(shape.as_mut()));
-                    }
-                    Command::Fill { .. } | Command::Stroke { .. } | Command::Image { .. } => {}
-                }
-            }
-        }
         self.bounds.forget();
-        restate(&mut self.commands);
+        restate_collapsed(&mut self.commands);
     }
 
     /// How many marking commands this list states under a matrix with no inverse, ISO 32000-2
@@ -1666,4 +1772,56 @@ pub enum DisplayListError {
     /// More soft masks were added than a [`SoftMaskId`] can address.
     #[error("display list exceeded the maximum of {} soft masks", u32::MAX)]
     TooManySoftMasks,
+}
+
+/// [`DisplayList::restate_collapsed_marks`]'s walk, over any run of a list's commands: the
+/// restatement is a function of the command alone, so a part restated on its own is restated
+/// exactly as the whole list would restate it.
+fn restate_collapsed(commands: &mut [Command]) {
+    for command in commands {
+        match command {
+            Command::Fill {
+                path,
+                transform,
+                paint: Paint::Solid(_),
+                ..
+            } => {
+                if let Some((flat, frame)) =
+                    crate::collapsed::collapsed_by_transform(path, *transform)
+                {
+                    *path = Arc::new(flat);
+                    *transform = frame;
+                }
+            }
+            Command::Stroke {
+                path,
+                transform,
+                stroke,
+                paint: paint @ Paint::Solid(_),
+                clip,
+                mask,
+                blend,
+            } => {
+                if let Some((image, frame)) =
+                    crate::collapsed::collapsed_stroke_by_transform(path, stroke, *transform)
+                {
+                    *command = Command::Fill {
+                        path: Arc::new(image),
+                        transform: frame,
+                        fill_rule: FillRule::NonZero,
+                        paint: paint.clone(),
+                        clip: *clip,
+                        mask: *mask,
+                        blend: *blend,
+                    };
+                }
+            }
+            Command::Group { commands, .. } => restate_collapsed(commands),
+            Command::Shaped { object, shape } => {
+                restate_collapsed(std::slice::from_mut(object.as_mut()));
+                restate_collapsed(std::slice::from_mut(shape.as_mut()));
+            }
+            Command::Fill { .. } | Command::Stroke { .. } | Command::Image { .. } => {}
+        }
+    }
 }

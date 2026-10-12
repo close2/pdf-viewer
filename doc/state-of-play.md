@@ -63,7 +63,7 @@ for a page's font and an interface's label alike (ADR 1441). **Three rasterisers
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero (ADR 1857), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -88,7 +88,7 @@ geometry (ADR 1435), an isolated group that composites in a blending colour spac
 as a frame of its own on the same device and placed back as device pixels, which §11.4.5 makes
 exact (ADR 1471), and a target past the adapter's side limit drawn in tiles and stitched (ADR
 1472), a frame's budget being the largest buffer the adapter can make rather than a fixed figure
-(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835) — its strokes, fills, clips and images each drawn as the set the clause defines rather
+(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835), §8.5.3.2's round dot among them as that line at length zero (ADR 1857), and an offscreen frame drawn from the marks that reach it as a window's is (ADR 1858) — its strokes, fills, clips and images each drawn as the set the clause defines rather
 than as a sample of it, a clip meeting a mark's coverage as §10.7.4's intersection, and every
 frame the same bytes at every thread count, which the corpus gate holds by drawing each page again
 at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each construction (ADRs
@@ -679,10 +679,14 @@ the close act at once, and every other key is held and done in order once the wo
 half a second the drawing thread is asked for the page so far four times a second, in painting
 order, and the bar carries how much is drawn until the page lands (ADR 1825); **between a zoom and
 its frame they show the page's last frame scaled to the extent it has now**, by the toolkit's own
-scaled draw, until the part-way picture or the frame replaces it (ADR 1843). **A page the graphics device
+scaled draw, until the part-way picture or the frame replaces it (ADR 1843); a page they hold no
+frame for — turned back to, scrolled back into a column — is shown from a 512-pixel reduction of
+its last frame, eight pages kept and `--proxy-pages` the extent as in `quorra` (ADR 1866); and a
+page's own pixels go up at a whole device pixel, a transition's faces being that same picture, so
+the effect ends on the page without a seam (ADR 1865). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
 magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
-`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device, and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **The
+`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn before the processor keeps them (ADR 1860), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — the page drawn as one strip, byte for byte; the toolkit windows hold the same arrangement in `viewer_host::Ahead` and do not call it yet (ADR 1855). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, `/FitWindow`

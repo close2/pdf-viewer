@@ -460,6 +460,40 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
     }
 }
 
+/// §8.5.3.2's dot as a stroke's own pieces: "a filled circle centred at the single point", the
+/// two round caps of a segment of no length — the half disc facing +x and the one facing −x,
+/// which share their diameter's two corners to the bit and wind the same way, so they tile the
+/// disc — stretched to the pen's two semi-axes `half` along the device axes (viewer ADR 1857).
+///
+/// For the line command a zero-length round line takes where its closed form does not apply (a
+/// residue clip, a transform that turns the axes): every other road expands nothing for a
+/// subpath with no length, and this mark is not nothing. A stretch along an axis keeps the
+/// waist's area argument ([`arc_waist`]), since it scales every area by one factor; the steps are
+/// the larger semi-axis's, so neither axis is flattened coarser than a circle of its own radius.
+pub(crate) fn dot_pieces(centre: Point, half: (f32, f32)) -> Vec<Polyline> {
+    let radius = half.0.max(half.1);
+    if !(radius.is_finite() && radius > 0.0) {
+        return Vec::new();
+    }
+    let mut pieces = Vec::with_capacity(2);
+    for outward in [Point::new(1.0, 0.0), Point::new(-1.0, 0.0)] {
+        cap_at(
+            &mut pieces,
+            Point::new(0.0, 0.0),
+            outward,
+            radius,
+            LineCap::Round,
+        );
+    }
+    let (sx, sy) = (half.0 / radius, half.1 / radius);
+    for piece in &mut pieces {
+        for p in &mut piece.points {
+            *p = Point::new(centre.x + p.x * sx, centre.y + p.y * sy);
+        }
+    }
+    pieces
+}
+
 /// The semicircle a round cap is, swept from one side of the stroke round **through
 /// `dir`** to the other — `dir` pointing away from the segment, as [`cap_at`] takes it.
 ///

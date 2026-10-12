@@ -161,6 +161,15 @@ pub fn group_blit_demand(list: &DisplayList, target: TargetSpec) -> u64 {
     pixels
 }
 
+/// [`group_blit_demand`]'s count over a run of `owner`'s top-level commands alone — no black
+/// half and no soft mask — for a drawer that is handed a list in parts and adds up what each
+/// part demands (ADR 1855). A run's demand is the sum of its commands', so the parts of a list
+/// with neither add up to the list's.
+#[must_use]
+pub fn commands_blit_demand(owner: &DisplayList, commands: &[Command], target: TargetSpec) -> u64 {
+    walk(owner, commands, target)
+}
+
 /// Refuses a list whose groups would blit more than [`MAX_GROUP_BLIT_PIXELS`].
 ///
 /// Every backend that composites a group calls this before it draws anything, so that the

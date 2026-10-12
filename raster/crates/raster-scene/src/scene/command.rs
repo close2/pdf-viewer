@@ -272,8 +272,10 @@ pub enum Command {
     /// flatten and expand an outline for it (`raster/doc/adr/0097`). A page drawn as
     /// millions of such marks then holds millions of these and no outline at all.
     ///
-    /// `from` and `to` must differ: a zero-length subpath is §8.5.3.2's degenerate
-    /// case, which the caller settles before a scene is built (brief section 4.5).
+    /// `from` and `to` differ unless `cap` is [`LineCap::Round`]: a zero-length subpath is
+    /// §8.5.3.2's degenerate case, which the caller settles before a scene is built (brief
+    /// section 4.5), and a round one is the caller's answer already — the clause's filled
+    /// circle, which is this set at length zero (viewer ADR 1857).
     Line {
         /// Where the segment starts, in the command's own space.
         from: Point,

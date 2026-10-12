@@ -33,6 +33,7 @@ reads the section below it only where a line here sends it (ADR 1639).
    is a time (ADR 1684), `--long` for a campaign or a census whose length is its own choice, which
    holds the second lane only (ADR 1756). Walks are granted in the order they asked, and a run
    stopped while it queues still leaves its line, `lane=-` (ADR 1790).
+   **A round's clock figures are one hold**: count instructions while exploring, then take every arm and figure the verdict needs, the launch gate with them, interleaved in one `--clock` hold (habit 87) — a waiting clock run stops every grant on both lanes (ADR 1863).
    Tier 3 is the merge's. **A figure a gate already holds is read from the gate's band, ratchet or
    held list, not re-measured**; a round re-measures what its change can move.
 4. **Paperwork is one new record** `doc/history/<session>-<slug>.md` of at most forty lines with a

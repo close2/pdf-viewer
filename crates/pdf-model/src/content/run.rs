@@ -478,7 +478,7 @@ impl Interpreter<'_> {
                 }
                 // The window's figure rides the same check, so it costs the loop nothing between
                 // checks and a thread nobody is watching one thread-local look (ADR 1811).
-                crate::progress::publish(self.operations, || reader.progress());
+                self.publish_progress(reader, !in_text);
             }
             if let Some(ledger) = self.ledger {
                 ledger.borrow_mut().operator(keyword.bytes());

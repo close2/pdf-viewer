@@ -16,8 +16,18 @@
 //! extent agrees again), a window says so on its `frames` topic (rule 3, [`Placed::stands_in`]),
 //! and the scale is drawn by the toolkit beside the render on another thread, clipped to the
 //! window (rule 4).
+//!
+//! **And a page that arrives on the screen with no pixels at all** — a notch out under a column,
+//! a page scrolled back to after it left — is shown from [`Retained`]: a whole page at
+//! [`RETAINED_EDGE`] pixels along its longer side, kept from the last finished frame of that
+//! page at the document's current ink, scaled by the toolkit into the extent the page has now
+//! until its own frame lands. `quorra` draws its retained pages again on the render thread
+//! (ADR 0443) because its frame is a picture of the window; a toolkit window's frame is the
+//! whole page already, so the picture is a reduction of a frame it was handed and not a draw
+//! (ADR 1866).
 
-use viewer_core::{FrameView, PageGeometry};
+use pdf_render::{Raster, RasterFormat};
+use viewer_core::{DocumentId, FrameView, PageGeometry, RenderRequest};
 
 /// One page's pixels and the rectangle a window shows them in, in device pixels of the viewport.
 #[derive(Debug)]
@@ -26,6 +36,9 @@ pub struct Placed<'a> {
     pub frame: FrameView<'a>,
     /// The width and height the arrangement gives the page now, which the pixels are drawn to fill.
     pub extent: (u32, u32),
+    /// Whether the pixels are a [`Retained`] page rather than a frame the viewer holds — the
+    /// second amount of wrong, which a window says apart from the first (`doc/todo/37`'s rule 3).
+    pub retained: bool,
 }
 
 impl Placed<'_> {
@@ -35,6 +48,30 @@ impl Placed<'_> {
     pub fn stands_in(&self) -> bool {
         self.extent != (self.frame.raster.width, self.frame.raster.height)
     }
+
+    /// Where the pixels' top-left corner goes: [`whole_pixel`] of the origin for pixels at their
+    /// own size, and the origin itself for a stand-in, which the toolkit filters as it scales.
+    #[must_use]
+    pub fn shown_at(&self) -> (f32, f32) {
+        if self.stands_in() {
+            self.frame.origin
+        } else {
+            whole_pixel(self.frame.origin)
+        }
+    }
+}
+
+/// The whole device pixel nearest `origin`, which is where a window shows a page's own pixels.
+///
+/// `viewer_core::Query::PageGeometry` places a page at the fraction its centring and scroll give,
+/// and its raster is drawn on its own grid. Shown at a fraction, a toolkit either rounds — Qt's
+/// raster engine, for an image at its own size — or filters, which is what GSK does: every row of
+/// the page comes out a blend of two, and the edge row a blend of the page and the ground. A
+/// transition's faces are put at this same pixel (`crate::clock::face_as_shown`), so the effect's
+/// last frame and the page that replaces it agree pixel for pixel (ADR 1865).
+#[must_use]
+pub fn whole_pixel(origin: (f32, f32)) -> (f32, f32) {
+    (origin.0.round(), origin.1.round())
 }
 
 /// The window's sentence for a stand-in on its `frames` topic, `doc/todo/37`'s rule 3: which page,
@@ -42,6 +79,17 @@ impl Placed<'_> {
 /// it is, and a frame line with no such sentence after a zoom says the frame landed first.
 impl std::fmt::Display for Placed<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.retained {
+            return write!(
+                f,
+                "page {} stands in at {}x{}, its retained {}x{} page scaled until its frame lands",
+                self.frame.page.saturating_add(1),
+                self.extent.0,
+                self.extent.1,
+                self.frame.raster.width,
+                self.frame.raster.height
+            );
+        }
         write!(
             f,
             "page {} stands in at {}x{}, its {}x{} frame scaled until the frame for this size lands",
@@ -80,7 +128,11 @@ pub fn placed(
                 .map(|placed| (placed.width, placed.height))
                 .filter(|&now| now == own || same_shape(own, now))
                 .unwrap_or(own);
-            Placed { frame, extent }
+            Placed {
+                frame,
+                extent,
+                retained: false,
+            }
         })
         .collect()
 }
@@ -100,12 +152,474 @@ fn same_shape(was: (u32, u32), now: (u32, u32)) -> bool {
     crossed.abs_diff(other) <= slack
 }
 
+/// The longer side of a retained page, in pixels.
+///
+/// `quorra`'s `PROXY_EDGE`, for the reason ADR 0443 measured it by: the binding cost of a retained
+/// page is memory, and 512 is 741 376 bytes for an A4 page, half the linear resolution of a page
+/// filling an 800 × 1000 window — soft, unmistakably a stand-in, and unmistakably the page.
+pub const RETAINED_EDGE: u32 = 512;
+
+/// How many pages a window retains, when nobody says otherwise — `quorra`'s `PROXY_PAGES`, whose
+/// whole set, 5.9 MB for A4, is smaller than one window-sized frame (ADR 0443).
+pub const RETAINED_PAGES: usize = 8;
+
+/// The word that sets how many pages a toolkit window retains, `quorra`'s own spelling.
+///
+/// The extent is the host's setting and nothing below a binary's command line — the project owner
+/// asked on 2026-08-20 for it to be configurable (`doc/todo/37`) — and all three windows read it
+/// under one name, so that a person measuring it against its own absence types the same thing.
+pub const RETAINED_PAGES_WORD: &str = "--proxy-pages";
+
+/// The count after [`RETAINED_PAGES_WORD`], or the sentence that says it is not one.
+///
+/// **Refused rather than defaulted**, for `quorra`'s reason: a launch that ignored a number it
+/// could not read would leave a person measuring the default while believing they had changed it.
+///
+/// # Errors
+///
+/// The sentence, where `word` is absent or not a count of pages.
+pub fn retained_pages(word: Option<&str>) -> Result<usize, String> {
+    word.and_then(|count| count.parse::<usize>().ok())
+        .ok_or_else(|| {
+            format!(
+                "{RETAINED_PAGES_WORD} wants a count of pages, 0 or more (default {RETAINED_PAGES})"
+            )
+        })
+}
+
+/// Source samples taken along each axis of one retained pixel's footprint.
+///
+/// A box filter over the whole footprint would cost the whole frame — up to `viewer_core`'s
+/// `MAX_PIXELS` read on the toolkit's thread for a page zoomed far in — where this costs at most
+/// `RETAINED_EDGE`² × 16 samples whatever the frame's size (ADR 1866). Four is the footprint of a
+/// page at its usual fit, two to three frame pixels to one retained pixel, sampled at least once
+/// per pixel; further out the reduction aliases, which a picture that is a stand-in may.
+const TAPS: u32 = 4;
+
+/// One retained page and which page of which document it is.
+#[derive(Debug)]
+struct Kept {
+    document: DocumentId,
+    page: usize,
+    pixels: Raster,
+}
+
+/// The whole pages a window keeps a small picture of, newest first, so that a page with no frame
+/// has something true to show (ADR 1866).
+///
+/// **What a picture is of is `(document, page, ink)`**, `viewer_core::RenderRequest::ink`'s
+/// statement: two lists of a page under one ink are the same picture. Inks are per document, so
+/// the store keeps the newest ink it has been told of for each, and a request under another ink
+/// drops every picture of that document, because a layer switched off, a field typed into or an
+/// appearance under the pointer is a page this store no longer holds a picture of — shown, it
+/// would assert ink the page no longer has, which blur does not excuse.
+///
+/// **Bounded by [`RETAINED_PAGES`]**, oldest dropped: a picture is kept only from a frame that
+/// has just landed, so the pages on the screen are always the newest entries.
+#[derive(Debug)]
+pub struct Retained {
+    held: Vec<Kept>,
+    inks: Vec<(DocumentId, u64)>,
+    extent: usize,
+}
+
+impl Default for Retained {
+    fn default() -> Self {
+        Self::new(RETAINED_PAGES)
+    }
+}
+
+impl Retained {
+    /// A store that keeps up to `extent` pages; zero turns the whole of it off.
+    #[must_use]
+    pub fn new(extent: usize) -> Self {
+        Self {
+            held: Vec::new(),
+            inks: Vec::new(),
+            extent,
+        }
+    }
+
+    /// The viewer asked for a page: the request's ink is the document's ink now.
+    pub fn asked(&mut self, request: &RenderRequest) {
+        self.ink_is(request.document, request.ink);
+    }
+
+    /// A frame of `request` finished as `raster`: keeps a reduction of it where none of that page
+    /// at this ink is held, and answers whether it did.
+    ///
+    /// A frame drawn under an ink the store has since been told is gone keeps nothing.
+    pub fn landed(&mut self, request: &RenderRequest, raster: &Raster) -> bool {
+        self.keep(request.document, request.page, request.ink, raster)
+    }
+
+    fn ink_is(&mut self, document: DocumentId, ink: u64) {
+        match self.inks.iter_mut().find(|(known, _)| *known == document) {
+            Some((_, known)) if *known == ink => {}
+            Some((_, known)) => {
+                *known = ink;
+                self.held.retain(|kept| kept.document != document);
+            }
+            None => self.inks.push((document, ink)),
+        }
+    }
+
+    fn keep(&mut self, document: DocumentId, page: usize, ink: u64, raster: &Raster) -> bool {
+        if self.extent == 0 {
+            return false;
+        }
+        let current = self
+            .inks
+            .iter()
+            .find(|(known, _)| *known == document)
+            .is_none_or(|&(_, known)| known == ink);
+        if !current {
+            return false;
+        }
+        self.ink_is(document, ink);
+        if self
+            .held
+            .iter()
+            .any(|kept| kept.document == document && kept.page == page)
+        {
+            return false;
+        }
+        let Some(pixels) = reduced(raster) else {
+            return false;
+        };
+        self.held.insert(
+            0,
+            Kept {
+                document,
+                page,
+                pixels,
+            },
+        );
+        self.held.truncate(self.extent);
+        true
+    }
+
+    /// `placed` with a retained page added for every page of `focused` the arrangement places and
+    /// no pixels are shown for, scaled to the extent `geometry` gives it.
+    ///
+    /// A page whose retained picture is not its shape now is left out rather than stretched, by
+    /// [`placed`]'s rule.
+    #[must_use]
+    pub fn fill<'a>(
+        &'a self,
+        mut placed: Vec<Placed<'a>>,
+        focused: DocumentId,
+        mut geometry: impl FnMut(usize) -> Option<PageGeometry>,
+    ) -> Vec<Placed<'a>> {
+        for kept in self.held.iter().filter(|kept| kept.document == focused) {
+            if placed.iter().any(|shown| shown.frame.page == kept.page) {
+                continue;
+            }
+            let Some(now) = geometry(kept.page) else {
+                continue;
+            };
+            let extent = (now.width, now.height);
+            if !same_shape((kept.pixels.width, kept.pixels.height), extent) {
+                continue;
+            }
+            placed.push(Placed {
+                frame: FrameView {
+                    page: kept.page,
+                    raster: &kept.pixels,
+                    origin: now.origin,
+                },
+                extent,
+                retained: true,
+            });
+        }
+        placed.sort_by_key(|shown| shown.frame.page);
+        placed
+    }
+
+    /// How many pages are held, for a window's trace.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    /// Whether nothing is held.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+}
+
+/// `raster` reduced to [`RETAINED_EDGE`] along its longer side, each pixel the average of up to
+/// [`TAPS`]² samples spread over its footprint and weighted by their alpha, or `None` for a raster
+/// with no pixels. A raster already that small is kept as it is.
+fn reduced(raster: &Raster) -> Option<Raster> {
+    let RasterFormat::Rgba8 = raster.format;
+    let (width, height) = (raster.width, raster.height);
+    let expected = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(4);
+    if width == 0 || height == 0 || u64::try_from(raster.data.len()).ok() != Some(expected) {
+        return None;
+    }
+    let longer = width.max(height);
+    if longer <= RETAINED_EDGE {
+        return Some(Raster {
+            width,
+            height,
+            format: RasterFormat::Rgba8,
+            data: raster.data.clone(),
+        });
+    }
+    // Each side scaled by one factor and rounded up, as `viewer_core` rounds a page's extent, so
+    // that the reduction is the page's shape to within the slack `placed` allows. Every product
+    // below is of numbers under 2^32 and fits a `u64`, so no saturation is reachable.
+    let side = |length: u32| {
+        let scaled = u64::from(length)
+            .saturating_mul(u64::from(RETAINED_EDGE))
+            .div_ceil(u64::from(longer));
+        u32::try_from(scaled).unwrap_or(RETAINED_EDGE).max(1)
+    };
+    let (out_width, out_height) = (side(width), side(height));
+    let stride = usize::try_from(width).ok()?.checked_mul(4)?;
+    let (across, columns) = taps(out_width, width, 4)?;
+    let (down, rows) = taps(out_height, height, stride)?;
+    let samples = u32::try_from(across.saturating_mul(down)).ok()?;
+    let mut data = Vec::with_capacity(
+        usize::try_from(
+            u64::from(out_width)
+                .saturating_mul(u64::from(out_height))
+                .saturating_mul(4),
+        )
+        .ok()?,
+    );
+    for row in rows.chunks_exact(down) {
+        for column in columns.chunks_exact(across) {
+            // Premultiplied sums, so that a pixel half outside the page is the page's colour at
+            // half its alpha rather than that colour darkened by the transparent black beside it.
+            // A channel times an alpha is under 2^16 and there are at most `TAPS`² of them, so a
+            // `u32` holds the sum and no saturation is reachable.
+            let mut sum = [0_u32; 4];
+            for &start in row {
+                let Some(line) = raster.data.get(start..start.saturating_add(stride)) else {
+                    continue;
+                };
+                for &offset in column {
+                    let Some(&[r, g, b, a]) = line.get(offset..offset.saturating_add(4)) else {
+                        continue;
+                    };
+                    let alpha = u32::from(a);
+                    sum[0] = sum[0].saturating_add(u32::from(r).saturating_mul(alpha));
+                    sum[1] = sum[1].saturating_add(u32::from(g).saturating_mul(alpha));
+                    sum[2] = sum[2].saturating_add(u32::from(b).saturating_mul(alpha));
+                    sum[3] = sum[3].saturating_add(alpha);
+                }
+            }
+            let colour = |channel: u32| {
+                let rounded = channel
+                    .saturating_add(sum[3] / 2)
+                    .checked_div(sum[3])
+                    .unwrap_or(0);
+                u8::try_from(rounded).unwrap_or(u8::MAX)
+            };
+            let alpha = sum[3]
+                .saturating_add(samples / 2)
+                .checked_div(samples)
+                .unwrap_or(0);
+            data.extend_from_slice(&[
+                colour(sum[0]),
+                colour(sum[1]),
+                colour(sum[2]),
+                u8::try_from(alpha).unwrap_or(u8::MAX),
+            ]);
+        }
+    }
+    Some(Raster {
+        width: out_width,
+        height: out_height,
+        format: RasterFormat::Rgba8,
+        data,
+    })
+}
+
+/// Which source pixels each of `out` retained columns (or rows) is the average of, as byte offsets
+/// `step` apart, and how many there are to each: the taps of retained pixel `index` sit at
+/// `(index + (tap + ½) / taps) / out` of the way across `source`, in integers and never past the
+/// last pixel, and there are as many as whole source pixels fit the footprint — one for a frame a
+/// little over the edge, [`TAPS`] at most. Worked out once per reduction rather than per pixel.
+fn taps(out: u32, source: u32, step: usize) -> Option<(usize, Vec<usize>)> {
+    let taps = source.checked_div(out).unwrap_or(1).clamp(1, TAPS);
+    let mut at = Vec::with_capacity(usize::try_from(out.saturating_mul(taps)).ok()?);
+    let across = u64::from(taps)
+        .saturating_mul(2)
+        .saturating_mul(u64::from(out));
+    for index in 0..out {
+        for tap in 0..taps {
+            let numerator = u64::from(index)
+                .saturating_mul(u64::from(taps))
+                .saturating_add(u64::from(tap))
+                .saturating_mul(2)
+                .saturating_add(1)
+                .saturating_mul(u64::from(source));
+            let pixel = numerator
+                .checked_div(across)
+                .unwrap_or(0)
+                .min(u64::from(source.saturating_sub(1)));
+            at.push(usize::try_from(pixel).ok()?.checked_mul(step)?);
+        }
+    }
+    Some((usize::try_from(taps).ok()?, at))
+}
+
 #[cfg(test)]
 mod tests {
     use pdf_render::{Raster, RasterFormat, Size};
-    use viewer_core::{FrameView, PageGeometry};
+    use viewer_core::{DocumentId, FrameView, PageGeometry};
 
-    use super::placed;
+    use super::{RETAINED_EDGE, Retained, placed, reduced};
+
+    /// A raster of one colour, every byte of it real.
+    fn filled(width: u32, height: u32, pixel: [u8; 4]) -> Raster {
+        Raster {
+            width,
+            height,
+            format: RasterFormat::Rgba8,
+            data: pixel
+                .repeat(usize::try_from(width.saturating_mul(height)).expect("a test's raster")),
+        }
+    }
+
+    /// The owner's case with no frame at all: a column zoomed out puts page 2 on the screen, the
+    /// viewer holds pixels only for page 1, and page 2 was drawn before at the document's ink —
+    /// so it is shown from its retained picture, scaled into its extent at its origin, and said
+    /// apart from a frame standing in. A page whose own frame is up is not covered by one.
+    #[test]
+    fn a_page_with_no_frame_is_shown_from_its_retained_picture() {
+        let document = DocumentId(1);
+        let mut retained = Retained::default();
+        assert!(retained.keep(document, 1, 7, &filled(1224, 1584, [0, 0, 255, 255])));
+        assert!(retained.keep(document, 0, 7, &filled(1224, 1584, [255, 0, 0, 255])));
+        let held = filled(612, 792, [255, 0, 0, 255]);
+        let frames = placed(
+            vec![FrameView {
+                page: 0,
+                raster: &held,
+                origin: (0.0, 0.0),
+            }],
+            |_| Some(geometry(612, 792)),
+        );
+        let shown = retained.fill(frames, document, |_| Some(geometry(490, 634)));
+        assert_eq!(
+            shown.len(),
+            2,
+            "page 1's frame and page 2's retained picture"
+        );
+        assert!(!shown[0].retained, "page 1 is the viewer's own frame");
+        assert!(shown[1].retained && shown[1].stands_in());
+        assert_eq!(shown[1].frame.page, 1);
+        assert_eq!(shown[1].extent, (490, 634));
+        assert_eq!(shown[1].frame.origin, (10.0, 20.0));
+        assert_eq!(
+            (shown[1].frame.raster.width, shown[1].frame.raster.height),
+            (396, RETAINED_EDGE)
+        );
+        assert!(shown[1].to_string().contains("retained 396x512 page"));
+        assert!(
+            retained
+                .fill(Vec::new(), DocumentId(2), |_| Some(geometry(490, 634)))
+                .is_empty(),
+            "a picture of another document is never shown for this one"
+        );
+        assert!(
+            retained.fill(Vec::new(), document, |_| None).is_empty(),
+            "a page the arrangement does not place is not shown"
+        );
+    }
+
+    /// `viewer_core::RenderRequest::ink`: a page under another ink is another picture, so a
+    /// request under a new ink drops every picture of that document, and a frame that lands from
+    /// under the old one keeps nothing.
+    #[test]
+    fn a_new_ink_drops_every_picture_of_its_document() {
+        let (document, other) = (DocumentId(1), DocumentId(2));
+        let mut retained = Retained::default();
+        let page = filled(800, 1000, [0, 128, 0, 255]);
+        assert!(retained.keep(document, 0, 3, &page));
+        assert!(retained.keep(other, 0, 3, &page));
+        assert!(
+            !retained.keep(document, 0, 3, &page),
+            "the same picture is not reduced twice"
+        );
+        retained.ink_is(document, 4);
+        assert_eq!(
+            retained.len(),
+            1,
+            "only the other document's picture is left"
+        );
+        assert!(
+            !retained.keep(document, 1, 3, &page),
+            "a frame of the old ink"
+        );
+        assert!(retained.keep(document, 1, 4, &page));
+        let mut off = Retained::new(0);
+        assert!(
+            !off.keep(document, 0, 3, &page),
+            "an extent of zero keeps nothing"
+        );
+        assert!(off.is_empty());
+    }
+
+    /// `--proxy-pages` takes a count and refuses anything else out loud.
+    #[test]
+    fn the_extent_is_a_count_or_a_refusal() {
+        assert_eq!(super::retained_pages(Some("0")), Ok(0));
+        assert_eq!(super::retained_pages(Some("12")), Ok(12));
+        assert!(super::retained_pages(Some("eight")).is_err());
+        assert!(super::retained_pages(None).is_err());
+    }
+
+    /// The store is bounded, oldest out.
+    #[test]
+    fn the_oldest_picture_goes_first() {
+        let document = DocumentId(1);
+        let mut retained = Retained::new(2);
+        let page = filled(600, 600, [9, 9, 9, 255]);
+        for number in 0..3 {
+            assert!(retained.keep(document, number, 0, &page));
+        }
+        let shown = retained.fill(Vec::new(), document, |_| Some(geometry(600, 600)));
+        let pages: Vec<usize> = shown.iter().map(|placed| placed.frame.page).collect();
+        assert_eq!(pages, vec![1, 2]);
+    }
+
+    /// A reduction averages what it covers, weighted by alpha: a page of red and blue halves
+    /// keeps both halves, and an edge of transparent pixels lowers the alpha and not the colour.
+    #[test]
+    fn a_reduction_averages_its_footprint_by_alpha() {
+        let mut page = filled(1024, 1024, [255, 0, 0, 255]);
+        for row in page.data.chunks_exact_mut(1024 * 4) {
+            for pixel in row[512 * 4..].chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[0, 0, 255, 255]);
+            }
+        }
+        let small = reduced(&page).expect("a page with pixels");
+        assert_eq!((small.width, small.height), (512, 512));
+        let row = 512 * 4;
+        assert_eq!(&small.data[10 * row + 10 * 4..][..4], &[255, 0, 0, 255]);
+        assert_eq!(&small.data[300 * row + 500 * 4..][..4], &[0, 0, 255, 255]);
+        let mut edged = filled(1024, 1024, [255, 255, 255, 255]);
+        for pixel in edged.data[..1024 * 4].chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[0, 0, 0, 0]);
+        }
+        let small = reduced(&edged).expect("a page with pixels");
+        assert_eq!(
+            &small.data[..4],
+            &[255, 255, 255, 128],
+            "one of the two rows under it is clear, and its colour is still white"
+        );
+        let tiny = filled(300, 400, [1, 2, 3, 255]);
+        assert_eq!(reduced(&tiny).expect("pixels").data, tiny.data);
+        assert!(reduced(&filled(0, 0, [0; 4])).is_none());
+    }
 
     fn raster(width: u32, height: u32) -> Raster {
         Raster {

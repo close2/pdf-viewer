@@ -132,4 +132,6 @@ pub use script_question::{AlertButton, AlertButtons, AlertIcon, ScriptAnswer, Sc
 pub use scripting::{ScriptAsks, ScriptRunners, Scripting};
 pub use secret::Secret;
 pub use select::find_in_text;
-pub use viewer::{DocumentId, MAX_PIXELS, RenderToken, Viewer};
+pub use viewer::{
+    Anticipated, Anticipating, DocumentId, Foreseen, MAX_PIXELS, Reader, RenderToken, Viewer,
+};

@@ -921,3 +921,14 @@ clips, and the brief built a slot on it; the per-reason tally showed the backend
 strokes and nothing else, clips held no row, and thin strokes were not the cause (round 1505,
 ADR 1847). Before a lever is built from a census, the census prints each refusal's reason and the
 rows that reason holds on its own; a lever named from the total is a guess.
+
+## 90. A merge's clock gate runs with nothing of the merge's own beside it
+
+Batch eighty-one's merge read thirteen figures under their floors — the batch's wins — moved the
+floors, and re-ran the two clock gates while the merge's own `tools/batch.sh check` built the fuzz
+workspace beside them and a one-off round built a whole workspace in its own clone; the re-run read
+four launch figures and three turn figures over their *ceilings* at a load of five to ten, the busy
+end of trap 110, and told nothing about the tree. A clock gate is re-run alone: the merge's static
+checks go before or after it, never beside, and a round working outside the batch runs its heavy
+commands through `tools/bounded.sh --lock` so they queue behind the hold instead of under it. The
+re-run waits for the load the band file names, and the log says what the load was.

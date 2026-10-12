@@ -27,7 +27,7 @@ use crate::error::{
 use crate::geom::{Affine, Point, Rect};
 use crate::ids::{ClipId, MaskId};
 use crate::mask::MaskKind;
-use crate::paint::{Color, Paint, Stroke};
+use crate::paint::{Color, LineCap, Paint, Stroke};
 
 /// The largest coordinate magnitude a scene accepts, for rectangle corners and
 /// transform coefficients alike.
@@ -119,16 +119,24 @@ impl SceneBuilder {
         }
     }
 
-    /// A line's two points and its width: finite, inside [`MAX_COORDINATE`], distinct, and a
-    /// width that [`Stroke::is_valid`] would accept. Equal points are refused rather than
-    /// drawn, because what a zero-length subpath marks is §8.5.3.2's question and the
-    /// caller's to answer (brief section 4.5) — a line has no direction to put a square
-    /// cap along.
-    pub(super) fn check_line(from: Point, to: Point, width: f32) -> Result<(), SceneError> {
+    /// A line's two points and its width: finite, inside [`MAX_COORDINATE`], distinct unless
+    /// the cap is round, and a width that [`Stroke::is_valid`] would accept. Equal points under
+    /// a butt or projecting cap are refused rather than drawn, because what a zero-length
+    /// subpath marks is §8.5.3.2's question and the caller's to answer (brief section 4.5) — a
+    /// line has no direction to put a square cap along. Under a round cap the caller has
+    /// answered it: the clause's "filled circle centred at the single point" is the line's own
+    /// set at length zero, two half discs about one point, which needs no direction (viewer
+    /// ADR 1857).
+    pub(super) fn check_line(
+        from: Point,
+        to: Point,
+        width: f32,
+        cap: LineCap,
+    ) -> Result<(), SceneError> {
         let inside =
             |p: Point| p.is_finite() && p.x.abs() <= MAX_COORDINATE && p.y.abs() <= MAX_COORDINATE;
         let width_valid = width.is_finite() && (0.0..=MAX_COORDINATE).contains(&width);
-        if inside(from) && inside(to) && from != to && width_valid {
+        if inside(from) && inside(to) && (from != to || cap == LineCap::Round) && width_valid {
             Ok(())
         } else {
             Err(SceneError::InvalidLine { from, to, width })

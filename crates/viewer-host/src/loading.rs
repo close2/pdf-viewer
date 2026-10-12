@@ -28,12 +28,16 @@
 //! [`WARN`]: crate::drawing::WARN
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use pdf_model::progress::{Progress, Reading};
+use pdf_model::progress::{Handed, Parts, Progress, Reading};
+use pdf_render::{DisplayList, Raster, TargetSpec};
+use render_cpu::{CpuRasterizer, Underway};
+use viewer_core::{Anticipating, Event, Foreseen, Viewer};
 
-use crate::drawing::WARN;
+use crate::drawing::{GLIMPSE_AFTER, GLIMPSE_EVERY, WARN};
 
 /// How often a window that is showing the bar looks at the thread again.
 ///
@@ -113,6 +117,18 @@ impl<T: Send + 'static> Loading<T> {
     #[must_use]
     pub fn wait(&self) -> bool {
         let left = WARN.saturating_sub(self.began.elapsed());
+        match self.ended.recv_timeout(left) {
+            Ok(()) | Err(RecvTimeoutError::Disconnected) => true,
+            Err(RecvTimeoutError::Timeout) => false,
+        }
+    }
+
+    /// [`Self::wait`], bounded by `bound` since the thread began where that is sooner than
+    /// [`WARN`] — for a window that has something to show before `WARN`: page one as it is drawn
+    /// while it is read, from [`GLIMPSE_AFTER`] ([`Ahead`]).
+    #[must_use]
+    pub fn wait_within(&self, bound: Duration) -> bool {
+        let left = WARN.min(bound).saturating_sub(self.began.elapsed());
         match self.ended.recv_timeout(left) {
             Ok(()) | Err(RecvTimeoutError::Disconnected) => true,
             Err(RecvTimeoutError::Timeout) => false,
@@ -214,6 +230,265 @@ fn operators(count: u64) -> String {
     }
 }
 
+/// Page one drawn while it is read: its display list handed over in parts as it is read, and each
+/// part painted on a thread of its own into the target the first frame will be asked at (ADR 1855).
+///
+/// # What this is for
+///
+/// A page that reads for seconds showed a bar for all of them, and then drew: on the project
+/// owner's drawing the read is three quarters of the first frame (ADR 1845 §1). Here the opening
+/// thread reads the page as before while a second thread draws it as it is read — pdf.js's
+/// operator list flushed in chunks, taken as evidence about the approach — so a window shows the
+/// page as it stands at [`GLIMPSE_AFTER`] instead of a bar, and the first frame's request finds the
+/// page already drawn through all but its last part.
+///
+/// # When it draws, and when it does not
+///
+/// **Nothing is drawn ahead until the read has run [`GLIMPSE_AFTER`]**, ADR 1825's wait: no page
+/// of `doc/pdf.js`'s first pages reads that long, so no launch any gate measures pays a thread's
+/// drawing beside its read, and a page read past it is the page a person is waiting for. Nor is
+/// anything drawn before the window has said how large it is ([`Ahead::window_is`]), because the
+/// target is the window's. The parts that came in the meantime are waiting for the drawer and are
+/// drawn first.
+///
+/// **The pixels are the page's**, by `render_cpu::Underway`'s construction, and every page where
+/// that is not known — a part taken back by the reader, a soft mask, a page finished with a plane
+/// of its own, a request at another target than the one drawn — is drawn whole by the drawing
+/// thread exactly as before. What a page drawn ahead costs that one drawn after does not is the
+/// reader sharing the machine with one drawing thread for the length of the read.
+#[derive(Clone)]
+pub struct Ahead {
+    shared: Arc<AheadShared>,
+}
+
+/// What the opening thread and the window share.
+struct AheadShared {
+    /// How the window places the page in the target it draws, from where the core will ask for it.
+    place: Place,
+    /// The rasteriser the window's first frame is drawn with, whose settings the page drawn ahead
+    /// must share — a window's ground, for one.
+    rasterizer: CpuRasterizer,
+    window: Mutex<Option<Window>>,
+    look: Mutex<Option<Look>>,
+    drawn: Mutex<Option<(Parts, Underway)>>,
+}
+
+/// How a window turns the core's forecast into the target it draws the page into: the page's own
+/// target for a window that places page rasters ([`Ahead::page_sized`]), or the window's extent
+/// with the page placed in it for one that composes the arrangement into one raster.
+pub type Place = Box<dyn Fn(Foreseen, Window) -> TargetSpec + Send + Sync>;
+
+/// What a window tells the opening thread about itself.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Window {
+    /// Its extent, in device pixels.
+    pub width: u32,
+    /// Its extent, in device pixels.
+    pub height: u32,
+    /// How much of its width the core is not told about — a panel's — in device pixels.
+    pub inset: u32,
+    /// Its scale factor.
+    pub scale: f32,
+}
+
+impl Window {
+    /// The viewport the core is told about: the window less its inset.
+    #[must_use]
+    pub fn viewport(self) -> (u32, u32) {
+        (
+            self.width.saturating_sub(self.inset).max(1),
+            self.height.max(1),
+        )
+    }
+}
+
+/// The page drawn ahead, as it stood at its last look.
+#[derive(Debug, Clone)]
+pub struct Look {
+    /// Counts the looks, so a window puts up each one once.
+    pub serial: u64,
+    /// The pixels, at [`Self::target`].
+    pub raster: Arc<Raster>,
+    /// The target they are of.
+    pub target: TargetSpec,
+    /// How many of the page's commands they hold.
+    pub commands: usize,
+}
+
+/// How often the opening thread looks for the window and the read while it waits to draw.
+const AHEAD_POLL: Duration = Duration::from_millis(5);
+
+impl Ahead {
+    /// An arrangement for a window that draws `rasterizer`'s way and places the page with `place`.
+    #[must_use]
+    pub fn new(rasterizer: CpuRasterizer, place: Place) -> Self {
+        Self {
+            shared: Arc::new(AheadShared {
+                place,
+                rasterizer,
+                window: Mutex::new(None),
+                look: Mutex::new(None),
+                drawn: Mutex::new(None),
+            }),
+        }
+    }
+
+    /// For a window whose pages are page-sized rasters it places itself — the toolkit windows.
+    #[must_use]
+    pub fn page_sized() -> Self {
+        Self::new(
+            CpuRasterizer::new(),
+            Box::new(|foreseen: Foreseen, _| foreseen.target),
+        )
+    }
+
+    /// Tells the opening thread how large the window is; asked again whenever it changes.
+    pub fn window_is(&self, window: Window) {
+        *lock(&self.shared.window) = Some(window);
+    }
+
+    /// The page as it stood at the last look, where one has been taken.
+    #[must_use]
+    pub fn look(&self) -> Option<Look> {
+        lock(&self.shared.look).clone()
+    }
+
+    /// The page drawn ahead, for the request that asks for `list` at `target` — and `None` for
+    /// any other, after which nothing is held for the list's page: a request for it at another
+    /// target is a frame the page drawn ahead is not.
+    #[must_use]
+    pub fn take_for(&self, list: &Arc<DisplayList>, target: TargetSpec) -> Option<Underway> {
+        let mut drawn = lock(&self.shared.drawn);
+        let (parts, underway) = drawn.as_ref()?;
+        if !parts.is(list) {
+            return None;
+        }
+        let matches = underway.target() == target;
+        let (_, underway) = drawn.take()?;
+        drop(lock(&self.shared.look).take());
+        matches.then_some(underway)
+    }
+
+    /// [`Viewer::anticipate`], with the page drawn on a thread of its own as it is read on this
+    /// one — the call an opening thread makes in its place.
+    ///
+    /// # Panics
+    ///
+    /// Where the interpretation panicked, as [`Viewer::anticipate`] would have; or where the
+    /// drawing thread did, with its panic.
+    pub fn anticipate(&self, viewer: &mut Viewer) -> Vec<Event> {
+        let Some(anticipating) = viewer.anticipating() else {
+            return viewer.anticipate().collect();
+        };
+        let parts = Parts::new();
+        let reading = anticipating.reader();
+        let (tell, ended) = channel();
+        // **The read stays on this thread and the drawing goes to a new one**, and the order is
+        // a measurement: the read is the first frame's critical path, the opening thread is the
+        // one a launch has already placed (`Viewer::anticipate`'s read runs here), and a new
+        // thread may land on one of this machine's slower cores — the read lost a second to the
+        // other order on the owner's display, where the drawer, which keeps up from either kind
+        // of core, loses nothing that is waited for (ADR 1855 §4). The window's bar is fed as
+        // before, by the figure installed on this thread.
+        let (read, drawn) = std::thread::scope(|scope| {
+            let (looking, handing) = (&anticipating, &parts);
+            let drawer = scope.spawn(move || self.draw_beside(looking, handing, &ended));
+            let read = {
+                let _ended = Ended(tell);
+                reading.read(&parts)
+            };
+            (read, drawer.join())
+        });
+        let drawn = match drawn {
+            Ok(drawn) => drawn,
+            Err(panic) => std::panic::resume_unwind(panic),
+        };
+        let events = viewer.anticipated(read, Some(&parts)).collect();
+        *lock(&self.shared.drawn) = drawn.map(|underway| (parts, underway));
+        events
+    }
+
+    /// The drawer's side: waits for the read to have run [`GLIMPSE_AFTER`] and for the window's
+    /// size, then draws every part as it arrives and takes a look every [`GLIMPSE_EVERY`] —
+    /// `None` where nothing was drawn ahead, or what was drawn is not the page.
+    fn draw_beside(
+        &self,
+        anticipating: &Anticipating<'_>,
+        parts: &Parts,
+        read_ended: &Receiver<()>,
+    ) -> Option<Underway> {
+        let began = Instant::now();
+        // Woken by the read's end the moment it comes, so a page read inside the wait — every
+        // page a launch gate measures — is taken in as soon as it is read, as `anticipate` takes
+        // it, and nothing about it waits for a poll.
+        let window = loop {
+            // The rest of the wait, then a look for the window's size every poll.
+            let wait = Some(GLIMPSE_AFTER.saturating_sub(began.elapsed()))
+                .filter(|left| !left.is_zero())
+                .unwrap_or(AHEAD_POLL);
+            match read_ended.recv_timeout(wait) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if began.elapsed() >= GLIMPSE_AFTER
+                && let Some(window) = *lock(&self.shared.window)
+            {
+                break window;
+            }
+        };
+        let foreseen = anticipating.foresee(window.viewport(), window.scale)?;
+        let target = (self.shared.place)(foreseen, window);
+        let mut underway = Underway::new(&self.shared.rasterizer, target)?;
+        let mut looked: Option<Instant> = None;
+        let mut serial = 0_u64;
+        loop {
+            match parts.take(AHEAD_POLL) {
+                Some(Handed::Part(part)) => {
+                    if !underway.take(part) {
+                        return None;
+                    }
+                }
+                Some(Handed::Ended(Ok(_))) => return Some(underway),
+                Some(Handed::Ended(Err(_))) => return None,
+                None => {}
+            }
+            if looked.is_none_or(|looked| looked.elapsed() >= GLIMPSE_EVERY)
+                && underway.drawn().commands > 0
+                && let Some(raster) = underway.look()
+            {
+                serial = serial.wrapping_add(1);
+                *lock(&self.shared.look) = Some(Look {
+                    serial,
+                    raster: Arc::new(raster),
+                    target,
+                    commands: underway.drawn().commands,
+                });
+                looked = Some(Instant::now());
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for Ahead {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Ahead")
+            .field("window", &*lock(&self.shared.window))
+            .field(
+                "drawn",
+                &lock(&self.shared.drawn)
+                    .as_ref()
+                    .map(|(_, underway)| underway.drawn()),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+/// A lock whose holder cannot have left it half-written: every write above is one assignment.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +533,73 @@ mod tests {
         assert!(loading.wait());
         assert!(loading.showing().is_none());
         assert_eq!(loading.join().ok(), Some(42));
+    }
+
+    /// A document committed beside this crate, opened in a viewer with no viewport — the opening
+    /// thread's state before page one is read.
+    fn opened() -> Viewer {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+        let bytes = std::fs::read(path).expect("the document is committed beside this crate");
+        let mut viewer = Viewer::new(0, 0, 1.0);
+        let _ = viewer
+            .handle(viewer_core::Command::Open {
+                id: viewer_core::DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            })
+            .count();
+        viewer
+    }
+
+    /// The first render request a viewer makes once it is told a viewport.
+    fn first_request(viewer: &mut Viewer) -> viewer_core::RenderRequest {
+        viewer
+            .handle(viewer_core::Command::Resize {
+                width: 600,
+                height: 800,
+                scale: 1.0,
+            })
+            .find_map(|event| match event {
+                Event::NeedsRender(request) => Some(request),
+                _ => None,
+            })
+            .expect("a viewport asks for page one")
+    }
+
+    /// A page read inside [`GLIMPSE_AFTER`] — every page a launch gate measures — is read on the
+    /// opening thread's behalf and taken in exactly as `Viewer::anticipate` takes it, and nothing
+    /// is drawn ahead of it (ADR 1855).
+    #[test]
+    fn a_page_read_inside_the_wait_is_taken_in_as_anticipate_takes_it_and_drawn_after() {
+        let mut before = opened();
+        let _ = before.anticipate().count();
+        let asked_before = first_request(&mut before);
+
+        let ahead = Ahead::page_sized();
+        ahead.window_is(Window {
+            width: 600,
+            height: 800,
+            inset: 0,
+            scale: 1.0,
+        });
+        let mut after = opened();
+        drop(ahead.anticipate(&mut after));
+        let asked_after = first_request(&mut after);
+
+        assert_eq!(asked_after.target, asked_before.target);
+        assert!(
+            asked_after.list.as_ref() == asked_before.list.as_ref(),
+            "the page read on its own thread is the page `anticipate` reads"
+        );
+        assert!(ahead.look().is_none(), "nothing was looked at");
+        assert!(
+            ahead
+                .take_for(&asked_after.list, asked_after.target)
+                .is_none(),
+            "nothing was drawn ahead of a page read inside the wait"
+        );
     }
 
     #[test]

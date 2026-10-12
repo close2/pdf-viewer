@@ -196,8 +196,9 @@ pub enum SceneError {
     /// (widths arrive resolved and positive, brief section 4.5), or a miter limit below 1.
     InvalidStroke(Stroke),
     /// A [`Command::Line`](crate::scene::Command::Line) had a point that was not finite or
-    /// lay beyond [`MAX_COORDINATE`](crate::scene::MAX_COORDINATE), two equal points —
-    /// §8.5.3.2's zero-length subpath, which the caller settles before a scene is built —
+    /// lay beyond [`MAX_COORDINATE`](crate::scene::MAX_COORDINATE), two equal points under
+    /// a cap that is not round — §8.5.3.2's zero-length subpath, which the caller settles
+    /// before a scene is built —
     /// or a width that was not finite, negative, or beyond the same bound.
     InvalidLine {
         /// Where the line started.
@@ -411,8 +412,9 @@ impl fmt::Display for SceneError {
             }
             Self::InvalidLine { from, to, width } => write!(
                 f,
-                "a line needs two distinct finite points inside the coordinate bound and a \
-                 finite, non-negative, bounded width: {from:?} to {to:?} at {width}"
+                "a line needs two finite points inside the coordinate bound, distinct unless \
+                 its cap is round, and a finite, non-negative, bounded width: {from:?} to \
+                 {to:?} at {width}"
             ),
             Self::SingularFunctionMatrix(matrix) => write!(
                 f,

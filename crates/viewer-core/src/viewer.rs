@@ -655,7 +655,7 @@ impl Viewer {
             Command::Print(printing) => self.print(printing, events),
             // A document's report is a function of the file *and* of whom this reader believes, so
             // the wording already produced is no longer the wording this policy would produce.
-            // `Open::about` is a `OnceCell` over exactly that function (ADR 1044), and forgetting
+            // `Open::about` is a `OnceLock` over exactly that function (ADR 1044), and forgetting
             // it is how "once" stays a property of the value rather than a stale answer.
             Command::Trust(policy) => {
                 self.trust = policy;
@@ -2556,7 +2556,7 @@ impl Viewer {
     /// **The one place `notes::about` is called, and it is not the open path.** Its nine clauses
     /// are claims about the *file* — §12.8's signatures above all, whose answer reads and digests
     /// the signed byte ranges — and `CLAUDE.md` principle 2 defers what page one does not need
-    /// until something asks. This is the asking; [`crate::open::Open::about`] is the `OnceCell`
+    /// until something asks. This is the asking; [`crate::open::Open::about`] is the `OnceLock`
     /// that makes a second asking free. ADR 1044.
     ///
     /// Nothing at all where nothing is open, and nothing where the document has nothing to say:
@@ -3945,15 +3945,38 @@ impl Viewer {
                 continue;
             }
             let page = open.on_screen[index].page;
-            let Some(crate::open::Read {
-                interpretation,
-                mut reports,
-                object,
-                replaceable,
-            }) = crate::open::interpret(open, page)
-            else {
+            let Some(read) = crate::open::interpret(open, page) else {
                 continue;
             };
+            Self::install(open, id, index, read, events);
+        }
+        // …unless a search put one there for a page that has only now been interpreted, which is
+        // the one range made *after* a turn rather than before it. See `Open::pending_selection`.
+        if let Some(chosen) = open.pending_selection
+            && open.interpretation(chosen.from.page).is_some()
+        {
+            open.pending_selection = None;
+            open.selection = Some(chosen);
+        }
+    }
+
+    /// Takes one page's read into the arrangement's entry at `index`, and answers the list it
+    /// holds — [`Self::interpret_arranged`]'s step, and [`Self::anticipated`]'s.
+    fn install(
+        open: &mut Open,
+        id: DocumentId,
+        index: usize,
+        read: crate::open::Read,
+        events: &mut Vec<Event>,
+    ) -> Option<Arc<DisplayList>> {
+        let crate::open::Read {
+            interpretation,
+            mut reports,
+            object,
+            replaceable,
+        } = read;
+        let page = open.on_screen.get(index)?.page;
+        {
             // §7.5.7's losses become known when a page reaches into an object stream, which is
             // here and never at open. The sentence is the document's rather than the page's and
             // is said once — `crate::notes::losses` — so a page carries it only the first time.
@@ -3999,14 +4022,10 @@ impl Viewer {
                 view_dependent: interpretation.view_dependent,
             });
         }
-        // …unless a search put one there for a page that has only now been interpreted, which is
-        // the one range made *after* a turn rather than before it. See `Open::pending_selection`.
-        if let Some(chosen) = open.pending_selection
-            && open.interpretation(chosen.from.page).is_some()
-        {
-            open.pending_selection = None;
-            open.selection = Some(chosen);
-        }
+        open.on_screen
+            .get(index)
+            .and_then(|on_screen| on_screen.interpreted.as_ref())
+            .map(|interpreted| Arc::clone(&interpreted.list))
     }
 
     /// What the focused document still has to read that page one does not need, for a host to
@@ -4095,6 +4114,89 @@ impl Viewer {
                 open.on_screen.sort_by_key(|on_screen| on_screen.page);
             }
             Self::interpret_arranged(open, id, &mut events);
+        }
+        events.into_iter()
+    }
+
+    /// [`Self::anticipate`] taken apart, so that a host can draw page one on a thread of its own
+    /// while the page is read on another (ADR 1855): the page is set up exactly as `anticipate`
+    /// sets it up, and what comes back is the read to run and the target its first frame will be
+    /// asked at, both borrowing this viewer. `None` where there is nothing to read — no document,
+    /// or a page already interpreted — and then [`Self::anticipate`] is all there is to do.
+    ///
+    /// **The core still spawns nothing** (rule 4): [`Reader::read`] runs on whatever thread
+    /// the host runs it on, and [`Self::anticipated`] takes what it read in, after which the
+    /// viewer is exactly the viewer `anticipate` would have left.
+    pub fn anticipating(&mut self) -> Option<Anticipating<'_>> {
+        let delegated = self.delegated;
+        let budget = self.raster_budget();
+        let id = self.focused?;
+        let open = self.documents.get_mut(&id)?;
+        if open.view.set_widget_appearances(delegated) {
+            open.stale();
+        }
+        let page = open.page_index;
+        if open.on(page).is_none() {
+            let object = open.page(page)?;
+            open.on_screen.push(crate::open::OnScreen {
+                page,
+                object,
+                origin: (0.0, 0.0),
+                raster: (0, 0),
+                interpreted: None,
+                replaceable: None,
+                revision: 0,
+                shown: None,
+                frame: None,
+                pending: None,
+            });
+            open.on_screen.sort_by_key(|on_screen| on_screen.page);
+        }
+        let on_screen = open.on(page)?;
+        if on_screen.interpreted.is_some()
+            || on_screen.replaceable.is_some()
+            || open
+                .on_screen
+                .iter()
+                .any(|on_screen| on_screen.page != page && on_screen.interpreted.is_none())
+        {
+            return None;
+        }
+        let object = on_screen.object.clone();
+        Some(Anticipating {
+            open,
+            reader: Reader {
+                id,
+                page,
+                object,
+                document: Arc::clone(&open.document),
+                view: &open.view,
+                fonts: &open.fonts,
+                references: &open.references,
+            },
+            budget,
+        })
+    }
+
+    /// Takes in the read [`Reader::read`] made, as [`Self::anticipate`] would have, and
+    /// names the list to `parts` so that a drawer handed it later knows it for the one it drew.
+    pub fn anticipated(
+        &mut self,
+        read: Anticipated,
+        parts: Option<&pdf_model::progress::Parts>,
+    ) -> impl Iterator<Item = Event> + use<> {
+        let mut events = Vec::new();
+        if let Some(open) = self.documents.get_mut(&read.id)
+            && Arc::ptr_eq(&open.document, &read.document)
+            && let Some(index) = open
+                .on_screen
+                .iter()
+                .position(|on_screen| on_screen.page == read.page)
+            && let Some(done) = read.read
+            && let Some(list) = Self::install(open, read.id, index, done, &mut events)
+            && let Some(parts) = parts
+        {
+            parts.keep(&list);
         }
         events.into_iter()
     }
@@ -5949,6 +6051,112 @@ fn attached_files(open: &Open, annotation: ObjectId) -> Vec<pdf_model::attachmen
         out.push(file);
     }
     out
+}
+
+/// Page one's read and its first frame's target, borrowed from the viewer between
+/// [`Viewer::anticipating`] and [`Viewer::anticipated`] (ADR 1855).
+///
+/// Both halves read the document's state and change none of it, so a host may run
+/// [`Reader::read`] on one thread while [`Self::foresee`] is asked on another.
+#[derive(Debug)]
+pub struct Anticipating<'a> {
+    open: &'a Open,
+    reader: Reader<'a>,
+    budget: u64,
+}
+
+/// The read half of [`Anticipating`]: what reading the page needs, and nothing of the document's
+/// state that it does not.
+#[derive(Debug)]
+pub struct Reader<'a> {
+    id: DocumentId,
+    page: usize,
+    object: pdf_model::Page,
+    document: Arc<pdf_syntax::Document>,
+    view: &'a pdf_model::view::ViewState,
+    fonts: &'a pdf_model::FontCache,
+    references: &'a pdf_model::reference::Supply,
+}
+
+/// What [`Reader::read`] read, for [`Viewer::anticipated`].
+pub struct Anticipated {
+    id: DocumentId,
+    page: usize,
+    /// The file it was read from, so that an answer for another file opened under the same id
+    /// is told apart (trap 104).
+    document: Arc<pdf_syntax::Document>,
+    read: Option<crate::open::Read>,
+}
+
+/// Where page one's first frame will be drawn, asked before the page has been read.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Foreseen {
+    /// The target the core will ask the page to be drawn at — [`RenderRequest::target`].
+    pub target: TargetSpec,
+    /// Where that raster sits in the viewport, in device pixels —
+    /// [`crate::Answer::Geometry`]'s origin.
+    pub origin: (f32, f32),
+}
+
+/// Written by hand because a read is a whole interpretation, which nobody wants printed.
+impl std::fmt::Debug for Anticipated {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Anticipated")
+            .field("id", &self.id)
+            .field("page", &self.page)
+            .field("read", &self.read.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> Anticipating<'a> {
+    /// The read, for a thread of the host's choosing.
+    #[must_use]
+    pub fn reader(&self) -> &Reader<'a> {
+        &self.reader
+    }
+
+    /// The target and placement the first frame of the page will be asked at, for a viewport of
+    /// `viewport` device pixels at `scale` — by the same arithmetic the core's own request takes
+    /// once it is told the viewport (`Open::magnification`, `TargetSpec::for_page`,
+    /// `layout::origin_of`), so there is no second opinion about either (ADR 0118).
+    ///
+    /// **A forecast and not a promise**: what happens between now and the first resize can move
+    /// it — a page that notices its magnification is read again, a resize lands first — so a host
+    /// compares it with the request when the request comes, and draws the page whole where the two
+    /// differ.
+    #[must_use]
+    pub fn foresee(&self, viewport: (u32, u32), scale: f32) -> Option<Foreseen> {
+        let magnification = self.open.magnification(viewport, scale)?;
+        let page = self.reader.page;
+        let size = self.open.page_size(page)?;
+        let target =
+            TargetSpec::for_page(&DisplayList::new(size), magnification, self.budget).ok()?;
+        let origin = crate::layout::origin_of(self.open, page, viewport, scale, magnification)?;
+        Some(Foreseen { target, origin })
+    }
+}
+
+impl Reader<'_> {
+    /// Reads the page, handing its list over to `parts` as it is built.
+    #[must_use]
+    pub fn read(&self, parts: &pdf_model::progress::Parts) -> Anticipated {
+        Anticipated {
+            id: self.id,
+            page: self.page,
+            document: Arc::clone(&self.document),
+            read: Some(parts.during(|| {
+                crate::open::first_read(
+                    &self.document,
+                    self.object.clone(),
+                    self.view,
+                    self.fonts,
+                    self.references,
+                )
+            })),
+        }
+    }
 }
 
 #[cfg(test)]

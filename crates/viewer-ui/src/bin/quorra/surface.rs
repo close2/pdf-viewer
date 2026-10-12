@@ -683,6 +683,9 @@ impl App {
                 "drawn on the processor: the graphics device {problem}"
             )),
             (None, Some(chose)) => Some(format!("drawn on the processor: {}", predicted(chose))),
+            (None, None) if landed.finished_ahead => {
+                Some("drawn on the processor while it was read".to_owned())
+            }
             (None, None) => None,
         };
         if on_the_processor != self.on_the_processor {
@@ -696,6 +699,8 @@ impl App {
                     "note: the page was drawn on the processor, the faster of the two here: {}",
                     predicted(chose)
                 );
+            } else if landed.finished_ahead {
+                println!("note: the page was drawn on the processor while it was read");
             }
             self.on_the_processor = on_the_processor;
             self.retitle();
@@ -713,10 +718,13 @@ impl App {
         // retained encode (ADR 0351) says what a replay costs and nothing about what the next
         // render will, and a view change never replays.
         if !landed.pages.is_empty() {
-            let built = !matches!(
-                landed.cost.encode_source,
-                Some(raster_gpu::EncodeSource::Replayed)
-            );
+            // A frame finished from the page drawn while it was read cost its last part, which
+            // says no more about the next render than a replay does (trap 143, ADR 1855).
+            let built = !landed.finished_ahead
+                && !matches!(
+                    landed.cost.encode_source,
+                    Some(raster_gpu::EncodeSource::Replayed)
+                );
             self.stale.settled(&landed.pages, landed.drew, built);
         }
     }
@@ -724,11 +732,23 @@ impl App {
     /// Rule 3 for a frame given to the processor as the faster lane (ADR 1831): what was
     /// predicted, and what it then took.
     fn say_the_lane(&self, landed: &crate::renderer::Landed) {
+        if landed.finished_ahead {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page drawn while it was read, finished on the processor in {:.1} ms",
+                    landed.drew.as_secs_f64() * 1e3
+                ),
+            );
+        }
         let Some(chose) = &landed.chose else {
             return;
         };
         let drew = match (landed.abandoned, landed.processor_drew) {
             (true, _) => "it was taken back".to_owned(),
+            (false, None) if landed.finished_ahead => {
+                "it was finished from the page drawn while it was read".to_owned()
+            }
             (false, Some(drew)) => format!("it drew in {:.1} ms", drew.as_secs_f64() * 1e3),
             (false, None) => "it did not draw".to_owned(),
         };
@@ -1365,14 +1385,7 @@ impl App {
                 // interpreted against (ADR 0457).
                 of: crate::stale::Picture::new(request.document, request.page, request.ink),
                 list: Arc::clone(&request.list),
-                target: TargetSpec {
-                    width,
-                    height,
-                    transform: request.target.transform.then(Transform::translate(
-                        geometry.origin.0 + edge,
-                        geometry.origin.1,
-                    )),
-                },
+                target: in_the_window(request.target, geometry.origin, edge, (width, height)),
                 depicts: crate::stale::Depicts::Page,
             });
         }
@@ -1799,6 +1812,26 @@ impl App {
         if self.presenting.owes_placing() {
             self.place_the_window();
         }
+    }
+}
+
+/// A page's target as the core asks for it, placed in this window: the window's extent, with the
+/// page's placement — the core's origin and the panel's edge — composed into its transform.
+///
+/// One function for the frame's arrangement and for page one drawn while it is read (ADR 1855), so
+/// that the target the page is drawn ahead at and the one its frame is asked at are one arithmetic.
+pub(crate) fn in_the_window(
+    page: TargetSpec,
+    origin: (f32, f32),
+    edge: f32,
+    (width, height): (u32, u32),
+) -> TargetSpec {
+    TargetSpec {
+        width,
+        height,
+        transform: page
+            .transform
+            .then(Transform::translate(origin.0 + edge, origin.1)),
     }
 }
 

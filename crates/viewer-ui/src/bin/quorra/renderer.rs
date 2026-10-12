@@ -159,6 +159,13 @@ struct Job {
     /// thread at the ask where [`Self::known_refusal`] or [`Self::cheaper`] says it will — which
     /// is what lets the window warn about a long draw it can stop, and only about one it can.
     on_the_processor: Arc<AtomicBool>,
+    /// Page one drawn on the processor while it was read, where this frame is of that page at the
+    /// target it was drawn at (ADR 1855): the frame is finished from it rather than drawn.
+    ahead: Option<render_cpu::Underway>,
+    /// A look at page one as it is drawn while it is read, to upload and send back as the window's
+    /// picture of the page being read — a job with no frame in it, asked for by
+    /// [`Window::show_read`].
+    look: Option<Arc<pdf_render::Raster>>,
 }
 
 /// What the window predicted a frame would cost on each lane, where it predicted the processor
@@ -205,6 +212,10 @@ struct Measured {
     pictures: Vec<crate::stale::Picture>,
     device: Option<f64>,
     processor: Option<f64>,
+    /// Whether the device has been asked these pages at all — it drew them, or refused them at
+    /// some magnification — which is what [`Costs::predict`]'s one ask of an unmeasured device
+    /// waits for.
+    device_asked: bool,
 }
 
 /// Which lane drew a frame, for [`Costs::measure`].
@@ -218,15 +229,15 @@ impl Costs {
     /// How many arrangements' prices are kept — [`Refusals::KEPT`]'s count, for its reason.
     const KEPT: usize = 32;
 
-    /// What one command costs the device before it has drawn a page here: the owner's drawing on
-    /// the Radeon 890M's `Cpu` lane, headless, 7 884 ms over 4 408 405 commands (ADR 1823
-    /// section 4).
-    const DEVICE_SEED: f64 = 1_788.0;
+    /// What one command costs the device before it has drawn a page here: the owner's drawing's
+    /// fit frame on the Radeon 890M's `Cpu` lane, headless, the quicker of two at 1 113.7 ms over
+    /// 4 408 406 commands (`render-raster`'s `zoom_frame`, ADR 1860 section 3).
+    const DEVICE_SEED: f64 = 253.0;
 
-    /// What one command costs the processor before it has drawn a page here: the same drawing at
-    /// 150 dpi on this machine's processor, nine strips granted on four rayon threads, 2.94 s over
-    /// 4 408 405 commands (ADR 1819 section 3, `stroke_cut_census --draw`).
-    const PROCESSOR_SEED: f64 = 667.0;
+    /// What one command costs the processor before it has drawn a page here: the same drawing's
+    /// first frame in this window on the owner's display, on the global pool, the quickest of four
+    /// at 530.0 ms over 4 408 405 commands (ADR 1860 section 3).
+    const PROCESSOR_SEED: f64 = 120.0;
 
     /// The pictures an arrangement is priced by.
     fn key(pages: &[crate::stale::Placed]) -> Vec<crate::stale::Picture> {
@@ -255,7 +266,20 @@ impl Costs {
             processor: Self::cost(processor.unwrap_or(Self::PROCESSOR_SEED), commands),
             processor_measured: processor.is_some(),
         };
-        (prediction.device >= viewer_host::drawing::WARN
+        // **The device is asked these pages once before the processor keeps them.** The
+        // processor's price is replaced by what it measured the moment it draws a frame, and the
+        // device's would be only if it drew one: so a page the seeds gave the processor would keep
+        // the device's seed for as long as the window is open, and a device faster than its seed
+        // would never be found (ADR 1860). The processor having drawn them is what says the
+        // device is the contender here, and the frame it is asked is the one it is measured on.
+        //
+        // A refusal is an answer too: a device that refused these pages at one magnification is
+        // not asked again at the next on the strength of its seed, or every notch of a zoom on a
+        // device that refuses would pay the attempt (ADR 1831 section 1 measured 2.2 s of it).
+        let device_unasked =
+            !held.is_some_and(|held| held.device_asked) && prediction.processor_measured;
+        (!device_unasked
+            && prediction.device >= viewer_host::drawing::WARN
             && prediction.processor < prediction.device)
             .then_some(prediction)
     }
@@ -295,20 +319,43 @@ impl Costs {
             reason = "a count of commands priced for a prediction, far inside f64's exact range"
         )]
         let each = took.as_secs_f64() * 1e9 / commands as f64;
-        let mut measured = match self.held.iter().position(|held| held.pictures == pictures) {
+        let mut measured = self.taken(pictures);
+        match lane {
+            Lane::Device => {
+                measured.device = Some(each);
+                measured.device_asked = true;
+            }
+            Lane::Processor => measured.processor = Some(each),
+        }
+        self.held.insert(0, measured);
+        self.held.truncate(Self::KEPT);
+    }
+
+    /// Keeps that the device refused `pages`, which prices nothing but is the device's answer for
+    /// [`Self::predict`]'s one ask.
+    fn refused(&mut self, pages: &[crate::stale::Placed]) {
+        self.refused_pictures(Self::key(pages));
+    }
+
+    /// [`Self::refused`] over the pictures it reads.
+    fn refused_pictures(&mut self, pictures: Vec<crate::stale::Picture>) {
+        let mut measured = self.taken(pictures);
+        measured.device_asked = true;
+        self.held.insert(0, measured);
+        self.held.truncate(Self::KEPT);
+    }
+
+    /// The entry for `pictures`, taken out to be put back newest, or a new one where none is held.
+    fn taken(&mut self, pictures: Vec<crate::stale::Picture>) -> Measured {
+        match self.held.iter().position(|held| held.pictures == pictures) {
             Some(at) => self.held.remove(at),
             None => Measured {
                 pictures,
                 device: None,
                 processor: None,
+                device_asked: false,
             },
-        };
-        match lane {
-            Lane::Device => measured.device = Some(each),
-            Lane::Processor => measured.processor = Some(each),
         }
-        self.held.insert(0, measured);
-        self.held.truncate(Self::KEPT);
     }
 }
 
@@ -336,6 +383,9 @@ struct Done {
     device_drew: Option<Duration>,
     /// [`Job::cheaper`], carried back so that the window can say why the processor drew.
     chose: Option<Prediction>,
+    /// Whether the frame was the page drawn while it was read, finished ([`Job::ahead`]) — the
+    /// processor's, and a measurement of nothing: its cost is a part's, not the page's.
+    finished_ahead: bool,
     /// Whether the event thread raised [`Job::interrupt`] and this thread honoured it: no pixels
     /// were drawn and [`Self::textures`] holds nothing worth showing.
     abandoned: bool,
@@ -395,6 +445,8 @@ enum Finished {
     Sharp(Box<Sharpened>),
     /// The frame in flight as the processor has drawn it so far (ADR 1831).
     Partial(Box<Partial>),
+    /// Page one as it stands while it is read, uploaded (ADR 1855).
+    Read(Box<Partial>),
 }
 
 /// The frame the processor is drawing, as it stood at the last look — on its way to the window.
@@ -474,6 +526,8 @@ pub(crate) struct Landed {
     pub(crate) processor_drew: Option<Duration>,
     /// Where the processor drew because it was predicted the faster lane, the prediction.
     pub(crate) chose: Option<Prediction>,
+    /// Whether the frame was page one drawn while it was read, finished (ADR 1855).
+    pub(crate) finished_ahead: bool,
     /// Whether the processor's draw was taken back: no pixels landed, and nothing about this frame
     /// may be recorded as the view settled or answered to the core.
     pub(crate) abandoned: bool,
@@ -674,6 +728,10 @@ pub(crate) struct Window {
     /// the window last put it up (ADR 1831).
     partial: Option<Partial>,
     partial_news: bool,
+    /// Page one as it was drawn while it was read, for the frame of it to be finished from
+    /// (ADR 1855), and the last of its looks this window sent to be uploaded.
+    ahead: Option<viewer_host::Ahead>,
+    read_looked: u64,
     /// Raised by [`Self::ask`] to take back a whole-page picture the processor is drawing while
     /// the render thread was otherwise idle (ADR 1831): a job always wins.
     idle_interrupt: Arc<std::sync::Mutex<Option<Interrupt>>>,
@@ -859,6 +917,8 @@ impl Window {
             costs: Costs::default(),
             partial: None,
             partial_news: false,
+            ahead: None,
+            read_looked: 0,
             idle_interrupt: Arc::default(),
             declined: Vec::new(),
             serial: 0,
@@ -1038,6 +1098,14 @@ impl Window {
                             self.partial_news = true;
                         }
                     }
+                    // Only while no frame is in flight: the first frame's own looks, and the frame,
+                    // are truer pictures than the page as it was read.
+                    Finished::Read(read) => {
+                        if self.in_flight.is_none() {
+                            self.partial = Some(*read);
+                            self.partial_news = true;
+                        }
+                    }
                 }
             }
         }
@@ -1070,6 +1138,7 @@ impl Window {
             && let Some(said) = done.fell_back.as_deref()
         {
             self.refusals.remember(&done.pages, said);
+            self.costs.refused(&done.pages);
         }
         if done.abandoned {
             // **Nothing of it reaches the window**: the processor was taken back before it drew,
@@ -1084,6 +1153,7 @@ impl Window {
                 device_tried: done.device_tried,
                 processor_drew: done.processor_drew,
                 chose: done.chose,
+                finished_ahead: done.finished_ahead,
                 abandoned: true,
                 refused: done.refused,
                 function_refusals: done.function_refusals,
@@ -1114,6 +1184,7 @@ impl Window {
             device_tried: done.device_tried,
             processor_drew: done.processor_drew,
             chose: done.chose,
+            finished_ahead: done.finished_ahead,
             abandoned: false,
             refused: done.refused,
             function_refusals: done.function_refusals,
@@ -1138,22 +1209,8 @@ impl Window {
         if width == 0 || height == 0 {
             return; // minimised: nothing to draw into
         }
-        if self.thread.is_none() {
-            // The first job is what starts the thread, which is `CLAUDE.md`'s startup rule: a
-            // spawn in `resumed` would put a scheduler decision in front of a launch milestone.
-            let Some(renderer) = self.idle.take() else {
-                return; // the thread ended and its device went with it; nothing can restart it
-            };
-            self.thread = Some(spawn(
-                renderer,
-                Idle {
-                    proxy_pages: self.proxies.extent(),
-                    supersample: self.supersample,
-                    coverage: self.coverage,
-                    interrupt: Arc::clone(&self.idle_interrupt),
-                },
-                self.waker.clone(),
-            ));
+        if self.started().is_none() {
+            return;
         }
         let Some(link) = self.thread.as_ref() else {
             return;
@@ -1173,9 +1230,17 @@ impl Window {
         } else {
             None
         };
+        // Page one drawn while it was read, where this is its frame at the target it was drawn at
+        // (ADR 1855). The lane is the processor's for it: all of the page but its last part is
+        // already drawn there, so the processor is the faster lane by every prediction, which is
+        // the condition A393 puts on page one drawn there.
+        let ahead = match (self.ahead.as_ref(), pages.as_slice()) {
+            (Some(ahead), [placed]) => ahead.take_for(&placed.list, placed.target),
+            _ => None,
+        };
         let interrupt = Interrupt::new();
         let on_the_processor = Arc::new(AtomicBool::new(
-            known_refusal.is_some() || cheaper.is_some(),
+            known_refusal.is_some() || cheaper.is_some() || ahead.is_some(),
         ));
         let flight = Flight {
             asked: now,
@@ -1194,6 +1259,8 @@ impl Window {
             cheaper,
             interrupt,
             on_the_processor,
+            ahead,
+            look: None,
         };
         // A send that fails is a render thread that has ended, which is a device that has gone;
         // the frame is not in flight, so the window keeps presenting what it has and asks again.
@@ -1211,6 +1278,68 @@ impl Window {
         {
             idle.raise();
         }
+    }
+
+    /// Page one as it is drawn while it is read, and the frame of it to be finished from that
+    /// drawing (ADR 1855) — handed over by the window when it takes its document in.
+    pub(crate) fn draw_ahead(&mut self, ahead: viewer_host::Ahead) {
+        self.ahead = Some(ahead);
+    }
+
+    /// Sends the newest look at page one being read to be uploaded, where it is newer than the
+    /// last one sent — on the window's tick while the document is still opening. The upload
+    /// comes back through [`Self::collect`] as the picture [`Self::present_as_built`] puts up.
+    pub(crate) fn show_read(&mut self, ahead: &viewer_host::Ahead) {
+        let Some(look) = ahead.look().filter(|look| look.serial != self.read_looked) else {
+            return;
+        };
+        if (look.target.width, look.target.height) != self.size || self.in_flight.is_some() {
+            return;
+        }
+        let (width, height) = self.size;
+        let Some(link) = self.started() else {
+            return;
+        };
+        let job = Job {
+            width,
+            height,
+            pages: Vec::new(),
+            overlays: Vec::new(),
+            coverage: raster_gpu::Coverage::default(),
+            reuse: None,
+            known_refusal: None,
+            cheaper: None,
+            interrupt: Interrupt::new(),
+            on_the_processor: Arc::new(AtomicBool::new(false)),
+            ahead: None,
+            look: Some(look.raster),
+        };
+        if link.jobs.send(job).is_ok() {
+            self.read_looked = look.serial;
+        }
+    }
+
+    /// The render thread, started by the first job that needs it — `None` where it ended and
+    /// its device went with it, which nothing can restart.
+    fn started(&mut self) -> Option<&Link> {
+        if self.thread.is_none() {
+            // The first job is what starts the thread, which is `CLAUDE.md`'s startup rule: a
+            // spawn in `resumed` would put a scheduler decision in front of a launch milestone.
+            let Some(renderer) = self.idle.take() else {
+                return None; // the thread ended and its device went with it; nothing can restart it
+            };
+            self.thread = Some(spawn(
+                renderer,
+                Idle {
+                    proxy_pages: self.proxies.extent(),
+                    supersample: self.supersample,
+                    coverage: self.coverage,
+                    interrupt: Arc::clone(&self.idle_interrupt),
+                },
+                self.waker.clone(),
+            ));
+        }
+        self.thread.as_ref()
     }
 
     /// Where each retained page goes so that it depicts this arrangement — [`crate::stale`]'s
@@ -1440,6 +1569,14 @@ fn spawn(
     Link { jobs, done, thread }
 }
 
+impl Done {
+    /// Whether the processor drew this frame: the device refused it, the processor was predicted
+    /// the faster lane, or it was page one drawn while it was read (ADRs 1821, 1831, 1855).
+    fn on_the_processor(&self) -> bool {
+        self.fell_back.is_some() || self.chose.is_some() || self.finished_ahead
+    }
+}
+
 /// The render thread's whole life: draw what is asked for, send it back, and draw a whole page at
 /// a fraction of the size while nothing else is asked of it.
 ///
@@ -1450,6 +1587,12 @@ fn spawn(
 /// that a view change arriving mid-way waits for one low-resolution frame rather than for a set of
 /// them. Nothing about this runs before the first job, because the thread does not exist until
 /// there is one.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the render thread's one loop, its kinds of work in the order they win: a look, a \
+              frame, the sharp pass, a retained page. Each kind's work is a function already; \
+              what is left here is the order, which reads best in one place"
+)]
 fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
     idle: &Idle,
@@ -1499,7 +1642,13 @@ fn draw_until_told_to_stop(
                 Err(TryRecvError::Disconnected) => return,
             },
         };
-        if let Some(job) = job {
+        if let Some(mut job) = job {
+            if let Some(look) = job.look.take() {
+                if !sent_read(&mut renderer, (job.width, job.height), &look, (done, waker)) {
+                    return;
+                }
+                continue;
+            }
             // A job of the same pages at the same size — a chrome-only change, a selection,
             // the find bar — leaves the sharp picture true, so it is not paid for again.
             if !(same_pages(&showing, &job.pages) && shown_size == (job.width, job.height)) {
@@ -1510,7 +1659,7 @@ fn draw_until_told_to_stop(
             let finished = draw(&mut renderer, job, done, waker);
             // Where the frame was sent, not whether it began: a frame taken back before the
             // processor started was still the processor's, and its page's picture is too.
-            let drawn_there = finished.fell_back.is_some() || finished.chose.is_some();
+            let drawn_there = finished.on_the_processor();
             for placed in &finished.pages {
                 on_the_processor.retain(|picture| *picture != placed.of);
                 if drawn_there {
@@ -1522,7 +1671,7 @@ fn draw_until_told_to_stop(
             // so asking would build and price a scene to hear the answer this frame already gave.
             // Nor one the processor drew because it was the faster lane (ADR 1831): the device
             // was predicted to take seconds over the view at one times the pixels.
-            let processor_frame = finished.fell_back.is_some() || finished.chose.is_some();
+            let processor_frame = finished.on_the_processor();
             if processor_frame {
                 sharpened = true;
             }
@@ -1978,6 +2127,11 @@ fn draw_on_the_processor(
 }
 
 /// One job, drawn — on the device, or on the processor where the device refused.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one frame's two lanes in the order they are tried, each with what it reports; the \
+              sequence is the function, and splitting it would hand each half the other's locals"
+)]
 fn draw(
     renderer: &mut QuorraWindowRenderer,
     job: Job,
@@ -1996,7 +2150,10 @@ fn draw(
         cheaper,
         interrupt,
         on_the_processor,
+        ahead,
+        look: _,
     } = job;
+    let drawn_ahead = ahead.is_some();
     let textures = reuse
         .filter(|pair| pair.fits(width, height))
         .unwrap_or_else(|| Pair::new(renderer, width, height));
@@ -2023,13 +2180,14 @@ fn draw(
     let mut device_tried = None;
     let mut device_drew = None;
     let mut processor_drew = None;
+    let mut finished_ahead = false;
     let mut abandoned = false;
     // **A refusal already known is not asked again** (ADR 1821): the device's attempt is the
     // whole scene built and priced before it says no, and it would say the same thing. **Nor is a
     // frame the processor was predicted to draw faster** (ADR 1831).
     let (fell_back, refused_now) = if let Some(said) = known_refusal {
         (Some(said), false)
-    } else if cheaper.is_some() {
+    } else if cheaper.is_some() || drawn_ahead {
         (None, false)
     } else {
         let asked = Instant::now();
@@ -2049,17 +2207,20 @@ fn draw(
             }
         }
     };
-    if fell_back.is_some() || cheaper.is_some() {
+    if fell_back.is_some() || cheaper.is_some() || drawn_ahead {
         let drawn = processor_half(
             renderer,
             (width, height),
-            &pages,
+            (&pages, ahead),
             &borrowed,
             (&interrupt, &on_the_processor),
             (done, waker),
             into,
         );
-        processor_drew = drawn.drew;
+        // A frame finished from the page drawn while it was read measures nothing about what the
+        // processor charges for the page: its cost is the last part's (ADR 0657's rule).
+        finished_ahead = drawn.finished_ahead;
+        processor_drew = drawn.drew.filter(|_| !finished_ahead);
         abandoned = drawn.abandoned;
         refused = drawn.refused;
     }
@@ -2078,6 +2239,7 @@ fn draw(
         processor_drew,
         device_drew,
         chose: cheaper,
+        finished_ahead,
         abandoned,
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
@@ -2090,6 +2252,8 @@ fn draw(
 /// What the processor's half of a frame came to.
 struct ProcessorHalf {
     drew: Option<Duration>,
+    /// Whether the frame was finished from the page drawn while it was read.
+    finished_ahead: bool,
     abandoned: bool,
     refused: Option<String>,
 }
@@ -2099,7 +2263,7 @@ struct ProcessorHalf {
 fn processor_half(
     renderer: &mut QuorraWindowRenderer,
     (width, height): (u32, u32),
-    pages: &[crate::stale::Placed],
+    (pages, ahead): (&[crate::stale::Placed], Option<render_cpu::Underway>),
     borrowed: &[&DisplayList],
     (interrupt, on_the_processor): (&Interrupt, &AtomicBool),
     (done, waker): (
@@ -2143,7 +2307,21 @@ fn processor_half(
             }
         }
     };
-    let (drawn, drew) = draw_on_the_processor(pages, interrupt, on_the_processor, looked_at);
+    // Page one drawn while it was read is finished here from the list it was read into, and a page
+    // whose drawing ahead cannot be its picture is drawn whole as every other is (ADR 1855).
+    let began = Instant::now();
+    let finished = match (ahead, pages) {
+        (Some(ahead), [placed]) => ahead.finish(&placed.list).ok(),
+        _ => None,
+    };
+    let finished_ahead = finished.is_some();
+    let (drawn, drew) = match finished {
+        Some(raster) => {
+            on_the_processor.store(true, Ordering::Release);
+            (Some(Ok(raster)), Some(began.elapsed()))
+        }
+        None => draw_on_the_processor(pages, interrupt, on_the_processor, looked_at),
+    };
     let (abandoned, refused) = match drawn {
         None => (true, None),
         Some(Ok(raster)) => {
@@ -2168,9 +2346,65 @@ fn processor_half(
     };
     ProcessorHalf {
         drew,
+        finished_ahead,
         abandoned,
         refused,
     }
+}
+
+/// A look at page one being read, uploaded and sent to the window, which is woken for it — and
+/// `false` only where the window has gone. A look the device would not take is one the window
+/// goes without. An upload and nothing else: no frame, no pages, nothing for the render thread's
+/// stores to learn (ADR 1855).
+fn sent_read(
+    renderer: &mut QuorraWindowRenderer,
+    size: (u32, u32),
+    look: &pdf_render::Raster,
+    (done, waker): (
+        &Sender<Finished>,
+        Option<&winit::event_loop::EventLoopProxy<()>>,
+    ),
+) -> bool {
+    let Some(read) = upload_read(renderer, size, look) else {
+        return true;
+    };
+    if done.send(Finished::Read(Box::new(read))).is_err() {
+        return false;
+    }
+    if let Some(waker) = waker {
+        let _ = waker.send_event(());
+    }
+    true
+}
+
+/// A look at page one being read, uploaded into a pair of its own for the window to put up
+/// (ADR 1855) — `None` where the device would not take it, and the window goes without.
+fn upload_read(
+    renderer: &mut QuorraWindowRenderer,
+    (width, height): (u32, u32),
+    look: &pdf_render::Raster,
+) -> Option<Partial> {
+    let pair = Pair::new(renderer, width, height);
+    renderer
+        .render(
+            PresentFrame {
+                width,
+                height,
+                pages: &[],
+                raster: Some(look),
+                overlays: &[],
+            },
+            WindowTextures {
+                page: &pair.page,
+                chrome: &pair.chrome,
+            },
+        )
+        .ok()?;
+    Some(Partial {
+        pages: Vec::new(),
+        textures: pair,
+        fraction: 0.0,
+    })
 }
 
 #[cfg(test)]
@@ -2263,16 +2497,16 @@ mod tests {
     }
 
     /// The owner's drawing, before anything has been measured: the seeds put it on the processor,
-    /// at the figures they were measured as (ADR 1831).
+    /// at the figures they were measured as (ADRs 1831, 1860).
     #[test]
     fn a_page_of_millions_of_commands_goes_to_the_processor_on_the_seeds() {
         let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
         let chose = Costs::default()
             .predict(&pictures, 4_408_405)
-            .expect("7.9 s on the device against 2.9 s on the processor");
+            .expect("1.1 s on the device against 0.5 s on the processor");
         assert!(!chose.device_measured && !chose.processor_measured);
-        assert_eq!(chose.device.as_millis(), 7_882);
-        assert_eq!(chose.processor.as_millis(), 2_940);
+        assert_eq!(chose.device.as_millis(), 1_115);
+        assert_eq!(chose.processor.as_millis(), 529);
     }
 
     /// A frame the device is predicted to draw inside `WARN` stays there, whatever the processor
@@ -2280,8 +2514,8 @@ mod tests {
     #[test]
     fn a_frame_nobody_waits_for_stays_on_the_device() {
         let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
-        assert_eq!(Costs::default().predict(&pictures, 500_000), None);
-        assert!(Costs::default().predict(&pictures, 600_000).is_some());
+        assert_eq!(Costs::default().predict(&pictures, 3_900_000), None);
+        assert!(Costs::default().predict(&pictures, 4_000_000).is_some());
     }
 
     /// What a lane measured on these pages replaces its seed, and only on these pages.
@@ -2311,6 +2545,53 @@ mod tests {
         let chose = costs.predict(&page(2), 4_408_405).expect("2 s against 8 s");
         assert!(chose.device_measured && chose.processor_measured);
         assert_eq!(costs.held.len(), 2, "one entry an arrangement");
+    }
+
+    /// A page the seeds gave the processor is asked of the device once, after the processor has
+    /// drawn it, so a device faster than its seed is found; and a device that refused the page has
+    /// answered, so the seeds decide again rather than asking at every magnification (ADR 1860).
+    #[test]
+    fn the_device_is_asked_once_a_page_the_seeds_gave_the_processor() {
+        let pictures = vec![crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
+        let mut costs = Costs::default();
+        assert!(
+            costs.predict(&pictures, 4_408_405).is_some(),
+            "the seeds give the processor the first frame"
+        );
+        costs.measured(
+            pictures.clone(),
+            4_408_405,
+            Lane::Processor,
+            Duration::from_millis(900),
+        );
+        assert_eq!(
+            costs.predict(&pictures, 4_408_405),
+            None,
+            "the next frame is the device's, its one ask"
+        );
+        costs.measured(
+            pictures.clone(),
+            4_408_405,
+            Lane::Device,
+            Duration::from_millis(1_500),
+        );
+        let chose = costs
+            .predict(&pictures, 4_408_405)
+            .expect("measured, 0.9 s against 1.5 s");
+        assert!(chose.device_measured && chose.processor_measured);
+
+        let refusing = vec![crate::stale::Picture::new(viewer_core::DocumentId(1), 1, 0)];
+        costs.measured(
+            refusing.clone(),
+            4_408_405,
+            Lane::Processor,
+            Duration::from_millis(900),
+        );
+        costs.refused_pictures(refusing.clone());
+        let chose = costs
+            .predict(&refusing, 4_408_405)
+            .expect("a refusal is the device's answer; the seed decides again");
+        assert!(!chose.device_measured && chose.processor_measured);
     }
 
     /// Only a refusal that is a fact about the frame is kept: the budget is, a lost device is not.
@@ -2453,6 +2734,8 @@ mod gesture {
             cheaper: None,
             interrupt: Interrupt::new(),
             on_the_processor: Arc::new(AtomicBool::new(false)),
+            ahead: None,
+            look: None,
         }
     }
 
@@ -2515,7 +2798,9 @@ mod gesture {
                  replaced it"
             ),
             Finished::Page(_) => panic!("no retained page was asked for"),
-            Finished::Partial(_) => panic!("a device frame is not drawn on the processor"),
+            Finished::Partial(_) | Finished::Read(_) => {
+                panic!("a device frame is not drawn on the processor")
+            }
         }
         let Finished::Sharp(sharp) = next() else {
             panic!("a still view is sharpened");
@@ -2739,7 +3024,7 @@ mod gesture {
                     }
                     // A look at a frame the processor is drawing changes nothing this test
                     // counts: what it reads is when each true frame landed.
-                    Finished::Partial(_) => {}
+                    Finished::Partial(_) | Finished::Read(_) => {}
                 }
             }
             // The gesture: a notch every `every` refreshes, after a still start that lets the
@@ -2788,6 +3073,8 @@ mod gesture {
                     cheaper: None,
                     interrupt: Interrupt::new(),
                     on_the_processor: Arc::new(AtomicBool::new(false)),
+                    ahead: None,
+                    look: None,
                 };
                 if link.jobs.send(job).is_ok() {
                     in_flight = Some(now);

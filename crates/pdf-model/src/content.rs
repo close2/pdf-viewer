@@ -1473,6 +1473,7 @@ impl<'a> Interpreter<'a> {
             reversed_chars: 0,
             view_dependent: false,
             magnified_tiling: false,
+            hand_over: None,
             text_cursor: None,
             base: base_transform(page),
             // §11.6.7's companion to `base`, and initialised from the same place: nothing has run
@@ -1560,6 +1561,9 @@ impl<'a> Interpreter<'a> {
             // checkpoint from a page whose content the magnification placed, because §12.5.3's
             // pass cannot re-place §8.7.3.1's lattice (ADR 1080).
             magnified_tiling: _,
+            // A hand-over belongs to the run that claimed it: a checkpoint's later run re-places
+            // annotations on the toolkit's thread, where nobody is drawing the page as it is read.
+            hand_over: _,
             presses: _,
             base: _,
             pattern_initial: _,
@@ -1966,6 +1970,12 @@ fn interpret_into(
         ledger,
     );
     interpreter.on_the_simulated_device(spots);
+    // The page's own run on the device's components is the one whose list a drawer can paint as
+    // it is read: a run in a blending space of its own is drawn with a curve or a second plane the
+    // parts would not carry, and may be thrown away for the device's run besides (ADR 1855).
+    if matches!(interpreter.compositing, Compositing::Device) {
+        interpreter.hand_over = crate::progress::claim();
+    }
 
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
@@ -2294,6 +2304,11 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         );
     }
 
+    // Every pass over the finished list has run, so a command handed over and taken back since is
+    // found here or nowhere (ADR 1855).
+    if let Some(parts) = &interpreter.hand_over {
+        parts.conclude(&mut list);
+    }
     // A run carrying spot planes hands `separate` what its marks painted without one; the lists
     // themselves are the runs' own display lists, put together there.
     let separation = (!interpreter.compositing.spots().is_empty()).then(|| {
@@ -2327,6 +2342,28 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         associated_files: interpreter.associated,
         language,
         text_layer: interpreter.text_layer,
+    }
+}
+
+impl Interpreter<'_> {
+    /// The operator loop's periodic check, past the list's budget: the window's figure, and the
+    /// next part of the list where this run hands it over and a part is due (ADRs 1811, 1855).
+    ///
+    /// Only the page's own `/Contents` answers `reader.progress()`, so a form, a pattern cell or
+    /// a glyph run inside the page publishes nothing and hands nothing over: a part is cut only
+    /// between two of the page's own operators. `outside_text` is the loop's word that no text
+    /// object is open, whose glyphs §9.3.6's clip or §9.3.8's knockout may yet gather.
+    pub(super) fn publish_progress(
+        &mut self,
+        reader: &reader::ContentReader<'_>,
+        outside_text: bool,
+    ) {
+        crate::progress::publish(self.operations, || reader.progress());
+        if let Some(parts) = &self.hand_over
+            && reader.progress().is_some()
+        {
+            parts.offer(&mut self.list, outside_text);
+        }
     }
 }
 
@@ -2826,6 +2863,10 @@ struct Interpreter<'a> {
     /// magnification; a page whose *content* moved cannot be replaced that way, so this also
     /// withholds the checkpoint.
     magnified_tiling: bool,
+    /// Where this run hands its list over in parts as it builds it, for a drawer that paints the
+    /// page while it is read (ADR 1855) — claimed by the page's own run on the device's
+    /// components ([`crate::progress::Parts::during`]), and `None` for every other run.
+    hand_over: Option<crate::progress::Parts>,
     /// Where the last glyph ended, used to decide where a space belongs.
     text_cursor: Option<(f32, f32)>,
     /// Where each shown code's readback sits on the page; see [`Interpretation::text_layer`].

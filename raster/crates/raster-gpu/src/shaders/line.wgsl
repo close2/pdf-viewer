@@ -86,9 +86,20 @@ struct VsOut {
     @location(3) @interpolate(flat) admit: vec4<f32>,
 }
 
+// A run's direction, of length one. A run of no length is §8.5.3.2's dot, which only a round
+// end reaches this lane with (the scene refuses it under the other two): its band has no area
+// and its two half discs about the one point are the disc whichever way they face, so any unit
+// vector is the answer, and `normalize` of zero is not one (viewer ADR 1857).
+fn unit(run: vec2<f32>) -> vec2<f32> {
+    if all(run == vec2<f32>(0.0)) {
+        return vec2<f32>(1.0, 0.0);
+    }
+    return normalize(run);
+}
+
 // The segment's direction in the unit-pen frame, of length one.
 fn direction(ends: vec4<f32>, pen: vec2<f32>) -> vec2<f32> {
-    return normalize((ends.zw - ends.xy) / pen);
+    return unit((ends.zw - ends.xy) / pen);
 }
 
 @vertex
@@ -250,7 +261,7 @@ fn shape_at(in: VsOut, px: vec2<f32>) -> f32 {
     let a = (in.ends.xy - low) / pen;
     let b = (in.ends.zw - low) / pen;
     let top = (high - low) / pen;
-    let d = normalize(b - a);
+    let d = unit(b - a);
     let n = vec2<f32>(-d.y, d.x);
     let reach = select(vec2<f32>(0.0), d, in.pen.z > 1.5);
     var band: Polygon;

@@ -278,3 +278,229 @@ impl crate::CpuRasterizer {
         Ok(())
     }
 }
+
+/// A page drawn from a display list handed over in parts while it is still being read
+/// (ADR 1855): each part painted into one target as it arrives, the picture so far shown on
+/// request, and the page finished from the list once the read has ended.
+///
+/// # Why its pixels are the page's
+///
+/// **The same commands, in the same order, into the same target, through the same loop.** A
+/// display list's top-level commands are drawn one after the other and carry nothing from one to
+/// the next but the mask cache (this module's head), so drawing the first *k* now and the rest
+/// later is the whole draw with a pause in it. What the whole draw does that a part cannot see is
+/// stated and refused rather than approximated: a soft mask is built against every consumer's
+/// reach on the whole list (`mask_consumer_reach`), so a part bringing one ends the drawing ahead;
+/// a page this module does not glimpse (§11.4.7's second plane, §10.8.3, §11.7.5.2) is finished
+/// whole; and a part whose commands the reader took back is never handed over at all
+/// (`pdf_model::progress`). [`Underway::finish`] answers `Err` for each of those, and the caller
+/// draws the finished list whole, as it would have without any of this.
+///
+/// **One surface, not strips.** The whole draw cuts a page into strips only at rows where a cut
+/// draws the same bytes (ADR 0139), so the page drawn as one surface is the page drawn in strips;
+/// a part is too small a unit of work to divide, and one thread keeps up with the reader on the
+/// witness (ADR 1845 §4).
+pub struct Underway {
+    rasterizer: crate::CpuRasterizer,
+    target: TargetSpec,
+    pixmap: tiny_skia::Pixmap,
+    masks: crate::MaskCache,
+    /// The clips and soft masks of the list so far, and none of its commands: what the parts'
+    /// identifiers name.
+    tables: Option<DisplayList>,
+    /// How much of the list has been drawn.
+    drawn: pdf_render::Stated,
+    /// What the groups drawn so far blitted, against `pdf_render::MAX_GROUP_BLIT_PIXELS`.
+    blitted: u64,
+    /// Why this can no longer become the page, once it cannot.
+    stopped: Option<&'static str>,
+}
+
+/// Written by hand because the mask cache is built pixels and has nothing worth printing.
+impl std::fmt::Debug for Underway {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Underway")
+            .field("target", &self.target)
+            .field("drawn", &self.drawn)
+            .field("stopped", &self.stopped)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Underway {
+    /// A target nothing has been drawn into yet, drawn with `rasterizer`'s settings — `None`
+    /// where the target is larger than this backend draws or cannot be allocated.
+    #[must_use]
+    pub fn new(rasterizer: &crate::CpuRasterizer, target: TargetSpec) -> Option<Self> {
+        if target.width > crate::MAX_EXTENT || target.height > crate::MAX_EXTENT {
+            return None;
+        }
+        let surface = crate::Surface::whole(target);
+        Some(Self {
+            rasterizer: rasterizer.clone(),
+            target,
+            pixmap: tiny_skia::Pixmap::new(target.width, target.height)?,
+            masks: crate::MaskCache::new(surface, rasterizer.anti_alias, crate::MASK_BUDGET),
+            tables: None,
+            drawn: pdf_render::Stated::default(),
+            blitted: 0,
+            stopped: None,
+        })
+    }
+
+    /// The target the page is being drawn at.
+    #[must_use]
+    pub fn target(&self) -> TargetSpec {
+        self.target
+    }
+
+    /// How much of the list has been drawn.
+    #[must_use]
+    pub fn drawn(&self) -> pdf_render::Stated {
+        self.drawn
+    }
+
+    /// Why this can no longer become the page, once it cannot.
+    #[must_use]
+    pub fn stopped(&self) -> Option<&'static str> {
+        self.stopped
+    }
+
+    /// Draws the next part of the list, and answers whether this can still become the page.
+    pub fn take(&mut self, mut part: pdf_render::ListPart) -> bool {
+        if self.stopped.is_some() {
+            return false;
+        }
+        if part.from != self.drawn {
+            return self.stop("a part arrived out of its order");
+        }
+        if part.soft_mask_count() > 0 {
+            return self.stop("the page states a soft mask, which is built against the whole list");
+        }
+        let tables = self
+            .tables
+            .get_or_insert_with(|| DisplayList::new(part.page_size));
+        if !tables.extend_tables(&part) {
+            return self.stop("a part's clips do not line up with the ones drawn before it");
+        }
+        // What the finished list's own pass restates, restated here command by command, so that
+        // a part is drawn as the finished list states it (`pdf_render::ListPart`).
+        part.restate_collapsed_marks();
+        self.blitted = self
+            .blitted
+            .saturating_add(pdf_render::commands_blit_demand(
+                tables,
+                &part.commands,
+                self.target,
+            ));
+        if self.blitted > pdf_render::MAX_GROUP_BLIT_PIXELS {
+            return self.stop("the page's groups blit more than a page may");
+        }
+        let drawn = self.rasterizer.encode(
+            &mut self.pixmap.as_mut(),
+            tables,
+            &part.commands,
+            crate::Surface::whole(self.target),
+            &mut self.masks,
+            0,
+            crate::Compose::Over,
+        );
+        if drawn.is_err() {
+            return self.stop("a part did not draw");
+        }
+        self.drawn = part.until();
+        true
+    }
+
+    /// The page as it stands, finished as the page will be finished — or `None` before anything
+    /// has been drawn or once this has stopped.
+    #[must_use]
+    pub fn look(&self) -> Option<Raster> {
+        let tables = self.tables.as_ref().filter(|_| self.stopped.is_none())?;
+        let mut copy = self.pixmap.clone();
+        finish_rows(copy.data_mut(), tables, self.target, self.rasterizer.medium);
+        Some(raster_of(copy, self.target))
+    }
+
+    /// The page, finished from `list` — the list the parts were handed from, once its read has
+    /// ended — or `Err` with why it cannot be, where the caller draws `list` whole instead.
+    ///
+    /// # Errors
+    ///
+    /// Every reason in this type's own documentation, each named.
+    pub fn finish(mut self, list: &DisplayList) -> Result<Raster, &'static str> {
+        if let Some(reason) = self.stopped {
+            return Err(reason);
+        }
+        if !Showing::admits(list) || list.grey_curve().is_some() || list.colour_cube().is_some() {
+            return Err("the page is finished with a plane, a curve or a channel of its own");
+        }
+        if list.soft_mask_count() > 0 {
+            return Err("the page states a soft mask, which is built against the whole list");
+        }
+        let stated = list.stated();
+        if stated.commands < self.drawn.commands || stated.clips < self.drawn.clips {
+            return Err("the list is shorter than what was drawn from it");
+        }
+        if pdf_render::check_group_blit(list, self.target).is_err() {
+            return Err("the page's groups blit more than a page may");
+        }
+        let rest = list
+            .commands()
+            .get(self.drawn.commands..)
+            .unwrap_or_default();
+        self.rasterizer
+            .encode(
+                &mut self.pixmap.as_mut(),
+                list,
+                rest,
+                crate::Surface::whole(self.target),
+                &mut self.masks,
+                0,
+                crate::Compose::Over,
+            )
+            .map_err(|_| "the rest of the list did not draw")?;
+        finish_rows(
+            self.pixmap.data_mut(),
+            list,
+            self.target,
+            self.rasterizer.medium,
+        );
+        Ok(raster_of(self.pixmap, self.target))
+    }
+
+    fn stop(&mut self, reason: &'static str) -> bool {
+        self.stopped = Some(reason);
+        false
+    }
+}
+
+/// The per-pixel passes `CpuRasterizer::rasterize` ends a page with on a list this module
+/// admits — §14.11.2.1's crop, then §11.4.7's medium under the marks — over the whole target.
+///
+/// Serial where the whole draw splits them by rows; a per-pixel pass is the same bytes either
+/// way, which is the rule that lets the whole draw split it.
+fn finish_rows(
+    premultiplied: &mut [u8],
+    list: &DisplayList,
+    target: TargetSpec,
+    medium: pdf_render::Medium,
+) {
+    if let Some(crop) = pdf_render::crop_area(list, target) {
+        pdf_render::crop_to_page(premultiplied, target.width, 0, crop);
+    }
+    let area = pdf_render::page_area(list, target);
+    pdf_render::impose_within(premultiplied, target.width, 0, area, medium);
+}
+
+/// A finished pixmap as the [`Raster`] every backend hands over: straight alpha, by
+/// `tiny-skia`'s own conversion, as `rasterize` converts.
+fn raster_of(pixmap: tiny_skia::Pixmap, target: TargetSpec) -> Raster {
+    Raster {
+        width: target.width,
+        height: target.height,
+        format: RasterFormat::Rgba8,
+        data: pixmap.take_demultiplied(),
+    }
+}

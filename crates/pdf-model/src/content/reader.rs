@@ -481,15 +481,7 @@ impl<'a> ContentReader<'a> {
     /// rather than by a comment.
     #[inline]
     pub fn with_token<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
-        match &mut self.held {
-            Held::Whole { bytes, at } => {
-                let mut lexer = Lexer::at(bytes, *at);
-                let token = next_content_token(&mut lexer);
-                *at = lexer.position();
-                read(token)
-            }
-            Held::Window(window) => window.with_token(read),
-        }
+        self.with_operand(Strings::Read, read)
     }
 
     /// [`Self::with_token`] for the operand loop, which says whether a string's bytes will be read:
@@ -506,73 +498,40 @@ impl<'a> ContentReader<'a> {
     /// escaped, and §7.3.4.3's `>` — [`LiteralStringEnd`] is the one statement of the first,
     /// shared with `Window::drop_token`. Anything else, and a string whose end the buffer does
     /// not yet hold, takes the ordinary road.
+    ///
+    /// **The question is asked of the lexer that is about to read the token, once it has skipped
+    /// the white space**, and the lexer then reads the token from where it stands
+    /// ([`Lexer::token_at_cursor`]), so a token that is not a string pays one test of a byte and
+    /// the white space is scanned once. Asked beforehand, of a slice and a scan of its own, the
+    /// question cost the owner's `demo_heavy_engineering_A1.pdf` — 78 million tokens, every one an
+    /// operand read with no font in force — 42.64 G instructions where this costs 40.79 G, and
+    /// its interpretation 2.02 s where this takes 1.93 s (ADR 1861).
     #[inline]
     pub(super) fn with_operand<T>(
         &mut self,
         strings: Strings,
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
-        if strings == Strings::StepOver && self.may_open_a_string() && self.step_over_a_string() {
-            return read(Some(Token::String(Vec::new())));
-        }
-        self.with_token(read)
-    }
-
-    /// Whether the next token can be a string, read off the first byte past the white space at
-    /// the cursor: §7.3.4's `(` and `<`, or a comment, which only [`Self::step_over_a_string`]'s
-    /// lexer passes over correctly. `false` is exact — the token is not a string, and
-    /// [`Self::step_over_a_string`] would have declined it after building a lexer to say so.
-    ///
-    /// A page with no font in force asks this of every operand it reads, which is every token of
-    /// a drawing that states no text: on the owner's `demo_heavy_engineering_A1.pdf`, 78 173 320
-    /// tokens, and stepping over strings that were numbers was 5.39 G of the 48.0 G instructions
-    /// `examples/callgrind_interpret` counted for the page. Asked first, it moves 0.70 G into the
-    /// lexer's own skip and saves 2.39 G, 5.0% of the interpretation (ADR 1813). Inside a comment
-    /// the window cut, the bytes at the cursor are the comment's and the answer may be `false`; the
-    /// question then goes to [`Self::with_token`], which is where [`Self::step_over_a_string`]
-    /// would have sent it.
-    #[inline]
-    fn may_open_a_string(&self) -> bool {
-        let (bytes, at) = match &self.held {
-            Held::Whole { bytes, at } => (*bytes, *at),
-            Held::Window(window) => (
-                window.buffer.get(..window.filled).unwrap_or_default(),
-                window.at,
-            ),
-        };
-        bytes
-            .get(at..)
-            .unwrap_or_default()
-            .iter()
-            .find(|&&byte| !pdf_syntax::lexer::is_whitespace(byte))
-            .is_none_or(|&byte| matches!(byte, b'(' | b'<' | b'%'))
-    }
-
-    /// Steps over a string at the cursor where the bytes hold the whole of it, and says whether
-    /// it did; past white space and comments to the next token either way, where the bytes
-    /// hold them.
-    ///
-    /// Not generic and not inlined, so that [`Self::with_operand`] stays as small as
-    /// [`Self::with_token`] and inlines into the operand loop as that did: inlined, this body
-    /// stopped `with_token` inlining there and cost an ordinary page 0.18% of its instructions.
-    #[inline(never)]
-    fn step_over_a_string(&mut self) -> bool {
-        let ahead = match &mut self.held {
-            // A whole stream ends where its bytes do, so a string running to the end is ended
-            // there, as the lexer ends it.
-            Held::Whole { bytes, at } => (ahead(bytes, *at, true), at),
-            Held::Window(window) => (window.ahead(), &mut window.at),
-        };
-        match ahead {
-            (Ahead::String(end), at) => {
-                *at = end;
-                true
+        match &mut self.held {
+            Held::Whole { bytes, at } => {
+                let mut lexer = Lexer::at(bytes, *at);
+                // A whole stream ends where its bytes do, so a string running to the end is ended
+                // there, as the lexer ends it.
+                if strings == Strings::StepOver {
+                    lexer.skip_whitespace();
+                    if let Some(end) = string_end(bytes, lexer.position(), true) {
+                        *at = end;
+                        return read(Some(Token::String(Vec::new())));
+                    }
+                    let token = content_token_at_cursor(&mut lexer);
+                    *at = lexer.position();
+                    return read(token);
+                }
+                let token = next_content_token(&mut lexer);
+                *at = lexer.position();
+                read(token)
             }
-            (Ahead::Token(start), at) => {
-                *at = start;
-                false
-            }
-            (Ahead::Unknown, _) => false,
+            Held::Window(window) => window.with_operand(strings, read),
         }
     }
 
@@ -838,11 +797,31 @@ impl Window {
     /// comment it skipped over ended for the same reason. So an ordinary token costs one
     /// comparison more than lexing a whole buffer did, and the second pass below is paid by
     /// the 2 258 tokens that straddle a refill rather than by the 20 834 587 that do not.
+    ///
+    /// Under [`Strings::StepOver`] a string the buffer ends is stepped over in the same arm, and for
+    /// the same reason: it ends inside what is buffered, so no boundary cut it, and the white space
+    /// and comments before it all ended inside the buffer too — moving the cursor past it leaves no
+    /// comment open behind it. One the buffer does not end is lexed as any other token.
     #[inline]
-    fn with_token<T>(&mut self, read: impl FnOnce(Option<Token<'_>>) -> T) -> T {
+    fn with_operand<T>(
+        &mut self,
+        strings: Strings,
+        read: impl FnOnce(Option<Token<'_>>) -> T,
+    ) -> T {
         if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
-            let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
-            let token = next_content_token(&mut lexer);
+            let bytes = self.buffer.get(..self.filled).unwrap_or_default();
+            let mut lexer = Lexer::at(bytes, self.at);
+            if strings == Strings::StepOver {
+                lexer.skip_whitespace();
+                if let Some(end) = string_end(bytes, lexer.position(), false) {
+                    self.at = end;
+                    return read(Some(Token::String(Vec::new())));
+                }
+            }
+            let token = match strings {
+                Strings::StepOver => content_token_at_cursor(&mut lexer),
+                Strings::Read => next_content_token(&mut lexer),
+            };
             let end = lexer.position();
             if end < self.filled {
                 self.at = end;
@@ -852,24 +831,7 @@ impl Window {
         self.settle_then(read)
     }
 
-    /// [`ahead`] over what is buffered.
-    ///
-    /// Asked under the same condition the fast arm of [`Self::with_token`] lexes under, and for
-    /// the same reason: a string that ends before what is buffered is one no boundary cut, and a
-    /// token that begins inside it was reached past white space and comments that all ended
-    /// inside it — so moving the cursor to either leaves no comment open behind it.
-    fn ahead(&self) -> Ahead {
-        if self.in_comment || self.filled.saturating_sub(self.at) < SLACK {
-            return Ahead::Unknown;
-        }
-        ahead(
-            self.buffer.get(..self.filled).unwrap_or_default(),
-            self.at,
-            false,
-        )
-    }
-
-    /// The rest of [`Self::with_token`]: refilling, growing and the two boundary cases.
+    /// The rest of [`Self::with_operand`]: refilling, growing and the two boundary cases.
     ///
     /// Split out so that the arm above stays a leaf, and cold because it runs once per refill.
     #[cold]
@@ -1305,40 +1267,25 @@ pub(super) enum Strings {
     StepOver,
 }
 
-/// What follows white space and comments at the cursor, for [`ContentReader::with_operand`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ahead {
-    /// A string token, ending just before this offset.
-    String(usize),
-    /// Some other token, beginning at this offset.
-    Token(usize),
-    /// Nothing the bytes can answer: they end in white space, a comment, or a string they do
-    /// not end, and more may arrive.
-    Unknown,
-}
-
-/// What the token at `at` is, as far as a string's extent is concerned.
+/// Where the string that begins at `start` ends, or `None` where no string begins there or the
+/// bytes do not hold its end and more may arrive.
 ///
-/// White space and comments before it are passed over as the lexer passes them, and the offset
-/// past them is handed back either way so that they are not read twice. A string the bytes do
-/// not end is ended at their end where `whole` says they are all there is, which is where the
-/// lexer ends it.
-fn ahead(bytes: &[u8], at: usize, whole: bool) -> Ahead {
-    let mut lexer = Lexer::at(bytes, at);
-    lexer.skip_whitespace();
-    let start = lexer.position();
+/// The lexer's own reading of §7.3.4: a `(` opens a literal string and a `<` that is not half of
+/// `<<` a hexadecimal one. A string the bytes do not end is ended at their end where `whole` says
+/// they are all there is, which is where the lexer ends it.
+#[inline]
+fn string_end(bytes: &[u8], start: usize, whole: bool) -> Option<usize> {
     let rest = bytes.get(start..).unwrap_or_default();
     let end = match rest {
-        [] => return Ahead::Unknown,
         [b'(', ..] => LiteralStringEnd::default().read(rest),
         [b'<', second, ..] if *second != b'<' => hexadecimal_string_end(rest),
         [b'<'] => hexadecimal_string_end(rest),
-        _ => return Ahead::Token(start),
+        _ => return None,
     };
     match end {
-        Some(offset) => Ahead::String(start.saturating_add(offset)),
-        None if whole => Ahead::String(bytes.len()),
-        None => Ahead::Unknown,
+        Some(offset) => Some(start.saturating_add(offset)),
+        None if whole => Some(bytes.len()),
+        None => None,
     }
 }
 
@@ -1371,6 +1318,16 @@ fn ahead(bytes: &[u8], at: usize, whole: bool) -> Ahead {
 /// way.
 fn next_content_token<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
     let token = lexer.next_token()?;
+    match lexer.salvaged() {
+        Some(salvage) if names_an_operator(salvage.dropped) => Some(Token::Keyword(salvage.run)),
+        _ => Some(token),
+    }
+}
+
+/// [`next_content_token`] where the white space and comments before the token are already
+/// skipped: see [`Lexer::token_at_cursor`].
+fn content_token_at_cursor<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
+    let token = lexer.token_at_cursor()?;
     match lexer.salvaged() {
         Some(salvage) if names_an_operator(salvage.dropped) => Some(Token::Keyword(salvage.run)),
         _ => Some(token),

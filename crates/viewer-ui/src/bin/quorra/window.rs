@@ -169,6 +169,7 @@ impl ApplicationHandler for App {
                 self.take_the_opening();
             } else {
                 self.mind_the_opening();
+                self.show_the_read();
                 let now = std::time::Instant::now();
                 let wake = now.checked_add(viewer_host::loading::TICK).unwrap_or(now);
                 event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
@@ -339,7 +340,17 @@ impl ApplicationHandler for App {
         // **And it waits no longer than `WARN`** (ADR 1811): a document still opening then is
         // left to its thread, the title carries the bar, and `about_to_wait` takes the document in
         // on the tick that finds it ready.
-        if self.opening.as_ref().is_some_and(|opening| !opening.wait()) {
+        //
+        // **Or no longer than `GLIMPSE_AFTER` where page one is drawn while it is read** (ADR
+        // 1855): that is when the first part of a page still being read is drawn, and a window
+        // inside this wait answers nothing, so a wait to `WARN` would hold the first look back by
+        // half a second. A document ready in between is taken in on the tick that finds it.
+        self.tell_the_opening();
+        let waited = self.opening.as_ref().map(|opening| match self.ahead {
+            Some(_) => opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER),
+            None => opening.wait(),
+        });
+        if waited == Some(false) {
             self.launch.mark("document still opening");
             self.mind_the_opening();
             return;
@@ -461,6 +472,7 @@ impl ApplicationHandler for App {
                         window.resize(extent.0, extent.1);
                     }
                 }
+                self.tell_the_opening();
                 self.dispatch(Command::Resize {
                     width: size.width.saturating_sub(self.panel.inset(scale)).max(1),
                     height: size.height.max(1),
@@ -888,6 +900,13 @@ impl App {
             let (viewer, events) = opening.join().expect("the thread opening the document");
             self.viewer = viewer;
             self.launch.mark("document joined");
+            // Page one as it was drawn while it was read goes to the renderer whose first frame of
+            // it is finished from that drawing (ADR 1855).
+            if let Some(ahead) = self.ahead.take()
+                && let Some(window) = self.device_window()
+            {
+                window.draw_ahead(ahead);
+            }
             if self.loading.take().is_some() {
                 println!("note: {}", viewer_host::loading::READ);
             }
@@ -929,6 +948,64 @@ impl App {
             height: size.height.max(1),
             scale,
         });
+    }
+
+    /// Tells page one's drawing ahead how large the window is, while the document is opening —
+    /// the target it draws into is this window's (ADR 1855).
+    fn tell_the_opening(&self) {
+        let (Some(ahead), Some(state), Some(_)) = (
+            self.ahead.as_ref(),
+            self.state.as_ref(),
+            self.opening.as_ref(),
+        ) else {
+            return;
+        };
+        let size = state.window.inner_size();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a display's scale factor is a small ratio"
+        )]
+        let scale = state.window.scale_factor() as f32;
+        ahead.window_is(viewer_host::loading::Window {
+            width: size.width.max(1),
+            height: size.height.max(1),
+            inset: self.panel.inset(scale),
+            scale,
+        });
+    }
+
+    /// Puts page one up as it stands while it is read, where a newer look at it has been drawn
+    /// (ADR 1855): sends the look to be uploaded, and puts up the last one that has been. Nothing
+    /// is answered to the core, which has no document yet; the frame that answers is the first.
+    fn show_the_read(&mut self) {
+        let Some(ahead) = self.ahead.clone() else {
+            return;
+        };
+        let trace = self.trace;
+        let Some(window) = self.device_window() else {
+            return;
+        };
+        window.show_read(&ahead);
+        // What arrived is taken in here: no frame is in flight to take it in with.
+        drop(window.collect());
+        match window.present_as_built() {
+            Ok(Some(_)) => {
+                let commands = ahead.look().map_or(0, |look| look.commands);
+                trace.say(
+                    Topic::Frames,
+                    format_args!("page 1 shown as it is read, {commands} commands drawn"),
+                );
+                if !self.read_shown {
+                    self.read_shown = true;
+                    self.launch.mark("page shown as it is read");
+                }
+            }
+            Ok(None) => {}
+            Err(problem) => trace.say(
+                Topic::Frames,
+                format_args!("page 1 as it is read was not put up: {problem}"),
+            ),
+        }
     }
 
     /// Puts the opening's bar in the title, and says so once on the way in.

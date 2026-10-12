@@ -38,10 +38,35 @@
 //! frame, and the host stores what arrives with [`Progress::store`] into the figure its window
 //! reads. Counted in operators rather than timed, because a confined worker reads no clock it was
 //! not handed (`viewer-core`'s rule 3), and a count is enough to pace a bar.
+//!
+//! # The list itself, in parts
+//!
+//! A figure says how far the read has got; [`Parts`] hands over *what* it has got — the page's
+//! display list in parts, as the interpreter builds it — so that a drawer can paint the page
+//! while it is still being read, the shape `doc/pdf.js`'s worker gives its operator list when it
+//! flushes it in chunks, taken as evidence about an approach (ADR 1855). It is installed the
+//! way the figure is, for the figure's reason — nothing is threaded through the interpreter's
+//! signatures and nothing is read back — but for one interpretation rather than for a thread:
+//! [`Parts::during`] installs it, and the first page interpretation inside *claims* it, so a
+//! page that interprets another page inside itself (§8.10.4's reference) hands over its own list
+//! and never the other's.
+//!
+//! **A part is handed over only where the finished list will begin with it**, and where that
+//! cannot be known in advance it is checked after the fact rather than assumed. The parts come
+//! from the page's own content stream, between two operators, on a page drawn on the device's
+//! own components, outside a text object — the places where the interpreter has nothing open
+//! that could gather what it already pushed into something else. And a command handed over that
+//! the interpreter later takes back ([`pdf_render::DisplayList::taken_back_since_asked`]) spoils
+//! the hand-over: the drawer is told, and draws the finished list whole, as it would have
+//! without any of this.
 
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::time::Duration;
+
+use pdf_render::{DisplayList, ListPart, Stated};
 
 /// A shared figure of how far one interpretation has got — written on the interpreting thread,
 /// read on any.
@@ -124,6 +149,18 @@ impl Reading {
 thread_local! {
     /// The figure this thread's interpretations publish to, while a caller has one installed.
     static WATCHING: RefCell<Option<Progress>> = const { RefCell::new(None) };
+    /// The hand-over the next page interpretation on this thread claims, while a caller has one
+    /// installed and no interpretation has claimed it yet.
+    static HANDING: RefCell<Option<Parts>> = const { RefCell::new(None) };
+}
+
+/// Takes the hand-over installed on this thread, so that the interpretation claiming it is the
+/// only one that hands parts to it.
+pub(crate) fn claim() -> Option<Parts> {
+    HANDING
+        .try_with(|slot| slot.borrow_mut().take())
+        .ok()
+        .flatten()
 }
 
 impl Progress {
@@ -208,6 +245,234 @@ impl Progress {
     }
 }
 
+/// Fewest commands a part holds.
+///
+/// **A few milliseconds of the read**, bounded from both sides. From above: the first part is
+/// the first picture, and the witness reads about 1.7 million commands a second, so this many is
+/// 2.4 ms of its read. From below: a part costs a copy of its commands' headers, a lock and a
+/// wake, and a page this small is drawn whole in the time a part would take to cross — no
+/// page under it is handed over at all.
+pub const FIRST_PART: usize = 4_096;
+
+/// A part grows with the list: after the first, one holds at least this fraction of what was
+/// already handed over.
+///
+/// So a page is handed over in a number of parts that grows with the logarithm of its length —
+/// about sixty on the witness's 4.4 million commands — and the part still to draw when the read
+/// ends is at most a sixteenth of the list.
+pub const PART_GROWTH: usize = 16;
+
+/// A page's display list handed from the thread that reads it to a thread that draws it.
+///
+/// Cloning shares it: the reading thread installs one for the interpretation it runs
+/// ([`Parts::during`]), and the drawer holds another.
+#[derive(Debug, Clone)]
+pub struct Parts {
+    shared: Arc<Shared>,
+}
+
+/// The two threads' common state, and the wake a drawer waits on.
+#[derive(Debug)]
+struct Shared {
+    state: Mutex<HandOver>,
+    arrived: Condvar,
+    /// Fewest commands a part holds: [`FIRST_PART`], or what [`Parts::in_parts_of`] asked.
+    first: usize,
+}
+
+impl Default for Parts {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What has been handed over and not yet taken, and how the hand-over stands.
+#[derive(Debug, Default)]
+struct HandOver {
+    waiting: VecDeque<ListPart>,
+    /// Where the next part begins.
+    handed: Stated,
+    /// Why the parts handed over are no longer known to begin the finished list, once they are
+    /// not.
+    spoiled: Option<&'static str>,
+    /// How much the finished list states, once its run has concluded.
+    ended: Option<Stated>,
+    /// The finished list, once a caller shared it ([`kept`]).
+    list: Option<Weak<DisplayList>>,
+}
+
+/// What a drawer is handed next.
+#[derive(Debug)]
+pub enum Handed {
+    /// The next part of the list, in order.
+    Part(ListPart),
+    /// The read has ended: `Ok` with how much the finished list states, of which every part
+    /// handed over is a prefix — or `Err` with why the parts handed over are not known to be.
+    Ended(Result<Stated, &'static str>),
+}
+
+impl Parts {
+    /// A hand-over nothing has been handed to yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::in_parts_of(FIRST_PART)
+    }
+
+    /// A hand-over whose parts hold at least `first` commands rather than [`FIRST_PART`] — for a
+    /// test that wants every page of a population handed over in many parts, which at the
+    /// shipped size only a page of thousands of marks is.
+    #[must_use]
+    pub fn in_parts_of(first: usize) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                state: Mutex::default(),
+                arrived: Condvar::new(),
+                first: first.max(1),
+            }),
+        }
+    }
+
+    /// Runs `run` with this hand-over installed on the current thread, for the first page
+    /// interpretation inside it to claim; what was installed before is put back afterwards.
+    ///
+    /// **The hand-over ends with the call, however it ends**: a call in which no interpretation
+    /// claimed it, or one whose interpretation never finished its list, leaves the drawer told
+    /// so rather than waiting for a part that will not come.
+    pub fn during<T>(&self, run: impl FnOnce() -> T) -> T {
+        /// Puts back what was installed and closes this hand-over, on the way out however the
+        /// way out is taken.
+        struct Restore(Option<Parts>, Parts);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let previous = self.0.take();
+                let _ = HANDING.try_with(|slot| *slot.borrow_mut() = previous);
+                self.1.close();
+            }
+        }
+        let previous = HANDING.with(|slot| slot.borrow_mut().replace(self.clone()));
+        let _restore = Restore(previous, self.clone());
+        run()
+    }
+
+    /// Ends a hand-over whose run did not conclude it.
+    fn close(&self) {
+        let mut state = self.lock();
+        if state.ended.is_none() {
+            state.spoiled = state.spoiled.or(Some(
+                "no page interpretation finished a list for this hand-over",
+            ));
+            state.ended = Some(state.handed);
+        }
+        drop(state);
+        self.shared.arrived.notify_all();
+    }
+
+    /// The next thing handed over, waiting for it at most `wait` — `None` where nothing came.
+    ///
+    /// Parts come in the order they were stated; [`Handed::Ended`] comes after the last of them
+    /// and then again on every call.
+    #[must_use]
+    pub fn take(&self, wait: Duration) -> Option<Handed> {
+        let mut state = self.lock();
+        if state.waiting.is_empty() && state.ended.is_none() && state.spoiled.is_none() {
+            state = self
+                .shared
+                .arrived
+                .wait_timeout(state, wait)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        if let Some(reason) = state.spoiled {
+            state.waiting.clear();
+            return Some(Handed::Ended(Err(reason)));
+        }
+        if let Some(part) = state.waiting.pop_front() {
+            return Some(Handed::Part(part));
+        }
+        state.ended.map(|ended| Handed::Ended(Ok(ended)))
+    }
+
+    /// Whether `list` is the list the run that handed these parts over finished with.
+    ///
+    /// By the allocation rather than by the commands: two interpretations of one page are two
+    /// lists, and only the one whose parts were handed over is the one they are a prefix of. The
+    /// weak reference keeps the allocation from being reused while it is held, so an equal
+    /// address is the same list.
+    #[must_use]
+    pub fn is(&self, list: &Arc<DisplayList>) -> bool {
+        self.lock()
+            .list
+            .as_ref()
+            .is_some_and(|kept| Weak::ptr_eq(kept, &Arc::downgrade(list)))
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HandOver> {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The reading thread's side: hands over what `list` has stated since the last part, where
+    /// a part is due and the interpreter says it may — `may_hand_over` is its word that nothing
+    /// it has open could gather the commands pushed so far into anything else.
+    pub(crate) fn offer(&self, list: &mut DisplayList, may_hand_over: bool) {
+        let taken_back = list.taken_back_since_asked();
+        let mut state = self.lock();
+        if state.ended.is_some() || state.spoiled.is_some() {
+            return;
+        }
+        if taken_back.is_some_and(|at| at < state.handed.commands) {
+            state.spoiled = Some("a command already handed over was taken back by the reader");
+            drop(state);
+            self.shared.arrived.notify_all();
+            return;
+        }
+        let due = self.shared.first.max(state.handed.commands / PART_GROWTH);
+        if !may_hand_over || list.command_count().saturating_sub(state.handed.commands) < due {
+            return;
+        }
+        let Some(part) = list.part_since(state.handed) else {
+            state.spoiled = Some("the list no longer holds what was handed over");
+            drop(state);
+            self.shared.arrived.notify_all();
+            return;
+        };
+        state.handed = part.until();
+        state.waiting.push_back(part);
+        drop(state);
+        self.shared.arrived.notify_all();
+    }
+
+    /// The reading thread's side, once the run's list is finished: the last chance to find a
+    /// command handed over and then taken back.
+    pub(crate) fn conclude(&self, list: &mut DisplayList) {
+        let taken_back = list.taken_back_since_asked();
+        let mut state = self.lock();
+        if state.ended.is_some() {
+            return;
+        }
+        if state.spoiled.is_none() && taken_back.is_some_and(|at| at < state.handed.commands) {
+            state.spoiled = Some("a command already handed over was taken back by the reader");
+        }
+        state.ended = Some(list.stated());
+        drop(state);
+        self.shared.arrived.notify_all();
+    }
+
+    /// Names the list the run that claimed this hand-over finished with, once a caller has
+    /// shared it — so that a drawer handed that list later can tell it from any other.
+    ///
+    /// Taken only once the run has concluded, and only once: the list a caller names first is
+    /// the one [`Self::is`] answers for.
+    pub fn keep(&self, list: &Arc<DisplayList>) {
+        let mut state = self.lock();
+        if state.ended.is_some() && state.list.is_none() {
+            state.list = Some(Arc::downgrade(list));
+        }
+    }
+}
+
 /// Publishes the running page's figure to whatever this thread has installed, or does nothing.
 ///
 /// Called from the operator loop's periodic check, so it is paid every few dozen operators and
@@ -274,7 +539,7 @@ mod tests {
 
     #[test]
     fn a_relayed_figure_is_handed_on_every_relay_interval_and_at_a_new_page() {
-        let relayed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let relayed = Arc::new(Mutex::new(Vec::new()));
         let progress = Progress::relaying(Box::new({
             let relayed = Arc::clone(&relayed);
             move |reading| relayed.lock().expect("unpoisoned").push(reading.operators)

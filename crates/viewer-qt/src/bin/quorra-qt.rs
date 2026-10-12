@@ -72,6 +72,9 @@ struct Arguments {
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words
     /// `quorra` takes and read by the same [`viewer_host::ReaderWords`] (ADRs 1580, 1581).
     reader: viewer_host::ReaderWords,
+    /// How many pages the window keeps a small picture of, per
+    /// [`viewer_host::stand_in::RETAINED_PAGES_WORD`] (ADR 1866).
+    proxy_pages: usize,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -87,6 +90,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut submissions = viewer_host::Submissions::default();
     let mut separations = false;
     let mut reader = viewer_host::ReaderWords::default();
+    let mut proxy_pages = viewer_host::stand_in::RETAINED_PAGES;
     let mut words = words.into_iter();
     while let Some(word) = words.next() {
         if reader.take(std::ffi::OsStr::new(&word), &mut words)? {
@@ -116,6 +120,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(setting) = word.strip_prefix(viewer_host::SEPARATIONS) {
             // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
             separations = viewer_host::separations(setting)?;
+        } else if word == viewer_host::stand_in::RETAINED_PAGES_WORD {
+            proxy_pages = viewer_host::stand_in::retained_pages(words.next().as_deref())?;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -142,7 +148,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
              [--links=refuse|ask|warn|open] [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] [--submissions=refuse|ask|warn|send] \
-             [--separations=on|off] {} \
+             [--separations=on|off] {} [--proxy-pages N] \
              [--quit-after=<ms>] <file.pdf>...",
             viewer_host::ReaderWords::USAGE
         )
@@ -160,6 +166,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         separations,
         quit_after,
         reader,
+        proxy_pages,
     })
 }
 
@@ -201,6 +208,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+    host.retain_pages(arguments.proxy_pages);
     host.open_behind(arguments.also);
     trace.say(
         Topic::Launch,
@@ -258,6 +266,28 @@ mod tests {
                 ("b.pdf".to_owned(), Some("page=2".to_owned())),
                 ("c.pdf".to_owned(), None)
             ]
+        );
+    }
+
+    /// `--proxy-pages` is the word `quorra` takes for the same setting, read by the one parser
+    /// both toolkit windows share, and a count it cannot read is refused (ADR 1866).
+    #[test]
+    fn the_retained_pages_are_a_count_the_window_is_given() {
+        let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
+        assert_eq!(asked.proxy_pages, viewer_host::stand_in::RETAINED_PAGES);
+        let asked = arguments(
+            [
+                "--proxy-pages".to_owned(),
+                "0".to_owned(),
+                "x.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("a document");
+        assert_eq!(asked.proxy_pages, 0);
+        assert!(
+            arguments(["--proxy-pages".to_owned(), "x.pdf".to_owned()].into_iter()).is_err(),
+            "a document's name is not a count"
         );
     }
 

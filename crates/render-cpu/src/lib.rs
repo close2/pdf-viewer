@@ -33,7 +33,7 @@ use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-pub use glimpse::{Glance, Glimpse};
+pub use glimpse::{Glance, Glimpse, Underway};
 
 use pdf_render::{
     BackendError, ClipId, Command, DisplayList, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Medium,
@@ -162,7 +162,7 @@ impl CpuRasterizer {
         self
     }
 
-    /// Asks for a fixed number of horizontal strips instead of one per available core.
+    /// Asks for a fixed number of horizontal strips instead of one per thread of the pool.
     ///
     /// **This changes how long a page takes and almost nothing about what it looks like**, which
     /// is [`Surface`]'s claim and is the reason this method exists: the property is only
@@ -509,10 +509,10 @@ impl Rasterizer for CpuRasterizer {
 /// 842-row page are 52 rows apiece, which is shorter than many clip bands. The cores beyond it
 /// are not idle in a viewer — pages are rendered on their own threads above this one.
 ///
-/// Public for a gate whose clock is this backend's as it ships: on any machine of at least this
-/// many CPUs, [`CpuRasterizer::new`] asks for exactly this count, so a gate that states it with
-/// [`CpuRasterizer::with_strips`] draws what that machine draws and no longer depends on the CPUs
-/// its own process was given (ADR 1742).
+/// Public for a gate whose clock is this backend's as it ships: on a pool at least this wide —
+/// the global pool of any machine of at least this many CPUs — [`CpuRasterizer::new`] asks for
+/// exactly this count, so a gate that states it with [`CpuRasterizer::with_strips`] draws what that
+/// machine draws and no longer depends on the CPUs its own process was given (ADRs 1742, 1859).
 pub const MAX_STRIPS: u32 = 16;
 
 /// Most work a split may replay, as a multiple of the command list itself.
@@ -761,10 +761,12 @@ impl CpuRasterizer {
             return Ok(());
         };
         let at = to_device.of(transform);
-        // A straight stroke whose ink lies in two by two pixels is painted from its closed-form area
-        // before any outline, edge or pipeline is built for it — the population and the reason are
-        // `pdf_render::thin_segment`'s, one copy for every backend (trap 2), and the composition
-        // `thin_segment::draw`'s, on the page's own grid as the strip planner asks (ADRs 1829, 1847).
+        // A straight stroke whose ink lies in two by two pixels — §8.5.3.2's round dot among them,
+        // the same set at length zero, so it never reaches `split_degenerate` below — is painted
+        // from its closed-form area before any outline, edge or pipeline is built for it. The
+        // population and the reason are `pdf_render::thin_segment`'s, one copy for every backend
+        // (trap 2), and the composition `thin_segment::draw`'s, on the page's own grid as the strip
+        // planner asks (ADRs 1829, 1847, 1857).
         if self.anti_alias
             && blend == tiny_skia::BlendMode::SourceOver
             && thin_segment::draw(pixmap, (path, stroke, paint), (transform, to_device), clip)
@@ -5171,10 +5173,10 @@ fn whole_target(target: TargetSpec) -> pdf_render::Rect {
 
 /// The rows at which to cut this target, or one strip's worth if it may not be cut.
 ///
-/// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
-/// [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only made at a row no
-/// curve crosses — where a stroke is not one this backend draws a row at a time, its whole extent
-/// ([`drawn_row_by_row`], ADRs 1819 and 1837). **The picture is very nearly independent of the answer**,
+/// The strip count asked for is the width of the rayon pool the strips run on, bounded by
+/// [`MAX_STRIPS`] and by [`MIN_STRIP_ROWS`]; what comes back may be fewer, because a cut is only
+/// made at a row no curve crosses — where a stroke is not one this backend draws a row at a time,
+/// its whole extent ([`drawn_row_by_row`], ADRs 1819 and 1837). **The picture is very nearly independent of the answer**,
 /// which is the property ADR 0139 exists to establish and `strip_parallelism.rs` asserts: over the
 /// tracked corpus's 967 first pages, 794 draw the same bytes at one strip and at every count from
 /// two to sixteen, and the page that moves most moves 0.36% of its pixels (ADRs 1758, 1819).
@@ -5197,14 +5199,17 @@ fn plan_strips(
     asked: Option<u32>,
     anti_alias: bool,
 ) -> Vec<u32> {
-    // Asked of the machine only where the caller did not say, and that is not tidiness:
-    // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a
-    // confinement with no filesystem is *killed* for it rather than told no. Such a caller states
-    // the number with `with_strips` (ADR 0218).
+    // Where the caller did not say, as many as the pool the strips run on is wide: a strip more
+    // than it can run at once is a replay of every command that reaches it, bought for a balance
+    // work stealing gives only an uneven division (ADR 1859). Read from the pool rather than the
+    // machine because a caller may draw inside a narrower one — `RAYON_NUM_THREADS`, or a pool it
+    // installed. The global pool's first use asks `available_parallelism`, which reads
+    // `/proc/self/cgroup` on Linux, and a caller drawing inside a confinement with no filesystem is
+    // *killed* for that rather than told no; such a caller states the number with `with_strips`,
+    // and this is then not asked at all (ADR 0218).
     let wanted = asked
         .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map_or(1, std::num::NonZero::get)
+            rayon::current_num_threads()
                 .try_into()
                 .unwrap_or(MAX_STRIPS)
         })

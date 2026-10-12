@@ -110,7 +110,9 @@
 //!   identically, before [`popup`] wanted it a third and fourth time.
 //! - [`wheel`] — Control and the wheel: how much travel is one zoom step, in all three windows.
 //! - [`stand_in`] — the rectangle a page's pixels are shown in: after a zoom, the last frame scaled
-//!   to the extent the page has now until the new frame lands, in both toolkit windows (ADR 1843).
+//!   to the extent the page has now until the new frame lands, in both toolkit windows (ADR 1843);
+//!   a page's own pixels at a whole device pixel (ADR 1865); and a page with no frame shown from a
+//!   small picture kept from its last one (ADR 1866).
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -164,7 +166,7 @@ pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
 pub use keys::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, meaning};
-pub use loading::Loading;
+pub use loading::{Ahead, Loading};
 pub use measuring::Measuring;
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,

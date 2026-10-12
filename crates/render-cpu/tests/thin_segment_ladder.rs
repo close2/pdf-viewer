@@ -365,6 +365,113 @@ fn an_anisotropic_placement_paints_the_ellipse_its_pen_becomes() {
     assert!(admitted > 300, "only {admitted} marks were the population");
 }
 
+/// §8.5.3.2's dot: "the S operator shall paint it only if round line caps have been specified,
+/// producing a filled circle centred at the single point. If butt or projecting square line caps
+/// have been specified, S shall produce no output". A [`Mark`] of no length is that set — its
+/// chord is the pen's ellipse on either side of the one point — so the ladder's own integral is
+/// the expected area of the circle, by the same route as every other rung (ADR 1857).
+///
+/// A dot none of whose pixels would hold one level is not the kernel's: `point_mark` places it
+/// whole in the pixel containing its centre, so the count of dots admitted is the count whose
+/// largest pixel, by the ladder's own integral, holds a level.
+#[test]
+fn a_zero_length_subpath_paints_the_filled_circle_under_a_round_cap_and_nothing_otherwise() {
+    let (mut admitted, mut holding_a_level) = (0, 0);
+    for vertical in [false, true] {
+        for width in [0.046_875_f32, 0.093_75, 0.1875, 0.375, 0.5, 0.75, 1.0] {
+            let half = f64::from(width) / 2.0;
+            let dots = marks(vertical, 0.0, half, half, LineCap::Round);
+            holding_a_level += dots
+                .iter()
+                .filter(|dot| whole_largest(dot) >= 1.0 / 255.0)
+                .count();
+            admitted += rung(&dots, (1.0, 1.0), width, LineCap::Round);
+            // Under the other two caps the classification declines the dot to
+            // `split_degenerate`, which paints nothing — and the rung, with nothing admitted,
+            // holds every pixel of the raster to no ink.
+            for cap in [LineCap::Butt, LineCap::Square] {
+                assert_eq!(
+                    rung(
+                        &marks(vertical, 0.0, half, half, cap),
+                        (1.0, 1.0),
+                        width,
+                        cap
+                    ),
+                    0,
+                    "{cap:?}: a zero-length subpath is §8.5.3.2's no output"
+                );
+            }
+        }
+        // Under (½, ¼) the circle of width 2 is the ellipse of semi-axes ½ and ¼.
+        let (along, across) = if vertical { (0.25, 0.5) } else { (0.5, 0.25) };
+        let dots = marks(vertical, 0.0, along, across, LineCap::Round);
+        holding_a_level += dots
+            .iter()
+            .filter(|dot| whole_largest(dot) >= 1.0 / 255.0)
+            .count();
+        admitted += rung(&dots, (0.5, 0.25), 2.0, LineCap::Round);
+    }
+    // Every dot of width under one pixel lies in two by two pixels wherever it is placed, so the
+    // only dots declined are those under a level everywhere — and the widest six widths have none.
+    assert_eq!(
+        admitted, holding_a_level,
+        "the dots holding a level were the population"
+    );
+    assert!(
+        admitted > 2 * 6 * 81,
+        "only {admitted} dots were the population"
+    );
+}
+
+/// The dot is drawn whole whatever the raster's rows: the page cut into strips at every row
+/// paints each dot's pixels as the uncut page does, which is what lets the strip planner cut
+/// through one (ADR 1847's rule for a thin segment, which the dot now is).
+#[test]
+fn a_dot_paints_the_same_bytes_in_every_division_of_the_page() {
+    let marks = marks(false, 0.0, 0.375, 0.375, LineCap::Round);
+    let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+    for mark in &marks {
+        list.push(command(
+            path_of(mark, (1.0, 1.0)),
+            (1.0, 1.0),
+            stroke(0.75, LineCap::Round),
+            None,
+        ));
+    }
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("a valid target");
+    let whole = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("a stroke is supported");
+    for rows in [1_u32, 3, 7] {
+        let mut stitched = Vec::new();
+        let mut top = 0;
+        while top < target.height {
+            let height = rows.min(target.height - top);
+            let strip = TargetSpec {
+                height,
+                transform: target.transform.then(Transform::new(
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    -(top as f32),
+                )),
+                ..target
+            };
+            let part = CpuRasterizer::new()
+                .rasterize(&list, strip)
+                .expect("a stroke is supported");
+            stitched.extend_from_slice(&part.data);
+            top += height;
+        }
+        assert!(
+            stitched == whole.data,
+            "strips of {rows} rows paint the dots apart from the whole page"
+        );
+    }
+}
+
 #[test]
 fn a_mark_on_the_rasters_edge_paints_the_part_that_is_on_it() {
     let mark = Mark {

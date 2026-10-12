@@ -504,6 +504,10 @@ pub struct Host {
     /// `viewer_host::Drawing` is the whole arrangement, shared with `viewer-qt`: what is GTK's is
     /// the one-shot below that asks it whether anything has landed.
     drawing: viewer_host::Drawing,
+    /// A small picture of each page drawn lately, shown where a page arrives on the screen with
+    /// no frame until its own lands — `viewer_host::stand_in::Retained`, shared with `viewer-qt`
+    /// (ADR 1866).
+    retained: viewer_host::stand_in::Retained,
     /// The one-shot waiting to ask [`Host::drawing`] whether a page has finished.
     ///
     /// **`None` is a window that wakes for this exactly never**, which is the same shape
@@ -677,8 +681,9 @@ pub struct Host {
     /// turned it: the events arrive as page change, transition, render request. Beginning the
     /// effect here would animate the page being left against itself.
     arming: Option<pdf_model::navigation::Transition>,
-    /// The page on the screen, as the list that drew it and where a whole-viewport draw would put
-    /// it — the face a transition would move *from*.
+    /// The page on the screen, as the list that drew it, the target the core asked for and the
+    /// whole pixel the window shows it at — the face a transition would move *from*
+    /// (`viewer_host::clock::face_as_shown`).
     ///
     /// Kept only while a presentation is running, because it costs a `Query::PageGeometry` per
     /// page render and nothing outside §12.4.4 asks for it. The list is shared rather than
@@ -686,6 +691,7 @@ pub struct Host {
     shown: Option<(
         std::sync::Arc<pdf_render::DisplayList>,
         pdf_render::TargetSpec,
+        (f32, f32),
     )>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
@@ -800,6 +806,7 @@ impl Host {
                 // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule
                 // that nothing page one does not need happens before page one.
                 drawing: viewer_host::Drawing::new(),
+                retained: viewer_host::stand_in::Retained::default(),
                 drawing_armed: None,
                 script_dialogue: None,
                 trace,
@@ -1886,6 +1893,20 @@ impl Host {
             let Some(rendered) = finished.outcome else {
                 continue;
             };
+            if let viewer_core::Rendered::Raster(raster) = &rendered {
+                let began = std::time::Instant::now();
+                if self.retained.landed(&finished.request, raster) {
+                    self.trace.say(
+                        Topic::Frames,
+                        format_args!(
+                            "page {} retained, {} held, in {:?}",
+                            finished.request.page.saturating_add(1),
+                            self.retained.len(),
+                            began.elapsed()
+                        ),
+                    );
+                }
+            }
             queue.push_back(Command::RenderReady {
                 token: finished.request.token,
                 rendered,
@@ -2215,7 +2236,10 @@ impl Host {
             // the toolkit's own thread would let a page written to draw for 27.6 s take the window
             // with it — no repaint, no key, and no thread from which `pdf_render::Interrupt` could
             // be raised. What comes back arrives in `take_the_drawn`.
-            Event::NeedsRender(request) => self.drawing.ask(request),
+            Event::NeedsRender(request) => {
+                self.retained.asked(&request);
+                self.drawing.ask(request);
+            }
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows
             // share — `CLAUDE.md`'s four levels over the act of starting another program on a
@@ -2359,10 +2383,16 @@ impl Host {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
         };
-        // A page drawn part-way where it belongs (ADR 1825), and a frame from before a zoom
-        // scaled to the extent the page has now until its own lands (ADR 1843).
-        let frames = viewer_host::stand_in::placed(
-            viewer_host::drawing::over_frames(frames, partial, self.documents.focused(), geometry),
+        // A page drawn part-way where it belongs (ADR 1825), a frame from before a zoom scaled to
+        // the extent the page has now until its own lands (ADR 1843), and a page with no frame
+        // at all shown from its retained picture (ADR 1866).
+        let focused = self.documents.focused();
+        let frames = self.retained.fill(
+            viewer_host::stand_in::placed(
+                viewer_host::drawing::over_frames(frames, partial, focused, geometry),
+                geometry,
+            ),
+            focused,
             geometry,
         );
         let glimpsed = partial
@@ -3894,6 +3924,12 @@ impl Host {
         self.open_the_next();
     }
 
+    /// How many pages this window keeps a small picture of, per
+    /// [`viewer_host::stand_in::RETAINED_PAGES_WORD`]; zero turns the whole of it off (ADR 1866).
+    pub fn retain_pages(&mut self, extent: usize) {
+        self.retained = viewer_host::stand_in::Retained::new(extent);
+    }
+
     /// The command line's later paths, each to open as a tab behind the first once page one is up.
     pub fn open_behind(&mut self, named: Vec<viewer_host::Named>) {
         for one in named {
@@ -4393,9 +4429,10 @@ impl Host {
 
     /// Keeps the page just rendered as a transition's face, and begins one that was armed.
     ///
-    /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
-    /// the page arriving, each drawn where a frame will place it. A transition that re-rasterised
-    /// per frame would pay a page's interpretation sixty times a second for the length of it.
+    /// Two page rasterisations happen here and none per frame: the page being left and the page
+    /// arriving, each at its own size and put where the window shows it. A transition that
+    /// re-rasterised per frame would pay a page's interpretation sixty times a second for the
+    /// length of it.
     ///
     /// Only the page of the document in front is a face: a document opening behind it draws its
     /// first page too, and that page is not the one a presented page turn leaves (ADR 1303).
@@ -4403,20 +4440,19 @@ impl Host {
         if request.document != self.documents.focused() {
             return;
         }
+        // At the whole pixel `place` shows the page at, so that a face is the settled page pixel
+        // for pixel and the transition's last frame meets it without a seam (ADR 1865).
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => geometry.origin,
+            Answer::Geometry(geometry) => viewer_host::stand_in::whole_pixel(geometry.origin),
             _ => (0.0, 0.0),
         };
-        let arriving = (
-            std::sync::Arc::clone(&request.list),
-            viewer_host::face_target(request.target, origin, self.viewport),
-        );
+        let arriving = (std::sync::Arc::clone(&request.list), request.target, origin);
         let Some(transition) = self.arming.take() else {
             self.shown = Some(arriving);
             return;
         };
         let leaving = self.shown.replace(arriving.clone());
-        let Some((list, target)) = leaving else {
+        let Some((list, target, at)) = leaving else {
             self.say(&format!(
                 "transition: {:?} was named with no page to move from, so the page is shown at \
                  once",
@@ -4426,8 +4462,8 @@ impl Host {
         };
         let began = std::time::Instant::now();
         let (Some(outgoing), Some(incoming)) = (
-            viewer_host::face(&list, target),
-            viewer_host::face(&arriving.0, arriving.1),
+            viewer_host::clock::face_as_shown(&list, target, at, self.viewport),
+            viewer_host::clock::face_as_shown(&arriving.0, arriving.1, arriving.2, self.viewport),
         ) else {
             self.say(&format!(
                 "transition: {:?} was named but the pages behind it would not rasterise, so the \
@@ -7472,9 +7508,11 @@ fn place(fixed: &gtk4::Fixed, slot: &gtk4::Picture, picture: &Picture, scale: f6
             ),
         );
     } else {
-        // The translation alone, so that every frame but a stand-in is drawn by the
-        // path it always was.
-        fixed.move_(slot, x, y);
+        // The translation alone, to the whole device pixel nearest the origin: GSK draws a
+        // texture at a fractional offset by filtering it, which moves every row of the page by
+        // a fraction and blends the page's edge row with the ground (ADR 1865).
+        let (x, y) = viewer_host::stand_in::whole_pixel(picture.origin);
+        fixed.move_(slot, f64::from(x) / scale, f64::from(y) / scale);
     }
 }
 

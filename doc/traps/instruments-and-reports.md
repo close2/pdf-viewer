@@ -1385,6 +1385,21 @@ such an export skips their pages and says so only in a line nobody greps — rou
 run reported "10 page(s) absent" (ADR 1841). An export links the corpora in the way
 `tools/batch.sh open` does before any walk, and a gate's "absent" count is read as a refusal.
 
+### 153. An export's copy of a shared file is HEAD plus your own hunks
+
+Round 1511 copied `renderer.rs` from the shared worktree into its export of HEAD plus its patch, and
+the copy carried slot 1's in-progress edits; the export did not compile (ADR 1860). A file other
+slots also edit is rebuilt in an export as `git show HEAD:<file>` with your own hunks applied, never
+copied from the worktree, and the export's `git status` against HEAD names only your files.
+
+### 157. A log's first line saying "queued" is the moment it queued
+
+A wrapper prints "queued for the heavy-walk lock" when it asks and nothing when it is granted, so a
+log whose first line says queued may belong to a walk that has been running for ten minutes. Round
+1512 stopped its own `gpu-4x` arm at the budget on that reading, 649 s into its run (ADR 1861). A
+wait is stopped only after `/home/AI/heavy-walk.log`, `<lock>.queue` or the walk's own output has
+said it is still waiting.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

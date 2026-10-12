@@ -70,7 +70,7 @@ pub(crate) use flatten::{DeviceTransform, Polyline, flatten, flatten_stroke, pol
 pub(crate) use meet::{RowEdges, Work as MeetWork, area_in_pixel};
 #[cfg(test)]
 pub(crate) use stroke::stroke_polylines;
-pub(crate) use stroke::{resolve_width, stroke_pieces};
+pub(crate) use stroke::{dot_pieces, resolve_width, stroke_pieces};
 
 #[cfg(test)]
 mod tests;

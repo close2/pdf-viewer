@@ -370,6 +370,10 @@ pub struct Host {
     /// the `QTimer` that asks it whether anything has landed, and the interval for that is
     /// [`Host::drawing_wait`] — pulled rather than pushed, for this crate's own rule.
     drawing: viewer_host::Drawing,
+    /// A small picture of each page drawn lately, shown where a page arrives on the screen with
+    /// no frame until its own lands — `viewer_host::stand_in::Retained`, shared with `viewer-gtk`
+    /// (ADR 1866).
+    retained: viewer_host::stand_in::Retained,
     /// Which page this window has told the person is taking a long time to draw.
     ///
     /// **The state Escape's third row depends on** (`viewer_host::Waiting`), held rather than
@@ -542,11 +546,13 @@ pub struct Host {
     script_ticker: viewer_host::script_timers::Ticker,
     /// A transition named by the core, waiting for the page it moves *to* to be rendered.
     arming: Option<pdf_model::navigation::Transition>,
-    /// The page on the screen, as the list that drew it and where a whole-viewport draw would
-    /// put it — the face a transition would move *from*. Kept only while presenting.
+    /// The page on the screen, as the list that drew it, the target the core asked for and the
+    /// whole pixel the window shows it at — the face a transition would move *from*
+    /// (`viewer_host::clock::face_as_shown`). Kept only while presenting.
     shown: Option<(
         std::sync::Arc<pdf_render::DisplayList>,
         pdf_render::TargetSpec,
+        (f32, f32),
     )>,
     /// The frame of a transition in flight, which is what this window shows instead of a page.
     ///
@@ -603,6 +609,11 @@ impl Host {
     /// # Errors
     ///
     /// [`HostError::Unreadable`] where the file named cannot be read.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "most of it is the host's initial state, one line a field; splitting the literal \
+                  would put half of what a fresh window holds in another function"
+    )]
     pub fn open(
         path: &Path,
         fragment: Option<String>,
@@ -675,6 +686,7 @@ impl Host {
             // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule that
             // nothing page one does not need happens before page one.
             drawing: viewer_host::Drawing::new(),
+            retained: viewer_host::stand_in::Retained::default(),
             warned: None,
             trace,
             widget_appearances,
@@ -1552,8 +1564,8 @@ impl Host {
 
     /// Keeps the page just rendered as a transition's face, and begins one that was armed.
     ///
-    /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
-    /// the page arriving, each drawn where a frame will place it.
+    /// Two page rasterisations happen here and none per frame: the page being left and
+    /// the page arriving, each at its own size and put where the window shows it.
     ///
     /// Only the page of the document in front is a face: a document opening behind it draws its
     /// first page too, and that page is not the one a presented page turn leaves (ADR 1303).
@@ -1561,20 +1573,19 @@ impl Host {
         if request.document != self.documents.focused() {
             return;
         }
+        // At the whole pixel `frame` shows the page at, so that a face is the settled page pixel
+        // for pixel and the transition's last frame meets it without a seam (ADR 1865).
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => geometry.origin,
+            Answer::Geometry(geometry) => viewer_host::stand_in::whole_pixel(geometry.origin),
             _ => (0.0, 0.0),
         };
-        let arriving = (
-            std::sync::Arc::clone(&request.list),
-            viewer_host::face_target(request.target, origin, self.viewport),
-        );
+        let arriving = (std::sync::Arc::clone(&request.list), request.target, origin);
         let Some(transition) = self.arming.take() else {
             self.shown = Some(arriving);
             return;
         };
         let leaving = self.shown.replace(arriving.clone());
-        let Some((list, target)) = leaving else {
+        let Some((list, target, at)) = leaving else {
             self.say(&format!(
                 "transition: {:?} was named with no page to move from, so the page is shown at \
                  once",
@@ -1584,8 +1595,8 @@ impl Host {
         };
         let began = std::time::Instant::now();
         let (Some(outgoing), Some(incoming)) = (
-            viewer_host::face(&list, target),
-            viewer_host::face(&arriving.0, arriving.1),
+            viewer_host::clock::face_as_shown(&list, target, at, self.viewport),
+            viewer_host::clock::face_as_shown(&arriving.0, arriving.1, arriving.2, self.viewport),
         ) else {
             self.say(&format!(
                 "transition: {:?} was named but the pages behind it would not rasterise, so the \
@@ -2908,21 +2919,29 @@ impl Host {
 
     /// The pages this window paints and the rectangle each fills: the viewer's frames, with a page
     /// still being drawn put where it belongs as it stands — `viewer_host::drawing::over_frames`
-    /// (ADR 1825) — and a frame from before a zoom scaled to where the page is now —
-    /// `viewer_host::stand_in::placed` (ADR 1843), the rules `viewer-gtk` paints by too.
+    /// (ADR 1825) — a frame from before a zoom scaled to where the page is now —
+    /// `viewer_host::stand_in::placed` (ADR 1843) — and a page with no frame shown from its
+    /// retained picture — `viewer_host::stand_in::Retained` (ADR 1866), the rules `viewer-gtk`
+    /// paints by too.
     fn frames(&self) -> Vec<viewer_host::stand_in::Placed<'_>> {
         let geometry = |page| match self.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
         };
+        let focused = self.documents.focused();
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frames) => viewer_host::stand_in::placed(
-                viewer_host::drawing::over_frames(
-                    frames,
-                    self.drawing.partial(),
-                    self.documents.focused(),
+            // And a page with no frame at all shown from its retained picture (ADR 1866).
+            Answer::Frame(frames) => self.retained.fill(
+                viewer_host::stand_in::placed(
+                    viewer_host::drawing::over_frames(
+                        frames,
+                        self.drawing.partial(),
+                        focused,
+                        geometry,
+                    ),
                     geometry,
                 ),
+                focused,
                 geometry,
             ),
             _ => Vec::new(),
@@ -2959,8 +2978,8 @@ impl Host {
                 present: true,
                 width,
                 height,
-                origin_x: placed.frame.origin.0,
-                origin_y: placed.frame.origin.1,
+                origin_x: placed.shown_at().0,
+                origin_y: placed.shown_at().1,
                 shown_width: placed.extent.0,
                 shown_height: placed.extent.1,
             },
@@ -3547,6 +3566,12 @@ impl Host {
             .parent()
             .map(|directory| directory.to_string_lossy().into_owned())
             .unwrap_or_default()
+    }
+
+    /// How many pages this window keeps a small picture of, per
+    /// [`viewer_host::stand_in::RETAINED_PAGES_WORD`]; zero turns the whole of it off (ADR 1866).
+    pub fn retain_pages(&mut self, extent: usize) {
+        self.retained = viewer_host::stand_in::Retained::new(extent);
     }
 
     /// The command line's later paths, each to open as a tab behind the first once page one is up.
@@ -4158,6 +4183,20 @@ impl Host {
             let Some(rendered) = finished.outcome else {
                 continue;
             };
+            if let viewer_core::Rendered::Raster(raster) = &rendered {
+                let began = std::time::Instant::now();
+                if self.retained.landed(&finished.request, raster) {
+                    self.trace.say(
+                        Topic::Frames,
+                        format_args!(
+                            "page {} retained, {} held, in {:?}",
+                            finished.request.page.saturating_add(1),
+                            self.retained.len(),
+                            began.elapsed()
+                        ),
+                    );
+                }
+            }
             queue.push_back(Command::RenderReady {
                 token: finished.request.token,
                 rendered,
@@ -4411,7 +4450,10 @@ impl Host {
             // inside `QApplication::exec` would let a page written to draw for 27.6 s take the
             // window with it — no repaint, no key, and no thread from which `pdf_render::Interrupt`
             // could be raised. What comes back arrives in `take_the_drawn`.
-            Event::NeedsRender(request) => self.drawing.ask(request),
+            Event::NeedsRender(request) => {
+                self.retained.asked(&request);
+                self.drawing.ask(request);
+            }
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows
             // share — `CLAUDE.md`'s four levels over the act of starting another program on a

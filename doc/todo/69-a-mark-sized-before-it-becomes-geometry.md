@@ -30,7 +30,9 @@ first cut left the witness's 667 904 hatching dots on the general path — and
 `render_cpu::thin_segment::draw` paints it. The fit raster on one thread went from 2.9 s to 0.84 s,
 not the 0.46 s priced, and what is left is the command loop: every strip replays every command's
 extent test. Two things are still owed. `drawn_row_by_row` may let a cut pass a stroke this kernel
-draws, whatever its width. A zero-length round dot is a disc this construction already measures.
+draws, whatever its width. §8.5.3.2's round dot, a `m` and an `l` to one point, is one of these
+marks on both backends (ADR 1857), unless no pixel of it holds a level; a single-point closed
+subpath and a dot inside a longer path are still `split_degenerate`'s.
 
 **Owed beside it**: a unit ladder of the kernel against the clause's closed form — sizes 0.05 to
 2 px, positions across pixel edges, all three caps, both axes — whose expected values are the
@@ -59,27 +61,30 @@ scene holding a line is rebuilt at every view (ADR 0702), so a zoom step pays th
 ## 3. Tiles from a culled list, on a pool — the multiplier
 
 **Built** (ADR 1841): a zoomed frame is drawn from the marks that reach it, as the window's own row
-strips on the pool, the bounds kept with the list; the device's offscreen path keeps the whole list.
+strips on the pool, the bounds kept with the list. The device's offscreen path takes the culled
+list too: what the whole list moved on `bug946506.pdf` was raster's census sending a glyph placed
+beyond the page to the atlas, not a pixel of the off-page marks (ADR 1858).
 
 ADR 1817's candidate A: 4.0–4.5× at four times the fit, 2.2× at the fit, and a seam that moves
 pixels (588 and 778 on the witness). A tiled processor entry in `render-cpu` is where it attaches;
 what this file adds is the order — after section 1, so that what the pool multiplies is the small
 cost — and the bin index that makes the cull proportional to the view (the linear one is 64–70 ms).
 
-## 4. The page drawn while it is read — the next build
+The toolkit windows do not reach the cull: they ask for the whole page at a zoom. At four times the
+fit the whole page is 1 303 ms on four threads, the band of rows the window shows 444 ms and the
+window 161 ms; the band needs a host to say it places a raster at a row offset, and the stand-in
+and the look to know the band (ADR 1859 section 4). The strip count is the pool's width (ADR 1859).
 
-After sections 1 and 2 the read is 76–78 % of the witness's first frame (owner's display, 2.97–3.61 s
-of 3.83–4.78 s) and the window shows a bar until it ends. The read itself has no order of magnitude
-left (ADR 1845 §3), so the change is not to wait for it: the interpreter publishes its list in slices
-of top-level commands as it pushes them, beside ADR 1811's `Progress`, and the processor lane paints
-each slice into one target as it arrives, under ADR 1825's looks — pdf.js's streamed operator list,
-okular's partial updates. Priced by `crates/render-raster/examples/pipeline_price.rs` §6, the
-reader and the drawer at once: the first slice on the screen at 80–86 ms where the first look waits
-3.0–3.3 s, the finished frame 1.13–1.21× sooner. **Owed with it**: the incremental target
-byte-identical to the whole draw on `raster_golden` and the witness; slice boundaries only between
-top-level commands; the lane rule for a page whose command count is not known until its read ends;
-the first look and first frame re-taken on both displays. `doc/todo/16`'s resumable interpreter is
-not needed for it: the reader runs to its end on its own thread, as it does today.
+## 4. The page drawn while it is read — built in `quorra` (ADR 1855)
+
+The read was 76–78 % of the witness's first frame and the window showed a bar until it ended. Now
+the interpreter hands its list over in parts as it builds it (`pdf_model::progress::Parts`), page
+one is read on a thread of its own once the read has run `GLIMPSE_AFTER`, each part is drawn into
+the first frame's target as it arrives (`render_cpu::Underway`), `quorra` shows each look while the
+document opens, and the first frame is finished from that drawing — byte for byte the page drawn as
+one strip, every corpus first page checked. ADR 1855 has the rule for each page that is drawn whole
+instead and the figures. **Owed**: the two toolkit windows call `viewer_host::Ahead` (four calls in
+each host, listed in ADR 1855 §5); `quorra --cpu`'s composer and a page turn after the launch.
 
 ## 5. A line kept on the device, the view a uniform — the build after
 
@@ -88,5 +93,5 @@ The device's zoom step on the witness is 1 168–1 196 ms (scene 399–417, enco
 scene's space and kept resident, the view's transform and §8.4.3.2's device-dependent thinnest width
 applied in the shader, would make a step cost about the replay — vello's shape (`Scene::append`, its
 flattening in compute). It needs the argument ADR 1835 §2 declined, that a scene holding a line is
-true at every view, and the lane rule to measure the device on a page the seeds gave the processor
-(ADR 1831 §4), whose seeds are stale (ADR 1845 §6).
+true at every view; the lane rule that asks the device once on a page the seeds gave the processor
+is built, with the seeds re-measured (ADR 1860).

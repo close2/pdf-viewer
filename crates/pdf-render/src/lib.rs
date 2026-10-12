@@ -63,12 +63,16 @@ pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,
     split_degenerate,
 };
-pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
+pub use display_list::{
+    Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending, ListPart, Stated,
+};
 pub use edge::{
     DeviceRectangles, RECTANGLES_PER_PATH, device_rectangle, device_rectangles, rectangle_coverage,
 };
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
-pub use group_cost::{MAX_GROUP_BLIT_PIXELS, check_group_blit, group_blit_demand};
+pub use group_cost::{
+    MAX_GROUP_BLIT_PIXELS, check_group_blit, commands_blit_demand, group_blit_demand,
+};
 pub use lattice::{Lattice, MAX_DISTORTION, TilingType, snap_lattice};
 pub use medium::{
     Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,

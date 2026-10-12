@@ -587,6 +587,15 @@ overlaps itself from its surface's rows, so a glyph cut by a strip was measured 
 cut and another on the whole page, 36 levels on `bug1820909.1.pdf` (round 1500, ADR 1837) — the
 suspicion is taken over the whole mark, and the division test is planted back to check.
 
+### 155. A frame that moves after a cull is read against the scene's heuristics first
+
+Culling `bug946506.pdf`'s 254 off-page commands moved the gpu lane's frame, and the first reading
+was conflation in shared tiles. It was raster's census (raster ADR 0029): a glyph placed beyond the
+page counted as a second placement and went to the atlas; culled, it counted once and the lane's own
+coverage drew it — with `placed_once` planted to answer false, the whole and culled frames were the
+same bytes (round 1510, ADR 1858). When a frame changes after a cull, each scene-wide heuristic is
+neutralised in turn before the change is attributed to geometry.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

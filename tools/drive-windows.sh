@@ -3529,6 +3529,84 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# retained_page: step 82's second half (ADR 1866) — a page that comes back on the screen with no
+# frame is shown from the window's retained picture of it until its own frame lands. The drive's own
+# two pages, a red block on the first and a blue one on the second, each over a body that draws for
+# most of a second, under Table 29's `SinglePage`: page one is drawn, `Right` turns to page two and
+# its frame lands, and `Left` turns back, which leaves the viewer holding no pixels for page one.
+# The window says `its retained` when it shows the retained picture; the step photographs it then,
+# before page one's frame lands, and the red block must already be there, with no blue — before
+# this the photograph held page two (`quorra-gtk`, whose pictures stayed up) or the ground
+# (`quorra-qt`) — and must fill the box the landed frame gives it, to within the picture's blur.
+retained_page() {
+    local step=82-retained-page file="$FIXTURES/drive-retained.pdf" traced=$LAUNCH_TRACE mark mid settled blue
+    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "this window retains pages of its own (ADR 0443), not viewer_host::stand_in::Retained"
+        return
+    fi
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+for block in (b"1 0 0 rg 72 500 200 200 re f\n", b"0 0 1 rg 340 92 200 200 re f\n"):
+    body = block + b"1 1 1 rg 300 400 1 1 re f\n" * 600_000
+    content = pikepdf.Stream(pdf, zlib.compress(body, 9))
+    content.Filter = Name.FlateDecode
+    pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                             Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1], compress_streams=False)
+PY2
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    wait_for 30 said_since 0 "page 1 retained"
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+    mark=$(lines)
+    xdotool key Right
+    if ! wait_for 30 said_since "$mark" "page 2 rasterised"; then
+        verdict "$step" wrong "page two never landed"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    sleep 0.3
+    mark=$(lines)
+    xdotool key Left
+    if ! wait_for 2 said_since "$mark" "its retained"; then
+        # What the window showed instead, photographed for the record: the other page or the ground.
+        shot "$step-mid"
+        mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#ff0000" -fill white -opaque "#ff0000" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+        blue=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#0000ff" -fill white -opaque "#0000ff" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+        verdict "$step" wrong "no retained picture was said after the turn back; the window held ${mid:-?} red and ${blue:-?} blue pixels: $(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -E 'rasterised|stands in')"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    shot "$step-mid"
+    if said_since "$mark" "page 1 rasterised\\|shown as it stands"; then
+        verdict "$step" wrong "the photograph was taken after page one's frame or a part-way picture had replaced the retained one"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    wait_for 30 said_since "$mark" "page 1 rasterised"
+    sleep 0.7
+    xdotool key shift; sleep 0.5
+    shot "$step-settled"
+    mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    blue=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill black +opaque "#0000ff" -fill white -opaque "#0000ff" -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+    settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if [ "${blue:-1}" != 0 ]; then
+        verdict "$step" wrong "the photograph after the turn back held ${blue:-?} pixels of page two's blue"
+    elif python3 - "$mid" "$settled" <<'PY2'
+import re, sys
+boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if re.match(r"\d+x\d+\+\d+\+\d+$", b) else None for b in sys.argv[1:]]
+sys.exit(0 if None not in boxes and all(abs(a - b) <= 4 for a, b in zip(*boxes)) else 1)
+PY2
+    then
+        verdict "$step" works "the retained picture's red block $mid, the landed frame's $settled"
+    else
+        verdict "$step" wrong "the retained picture's red block $mid against the landed frame's $settled"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # --- step 83: a transition's frames are the two pages and nothing else (ADR 1853) ----------------
 # transition_frames: the drive's own slide show — red, blue and green slides, each with a white
 # square at a corner of its own, the second and third moved to by Table 164's `Wipe` and an outward
@@ -3639,8 +3717,9 @@ PY2
 # the first picture of the page in flight and on the finished page, and whether that first picture
 # held ink — figures `built<TAB>window<TAB>figure<TAB>value<TAB>unit` in `$OUT/built.tsv`. `quorra`
 # shows the page as it is built where the processor draws it, refused by the device or predicted
-# the faster lane (ADR 1831); its finished page is its launch summary. Outside the list, because its
-# verdict is a time.
+# the faster lane (ADR 1831), and page one as it is read where the read outlasts `GLIMPSE_AFTER`
+# (ADR 1855); its finished page is its launch summary. Outside the list, because its verdict is a
+# time.
 page_as_built_heavy() {
     local step=81-page-as-built-heavy shown framed inked=no finished='first frame on the screen'
     if [ "$WINDOW" = quorra-confined ]; then
@@ -3657,13 +3736,13 @@ page_as_built_heavy() {
         env -u RAYON_NUM_THREADS "$BIN/$WINDOW" --trace=events,launch,frames "$HEAVY_FILE" > "$LOG" 2>&1 &
     fi
     APP=$!
-    if wait_for "$HEAVY_CEILING" said_since 0 "shown as it stands\\|$finished"; then
+    if wait_for "$HEAVY_CEILING" said_since 0 "shown as it stands\\|shown as it is read\\|$finished"; then
         if [ "$(said "$finished")" -eq 0 ] && drawn_on_the_shot "$step-built"; then
             inked=yes
         fi
     fi
     wait_for "$HEAVY_CEILING" first_frame
-    shown=$(grep -m1 'shown as it stands' "$LOG" | awk '{print $2}')
+    shown=$(grep -m1 -E 'shown as it (stands|is read)' "$LOG" | awk '{print $2}')
     framed=$(grep -m1 "$finished" "$LOG" | awk '{print $2}')
     printf 'built\t%s\t%s\t%s\t%s\n' "$WINDOW" first-shown "${shown:-never}" s "$WINDOW" first-frame "${framed:-never}" s \
         "$WINDOW" read "$(grep -m1 -E '^trace: +[0-9.]+ document joined' "$LOG" | awk '{print $2}')" s \
@@ -3915,6 +3994,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     loading_bar
     page_as_built
     zoom_stand_in
+    retained_page
     transition_frames
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

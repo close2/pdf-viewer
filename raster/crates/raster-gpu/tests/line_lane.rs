@@ -468,6 +468,198 @@ fn a_line_under_a_residue_is_the_stroke_of_its_outline() {
     assert_eq!(drawn, draw(&mut device, &stroked).0);
 }
 
+/// §8.5.3.2's dot as a polygon of the device: "a filled circle centred at the single point",
+/// which under a linear part that keeps the axes is the pen's ellipse about it, inscribed with
+/// twice [`ARC`] vertices.
+fn reference_dot(case: &Case) -> Vec<(f64, f64)> {
+    let t = case.transform;
+    let centre = (
+        f64::from(t.a) * f64::from(case.from.x)
+            + f64::from(t.c) * f64::from(case.from.y)
+            + f64::from(t.e),
+        f64::from(t.b) * f64::from(case.from.x)
+            + f64::from(t.d) * f64::from(case.from.y)
+            + f64::from(t.f),
+    );
+    let half = f64::from(case.width) / 2.0;
+    let pen = (
+        half * (f64::from(t.a).abs() + f64::from(t.c).abs()),
+        half * (f64::from(t.b).abs() + f64::from(t.d).abs()),
+    );
+    (0..2 * ARC)
+        .map(|step| {
+            let theta = std::f64::consts::TAU * f64::from(step) / f64::from(2 * ARC);
+            (
+                centre.0 + pen.0 * theta.cos(),
+                centre.1 + pen.1 * theta.sin(),
+            )
+        })
+        .collect()
+}
+
+/// **The dot's claim** (viewer ADR 1857): a line of no length under a round cap is §8.5.3.2's
+/// filled circle, the line's own set at length zero, and the lane carries its exact area to one
+/// level on every adapter and both lanes — under the identity, unequal scales and a quarter
+/// turn, at every placement across a pixel's corner. Under a butt or projecting cap the scene
+/// refuses the line, the clause's "no output" being the caller's to give.
+#[test]
+fn a_round_line_of_no_length_carries_the_area_of_its_filled_circle() {
+    let widths = [0.05f32, 0.13, 0.3, 0.7, 1.0, 2.0, 3.5];
+    let places = [0.0f32, 0.1, 0.47, 0.5, 0.93];
+    let linear = [
+        (1.0f32, 0.0f32, 0.0f32, 1.0f32),
+        (1.7, 0.0, 0.0, 0.6),
+        (0.0, 1.0, -1.0, 0.0),
+    ];
+    let mut cases = Vec::new();
+    for &(a, b, c, d) in &linear {
+        for &width in &widths {
+            for &x in &places {
+                for &y in &places {
+                    let index = cases.len() as u32;
+                    let transform = Affine {
+                        a,
+                        b,
+                        c,
+                        d,
+                        e: (index % CELLS * CELL) as f32 + 4.0,
+                        f: (index / CELLS * CELL) as f32 + 4.0,
+                    };
+                    let det = a * d - b * c;
+                    let own = Point::new((d * x - c * y) / det, (a * y - b * x) / det);
+                    cases.push(Case {
+                        from: own,
+                        to: own,
+                        width,
+                        cap: LineCap::Round,
+                        transform,
+                    });
+                }
+            }
+        }
+    }
+    assert!(cases.len() <= (CELLS * CELLS) as usize);
+    for cap in [LineCap::Butt, LineCap::Square] {
+        let refused = SceneBuilder::new().line(
+            (Point::new(1.0, 1.0), Point::new(1.0, 1.0)),
+            Affine::IDENTITY,
+            (1.0, false),
+            cap,
+            black(),
+            None,
+            None,
+        );
+        assert!(refused.is_err(), "{cap:?}: a dot is the caller's no output");
+    }
+    let polygons: Vec<Vec<(f64, f64)>> = cases.iter().map(reference_dot).collect();
+    let scene = ladder_scene(&cases);
+    for adapter in adapters() {
+        for coverage in [Coverage::Cpu, Coverage::Compute] {
+            let mut device = device_on(&adapter, coverage);
+            let (pixels, counters) = draw(&mut device, &scene);
+            assert_eq!(
+                counters.lanes.line as usize,
+                cases.len(),
+                "{adapter} {coverage:?}: every dot took the line lane"
+            );
+            let (mut worst, mut at) = (0.0f64, None);
+            for (index, polygon) in polygons.iter().enumerate() {
+                let (x0, y0) = (index as u32 % CELLS * CELL, index as u32 / CELLS * CELL);
+                for y in y0..y0 + CELL {
+                    for x in x0..x0 + CELL {
+                        let expected = common::meet::in_pixel(polygon, x, y) * 255.0;
+                        let alpha = f64::from(pixels[((y * SIDE + x) * 4 + 3) as usize]);
+                        let off = (alpha - expected).abs();
+                        if off > worst {
+                            worst = off;
+                            at = Some((index, x, y, alpha, expected));
+                        }
+                    }
+                }
+            }
+            println!("{adapter} {coverage:?}: dots worst {worst:.3} levels at {at:?}");
+            let detail = at.map(|(index, ..)| cases[index]);
+            assert!(
+                worst <= 1.0,
+                "{adapter} {coverage:?}: a pixel is {worst:.3} levels from the circle's area: \
+                 {at:?} {detail:?}"
+            );
+        }
+    }
+}
+
+/// Where the closed form does not apply — a clip with a non-rectangular link — the dot takes
+/// the stroke road, which expands nothing for a subpath of no length; it is drawn there as the
+/// stroker's own two round caps about the point, and carries the area of the circle met with
+/// the clip to within the caps' flattening.
+#[test]
+fn a_round_dot_under_a_residue_is_the_circle_met_with_the_clip() {
+    let clip_points = common::meet::clip_polygon();
+    let polygon = common::meet::polygon_path(&clip_points);
+    // On the clip's right edge, so that the residue cuts the circle.
+    let centre = Point::new(14.4, 8.6);
+    let width = 3.0f32;
+    for coverage in [Coverage::Cpu, Coverage::Gpu] {
+        let mut device = common::meet::device_with(coverage, 1);
+        let mut builder = SceneBuilder::new();
+        let clip = common::meet::residue_clip(&mut device, &mut builder, &polygon);
+        builder
+            .line(
+                (centre, centre),
+                Affine::IDENTITY,
+                (width, false),
+                LineCap::Round,
+                black(),
+                Some(clip),
+                None,
+            )
+            .unwrap();
+        let scene = builder.finish();
+        let frame = device
+            .render(
+                &scene,
+                &Viewport::full(24, 24, Affine::IDENTITY),
+                Target::Readback,
+            )
+            .expect("one dot is inside every budget");
+        assert_eq!(
+            frame.counters().lanes.line,
+            0,
+            "a residue takes the dot off its lane"
+        );
+        let pixels = common::headless::pixels(frame);
+        let disc: Vec<(f64, f64)> = (0..2 * ARC)
+            .map(|step| {
+                let theta = std::f64::consts::TAU * f64::from(step) / f64::from(2 * ARC);
+                (
+                    f64::from(centre.x) + 1.5 * theta.cos(),
+                    f64::from(centre.y) + 1.5 * theta.sin(),
+                )
+            })
+            .collect();
+        let met = common::meet::clip_convex(&disc, &clip_points);
+        let (mut worst, mut ink) = (0.0f64, 0.0f64);
+        for y in 0..24 {
+            for x in 0..24 {
+                let expected = common::meet::in_pixel(&met, x, y) * 255.0;
+                let alpha = f64::from(pixels[((y * 24 + x) * 4 + 3) as usize]);
+                worst = worst.max((alpha - expected).abs());
+                ink += alpha;
+            }
+        }
+        let area = common::meet::area(&met) * 255.0;
+        println!("{coverage:?}: worst {worst:.3} levels, ink {ink:.1} against {area:.1}");
+        assert!(
+            worst <= 2.0,
+            "{coverage:?}: {worst:.3} levels from the met circle"
+        );
+        assert!(
+            (ink - area).abs() <= 0.01 * area + 4.0,
+            "{coverage:?}: ink {ink} against {area}"
+        );
+    }
+}
+
 /// A rectangular clip is met per pixel inside the shader: a round-ended line cut by a clip
 /// rectangle carries the area of the set inside it and nothing outside.
 #[test]

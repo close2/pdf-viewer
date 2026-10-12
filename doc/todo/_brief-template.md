@@ -70,6 +70,11 @@ habit, if any; the record's `wc -l`; the duration as `<n> s`.
 - Shared-machine rules in full. The rule block is the one copy; the brief names it.
 - A contract's premise without its command. A premise checked by the orchestrator in the text,
   the code and the data before the brief is written costs minutes; one checked by six rounds
-  afterwards costs each of them the same minutes. Most premises the records say did not hold were
-  a mechanism or a feature's reach, which is a hypothesis and is briefed as one;
-  `doc/reviews/1456/premises.py` counts them (ADR 1748).
+  afterwards costs each of them the same minutes. A mechanism or a feature's reach is a hypothesis
+  and is briefed as one; what still misses as a premise is a figure or a place, which a command
+  finds; `doc/reviews/1513/premises.py` counts them (ADR 1748, ADR 1863).
+- A figure quoted from an earlier record as a premise. A record's figure is its own HEAD's; re-run
+  its command at the brief's HEAD and quote that, or brief the claim as a hypothesis (ADR 1863).
+- The six arms in *Gates owed* for a change that cannot alter what is drawn: one whose display list
+  is byte-identical on the corpus gate's first pages before and after (`callgrind_interpret --digest`
+  a page; for a change to a bound, `display_list_census`'s counts argue it) owes none (ADR 1863).

@@ -206,6 +206,10 @@ pub(crate) fn encode(
 /// its exact area in the shader, with no outline behind it (raster's ADR 0097) — and `true`; or
 /// `false`, and nothing drawn, for every stroke it does not admit.
 ///
+/// §8.5.3.2's round dot is one of them, its two points equal: the line's set at length zero is
+/// the clause's filled circle, so it never reaches `split_degenerate`'s circle of four cubics, and
+/// the device and the processor measure it by the one closed form (ADR 1857).
+///
 /// The population is decided at the device transform — the two by two block is this view's
 /// pixels — so a scene holding one is true only at this view (ADR 0702), exactly as a scene
 /// holding §8.5.3.2's dots is. The width crosses resolved, in the path's own space, so that

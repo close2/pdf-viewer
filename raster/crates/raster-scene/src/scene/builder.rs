@@ -171,7 +171,8 @@ impl SceneBuilder {
     /// # Errors
     ///
     /// Refuses an invalid transform, colour or line ([`SceneError::InvalidLine`]: points
-    /// not finite, beyond the bound or equal, or a width a [`Stroke`] would refuse), and
+    /// not finite, beyond the bound, or equal under a cap that is not round, or a width a
+    /// [`Stroke`] would refuse), and
     /// clip or mask identifiers this scene never allocated.
     // One command's fields, as `stroke`'s are: the call stays one line per mark.
     #[expect(clippy::too_many_arguments)]
@@ -186,7 +187,7 @@ impl SceneBuilder {
         mask: Option<MaskId>,
     ) -> Result<(), SceneError> {
         Self::check_transform(transform)?;
-        Self::check_line(from, to, width)?;
+        Self::check_line(from, to, width, cap)?;
         Self::check_color(color)?;
         self.check_clip(clip)?;
         self.check_mask(mask)?;

@@ -422,3 +422,22 @@ that as a zoom, predicted a missed refresh and put up a two-page reprojection fo
 owner's "last frame shows something incorrect" (round 1508, ADR 1853). A frame carries what it
 depicts (`Depicts::Transition`) from the place it is asked for, the landing reads the mark, and a
 transition frame settles no view, feeds no prediction and is never retained.
+
+### 154. The launch's critical path stays on the thread the launch placed
+
+This machine has four fast cores and eight slower ones. Round 1509's first design read the page on
+a newly spawned thread and drew on the opening thread; the read took 3.05–3.37 s against 2.14–2.24 s
+and the first frame landed later than before the change (ADR 1855). Reversed — the read on the
+opening thread, the drawer spawned — the first look came at 0.54 s and the first frame no later. Work
+on the critical path keeps the thread the launch already placed; the helper is what moves.
+
+### 156. A face matches the window's settled picture, edge row included
+
+A page whose device extent is fractional has its last row rounded up (ADR 0064). `viewer_host::face`
+drew a transition's faces over the window's surround, so the half of that last row outside the page
+carried the surround's colour where the settled page carries the page's own, and every mid-transition
+frame in `quorra-gtk` differed from the settled page along the page's edge by about 2 970 pixels;
+`quorra-qt` passed under Xvfb only because its viewport happened to give a whole-pixel page, and
+showed the same seam on the owner's display (round 1514, ADR 1865). A face, a stand-in or an end
+frame drawn apart from the page it gives way to is drawn the way that window draws the page, at the
+whole pixel the page is shown at, and the drive judges it against the settled frame.
