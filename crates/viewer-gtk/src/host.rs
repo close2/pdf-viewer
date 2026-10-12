@@ -2355,24 +2355,35 @@ impl Host {
         };
         let held = frames.len();
         let partial = self.drawing.partial();
-        let frames =
-            viewer_host::drawing::over_frames(frames, partial, self.documents.focused(), |page| {
-                match self.viewer.query(Query::PageGeometry(page)) {
-                    Answer::Geometry(geometry) => Some(geometry),
-                    _ => None,
-                }
-            });
+        let geometry = |page| match self.viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) => Some(geometry),
+            _ => None,
+        };
+        // A page drawn part-way where it belongs (ADR 1825), and a frame from before a zoom
+        // scaled to the extent the page has now until its own lands (ADR 1843).
+        let frames = viewer_host::stand_in::placed(
+            viewer_host::drawing::over_frames(frames, partial, self.documents.focused(), geometry),
+            geometry,
+        );
         let glimpsed = partial
             .filter(|partial| {
                 frames
                     .iter()
-                    .any(|frame| std::ptr::eq(frame.raster, partial.raster()))
+                    .any(|placed| std::ptr::eq(placed.frame.raster, partial.raster()))
             })
             .map(|partial| (partial.page(), partial.fraction()));
+        for placed in frames.iter().filter(|placed| placed.stands_in()) {
+            self.trace.say(Topic::Frames, format_args!("{placed}"));
+        }
         let placements = frames
             .into_iter()
-            .filter_map(|frame| match page::texture(frame.raster) {
-                Ok(texture) => Some((texture, frame.origin, frame.raster.data.len())),
+            .filter_map(|placed| match page::texture(placed.frame.raster) {
+                Ok(texture) => Some(Picture {
+                    texture,
+                    origin: placed.frame.origin,
+                    extent: placed.extent,
+                    bytes: placed.frame.raster.data.len(),
+                }),
                 Err(error) => {
                     eprintln!("note: {error}");
                     None
@@ -2401,7 +2412,7 @@ impl Host {
             // Tier 1's whole cost, in the one place it is paid: `doc/ui-boundary.md` prices the
             // tier at "one copy per frame" and this is that copy, timed rather than assumed
             // (ADR 0244).
-            let bytes: usize = placements.iter().map(|(_, _, bytes)| bytes).sum();
+            let bytes: usize = placements.iter().map(|picture| picture.bytes).sum();
             self.trace.say(
                 Topic::Frames,
                 format_args!(
@@ -2418,18 +2429,8 @@ impl Host {
                 self.ui.fixed.put(&picture, 0.0, 0.0);
                 self.ui.pictures.push(picture);
             }
-            for (slot, (texture, origin, _)) in self.ui.pictures.iter().zip(&placements) {
-                slot.set_paintable(Some(texture));
-                slot.set_size_request(
-                    logical(f64::from(texture.width()), scale),
-                    logical(f64::from(texture.height()), scale),
-                );
-                slot.set_visible(true);
-                self.ui.fixed.move_(
-                    slot,
-                    f64::from(origin.0) / scale,
-                    f64::from(origin.1) / scale,
-                );
+            for (slot, picture) in self.ui.pictures.iter().zip(&placements) {
+                place(&self.ui.fixed, slot, picture, scale);
             }
             // The widgets a smaller arrangement no longer needs: hidden rather than destroyed,
             // because the next scroll will want them back.
@@ -4455,7 +4456,7 @@ impl Host {
     ///
     /// `None` where there is nothing being drawn, and then the window shows the page — which is
     /// the transition's own end state, so the two answers meet without a seam.
-    fn transition_placement(&mut self) -> Option<(gtk4::gdk::MemoryTexture, (f32, f32), usize)> {
+    fn transition_placement(&mut self) -> Option<Picture> {
         let viewport = self.viewport_rect();
         let now = std::time::Instant::now();
         let shaped = self.clock.as_mut().map(|clock| clock.frame(viewport, now));
@@ -4484,7 +4485,12 @@ impl Host {
             }
         };
         match page::texture(&raster) {
-            Ok(texture) => Some((texture, (0.0, 0.0), raster.data.len())),
+            Ok(texture) => Some(Picture {
+                extent: (raster.width, raster.height),
+                texture,
+                origin: (0.0, 0.0),
+                bytes: raster.data.len(),
+            }),
             Err(error) => {
                 eprintln!("note: {error}");
                 None
@@ -7422,10 +7428,73 @@ const fn notebook_page(tab: Tab) -> u32 {
     }
 }
 
+/// Puts one picture where its frame belongs: laid out at its texture's size, moved to its origin,
+/// and — for a stand-in only — scaled to the extent the page has now (ADR 1843).
+fn place(fixed: &gtk4::Fixed, slot: &gtk4::Picture, picture: &Picture, scale: f64) {
+    slot.set_paintable(Some(&picture.texture));
+    let (width, height) = (picture.texture.width(), picture.texture.height());
+    slot.set_size_request(
+        logical(f64::from(width), scale),
+        logical(f64::from(height), scale),
+    );
+    slot.set_visible(true);
+    // `GtkFixed::move` is a translation, and a stand-in is the same translation with
+    // a scale after it: the old frame laid out at its own size and drawn by GSK at the
+    // extent the page has now, linearly, on whichever renderer the window has. A size
+    // request cannot do it, because `GtkFixed` gives a child its natural size and a
+    // picture's is its texture's, so a notch out would have stayed large (ADR 1843).
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "extents are under 2^24 pixels: `MAX_PIXELS` bounds the raster"
+    )]
+    let fill = (
+        picture.extent.0 as f32 / width.max(1) as f32,
+        picture.extent.1 as f32 / height.max(1) as f32,
+    );
+    let (x, y) = (
+        f64::from(picture.origin.0) / scale,
+        f64::from(picture.origin.1) / scale,
+    );
+    let scaled = i64::from(picture.extent.0) != i64::from(width)
+        || i64::from(picture.extent.1) != i64::from(height);
+    if scaled {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a viewport's logical position is far inside an `f32`"
+        )]
+        let at = gtk4::graphene::Point::new(x as f32, y as f32);
+        fixed.set_child_transform(
+            slot,
+            Some(
+                &gtk4::gsk::Transform::new()
+                    .translate(&at)
+                    .scale(fill.0, fill.1),
+            ),
+        );
+    } else {
+        // The translation alone, so that every frame but a stand-in is drawn by the
+        // path it always was.
+        fixed.move_(slot, x, y);
+    }
+}
+
+/// One texture a frame puts on the screen.
+struct Picture {
+    /// The pixels, copied once into the toolkit's own texture.
+    texture: gtk4::gdk::MemoryTexture,
+    /// Where its top-left corner sits in the viewport, in device pixels.
+    origin: (f32, f32),
+    /// The width and height it fills, in device pixels: the texture's own, or the extent the page
+    /// has now where the texture is its last frame from before a zoom (`viewer_host::stand_in`).
+    extent: (u32, u32),
+    /// How many bytes the copy into the texture took.
+    bytes: usize,
+}
+
 /// What [`Host::placements`] puts on the screen.
 struct Pictures {
-    /// One texture per page shown, where it goes, and how many bytes it copied.
-    placements: Vec<(gtk4::gdk::MemoryTexture, (f32, f32), usize)>,
+    /// One texture per page shown.
+    placements: Vec<Picture>,
     /// How many of them are the viewer's own pixels — a finished page or a transition's face.
     held: usize,
     /// The page shown as it stands, and how much of it is drawn, where one is.

@@ -1188,7 +1188,7 @@ bool PageArea::focusNextPrevChild(bool /*next*/)
     return false;
 }
 
-void PageArea::setFrames(QList<QPair<QImage, QPointF>> frames)
+void PageArea::setFrames(QList<QPair<QImage, QRectF>> frames)
 {
     frames_ = std::move(frames);
     update();
@@ -1200,10 +1200,16 @@ void PageArea::paintEvent(QPaintEvent*)
         return;
     }
     QPainter painter(this);
-    for (const QPair<QImage, QPointF>& frame : frames_) {
-        if (!frame.first.isNull()) {
-            painter.drawImage(frame.second, frame.first);
+    for (const QPair<QImage, QRectF>& frame : frames_) {
+        if (frame.first.isNull()) {
+            continue;
         }
+        // A stand-in is scaled by the raster paint engine as it is painted, bilinearly and only
+        // inside the region being repainted, so its cost is bounded by the window rather than by
+        // the page's raster; at its own size the image is the copy it always was (ADR 1843).
+        const bool scaled = frame.second.size() != frame.first.deviceIndependentSize();
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, scaled);
+        painter.drawImage(frame.second, frame.first);
     }
 }
 
@@ -2614,7 +2620,7 @@ void MainWindow::showFrame()
     // always was.
     QElapsedTimer clock;
     clock.start();
-    QList<QPair<QImage, QPointF>> frames;
+    QList<QPair<QImage, QRectF>> frames;
     std::size_t bytes = 0;
     const qreal scale = page_->devicePixelRatioF();
     for (std::size_t index = 0; index < count; ++index) {
@@ -2636,7 +2642,8 @@ void MainWindow::showFrame()
         QImage owned = borrowed.copy();
         owned.setDevicePixelRatio(scale);
         frames.append(qMakePair(std::move(owned),
-                                QPointF(frame.origin_x / scale, frame.origin_y / scale)));
+                                QRectF(frame.origin_x / scale, frame.origin_y / scale,
+                                       frame.shown_width / scale, frame.shown_height / scale)));
         bytes += static_cast<std::size_t>(stride) * static_cast<std::size_t>(frame.height);
     }
     if (frames.isEmpty()) {

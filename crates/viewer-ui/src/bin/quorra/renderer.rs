@@ -2211,6 +2211,7 @@ mod tests {
                 transform: Transform::scale(magnification, -magnification)
                     .then(Transform::translate(pan, 842.0 * magnification)),
             },
+            depicts: crate::stale::Depicts::Page,
         }]
     }
 
@@ -2391,6 +2392,7 @@ mod gesture {
                         .transform
                         .then(Transform::translate(geometry.origin.0, geometry.origin.1)),
                 },
+                depicts: crate::stale::Depicts::Page,
             });
         }
         requests.retain(|request| placed.iter().any(|one| one.of.page() == request.page));

@@ -1,8 +1,9 @@
 # 1831 — `quorra`'s processor page is shown as it is built, and the processor is asked for it where it is the faster lane
 
-Session 1497. Status: **accepted** and **built**; the part that puts page one on the processor is
-put to the owner as `doc/questions/Q393`. Asked by the project owner on 2026-10-10: "improve
-performance — loading and display time, zooming in and out especially", the first frame on his
+Session 1497. Status: **ratified** and **built**; the part that puts page one on the processor was
+put to the owner as `doc/questions/Q393` and ratified on 2026-10-12 (`doc/questions/A393`).
+Asked by the project owner on 2026-10-10: "improve performance — loading and display time,
+zooming in and out especially", the first frame on his
 drawing `/tmp/demo_heavy_engineering_A1.pdf`. Context: ADRs 0443, 0657, 0699, 1811, 1817, 1819,
 1821, 1823, 1825; trap 143. Code: `Costs`, `Prediction`, `Partial`, `draw`, `processor_half`,
 `retain` and `retain_one` in `crates/viewer-ui/src/bin/quorra/renderer.rs`; `as_built`,

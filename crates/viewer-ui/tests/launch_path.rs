@@ -2553,6 +2553,19 @@ enum Declined {
     Nothing,
 }
 
+/// A figure outside its band as the summary names it: the document's file name, the check file's
+/// key, the figure and the band — short enough that a summary naming every figure of a row stays
+/// one line a merge's log can carry, where the line above it gives the figure's whole description.
+fn outside_name(what: &str, figure: &Judged) -> String {
+    let document = what
+        .split_once(": ")
+        .map_or(what, |(path, _)| path.rsplit('/').next().unwrap_or(path));
+    format!(
+        "{document} {} {:.3} not in {:.3} .. {:.3}",
+        figure.key, figure.value, figure.band.low, figure.band.high
+    )
+}
+
 /// Why one figure was not judged, in the words of the probe that declined it.
 ///
 /// **A gate that declines has to say what declined it** (ADR 0903). Read without it, four runs
@@ -3281,6 +3294,7 @@ fn the_launch_path_stays_inside_its_bands() {
 
     let mut unjudged = 0_usize;
     let mut for_load = 0_usize;
+    let mut outside: Vec<String> = Vec::new();
     for (what, figure) in &judged {
         // **The band goes out beside the figure on every run, and not only when the figure is
         // outside it.** A band this gate prints only on a failure is a band nobody reads until it
@@ -3360,6 +3374,26 @@ fn the_launch_path_stays_inside_its_bands() {
                 why_not(declined, figure)
             );
         }
+        // **Every figure outside its band is named on a line of the report's own prefix, and
+        // again in the summary**, judged or not. The complaint below reaches only the panic's
+        // message, which `tools/state.sh launch` filters away with every line that does not open
+        // `launch-path:` — so a run read through it printed "2 outside" and named neither (ADR
+        // 1851). A reader of one line learns which figures, and the line above it how far.
+        if !held {
+            println!(
+                "launch-path: {} {what} ({}) is {:.3}, outside {:.3} .. {:.3}",
+                if figure.steady || (judging && machine_was_right) {
+                    "OUTSIDE"
+                } else {
+                    "(not judged) outside:"
+                },
+                figure.key,
+                figure.value,
+                figure.band.low,
+                figure.band.high
+            );
+            outside.push(outside_name(what, figure));
+        }
         if !held && (figure.steady || (judging && machine_was_right)) {
             // **A complaint carries the machine's readings too, and not only a declined figure
             // does** (ADR 0903). Twenty-six runs of this gate in which eight figures failed
@@ -3376,23 +3410,20 @@ fn the_launch_path_stays_inside_its_bands() {
                 "{what} is {:.3}, outside {} {:.3} .. {:.3} ({machine})",
                 figure.value, figure.key, figure.band.low, figure.band.high
             ));
-        } else if !held {
-            println!(
-                "launch-path: (not judged) {what} is {:.3}, outside {:.3} .. {:.3}",
-                figure.value, figure.band.low, figure.band.high
-            );
         }
     }
 
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
          {uncounted} not counted, {unmeasured_scripts} script stages not measured, {} figures \
-         banded, {unjudged} not judged ({for_load} of them for load), {} outside",
+         banded, {unjudged} not judged ({for_load} of them for load), {} outside{}",
         judged.len(),
-        judged
-            .iter()
-            .filter(|(_, figure)| !figure.band.holds(figure.value))
-            .count()
+        outside.len(),
+        if outside.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", outside.join("; "))
+        }
     );
 
     assert!(

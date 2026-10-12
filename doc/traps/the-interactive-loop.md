@@ -404,3 +404,21 @@ was raised before the job carrying it had been sent, so nobody saw it; and the i
 whether the frame's draw had begun rather than by which lane the frame had been sent to, so a frame
 sent to the processor still started the device's whole-page picture (ADR 1831). The flag is raised
 after the send, and idle work follows the frame's lane.
+
+### 151. A `GtkFixed` child is never smaller than its texture
+
+A `GtkFixed` gives each child its natural size: a size request can enlarge a `GtkPicture` but
+cannot shrink it below the texture it holds, so a frame asked to stand in at a smaller extent after
+a notch out stayed at its old size (round 1503, ADR 1843). A stand-in's scale goes through
+`GtkFixed::set_child_transform` — translate, then scale — for the stand-in only, and every frame
+drawn at its own size keeps `move_`.
+
+### 152. What a frame depicts is marked where it is asked for, because it lands a tick later
+
+`quorra` asked for a transition frame as a `Placed` carrying the arriving page's identity at the
+identity target, forgot the view on that same tick, and then the frame landed a tick later and was
+recorded as "the arriving page, settled at the identity"; the first tick after the transition read
+that as a zoom, predicted a missed refresh and put up a two-page reprojection for 12–32 ms — the
+owner's "last frame shows something incorrect" (round 1508, ADR 1853). A frame carries what it
+depicts (`Depicts::Transition`) from the place it is asked for, the landing reads the mark, and a
+transition frame settles no view, feeds no prediction and is never retained.

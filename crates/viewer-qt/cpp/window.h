@@ -414,11 +414,13 @@ class PageArea : public QWidget
 public:
     explicit PageArea(QWidget* parent = nullptr);
 
-    /// The frames to paint, each with where its top-left corner sits in the viewport.
+    /// The frames to paint, each with the rectangle of the viewport it fills.
     ///
     /// A list since Table 29's `/PageLayout` was obeyed: `OneColumn` puts several pages in one
-    /// window, and each of them is a raster of its own placed by the viewer.
-    void setFrames(QList<QPair<QImage, QPointF>> frames);
+    /// window, and each of them is a raster of its own placed by the viewer. The rectangle is the
+    /// image's own size except where the image is a page's last frame from before a zoom, which
+    /// fills the extent the page has now until its frame lands (`viewer_host::stand_in`, ADR 1843).
+    void setFrames(QList<QPair<QImage, QRectF>> frames);
 
     /// The layer the chrome is drawn on, kept last in the child order.
     ChromeOverlay* chrome() const { return chrome_; }
@@ -449,7 +451,7 @@ private:
     /// One pointer event, in the device pixels the boundary speaks.
     void report(const QPointF& at, unsigned char action);
 
-    QList<QPair<QImage, QPointF>> frames_;
+    QList<QPair<QImage, QRectF>> frames_;
     ChromeOverlay* chrome_;
     bool pressed_ = false;
 };

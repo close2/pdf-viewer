@@ -1206,8 +1206,8 @@ impl KeywordNote {
     /// This sentence's place in a keyword's byte of sentences, or `None` for one too many
     /// operands short to have one.
     ///
-    /// Six bits are enough for the shortfalls: `count_of` states no operator past six operands,
-    /// and a shortfall is fewer than the operator takes, so `given` is at most five.
+    /// Six bits are enough for the shortfalls: `Operator::operand_count` states no operator past
+    /// six operands, and a shortfall is fewer than the operator takes, so `given` is at most five.
     const fn bit(self) -> Option<u8> {
         match self {
             Self::Unknown => Some(1),

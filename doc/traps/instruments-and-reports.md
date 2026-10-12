@@ -1367,6 +1367,24 @@ refusal came with the encode at 0 ms and the scene at 2.1 s (round 1493, ADR 182
 figure is traced by which phase was still at zero when it came, and the ADR that prices a lever on
 it names the site.
 
+### 149. A clock hold keeps the lanes, not the machine
+
+A `--clock` hold gives a run both lock lanes; it does not keep other rounds' builds off the
+processors. Round 1507's hold ran at load averages of 24 to 52 from siblings' builds outside the
+lock, and every clock figure in it was declined as "not judged" (ADR 1851). A round's own clock A/B
+judges anything only when no sibling is building; a quiet reading comes from the merge's hold, where
+nothing else builds, or is taken with the run's printed load average beside it after a build-free
+moment has been waited for.
+
+### 150. An export made with `git archive` has no corpora
+
+`git archive` writes the tracked files; the submodules and the symlinked corpora (`doc/pdf.js`,
+`doc/corpora/*`, `corpus-cache`, `fuzz/corpus`) come out as empty directories and the untracked
+documents (`doc/*.pdf`) are not there at all, and a gate run from
+such an export skips their pages and says so only in a line nobody greps — round 1502's first `turn`
+run reported "10 page(s) absent" (ADR 1841). An export links the corpora in the way
+`tools/batch.sh open` does before any walk, and a gate's "absent" count is read as a refusal.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

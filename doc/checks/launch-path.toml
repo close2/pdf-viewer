@@ -3,10 +3,11 @@
 # `CLAUDE.md` principle 2 names four figures — cold open, time-to-first-page, page-turn latency,
 # memory high-water — and makes cold graphics bring-up a fifth, "its own gate … so that a
 # regression in the driver, the adapter selection or the shader set is legible as itself rather
-# than as a slower page". This file is what each of them may be. The one command that runs them,
-# `tools/state.sh --round <session> launch` spelled out — a clock, so it takes both lanes, and the
-# two workers it spawns, which nothing else builds (trap 10), are its own `--build`s inside the hold
-# (trap 109, ADRs 1620, 1710):
+# than as a slower page". This file is what each of them may be. The merge runs them whole, clocks
+# on, as `tools/batch.sh gates`' `t2-launch_path` (ADR 1851); a round runs the counted half as
+# `tools/state.sh --round <session> launch`. The gate's line spelled out — a clock, so it takes both
+# lanes, and the two workers it spawns, which nothing else builds (trap 10), are its own `--build`s
+# inside the hold (trap 109, ADRs 1620, 1710):
 #
 #   ulimit -u 8192; tools/bounded.sh --lock --clock --round <session> --tree 12 \
 #       --build '--release -p pdf-sandbox --bins' \

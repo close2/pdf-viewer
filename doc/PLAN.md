@@ -134,7 +134,8 @@ greeting compares (ADR 0458), and `viewer-qt`'s generates the `cxx` bridge and r
 - **the launch-path gate**: cold open, time-to-first-page, page-turn latency, memory high-water,
   measured with a cold page cache, plus the cold graphics bring-up principle 2 makes a gate of its
   own. `crates/viewer-ui/tests/launch_path.rs` with its bands in `doc/checks/launch-path.toml`;
-  `tools/state.sh launch` prints it and `doc/todo/02` §2 runs it. **Not `criterion`**, which is the
+  `tools/state.sh launch` prints its counted half and `doc/todo/02` §2 runs it, and `tools/batch.sh
+  gates` runs it whole, clocks judged, at every merge (ADR 1851). **Not `criterion`**, which is the
   wrong shape for the question: four of the five figures are about a *process*, and a benchmark
   harness that measures a function in a warm loop cannot see a cold open, a driver's bring-up or a
   high-water mark. ADR 0884 is the construction and ADR 0885 what it found.
@@ -142,8 +143,10 @@ greeting compares (ADR 0458), and `viewer-qt`'s generates the `cxx` bridge and r
   before the frame fails on any machine, and the worker the open sequence starts is timed after it
   (ADR 1620); the warm open is taken from cores kept busy first and the cold open from a child born
   idle (ADR 1621). Page one goes to the
-  graphics device by the owner's decision, so bring-up is *on* the critical path and is a number to
-  keep small rather than a cost to move aside — `CLAUDE.md` principle 2 has the rules that follow.
+  graphics device by default, by the owner's decision, so bring-up is *on* the critical path and is
+  a number to keep small rather than a cost to move aside; the processor draws it only where it is
+  predicted the faster lane (ADR 1831, `doc/questions/A393`) — `CLAUDE.md` principle 2 has the rules
+  that follow.
 - **the turn-path gate**: the other end of a page turn — a turn onto a page the device has not
   seen, and one notch of zoom on it, page by page as `doc/performance.md` section 3e tabulates them.
   `crates/render-raster/tests/turn_path.rs` with its bands in `doc/checks/turn-path.toml`, over the

@@ -2906,19 +2906,24 @@ impl Host {
         self.frames().len()
     }
 
-    /// The pages this window paints: the viewer's frames, with a page still being drawn put where
-    /// it belongs as it stands — `viewer_host::drawing::over_frames`, the rule `viewer-gtk` paints
-    /// by too (ADR 1825).
-    fn frames(&self) -> Vec<viewer_core::FrameView<'_>> {
+    /// The pages this window paints and the rectangle each fills: the viewer's frames, with a page
+    /// still being drawn put where it belongs as it stands — `viewer_host::drawing::over_frames`
+    /// (ADR 1825) — and a frame from before a zoom scaled to where the page is now —
+    /// `viewer_host::stand_in::placed` (ADR 1843), the rules `viewer-gtk` paints by too.
+    fn frames(&self) -> Vec<viewer_host::stand_in::Placed<'_>> {
+        let geometry = |page| match self.viewer.query(Query::PageGeometry(page)) {
+            Answer::Geometry(geometry) => Some(geometry),
+            _ => None,
+        };
         match self.viewer.query(Query::Frame) {
-            Answer::Frame(frames) => viewer_host::drawing::over_frames(
-                frames,
-                self.drawing.partial(),
-                self.documents.focused(),
-                |page| match self.viewer.query(Query::PageGeometry(page)) {
-                    Answer::Geometry(geometry) => Some(geometry),
-                    _ => None,
-                },
+            Answer::Frame(frames) => viewer_host::stand_in::placed(
+                viewer_host::drawing::over_frames(
+                    frames,
+                    self.drawing.partial(),
+                    self.documents.focused(),
+                    geometry,
+                ),
+                geometry,
             ),
             _ => Vec::new(),
         }
@@ -2936,6 +2941,8 @@ impl Host {
                     height,
                     origin_x: 0.0,
                     origin_y: 0.0,
+                    shown_width: width,
+                    shown_height: height,
                 },
                 Err(error) => {
                     eprintln!("note: {error}");
@@ -2944,16 +2951,18 @@ impl Host {
             };
         }
         let frames = self.frames();
-        let Some(frame) = frames.get(index) else {
+        let Some(placed) = frames.get(index) else {
             return no_frame();
         };
-        match page::describe(frame.raster) {
+        match page::describe(placed.frame.raster) {
             Ok((width, height)) => QtFrame {
                 present: true,
                 width,
                 height,
-                origin_x: frame.origin.0,
-                origin_y: frame.origin.1,
+                origin_x: placed.frame.origin.0,
+                origin_y: placed.frame.origin.1,
+                shown_width: placed.extent.0,
+                shown_height: placed.extent.1,
             },
             Err(error) => {
                 // Trap 5: a host that quietly showed the previous page would be telling a
@@ -2978,7 +2987,7 @@ impl Host {
         }
         self.frames()
             .get(index)
-            .map_or(&[][..], |frame| frame.raster.data.as_slice())
+            .map_or(&[][..], |placed| placed.frame.raster.data.as_slice())
     }
 
     /// One panel's rows, depth first.
@@ -3921,7 +3930,7 @@ impl Host {
             && self
                 .frames()
                 .iter()
-                .any(|frame| std::ptr::eq(frame.raster, partial.raster()))
+                .any(|placed| std::ptr::eq(placed.frame.raster, partial.raster()))
         {
             self.trace.say(
                 Topic::Frames,
@@ -3931,6 +3940,11 @@ impl Host {
                     partial.fraction() * 100.0
                 ),
             );
+        }
+        if self.playing.is_none() {
+            for placed in self.frames().iter().filter(|placed| placed.stands_in()) {
+                self.trace.say(Topic::Frames, format_args!("{placed}"));
+            }
         }
         let held = self.playing.is_some()
             || matches!(self.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
@@ -5033,6 +5047,8 @@ fn no_frame() -> QtFrame {
         height: 0,
         origin_x: 0.0,
         origin_y: 0.0,
+        shown_width: 0,
+        shown_height: 0,
     }
 }
 

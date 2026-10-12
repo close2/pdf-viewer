@@ -749,6 +749,9 @@ pub struct DisplayList {
     /// §10.8.3's spot planes, where a reader asked for the simulation and the page names a spot
     /// colourant. See [`DisplayList::set_separated`].
     separation: Option<Box<crate::separation::SpotSeparation>>,
+    /// Every top-level command's device bound at the magnification last asked for — derived from
+    /// the commands, invisible to equality and to `Debug`. See [`DisplayList::mark_bounds`].
+    bounds: crate::reach::KeptBounds,
 }
 
 /// The derived rendering field for field, with [`DisplayList::separation`] written only where
@@ -759,6 +762,11 @@ pub struct DisplayList {
 /// separation exists only under a reader's request for §10.8.3's simulation on a page naming a
 /// spot colourant, and a page without one renders exactly as the derived `Debug` rendered it
 /// (ADR 1317). A field added to the struct is added here too, or it is missing from the digest.
+#[expect(
+    clippy::missing_fields_in_debug,
+    reason = "the kept bounds are derived from the commands and printing them would move every \
+              digest of this rendering without a pixel moving; `finish_non_exhaustive` would too"
+)]
 impl std::fmt::Debug for DisplayList {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut fields = formatter.debug_struct("DisplayList");
@@ -800,6 +808,7 @@ impl DisplayList {
             transfers: None,
             overprinting: false,
             separation: None,
+            bounds: crate::reach::KeptBounds::default(),
         }
     }
 
@@ -929,7 +938,39 @@ impl DisplayList {
             transfers: None,
             overprinting: self.overprinting,
             separation: None,
+            bounds: crate::reach::KeptBounds::default(),
         }
+    }
+
+    /// This list with `commands` in place of its own: its clips, soft masks, page boundary,
+    /// blending curve or cube and overprinting carried over, and no plane drawn beside it.
+    ///
+    /// What [`DisplayList::reaching`] builds a part of a page from. A caller keeps a list that
+    /// carries §11.4.7's second raster, §11.7.5.2's channel or §10.8.3's spot planes whole, since
+    /// those are drawn from lists of their own that this one's commands would fall out of step
+    /// with.
+    pub(crate) fn with_commands(&self, commands: Vec<Command>) -> Self {
+        Self {
+            page_size: self.page_size,
+            commands,
+            clips: self.clips.clone(),
+            soft_masks: self.soft_masks.clone(),
+            clip_index: self.clip_index.clone(),
+            blending: self.blending.clone(),
+            black: None,
+            grey_curve: self.grey_curve.clone(),
+            colour_cube: self.colour_cube.clone(),
+            content_clip: self.content_clip,
+            transfers: None,
+            overprinting: self.overprinting,
+            separation: None,
+            bounds: crate::reach::KeptBounds::default(),
+        }
+    }
+
+    /// Where [`DisplayList::mark_bounds`] keeps its answer.
+    pub(crate) fn kept_bounds(&self) -> &crate::reach::KeptBounds {
+        &self.bounds
     }
 
     /// States where §14.11.2.1 stops this page's contents, in this list's own space.
@@ -1232,6 +1273,7 @@ impl DisplayList {
 
     /// Appends a drawing command.
     pub fn push(&mut self, command: Command) {
+        self.bounds.forget();
         self.commands.push(command);
     }
 
@@ -1259,6 +1301,7 @@ impl DisplayList {
         if at >= self.commands.len() {
             return Vec::new();
         }
+        self.bounds.forget();
         self.commands.split_off(at)
     }
 
@@ -1427,6 +1470,7 @@ impl DisplayList {
                 }
             }
         }
+        self.bounds.forget();
         restate(&mut self.commands);
     }
 

@@ -1249,10 +1249,6 @@ impl Window {
     }
 }
 
-/// Whether a run of white space and comments ends inside a comment.
-///
-/// §7.2.4 ends a comment at "an EOL marker", so a `%` with no end of line after it is a
-/// comment the buffer cut rather than one that finished.
 /// §7.3.4.2's end of a literal string, found over one slice or several.
 ///
 /// "Balanced pairs of parentheses within a string require no special treatment", and a REVERSE
@@ -1383,49 +1379,430 @@ fn next_content_token<'b>(lexer: &mut Lexer<'b>) -> Option<Token<'b>> {
 
 /// Whether `word` is one of the operators ISO 32000-2 §8.2 Table 50 catalogues.
 ///
-/// The table's sixteen categories, in its order. One name is not as the table prints it:
-/// Table 50's shading row reads `Sh`, and the operator §8.7.4.4 Table 76 defines is `sh` —
-/// Errata Collection 3's Issue #80 strikes the capital, and every content stream in the world
-/// agrees with the erratum. The compatibility pair `BX`/`EX` is in the list because a run that
-/// swallowed one has lost a *section boundary*, which is worse than losing a mark.
+/// The compatibility pair `BX`/`EX` counts because a run that swallowed one has lost a *section
+/// boundary*, which is worse than losing a mark.
 fn names_an_operator(word: &[u8]) -> bool {
-    matches!(
-        word,
-        // General graphics state, Table 56.
-        b"w" | b"J" | b"j" | b"M" | b"d" | b"ri" | b"i" | b"gs" | b"q" | b"Q"
-        // Special graphics state, Table 56.
-        | b"cm"
-        // Path construction, Table 58.
-        | b"m" | b"l" | b"c" | b"v" | b"y" | b"h" | b"re"
-        // Path painting, Table 59.
-        | b"S" | b"s" | b"f" | b"F" | b"f*" | b"B" | b"B*" | b"b" | b"b*" | b"n"
-        // Clipping paths, Table 60.
-        | b"W" | b"W*"
-        // Text objects, Table 105.
-        | b"BT" | b"ET"
-        // Text state, Table 103.
-        | b"Tc" | b"Tw" | b"Tz" | b"TL" | b"Tf" | b"Tr" | b"Ts"
-        // Text positioning, Table 106.
-        | b"Td" | b"TD" | b"Tm" | b"T*"
-        // Text showing, Table 107.
-        | b"Tj" | b"TJ" | b"'" | b"\""
-        // Type 3 fonts, Table 111.
-        | b"d0" | b"d1"
-        // Colour, Table 73.
-        | b"CS" | b"cs" | b"SC" | b"SCN" | b"sc" | b"scn" | b"G" | b"g" | b"RG" | b"rg" | b"K" | b"k"
-        // Shading patterns, Table 76.
-        | b"sh"
-        // Inline images, Table 90.
-        | b"BI" | b"ID" | b"EI"
-        // XObjects, Table 86.
-        | b"Do"
-        // Marked content, Table 352.
-        | b"MP" | b"DP" | b"BMC" | b"BDC" | b"EMC"
-        // Compatibility, Table 33.
-        | b"BX" | b"EX"
-    )
+    Operator::of(word).is_some()
 }
 
+/// An operator of ISO 32000-2's Table 50, recognised once from the bytes the file wrote.
+///
+/// Table 50 ("Operator categories") lists every operator a content stream can state, and
+/// [`Operator::of`] is the one place their spellings are matched. Everything the loop asks
+/// about an operator afterwards — how many operands its table gives it
+/// ([`Operator::operand_count`]), whether §8.6.8's intercept drops it ([`Operator::is_colour`]),
+/// and which arm of the dispatch runs it — reads this value rather than the bytes again.
+///
+/// **Why a value rather than the bytes, and what it costs to read.** A value asked three times
+/// an operator — the operand count twice and the dispatch once — is one match, where the bytes
+/// were a copy into a [`Word`] and three: on the owner's `demo_heavy_engineering_A1.pdf`, whose
+/// 28 992 212 operators are most of a 278-megabyte stream, those were 2.24 G of the page's 44.68 G
+/// instructions (ADR 1849). The cost to a reader is one name per operator,
+/// and each variant's documentation names the operator it is and the table that defines it, so
+/// "what does `B*` do" is found by its spelling in [`Operator::of`] and then its arm.
+///
+/// Two of the table's entries are not as it prints them. Its shading row reads `Sh`, and the
+/// operator §8.7.4.4 Table 76 defines is `sh` — Errata Collection 3's Issue #80 strikes the
+/// capital, and every content stream in the world agrees with the erratum; and its marked-content
+/// row points at Table 351, a data dictionary's entries, where the operators are Table 352's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Operator {
+    /// `q`, Table 56: save the graphics state.
+    Save,
+    /// `Q`, Table 56: restore the graphics state.
+    Restore,
+    /// `cm`, Table 56: concatenate a matrix to the current transformation matrix.
+    Concatenate,
+    /// `gs`, Table 56: set parameters from a graphics state parameter dictionary.
+    ExtGState,
+    /// `w`, Table 56: set the line width.
+    LineWidth,
+    /// `J`, Table 56: set the line cap style.
+    LineCap,
+    /// `j`, Table 56: set the line join style.
+    LineJoin,
+    /// `M`, Table 56: set the miter limit.
+    MiterLimit,
+    /// `d`, Table 56: set the line dash pattern.
+    Dash,
+    /// `ri`, Table 56: set the colour rendering intent.
+    RenderingIntent,
+    /// `i`, Table 56: set the flatness tolerance.
+    Flatness,
+    /// `m`, Table 58: begin a new subpath.
+    MoveTo,
+    /// `l`, Table 58: append a straight line segment.
+    LineTo,
+    /// `c`, Table 58: append a curved segment with two control points.
+    CurveTo,
+    /// `v`, Table 58: append a curved segment whose first control point is the current point.
+    CurveInitialReplicated,
+    /// `y`, Table 58: append a curved segment whose second control point is its final point.
+    CurveFinalReplicated,
+    /// `h`, Table 58: close the current subpath.
+    ClosePath,
+    /// `re`, Table 58: append a rectangle as a complete subpath.
+    Rectangle,
+    /// `S`, Table 59: stroke the path.
+    Stroke,
+    /// `s`, Table 59: close and stroke the path.
+    CloseStroke,
+    /// `f`, Table 59: fill the path by the nonzero winding number rule.
+    Fill,
+    /// `F`, Table 59: fill the path by the nonzero winding number rule, the obsolete spelling of f.
+    FillObsolete,
+    /// `f*`, Table 59: fill the path by the even-odd rule.
+    FillEvenOdd,
+    /// `B`, Table 59: fill by the nonzero winding number rule, then stroke.
+    FillStroke,
+    /// `B*`, Table 59: fill by the even-odd rule, then stroke.
+    FillStrokeEvenOdd,
+    /// `b`, Table 59: close, fill by the nonzero winding number rule, then stroke.
+    CloseFillStroke,
+    /// `b*`, Table 59: close, fill by the even-odd rule, then stroke.
+    CloseFillStrokeEvenOdd,
+    /// `n`, Table 59: end the path without filling or stroking it.
+    EndPath,
+    /// `W`, Table 60: clip by the nonzero winding number rule.
+    Clip,
+    /// `W*`, Table 60: clip by the even-odd rule.
+    ClipEvenOdd,
+    /// `BT`, Table 105: begin a text object.
+    BeginText,
+    /// `ET`, Table 105: end a text object.
+    EndText,
+    /// `Tc`, Table 103: set the character spacing.
+    CharSpacing,
+    /// `Tw`, Table 103: set the word spacing.
+    WordSpacing,
+    /// `Tz`, Table 103: set the horizontal scaling.
+    HorizontalScaling,
+    /// `TL`, Table 103: set the text leading.
+    Leading,
+    /// `Tf`, Table 103: set the text font and size.
+    Font,
+    /// `Tr`, Table 103: set the text rendering mode.
+    RenderMode,
+    /// `Ts`, Table 103: set the text rise.
+    Rise,
+    /// `Td`, Table 106: move to the start of the next line.
+    MoveText,
+    /// `TD`, Table 106: move to the start of the next line and set the leading.
+    MoveTextSetLeading,
+    /// `Tm`, Table 106: set the text matrix and the text line matrix.
+    TextMatrix,
+    /// `T*`, Table 106: move to the start of the next line by the leading.
+    NextLine,
+    /// `Tj`, Table 107: show a string.
+    ShowText,
+    /// `TJ`, Table 107: show strings with individual glyph positioning.
+    ShowTextAdjusted,
+    /// `'`, Table 107: move to the next line and show a string.
+    NextLineShowText,
+    /// `"`, Table 107: set word and character spacing, move to the next line and show a string.
+    NextLineShowTextSpaced,
+    /// `d0`, Table 111: set a Type 3 glyph's width.
+    GlyphWidth,
+    /// `d1`, Table 111: set a Type 3 glyph's width and bounding box, and declare it uncoloured.
+    GlyphWidthAndBox,
+    /// `CS`, Table 73: set the stroking colour space.
+    StrokeColourSpace,
+    /// `cs`, Table 73: set the nonstroking colour space.
+    FillColourSpace,
+    /// `SC`, Table 73: set the stroking colour.
+    StrokeColour,
+    /// `SCN`, Table 73: set the stroking colour, in any colour space.
+    StrokeColourN,
+    /// `sc`, Table 73: set the nonstroking colour.
+    FillColour,
+    /// `scn`, Table 73: set the nonstroking colour, in any colour space.
+    FillColourN,
+    /// `G`, Table 73: set the stroking colour space to `DeviceGray` and the colour.
+    StrokeGray,
+    /// `g`, Table 73: set the nonstroking colour space to `DeviceGray` and the colour.
+    FillGray,
+    /// `RG`, Table 73: set the stroking colour space to `DeviceRGB` and the colour.
+    StrokeRgb,
+    /// `rg`, Table 73: set the nonstroking colour space to `DeviceRGB` and the colour.
+    FillRgb,
+    /// `K`, Table 73: set the stroking colour space to `DeviceCMYK` and the colour.
+    StrokeCmyk,
+    /// `k`, Table 73: set the nonstroking colour space to `DeviceCMYK` and the colour.
+    FillCmyk,
+    /// `sh`, Table 76: paint an area defined by a shading pattern.
+    Shade,
+    /// `BI`, Table 90: begin an inline image object.
+    BeginImage,
+    /// `ID`, Table 90: begin the data of an inline image.
+    ImageData,
+    /// `EI`, Table 90: end an inline image object.
+    EndImage,
+    /// `Do`, Table 86: invoke a named `XObject`.
+    XObject,
+    /// `MP`, Table 352: define a marked-content point.
+    MarkPoint,
+    /// `DP`, Table 352: define a marked-content point with a property list.
+    MarkPointProperties,
+    /// `BMC`, Table 352: begin a marked-content sequence.
+    BeginMarked,
+    /// `BDC`, Table 352: begin a marked-content sequence with a property list.
+    BeginMarkedProperties,
+    /// `EMC`, Table 352: end a marked-content sequence.
+    EndMarked,
+    /// `BX`, Table 33: begin a compatibility section.
+    BeginCompatibility,
+    /// `EX`, Table 33: end a compatibility section.
+    EndCompatibility,
+}
+
+impl Operator {
+    /// Every operator Table 50 lists, in its order.
+    #[cfg(test)]
+    pub(super) const ALL: [Self; 73] = [
+        Self::Save,
+        Self::Restore,
+        Self::Concatenate,
+        Self::ExtGState,
+        Self::LineWidth,
+        Self::LineCap,
+        Self::LineJoin,
+        Self::MiterLimit,
+        Self::Dash,
+        Self::RenderingIntent,
+        Self::Flatness,
+        Self::MoveTo,
+        Self::LineTo,
+        Self::CurveTo,
+        Self::CurveInitialReplicated,
+        Self::CurveFinalReplicated,
+        Self::ClosePath,
+        Self::Rectangle,
+        Self::Stroke,
+        Self::CloseStroke,
+        Self::Fill,
+        Self::FillObsolete,
+        Self::FillEvenOdd,
+        Self::FillStroke,
+        Self::FillStrokeEvenOdd,
+        Self::CloseFillStroke,
+        Self::CloseFillStrokeEvenOdd,
+        Self::EndPath,
+        Self::Clip,
+        Self::ClipEvenOdd,
+        Self::BeginText,
+        Self::EndText,
+        Self::CharSpacing,
+        Self::WordSpacing,
+        Self::HorizontalScaling,
+        Self::Leading,
+        Self::Font,
+        Self::RenderMode,
+        Self::Rise,
+        Self::MoveText,
+        Self::MoveTextSetLeading,
+        Self::TextMatrix,
+        Self::NextLine,
+        Self::ShowText,
+        Self::ShowTextAdjusted,
+        Self::NextLineShowText,
+        Self::NextLineShowTextSpaced,
+        Self::GlyphWidth,
+        Self::GlyphWidthAndBox,
+        Self::StrokeColourSpace,
+        Self::FillColourSpace,
+        Self::StrokeColour,
+        Self::StrokeColourN,
+        Self::FillColour,
+        Self::FillColourN,
+        Self::StrokeGray,
+        Self::FillGray,
+        Self::StrokeRgb,
+        Self::FillRgb,
+        Self::StrokeCmyk,
+        Self::FillCmyk,
+        Self::Shade,
+        Self::BeginImage,
+        Self::ImageData,
+        Self::EndImage,
+        Self::XObject,
+        Self::MarkPoint,
+        Self::MarkPointProperties,
+        Self::BeginMarked,
+        Self::BeginMarkedProperties,
+        Self::EndMarked,
+        Self::BeginCompatibility,
+        Self::EndCompatibility,
+    ];
+
+    /// The operator a keyword spells, or [`None`] where Table 50 lists no such operator.
+    ///
+    /// The one match over an operator's bytes. Inlined into the operand loop's closure, which
+    /// is where the keyword is still borrowed from the lexer's buffer, so that a known operator
+    /// leaves the closure as one byte rather than as a copy of its spelling.
+    #[inline]
+    pub(super) const fn of(word: &[u8]) -> Option<Self> {
+        Some(match word {
+            b"q" => Self::Save,
+            b"Q" => Self::Restore,
+            b"cm" => Self::Concatenate,
+            b"gs" => Self::ExtGState,
+            b"w" => Self::LineWidth,
+            b"J" => Self::LineCap,
+            b"j" => Self::LineJoin,
+            b"M" => Self::MiterLimit,
+            b"d" => Self::Dash,
+            b"ri" => Self::RenderingIntent,
+            b"i" => Self::Flatness,
+            b"m" => Self::MoveTo,
+            b"l" => Self::LineTo,
+            b"c" => Self::CurveTo,
+            b"v" => Self::CurveInitialReplicated,
+            b"y" => Self::CurveFinalReplicated,
+            b"h" => Self::ClosePath,
+            b"re" => Self::Rectangle,
+            b"S" => Self::Stroke,
+            b"s" => Self::CloseStroke,
+            b"f" => Self::Fill,
+            b"F" => Self::FillObsolete,
+            b"f*" => Self::FillEvenOdd,
+            b"B" => Self::FillStroke,
+            b"B*" => Self::FillStrokeEvenOdd,
+            b"b" => Self::CloseFillStroke,
+            b"b*" => Self::CloseFillStrokeEvenOdd,
+            b"n" => Self::EndPath,
+            b"W" => Self::Clip,
+            b"W*" => Self::ClipEvenOdd,
+            b"BT" => Self::BeginText,
+            b"ET" => Self::EndText,
+            b"Tc" => Self::CharSpacing,
+            b"Tw" => Self::WordSpacing,
+            b"Tz" => Self::HorizontalScaling,
+            b"TL" => Self::Leading,
+            b"Tf" => Self::Font,
+            b"Tr" => Self::RenderMode,
+            b"Ts" => Self::Rise,
+            b"Td" => Self::MoveText,
+            b"TD" => Self::MoveTextSetLeading,
+            b"Tm" => Self::TextMatrix,
+            b"T*" => Self::NextLine,
+            b"Tj" => Self::ShowText,
+            b"TJ" => Self::ShowTextAdjusted,
+            b"'" => Self::NextLineShowText,
+            b"\"" => Self::NextLineShowTextSpaced,
+            b"d0" => Self::GlyphWidth,
+            b"d1" => Self::GlyphWidthAndBox,
+            b"CS" => Self::StrokeColourSpace,
+            b"cs" => Self::FillColourSpace,
+            b"SC" => Self::StrokeColour,
+            b"SCN" => Self::StrokeColourN,
+            b"sc" => Self::FillColour,
+            b"scn" => Self::FillColourN,
+            b"G" => Self::StrokeGray,
+            b"g" => Self::FillGray,
+            b"RG" => Self::StrokeRgb,
+            b"rg" => Self::FillRgb,
+            b"K" => Self::StrokeCmyk,
+            b"k" => Self::FillCmyk,
+            b"sh" => Self::Shade,
+            b"BI" => Self::BeginImage,
+            b"ID" => Self::ImageData,
+            b"EI" => Self::EndImage,
+            b"Do" => Self::XObject,
+            b"MP" => Self::MarkPoint,
+            b"DP" => Self::MarkPointProperties,
+            b"BMC" => Self::BeginMarked,
+            b"BDC" => Self::BeginMarkedProperties,
+            b"EMC" => Self::EndMarked,
+            b"BX" => Self::BeginCompatibility,
+            b"EX" => Self::EndCompatibility,
+            _ => return None,
+        })
+    }
+
+    /// The operator's spelling, which is what a report and the selection ledger quote.
+    pub(super) const fn name(self) -> &'static [u8] {
+        match self {
+            Self::Save => b"q",
+            Self::Restore => b"Q",
+            Self::Concatenate => b"cm",
+            Self::ExtGState => b"gs",
+            Self::LineWidth => b"w",
+            Self::LineCap => b"J",
+            Self::LineJoin => b"j",
+            Self::MiterLimit => b"M",
+            Self::Dash => b"d",
+            Self::RenderingIntent => b"ri",
+            Self::Flatness => b"i",
+            Self::MoveTo => b"m",
+            Self::LineTo => b"l",
+            Self::CurveTo => b"c",
+            Self::CurveInitialReplicated => b"v",
+            Self::CurveFinalReplicated => b"y",
+            Self::ClosePath => b"h",
+            Self::Rectangle => b"re",
+            Self::Stroke => b"S",
+            Self::CloseStroke => b"s",
+            Self::Fill => b"f",
+            Self::FillObsolete => b"F",
+            Self::FillEvenOdd => b"f*",
+            Self::FillStroke => b"B",
+            Self::FillStrokeEvenOdd => b"B*",
+            Self::CloseFillStroke => b"b",
+            Self::CloseFillStrokeEvenOdd => b"b*",
+            Self::EndPath => b"n",
+            Self::Clip => b"W",
+            Self::ClipEvenOdd => b"W*",
+            Self::BeginText => b"BT",
+            Self::EndText => b"ET",
+            Self::CharSpacing => b"Tc",
+            Self::WordSpacing => b"Tw",
+            Self::HorizontalScaling => b"Tz",
+            Self::Leading => b"TL",
+            Self::Font => b"Tf",
+            Self::RenderMode => b"Tr",
+            Self::Rise => b"Ts",
+            Self::MoveText => b"Td",
+            Self::MoveTextSetLeading => b"TD",
+            Self::TextMatrix => b"Tm",
+            Self::NextLine => b"T*",
+            Self::ShowText => b"Tj",
+            Self::ShowTextAdjusted => b"TJ",
+            Self::NextLineShowText => b"'",
+            Self::NextLineShowTextSpaced => b"\"",
+            Self::GlyphWidth => b"d0",
+            Self::GlyphWidthAndBox => b"d1",
+            Self::StrokeColourSpace => b"CS",
+            Self::FillColourSpace => b"cs",
+            Self::StrokeColour => b"SC",
+            Self::StrokeColourN => b"SCN",
+            Self::FillColour => b"sc",
+            Self::FillColourN => b"scn",
+            Self::StrokeGray => b"G",
+            Self::FillGray => b"g",
+            Self::StrokeRgb => b"RG",
+            Self::FillRgb => b"rg",
+            Self::StrokeCmyk => b"K",
+            Self::FillCmyk => b"k",
+            Self::Shade => b"sh",
+            Self::BeginImage => b"BI",
+            Self::ImageData => b"ID",
+            Self::EndImage => b"EI",
+            Self::XObject => b"Do",
+            Self::MarkPoint => b"MP",
+            Self::MarkPointProperties => b"DP",
+            Self::BeginMarked => b"BMC",
+            Self::BeginMarkedProperties => b"BDC",
+            Self::EndMarked => b"EMC",
+            Self::BeginCompatibility => b"BX",
+            Self::EndCompatibility => b"EX",
+        }
+    }
+}
+
+/// Whether a run of white space and comments ends inside a comment.
+///
+/// §7.2.4 ends a comment at "an EOL marker", so a `%` with no end of line after it is a
+/// comment the buffer cut rather than one that finished.
 fn comment_open(run: &[u8]) -> bool {
     for &byte in run.iter().rev() {
         if byte == b'\n' || byte == b'\r' {

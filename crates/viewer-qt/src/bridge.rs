@@ -175,6 +175,12 @@ pub mod ffi {
         origin_x: f32,
         /// The same, vertically.
         origin_y: f32,
+        /// The width the window shows the raster at, in device pixels: the raster's own, or the
+        /// extent the page has now where the raster is its last frame from before a zoom
+        /// (`viewer_host::stand_in`, ADR 1843).
+        shown_width: u32,
+        /// The same, vertically.
+        shown_height: u32,
     }
 
     /// One §12.7 field's widget, as the control a platform builds over it.

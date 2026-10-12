@@ -318,6 +318,15 @@ impl Rasterizer for CpuRasterizer {
             }
         }
 
+        // ISO 32000-2 §10.7.4 paints a pixel a shape's area meets, and a mark whose bound misses
+        // every pixel of the target meets none: a target that shows part of a page — a window
+        // at a zoom — is drawn from the commands that reach it, and is the same pixels as the
+        // page's whole list drawn there. What changes is what the strip planner below is told,
+        // which no longer counts the rows a mark outside the window would have forbidden
+        // (ADR 1841). `None` where every command reaches, which is every page-sized target.
+        let culled = list.reaching(target);
+        let list = culled.as_ref().unwrap_or(list);
+
         // Before the pixmap for the same reason the interrupt is: refusing a page that would
         // spend minutes inside `draw_group` is worth nothing if the refusal is paid for after
         // the allocation. `pdf_render::check_group_blit` reads the list and draws nothing —
@@ -609,10 +618,20 @@ impl CpuRasterizer {
         } else {
             Arc::new(mask_consumer_reach(list, target.transform))
         };
+        // Measured once here, before any strip is queued, so that every strip asks the same
+        // bounds and none measures them again (ADR 1841); kept with the list, so a scroll at this
+        // magnification measures nothing at all.
+        let bounds = list.mark_bounds(target.transform);
         if strips < 2 {
             let surface = Surface::whole(target);
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
-            return self.encode_page(&mut pixmap.as_mut(), list, surface, &mut masks, showing);
+            return self.encode_page(
+                &mut pixmap.as_mut(),
+                (list, &bounds),
+                surface,
+                &mut masks,
+                showing,
+            );
         }
 
         // A strip is a replay of the whole list, so a deeply reduced image is reduced once per
@@ -657,7 +676,7 @@ impl CpuRasterizer {
                 )?;
                 let mut masks =
                     MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
-                self.encode_page(&mut piece, list, surface, &mut masks, showing)
+                self.encode_page(&mut piece, (list, &bounds), surface, &mut masks, showing)
             })
     }
 
@@ -745,13 +764,10 @@ impl CpuRasterizer {
         // A straight stroke whose ink lies in two by two pixels is painted from its closed-form area
         // before any outline, edge or pipeline is built for it — the population and the reason are
         // `pdf_render::thin_segment`'s, one copy for every backend (trap 2), and the composition
-        // `thin_segment::draw`'s. ADR 1829.
-        if let Paint::Solid(colour) = paint
-            && self.anti_alias
+        // `thin_segment::draw`'s, on the page's own grid as the strip planner asks (ADRs 1829, 1847).
+        if self.anti_alias
             && blend == tiny_skia::BlendMode::SourceOver
-            && let Some(thin) =
-                pdf_render::thin_segment(path, stroke, paint, pdf_render::BlendMode::Normal, at)
-            && thin_segment::draw(pixmap, &thin, *colour, clip)
+            && thin_segment::draw(pixmap, (path, stroke, paint), (transform, to_device), clip)
         {
             return Ok(());
         }
@@ -917,123 +933,149 @@ impl CpuRasterizer {
                 continue;
             }
 
-            // A soft mask is evaluated before anything borrows the cache, because building
-            // it renders a whole command list of its own and so needs the cache mutably.
-            // Idempotent: the second command under the same mask finds it already there.
-            if let Some(id) = command.mask() {
-                self.build_soft_mask(list, id, surface, masks, depth)?;
-            }
+            self.encode_command(pixmap, list, command, surface, masks, depth, compose)?;
+        }
+        Ok(())
+    }
 
-            if let Command::Shaped { object, shape } = command {
-                self.encode_shaped(
-                    pixmap,
-                    list,
-                    (object, shape),
-                    surface,
-                    masks,
-                    depth,
-                    compose,
-                )?;
-                continue;
-            }
+    /// Draws one command of a list onto `surface` — [`CpuRasterizer::encode`]'s loop body, past
+    /// the test of whether the command reaches the surface at all, which its two callers ask in
+    /// two ways: a list met in a recursion measures each command's bound as it goes, and the
+    /// page's own list asks the bounds measured once for the target (ADR 1841).
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one step of `encode`, carrying exactly what the recursion carries"
+    )]
+    pub(crate) fn encode_command(
+        &self,
+        pixmap: &mut tiny_skia::PixmapMut<'_>,
+        list: &DisplayList,
+        command: &Command,
+        surface: Surface,
+        masks: &mut MaskCache,
+        depth: usize,
+        compose: Compose,
+    ) -> Result<(), CpuRasterError> {
+        // A soft mask is evaluated before anything borrows the cache, because building
+        // it renders a whole command list of its own and so needs the cache mutably.
+        // Idempotent: the second command under the same mask finds it already there.
+        if let Some(id) = command.mask() {
+            self.build_soft_mask(list, id, surface, masks, depth)?;
+        }
 
-            // §11.4.6's bare draw is Porter-Duff Source modulated by the coverage, and the clip
-            // a command carries is part of that coverage (§8.5.4). `tiny-skia` applies a clip
-            // mask to Source by *scaling the source* rather than by interpolating, so wherever
-            // the mask is below 1.0 inside the path's reach the accumulated result is cleared
-            // rather than kept — a glyph-shaped clip on a tile knocked out a ring of the glyph
-            // beneath it. Where the clip cuts the mark, the element is drawn as the clause's two
-            // stages instead, with an opaque twin of itself as the shape: `(1 − f) × P + S`,
-            // which is what the bare draw means and what Destination-Out then Plus compute
-            // through a mask exactly (ADR 1320).
-            if compose == Compose::Knockout
-                && let Some(clip) = command.clip()
-                && !masks.cuts_nothing(list, clip, marks_reach(command, surface.page.transform))
-                && let Some(shape) = coverage_twin(command)
-            {
-                self.encode_shaped(
-                    pixmap,
-                    list,
-                    (command, &shape),
-                    surface,
-                    masks,
-                    depth,
-                    compose,
-                )?;
-                continue;
-            }
+        if let Command::Shaped { object, shape } = command {
+            self.encode_shaped(
+                pixmap,
+                list,
+                (object, shape),
+                surface,
+                masks,
+                depth,
+                compose,
+            )?;
+            return Ok(());
+        }
 
-            // A group is the one command that needs the mask cache mutably *while* it
-            // draws, so it cannot hold a clip mask borrowed from it across the recursion.
-            // It therefore resolves its own clip, twice, either side of its elements.
-            if matches!(command, Command::Group { .. }) {
-                self.encode_group_command(pixmap, list, command, surface, masks, depth, compose)?;
-                continue;
-            }
+        // §11.4.6's bare draw is Porter-Duff Source modulated by the coverage, and the clip
+        // a command carries is part of that coverage (§8.5.4). `tiny-skia` applies a clip
+        // mask to Source by *scaling the source* rather than by interpolating, so wherever
+        // the mask is below 1.0 inside the path's reach the accumulated result is cleared
+        // rather than kept — a glyph-shaped clip on a tile knocked out a ring of the glyph
+        // beneath it. Where the clip cuts the mark, the element is drawn as the clause's two
+        // stages instead, with an opaque twin of itself as the shape: `(1 − f) × P + S`,
+        // which is what the bare draw means and what Destination-Out then Plus compute
+        // through a mask exactly (ADR 1320).
+        if compose == Compose::Knockout
+            && let Some(clip) = command.clip()
+            && !masks.cuts_nothing(list, clip, marks_reach(command, surface.page.transform))
+            && let Some(shape) = coverage_twin(command)
+        {
+            self.encode_shaped(
+                pixmap,
+                list,
+                (command, &shape),
+                surface,
+                masks,
+                depth,
+                compose,
+            )?;
+            return Ok(());
+        }
 
-            // How far this command's marks reach, in the page's own space: what decides whether
-            // §10.7.4's intersection with its clip is the mark itself, and so whether the clip
-            // is composed into it at all ([`MaskCache::cuts_nothing`]).
-            let reach = marks_reach(command, surface.page.transform);
-            // Resolved before the match so that every arm shares one code path for
-            // clip handling; a per-arm lookup would be a place for them to diverge.
-            // The clip admits no row of the target, so nothing this command draws can
-            // survive it.
-            let Some(Admitted {
-                band,
-                mask: clip,
-                admits,
-            }) = masks.effective(list, command.clip(), command.mask(), reach)?
-            else {
-                continue;
-            };
+        // A group is the one command that needs the mask cache mutably *while* it
+        // draws, so it cannot hold a clip mask borrowed from it across the recursion.
+        // It therefore resolves its own clip, twice, either side of its elements.
+        if matches!(command, Command::Group { .. }) {
+            self.encode_group_command(pixmap, list, command, surface, masks, depth, compose)?;
+            return Ok(());
+        }
 
-            // Everything below draws into the band rather than the page, which is what
-            // keeps a command's cost proportional to the pixels its clip can admit.
-            // The device map carries the band's first row so that geometry, paints
-            // and images all move together; missing one would tear the page apart in a
-            // way no metric would notice, so there is exactly one of these.
-            let to_device = surface.to_device(band);
+        // How far this command's marks reach, in the page's own space: what decides whether
+        // §10.7.4's intersection with its clip is the mark itself, and so whether the clip
+        // is composed into it at all ([`MaskCache::cuts_nothing`]).
+        let reach = marks_reach(command, surface.page.transform);
+        // Resolved before the match so that every arm shares one code path for
+        // clip handling; a per-arm lookup would be a place for them to diverge.
+        // The clip admits no row of the target, so nothing this command draws can
+        // survive it.
+        let Some(Admitted {
+            band,
+            mask: clip,
+            admits,
+        }) = masks.effective(list, command.clip(), command.mask(), reach)?
+        else {
+            return Ok(());
+        };
 
-            // ISO 32000-2 §11.3.5.3's four modes are computed by this backend rather than
-            // by `tiny-skia`, whose three of them are wrong (ADR 0047), and §11.7.4.3's
-            // special overprinting blend mode is computed here because no rasteriser has
-            // it — so such a command is drawn onto transparency first and composited by
-            // `blend::composite`. Drawing onto transparency loses nothing: with αb = 0 the
-            // compositing formula collapses to the source, whatever the blend mode.
-            if let Some(mode) = compose.computed(command.blend()) {
-                let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
-                    CpuRasterError::Allocation {
-                        width: surface.width(),
-                        height: band.height,
-                    },
-                )?;
-                self.draw(
-                    &mut layer.as_mut(),
-                    command,
-                    to_device,
-                    (clip, admits),
-                    compose,
-                )?;
-                let mut rows = band
-                    .rows(pixmap, surface)
-                    .ok_or(CpuRasterError::Allocation {
-                        width: surface.width(),
-                        height: band.height,
-                    })?;
-                blend::composite(&mut rows, &layer, mode);
-                continue;
-            }
+        // Everything below draws into the band rather than the page, which is what
+        // keeps a command's cost proportional to the pixels its clip can admit.
+        // The device map carries the band's first row so that geometry, paints
+        // and images all move together; missing one would tear the page apart in a
+        // way no metric would notice, so there is exactly one of these.
+        let to_device = surface.to_device(band);
 
+        // ISO 32000-2 §11.3.5.3's four modes are computed by this backend rather than
+        // by `tiny-skia`, whose three of them are wrong (ADR 0047), and §11.7.4.3's
+        // special overprinting blend mode is computed here because no rasteriser has
+        // it — so such a command is drawn onto transparency first and composited by
+        // `blend::composite`. Drawing onto transparency loses nothing: with αb = 0 the
+        // compositing formula collapses to the source, whatever the blend mode.
+        if let Some(mode) = compose.computed(command.blend()) {
+            let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: surface.width(),
+                    height: band.height,
+                },
+            )?;
+            self.draw(
+                &mut layer.as_mut(),
+                command,
+                to_device,
+                (clip, admits),
+                compose,
+            )?;
             let mut rows = band
                 .rows(pixmap, surface)
                 .ok_or(CpuRasterError::Allocation {
                     width: surface.width(),
                     height: band.height,
                 })?;
-
-            self.draw(&mut rows, command, to_device, (clip, admits), compose)?;
+            blend::composite(&mut rows, &layer, mode);
+            return Ok(());
         }
+
+        let mut rows = band
+            .rows(pixmap, surface)
+            .ok_or(CpuRasterError::Allocation {
+                width: surface.width(),
+                height: band.height,
+            })?;
+
+        self.draw(&mut rows, command, to_device, (clip, admits), compose)?;
         Ok(())
     }
 
@@ -5250,21 +5292,30 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///
 /// A fill has one of its own, and it is about the measurement rather than the road:
 ///
-/// - **A span too tall to be measured in one accumulator**: [`area`] suspects a mark of overlapping
-///   itself as a whole, from every row of it, and settles every row as the filled set where any row
-///   shows it. It asks the rows a surface clamps away as well, so the answer is the mark's in every
-///   division — but only where the whole span fits the cell budget; past it each run of rows is
-///   suspected alone (ADR 1819 §5), which a cut would change. A stroke's outline is suspected
-///   always, so its rows never depend on the span.
+/// - **A span too large to be measured in one accumulator**: [`area`] suspects a mark of
+///   overlapping itself as a whole, from every row of it, and settles every row as the filled set
+///   where any row shows it. It asks the rows a surface clamps away as well, so the answer is the
+///   mark's in every division — but only where the whole span fits the cell budget; past it each
+///   run of rows is suspected alone (ADR 1819 §5), which a cut would change. The accumulator is as
+///   wide as the mark's own columns, which a strip of whole rows never changes, so the span is
+///   asked at those columns rather than at the page's width (ADR 1847). A stroke's outline is
+///   suspected always, so its rows never depend on the span.
 ///
-/// A stroke has two more, and a fill neither:
+/// A stroke has one exception and two more conditions, and a fill none of them:
 ///
-/// - **A curve in the path**: one bending tighter than its half-width is stroked as convex pieces
-///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`; the round caps and joins a stroker
-///   puts on a straight path are not that, and reach [`area`] as any outline does. A *filled*
-///   curve is never pieces: it reaches [`area`] as a glyph does, flattened there.
-/// - **A width under one level of a pixel**: §10.7.4's substitutions draw it, through `tiny-skia`'s
-///   hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR 1102). A fill's own
+/// - **A thin segment is free whatever its width**: [`pdf_render::thin_segment`]'s marks never
+///   reach a converter, and `thin_segment::draw` admits and measures each on the page's own grid,
+///   moving only its rows to the surface — so it asks under the transform this question is asked
+///   under, and every division draws the same bytes for it (ADR 1847, trap 146).
+/// - **A curve that may fold**: one bending tighter than its half-width is stroked as convex pieces
+///   (ADR 1348), which `scan::mask_fill` leaves to `tiny-skia`, so a curved stroke is asked the
+///   draw's own question of it ([`outlined_whole`], ADR 1847); one that cannot fold is the
+///   stroker's outline, and the round caps and joins a stroker puts on any path reach [`area`] as
+///   every outline does. A *filled* curve is never pieces: it reaches [`area`] as a glyph does,
+///   flattened there.
+/// - **A width under one level of a pixel**, a thin segment's apart: §10.7.4's substitutions draw
+///   it, through `tiny-skia`'s hairline or a widened band ([`pdf_render::unmeasurable_width`], ADR
+///   1102). A fill's own
 ///   substitutions — §10.7.4's sub-pixel bands and the marks of a collapsed subpath — are shapes
 ///   drawn by the same `scan::fill` and so by [`area`].
 ///
@@ -5277,17 +5328,57 @@ fn drawn_row_by_row(
     anti_alias: bool,
     target: TargetSpec,
 ) -> bool {
+    // A thin segment never reaches a converter: `thin_segment::draw` admits and measures it on the
+    // page's own grid and moves only its rows to the surface, so every division draws the same
+    // bytes for it. Asked under the transform and the composition the draw asks under — the
+    // page's, and painting over — so that one answer is the draw's in every strip (ADR 1847, trap
+    // 146). Asked second, of the strokes the converter's question refuses, because the first is
+    // cheaper and answers almost every stroke of a page: asked first, it added a third to the
+    // owner's drawing's planning.
+    converted_row_by_row(mark, anti_alias, target)
+        || matches!(mark, pdf_render::PlannedMark::Stroke(stroke)
+            if anti_alias
+                && !stroke.replaces
+                && pdf_render::thin_segment(
+                    stroke.path,
+                    stroke.stroke,
+                    stroke.paint,
+                    stroke.blend,
+                    stroke.at,
+                )
+                .is_some())
+}
+
+/// [`drawn_row_by_row`]'s answer for a mark that reaches [`area`], the conditions its comment lists
+/// but the first.
+fn converted_row_by_row(
+    mark: pdf_render::PlannedMark<'_>,
+    anti_alias: bool,
+    target: TargetSpec,
+) -> bool {
     let (replaces, extent) = match mark {
         pdf_render::PlannedMark::Fill(fill) => {
             // The span `area` takes a fill's suspicion of overlap over: the path's own box
             // carried onto the device, as its region is, with two rows of margin for the
-            // rounding of a box mapped twice.
-            let span = fill
-                .path
-                .hull()
-                .map(|hull| hull.mapped(fill.at))
-                .map(|on| on.max.y.ceil() - on.min.y.floor() + 4.0);
-            if !span.is_some_and(|rows| area::whole_span_fits(rows, target.width)) {
+            // rounding of a box mapped twice — and as wide as that region, which is the mark's own
+            // columns on the page in every division, since a strip is a run of whole rows. Two
+            // columns of margin for the same rounding, and never wider than the page, which
+            // clamps the region (ADR 1847).
+            let span = fill.path.hull().map(|hull| hull.mapped(fill.at)).map(|on| {
+                let columns = (on.max.x.ceil() - on.min.x.floor() + 4.0).max(0.0);
+                (on.max.y.ceil() - on.min.y.floor() + 4.0, columns)
+            });
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a non-negative column count, saturated by the cast and then clamped to \
+                          the page's own width"
+            )]
+            let fits = span.is_some_and(|(rows, columns)| {
+                let columns = (columns as u32).min(target.width);
+                area::whole_span_fits(rows, columns)
+            });
+            if !fits {
                 return false;
             }
             (fill.replaces, fill.extent)
@@ -5298,6 +5389,7 @@ fn drawn_row_by_row(
                 .commands()
                 .iter()
                 .any(|segment| matches!(segment, pdf_render::PathCommand::CurveTo(..)))
+                && !outlined_whole(&stroke)
             {
                 return false;
             }
@@ -5325,6 +5417,25 @@ fn drawn_row_by_row(
         && extent.max.x <= limit
         && extent.min.y - rows >= -limit
         && extent.max.y <= limit
+}
+
+/// Whether a curved stroke reaches [`area`] as one outline, the stroker's, rather than as ADR 1348's
+/// convex pieces, which `scan::mask_fill` leaves to `tiny-skia`.
+///
+/// [`draw_stroked_outline`] cuts a stroke into pieces only where [`curves_may_fold`] says a curve
+/// may bend more tightly than the half-width, and that test reads the path in its own space and
+/// the width [`convert::stroke`] resolves, neither of which a strip changes — so asked here of the
+/// page it is the draw's answer in every division (ADR 1847, trap 146). A dashed stroke is not
+/// asked: its dashes cut the curves, and the test is the dashed pieces', so it keeps its rows.
+fn outlined_whole(stroke: &pdf_render::PlannedStroke<'_>) -> bool {
+    if !stroke.stroke.dash_array.is_empty() {
+        return false;
+    }
+    let Some(converted) = convert::path(stroke.path) else {
+        return false;
+    };
+    let half = convert::stroke(stroke.stroke, stroke.at).width / 2.0;
+    half.is_finite() && half > 0.0 && !curves_may_fold(&converted, half)
 }
 
 /// One clip of a chain, ready to be drawn into a mask.

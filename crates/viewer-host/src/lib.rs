@@ -109,6 +109,8 @@
 //! - [`geometry`] — the axis-aligned bound of a quadrilateral. Both native hosts had written it,
 //!   identically, before [`popup`] wanted it a third and fourth time.
 //! - [`wheel`] — Control and the wheel: how much travel is one zoom step, in all three windows.
+//! - [`stand_in`] — the rectangle a page's pixels are shown in: after a zoom, the last frame scaled
+//!   to the extent the page has now until the new frame lands, in both toolkit windows (ADR 1843).
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -147,6 +149,7 @@ pub mod report;
 pub mod restriction;
 pub mod script_asks;
 pub mod script_timers;
+pub mod stand_in;
 pub mod status;
 pub mod submit;
 pub mod trace;

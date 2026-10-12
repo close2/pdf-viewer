@@ -49,7 +49,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use pdf_render::{DisplayList, Raster, RasterFormat, TargetSpec};
+use pdf_render::{DisplayList, MarkBounds, Raster, RasterFormat, TargetSpec};
 
 /// A flag another thread raises to ask a draw in progress for the picture so far.
 ///
@@ -217,38 +217,51 @@ impl crate::CpuRasterizer {
     /// elements are drawn onto a buffer of their own and composited at its end, so a picture taken
     /// inside one would be a picture of no state the page passes through.
     ///
+    /// **Whether a command reaches the strip is asked of `bounds`**, measured once for the page's
+    /// target rather than once per strip: the test is the one `encode` asks of a list met in a
+    /// recursion, and every strip of the owner's witness replayed it for each of 4.4 M commands,
+    /// 9.9 % of the processor's drawing (ADR 1841).
+    ///
     /// # Errors
     ///
     /// As `encode`.
     pub(crate) fn encode_page(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
-        list: &DisplayList,
+        (list, bounds): (&DisplayList, &MarkBounds),
         surface: crate::Surface,
         masks: &mut crate::MaskCache,
         showing: Option<&Showing>,
     ) -> Result<(), crate::CpuRasterError> {
         let commands = list.commands();
-        let Some(showing) = showing else {
-            return self.encode(
-                pixmap,
-                list,
-                commands,
-                surface,
-                masks,
-                0,
-                crate::Compose::Over,
-            );
-        };
-        let mut watch = Watch::new(showing, list, surface.page, surface.rows.top, self.medium);
-        for (drawn, command) in commands.iter().enumerate() {
-            if watch.due() {
-                watch.answer(pixmap.as_ref().data(), drawn, commands.len());
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a target height below MAX_EXTENT = 2^24 is exact in f32"
+        )]
+        let (top, bottom) = (
+            surface.rows.top as f32,
+            surface.rows.top.saturating_add(surface.rows.height) as f32,
+        );
+        let mut watch = showing
+            .map(|showing| Watch::new(showing, list, surface.page, surface.rows.top, self.medium));
+        for (index, command) in commands.iter().enumerate() {
+            if let Some(watch) = watch.as_mut()
+                && watch.due()
+            {
+                watch.answer(pixmap.as_ref().data(), index, commands.len());
             }
-            self.encode(
+            // `encode`'s first two questions, in its order: whether anybody has asked for the
+            // thread back, and whether this command can mark any row of the strip.
+            if self.interrupted() {
+                return Err(pdf_render::BackendError::Interrupted.into());
+            }
+            if bounds.misses_rows(index, surface.page.transform, top, bottom) {
+                continue;
+            }
+            self.encode_command(
                 pixmap,
                 list,
-                std::slice::from_ref(command),
+                command,
                 surface,
                 masks,
                 0,
@@ -257,7 +270,9 @@ impl crate::CpuRasterizer {
         }
         // The strip has landed; somebody looking at the page is shown its final rows now rather
         // than when the slowest strip ends.
-        if showing.glance.asked() > 0 {
+        if let (Some(showing), Some(watch)) = (showing, watch.as_mut())
+            && showing.glance.asked() > 0
+        {
             watch.answer(pixmap.as_ref().data(), commands.len(), commands.len());
         }
         Ok(())

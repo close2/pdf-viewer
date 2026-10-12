@@ -61,8 +61,8 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
   follows the same rule.
 - **Incremental parsing.** Opening a document reads the trailer and the objects page one
   needs — not the whole file. A 500-page document must open no slower than a 5-page one.
-- **Page one goes to the GPU, and GPU bring-up is therefore on the critical path by
-  choice.** Stated by the project owner: drawing the first page on the graphics device is
+- **Page one goes to the GPU by default, and GPU bring-up is therefore on the critical path
+  by choice.** Stated by the project owner: drawing the first page on the graphics device is
   what is wanted, so the alternative — showing page one from the processor while the
   device initialises on another thread — is *not* the rule here. What follows from that
   choice is an obligation rather than a licence: **creating the device and compiling the
@@ -82,10 +82,20 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
     regression in the driver, the adapter selection or the shader set is legible as
     itself rather than as a slower page.
 
-  **The CPU backend keeps its other two jobs and loses this one.** It is still the
-  correctness oracle — the whole cross-backend comparison rests on it — and it is still
-  what draws a frame the graphics device refuses (a coverage or budget refusal, not a
-  swapchain state), reported out loud. What it is no longer is the startup path.
+  **The CPU backend keeps its other two jobs, and takes page one only where it is
+  predicted the faster lane.** It is still the correctness oracle — the whole
+  cross-backend comparison rests on it — and it is still what draws a frame the graphics
+  device refuses (a coverage or budget refusal, not a swapchain state), reported out loud.
+  It is not a way to hide the device's bring-up: the device comes up whatever page one
+  costs, so a processor frame drawn only to cover that wait is the unnecessary work this
+  rule exists to prevent. **Where the page itself is past what a frame was budgeted to be,
+  the faster lane draws it, page one included.** Stated by the project owner on
+  2026-10-12: "yes, you are allowed to print the first frame on the CPU instead of the
+  GPU. (The limitation was just to avoid 'unnecessary' work and assumed that the only
+  reason to draw on the CPU was to avoid the cost of setting up the GPU pipeline)". The
+  device draws every frame it is predicted to draw inside the warning bound, and past it
+  the lane with the smaller prediction draws, said out loud in the title and on the
+  terminal (ADR 1831, `doc/questions/A393`).
 - **No heavy runtime.** No async runtime unless something genuinely requires one; a
   thread pool for rasterisation is not a reason to pull in one.
 - Cold-start and time-to-first-page are CI gates with numbers attached, measured with a

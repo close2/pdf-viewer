@@ -1342,10 +1342,13 @@ fn every_instruction_a_person_reads_builds_the_worker_inside_the_walks_hold() {
 /// The programs a gate's test spawns from another package, which Cargo does not build for it (trap
 /// 10): what the test file says that shows it spawns one — a call, since an exemption may name the
 /// requirement it does not make — and the package whose build makes it. A
-/// package's own programs are not here, because Cargo builds those for its integration tests.
-const SPAWNED_PROGRAMS: [(&str, &str); 2] = [
+/// package's own programs are not here, because Cargo builds those for its integration tests. The
+/// script stage's worker is the launch gate's second, asked for by name where the gate looks for it
+/// beside itself (ADRs 1620, 1851).
+const SPAWNED_PROGRAMS: [(&str, &str); 3] = [
     ("require_the_sandbox(", "pdf-sandbox"),
     ("Reference::Hayro", "hayro-compare"),
+    ("pdf_script_worker::WORKER_PROGRAM", "pdf-script-worker"),
 ];
 
 /// The cargo subcommand a gate's command runs and the words of that command up to its own `--`:

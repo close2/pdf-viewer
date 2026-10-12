@@ -939,12 +939,15 @@ impl App {
         let identity = first.of;
         let for_the_frame = match playing {
             // The transition's own picture, under the identity of the page it is a transition
-            // *to*: it is never a stand-in for anything — `Stale::forget` sees to that below —
-            // so the identity here is what keeps the type honest rather than something read.
+            // *to* and marked as no view of it: when it lands it settles nothing, so the frame
+            // after the transition is the page or the transition's end and never a reprojection
+            // of two pages by one page's placement, and the retained layer never keeps it
+            // (`crate::stale::Depicts`, ADR 1853).
             Some(frame) => vec![crate::stale::Placed {
                 of: identity,
                 list: frame,
                 target: drawn,
+                depicts: crate::stale::Depicts::Transition,
             }],
             None => pages,
         };
@@ -1370,6 +1373,7 @@ impl App {
                         geometry.origin.1,
                     )),
                 },
+                depicts: crate::stale::Depicts::Page,
             });
         }
         // What the arrangement dropped is dropped here, so that a thousand-page document scrolled

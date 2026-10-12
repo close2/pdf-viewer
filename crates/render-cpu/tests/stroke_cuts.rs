@@ -264,6 +264,158 @@ fn diamonds() -> DisplayList {
     list
 }
 
+/// A sheet of the owner's drawing's dots: one-segment round-capped strokes a fifth of a pixel long,
+/// every one inside two by two pixels, at coordinates that are not dyadic, stacked so that every row
+/// of the page crosses several — and every other one thinner than one level of a pixel, which
+/// `tiny-skia`'s hairline drew before `pdf_render::thin_segment` took it (ADR 1847).
+///
+/// What these scenes hold is that such a mark is measured on the page's own grid in every strip: a
+/// strip's shifted origin would round its endpoints at another magnitude (ADR 0219), so the
+/// non-dyadic coordinates are the point rather than an accident.
+fn dots() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(400.0, 600.0));
+    for index in 0..6000_u32 {
+        let y = 0.31 + 0.0999 * index as f32;
+        let x = 3.7 + ((index * 37) % 390) as f32 + 0.137 * (index % 7) as f32;
+        let width = if index % 2 == 0 { 0.0013 } else { 0.23 };
+        list.push(polyline(
+            &[(x, y), (x + 0.21, y + 0.17)],
+            false,
+            drawing_pen(width),
+        ));
+    }
+    list
+}
+
+/// A page of thin segments is cut, and the cut draws the page byte for byte: each mark's areas are
+/// the page's in every strip, and a strip only moves the rows they land in (ADR 1847, trap 146).
+#[test]
+fn a_thin_segment_cut_by_a_strip_draws_the_page() {
+    let list = dots();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("a valid target");
+    let extents = pdf_render::command_extents(&list, target);
+    let costs = pdf_render::row_costs(&extents, target);
+    let before = pdf_render::unsplittable_rows(&list, target);
+    assert_eq!(
+        pdf_render::strip_boundaries_avoiding(&costs, &before, 16, 64).len(),
+        2,
+        "the dots could already be cut under ADR 0139's rule"
+    );
+    let backend = CpuRasterizer::new().with_strips(16);
+    let asked = std::cell::Cell::new(0_u32);
+    let freed = pdf_render::unsplittable_rows_where(&list, target, &|mark| {
+        let answer = backend.draws_row_by_row(mark, target);
+        if let pdf_render::PlannedMark::Stroke(stroke) = mark
+            && stroke.stroke.width < 0.002
+        {
+            asked.set(asked.get() + 1);
+            assert!(answer, "a dot under one level of a pixel forbids its rows");
+        }
+        answer
+    });
+    assert_eq!(asked.get(), 3000, "every thinner dot was asked");
+    assert!(
+        freed.iter().all(|row| !*row),
+        "a row is still forbidden: the dots are all thin segments"
+    );
+    let plan = backend.strip_plan(&list, target);
+    assert!(
+        plan.len() > 8,
+        "the dots are granted too few cuts: {plan:?}"
+    );
+    let whole = drawn(&list, target, 1);
+    for strips in [2_u32, 3, 5, 8, 16] {
+        let (moved, worst, first) = difference(&whole, &drawn(&list, target, strips), target.width);
+        assert_eq!(
+            moved, 0,
+            "the dots at {strips} strips: {moved} pixels differ by up to {worst}, the first at \
+             {first:?}"
+        );
+    }
+}
+
+/// And the other side of [`rings`]: a ring whose pen is wider than its radius bends more tightly
+/// than its half-width, which ADR 1348 strokes as convex pieces that `tiny-skia`'s converter draws,
+/// so it keeps its rows — the backend's answer is the draw's own question, not "a curve is fine".
+#[test]
+fn a_curve_that_may_fold_keeps_its_rows() {
+    let list = rings(14.0);
+    let target = TargetSpec::for_page(&list, 2.0, GENEROUS).expect("a valid target");
+    let backend = CpuRasterizer::new().with_strips(16);
+    let rows = pdf_render::unsplittable_rows_where(&list, target, &|mark| {
+        backend.draws_row_by_row(mark, target)
+    });
+    assert!(
+        rows.iter().all(|row| *row),
+        "a row of the folding rings is free"
+    );
+}
+
+/// A fill taller than one accumulator holds at the page's width and far narrower than the page — a
+/// slanted rule of a drawing's border, say — is measured in one accumulator of its own columns, so
+/// its suspicion of overlap is the same in every division and it forbids no row (ADR 1847). Ten of
+/// them side by side, each with an oblique edge in every row, which ADR 0139's rule left as one
+/// strip, among a sheet of small squares; and the width they would have been asked at before, against `area`'s budget of 2^22 cells,
+/// asserted to refuse them, so the scene is one the page's width could not free.
+#[test]
+fn a_tall_narrow_fill_is_measured_in_its_own_columns_and_forbids_no_cut() {
+    const CELL_BUDGET: f32 = 4_194_304.0;
+    let (width, height) = (600.0_f32, 7600.0_f32);
+    let mut list = DisplayList::new(Size::new(width, height));
+    for column in 0..10 {
+        let x = 20.5 + 57.25 * column as f32;
+        list.push(polygon(&[
+            (x, 12.25),
+            (x + 6.5, 12.25),
+            (x + 30.75, height - 12.5),
+            (x + 24.25, height - 12.5),
+        ]));
+    }
+    // What the rules border: small squares, which forbid no row, so that the tall fills are a
+    // small share of what every strip replays (`pdf_render::replay_ratio`).
+    for row in 0..400 {
+        for column in 0..20 {
+            let (x, y) = (14.5 + 29.0 * column as f32, 20.25 + 18.75 * row as f32);
+            list.push(polygon(&[
+                (x, y),
+                (x + 6.5, y),
+                (x + 6.5, y + 6.5),
+                (x, y + 6.5),
+            ]));
+        }
+    }
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("a valid target");
+    assert!(
+        (height - 24.75 + 4.0) * (width + 1.0) > CELL_BUDGET,
+        "a fill this tall fits one accumulator at the page's width, so it says nothing"
+    );
+    let extents = pdf_render::command_extents(&list, target);
+    let costs = pdf_render::row_costs(&extents, target);
+    let before = pdf_render::unsplittable_rows(&list, target);
+    assert_eq!(
+        pdf_render::strip_boundaries_avoiding(&costs, &before, 16, 64).len(),
+        2,
+        "the fills could already be cut under ADR 0139's rule"
+    );
+    let plan = CpuRasterizer::new()
+        .with_strips(16)
+        .strip_plan(&list, target);
+    assert!(
+        plan.len() > 8,
+        "the fills are granted too few cuts: {plan:?}"
+    );
+    let whole = drawn(&list, target, 1);
+    let pixels = (target.width as usize) * (target.height as usize);
+    for strips in [2_u32, 5, 16] {
+        let (moved, worst, first) = difference(&whole, &drawn(&list, target, strips), target.width);
+        assert!(
+            worst <= 1 && moved * 1000 < pixels,
+            "the fills at {strips} strips: {moved} of {pixels} pixels differ by up to {worst}, \
+             the first at {first:?}"
+        );
+    }
+}
+
 /// Scenes whose outlines are horizontal and vertical edges at dyadic coordinates only, so a strip's
 /// shifted origin cannot move a pixel and the cut is the only thing compared.
 fn exact_scenes() -> [(&'static str, DisplayList, f32); 2] {
@@ -276,13 +428,54 @@ fn exact_scenes() -> [(&'static str, DisplayList, f32); 2] {
 /// Scenes with round caps, round joins and oblique edges, whose outlines are not dyadic: here a
 /// strip's shifted origin moves pixels whether or not a cut crosses the mark (ADR 0219), and what
 /// is held is ADR 1758's bound for one coverage.
-fn bounded_scenes() -> [(&'static str, DisplayList, f32); 4] {
+fn bounded_scenes() -> [(&'static str, DisplayList, f32); 5] {
     [
         ("round grid", grid(drawing_pen), 2.0),
         ("hatching", hatching(), 2.0),
         ("discs", discs(), 2.0),
         ("diamonds", diamonds(), 2.0),
+        ("rings", rings(1.5), 2.0),
     ]
+}
+
+/// The disc of [`disc`] stroked rather than filled, under `pen`.
+fn ring(x: f32, y: f32, r: f32, pen: Stroke) -> Command {
+    let Command::Fill { path, .. } = disc(x, y, r) else {
+        unreachable!("`disc` states a fill")
+    };
+    Command::Stroke {
+        path,
+        transform: Transform::IDENTITY,
+        stroke: pen,
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    }
+}
+
+/// The owner's drawing's curved strokes: rings of round-capped pen `width` wide, staggered as
+/// [`discs`] are so that every row of the page crosses a curve, each bending far less tightly than
+/// its half-width — so the stroker's outline draws it and `area` measures that, which ADR 1348's
+/// pieces would not (ADR 1847).
+fn rings(width: f32) -> DisplayList {
+    let mut list = DisplayList::new(Size::new(600.0, 900.0));
+    for column in 0..12 {
+        for row in 0..45 {
+            let stagger = if column % 2 == 0 { 0.0 } else { 10.125 };
+            let (x, y) = (
+                25.5 + 48.25 * column as f32,
+                10.75 + 19.5 * row as f32 + stagger,
+            );
+            list.push(ring(
+                x,
+                y,
+                6.0 + 0.25 * (row % 5) as f32,
+                drawing_pen(width),
+            ));
+        }
+    }
+    list
 }
 
 /// Renders `list` at `strips`, the planner's own cuts.

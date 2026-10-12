@@ -159,12 +159,98 @@ fn search(list: &DisplayList, target: pdf_render::TargetSpec, costs: &[f64]) {
         rows.iter().filter(|row| !**row).count(),
         target.height
     );
+    // What is left with every mark freed is what the clips and the soft masks' own clips forbid,
+    // which no answer about a mark can change (ADR 1847).
+    let clips = pdf_render::unsplittable_rows_where(list, target, &|_| true);
+    println!(
+        "  rows forbidden with every mark freed, by clips alone: {} of {}",
+        clips.iter().filter(|row| **row).count(),
+        target.height
+    );
+    refusals(list, target, &backend, &rows);
     for asked in [16, 8, 4, 2] {
         let cuts = pdf_render::strip_boundaries_avoiding(costs, &rows, asked, 64);
         println!(
             "    {asked:>2} asked: {} made, replay {:.3}, cuts {cuts:?}",
             cuts.len() - 1,
             pdf_render::replay_ratio(&extents, &cuts)
+        );
+    }
+}
+
+/// The marks the backend refuses, by the first reason that refuses each, and the rows each
+/// reason holds by itself: what the forbidden rows would become with that reason's strokes freed and
+/// every other answer kept (ADR 1847).
+fn refusals(
+    list: &DisplayList,
+    target: pdf_render::TargetSpec,
+    backend: &render_cpu::CpuRasterizer,
+    rows: &[bool],
+) {
+    let reason = |mark: pdf_render::PlannedMark<'_>| -> Option<&'static str> {
+        if backend.draws_row_by_row(mark, target) {
+            return None;
+        }
+        let stroke = match mark {
+            pdf_render::PlannedMark::Stroke(stroke) => stroke,
+            pdf_render::PlannedMark::Fill(fill) => {
+                // `render_cpu::area`'s budget, 2^22 cells, over the fill's own rows and columns.
+                let page_columns = f64::from(target.width) + 1.0;
+                let span = fill.path.hull().map(|hull| hull.mapped(fill.at)).map(|on| {
+                    let rows = f64::from(on.max.y.ceil() - on.min.y.floor() + 4.0);
+                    rows * f64::from(on.max.x.ceil() - on.min.x.floor() + 5.0).min(page_columns)
+                });
+                return Some(if fill.replaces {
+                    "fill, composited otherwise"
+                } else if span.is_none_or(|cells| cells > 4_194_304.0) {
+                    "fill, a span past one accumulator"
+                } else {
+                    "fill, extent past the converter's range, or none"
+                });
+            }
+        };
+        let commands = stroke.path.commands();
+        let zero_length = commands
+            .windows(2)
+            .any(|pair| matches!(pair, [PathCommand::MoveTo(a), PathCommand::LineTo(b)] if a == b))
+            || commands.len() == 1;
+        let width = stroke.stroke.device_width(stroke.at);
+        Some(if stroke.replaces {
+            "composited otherwise"
+        } else if commands
+            .iter()
+            .any(|segment| matches!(segment, PathCommand::CurveTo(..)))
+        {
+            "curved"
+        } else if zero_length {
+            "a zero-length subpath"
+        } else if pdf_render::unmeasurable_width(stroke.at).is_none_or(|floor| width <= floor) {
+            if commands.len() == 2 {
+                "under a level, one segment, past two by two"
+            } else {
+                "under a level, several segments"
+            }
+        } else {
+            "extent past the converter's range, or none"
+        })
+    };
+    let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
+    let tally = std::cell::RefCell::new(&mut counts);
+    let _ = pdf_render::unsplittable_rows_where(list, target, &|mark| {
+        if let Some(why) = reason(mark) {
+            *tally.borrow_mut().entry(why).or_insert(0) += 1;
+        }
+        backend.draws_row_by_row(mark, target)
+    });
+    let forbidden = rows.iter().filter(|row| **row).count();
+    println!("  marks the backend refuses, by reason (marks, rows forbidden with them freed):");
+    for (why, count) in &counts {
+        let freed = pdf_render::unsplittable_rows_where(list, target, &|mark| {
+            reason(mark) == Some(why) || backend.draws_row_by_row(mark, target)
+        });
+        println!(
+            "    {count:>9}  {:>5} of {forbidden}  {why}",
+            freed.iter().filter(|row| **row).count()
         );
     }
 }

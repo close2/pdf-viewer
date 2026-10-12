@@ -20,6 +20,7 @@
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
 #   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
+#   tools/batch.sh summary <gate> < <out>  # the summary a gate's line in the log carries, read from its output
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
 #   tools/batch.sh install                 # after the fast-forward: what a person runs, into main's target/
 #   tools/batch.sh close batch-1038-1043   # after `git merge --ff-only` on main: remove both
@@ -307,7 +308,7 @@ arms_at_open() {
 # (`doc/todo/02` section 2, "Run the sequence on a quiet machine") — so it takes both of the lock's
 # lanes and runs alone. Every other gate is a large walk, under the 12 GiB ceiling the gates were
 # always run under, on the first lane (ADR 1684).
-clock_gates="t2-transform-gate t2-turn_path t3-oracle t3-text_extract t3-render_raster t3-foreign_corpus"
+clock_gates="t2-transform-gate t2-turn_path t2-launch_path t3-oracle t3-text_extract t3-render_raster t3-foreign_corpus"
 run() {
     local name=$1; shift; local out rc asked ended wall clock=
     [[ " $clock_gates " == *" $name "* ]] && clock=1
@@ -326,10 +327,29 @@ run() {
         rc=98; out+=$'\nran zero tests — a green line that checked nothing (ADR 1392)'
     fi
     printf '%-24s exit=%-4s wall=%-6s wait=%-6s %s\n' "$name" "$rc" \
-        "${wall}s" "$((ended - asked - wall))s" \
-        "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked|ran zero tests' | tail -1 | cut -c1-150)" >> "$log"
+        "${wall}s" "$((ended - asked - wall))s" "$(printf '%s\n' "$out" | gate_summary "$name")" >> "$log"
     [ "$rc" -ne 0 ] && printf '%s\n' "$out" | tail -30 > "$log.fail.$name"
     return 0
+}
+
+# The words a gate's line in the log ends with, read from the gate's output on standard input: the
+# last line that says what ran, or — for a gate whose report ends in a summary of its own — that
+# summary. `t2-launch_path`'s is the line that counts its figures and names each one outside its
+# band, so a merge reads which figure moved and by how much off the log's one line rather than "2
+# outside" (ADR 1851); where the gate stopped before printing it, the ordinary line stands, and the
+# failure's tail is beside the log either way. Its cut is wider because the names are the point.
+gate_summary() {
+    local output own=
+    output=$(cat)
+    if [ "$1" = t2-launch_path ]; then
+        own=$(printf '%s\n' "$output" | grep -E '^launch-path: [0-9]+ documents measured' | tail -1) || true
+    fi
+    if [ -n "$own" ]; then
+        printf '%s\n' "$own" | cut -c1-600
+    else
+        printf '%s\n' "$output" | grep -iE 'test result|documents|pages|passed|FAILED|panicked|ran zero tests' |
+            tail -1 | cut -c1-150 || true
+    fi
 }
 
 gates() {
@@ -363,6 +383,16 @@ gates() {
     # `release`, not `gates`: the bands in `doc/checks/turn-path.toml` are a claim about the
     # profile a person runs, and the gate prints without judging under any other (ADR 1513).
     run t2-turn_path      cargo test --release -p render-raster --test turn_path -- --ignored --nocapture
+    # Principle 2's launch path, whole: `--release` for the reason `turn_path` is, and with
+    # `PDFVIEWER_LAUNCH_CLOCKS` set, because a clock run here is the stated quiet moment
+    # `doc/questions/A29`'s option 2 asks for — the merge's hold has the machine to itself, so the
+    # cold open and the time to first page are judged beside the counted figures and a launch
+    # regression fails the merge (ADR 1851). Its two workers in its own profile ahead of it: the
+    # sandbox's, which `require_the_sandbox` asks for, and the script stage's (ADR 1620).
+    run build-launch-sandbox cargo build --release -p pdf-sandbox --bins
+    run build-launch-script  cargo build --release -p pdf-script-worker --features engine --bins
+    run t2-launch_path    env PDFVIEWER_LAUNCH_CLOCKS=1 \
+        cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
     # `release`, as CI's job builds them. The tree ceiling is a walk's 12 GiB, not a build's 8: the
     # release build of `raster-gpu`'s examples peaked at 7.85 GiB over the tree when it was measured,
     # inside a build's ceiling by too little to survive a heavier dependency (ADR 1575).
@@ -878,6 +908,7 @@ case "${1:-}" in
     arms)  export_arms "${2:-}" ;;
     arms-held) arms_held "${2:?}" "${3:?}" "${4:?}" ;;
     check) check_batch ;;
+    summary) gate_summary "${2:?a gate name}" ;;
     commit) commit_batch "${2:?a commit message file}" ;;
     install) install_batch ;;
     close) close_batch "${2:?branch name}" ;;

@@ -449,7 +449,13 @@ section_writer() {
 #
 # The filter keeps every `launch-path:` line, which is the whole report: it is four documents deep
 # and a reader wants the table rather than a total. `NOT JUDGED` is one of those lines — see ADR
-# 0884 for why a wall-clock gate on this machine says that rather than failing.
+# 0884 for why a wall-clock gate on this machine says that rather than failing — and so is each
+# figure outside its band, by name, with the summary naming them again (ADR 1851).
+#
+# **This is the counted half, the one a round runs**: with no `PDFVIEWER_LAUNCH_CLOCKS` in the
+# environment the clock figures are printed and not judged (`doc/questions/A29`). The merge's
+# `t2-launch_path` runs the same command with the variable set, inside its own clock hold, so the
+# clocks are judged once a batch on a machine with nothing else on it.
 section_launch() {
     # The script stage's worker, trap 10's shape once more (ADR 1620).
     run "the launch path (principle 2's four numbers, doc/checks/launch-path.toml)" \

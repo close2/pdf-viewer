@@ -141,8 +141,12 @@ These are the places where a native host's shape differs from the tier-2 host's,
   `GLIMPSE_AFTER` the drawing thread is glanced at every `GLIMPSE_EVERY` and the page part-way is
   painted where it belongs, in painting order because the strips ADR 0139 grants are the only exact
   tiles. What is still owed: `quorra`'s processor fallback and the confined window's host draw do
-  not ask, and a zoom shows the page part-way at its new size where a reprojected old picture might
-  read better.
+  not ask.
+- **A zoom shows the last frame scaled until its own lands** (`viewer_host::stand_in`, ADR 1843):
+  each page's pixels are painted into the extent `Query::PageGeometry` gives it now — Qt's
+  `drawImage` into a rectangle, GTK's `GtkFixed` child transform — where the shape is the same, and
+  the part-way picture replaces it when it comes. What is still owed: a page arriving with a notch
+  out has no frame to scale and shows the ground, and a rotation keeps the old frame at its own size.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

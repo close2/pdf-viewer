@@ -224,6 +224,25 @@ pub(crate) struct Placed {
     pub(crate) list: Arc<DisplayList>,
     /// Where they go in this window, in its own device pixels.
     pub(crate) target: TargetSpec,
+    /// Whether the pixels are this page at [`Self::target`], or a frame of the transition to it.
+    pub(crate) depicts: Depicts,
+}
+
+/// What a [`Placed`] list's pixels are, which the window asks before it carries them anywhere.
+///
+/// **A transition frame carries the arriving page's [`Picture`] and is not a picture of it.**
+/// §12.4.4's frame is two page rasters placed for the whole window, so no transform of it is any
+/// view of either page: a reprojection composed from it moves a picture of *two* pages by one
+/// page's placement, and a retained copy of it would stand in for the page later. Its identity is
+/// still the arriving page's because the window does hold that page — the frame at progress 1 is
+/// the page where it is about to be drawn — so a page being built behind it is not put up over it
+/// part-way (ADR 1853).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Depicts {
+    /// The page's own commands drawn at the target: what every view change is carried from.
+    Page,
+    /// A frame of §12.4.4's transition to the page, already in the window's own pixels.
+    Transition,
 }
 
 impl Placed {
@@ -768,8 +787,11 @@ impl<P> Proxies<P> {
         if self.extent == 0 {
             return None;
         }
+        // A transition frame is not a picture of its page at any placement (`Depicts`), so it is
+        // never the page this layer keeps.
         pages
             .iter()
+            .filter(|placed| placed.depicts == Depicts::Page)
             .find(|placed| !self.held.iter().any(|held| held.of == placed.of))
             .cloned()
     }
@@ -1780,7 +1802,21 @@ impl Stale {
     /// `built` says whether this frame made its picture or replayed one the device already had.
     /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
     /// measures the replay, and rule 5 is a question about what the *next* render will cost.
+    ///
+    /// **A transition frame that has landed settles nothing**, and the window then holds no view
+    /// to carry: the frame after it is the page itself or nothing, never a picture of two pages
+    /// moved by one page's placement — which is what went up for one refresh at the end of every
+    /// §12.4.4 transition when this recorded it (ADR 1853). Nor is its cost a page's, so it does
+    /// not feed the prediction either. [`Self::forget`] cannot see to it, because a frame lands
+    /// on a later tick than the one that asked for it.
     pub(crate) fn settled(&mut self, pages: &[Placed], cost: Duration, built: bool) {
+        if pages
+            .iter()
+            .any(|placed| placed.depicts == Depicts::Transition)
+        {
+            self.settled = None;
+            return;
+        }
         if std::mem::take(&mut self.spent) {
             self.resampling = None;
         }
@@ -1923,8 +1959,8 @@ mod tests {
     use viewer_core::DocumentId;
 
     use super::{
-        AGREEMENT, Missed, Picture, Placed, Plan, Proxies, Refusal, Retained, Source, Stale, Stand,
-        Standing,
+        AGREEMENT, Depicts, Missed, Picture, Placed, Plan, Proxies, Refusal, Retained, Source,
+        Stale, Stand, Standing,
     };
 
     /// What a stand-in costs the presenting thread, in every test that is not about rule 4: the
@@ -1950,6 +1986,7 @@ mod tests {
                 of: self.of,
                 list: Arc::clone(&self.list),
                 target,
+                depicts: Depicts::Page,
             }
         }
     }
@@ -2105,6 +2142,7 @@ mod tests {
                             .transform
                             .then(Transform::translate(geometry.origin.0, geometry.origin.1)),
                     },
+                    depicts: Depicts::Page,
                 });
                 true
             });
@@ -3163,6 +3201,51 @@ mod tests {
         // picture per idle turn and throw every one of them away.
         let empty: Proxies<usize> = Proxies::new(0);
         assert!(empty.wanted(&arrangement).is_none());
+    }
+
+    /// §12.4.4's transition frame lands as a picture of no view, so nothing is carried from it.
+    ///
+    /// The owner's report (2026-10-12): the last frame of a transition showed "something
+    /// incorrect" for a fraction of a second. That frame was this window reprojecting the last
+    /// transition frame — two pages already in window pixels, at the identity — by the arriving
+    /// page's own placement, because the frame had been recorded as that page settled at the
+    /// identity. A frame that has landed settles nothing, and the retained layer never keeps one
+    /// (ADR 1853).
+    #[test]
+    fn a_transition_frame_settles_no_view_and_is_never_retained() {
+        let arriving = page();
+        let frame = Placed {
+            of: arriving.of,
+            list: Arc::new(DisplayList::new(Size::new(800.0, 1000.0))),
+            target: TargetSpec {
+                width: 800,
+                height: 1000,
+                transform: Transform::IDENTITY,
+            },
+            depicts: Depicts::Transition,
+        };
+        let mut stale = Stale::default();
+        slow(&mut stale, &page());
+        assert!(
+            stale.has_rendering(),
+            "the page before the transition is a view"
+        );
+        stale.settled(std::slice::from_ref(&frame), Duration::from_millis(2), true);
+        assert!(
+            !stale.has_rendering(),
+            "a transition frame is no view of the page it moves to, so none is held to carry"
+        );
+        let proxies: Proxies<usize> = Proxies::new(2);
+        assert!(
+            proxies.wanted(std::slice::from_ref(&frame)).is_none(),
+            "a retained copy of a transition frame would stand in for its page later"
+        );
+        assert!(
+            proxies
+                .wanted(&alone(&arriving, 1.0))
+                .is_some_and(|asked| asked.of == arriving.of),
+            "the page itself is still wanted"
+        );
     }
 
     /// The retained picture is the *whole page*, bounded by [`super::PROXY_EDGE`] on its longer

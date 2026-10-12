@@ -66,6 +66,10 @@
 # own slow page photographed part-way, its first half drawn and its last mark not, before the window
 # says its first frame (ADR 1825); `--step page_as_built_heavy` times the same on `HEAVY_FILE`.
 #
+# And in the three windows, §12.4.4's transitions photographed frame by frame — `quorra` on the device
+# and under `--cpu` — where every picture between two settled pages is one of them or a sweep across
+# both, and nothing else (ADR 1853).
+#
 # And one step outside the list, run by `--step heavy_open` alone: a heavy document's window path
 # timed in all four windows — the first frame, each process's peak memory, what the page crossed as,
 # and how long a key waited while it loaded (ADR 1815); `tools/state.sh heavy` is its clock walk.
@@ -3461,6 +3465,176 @@ PY
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# --- step 82: a zoom shows the last frame scaled to the new extent until its own lands (ADR 1843) ---
+# zoom_stand_in: the drive's own page, a red block and a blue one over a body that draws for most
+# of a second, zoomed in by Control and the wheel about the window's middle. The window says
+# `stands in at` when it shows the page's last frame scaled to the extent the zoom gives it; the
+# step photographs it then — before the first part-way picture (`GLIMPSE_AFTER`, 0.5 s) and before
+# the frame lands, both of which the log must not yet say — and again once the zoomed frame has
+# landed, and the red block must fill the same box on both, to within the scale's blurred edge.
+# Before the stand-in the photograph held the block at the old size at the new corner (round 1503).
+# `quorra` stands in by its own reprojection (`stale.rs`, ADR 1832) and is not offered.
+zoom_stand_in() {
+    local step=82-zoom-stand-in file="$FIXTURES/drive-zoom-slow.pdf" traced=$LAUNCH_TRACE mark mid settled
+    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "this window stands in by its own reprojection, not viewer_host::stand_in"
+        return
+    fi
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+body = (b"1 0 0 rg 72 500 200 200 re f\n0 0 1 rg 340 92 200 200 re f\n"
+        + b"1 1 1 rg 300 400 1 1 re f\n" * 600_000)
+content = pikepdf.Stream(pdf, zlib.compress(body, 9))
+content.Filter = Name.FlateDecode
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1], compress_streams=False)
+PY2
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    local x y w h X Y WIDTH HEIGHT
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    mark=$(lines)
+    xdotool keydown ctrl click 4 keyup ctrl
+    if ! wait_for 2 said_since "$mark" "stands in at"; then
+        verdict "$step" wrong "no stand-in was said after the notch: $(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -E 'rasterised|shown as it stands')"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    shot "$step-mid"
+    if said_since "$mark" "shown as it stands\\|rasterised"; then
+        verdict "$step" wrong "the photograph was taken after a part-way picture or the frame had replaced the stand-in"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    wait_for 30 said_since "$mark" "rasterised"
+    sleep 0.7
+    xdotool key shift; sleep 0.5
+    shot "$step-settled"
+    mid=$(magick "$OUT/shots/$WINDOW/$step-mid.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if python3 - "$mid" "$settled" <<'PY2'
+import re, sys
+boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if re.match(r"\d+x\d+\+\d+\+\d+$", b) else None for b in sys.argv[1:]]
+sys.exit(0 if None not in boxes and all(abs(a - b) <= 3 for a, b in zip(*boxes)) else 1)
+PY2
+    then
+        verdict "$step" works "the stand-in's red block $mid, the landed frame's $settled"
+    else
+        verdict "$step" wrong "the stand-in's red block $mid against the landed frame's $settled"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- step 83: a transition's frames are the two pages and nothing else (ADR 1853) ----------------
+# transition_frames: the drive's own slide show — red, blue and green slides, each with a white
+# square at a corner of its own, the second and third moved to by Table 164's `Wipe` and an outward
+# `Split` — presented with `p` and photographed for nine seconds as fast as `xwd` goes, each
+# distinct picture of the window kept once. A picture held for 0.4 s is a settled page; every
+# picture between two settled ones must be, channel by channel, between those two — one page, the
+# other, or a sweep's antialiased edge across both — and a pixel outside that is a picture of
+# neither, which is what the last frame of every transition was: the transition's own last frame
+# reprojected by the arriving page's placement (round 1508's reproduction). Three settled pages and
+# a moving picture in each transition say the camera saw the transitions at all; the window's
+# rectangle only, because the frames are the window's. `quorra-confined` never fires a transition.
+transition_frames() {
+    local step=83-transition-frames file="$FIXTURES/drive-transitions.pdf" judged
+    if [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "this window does not draw §12.4.4's transitions"
+        return
+    fi
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array
+pdf = pikepdf.new()
+slides = [(b"1 0 0", (40, 380), None, 1),
+          (b"0 0 1", (520, 380), Dictionary(Type=Name.Trans, S=Name.Wipe, D=1.5, Di=0), 1),
+          (b"0 0.6 0", (280, 20), Dictionary(Type=Name.Trans, S=Name.Split, D=1.5, Dm=Name.H,
+                                             M=Name.O), None)]
+for colour, (x, y), trans, dur in slides:
+    body = colour + b" rg 0 0 640 480 re f 1 1 1 rg " + f"{x} {y} 80 80 re f".encode()
+    page = Dictionary(Type=Name.Page, MediaBox=[0, 0, 640, 480],
+                      Contents=pdf.make_stream(body))
+    if trans is not None:
+        page.Trans = trans
+    if dur is not None:
+        page.Dur = dur
+    pdf.pages.append(pikepdf.Page(page))
+pdf.save(sys.argv[1])
+PY2
+    cat > "$OUT/transition_watch.py" <<'PY2'
+# transition_watch.py SECONDS X Y WIDTH HEIGHT: the step's camera and its judgement, one line out:
+# settled pictures, the distinct moving pictures in each transition, how many are neither page.
+import sys, subprocess, time, zlib, struct
+import numpy as np
+seconds, x, y, width, height = float(sys.argv[1]), *map(int, sys.argv[2:6])
+def grab():
+    raw = subprocess.run(['xwd', '-root', '-silent'], capture_output=True, check=True).stdout
+    fields = struct.unpack('>25I', raw[:100])
+    size, order, bpp, line, ncolors, w, h = (fields[0], fields[7], fields[11], fields[12],
+                                              fields[19], fields[4], fields[5])
+    if bpp not in (24, 32):
+        sys.exit(f'xwd wrote {bpp} bits a pixel')
+    step = bpp // 8
+    px = np.frombuffer(raw, dtype=np.uint8, count=line * h, offset=size + ncolors * 12)
+    px = px.reshape(h, line)[:, :w * step].reshape(h, w, step)
+    rgb = px[:, :, [2, 1, 0]] if order == 0 else px[:, :, [step - 3, step - 2, step - 1]]
+    return np.ascontiguousarray(rgb[y:y + height, x:x + width])
+seen = []
+began = time.monotonic()
+while time.monotonic() - began < seconds:
+    t = time.monotonic() - began
+    picture = zlib.compress(grab().tobytes(), 1)
+    if seen and seen[-1][0] == picture:
+        seen[-1][2] = t
+    else:
+        seen.append([picture, t, t])
+def unpack(packed):
+    return np.frombuffer(zlib.decompress(packed), dtype=np.uint8).reshape(height, width, 3)
+settled = [i for i, (_, first, last) in enumerate(seen) if last - first >= 0.4]
+moving, neither = [], []
+for before, after in zip(settled, settled[1:]):
+    a, b = unpack(seen[before][0]).astype(int), unpack(seen[after][0]).astype(int)
+    lo, hi = np.minimum(a, b) - 1, np.maximum(a, b) + 1
+    moving.append(after - before - 1)
+    for i in range(before + 1, after):
+        f = unpack(seen[i][0]).astype(int)
+        outside = np.any((f < lo) | (f > hi), axis=2)
+        if outside.any():
+            # Where they are, so that a seam along the page's edge reads apart from a page moved.
+            ys, xs = np.nonzero(outside)
+            neither.append(f'{int(outside.sum())} px at {seen[i][1]:.3f} s within '
+                           f'x {xs.min()}..{xs.max()}, y {ys.min()}..{ys.max()}')
+print(len(settled), ' '.join(map(str, moving)) or '-', len(neither), '; '.join(neither[:3]) or '-',
+      sep='\t')
+PY2
+    # `quorra` twice, on the device and under `--cpu`: the reprojection went up only where the frame
+    # after the transition was predicted to miss its refresh, which the processor's window always
+    # was here and the device's only sometimes, so `--cpu` is the arm that caught it every time.
+    local arms=("") arm X Y WIDTH HEIGHT settled moving neither which
+    [ "$WINDOW" = quorra ] && arms=("" --cpu)
+    for arm in "${arms[@]}"; do
+        # shellcheck disable=SC2086 # an empty arm is no argument at all
+        launch "$file" $arm
+        eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+        xdotool windowfocus --sync "$(main_window)" 2>/dev/null; xdotool key p
+        judged=$(timeout 60 python3 "$OUT/transition_watch.py" 7 "$X" "$Y" "$WIDTH" "$HEIGHT")
+        IFS=$'\t' read -r settled moving neither which <<< "$judged"
+        if [ -z "$judged" ]; then
+            verdict "$step$arm" wrong "the camera judged nothing"
+        elif [ "${neither:-1}" != 0 ]; then
+            verdict "$step$arm" wrong "$neither picture(s) of neither page: $which"
+        elif [ "${settled:-0}" -lt 3 ] || [[ " $moving " == *" 0 "* ]] || [ "$moving" = - ]; then
+            verdict "$step$arm" wrong "the camera did not see both transitions: $settled settled, moving $moving"
+        else
+            verdict "$step$arm" works "$settled pages settled, $moving distinct moving pictures, none of neither page"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    done
+}
 # page_as_built_heavy: `HEAVY_FILE` in a toolkit window or in `quorra`, with the window's stamps on
 # the first picture of the page in flight and on the finished page, and whether that first picture
 # held ink — figures `built<TAB>window<TAB>figure<TAB>value<TAB>unit` in `$OUT/built.tsv`. `quorra`
@@ -3740,6 +3914,8 @@ for WINDOW in "${WINDOWS[@]}"; do
     signature_policy
     loading_bar
     page_as_built
+    zoom_stand_in
+    transition_frames
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

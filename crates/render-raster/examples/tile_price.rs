@@ -34,7 +34,15 @@
 //!    two-by-two grid of tiles drawn concurrently from their own culled lists, and the
 //!    assembled tiles compared with the whole draw pixel for pixel — the seam is the risk.
 //! 4. **The device** (`--gpu`, the real adapter headless): whether the whole fit frame, each fit
-//!    tile and the four-times window are drawn or refused, and how long a drawn one took.
+//!    tile and the four-times window are drawn or refused, and how long a drawn one took; and the
+//!    four-times window handed over as the whole list, as a zoom step from the list's own fit
+//!    frame and after another list's frame — the two cases a window's scene meets (ADR 1841).
+//! 5. **The window as the shipped processor draws it** at the fit and at two, four and eight
+//!    times it: the whole list handed to `CpuRasterizer::new()`, strips on this machine's pool as
+//!    a window gets them, against the same window drawn as one strip on one thread — the time of
+//!    each, the first draw apart from the quickest (the first is the one that measures the
+//!    marks' bounds, ADR 1841), the strips the planner granted, the pixels the two differ by, and
+//!    a digest of each so that two builds' windows can be compared byte for byte.
 //!
 //! Every duration is the minimum of three draws in this process; pin the run with `taskset` to
 //! one class of core, as `doc/habits/measuring.md` says, because the arms are compared with one
@@ -92,9 +100,11 @@ fn main() {
     let interpreted = started.elapsed();
     let leaves = leaf_count(list.commands());
     println!(
-        "{path} page {index}: opened and interpreted in {:.0} ms, {} top-level commands, {leaves} leaves",
+        "{path} page {index}: opened and interpreted in {:.0} ms, {} top-level commands, {leaves} leaves, {} clips, {} soft masks",
         ms(interpreted),
-        list.command_count()
+        list.command_count(),
+        list.clip_count(),
+        list.soft_mask_count()
     );
 
     // The window's fit: the whole page inside the window, as `viewer_core` opens a document.
@@ -217,6 +227,21 @@ fn main() {
             "gpu  fit, whole page                               {}",
             on_device(&mut backend, &whole_list, fit_page)
         );
+        // The step a window takes next: the same list at four times the fit, its scene replacing
+        // the fit's — which read the view, so the window's cull applies (ADR 1841) — against the
+        // same window drawn from the list `culled_to` makes, pixel for pixel.
+        let stepped = drawn_on_device(&mut backend, &whole_list, zoomed);
+        let window_list = Arc::new(culled_to(&list, zoomed, full(zoomed)));
+        let reference = drawn_on_device(&mut backend, &window_list, zoomed);
+        println!(
+            "gpu  4× fit window, the whole list, a zoom step from its fit frame  {}; {}",
+            stepped.0,
+            match (&stepped.1, &reference.1) {
+                (Some(a), Some(b)) =>
+                    format!("{} pixels differ from the culled list's", differing(a, b)),
+                _ => "not compared".to_owned(),
+            }
+        );
         for (number, tile) in quarters(fit_page).into_iter().enumerate() {
             let tile_list = Arc::new(culled_to(&list, tile, full(tile)));
             println!(
@@ -226,13 +251,85 @@ fn main() {
                 on_device(&mut backend, &tile_list, tile)
             );
         }
-        let window_list = Arc::new(culled_to(&list, zoomed, full(zoomed)));
         println!(
             "gpu  4× fit window, culled ({} commands)       {}",
             window_list.command_count(),
             on_device(&mut backend, &window_list, zoomed)
         );
+        println!(
+            "gpu  4× fit window, the whole list after another list's frame  {}",
+            on_device(&mut backend, &whole_list, zoomed)
+        );
     }
+
+    // ── 5. the window as the shipped processor draws it ──
+    for (name, factor) in [
+        ("fit", 1.0),
+        ("2× fit", 2.0),
+        ("4× fit", 4.0),
+        ("8× fit", 8.0),
+    ] {
+        let target = window_at(&list, fit * factor, window);
+        // A copy per magnification, so that the first draw of each measures its bounds afresh
+        // as a viewer's first frame at a new zoom does.
+        let fresh = list.clone();
+        let started = Instant::now();
+        let pooled_first = CpuRasterizer::new()
+            .rasterize(&fresh, target)
+            .expect("the processor draws every command on this page");
+        let first = started.elapsed();
+        let (pooled, pooled_raster) = quickest(|| {
+            CpuRasterizer::new()
+                .rasterize(&fresh, target)
+                .expect("the processor draws every command on this page")
+        });
+        let (single, single_raster) = quickest(|| {
+            CpuRasterizer::new()
+                .with_strips(1)
+                .rasterize(&fresh, target)
+                .expect("the processor draws every command on this page")
+        });
+        let planned = planned(&fresh, target);
+        let strips = CpuRasterizer::new()
+            .strip_plan(&planned, target)
+            .len()
+            .saturating_sub(1);
+        // What a frame at this magnification pays for its cull once the bounds are kept: the
+        // test of every command and the list of those that reach the target.
+        let (cull, ()) = quickest(|| drop(planned_list(&fresh, target)));
+        println!(
+            "cpu  {name:<7} window, shipped: first {:>7.1} ms, quickest {:>7.1} ms on {strips} strip(s), {} commands, the cull {:.1} ms; one strip {:>7.1} ms; {} pixels differ, {} against the first; digests {:016x} {:016x}",
+            ms(first),
+            ms(pooled),
+            planned.command_count(),
+            ms(cull),
+            ms(single),
+            differing(&pooled_raster, &single_raster),
+            differing(&pooled_raster, &pooled_first),
+            digest(&pooled_raster),
+            digest(&single_raster)
+        );
+    }
+}
+
+/// The list the shipped rasteriser plans `target`'s strips over: the commands that reach it.
+fn planned(list: &DisplayList, target: TargetSpec) -> DisplayList {
+    planned_list(list, target).unwrap_or_else(|| list.clone())
+}
+
+/// The cull the shipped rasteriser makes of `list` for `target`, or `None` where it keeps all.
+fn planned_list(list: &DisplayList, target: TargetSpec) -> Option<DisplayList> {
+    list.reaching(target)
+}
+
+/// A 64-bit FNV-1a digest of a raster's bytes, for comparing two builds' windows by eye.
+fn digest(raster: &Raster) -> u64 {
+    raster
+        .data
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
 }
 
 /// Milliseconds, for printing.
@@ -469,6 +566,35 @@ fn differing(a: &Raster, b: &Raster) -> usize {
         .zip(b.data.chunks_exact(4))
         .filter(|(x, y)| x != y)
         .count()
+}
+
+/// One frame on the device: how long it took, or what it said instead, and what it drew.
+fn drawn_on_device(
+    backend: &mut render_raster::QuorraRasterizer,
+    list: &Arc<DisplayList>,
+    target: TargetSpec,
+) -> (String, Option<Raster>) {
+    let frame = render_raster::PresentFrame {
+        width: target.width,
+        height: target.height,
+        pages: &[(list, target)],
+        raster: None,
+        overlays: &[],
+    };
+    let started = Instant::now();
+    match backend.rasterize_frame(&frame) {
+        Ok(raster) => (
+            format!(
+                "drawn in {:.1} ms, readback included",
+                ms(started.elapsed())
+            ),
+            Some(raster),
+        ),
+        Err(problem) => (
+            format!("REFUSED after {:.1} ms — {problem}", ms(started.elapsed())),
+            None,
+        ),
+    }
 }
 
 /// One frame on the device: how long it took, or what it said instead.

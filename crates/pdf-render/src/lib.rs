@@ -37,6 +37,7 @@ pub mod mitre;
 pub mod outline;
 pub mod paint;
 pub mod program;
+pub mod reach;
 pub mod repeat;
 pub mod separation;
 pub mod shading;
@@ -80,6 +81,7 @@ pub use paint::{
     thinnest_line,
 };
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
+pub use reach::MarkBounds;
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use separation::{
     SpotColourant, SpotSeparation, matte as separation_matte, resolve as resolve_separation,

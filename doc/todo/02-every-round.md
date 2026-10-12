@@ -114,10 +114,14 @@ declares, with the sandbox worker it spawns built for its own profile as the wra
 inside the hold — Cargo does not build another package's binary for a test (trap 10), and a build
 before the lock is as old as the moment the walk stopped queueing (trap 109, ADR 1710). The block's
 first line is that shape; the lines after it are what goes after its `--`. At the merge,
-`tools/batch.sh gates` runs every line of this block and of tier 3, after building the two programs
-a gate spawns from another package, **except `launch_path`, which it does not run**: that line is
-the round's whose change reaches the launch path, as `tools/state.sh launch`. A line whose verdict
-is a time runs as a `--clock`, and `tools/batch.sh`'s `clock_gates` names which.
+`tools/batch.sh gates` runs every line of this block and of tier 3, after building the programs a
+gate spawns from another package. **`launch_path` is one of them, and the merge runs it whole**:
+with `PDFVIEWER_LAUNCH_CLOCKS=1`, so the clock figures are judged as well as the counted ones, inside
+a `--clock` hold that has the machine to itself — the stated quiet moment `doc/questions/A29`'s
+option 2 asks for, once a batch, so that a launch regression fails the merge as principle 2 asks
+(ADR 1851). A round whose change reaches the launch path runs the counted half, as
+`tools/state.sh launch`. A line whose verdict is a time runs as a `--clock`, and `tools/batch.sh`'s
+`clock_gates` names which.
 
 ```sh
 ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree <6|12> --build '--profile gates -p pdf-sandbox --bins' (or `--release`, as the line's profile is) -- <the line>
@@ -130,7 +134,7 @@ cargo test  --profile gates -p pdf-model      --test xmp             -- --ignore
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignored --nocapture   # every corpus document read from disk and from memory, object for object (ADR 0809)
-cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (doc/verify.md runs the clocks); `--release` on purpose, see below; a `--clock`, whose script stage's worker is a second `--build` beside the sandbox's (ADR 1620; doc/checks/launch-path.toml spells both)
+cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (the merge's t2-launch_path and doc/verify.md run the clocks); `--release` on purpose, see below; a `--clock`, whose script stage's worker is a second `--build` beside the sandbox's (ADR 1620; doc/checks/launch-path.toml spells both)
 cargo test  --release       -p render-raster  --test turn_path      -- --ignored --nocapture   # doc/performance.md 3e's turn and step rows, banded in doc/checks/turn-path.toml (ADR 1513)
 tools/batch.sh raster-examples   # ci.yml's fourteen raster examples, each with --check under Xvfb, one line each (ADR 1575)
 ```
@@ -239,9 +243,8 @@ run in a batch owes no such sequence: the merge runs all three tiers on every ba
 the map five times as often as the fifth-round rule did, and six rounds each owing a twenty-five
 minute walk the merge then repeats is the duplicated work ADR 1638 retires.
 
-**5. A merge runs everything, always — all three tiers, but tier 2's `launch_path`, which
-`tools/batch.sh gates` does not run** — and the paragraph below the table is not
-relaxed by any of this. This rule is what makes tier 3's demotion safe rather than a hole: every
+**5. A merge runs everything, always — all three tiers, `launch_path` with its clocks among
+them** — and the paragraph below the table is not relaxed by any of this. This rule is what makes tier 3's demotion safe rather than a hole: every
 walk still runs over every change, once per batch on `main`, which is where its catches have
 actually happened.
 
@@ -878,9 +881,10 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    wrong clause, named a file that does not exist, and attributed their own lint errors to a
    sibling; the merge is where that is caught.
 4. **When all are in**: `cargo fmt --all` (now safe — nobody is editing), tier 1 in full, then
-   `tools/batch.sh gates` for tiers 2 and 3 (one line per gate in the log with its `wall` and its
-   `wait` on the lock, a failure's tail beside it; `tools/state.sh gates-cost` prints which gate is
-   dear). The log's last line, and one line per round with the duration and tool uses its
+   `tools/batch.sh gates` for tiers 2 and 3, `t2-launch_path` with its clocks among them (one line
+   per gate in the log with its `wall` and its `wait` on the lock, a failure's tail beside it, the
+   launch gate's line its own summary naming each figure outside its band; `tools/state.sh
+   gates-cost` prints which gate is dear). The log's last line, and one line per round with the duration and tool uses its
    notification reported, go into the batch commit's body — the one place a batch's clock is kept,
    and `tools/state.sh batches` is what reads it back (ADR 1476): one line per commit carrying a
    paragraph opening `Round durations`, with the figure `N of M green, T s of gate wall time`, the

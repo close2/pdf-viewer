@@ -28,22 +28,45 @@
 //! "no shape ever disappears as a result of unfavourable placement relative to the device pixel
 //! grid".
 
-use pdf_render::{Color, ThinSegment};
+use pdf_render::{BlendMode, Paint, Path, Stroke, Transform};
 
-use crate::scan;
+use crate::{ToDevice, scan};
 
 /// One level of an eight-bit coverage, as a share of a pixel.
 const ONE_LEVEL: f64 = 1.0 / 255.0;
 
-/// Paints `thin` in `colour` onto `pixmap` through `clip`, returning `false`, with nothing drawn,
-/// where the clip's buffers do not match the pixmap — the pairing `scan::intersected` declines too,
-/// and which the ordinary construction then answers.
+/// Paints the stroke `path` under `stroke` in `paint` onto `pixmap` through `clip` where
+/// [`pdf_render::thin_segment`] admits it, and returns whether it did. `false`, with nothing drawn,
+/// for any other mark, and where the clip's buffers do not match the pixmap — the pairing
+/// `scan::intersected` declines too, and which the ordinary construction then answers.
+///
+/// **The mark is admitted and measured on the whole page's device grid, and only its rows are moved
+/// to the surface**, which holds the page's rows from `to_device`'s first. A block's row is a whole
+/// number, so subtracting that row from it is exact, and every division of the page admits the same
+/// marks and draws the same areas at the same levels into the same page pixels. That is what lets
+/// the strip planner cut through such a mark, asking `pdf_render::thin_segment` under the same
+/// transform (ADR 1847). Asked on a strip's own grid, the endpoints would round at another
+/// magnitude (ADR 0219), and the block — and with it the converter — could change at a cut (trap
+/// 146).
 pub(crate) fn draw(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    thin: &ThinSegment,
-    colour: Color,
+    (path, stroke, paint): (&Path, &Stroke, &Paint),
+    (transform, to_device): (Transform, ToDevice),
     clip: scan::Clip<'_>,
 ) -> bool {
+    let Paint::Solid(colour) = *paint else {
+        return false;
+    };
+    let Some(thin) = pdf_render::thin_segment(
+        path,
+        stroke,
+        paint,
+        BlendMode::Normal,
+        transform.then(to_device.page),
+    ) else {
+        return false;
+    };
+    let top = to_device.top;
     let (width, height) = (pixmap.width(), pixmap.height());
     let (bound, value) = clip.factors();
     if bound.is_some_and(|bound| bound.width() != width || bound.height() != height) {
@@ -67,7 +90,10 @@ pub(crate) fn draw(
     let mut in_order = areas.iter();
     for row in 0..block.rows {
         for column in 0..block.columns {
-            let (x, y) = (block.column + f64::from(column), block.row + f64::from(row));
+            let (x, y) = (
+                block.column + f64::from(column),
+                block.row + f64::from(row) - f64::from(top),
+            );
             if let (Some(cell), Some(&area)) = (cells.get_mut(count), in_order.next()) {
                 *cell = (x, y, area);
                 count = count.saturating_add(1);

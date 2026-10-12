@@ -625,7 +625,7 @@ const RARE: usize = 1_000;
 /// Held as ceilings rather than as digests: a page here that moves more fails, and a page that
 /// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement; the
 /// three pages a stroke's cut first divided are ADR 1819's.
-const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
+const PAST_THE_BOUND: [(&str, usize, u8, &str); 12] = [
     (
         "blendmode.pdf p1",
         83,
@@ -691,6 +691,14 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
         "the horizontal tops of the Kannada glyphs, on sample rows",
     ),
     (
+        "issue9418.pdf p1",
+        467,
+        2,
+        "single pixels on the edges of the four large glyphs, below the cuts the title block's \
+         round-capped curved frame now grants: a glyph whose contours overlap is several rounded \
+         results in a pixel, at a shifted origin (ADR 1847)",
+    ),
+    (
         "pdfjs_wikipedia.pdf p1",
         713,
         1,
@@ -698,10 +706,11 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     ),
     (
         "prefilled_f1040.pdf p1",
-        946,
+        1308,
         1,
         "the horizontal edges of the form's answer boxes and the flat tops of glyphs, on sample \
-         rows at the shifted origins of the strips its strokes now grant (ADR 1819)",
+         rows at the shifted origins of the strips its strokes now grant, the more of them since \
+         its curved strokes grant cuts too (ADRs 1819, 1847)",
     ),
 ];
 

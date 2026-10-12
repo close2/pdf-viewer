@@ -1625,6 +1625,53 @@ mod tests {
         );
     }
 
+    /// The frame at progress 1 is the arriving page's own pixels, every one of them, in every
+    /// style this module draws.
+    ///
+    /// What a window puts up as a transition's last frame is this frame, and the frame after it
+    /// is the page drawn where the face was rasterised — so "the screen is the page moved to"
+    /// ([`every_shaped_style_runs_from_the_old_page_to_the_new_one`]) has to hold of the pixels
+    /// and not only of the layers, or the end of a transition is a seam (ADR 1853). Two pages
+    /// that differ everywhere, so a pixel left from the old one cannot hide.
+    #[test]
+    fn the_last_frame_is_the_arriving_page_byte_for_byte() {
+        let outgoing = page([255, 0, 0, 255], [255, 255, 255, 255], |x, y| {
+            (20..40).contains(&x) && (40..60).contains(&y)
+        });
+        let incoming = page([0, 0, 255, 255], [0, 160, 0, 255], |x, y| {
+            (150..190).contains(&x) && (10..30).contains(&y)
+        });
+        let target = TargetSpec {
+            width: 200,
+            height: 100,
+            transform: Transform::IDENTITY,
+        };
+        let mut styles: Vec<Transition> = SHAPED.iter().cloned().map(of).collect();
+        let mut outward = of(Style::Split);
+        outward.motion = Motion::Outward;
+        styles.push(outward);
+        for flown in [Motion::Inward, Motion::Outward] {
+            let mut fly = of(Style::Fly);
+            fly.motion = flown;
+            fly.scale = 0.5;
+            styles.push(fly);
+        }
+        for transition in styles {
+            let faces = Faces::new(&transition, outgoing.clone(), incoming.clone());
+            let ended = frame(&transition, viewport(), 1.0).expect("shaped at its end");
+            let list = ended.draw(viewport(), &faces).expect("a frame builds");
+            let raster = render_cpu::CpuRasterizer::new()
+                .rasterize(&list, target)
+                .expect("the CPU backend draws a frame");
+            assert!(
+                raster.data[..] == incoming.data[..],
+                "{:?} {:?}: the last frame differs from the page it moves to",
+                transition.style,
+                transition.motion
+            );
+        }
+    }
+
     /// `/B` makes the flown area the changes' bounding rectangle, opaque.
     ///
     /// Table 164: "If true , the area that shall be flown in is rectangular and opaque." Two

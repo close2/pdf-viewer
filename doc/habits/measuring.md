@@ -905,3 +905,19 @@ loop and cut 1.09 G instructions off the witness's read — and made the read 0.
 in one clock hold with the arms interleaved (round 1498, ADR 1833). A cut in a path run once per
 token or per operator is A/B'd on the clock, in one hold, before it is kept; callgrind's count ranks
 candidates and decides nothing.
+
+## 88. A lane's seed is re-measured in the batch that cuts the lane's cost
+
+`quorra` seeds a lane's cost per command before it has drawn a page (ADR 1831): the device at
+1 788 ns and the processor at 667 ns. After ADRs 1829 and 1835 the device measures about 250 and the
+processor 178–256, and the device is never measured on a page the seeds gave the processor — so a
+stale seed silently decides which lane is ever tried (round 1504, ADR 1845). A batch that cuts a
+lane's cost by several times re-seeds the lane in the same batch, and the record says the figure.
+
+## 89. A census's lever is named after its refusals are tallied by reason
+
+Round 1500's record said the witness's 2 169 forbidden rows were strokes under a level of width and
+clips, and the brief built a slot on it; the per-reason tally showed the backend refused 61 curved
+strokes and nothing else, clips held no row, and thin strokes were not the cause (round 1505,
+ADR 1847). Before a lever is built from a census, the census prints each refusal's reason and the
+rows that reason holds on its own; a lever named from the total is a guess.

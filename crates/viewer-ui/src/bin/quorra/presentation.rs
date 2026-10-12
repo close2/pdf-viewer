@@ -35,6 +35,39 @@ pub(crate) struct Presentation {
     pub(crate) clock: viewer_host::Clock,
     /// When the next tick is due, which is what the event loop waits until.
     pub(crate) wake: std::time::Instant,
+    /// The transition in flight and its two pages, for the one frame its clock does not draw.
+    pub(crate) end: Option<End>,
+}
+
+/// What the frame at a transition's progress 1 is drawn from: Table 164's style and its two pages.
+///
+/// **[`viewer_host::Clock::frame`] ends a transition by drawing nothing**, so a window that showed
+/// only what the clock drew would leave the last frame it happened to draw — a fraction short of
+/// the end, a sliver of the page being left still on the screen — up until the page's own frame
+/// landed. The end state is the page arriving, placed where it is about to be drawn, and this
+/// window draws it once as the transition's last frame (ADR 1853). Kept beside the clock rather
+/// than in it because the other two windows draw a transition frame on the toolkit thread and put
+/// the page up in the same turn, so a frame left over is a quorra question.
+pub(crate) struct End {
+    /// The transition, whose frame at progress 1 decides what the end looks like.
+    transition: pdf_model::navigation::Transition,
+    /// The two pages, the same pictures the clock draws its frames from.
+    faces: viewer_core::transition::Faces,
+}
+
+impl End {
+    /// The transition's own frame at progress 1, which `viewer_core::transition` draws as the
+    /// arriving page alone, where it was rasterised.
+    fn draw(&self, viewport: Rect) -> Option<pdf_render::DisplayList> {
+        let shaped = viewer_core::transition::frame(&self.transition, viewport, 1.0)?;
+        match shaped.draw(viewport, &self.faces) {
+            Ok(list) => Some(list),
+            Err(problem) => {
+                println!("note: transition: its last frame would not draw: {problem}");
+                None
+            }
+        }
+    }
 }
 
 /// The far corner of a window, as a point in its own device pixels.
@@ -83,6 +116,7 @@ impl App {
         self.presentation = Some(Presentation {
             clock: viewer_host::Clock::started(now),
             wake: now,
+            end: None,
         });
         self.dispatch(Command::Present(PresentationMode::On));
         self.apply_chrome();
@@ -313,6 +347,7 @@ impl App {
             self.effect = Some(Presentation {
                 clock: viewer_host::Clock::for_one_transition(now),
                 wake: now,
+                end: None,
             });
         }
         self.arming = Some(transition);
@@ -372,6 +407,15 @@ impl App {
             ),
         );
         if let Some(playing) = self.presentation.as_mut().or(self.effect.as_mut()) {
+            // Two clones of an `Arc` each, so the end frame draws the same pictures (`End`).
+            playing.end = Some(End {
+                faces: viewer_core::transition::Faces::new(
+                    &transition,
+                    outgoing.clone(),
+                    incoming.clone(),
+                ),
+                transition: transition.clone(),
+            });
             playing
                 .clock
                 .begin(transition, outgoing, incoming, std::time::Instant::now());
@@ -383,15 +427,22 @@ impl App {
     ///
     /// Table 164's `/D` decides when there is nothing left to draw, and so does the clock that
     /// restarts on the arriving page when there is not — both inside [`viewer_host::Clock`],
-    /// which is where the other two hosts read the same two rules.
+    /// which is where the other two hosts read the same two rules. **The tick that finds `/D` run
+    /// out draws the frame at progress 1** ([`End`]), once, so the last picture of a transition is
+    /// the page it moves to and the frame after it is that page's own.
     fn transition_frame(&mut self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
         let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
         let now = std::time::Instant::now();
-        let shaped = self
-            .presentation
-            .as_mut()
-            .or(self.effect.as_mut())
-            .map(|playing| playing.clock.frame(viewport, now))?;
+        let playing = self.presentation.as_mut().or(self.effect.as_mut())?;
+        let shaped = playing.clock.frame(viewport, now);
+        if !playing.clock.animating() {
+            // Whatever ended it — `/D`, or a frame that would not build — the end is drawn at most
+            // once, and only where `/D` ran out.
+            let end = playing.end.take();
+            if matches!(shaped, Ok(None)) {
+                return end.and_then(|end| end.draw(viewport));
+            }
+        }
         match shaped {
             Ok(list) => list,
             Err(problem) => {

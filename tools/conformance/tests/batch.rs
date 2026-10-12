@@ -1709,3 +1709,92 @@ fn arms_held_runs_under_the_wrappers_marker_and_a_daemon_it_leaves_holds_nothing
         std::fs::read_to_string(format!("{}.text", verdict.display())).unwrap_or_default()
     );
 }
+
+/// What `tools/batch.sh summary <gate>` prints for the gate output on its standard input.
+fn summary_of(gate: &str, output: &str) -> String {
+    use std::io::Write as _;
+    let mut child = Command::new("bash")
+        .arg(repository_root().join("tools/batch.sh"))
+        .args(["summary", gate])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("bash runs tools/batch.sh");
+    child
+        .stdin
+        .take()
+        .expect("a piped standard input")
+        .write_all(output.as_bytes())
+        .expect("the planted output is written");
+    let done = child
+        .wait_with_output()
+        .expect("tools/batch.sh summary ends");
+    assert!(
+        done.status.success(),
+        "tools/batch.sh summary {gate} failed: {}",
+        text(&done)
+    );
+    String::from_utf8_lossy(&done.stdout).trim_end().to_owned()
+}
+
+/// **The merge runs the launch gate whole, as a clock, and its line names what moved** (ADR 1851).
+/// `gates()` runs `launch_path` with `PDFVIEWER_LAUNCH_CLOCKS=1` under `clock_gates`, so the cold
+/// open and the time to first page are judged where the merge's hold has the machine to itself, and
+/// the log's line for it is the gate's own summary — which names each figure outside its band —
+/// rather than the harness's `test result`, which names none. Calibrated by planting (trap 13): a
+/// failing run's output gives the launch gate its own summary and any other gate the last
+/// `test result`, and a launch run that stopped before its summary falls back to that line too.
+#[test]
+fn the_merge_runs_the_launch_gate_with_its_clocks_and_its_line_names_what_moved() {
+    let named = "launch-path: 6 documents measured, 0 absent, 0 not counted, 0 script stages not \
+                 measured, 31 figures banded, 0 not judged (0 of them for load), 2 outside: \
+                 xfa_filled_imm1344e.pdf open_kinstructions 1823.100 not in 1700.000 .. 1820.000; \
+                 opt_demo.pdf open_kinstructions 1370.400 not in 1300.000 .. 1369.000";
+    let failing = format!(
+        "launch-path: doc/PDF20_AN001-BPC.pdf — the five-page end\n\
+         launch-path:   warm open 0.83 ms, 5 pages\n{named}\n\
+         thread 'launch_path' panicked at crates/viewer-ui/tests/launch_path.rs:3400:5:\n\
+         the launch path moved:\n  two complaints\n\
+         test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n"
+    );
+    assert_eq!(summary_of("t2-launch_path", &failing), named);
+    assert_eq!(
+        summary_of("t2-turn_path", &failing),
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out"
+    );
+    let stopped = "launch-path: doc/PDF20_AN001-BPC.pdf — the five-page end\n\
+                   thread 'launch_path' panicked at the sandboxed image decoder\n\
+                   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
+    assert_eq!(
+        summary_of("t2-launch_path", stopped),
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+        "a launch run that stopped before its summary keeps the ordinary line"
+    );
+
+    let script = std::fs::read_to_string(repository_root().join("tools/batch.sh"))
+        .expect("tools/batch.sh is in the tree");
+    let mut gate_line = String::new();
+    let mut lines = script.lines();
+    while let Some(line) = lines.next() {
+        if line.trim_start().starts_with("run t2-launch_path ") {
+            gate_line = line.to_owned();
+            while gate_line.trim_end().ends_with('\\') {
+                gate_line.push_str(lines.next().unwrap_or_default());
+            }
+            break;
+        }
+    }
+    assert!(
+        gate_line.contains("PDFVIEWER_LAUNCH_CLOCKS=1")
+            && gate_line.contains("cargo test --release -p viewer-ui --test launch_path"),
+        "tools/batch.sh's gates() does not run launch_path with its clocks: {gate_line:?}"
+    );
+    assert!(
+        batch_list("clock_gates")
+            .iter()
+            .any(|gate| gate == "t2-launch_path"),
+        "tools/batch.sh's clock_gates does not hold t2-launch_path, so its clocks would be taken \
+         beside a walk"
+    );
+}

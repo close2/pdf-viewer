@@ -334,6 +334,27 @@ impl Retained {
     }
 }
 
+/// Whether a scene built for `frame` may leave out the marks outside the window (ADR 1841),
+/// given the scene it replaces.
+///
+/// A culled scene holds only what this view shows, so it is a scene of this view: where the build
+/// would otherwise read no view, culling would cost every later scroll and zoom a rebuild the
+/// view-free scene does not need. So a page-space build culls only where the scene it replaces was
+/// of the same pages and read the view — the owner's witness, whose lines are this view's (ADR
+/// 1835) — and a baked scene, which is of its view already, always does.
+fn culls(previous: Option<&Retained>, frame: &PresentFrame<'_>, page_space: bool) -> bool {
+    !page_space
+        || previous.is_some_and(|previous| {
+            !previous.view_free
+                && previous.pages.len() == frame.pages.len()
+                && previous
+                    .pages
+                    .iter()
+                    .zip(frame.pages)
+                    .all(|(kept, (asked, _))| identity(kept) == identity(asked))
+        })
+}
+
 /// A display list's address, which is a page's identity for exactly as long as something pins it.
 ///
 /// The same construction, and the same one-line justification, as `cache::key`.
@@ -416,6 +437,7 @@ impl FrameSlot {
             Some(held) if held.draws(frame, &key) => held,
             slot => {
                 rebuilt = true;
+                let cull = culls(slot.as_ref(), frame, page_space);
                 // Settling first, and with the cache's clock still on the scene being replaced:
                 // that keeps `evict_settled`'s rule exactly what it was — an entry the *current*
                 // scene used is never evicted — while moving it off the frames that reuse one.
@@ -441,7 +463,7 @@ impl FrameSlot {
                 let built = build(
                     device,
                     caches,
-                    medium,
+                    (medium, cull),
                     &mut builder,
                     frame,
                     &mut transient,
@@ -1203,7 +1225,7 @@ fn page_space(medium: Option<Medium>, frame: &PresentFrame<'_>) -> bool {
 pub(crate) fn build(
     device: &mut raster_gpu::Device,
     caches: &mut crate::cache::ResourceCaches,
-    medium: Option<Medium>,
+    (medium, cull): (Option<Medium>, bool),
     builder: &mut raster_scene::SceneBuilder,
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
@@ -1255,15 +1277,23 @@ pub(crate) fn build(
                 medium.page,
             )?;
         }
+        // The marks that reach the window, where this build may cull (ADR 1841): the same
+        // pixels, and on the owner's witness at four times the fit a ninth of the commands.
+        let culled = if cull { list.reaching(*target) } else { None };
+        let drawn: &DisplayList = culled.as_ref().unwrap_or(list);
         let mut encoder = Encoder::with_placement(
-            device, list, *target, page_space, caches, transient, functions,
+            device, drawn, *target, page_space, caches, transient, functions,
         );
         // §14.11.2.1's clip, hung under every chain this page's commands carry. A window is
         // larger than its page, so without it the marks a stream made outside the page's own
         // boundary draw over the ground beside it and over the next page of a column — the one
         // place this program showed ink the standard says shall not be displayed.
         encoder.crop_to_page(builder)?;
-        encoder.commands(builder, list.commands())?;
+        encoder.commands(builder, drawn.commands())?;
+        // A culled scene holds this view's marks and no others, which is reading the view.
+        if culled.is_some() {
+            encoder.consume_view();
+        }
         consumed_view |= encoder.consumed_view();
     }
     if let Some(raster) = frame.raster {

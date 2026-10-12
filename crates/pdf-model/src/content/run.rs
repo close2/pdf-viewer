@@ -15,7 +15,7 @@ use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
 use super::reader::{
-    ContentReader, NestedContent, Strings, Word, inline_dictionary, token_to_object,
+    ContentReader, NestedContent, Operator, Strings, Word, inline_dictionary, token_to_object,
 };
 use super::report::{
     ArtifactSource, ArtifactSpan, DamagedStream, KeywordNote, MarkedSpan, Unsupported,
@@ -52,6 +52,17 @@ impl Interpreter<'_> {
         if self.unsupported.keyword_is_new(sentence, keyword) {
             self.unsupported.insert(item(keyword));
         }
+    }
+
+    /// The report of a keyword dispatched where an operator belongs that this interpreter does
+    /// not run: one Table 50 does not list, or one of Table 90's that belongs inside an inline
+    /// image.
+    fn note_unknown_operator(&mut self, keyword: &[u8]) {
+        self.note_keyword(KeywordNote::Unknown, keyword, |keyword| {
+            Unsupported::Operator {
+                operator: String::from_utf8_lossy(keyword).into_owned(),
+            }
+        });
     }
 
     /// Decodes one of §7.8.2's self-contained content streams, saying so where it is damaged.
@@ -352,9 +363,8 @@ impl Interpreter<'_> {
             };
             let step = reader.with_operand(strings, |token| match token {
                 None => Step::End,
-                Some(pdf_syntax::Token::Keyword(word)) if array_depth == 0 => {
-                    Step::Operator(Word::new(word))
-                }
+                Some(pdf_syntax::Token::Keyword(word)) if array_depth == 0 => Operator::of(word)
+                    .map_or_else(|| Step::Unknown(Word::new(word)), Step::Operator),
                 // §7.8.2's grammar puts an operator *after* its operands, and §7.3.6 makes an
                 // array "a one-dimensional collection of objects arranged sequentially" — so a
                 // keyword between two elements of an array is neither an element (it is not an
@@ -402,7 +412,7 @@ impl Interpreter<'_> {
                 }
             });
             // Operands accumulate until an operator consumes them.
-            let word = match step {
+            let keyword = match step {
                 Step::End => break,
                 Step::Operand => continue,
                 Step::InsideAnArray(word) => {
@@ -440,7 +450,8 @@ impl Interpreter<'_> {
                     }
                     continue;
                 }
-                Step::Operator(word) => word,
+                Step::Operator(operator) => Keyword::Operator(operator),
+                Step::Unknown(word) => Keyword::Unknown(word),
             };
 
             // **Counted here rather than at the top of the loop, and that is the whole of ADR
@@ -457,7 +468,6 @@ impl Interpreter<'_> {
             // *re-reads* streams, a form or a glyph or a cell invoked again and again, is the
             // memory its marks take (`MAX_LIST_BYTES`) or the person's stop, which in the
             // confined worker is a kill (ADR 0241).
-            let operator = word.as_slice();
             self.operations = self.operations.saturating_add(1);
             // The list's budget is asked every few dozen operators, in this one branch (ADR
             // 1507), and a charge past it stops the run: no operator after it is dispatched, here
@@ -471,16 +481,28 @@ impl Interpreter<'_> {
                 crate::progress::publish(self.operations, || reader.progress());
             }
             if let Some(ledger) = self.ledger {
-                ledger.borrow_mut().operator(operator);
+                ledger.borrow_mut().operator(keyword.bytes());
             }
+            // A keyword Table 50 does not list is an error §7.8.2 states — "an error shall occur" —
+            // outside a compatibility section, and ignored with its operands inside one.
+            let operator = match keyword {
+                Keyword::Operator(operator) => operator,
+                Keyword::Unknown(word) => {
+                    if compatibility == 0 {
+                        self.note_unknown_operator(word.as_slice());
+                    }
+                    pending.clear();
+                    continue;
+                }
+            };
 
             // §8.6.8: inside a `d1` glyph description or an uncoloured tiling pattern —
             // and inside everything either of them invokes — "all of the following operators
-            // shall be ignored", the list being `is_colour_operator`. Dropping them here
+            // shall be ignored", the list being `Operator::is_colour`. Dropping them here
             // rather than in each arm keeps the rule where the clause puts it, in one place
             // for both circumstances, and it is what lets the colour the figure is *used*
             // with reach the marks inside it.
-            if self.uncoloured && is_colour_operator(operator) {
+            if self.uncoloured && operator.is_colour() {
                 pending.clear();
                 continue;
             }
@@ -493,25 +515,27 @@ impl Interpreter<'_> {
             // operands an operator is given are the *last* of them rather than the first —
             // `T02-05-01_008_Font-set-operator-missing.pdf` writes `/F0 36. (Hello
             // PDF-world!) Tj`, whose `Tj` was reading the name and drawing nothing.
-            let operands: &[Object] = operands_before(&pending, operator);
+            let operands: &[Object] = operands_before(&pending, operator.operand_count());
             // The same sentence's other half — "all of the operands needed" — read as a count:
             // an operator short of them is dispatched with what is there, and the page says so.
-            if let Some(takes) = count_of(operator)
+            if let Some(takes) = operator.operand_count()
                 && operands.len() < takes
             {
                 let given = operands.len();
-                self.note_keyword(KeywordNote::Shortfall { given }, operator, |keyword| {
-                    Unsupported::OperandShortfall {
+                self.note_keyword(
+                    KeywordNote::Shortfall { given },
+                    operator.name(),
+                    |keyword| Unsupported::OperandShortfall {
                         operator: String::from_utf8_lossy(keyword).into_owned(),
                         given,
                         takes,
-                    }
-                });
+                    },
+                );
             }
 
             match operator {
                 // --- graphics state ---
-                b"q" => {
+                Operator::Save => {
                     if stack.len() < MAX_STATE_DEPTH {
                         stack.push((state.clone(), text_object.matrix, text_object.line));
                     } else {
@@ -520,7 +544,7 @@ impl Interpreter<'_> {
                         });
                     }
                 }
-                b"Q" => {
+                Operator::Restore => {
                     if let Some((previous, matrix, line)) = stack.pop() {
                         if previous.alpha_is_shape != state.alpha_is_shape {
                             self.note_alpha_source(previous.alpha_is_shape);
@@ -538,15 +562,17 @@ impl Interpreter<'_> {
                     // An unmatched `Q` is ignored: the alternative is to abandon the page,
                     // and files with one extra `Q` render correctly everywhere else.
                 }
-                b"cm" => {
+                Operator::Concatenate => {
                     if let Some(matrix) = matrix_from(operands) {
                         state.transform = matrix.then(state.transform);
                     }
                 }
-                b"gs" => self.apply_ext_gstate(operands, resources, &mut state, in_text),
+                Operator::ExtGState => {
+                    self.apply_ext_gstate(operands, resources, &mut state, in_text);
+                }
 
                 // --- line parameters ---
-                b"w" => {
+                Operator::LineWidth => {
                     if let Some(width) = number_at(operands, 0) {
                         // ISO 32000-2 §8.4.3.2 gives the parameter its range — the line width
                         // "shall be a nonnegative number expressed in user space units" — and
@@ -566,25 +592,25 @@ impl Interpreter<'_> {
                         state.stroke.width = width.max(0.0);
                     }
                 }
-                b"J" => {
+                Operator::LineCap => {
                     if let Some(code) = integer_at(operands, 0) {
                         state.stroke.cap = line_cap(code);
                     }
                 }
-                b"j" => {
+                Operator::LineJoin => {
                     if let Some(code) = integer_at(operands, 0) {
                         state.stroke.join = line_join(code);
                     }
                 }
-                b"M" => {
+                Operator::MiterLimit => {
                     if let Some(limit) = number_at(operands, 0) {
                         state.stroke.miter_limit = miter_limit(limit);
                     }
                 }
-                b"d" => set_dash(operands, &mut state.stroke),
+                Operator::Dash => set_dash(operands, &mut state.stroke),
                 // Rendering intent and flatness affect nothing this renderer does.
                 // --- path construction ---
-                b"m" => {
+                Operator::MoveTo => {
                     if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         current = Point::new(x, y);
                         start = current;
@@ -595,7 +621,7 @@ impl Interpreter<'_> {
                 // through `extend_subpath`, which refuses one that has none and says so. The
                 // current point moves only where the segment was taken, because the clause defines
                 // it as the endpoint of the segment most recently *added*.
-                b"l" => {
+                Operator::LineTo => {
                     if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         let to = Point::new(x, y);
                         if self.extend_subpath(&mut path, PathCommand::LineTo(to)) {
@@ -603,7 +629,7 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"c" => {
+                Operator::CurveTo => {
                     if let Some(points) = points_from::<3>(operands) {
                         let segment = PathCommand::CurveTo(points[0], points[1], points[2]);
                         if self.extend_subpath(&mut path, segment) {
@@ -611,7 +637,7 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"v" => {
+                Operator::CurveInitialReplicated => {
                     // The first control point is the current point — which is also why an empty
                     // path cannot state this curve at all: the operand the clause implies does
                     // not exist.
@@ -622,7 +648,7 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"y" => {
+                Operator::CurveFinalReplicated => {
                     // The second control point is the endpoint.
                     if let Some(points) = points_from::<2>(operands) {
                         let segment = PathCommand::CurveTo(points[0], points[1], points[1]);
@@ -631,11 +657,11 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"h" => {
+                Operator::ClosePath => {
                     close_subpath(&mut path);
                     current = start;
                 }
-                b"re" => {
+                Operator::Rectangle => {
                     if let Some(values) = numbers_from::<4>(operands) {
                         let (x, y, w, h) = (values[0], values[1], values[2], values[3]);
                         // Table 58 states `re` as `x y m` and three `l`s and an `h`, so the
@@ -657,8 +683,10 @@ impl Interpreter<'_> {
                 // segments to `MAX_LIST_BYTES` first: a path costs its segments once however many
                 // commands share it, and a form invoked a million times builds a million (ADR
                 // 1810). `n` keeps none, and a clip is charged where the table takes it.
-                b"n" => self.end_path(&mut path, &mut pending_clip, &mut state, None, None),
-                b"f" | b"F" => {
+                Operator::EndPath => {
+                    self.end_path(&mut path, &mut pending_clip, &mut state, None, None);
+                }
+                Operator::Fill | Operator::FillObsolete => {
                     self.charge_painted(&path);
                     self.end_path(
                         &mut path,
@@ -668,7 +696,7 @@ impl Interpreter<'_> {
                         None,
                     );
                 }
-                b"f*" => {
+                Operator::FillEvenOdd => {
                     self.charge_painted(&path);
                     self.end_path(
                         &mut path,
@@ -678,16 +706,16 @@ impl Interpreter<'_> {
                         None,
                     );
                 }
-                b"S" => {
+                Operator::Stroke => {
                     self.charge_painted(&path);
                     self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(false));
                 }
-                b"s" => {
+                Operator::CloseStroke => {
                     close_subpath(&mut path);
                     self.charge_painted(&path);
                     self.end_path(&mut path, &mut pending_clip, &mut state, None, Some(true));
                 }
-                b"B" => {
+                Operator::FillStroke => {
                     self.charge_painted(&path);
                     self.end_path(
                         &mut path,
@@ -697,7 +725,7 @@ impl Interpreter<'_> {
                         Some(false),
                     );
                 }
-                b"B*" => {
+                Operator::FillStrokeEvenOdd => {
                     self.charge_painted(&path);
                     self.end_path(
                         &mut path,
@@ -707,9 +735,9 @@ impl Interpreter<'_> {
                         Some(false),
                     );
                 }
-                b"b" | b"b*" => {
+                Operator::CloseFillStroke | Operator::CloseFillStrokeEvenOdd => {
                     close_subpath(&mut path);
-                    let rule = if operator == b"b*" {
+                    let rule = if operator == Operator::CloseFillStrokeEvenOdd {
                         FillRule::EvenOdd
                     } else {
                         FillRule::NonZero
@@ -723,45 +751,66 @@ impl Interpreter<'_> {
                         Some(true),
                     );
                 }
-                b"W" => pending_clip = Some(FillRule::NonZero),
-                b"W*" => pending_clip = Some(FillRule::EvenOdd),
+                Operator::Clip => pending_clip = Some(FillRule::NonZero),
+                Operator::ClipEvenOdd => pending_clip = Some(FillRule::EvenOdd),
 
                 // --- colour ---
                 // `g`, `rg` and `k` set a device space and a colour together — or the
                 // matching `Default` space, where the resources name one, which is why
                 // these resolve the space rather than naming it directly.
-                b"g" | b"G" => {
+                Operator::FillGray | Operator::StrokeGray => {
                     if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
                         let colour = self.colour(&space, &[grey], &state);
-                        assign_colour(&mut state, operator == b"g", colour, space, &[grey]);
+                        assign_colour(
+                            &mut state,
+                            operator == Operator::FillGray,
+                            colour,
+                            space,
+                            &[grey],
+                        );
                     }
                 }
-                b"rg" | b"RG" => {
+                Operator::FillRgb | Operator::StrokeRgb => {
                     if let Some(values) = numbers_from::<3>(operands) {
                         let space = self.device_space("DeviceRGB", resources);
                         let colour = self.colour(&space, &values, &state);
-                        assign_colour(&mut state, operator == b"rg", colour, space, &values);
+                        assign_colour(
+                            &mut state,
+                            operator == Operator::FillRgb,
+                            colour,
+                            space,
+                            &values,
+                        );
                     }
                 }
-                b"k" | b"K" => {
+                Operator::FillCmyk | Operator::StrokeCmyk => {
                     if let Some(values) = numbers_from::<4>(operands) {
                         let space = self.device_space("DeviceCMYK", resources);
                         let colour = self.colour(&space, &values, &state);
-                        assign_colour(&mut state, operator == b"k", colour, space, &values);
+                        assign_colour(
+                            &mut state,
+                            operator == Operator::FillCmyk,
+                            colour,
+                            space,
+                            &values,
+                        );
                     }
                 }
-                b"cs" | b"CS" => {
-                    let fill = operator == b"cs";
+                Operator::FillColourSpace | Operator::StrokeColourSpace => {
+                    let fill = operator == Operator::FillColourSpace;
                     self.set_colour_space(operands, resources, &mut state, fill);
                 }
-                b"sc" | b"scn" | b"SC" | b"SCN" => {
-                    let fill = matches!(operator, b"sc" | b"scn");
+                Operator::FillColour
+                | Operator::FillColourN
+                | Operator::StrokeColour
+                | Operator::StrokeColourN => {
+                    let fill = matches!(operator, Operator::FillColour | Operator::FillColourN);
                     self.set_colour(operands, resources, &mut state, fill);
                 }
 
                 // --- text ---
-                b"BT" => {
+                Operator::BeginText => {
                     in_text = true;
                     // Table 105: `BT` initialises both matrices. Resetting the whole
                     // structure also discards any glyph outlines a malformed stream left
@@ -784,11 +833,11 @@ impl Interpreter<'_> {
                         ..TextObject::default()
                     };
                 }
-                b"ET" => {
+                Operator::EndText => {
                     in_text = false;
                     self.end_text_object(&mut text_object, &mut state);
                 }
-                b"Tf" => {
+                Operator::Font => {
                     if let Some(name) = name_at(operands, 0) {
                         state.text.font = self.font(resources, &name);
                         // The trace's label rather than the lookup's key: §7.3.5's "the bytes
@@ -801,32 +850,32 @@ impl Interpreter<'_> {
                         state.text.size = size;
                     }
                 }
-                b"Tc" => {
+                Operator::CharSpacing => {
                     if let Some(value) = number_at(operands, 0) {
                         state.text.char_spacing = value;
                     }
                 }
-                b"Tw" => {
+                Operator::WordSpacing => {
                     if let Some(value) = number_at(operands, 0) {
                         state.text.word_spacing = value;
                     }
                 }
-                b"Tz" => {
+                Operator::HorizontalScaling => {
                     if let Some(percent) = number_at(operands, 0) {
                         state.text.horizontal_scale = percent / 100.0;
                     }
                 }
-                b"TL" => {
+                Operator::Leading => {
                     if let Some(value) = number_at(operands, 0) {
                         state.text.leading = value;
                     }
                 }
-                b"Ts" => {
+                Operator::Rise => {
                     if let Some(value) = number_at(operands, 0) {
                         state.text.rise = value;
                     }
                 }
-                b"Tr" => {
+                Operator::RenderMode => {
                     if let Some(mode) = integer_at(operands, 0) {
                         // Table 104 defines eight modes and no default for anything else.
                         // Silently keeping an out-of-range value would draw nothing at all,
@@ -842,13 +891,13 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"Td" => {
+                Operator::MoveText => {
                     if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         text_object.line = Transform::translate(x, y).then(text_object.line);
                         text_object.matrix = text_object.line;
                     }
                 }
-                b"TD" => {
+                Operator::MoveTextSetLeading => {
                     if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
                         // `TD` is `Td` with the side effect of setting the leading.
                         state.text.leading = -y;
@@ -856,23 +905,23 @@ impl Interpreter<'_> {
                         text_object.matrix = text_object.line;
                     }
                 }
-                b"Tm" => {
+                Operator::TextMatrix => {
                     if let Some(matrix) = matrix_from(operands) {
                         text_object.line = matrix;
                         text_object.matrix = matrix;
                     }
                 }
-                b"T*" => {
+                Operator::NextLine => {
                     text_object.line =
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
                 }
-                b"Tj" => {
+                Operator::ShowText => {
                     if let Some(bytes) = string_at(operands, 0) {
                         self.show_text(&bytes, &state, &mut text_object);
                     }
                 }
-                b"TJ" => {
+                Operator::ShowTextAdjusted => {
                     // The array operand is not reconstructed by the content lexer, so the
                     // strings and the numeric adjustments between them arrive as separate
                     // operands in order — which is enough to render them correctly.
@@ -905,7 +954,7 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"'" => {
+                Operator::NextLineShowText => {
                     text_object.line =
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
@@ -913,7 +962,7 @@ impl Interpreter<'_> {
                         self.show_text(&bytes, &state, &mut text_object);
                     }
                 }
-                b"\"" => {
+                Operator::NextLineShowTextSpaced => {
                     // `aw ac string "` sets word and character spacing, then shows.
                     if let Some(word) = number_at(operands, 0) {
                         state.text.word_spacing = word;
@@ -930,10 +979,10 @@ impl Interpreter<'_> {
                 }
 
                 // --- XObjects ---
-                b"Do" => self.draw_xobject(operands, resources, &state),
+                Operator::XObject => self.draw_xobject(operands, resources, &state),
 
                 // --- shadings and inline images ---
-                b"sh" => {
+                Operator::Shade => {
                     let name = name_at(operands, 0).unwrap_or_else(|| Name::new(Vec::new()));
                     self.paint_shading(&name, resources, &state);
                 }
@@ -946,7 +995,7 @@ impl Interpreter<'_> {
                 // The lexer is moved past the data on every path, error included: the bytes
                 // between `ID` and `EI` are not a program, and tokenising them would emit
                 // drawing commands from image samples.
-                b"BI" => {
+                Operator::BeginImage => {
                     let scanned = self.inline_image(reader, resources);
                     reader.skip(scanned.resume);
                     // A hidden layer suppresses the drawing and the report both: an image
@@ -977,7 +1026,7 @@ impl Interpreter<'_> {
                 // content and compatibility sections carry structure rather than drawing;
                 // rendering intent needs colour management; and flatness tolerance is a
                 // hint about curve subdivision that the rasteriser decides for itself.
-                b"ri" => {
+                Operator::RenderingIntent => {
                     // §8.6.5.8's first route to the intent: "Rendering intents shall be
                     // specified with the ri operator". What the intent then does to black point
                     // compensation is §8.6.5.9's and is asked of the state when an object is
@@ -992,7 +1041,7 @@ impl Interpreter<'_> {
                 // Because a group is an indirect object, the operand is a *name* into the
                 // resource dictionary's `/Properties`; an inline dictionary cannot carry
                 // one, so it governs nothing.
-                b"BDC" => {
+                Operator::BeginMarkedProperties => {
                     // A *tag* is one of the standard's own names rather than a resource name, so
                     // it is compared against an ASCII literal — as bytes, which §7.3.5 makes the
                     // comparison a name has ("an exact binary match") and which costs nothing.
@@ -1052,7 +1101,7 @@ impl Interpreter<'_> {
                         self.reversed_chars = self.reversed_chars.saturating_add(1);
                     }
                 }
-                b"BMC" => {
+                Operator::BeginMarked => {
                     let tag = name_at(operands, 0);
                     let tag = tag.as_ref().map_or(&[][..], Name::as_bytes);
                     // The generic forms: `/Artifact BMC` states an artifact with no property
@@ -1068,7 +1117,7 @@ impl Interpreter<'_> {
                         self.reversed_chars = self.reversed_chars.saturating_add(1);
                     }
                 }
-                b"EMC" => {
+                Operator::EndMarked => {
                     if let Some(section) = marked.pop() {
                         if section.hides {
                             self.hidden = self.hidden.saturating_sub(1);
@@ -1156,9 +1205,9 @@ impl Interpreter<'_> {
                         }
                     }
                 }
-                b"BX" => compatibility = compatibility.saturating_add(1),
-                b"EX" => compatibility = compatibility.saturating_sub(1),
-                b"MP" | b"DP" | b"i" => {}
+                Operator::BeginCompatibility => compatibility = compatibility.saturating_add(1),
+                Operator::EndCompatibility => compatibility = compatibility.saturating_sub(1),
+                Operator::MarkPoint | Operator::MarkPointProperties | Operator::Flatness => {}
 
                 // --- Type 3 glyph metrics (§9.6.4 Table 111) ---
                 //
@@ -1175,8 +1224,8 @@ impl Interpreter<'_> {
                 // glyph ("the declared bounding box shall be correct"), so clipping to it
                 // can only ever remove marks a correct file does not have, and on an
                 // incorrect one it hides the defect rather than reporting it.
-                b"d0" | b"d1" => {
-                    if operator == b"d1" && self.glyph_depth > 0 {
+                Operator::GlyphWidth | Operator::GlyphWidthAndBox => {
+                    if operator == Operator::GlyphWidthAndBox && self.glyph_depth > 0 {
                         // `d1` forbids the *description* from setting a colour, and nothing
                         // more. What the description paints with is the graphics state
                         // §9.6.4 says it inherited — both colour parameters, each used by
@@ -1204,13 +1253,11 @@ impl Interpreter<'_> {
                     }
                 }
 
-                other => {
+                // Table 90's other two are read by `BI`'s arm, as the inline image's own syntax;
+                // met here, outside one, they are reported exactly as a keyword nobody lists.
+                Operator::ImageData | Operator::EndImage => {
                     if compatibility == 0 {
-                        self.note_keyword(KeywordNote::Unknown, other, |keyword| {
-                            Unsupported::Operator {
-                                operator: String::from_utf8_lossy(keyword).into_owned(),
-                            }
-                        });
+                        self.note_unknown_operator(operator.name());
                     }
                 }
             }
@@ -1286,47 +1333,21 @@ const fn clip_operator(rule: FillRule) -> &'static str {
     }
 }
 
-/// The operators ISO 32000-2 §8.6.8 says an uncoloured figure's content stream may not use.
-///
-/// The clause's own list, in full: the twelve colour operators of Table 73, plus `ri` and
-/// `sh`. The last two are worth noticing rather than copying — `ri` sets a rendering intent,
-/// which is colour-related without being a colour, and `sh` paints a *shading*, which carries
-/// its own colours and so cannot belong to a figure whose colour comes from outside it.
-///
-/// `gs` is not here, because an `/ExtGState` sets much more than colour — including the line
-/// width and dash pattern §9.6.4 tells a glyph description to set explicitly. The clause
-/// lists the entries *within* it that are ignored, and `apply_ext_gstate` drops those.
-fn is_colour_operator(operator: &[u8]) -> bool {
-    matches!(
-        operator,
-        b"CS"
-            | b"cs"
-            | b"SC"
-            | b"SCN"
-            | b"sc"
-            | b"scn"
-            | b"G"
-            | b"g"
-            | b"RG"
-            | b"rg"
-            | b"K"
-            | b"k"
-            | b"ri"
-            | b"sh"
-    )
-}
-
 /// What the operator loop must do about a token it has just read.
 ///
 /// The [`ContentReader::with_token`] closure returns one of these, which is what carries a
 /// token's meaning *out* of the borrow it was read under. An operand carries nothing: the
 /// closure has already pushed it. What is left needs either the reader again, or a report, or
-/// the dispatch table — and an operator's bytes come out on the stack rather than borrowed
-/// (see [`Word`]), because the dispatch calls the reader again for §8.9.7's inline images.
+/// the dispatch table — and an operator comes out as the [`Operator`] it spells, a keyword
+/// Table 50 does not list as a copy of its bytes (see [`Word`]), rather than borrowed, because
+/// the dispatch calls the reader again for §8.9.7's inline images.
 #[derive(Debug)]
 enum Step {
-    /// A bare keyword where an operator belongs: the dispatch table's business.
-    Operator(Word),
+    /// A bare keyword where an operator belongs, one Table 50 lists: the dispatch table's business.
+    Operator(Operator),
+    /// A bare keyword where an operator belongs that Table 50 does not list, which the report
+    /// names.
+    Unknown(Word),
     /// An operand, already in the pending list.
     Operand,
     /// A keyword inside an array, which §7.3.6 admits nothing but objects into.
@@ -1337,6 +1358,25 @@ enum Step {
     TooManyOperands,
     /// The stream has no more tokens.
     End,
+}
+
+/// A keyword in an operator's place, as the loop holds it past the token's borrow.
+#[derive(Debug)]
+enum Keyword {
+    /// One Table 50 lists.
+    Operator(Operator),
+    /// One it does not, kept as the file spelled it for the report.
+    Unknown(Word),
+}
+
+impl Keyword {
+    /// The bytes the file wrote.
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Operator(operator) => operator.name(),
+            Self::Unknown(word) => word.as_slice(),
+        }
+    }
 }
 
 /// The operands one operator is given, out of everything the stream has stated since the
@@ -1355,41 +1395,132 @@ enum Step {
 /// silently mis-draws a mark or, where the shifted operand has the wrong type, drops it with
 /// nothing reported.
 ///
-/// `count_of` returns [`None`] for the operators whose own table states no fixed number, and
+/// [`Operator::operand_count`] is [`None`] for the operators whose own table states no fixed
+/// number, and for a keyword Table 50 does not list, and
 /// those are given everything: `TJ` and `d` take an array the content lexer flattens into one
 /// operand per element, and `sc`, `scn`, `SC` and `SCN` take as many components as the current
 /// colour space has (§8.6.8, Table 73). A leftover operand in front of one of those is
 /// indistinguishable from one of its own, so nothing here can improve on reading them whole.
-fn operands_before<'a>(pending: &'a [Object], operator: &[u8]) -> &'a [Object] {
-    let Some(count) = count_of(operator) else {
+fn operands_before(pending: &[Object], count: Option<usize>) -> &[Object] {
+    let Some(count) = count else {
         return pending;
     };
     let start = pending.len().saturating_sub(count);
     pending.get(start..).unwrap_or(pending)
 }
 
-/// How many operands an operator takes, where its own table states a fixed number.
-///
-/// Each count is the operand list in the table Annex A's summary points at for that operator
-/// — Table 56 and 57 for the graphics state, 58 and 59 for paths, 60 for clipping, 73 for
-/// colour, 74 for shading, 87 for `XObject`s, 103, 105, 106 and 107 for text, 111 for a Type 3
-/// glyph's metrics, 33 for compatibility and 352 for marked content.
-///
-/// An operator this interpreter does not implement reaches here too, and gets [`None`]: it is
-/// reported rather than run, so how many operands it wanted is not a question anything asks.
-const fn count_of(operator: &[u8]) -> Option<usize> {
-    Some(match operator {
-        b"q" | b"Q" | b"h" | b"n" | b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b"
-        | b"b*" | b"W" | b"W*" | b"BT" | b"ET" | b"T*" | b"EMC" | b"BX" | b"EX" | b"BI" => 0,
-        b"w" | b"J" | b"j" | b"M" | b"i" | b"ri" | b"gs" | b"Tc" | b"Tw" | b"Tz" | b"TL"
-        | b"Ts" | b"Tr" | b"Tj" | b"'" | b"cs" | b"CS" | b"g" | b"G" | b"sh" | b"Do" | b"MP"
-        | b"BMC" => 1,
-        b"m" | b"l" | b"Td" | b"TD" | b"Tf" | b"d0" | b"DP" | b"BDC" => 2,
-        b"rg" | b"RG" | b"\"" => 3,
-        b"v" | b"y" | b"re" | b"k" | b"K" => 4,
-        b"cm" | b"c" | b"Tm" | b"d1" => 6,
-        _ => return None,
-    })
+impl Operator {
+    /// How many operands the operator takes, where its own table states a fixed number.
+    ///
+    /// Each count is the operand list in the table Annex A's summary points at for that operator
+    /// — Table 56 and 57 for the graphics state, 58 and 59 for paths, 60 for clipping, 73 for
+    /// colour, 74 for shading, 87 for `XObject`s, 103, 105, 106 and 107 for text, 111 for a Type 3
+    /// glyph's metrics, 33 for compatibility and 352 for marked content.
+    ///
+    /// An operator this interpreter does not implement reaches here too, and gets [`None`]: it is
+    /// reported rather than run, so how many operands it wanted is not a question anything asks.
+    pub(super) const fn operand_count(self) -> Option<usize> {
+        Some(match self {
+            Self::Save
+            | Self::Restore
+            | Self::ClosePath
+            | Self::EndPath
+            | Self::Fill
+            | Self::FillObsolete
+            | Self::FillEvenOdd
+            | Self::Stroke
+            | Self::CloseStroke
+            | Self::FillStroke
+            | Self::FillStrokeEvenOdd
+            | Self::CloseFillStroke
+            | Self::CloseFillStrokeEvenOdd
+            | Self::Clip
+            | Self::ClipEvenOdd
+            | Self::BeginText
+            | Self::EndText
+            | Self::NextLine
+            | Self::EndMarked
+            | Self::BeginCompatibility
+            | Self::EndCompatibility
+            | Self::BeginImage => 0,
+            Self::LineWidth
+            | Self::LineCap
+            | Self::LineJoin
+            | Self::MiterLimit
+            | Self::Flatness
+            | Self::RenderingIntent
+            | Self::ExtGState
+            | Self::CharSpacing
+            | Self::WordSpacing
+            | Self::HorizontalScaling
+            | Self::Leading
+            | Self::Rise
+            | Self::RenderMode
+            | Self::ShowText
+            | Self::NextLineShowText
+            | Self::FillColourSpace
+            | Self::StrokeColourSpace
+            | Self::FillGray
+            | Self::StrokeGray
+            | Self::Shade
+            | Self::XObject
+            | Self::MarkPoint
+            | Self::BeginMarked => 1,
+            Self::MoveTo
+            | Self::LineTo
+            | Self::MoveText
+            | Self::MoveTextSetLeading
+            | Self::Font
+            | Self::GlyphWidth
+            | Self::MarkPointProperties
+            | Self::BeginMarkedProperties => 2,
+            Self::FillRgb | Self::StrokeRgb | Self::NextLineShowTextSpaced => 3,
+            Self::CurveInitialReplicated
+            | Self::CurveFinalReplicated
+            | Self::Rectangle
+            | Self::FillCmyk
+            | Self::StrokeCmyk => 4,
+            Self::Concatenate | Self::CurveTo | Self::TextMatrix | Self::GlyphWidthAndBox => 6,
+            Self::Dash
+            | Self::ShowTextAdjusted
+            | Self::FillColour
+            | Self::FillColourN
+            | Self::StrokeColour
+            | Self::StrokeColourN
+            | Self::ImageData
+            | Self::EndImage => return None,
+        })
+    }
+
+    /// The operators ISO 32000-2 §8.6.8 says an uncoloured figure's content stream may not use.
+    ///
+    /// The clause's own list, in full: the twelve colour operators of Table 73, plus `ri` and
+    /// `sh`. The last two are worth noticing rather than copying — `ri` sets a rendering intent,
+    /// which is colour-related without being a colour, and `sh` paints a *shading*, which carries
+    /// its own colours and so cannot belong to a figure whose colour comes from outside it.
+    ///
+    /// `gs` is not here, because an `/ExtGState` sets much more than colour — including the line
+    /// width and dash pattern §9.6.4 tells a glyph description to set explicitly. The clause
+    /// lists the entries *within* it that are ignored, and `apply_ext_gstate` drops those.
+    pub(super) const fn is_colour(self) -> bool {
+        matches!(
+            self,
+            Self::StrokeColourSpace
+                | Self::FillColourSpace
+                | Self::StrokeColour
+                | Self::StrokeColourN
+                | Self::FillColour
+                | Self::FillColourN
+                | Self::StrokeGray
+                | Self::FillGray
+                | Self::StrokeRgb
+                | Self::FillRgb
+                | Self::StrokeCmyk
+                | Self::FillCmyk
+                | Self::RenderingIntent
+                | Self::Shade
+        )
+    }
 }
 
 /// Reads operand `index` as an integer code.
@@ -1426,11 +1557,11 @@ pub(super) fn number_at(operands: &[Object], index: usize) -> Option<f32> {
 /// Reads the first `N` operands as numbers, requiring all of them.
 ///
 /// **`N` is a constant rather than an argument, and the array is the whole reason.** Annex A
-/// gives every operator that reaches here a fixed operand count — `count_of` is that table —
-/// so the answer's size is known where it is asked for, and returning it on the stack costs
-/// no allocation at all. The `Vec` this used to return did: with a `filter_map`'s lower size
-/// hint of zero, `collect` began at capacity nought and grew, so six numbers were a `malloc`
-/// and two `realloc`s. On the witness of `doc/todo/44` — one page, 3.19 M operators, most of
+/// gives every operator that reaches here a fixed operand count — `Operator::operand_count` is
+/// that table — so the answer's size is known where it is asked for, and returning it on the
+/// stack costs no allocation at all. The `Vec` this used to return did: with a `filter_map`'s
+/// lower size hint of zero, `collect` began at capacity nought and grew, so six numbers were a
+/// `malloc` and two `realloc`s. On the witness of `doc/todo/44` — one page, 3.19 M operators, most of
 /// them `c` — that was **12.00% of the whole interpretation** in the collect and its
 /// reallocation, and `points_from`'s second `Vec` another 2.83% (ADR 0370's table).
 ///
@@ -1496,4 +1627,74 @@ pub(super) fn narrow(value: f64) -> f32 {
 /// own ASCII names and may be read as bytes here too, which is what `== b"OC"` is.
 pub(super) fn name_at(operands: &[Object], index: usize) -> Option<Name> {
     operands.get(index)?.as_name().cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Operator;
+
+    /// Every operator Table 50 lists is recognised from its own spelling and from no other,
+    /// so classifying a keyword once cannot hand the dispatch a different arm than its bytes
+    /// would have reached.
+    #[test]
+    fn each_operator_is_recognised_from_its_spelling() {
+        for operator in Operator::ALL {
+            assert_eq!(
+                Operator::of(operator.name()),
+                Some(operator),
+                "{operator:?}"
+            );
+        }
+        let mut names: Vec<&[u8]> = Operator::ALL
+            .iter()
+            .map(|operator| operator.name())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            Operator::ALL.len(),
+            "two operators share a spelling"
+        );
+    }
+
+    /// Table 50's misprint "Sh" is not Table 76's `sh`, and §7.3.2's `true`, which a content
+    /// stream lexes as a keyword, is no operator.
+    #[test]
+    fn keywords_table_50_does_not_list_are_not_operators() {
+        for word in [&b"Sh"[..], b"true", b"null", b"qq", b"", b"BDCX", b"T"] {
+            assert_eq!(
+                Operator::of(word),
+                None,
+                "{}",
+                String::from_utf8_lossy(word)
+            );
+        }
+    }
+
+    /// The fixed operand counts, read off the operator tables Annex A points at: one per
+    /// table's own operand list, and none for the four colour setters whose count is the
+    /// colour space's, `d` and `TJ`, whose array the content lexer flattens, and Table 90's two
+    /// that `BI` reads.
+    #[test]
+    fn operand_counts_are_the_tables_own() {
+        let counted = |count: Option<usize>| -> Vec<&[u8]> {
+            Operator::ALL
+                .iter()
+                .filter(|operator| operator.operand_count() == count)
+                .map(|operator| operator.name())
+                .collect()
+        };
+        assert_eq!(
+            counted(None),
+            [&b"d"[..], b"TJ", b"SC", b"SCN", b"sc", b"scn", b"ID", b"EI"]
+        );
+        assert_eq!(counted(Some(6)), [&b"cm"[..], b"c", b"Tm", b"d1"]);
+        assert_eq!(counted(Some(4)), [&b"v"[..], b"y", b"re", b"K", b"k"]);
+        assert_eq!(counted(Some(3)), [&b"\""[..], b"RG", b"rg"]);
+        assert_eq!(
+            counted(Some(2)),
+            [&b"m"[..], b"l", b"Tf", b"Td", b"TD", b"d0", b"DP", b"BDC"]
+        );
+    }
 }

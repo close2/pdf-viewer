@@ -28,7 +28,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::{ClipId, Command, DisplayList, Path, Rect, Stroke, TargetSpec, Transform};
+use crate::{
+    BlendMode, ClipId, Command, DisplayList, Paint, Path, Rect, Stroke, TargetSpec, Transform,
+};
 
 /// The device extent of every command a backend draws, in target pixels, in painting order.
 ///
@@ -224,6 +226,11 @@ pub struct PlannedStroke<'a> {
     pub path: &'a Path,
     /// How it is stroked.
     pub stroke: &'a Stroke,
+    /// How it is painted: a backend that states a mark's coverage in closed form asks it, as
+    /// [`crate::thin_segment`] does (ADR 1847).
+    pub paint: &'a Paint,
+    /// How it combines with the backdrop, asked for the same reason as [`Self::paint`].
+    pub blend: BlendMode,
     /// The path's own space onto the target's pixels — the page's, never a strip's.
     pub at: Transform,
     /// What it can mark on the target, as [`Command::device_bounds`] bounds it; `None` where that
@@ -387,12 +394,16 @@ impl Walk<'_> {
                 path,
                 transform,
                 stroke,
+                paint,
+                blend,
                 ..
             } => {
                 let extent = command.device_bounds(to_device);
                 let planned = PlannedStroke {
                     path,
                     stroke,
+                    paint,
+                    blend: *blend,
                     at: transform.then(to_device),
                     extent,
                     replaces,
