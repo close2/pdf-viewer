@@ -28,8 +28,11 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
+
 use crate::{
-    BlendMode, ClipId, Command, DisplayList, Paint, Path, Rect, Stroke, TargetSpec, Transform,
+    BlendMode, ClipId, Command, DisplayList, MarkBounds, Paint, Path, Rect, Stroke, TargetSpec,
+    Transform,
 };
 
 /// The device extent of every command a backend draws, in target pixels, in painting order.
@@ -62,14 +65,38 @@ fn gather(
     memo: &mut HashMap<ClipId, Option<Rect>>,
 ) {
     for command in commands {
-        let clip = command.clip().map_or(inherited, |id| {
-            meet(inherited, chain(list, id, to_device, memo))
-        });
-        if let Command::Group { commands, .. } = command {
-            gather(list, commands, to_device, clip, into, memo);
-        } else {
-            into.push(meet(command.device_bounds(to_device), clip));
-        }
+        gather_one(
+            list,
+            command,
+            to_device,
+            inherited,
+            OwnBound::Unknown,
+            into,
+            memo,
+        );
+    }
+}
+
+/// [`gather`] for one command: its own extent met with its clip, or a group's elements'.
+///
+/// `own` is the command's own [`Command::device_bounds`] where a caller already holds it —
+/// [`strip_inputs`] reads a top-level command's from the list's [`MarkBounds`].
+fn gather_one(
+    list: &DisplayList,
+    command: &Command,
+    to_device: Transform,
+    inherited: Option<Rect>,
+    own: OwnBound,
+    into: &mut Vec<Option<Rect>>,
+    memo: &mut HashMap<ClipId, Option<Rect>>,
+) {
+    let clip = command.clip().map_or(inherited, |id| {
+        meet(inherited, chain(list, id, to_device, memo))
+    });
+    if let Command::Group { commands, .. } = command {
+        gather(list, commands, to_device, clip, into, memo);
+    } else {
+        into.push(meet(own.of(command, to_device), clip));
     }
 }
 
@@ -125,6 +152,25 @@ fn chain(
     extent
 }
 
+/// A command's own [`Command::device_bounds`], as the walk that needs it is handed it.
+#[derive(Clone, Copy, Debug)]
+enum OwnBound {
+    /// Not measured yet: the walk measures it.
+    Unknown,
+    /// Measured already, under the walk's own transform: the function's answer, `None` included.
+    Known(Option<Rect>),
+}
+
+impl OwnBound {
+    /// The bound, measured now where it was not held.
+    fn of(self, command: &Command, to_device: Transform) -> Option<Rect> {
+        match self {
+            Self::Unknown => command.device_bounds(to_device),
+            Self::Known(bound) => bound,
+        }
+    }
+}
+
 /// The intersection of two extents, where `None` on either side means "unbounded".
 fn meet(left: Option<Rect>, right: Option<Rect>) -> Option<Rect> {
     match (left, right) {
@@ -150,19 +196,25 @@ pub fn row_costs(extents: &[Option<Rect>], target: TargetSpec) -> Vec<f64> {
     let width = f64::from(target.width);
     let mut costs = vec![0.0_f64; rows];
     for extent in extents {
-        let (from, to, span) = match *extent {
-            Some(rect) => {
-                let from = clamp_row(rect.min.y, rows);
-                let to = clamp_row(rect.max.y.ceil(), rows).max(from.saturating_add(1));
-                (from, to, f64::from(rect.width()).clamp(0.0, width))
-            }
-            None => (0, rows, width),
-        };
+        let (from, to, span) = rows_and_span(*extent, rows, width);
         for cost in costs.get_mut(from..to.min(rows)).into_iter().flatten() {
             *cost += span;
         }
     }
     costs
+}
+
+/// The rows `extent` adds its cost to, `from..to`, and the cost it adds to each: [`row_costs`]'s
+/// arithmetic for one extent, which [`StripInputs::costs`] repeats per band of rows.
+fn rows_and_span(extent: Option<Rect>, rows: usize, width: f64) -> (usize, usize, f64) {
+    match extent {
+        Some(rect) => {
+            let from = clamp_row(rect.min.y, rows);
+            let to = clamp_row(rect.max.y.ceil(), rows).max(from.saturating_add(1));
+            (from, to, f64::from(rect.width()).clamp(0.0, width))
+        }
+        None => (0, rows, width),
+    }
 }
 
 /// The rows of the target a strip may not begin at.
@@ -334,16 +386,32 @@ impl Walk<'_> {
         rows: &mut [bool],
         seen: &mut HashSet<ClipId>,
     ) {
-        let (list, to_device) = (self.list, self.to_device);
         for command in commands {
-            if let Some(id) = command.clip() {
-                clip_segments(list, id, to_device, rows, seen);
-            }
-            if let Some(mask) = command.mask().and_then(|id| list.soft_mask(id)) {
-                self.segments(&mask.commands, true, rows, seen);
-            }
-            self.command(command, replaces, rows, seen);
+            self.element(command, replaces, OwnBound::Unknown, rows, seen);
         }
+    }
+
+    /// [`Self::segments`] for one command: its clip chain's segments, its soft mask's, and its
+    /// own.
+    ///
+    /// `own` is the command's own [`Command::device_bounds`] where a caller already holds it, as
+    /// [`gather_one`]'s is.
+    fn element(
+        &self,
+        command: &Command,
+        replaces: bool,
+        own: OwnBound,
+        rows: &mut [bool],
+        seen: &mut HashSet<ClipId>,
+    ) {
+        let (list, to_device) = (self.list, self.to_device);
+        if let Some(id) = command.clip() {
+            clip_segments(list, id, to_device, rows, seen);
+        }
+        if let Some(mask) = command.mask().and_then(|id| list.soft_mask(id)) {
+            self.segments(&mask.commands, true, rows, seen);
+        }
+        self.command(command, replaces, own, rows, seen);
     }
 
     /// Marks the rows one command's own segments would be re-stated in.
@@ -351,6 +419,7 @@ impl Walk<'_> {
         &self,
         command: &Command,
         replaces: bool,
+        own: OwnBound,
         rows: &mut [bool],
         seen: &mut HashSet<ClipId>,
     ) {
@@ -370,7 +439,7 @@ impl Walk<'_> {
                 let planned = PlannedFill {
                     path,
                     at,
-                    extent: command.device_bounds(to_device),
+                    extent: own.of(command, to_device),
                     replaces,
                 };
                 if !(self.row_local)(PlannedMark::Fill(planned)) {
@@ -398,7 +467,7 @@ impl Walk<'_> {
                 blend,
                 ..
             } => {
-                let extent = command.device_bounds(to_device);
+                let extent = own.of(command, to_device);
                 let planned = PlannedStroke {
                     path,
                     stroke,
@@ -535,6 +604,274 @@ fn clamp_row(y: f32, rows: usize) -> usize {
     }
 }
 
+/// The fewest commands a piece of [`strip_inputs`] is given: below this a piece costs the pool
+/// more to hand out than it saves, and a page of a few thousand commands is read as one piece.
+const LEAST_PIECE: usize = 4_096;
+
+/// How many pieces [`strip_inputs`] cuts a list into per thread of the pool, and how many bands
+/// [`StripInputs::costs`] cuts the rows into: more than one, so that a piece of long curves beside
+/// a piece of short lines, or a band of dense text beside a margin, does not leave a thread
+/// waiting.
+const SHARES_PER_THREAD: usize = 4;
+
+/// The memory, in bytes, every piece's two row vectors may take together.
+///
+/// Each piece marks its own rows, a byte a row twice over, so the pieces of a target of very
+/// many rows are fewer: the tallest target `rasterize` admits, 2^24 rows, is read in two.
+const PIECE_ROWS_BUDGET: usize = 64 << 20;
+
+/// What a strip planner reads of a list, measured on the pool and the same in every number as
+/// the serial functions of this module measure it.
+///
+/// [`command_extents`], [`row_costs`], [`unsplittable_rows_and_freed_fills`] and
+/// [`replay_ratio`] each walk every command once on the calling thread, and a planner asks all
+/// four before a page is divided: on the owner's witness, 4 408 405 commands at six times the fit,
+/// that was 231 to 351 ms of serial work in front of a 553 to 660 ms draw on twenty-four threads
+/// (ADR 1882). The
+/// list is cut into runs of commands, each run read on its own thread into its own extents and its
+/// own rows, and the answers are put together so that **every one is the serial function's, bit for
+/// bit**, which is what keeps a page's cuts — and so its pixels — where they were:
+///
+/// - **the extents** are the runs' in order, which is the list's order;
+/// - **a row's cost** is summed over the extents in the list's order, each band of rows on a thread
+///   of its own, because a sum of floating-point widths taken in another order can round to
+///   another number and move a cut by a row;
+/// - **the forbidden rows** are the union of the runs'. A row is only ever *set*, so the union is
+///   the serial answer whatever the order; a run that cannot see the rows an earlier run forbade
+///   walks some paths [`settled`] would have skipped, which is arithmetic and never a mark;
+/// - **the rows between fills** — the forbidden rows and those the fills a backend draws a row at a
+///   time would have forbidden — are a union too. The freed rows alone are not: a fill the serial
+///   walk skips inside rows already forbidden marks its rows free in a run that has not seen them
+///   forbidden, so only the union, which is all a planner reads, is stated (ADR 1837);
+/// - **the replay** is two whole-number counts, summed over the runs.
+///
+/// A top-level command's own device bound is read from the list's [`MarkBounds`] where those were
+/// measured under this very transform, because a backend measures them anyway before it draws
+/// (ADR 1841) and the planner measuring them again was most of its work.
+#[derive(Debug)]
+pub struct StripInputs {
+    /// The runs of commands, in the list's order.
+    pieces: Vec<Piece>,
+    /// The target's rows.
+    rows: usize,
+    /// How many rows a band of [`Self::costs`] is, the last band perhaps fewer.
+    band: usize,
+    /// The target's width, the most a row's cost grows by for one extent.
+    width: f64,
+}
+
+/// One run of a list's top-level commands, read by [`strip_inputs`].
+#[derive(Debug)]
+struct Piece {
+    /// [`command_extents`] of these commands, in their order.
+    extents: Vec<Option<Rect>>,
+    /// The rows these commands forbid, as [`unsplittable_rows_where`] marks them.
+    forbidden: Vec<bool>,
+    /// The rows the fills these commands free would have forbidden.
+    freed: Vec<bool>,
+    /// For each band of [`StripInputs::costs`], the indices into [`Self::extents`] of the extents
+    /// that add to a row of it, in order: what lets a band sum only what reaches it.
+    reaching: Vec<Vec<usize>>,
+}
+
+/// Reads `list` for a strip planner on the pool: [`StripInputs`].
+///
+/// `bounds` is the list's [`MarkBounds`] at the target's magnification; a command's bound is read
+/// from it only where it was measured under `target.transform` itself, every one of the six numbers
+/// the same, and measured again here otherwise. `row_local` is [`unsplittable_rows_where`]'s
+/// question to the backend, asked from every thread of the pool.
+#[must_use]
+pub fn strip_inputs(
+    list: &DisplayList,
+    target: TargetSpec,
+    bounds: &MarkBounds,
+    row_local: &(dyn Fn(PlannedMark<'_>) -> bool + Sync),
+) -> StripInputs {
+    let commands = list.commands();
+    let rows = target.height as usize;
+    let shares = rayon::current_num_threads().saturating_mul(SHARES_PER_THREAD);
+    let band = rows.div_ceil(shares.max(1)).max(1);
+    let measured = bounds
+        .exactly_at(target.transform)
+        .filter(|measured| measured.len() == commands.len());
+    let pieces = commands
+        .len()
+        .div_ceil(LEAST_PIECE)
+        .min(shares)
+        .min(
+            PIECE_ROWS_BUDGET
+                .checked_div(rows.saturating_mul(2))
+                .unwrap_or(usize::MAX),
+        )
+        .max(1);
+    let size = commands.len().div_ceil(pieces).max(1);
+    let pieces = commands
+        .par_chunks(size)
+        .enumerate()
+        .map(|(index, run)| {
+            let own = measured.and_then(|all| all.get(index.saturating_mul(size)..));
+            Piece::read(list, target, run, own, row_local, band)
+        })
+        .collect();
+    StripInputs {
+        pieces,
+        rows,
+        band,
+        width: f64::from(target.width),
+    }
+}
+
+impl Piece {
+    /// Reads one run of top-level commands, `measured` holding their own bounds where known.
+    fn read(
+        list: &DisplayList,
+        target: TargetSpec,
+        run: &[Command],
+        measured: Option<&[Option<Rect>]>,
+        row_local: &dyn Fn(PlannedMark<'_>) -> bool,
+        band: usize,
+    ) -> Self {
+        let rows = target.height as usize;
+        let to_device = target.transform;
+        let mut extents = Vec::with_capacity(run.len());
+        let mut memo = HashMap::new();
+        let mut forbidden = vec![false; rows];
+        let mut seen = HashSet::new();
+        let walk = Walk {
+            list,
+            to_device,
+            row_local,
+            freed: Some(RefCell::new(vec![false; rows])),
+        };
+        for (index, command) in run.iter().enumerate() {
+            let own = measured
+                .and_then(|all| all.get(index))
+                .map_or(OwnBound::Unknown, |bound| OwnBound::Known(*bound));
+            gather_one(list, command, to_device, None, own, &mut extents, &mut memo);
+            walk.element(command, false, own, &mut forbidden, &mut seen);
+        }
+        let freed = walk.freed.map(RefCell::into_inner).unwrap_or_default();
+        let width = f64::from(target.width);
+        let mut reaching = vec![Vec::new(); rows.checked_div(band).unwrap_or(0).saturating_add(1)];
+        for (index, extent) in extents.iter().enumerate() {
+            let (from, to, _) = rows_and_span(*extent, rows, width);
+            let to = to.min(rows);
+            if from >= to {
+                continue;
+            }
+            let top_band = from.checked_div(band).unwrap_or(0);
+            let bottom_band = to.saturating_sub(1).checked_div(band).unwrap_or(0);
+            for list in reaching
+                .get_mut(top_band..=bottom_band)
+                .into_iter()
+                .flatten()
+            {
+                list.push(index);
+            }
+        }
+        Self {
+            extents,
+            forbidden,
+            freed,
+            reaching,
+        }
+    }
+}
+
+impl StripInputs {
+    /// [`command_extents`]' extents, in the list's order.
+    #[cfg(test)]
+    fn extents(&self) -> impl Iterator<Item = &Option<Rect>> {
+        self.pieces.iter().flat_map(|piece| &piece.extents)
+    }
+
+    /// [`row_costs`] of the list's extents, row for row the same `f64`.
+    ///
+    /// Each band of rows on a thread of its own, every band reading the extents that reach it in
+    /// the list's order: the order a row's widths are summed in is the serial one, so each sum
+    /// rounds as it did there. Every band reading every extent was itself 43 to 87 ms of the
+    /// witness's planning on four to twenty-four threads, and more the more threads there were, so
+    /// each piece sorts its extents into the bands they reach while it reads them (ADR 1882).
+    #[must_use]
+    pub fn costs(&self) -> Vec<f64> {
+        let mut costs = vec![0.0_f64; self.rows];
+        let band = self.band;
+        costs
+            .par_chunks_mut(band)
+            .enumerate()
+            .for_each(|(index, slice)| {
+                let first = index.saturating_mul(band);
+                let end = first.saturating_add(slice.len());
+                let reaching = self.pieces.iter().flat_map(|piece| {
+                    piece
+                        .reaching
+                        .get(index)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|at| piece.extents.get(*at))
+                });
+                for extent in reaching {
+                    let (from, to, span) = rows_and_span(*extent, self.rows, self.width);
+                    let (from, to) = (from.max(first), to.min(self.rows).min(end));
+                    if from >= to {
+                        continue;
+                    }
+                    let local = from.saturating_sub(first)..to.saturating_sub(first);
+                    for cost in slice.get_mut(local).into_iter().flatten() {
+                        *cost += span;
+                    }
+                }
+            });
+        costs
+    }
+
+    /// [`unsplittable_rows_where`]'s rows: the union of every piece's.
+    #[must_use]
+    pub fn unsplittable(&self) -> Vec<bool> {
+        self.union(|_| None)
+    }
+
+    /// The forbidden rows and the rows the freed fills would have forbidden, together: the union
+    /// of [`unsplittable_rows_and_freed_fills`]' two vectors, which is the same in any order where
+    /// the second vector alone is not (the type's comment).
+    #[must_use]
+    pub fn between_fills(&self) -> Vec<bool> {
+        self.union(|piece| Some(&piece.freed))
+    }
+
+    /// Every piece's forbidden rows, and the rows `also` names of it, joined.
+    fn union(&self, also: impl Fn(&Piece) -> Option<&Vec<bool>>) -> Vec<bool> {
+        let mut rows = vec![false; self.rows];
+        for piece in &self.pieces {
+            for marked in std::iter::once(&piece.forbidden).chain(also(piece)) {
+                for (row, set) in rows.iter_mut().zip(marked) {
+                    *row |= *set;
+                }
+            }
+        }
+        rows
+    }
+
+    /// [`replay_ratio`] of the list's extents under `boundaries`, counted on the pool.
+    #[must_use]
+    pub fn replay_ratio(&self, boundaries: &[u32]) -> f64 {
+        let (touches, commands) = self
+            .pieces
+            .par_iter()
+            .map(|piece| replays(&piece.extents, boundaries))
+            .reduce(
+                || (0, 0),
+                |(touches, commands), (more, others)| {
+                    (
+                        touches.saturating_add(more),
+                        commands.saturating_add(others),
+                    )
+                },
+            );
+        ratio_of(touches, commands)
+    }
+}
+
 /// The rows at which to cut, so that each strip holds about the same estimated cost.
 ///
 /// Returns `strips + 1` boundaries, the first `0` and the last the target's height — or
@@ -596,6 +933,14 @@ pub fn strip_boundaries(costs: &[f64], strips: u32) -> Vec<u32> {
 /// an empty page.
 #[must_use]
 pub fn replay_ratio(extents: &[Option<Rect>], boundaries: &[u32]) -> f64 {
+    let (touches, commands) = replays(extents, boundaries);
+    ratio_of(touches, commands)
+}
+
+/// How many strips of `boundaries` the bounded extents reach, summed, and how many bounded
+/// extents there are: [`replay_ratio`]'s two counts, which [`StripInputs::replay_ratio`] adds up
+/// over its pieces. Whole numbers, so the sum is the same in any order.
+fn replays(extents: &[Option<Rect>], boundaries: &[u32]) -> (u64, u64) {
     let strips = boundaries.len().saturating_sub(1);
     let mut touches = 0_u64;
     let mut commands = 0_u64;
@@ -612,6 +957,11 @@ pub fn replay_ratio(extents: &[Option<Rect>], boundaries: &[u32]) -> f64 {
             }
         }
     }
+    (touches, commands)
+}
+
+/// [`replay_ratio`]'s answer from its two counts: one where nothing is drawn.
+fn ratio_of(touches: u64, commands: u64) -> f64 {
     if commands == 0 {
         return 1.0;
     }
@@ -749,12 +1099,13 @@ mod tests {
     use std::cell::Cell;
 
     use super::{
-        PlannedMark, row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
+        PlannedMark, command_extents, replay_ratio, row_costs, strip_boundaries,
+        strip_boundaries_avoiding, strip_inputs, unsplittable_rows,
         unsplittable_rows_and_freed_fills, unsplittable_rows_where,
     };
     use crate::{
-        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rect,
-        Size, Stroke, TargetSpec, Transform,
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, MarkBounds, Paint, Path,
+        PathCommand, Point, Rect, Size, Stroke, TargetSpec, Transform,
     };
 
     fn target(width: u32, height: u32) -> TargetSpec {
@@ -1087,5 +1438,203 @@ mod tests {
             strip_boundaries_avoiding(&costs, &curved, 4, 1),
             vec![0, 400, 800]
         );
+    }
+
+    /// A page of `count` marks with every construction the planner reads: oblique fills, straight
+    /// and curved strokes, a clip chain, a group and a page-wide fill. Its widths run from a
+    /// millionth of a unit at the page's left edge, where an `f32` keeps every bit of one, to the
+    /// page's, more than an `f64` holds at once, so a row's cost
+    /// summed in another order than the list's rounds to another number; and its strokes and its
+    /// inner clip keep to the upper half, so the rows a freed fill would forbid are not all
+    /// forbidden already.
+    fn busy_page(count: usize) -> DisplayList {
+        let mut list = DisplayList::new(Size::new(613.0, 409.0));
+        let outer = list
+            .add_clip(Clip {
+                path: box_path(3.3, 7.1, 601.7, 400.9),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("a clip");
+        let inner = list
+            .add_clip(Clip {
+                path: wedge_path(20.3, 180.7, 590.1),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: Some(outer),
+            })
+            .expect("a clip");
+        // A linear congruential sequence: the same page on every run, and widths of every kind.
+        let mut state = 0x2545_f491_u32;
+        let mut next = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            f32::from(u16::try_from(state >> 16).unwrap_or(0)) / 65_536.0
+        };
+        for index in 0..count {
+            let (x, y, size) = (next() * 600.0, next() * 400.0, 0.1 + next() * 37.3);
+            let high = next() * 190.0;
+            let clip = match index % 5 {
+                0 if index % 4 == 1 => Some(inner),
+                1 => Some(outer),
+                _ => None,
+            };
+            let command = match index % 4 {
+                0 => {
+                    let right = if index % 3 == 0 {
+                        1e-6 + next() * 1e-6
+                    } else {
+                        x + size
+                    };
+                    let mut command = wedge(y, y + size, right);
+                    if let Command::Fill { clip: own, .. } = &mut command {
+                        *own = clip;
+                    }
+                    command
+                }
+                1 | 2 => {
+                    let mut path = Path::new();
+                    path.push(PathCommand::MoveTo(Point::new(x, high)));
+                    if index % 4 == 1 {
+                        path.push(PathCommand::LineTo(Point::new(x + size, high + size * 0.3)));
+                    } else {
+                        path.push(PathCommand::CurveTo(
+                            Point::new(x + size, high),
+                            Point::new(x, high + size * 0.5),
+                            Point::new(x + size, high + size * 0.5),
+                        ));
+                    }
+                    Command::Stroke {
+                        path: Arc::new(path),
+                        transform: Transform::IDENTITY,
+                        stroke: Stroke {
+                            width: 0.05 + next() * 3.0,
+                            ..Stroke::default()
+                        },
+                        paint: Paint::Solid(Color::BLACK),
+                        clip,
+                        mask: None,
+                        blend: BlendMode::Normal,
+                    }
+                }
+                _ => Command::Group {
+                    commands: vec![wedge(y, y + size, x), wedge(y + 1.5, y + size * 2.0, x)],
+                    alpha: 1.0,
+                    clip,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                    isolated: true,
+                    knockout: index % 8 == 3,
+                    alpha_is_shape: false,
+                    blending: None,
+                },
+            };
+            list.push(command);
+        }
+        list.push(Command::Fill {
+            path: Arc::new(box_path(0.0, 0.0, 613.0, 409.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        list
+    }
+
+    /// A rectangle from `(left, top)` to `(right, bottom)`, as a path.
+    fn box_path(left: f32, top: f32, right: f32, bottom: f32) -> Path {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(left, top)));
+        path.push(PathCommand::LineTo(Point::new(right, top)));
+        path.push(PathCommand::LineTo(Point::new(right, bottom)));
+        path.push(PathCommand::LineTo(Point::new(left, bottom)));
+        path.push(PathCommand::Close);
+        path
+    }
+
+    /// [`wedge`]'s path alone.
+    fn wedge_path(top: f32, bottom: f32, right: f32) -> Path {
+        match wedge(top, bottom, right) {
+            Command::Fill { path, .. } => (*path).clone(),
+            _ => Path::new(),
+        }
+    }
+
+    /// A backend's answer that frees some marks and not others, so both row vectors are asked.
+    fn frees_some(mark: PlannedMark<'_>) -> bool {
+        match mark {
+            PlannedMark::Fill(fill) => fill.extent.is_some_and(|extent| extent.min.y > 400.0),
+            PlannedMark::Stroke(stroke) => stroke.stroke.width < 1.5,
+        }
+    }
+
+    /// Every number [`strip_inputs`] states is the serial functions' own, bit for bit, read with
+    /// the bounds measured where the target is and measured at another translation, on pools of
+    /// one, four and seven threads — the property the planner's cuts rest on (ADR 1882). The page
+    /// is long enough to be read in several pieces, and its widths are not dyadic, so a cost summed
+    /// in another order than the list's would round to another number.
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
+    #[test]
+    fn the_inputs_read_on_the_pool_are_the_serial_inputs() {
+        let list = busy_page(40_000);
+        let target = TargetSpec {
+            width: 1_226,
+            height: 818,
+            transform: Transform::scale(2.0, 2.0).then(Transform::translate(0.0, -0.81)),
+        };
+        let extents = command_extents(&list, target);
+        let costs = row_costs(&extents, target);
+        let forbidden = unsplittable_rows_where(&list, target, &frees_some);
+        let (alone, freed) = unsplittable_rows_and_freed_fills(&list, target, &frees_some);
+        assert_eq!(alone, forbidden);
+        let between: Vec<bool> = alone.iter().zip(&freed).map(|(a, b)| *a || *b).collect();
+        let divisions = [
+            vec![0, 818],
+            vec![0, 200, 401, 818],
+            vec![0, 64, 128, 700, 818],
+        ];
+
+        let elsewhere = target.transform.then(Transform::translate(17.0, -3.0));
+        for at in [target.transform, elsewhere] {
+            let bounds = MarkBounds::measure(&list, at);
+            for threads in [1, 4, 7] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .expect("a pool");
+                let inputs = pool.install(|| strip_inputs(&list, target, &bounds, &frees_some));
+                assert!(threads == 1 || inputs.pieces.len() > 1, "read in pieces");
+                let read: Vec<Option<Rect>> = inputs.extents().copied().collect();
+                assert_eq!(read, extents, "extents, {threads} threads");
+                let summed = pool.install(|| inputs.costs());
+                let bits =
+                    |costs: &[f64]| costs.iter().map(|cost| cost.to_bits()).collect::<Vec<_>>();
+                assert_eq!(bits(&summed), bits(&costs), "costs, {threads} threads");
+                assert_eq!(
+                    inputs.unsplittable(),
+                    forbidden,
+                    "forbidden, {threads} threads"
+                );
+                assert_eq!(
+                    inputs.between_fills(),
+                    between,
+                    "between, {threads} threads"
+                );
+                for division in &divisions {
+                    let ratio = pool.install(|| inputs.replay_ratio(division));
+                    assert_eq!(
+                        ratio.to_bits(),
+                        replay_ratio(&extents, division).to_bits(),
+                        "replay of {division:?}, {threads} threads"
+                    );
+                }
+            }
+        }
     }
 }

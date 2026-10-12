@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pdf_model::Pages;
+use pdf_model::content::divide::{Division, Reading, last_reading};
 use pdf_model::content::{Interpretation, displayed_size, interpret};
 use pdf_model::progress::{Handed, Parts};
 use pdf_render::{DisplayList, Raster, Rasterizer as _, TargetSpec};
@@ -218,6 +219,179 @@ fn a_command_taken_back_after_it_was_handed_over_spoils_the_hand_over() {
     );
 }
 
+/// A division into `pieces` of every stream, however short — what a sweep asks for, so that
+/// the join is asked of every page that has a cut rather than of the few long enough to divide.
+const fn every_stream(pieces: usize) -> Division {
+    Division {
+        from: 0,
+        pieces: Some(pieces),
+    }
+}
+
+/// Everything an interpretation states but its list, rendered whole so that no field is left out
+/// of the comparison by a list of fields. The list is compared by its own equality, which is of
+/// what it states: its rendering also prints each path's memo of its own hull, which says which
+/// questions were asked of which copy of a clip and nothing about the page.
+fn statement(interpretation: &Interpretation) -> String {
+    let mut stated = interpretation.clone();
+    stated.display_list = DisplayList::new(stated.display_list.page_size);
+    format!("{stated:?}")
+}
+
+/// A list's rendering without the memos each path keeps of its own hull and shape, which say what
+/// was asked of a copy and nothing the list states (`Path`'s equality ignores them too).
+fn without_memos(rendered: &str) -> String {
+    let mut kept = String::with_capacity(rendered.len());
+    let mut rest = rendered;
+    while let Some(at) = [
+        "hull: OnceLock(",
+        "collapses: OnceLock(",
+        "narrowest_rectangle: OnceLock(",
+    ]
+    .iter()
+    .filter_map(|memo| rest.find(memo).map(|at| (at, memo.len())))
+    .min()
+    {
+        let (at, opened) = at;
+        kept.push_str(&rest[..at]);
+        let mut depth = 1_usize;
+        let mut end = at + opened;
+        for (offset, byte) in rest.as_bytes()[at + opened..].iter().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                end = at + opened + offset + 1;
+                break;
+            }
+        }
+        rest = &rest[end..];
+    }
+    kept.push_str(rest);
+    kept
+}
+
+/// Prints where two renderings first part, so that a failure names the field rather than the page.
+fn print_parting(divided: &str, whole: &str) {
+    let at = divided
+        .bytes()
+        .zip(whole.bytes())
+        .position(|(one, other)| one != other)
+        .unwrap_or_else(|| divided.len().min(whole.len()));
+    let around = |text: &str| {
+        let from = text.floor_char_boundary(at.saturating_sub(200));
+        let to = text.ceil_char_boundary(at.saturating_add(200).min(text.len()));
+        text.get(from..to).unwrap_or_default().to_owned()
+    };
+    println!("divided: {}\nwhole:   {}", around(divided), around(whole));
+}
+
+/// Page one of `document` read divided into `pieces` and read whole: how the divided read went,
+/// and whether the two interpretations state the same page.
+fn divided_against_whole(
+    document: &Document,
+    pieces: usize,
+) -> Option<(Option<&'static str>, bool)> {
+    let page = Pages::new(document).get(0)?;
+    let undivided = Division::NEVER.during(|| interpret(document, &page));
+    let divided = every_stream(pieces).during(|| interpret(document, &page));
+    let reading = last_reading().map(|reading| match reading {
+        Reading::Divided => None,
+        Reading::Whole(reason) => Some(reason.0),
+    });
+    let divided_list = divided.display_list.clone();
+    let (divided, whole) = (statement(&divided), statement(&undivided));
+    // A list holding a NaN — a function's output a sample table states — is unequal to itself
+    // by `==`, so a list that `==` does not match is matched by its rendering too, which prints
+    // each NaN alike, with the paths' memos left out as equality leaves them.
+    let (rendered, rendered_whole) = (
+        without_memos(&format!("{divided_list:?}")),
+        without_memos(&format!("{:?}", undivided.display_list)),
+    );
+    let same_list = divided_list == undivided.display_list || rendered == rendered_whole;
+    if divided != whole {
+        print_parting(&divided, &whole);
+    } else if !same_list {
+        print_parting(&rendered, &rendered_whole);
+    }
+    Some((reading?, divided == whole && same_list))
+}
+
+#[test]
+fn a_page_read_in_pieces_is_the_page_read_whole() {
+    // Inside one outer `q`, a clip, a line width and a colour at the page's own depth — the
+    // spine each later piece composes its state from — then marks each inside its own `q … Q`,
+    // then text, which is the last piece's.
+    let mut content = String::from(
+        "q 1 0 0 1 5 5 cm 0 0 180 180 re W n 0.4 w 0.1 0.6 0.2 RG
+",
+    );
+    content.push_str(&marks(8_000));
+    content.push_str(
+        "0.9 0.1 0.1 rg 20 20 40 40 re f
+",
+    );
+    content.push_str(&marks(8_000));
+    content.push_str(
+        "BT /F1 12 Tf 10 10 Td (Hello) Tj 0 14 Td (again) Tj ET Q
+",
+    );
+    let resources = "<< /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >>";
+    let document = Document::open(page_with(200, resources, &content)).expect("the fixture opens");
+    for pieces in [2, 3, 7] {
+        let (declined, same) = divided_against_whole(&document, pieces).expect("page one reads");
+        assert_eq!(declined, None, "{pieces} pieces: the page divides");
+        assert!(
+            same,
+            "{pieces} pieces: the page read in pieces is the page read whole"
+        );
+    }
+}
+
+#[test]
+fn a_page_whose_state_the_join_does_not_carry_is_read_whole_and_says_why() {
+    let resources = "<< /ExtGState << /Half << /ca 0.5 >> >> >>";
+    let mut content = String::from(
+        "q /Half gs
+",
+    );
+    content.push_str(&marks(2_000));
+    content.push_str(
+        "Q
+",
+    );
+    let document = Document::open(page_with(200, resources, &content)).expect("the fixture opens");
+    let (declined, same) = divided_against_whole(&document, 4).expect("page one reads");
+    assert!(same, "the page read whole is the page");
+    assert!(
+        declined.is_some_and(|reason| reason.contains("ExtGState")),
+        "the decline names what declined it: {declined:?}"
+    );
+}
+
+#[test]
+fn a_page_read_in_pieces_is_drawn_while_it_is_read() {
+    let document =
+        Document::open(page_with(200, "<< >>", &marks(40_000))).expect("the fixture opens");
+    let drawn = every_stream(4)
+        .during(|| drawn_while_read(&document))
+        .expect("page one draws");
+    assert!(
+        drawn.parts > 0,
+        "the first piece hands its list over in parts"
+    );
+    let finished = drawn
+        .finished
+        .expect("the hand-over ends with the joined list");
+    let serial = whole(&drawn.list, drawn.target).expect("the page draws");
+    assert!(
+        finished.data == serial.data,
+        "drawn while read in pieces is the page drawn whole"
+    );
+}
+
 #[test]
 fn a_hand_over_nothing_claims_ends_with_its_call() {
     let parts = Parts::new();
@@ -307,5 +481,76 @@ fn every_tracked_first_page_drawn_while_read_is_the_page_drawn_whole() {
     assert!(
         different.is_empty(),
         "pages drawn while read that are not the page drawn whole: {different:?}"
+    );
+}
+
+/// The first page of every tracked corpus document read in pieces and read whole (ADR 1880):
+/// every page that divides states what the whole reading states, every one that does not says
+/// why, and the pages that divide are drawn while read in pieces as the page drawn whole.
+#[test]
+#[ignore = "the whole tracked corpus interpreted three times and drawn twice; run explicitly, \
+            under the gates profile"]
+fn every_tracked_first_page_read_in_pieces_is_the_page_read_whole() {
+    require_the_sandbox();
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut divided = 0_usize;
+    let mut divided_as_shipped = 0_usize;
+    let mut drawn_same = 0_usize;
+    let mut declined: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut different = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let Some((reading, same)) = divided_against_whole(&document, 4) else {
+            continue;
+        };
+        // The division a viewer gets, which reads only a stream of a mebibyte or more in pieces:
+        // a page it divides is a page whose list the corpus gates' arms would see (ADR 1863).
+        if let Some(page) = Pages::new(&document).get(0) {
+            let _ = interpret(&document, &page);
+            if last_reading() == Some(Reading::Divided) {
+                divided_as_shipped += 1;
+            }
+        }
+        if !same {
+            different.push(path.display().to_string());
+        }
+        match reading {
+            None => divided += 1,
+            Some(reason) => {
+                *declined.entry(reason).or_default() += 1;
+                continue;
+            }
+        }
+        let Some(drawn) =
+            every_stream(4).during(|| drawn_in_parts(&document, &Parts::in_parts_of(SMALL_PARTS)))
+        else {
+            continue;
+        };
+        let Some(expected) = whole(&drawn.list, drawn.target) else {
+            continue;
+        };
+        match drawn.finished {
+            Ok(raster) if raster.data == expected.data => drawn_same += 1,
+            Ok(_) => different.push(format!("{} (drawn while read)", path.display())),
+            Err(reason) => *declined.entry(reason).or_default() += 1,
+        }
+    }
+    println!(
+        "{} documents: {divided} first pages read in four pieces, each stating what the whole \
+         reading states; {drawn_same} of them drawn while read byte for byte the page drawn \
+         whole; {divided_as_shipped} divided as shipped; read whole instead: {declined:#?}",
+        files.len()
+    );
+    assert!(
+        different.is_empty(),
+        "pages read in pieces that are not the page read whole: {different:?}"
     );
 }

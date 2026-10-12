@@ -450,3 +450,11 @@ for a while never. Step 81's `drawn_on_the_shot` said "inked: yes" for that unpa
 bug was found only by photographing the window by its id under Xvfb and looking at the picture.
 Before a line or a test is trusted to say *shown*, it is calibrated against a window that paints
 nothing, and the photograph is looked at.
+
+### 165. A rule that waits for a measured price waits for ever when the frame measured nothing
+
+ADR 1860's ask-once rule asked the device only after a *measured* processor price. On the witness
+page one is finished from the drawing made while it was read, which prices nothing, and each of the
+next notches is taken back before it lands, so the window never asked the device during a gesture
+(round 1525, ADR 1886). The condition is "the lane drew it", not "the lane priced it", and a frame
+that finished ahead or was taken back counts as drawn.

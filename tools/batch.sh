@@ -19,6 +19,8 @@
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh raster-examples         # CI's raster examples with --check under Xvfb (one gate of those)
 #   tools/batch.sh arms [<dir>]            # HEAD's six corpus arms, by page, once a batch (open runs it)
+#   tools/batch.sh export 1527 [--as head] [--patch f]... [path]...  # a round's HEAD plus its own hunks
+#   tools/batch.sh export-sums 1527 [--as head]  # the export's binaries' SHA-256, after its build
 #   tools/batch.sh check                   # what a merge would otherwise look at by hand, one line each
 #   tools/batch.sh summary <gate> < <out>  # the summary a gate's line in the log carries, read from its output
 #   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
@@ -907,12 +909,169 @@ close_batch() {
     debug_over_the_rule
 }
 
+# A round's own export: HEAD plus the paths and patches it names, in `scratchpad/r<session>/export/`
+# (or `--as <name>`'s directory beside it), for the clock holds and gates a round runs on its change
+# alone while five siblings edit the same worktree (ADR 1890). Each trap an export built by hand
+# can spring is a step here:
+#
+#   - **HEAD's tracked files from `git archive`, extracted with today's time** (`tar -m`): an
+#     archive's files carry the commit's time, older than the artefacts of the export's last build,
+#     so a rebuild over a re-export would hand back a binary of the previous one (trap 114).
+#   - **Every path `git status --ignored` names in the worktree is linked in, and every submodule**:
+#     the corpora, `doc/md`, the untracked specifications a gate opens (`doc/PDF20_AN001-BPC.pdf`
+#     is `turn_path`'s) — an archive leaves all of them out and a gate run there skips their pages
+#     or measures nothing (traps 150, 162). The population is the worktree's, never a list (trap
+#     25). Three kinds are not linked, each for its trap: `.cargo/`, whose `target-dir` is the
+#     batch's shared build directory (trap 129); a `target` directory; and `__pycache__` (trap 114).
+#   - **A named path is the worktree's file whole, and a shared file is a patch**: a path argument
+#     takes every changed path at or under it, and must name at least one, since a name that matches
+#     nothing exports HEAD and reads as the change (trap 25); a file another slot also edits goes in
+#     as `--patch <file>`, the round's own hunks of it applied to HEAD's copy, never the worktree's
+#     copy with a sibling's edits in it (trap 153). Every other changed path stays HEAD's, and the
+#     record counts them.
+#   - **Its own target directory**, `/home/AI/cargo-target/r<session>-<name>`, named in the export's
+#     own `.cargo/config.toml`, which cargo reads before the worktree's (traps 50, 129).
+#   - **The binaries' hashes**: `export-sums` writes the SHA-256 of every executable the export's
+#     target directory holds into the record, so two exports' binaries are compared by digest
+#     before a difference between them is quoted (trap 50).
+#
+# The record is `scratchpad/r<session>/<name>.export`, beside the tree rather than in it, where a
+# sweep of the tree would read it. A second export of the same name replaces the tree and keeps the
+# target directory, which the fresh times make rebuild what changed. Nothing here walks or builds,
+# so nothing here takes the lock; the build in the export is the round's, behind the lock.
+export_round() {
+    local session=${1:-} name=export path entry patch found
+    local -a patches=() paths=() taken=() patched_paths=()
+    [[ "$session" =~ ^[0-9]+$ ]] || { echo "export: give the session number first, then [--as <name>] [--patch <file>]... [<path>...]"; return 1; }
+    shift
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --as) name=${2:-}; shift 2 || { echo "export: --as needs a name"; return 1; } ;;
+            --patch)
+                [ -s "${2:-}" ] || { echo "export: --patch ${2:-} is not a patch file"; return 1; }
+                patches+=("$(realpath "$2")"); shift 2 ;;
+            --) shift; paths+=("$@"); break ;;
+            -*) echo "export: no option $1"; return 1 ;;
+            *) paths+=("$1"); shift ;;
+        esac
+    done
+    [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "export: --as $name is not a name of lower-case letters, digits and dashes"; return 1; }
+    local out="$wt/scratchpad/r$session/$name" record="$wt/scratchpad/r$session/$name.export"
+    local target="${BATCH_EXPORT_TARGET_ROOT:-/home/AI/cargo-target}/r$session-$name"
+    local commit; commit=$(git -C "$wt" rev-parse HEAD)
+    local changed; changed=$(population | tr '\0' '\n') || { echo "export: cannot read $wt's status — nothing exported"; return 1; }
+    # Every named path is checked before anything is written, so a refusal leaves the last export.
+    for path in "${paths[@]}"; do
+        path=${path%/}
+        found=$(printf '%s\n' "$changed" | awk -F'\t' -v p="$path" 'NF > 1 && ($2 == p || index($2, p "/") == 1)')
+        [ -n "$found" ] || { echo "export: $path names no changed path of $wt, so it would export HEAD's and read as the change — nothing exported"; return 1; }
+        while IFS= read -r entry; do taken+=("$entry"); done <<< "$found"
+    done
+    # And every patch against HEAD itself, in an index of its own read from HEAD, so a patch made
+    # against the worktree's copy — a sibling's hunks in its context — is refused before anything
+    # is written; and a file is taken whole or patched, never both.
+    local index="$wt/scratchpad/r$session/.$name.index" patched
+    mkdir -p "$(dirname "$index")"
+    for patch in "${patches[@]}"; do
+        GIT_INDEX_FILE=$index git -C "$wt" read-tree HEAD
+        GIT_INDEX_FILE=$index git -C "$wt" apply --cached --check "$patch" 2>/dev/null ||
+            { rm -f "$index"; echo "export: $patch does not apply to HEAD — nothing exported"; return 1; }
+        while IFS= read -r patched; do
+            patched_paths+=("$patched")
+            for entry in "${taken[@]}"; do
+                [ "${entry#*$'\t'}" != "$patched" ] && continue
+                rm -f "$index"; echo "export: $patched is named whole and patched by $patch — take it one way; nothing exported"; return 1
+            done
+        done < <(GIT_INDEX_FILE=$index git -C "$wt" apply --cached --numstat "$patch" | cut -f3-)
+    done
+    rm -f "$index"
+    rm -rf -- "$out"
+    mkdir -p "$out"
+    git -C "$wt" archive HEAD | tar -x -m -C "$out"
+    local linked=0 submodules=0
+    while read -r path; do
+        rm -rf -- "${out:?}/$path"; ln -sfn "$(realpath "$wt/$path")" "$out/$path"
+        submodules=$((submodules + 1))
+    done < <(git -C "$wt" ls-files --stage | awk '$1 == "160000" { print $4 }')
+    while IFS= read -r -d '' entry; do
+        [ "${entry:0:3}" = '!! ' ] || continue
+        path=${entry:3}; path=${path%/}
+        case "/$path/" in
+            /scratchpad/*|/.cargo/*|*/target/*|*/__pycache__/*) continue ;;
+        esac
+        mkdir -p "$out/$(dirname "$path")"
+        rm -rf -- "${out:?}/$path"; ln -sfn "$(realpath "$wt/$path")" "$out/$path"
+        linked=$((linked + 1))
+    done < <(git -C "$wt" status --ignored --porcelain=v1 -z)
+    # The named paths, whole, at today's time (`cp` without `-p`), and a deletion as a deletion.
+    for entry in "${taken[@]}"; do
+        path=${entry#*$'\t'}
+        if [ -e "$wt/$path" ] || [ -L "$wt/$path" ]; then
+            mkdir -p "$out/$(dirname "$path")"
+            cp --no-dereference --preserve=mode --remove-destination -- "$wt/$path" "$out/$path"
+        else
+            rm -f -- "${out:?}/$path"
+        fi
+    done
+    # A patch applies to HEAD's copy, with git's own repository search stopped at the export, so
+    # `git apply` treats the export as a plain directory rather than as a subdirectory of the
+    # worktree, where it would skip every path outside it without a word.
+    local numstat=
+    for patch in "${patches[@]}"; do
+        (cd "$out" && GIT_CEILING_DIRECTORIES=$(dirname "$out") git apply "$patch") ||
+            { echo "export: $patch did not apply in $out, though it applies to HEAD — $out holds HEAD and the named paths only"; return 1; }
+        numstat+=$(cd "$out" && GIT_CEILING_DIRECTORIES=$(dirname "$out") git apply --numstat "$patch" | sed "s|^|patch: |; s|\$| ($(basename "$patch"))|")$'\n'
+    done
+    mkdir -p "$out/.cargo"
+    printf '[build]\ntarget-dir = "%s"\n' "$target" > "$out/.cargo/config.toml"
+    # What stays HEAD's: the worktree's changed paths that are neither taken nor patched.
+    local left; left=$( { printf 'taken\t%s\n' "${taken[@]#*$'\t'}" "${patched_paths[@]}"; printf '%s\n' "$changed"; } |
+        awk -F'\t' '$1 == "taken" { own[$2] = 1; next } NF > 1 && !($2 in own) { n++ } END { print n + 0 }')
+    {
+        printf 'HEAD plus %s path(s) and %s patch(es), of %s, exported %s from %s into %s\n' \
+            "${#taken[@]}" "${#patches[@]}" "$commit" "$(date '+%Y-%m-%d %H:%M')" "$wt" "$out"
+        printf 'target-dir: %s, named in the export'"'"'s own .cargo/config.toml (traps 50, 129)\n' "$target"
+        for entry in "${taken[@]}"; do printf 'taken: %s\n' "$entry"; done
+        printf '%s' "$numstat"
+        printf 'left at HEAD: %s changed path(s) of the worktree that no path or patch named (trap 153)\n' "$left"
+        printf 'linked: %s gitignored path(s) of the worktree and %s submodule(s), not .cargo/, target or __pycache__ (traps 129, 150, 162)\n' \
+            "$linked" "$submodules"
+    } > "$record"
+    echo "export: $out — HEAD $commit plus ${#taken[@]} path(s) and ${#patches[@]} patch(es), $left changed path(s) left at HEAD, $linked ignored path(s) and $submodules submodule(s) linked; target $target; $record"
+}
+
+# The SHA-256 of every executable the export's target directory holds — each profile's binaries,
+# examples and test binaries, the files cargo writes with no extension and the executable bit —
+# into the export's record in place of the last summing, so the record says which binaries the
+# figures taken in it came from (trap 50). Run after the round's build, beside it in the lock or
+# after it; it reads and hashes and builds nothing.
+export_sums() {
+    local session=${1:-} name=export
+    [[ "$session" =~ ^[0-9]+$ ]] || { echo "export-sums: give the session number first, then [--as <name>]"; return 1; }
+    [ "${2:-}" = --as ] && name=${3:-}
+    local record="$wt/scratchpad/r$session/$name.export" target sums
+    [ -s "$record" ] || { echo "export-sums: no export record at $record — run tools/batch.sh export $session first"; return 1; }
+    target=$(sed -n 's/^target-dir: \([^,]*\),.*/\1/p' "$record" | head -1)
+    [ -d "$target" ] || { echo "export-sums: $target holds no build yet"; return 1; }
+    sums=$(cd "$target" && find . -mindepth 2 -maxdepth 3 -type f -perm -u+x ! -name '*.*' \
+            \( -path './*/deps/*' -o -path './*/examples/*' -o -regex '\./[^/]*/[^/]*' \) -printf '%P\0' |
+        sort -z | xargs -0 -r sha256sum)
+    sed -i '/^built: /d; /^summed /d' "$record"
+    {
+        printf 'summed %s: %s executable(s) in %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(printf '%s' "$sums" | grep -c . || true)" "$target"
+        [ -z "$sums" ] || printf '%s\n' "$sums" | sed 's/^/built: /'
+    } >> "$record"
+    echo "export-sums: $(printf '%s' "$sums" | grep -c . || true) executable(s) of $target into $record"
+}
+
 case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
     gates) gates ;;
     raster-examples) raster_examples "${2:-}" ;;
     arms)  export_arms "${2:-}" ;;
     arms-held) arms_held "${2:?}" "${3:?}" "${4:?}" ;;
+    export) shift; export_round "$@" ;;
+    export-sums) shift; export_sums "$@" ;;
     check) check_batch ;;
     summary) gate_summary "${2:?a gate name}" ;;
     commit) commit_batch "${2:?a commit message file}" ;;

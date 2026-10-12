@@ -455,6 +455,181 @@ fn read_calls() -> Option<u64> {
     io_counter("syscr:")
 }
 
+/// The adapter's carve-out as this process's device found it: how large it is, what the
+/// adapter's clients hold of it, and what this process asked to be placed there and was (ADR 1891).
+///
+/// **The guard `bring_up_ms` and `first_page_ms` need, made of what moves them** (trap 34). On
+/// an integrated adapter the carve-out is a fixed reservation of system memory — 512 MiB here —
+/// that every client shares, and `wgpu`'s first device-local block is 128 MiB. Where the
+/// desktop holds most of it, the kernel places that block in system memory instead and clears
+/// its pages inside `request_device`, which is what moved bring-up from 1–2 ms of that call to
+/// 7–11 (ADR 1872). The calibration probe cannot see it, because it is no processor's state; the
+/// load average cannot either. What can is the process's own placement: the kernel's per-client
+/// counters, `/proc/self/fdinfo`, say how much the device asked to be in the carve-out
+/// (`amd-requested-vram`) and how much is (`drm-memory-vram`), and the adapter's own
+/// `mem_info_vram_used` says what every client holds. So the reading is the figure's own child,
+/// after its work, about the one resource the work was slowed by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CarveOut {
+    /// The carve-out's size, `mem_info_vram_total`, in kibibytes.
+    total: u64,
+    /// What every client of the adapter holds of it, this process included, `mem_info_vram_used`.
+    used: u64,
+    /// What this process's clients asked to be placed in it, `amd-requested-vram` summed.
+    asked: u64,
+    /// What of that the kernel placed in it, `drm-memory-vram` summed.
+    placed: u64,
+}
+
+impl CarveOut {
+    /// What the adapter's other clients hold of the carve-out: everything held, less this
+    /// process's own placement.
+    fn others_kib(self) -> u64 {
+        self.used.saturating_sub(self.placed)
+    }
+
+    /// **Whether the carve-out had room for this device**: every kibibyte it asked to be placed
+    /// there was. A shortfall of any size is a block the kernel put in system memory and cleared
+    /// inside the call that asked for it — ADR 1872's mechanism — and a threshold on the others'
+    /// occupancy would be a guess at the block size, which `wgpu`'s memory hints choose.
+    fn had_room(self) -> bool {
+        self.placed >= self.asked
+    }
+
+    /// The reading as a phrase a line of the report carries.
+    fn phrase(self) -> String {
+        let mib = |kib: u64| {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a memory size in kibibytes; f64 is exact to 2^53"
+            )]
+            let kib = kib as f64;
+            kib / 1024.0
+        };
+        format!(
+            "the carve-out {:.0} MiB, {:.0} MiB of it held by others, the device asked {:.1} MiB \
+             of it and was placed {:.1}{}",
+            mib(self.total),
+            mib(self.others_kib()),
+            mib(self.asked),
+            mib(self.placed),
+            if self.had_room() {
+                ""
+            } else {
+                " — no room, so the rest went to system memory"
+            }
+        )
+    }
+
+    /// The four fields a child prints it as.
+    fn fields(reading: Option<Self>) -> [(&'static str, String); 4] {
+        [
+            ("carve_out_kib", or_absent(reading.map(|it| it.total))),
+            ("carve_out_used_kib", or_absent(reading.map(|it| it.used))),
+            ("vram_asked_kib", or_absent(reading.map(|it| it.asked))),
+            ("vram_placed_kib", or_absent(reading.map(|it| it.placed))),
+        ]
+    }
+
+    /// The reading a child printed, or `None` where it printed `-` for any of the four.
+    fn of(fields: &Fields) -> Option<Self> {
+        let kib = |key: &str| -> Option<u64> {
+            fields
+                .iter()
+                .find(|(name, _)| name == key)
+                .and_then(|(_, value)| value.parse().ok())
+        };
+        Some(Self {
+            total: kib("carve_out_kib")?,
+            used: kib("carve_out_used_kib")?,
+            asked: kib("vram_asked_kib")?,
+            placed: kib("vram_placed_kib")?,
+        })
+    }
+}
+
+/// A size as the kernel's DRM usage statistics print it, in kibibytes: a number and `KiB`,
+/// `MiB` or `GiB`, or a bare number of bytes (the kernel's `drm-usage-stats` document).
+fn usage_stat_kib(value: &str) -> Option<u64> {
+    let mut words = value.split_whitespace();
+    let number: u64 = words.next()?.parse().ok()?;
+    let kib = match words.next() {
+        None => number / 1024,
+        Some("KiB") => number,
+        Some("MiB") => number.checked_mul(1 << 10)?,
+        Some("GiB") => number.checked_mul(1 << 20)?,
+        Some(_) => return None,
+    };
+    words.next().is_none().then_some(kib)
+}
+
+/// One DRM client's entry of `/proc/self/fdinfo`: its id, its adapter's PCI address, what it
+/// asked of the carve-out and what was placed there, or `None` for any other descriptor.
+fn drm_client(fdinfo: &str) -> Option<(String, String, u64, u64)> {
+    let value = |key: &str| {
+        fdinfo.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            (name.trim() == key).then(|| value.trim())
+        })
+    };
+    let placed = value("drm-memory-vram").or_else(|| value("drm-resident-vram"))?;
+    Some((
+        value("drm-client-id")?.to_owned(),
+        value("drm-pdev")?.to_owned(),
+        usage_stat_kib(value("amd-requested-vram")?)?,
+        usage_stat_kib(placed)?,
+    ))
+}
+
+/// This process's reading of its adapter's carve-out, taken now; see [`CarveOut`].
+///
+/// `None` where the process holds no DRM client that reports a request — a software
+/// rasteriser, a driver other than `amdgpu`, a platform without `/proc` — or the adapter has no
+/// `mem_info_vram_*`, and a figure with no reading is judged as it was before there was one.
+/// Two descriptors of one client are one client (`drm-client-id`), and where clients of more
+/// than one adapter are open the reading is of the adapter the most was asked of.
+fn carve_out_now() -> Option<CarveOut> {
+    let mut clients: Vec<(String, String, u64, u64)> = Vec::new();
+    for entry in std::fs::read_dir("/proc/self/fdinfo").ok()?.flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        if let Some(client) = drm_client(&text)
+            && !clients.iter().any(|known| known.0 == client.0)
+        {
+            clients.push(client);
+        }
+    }
+    let asked_of = |pdev: &str| -> u64 {
+        clients
+            .iter()
+            .filter(|client| client.1 == pdev)
+            .map(|client| client.2)
+            .sum()
+    };
+    let pdev = clients
+        .iter()
+        .map(|client| client.1.as_str())
+        .max_by_key(|pdev| asked_of(pdev))?
+        .to_owned();
+    let placed = clients
+        .iter()
+        .filter(|client| client.1 == pdev)
+        .map(|client| client.3)
+        .sum();
+    let sysfs = |name: &str| -> Option<u64> {
+        let path = format!("/sys/bus/pci/devices/{pdev}/{name}");
+        let bytes: u64 = std::fs::read_to_string(path).ok()?.trim().parse().ok()?;
+        Some(bytes / 1024)
+    };
+    Some(CarveOut {
+        total: sysfs("mem_info_vram_total")?,
+        used: sysfs("mem_info_vram_used")?,
+        asked: asked_of(&pdev),
+        placed,
+    })
+}
+
 /// Milliseconds since `began`.
 fn ms(began: Instant) -> f64 {
     began.elapsed().as_secs_f64() * 1e3
@@ -794,6 +969,8 @@ fn phase_bring_up() {
     if let Ok(ref raster) = backend {
         fields.extend(device_steps(raster));
     }
+    // Read with the device up and nothing else done, so the placement is the device's own.
+    fields.extend(CarveOut::fields(carve_out_now()));
     measured_beside_the_machine(&fields);
 }
 
@@ -904,6 +1081,9 @@ fn phase_first_page() {
     // Asked the moment the clock stops: a worker started before page one's frame would be the
     // critical path waiting for one, which is the one thing the runner supplied above may not do.
     let spawned_before_frame = workers.spawns();
+    // Where page one's device found its carve-out, read once the frame is drawn and before the
+    // script stage allocates anything (ADR 1891).
+    let carve_out = carve_out_now();
     // Read after the clock, off what the backend kept of the frame it just drew.
     let cost = frame_fields(&backend.last_frame(), backend.last_phases());
     let Some(Drawn {
@@ -974,6 +1154,7 @@ fn phase_first_page() {
         spawned_before_frame,
     ));
     fields.extend(cost.into_iter().chain(device_steps(&backend)));
+    fields.extend(CarveOut::fields(carve_out));
     measured_beside_the_machine(&fields);
 }
 
@@ -1571,6 +1752,25 @@ fn parse(text: &str) -> Result<Check, String> {
 
 /// The `key=value` fields one child printed.
 type Fields = Vec<(String, String)>;
+
+/// The figures a device's placement in the carve-out is the guard of (ADR 1891): cold bring-up,
+/// and time to first page, of which the device is the longer thread. The script stage's two are
+/// read from first-page children too, and neither has the device in it.
+const CARVE_OUT_FIGURES: [&str; 2] = ["bring_up_ms", "first_page_ms"];
+
+/// The carve-out line beneath a figure a device is on the path of, judged or not (ADR 1891).
+///
+/// **Printed on every run**, so that the occupancy is read beside the figure it moves on the
+/// runs it does not decline as well as on the ones it does.
+fn print_carve_out(fields: &Fields) {
+    match CarveOut::of(fields) {
+        Some(carve_out) => println!("launch-path:     {}", carve_out.phrase()),
+        None => println!(
+            "launch-path:     the carve-out not reported — no DRM client of this process says \
+             what it asked of the adapter's memory, so the figure is not held to it"
+        ),
+    }
+}
 
 /// One field of a child's line, as a number, or `None` where it said `-` or nothing.
 /// The first-page child's instants, one line each, from the process's start (ADR 1544).
@@ -2526,6 +2726,11 @@ struct Judged {
     /// attempt taken under the ceiling precisely so that this stays [`SAMPLES`], and a reader who
     /// cannot see it cannot check that it did.
     load_population: Option<f64>,
+    /// Where the child that produced this figure found its adapter's carve-out (ADR 1891).
+    ///
+    /// `None` for every figure but [`CARVE_OUT_FIGURES`], and for those where the adapter reports
+    /// no placement; a figure with no reading is not held to it. See [`CarveOut`].
+    carve_out: Option<CarveOut>,
 }
 
 /// Which of a figure's three conditions failed, in the order they are asked.
@@ -2543,6 +2748,8 @@ enum Declined {
     ItsProbe,
     /// That child's *first* pass of the same work was outside its band.
     ItsFirstPass,
+    /// That child's device asked the adapter's carve-out for more than it had room for.
+    TheCarveOut,
     /// The disk was outside its band when this figure's sample was prepared.
     TheDisk,
     /// The disk answered a *small* read too slowly when this figure's sample was prepared.
@@ -2598,6 +2805,10 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         }
         _ => machine,
     };
+    let machine = match figure.carve_out {
+        Some(carve_out) => format!("{machine}, {}", carve_out.phrase()),
+        None => machine,
+    };
     let said = match declined {
         Declined::TheRun => "the run is not judging at all",
         Declined::TheLoad => {
@@ -2609,6 +2820,11 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         Declined::ItsFirstPass => {
             "the child's first pass of that same work was outside its band, so the machine was \
              busy in the way a figure feels and the fifty-pass minimum cannot see"
+        }
+        Declined::TheCarveOut => {
+            "the device asked the adapter's carve-out for more than the other clients left of \
+             it, so a block went to system memory and was cleared inside the call, which is the \
+             environment's and no processor probe can see (ADR 1872)"
         }
         Declined::TheDisk => "the disk was outside its band when this sample was prepared",
         Declined::TheDiskLatency => {
@@ -2673,6 +2889,10 @@ fn band_it(
                 load: field(fields, "load"),
                 load_attempts: field(fields, "load_attempts"),
                 load_population: field(fields, "load_population"),
+                carve_out: CARVE_OUT_FIGURES
+                    .contains(&key)
+                    .then(|| CarveOut::of(fields))
+                    .flatten(),
             },
         ));
     }
@@ -2866,6 +3086,7 @@ fn the_launch_path_stays_inside_its_bands() {
                  and the rest is mapped libraries{}",
                 waiting(&fields, "bring_up_runq_ms")
             );
+            print_carve_out(&fields);
             print_device_thread(&fields);
             band_it(
                 &mut judged,
@@ -3176,6 +3397,7 @@ fn the_launch_path_stays_inside_its_bands() {
                      {frame}), {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
                     waiting(&fields, "first_page_runq_ms")
                 );
+                print_carve_out(&fields);
                 print_timeline(&fields);
                 print_first_frame(&fields);
                 print_script_stage(&fields);
@@ -3294,6 +3516,7 @@ fn the_launch_path_stays_inside_its_bands() {
 
     let mut unjudged = 0_usize;
     let mut for_load = 0_usize;
+    let mut for_carve_out = 0_usize;
     let mut outside: Vec<String> = Vec::new();
     for (what, figure) in &judged {
         // **The band goes out beside the figure on every run, and not only when the figure is
@@ -3332,8 +3555,16 @@ fn the_launch_path_stays_inside_its_bands() {
         // The coarsest guard and the one [`quickest`] already gave this figure every chance
         // against: see [`the_load_ceiling`].
         let load_held = figure.load.is_none_or(|load| load <= the_load_ceiling());
-        let machine_was_right =
-            load_held && probe_held && first_held && disk_held && latency_held && waited_little;
+        // The guard made of the device's own placement, for the two figures a device is on the
+        // path of: see [`CarveOut::had_room`].
+        let carve_out_had_room = figure.carve_out.is_none_or(CarveOut::had_room);
+        let machine_was_right = load_held
+            && probe_held
+            && first_held
+            && disk_held
+            && latency_held
+            && waited_little
+            && carve_out_had_room;
         if !(figure.steady || (judging && machine_was_right)) {
             unjudged = unjudged.saturating_add(1);
             // **The load is asked first, because it is the cause of which the rest are
@@ -3342,6 +3573,8 @@ fn the_launch_path_stays_inside_its_bands() {
             // machine that produced it.
             if !load_held {
                 for_load = for_load.saturating_add(1);
+            } else if judging && !carve_out_had_room {
+                for_carve_out = for_carve_out.saturating_add(1);
             }
             // **The load outranks even the run's own verdict.** Under a load average of twenty the
             // headline calibration probe is out of band too, so `judging` is false and the figure
@@ -3351,7 +3584,11 @@ fn the_launch_path_stays_inside_its_bands() {
             let declined = if !load_held {
                 Declined::TheLoad
             } else if judging {
-                if !waited_little {
+                // The carve-out before the processor's guards: it is the cause of a slow device
+                // that none of them can sense, so a figure it declines is named for it.
+                if !carve_out_had_room {
+                    Declined::TheCarveOut
+                } else if !waited_little {
                     Declined::ItWaited
                 } else if !probe_held {
                     Declined::ItsProbe
@@ -3416,7 +3653,8 @@ fn the_launch_path_stays_inside_its_bands() {
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
          {uncounted} not counted, {unmeasured_scripts} script stages not measured, {} figures \
-         banded, {unjudged} not judged ({for_load} of them for load), {} outside{}",
+         banded, {unjudged} not judged ({for_load} of them for load, {for_carve_out} for the \
+         carve-out), {} outside{}",
         judged.len(),
         outside.len(),
         if outside.is_empty() {
@@ -3437,4 +3675,60 @@ fn the_launch_path_stays_inside_its_bands() {
         "the launch path moved:\n  {}",
         complaints.join("\n  ")
     );
+}
+
+/// **The carve-out's reading is the kernel's words, and the rule declines ADR 1872's run** (ADR
+/// 1891). The text is a render node's `fdinfo` as this machine's `amdgpu` prints it, with ADR
+/// 1872's figures in it: 197 476 KiB asked of the carve-out, 868 KiB placed there. Planted the
+/// other way — everything asked, placed — the same rule judges, so the guard is not one that
+/// always fires (trap 39); and a descriptor that is no DRM client is no reading.
+#[test]
+fn the_carve_out_is_read_from_fdinfo_and_declines_a_device_it_had_no_room_for() {
+    let fdinfo = "pos:\t0\nflags:\t02100002\nmnt_id:\t39\nino:\t515\ndrm-driver:\tamdgpu\n\
+                  drm-client-id:\t772374\ndrm-pdev:\t0000:65:00.0\npasid:\t51644\n\
+                  drm-total-vram:\t193 MiB\ndrm-resident-vram:\t1 MiB\n\
+                  drm-memory-vram:\t868 KiB\ndrm-memory-gtt: \t265508 KiB\n\
+                  amd-evicted-vram:\t0 KiB\namd-requested-vram:\t197476 KiB\n\
+                  amd-requested-gtt:\t2048 KiB\n";
+    assert_eq!(
+        drm_client(fdinfo),
+        Some(("772374".to_owned(), "0000:65:00.0".to_owned(), 197_476, 868))
+    );
+    assert_eq!(drm_client("pos:\t0\nflags:\t02\nmnt_id:\t39\n"), None);
+    assert_eq!(usage_stat_kib("12 KiB"), Some(12));
+    assert_eq!(usage_stat_kib("2 MiB"), Some(2048));
+    assert_eq!(usage_stat_kib("1 GiB"), Some(1 << 20));
+    assert_eq!(usage_stat_kib("4096"), Some(4));
+    assert_eq!(usage_stat_kib("4 TiB"), None);
+    assert_eq!(usage_stat_kib("4 KiB extra"), None);
+
+    let full = CarveOut {
+        total: 512 << 10,
+        used: 420 << 10,
+        asked: 197_476,
+        placed: 868,
+    };
+    assert!(!full.had_room(), "ADR 1872's run had no room");
+    assert_eq!(full.others_kib(), (420 << 10) - 868);
+    assert!(full.phrase().contains("no room"), "{}", full.phrase());
+    let roomy = CarveOut {
+        placed: 197_476,
+        used: 300 << 10,
+        ..full
+    };
+    assert!(roomy.had_room(), "every kibibyte asked was placed");
+    assert!(!roomy.phrase().contains("no room"), "{}", roomy.phrase());
+
+    // A child's four fields come back as the reading they were printed from, and a child that
+    // printed `-` for any of them has none.
+    let printed: Fields = CarveOut::fields(Some(full))
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect();
+    assert_eq!(CarveOut::of(&printed), Some(full));
+    let absent: Fields = CarveOut::fields(None)
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect();
+    assert_eq!(CarveOut::of(&absent), None);
 }

@@ -81,7 +81,8 @@ fn main() {
     // on each alike.
     for _ in 0..rounds {
         let started = Instant::now();
-        let interpretation = pdf_model::interpret(&document, &page);
+        let interpretation = pdf_model::content::divide::Division::NEVER
+            .during(|| pdf_model::interpret(&document, &page));
         whole.push(started.elapsed());
         whole_list = Some(interpretation);
 
@@ -119,6 +120,8 @@ fn main() {
         ms(fastest(&whole).saturating_sub(lexing_alone)),
     );
 
+    built(&document, &page, &whole_list, rounds);
+
     for &count in &counts {
         price(
             &bytes,
@@ -130,6 +133,46 @@ fn main() {
             rounds,
         );
     }
+}
+
+/// The build (ADR 1880): the page read as `pdf_model::interpret` reads it, divided where the plan
+/// finds cuts, against the same page read whole — interleaved, and the lists compared.
+fn built(
+    document: &Document,
+    page: &pdf_model::Page,
+    whole_list: &pdf_model::Interpretation,
+    rounds: usize,
+) {
+    use pdf_model::content::divide::{Division, Reading, last_reading};
+    let mut divided = Vec::new();
+    let mut undivided = Vec::new();
+    let mut same = true;
+    let mut how = None;
+    for _ in 0..rounds {
+        let started = Instant::now();
+        let interpretation = pdf_model::interpret(document, page);
+        divided.push(started.elapsed());
+        how = last_reading();
+        same &= interpretation.display_list == whole_list.display_list
+            && interpretation.unsupported == whole_list.unsupported
+            && interpretation.operators == whole_list.operators;
+        let started = Instant::now();
+        let interpretation = Division::NEVER.during(|| pdf_model::interpret(document, page));
+        undivided.push(started.elapsed());
+        std::hint::black_box(interpretation);
+    }
+    println!(
+        "built: read divided {} against whole {} on {} threads ({}); its list {} the page's",
+        spread(&divided),
+        spread(&undivided),
+        rayon::current_num_threads(),
+        match how {
+            Some(Reading::Divided) => "divided".to_owned(),
+            Some(Reading::Whole(reason)) => format!("not divided: {}", reason.0),
+            None => "no reading".to_owned(),
+        },
+        if same { "is" } else { "IS NOT" },
+    );
 }
 
 /// Prices one division of the stream into `count` pieces.

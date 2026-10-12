@@ -920,7 +920,7 @@ impl Interpreter<'_> {
     /// every site, which is what it does for a stroke and what it did before `reach.rs` existed.
     /// The direction is the safe one — more sites, never fewer — and those sites are still
     /// bounded by [`Self::MAX_TILE_COPIES`] and by `MAX_LIST_BYTES`.
-    const MAX_REACH_SCAN: usize = 4_194_304;
+    pub(super) const MAX_REACH_SCAN: usize = 4_194_304;
 
     /// Draws every site of a tiling but the one its cell was interpreted at.
     ///

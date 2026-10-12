@@ -618,9 +618,10 @@ impl CpuRasterizer {
         } else {
             Arc::new(mask_consumer_reach(list, target.transform))
         };
-        // Measured once here, before any strip is queued, so that every strip asks the same
-        // bounds and none measures them again (ADR 1841); kept with the list, so a scroll at this
-        // magnification measures nothing at all.
+        // Measured once before any strip is queued — by the planner where it divides the page,
+        // which reads them (ADR 1882), and here where it does not — so that every strip asks the
+        // same bounds and none measures them again (ADR 1841); kept with the list, so a scroll at
+        // this magnification measures nothing at all.
         let bounds = list.mark_bounds(target.transform);
         if strips < 2 {
             let surface = Surface::whole(target);
@@ -5200,6 +5201,13 @@ fn whole_target(target: TargetSpec) -> pdf_render::Rect {
 /// this crate's arithmetic closes it, and ADR 1758 measures what is left over the corpus: one level
 /// for one coverage, and up to three where a pixel takes several rounded results or a blend
 /// function steeper than one — `raster_golden.rs` holds every first page to it.
+///
+/// **The list is read on the pool, and the cut is decided on this thread.** Every number the
+/// decision reads — each command's extent, each row's cost, the forbidden rows, the replay of a
+/// division — is [`pdf_render::strip_inputs`]'s, which is the serial functions' answer bit for bit,
+/// so the cuts are the ones one thread would choose and no pixel moves. On the owner's witness at
+/// six and seven times the fit that took the planner from 231–351 ms to 39–48 ms on twenty-four
+/// threads, and from 206–359 ms to 55–102 ms on four (ADR 1882).
 fn plan_strips(
     list: &DisplayList,
     target: TargetSpec,
@@ -5225,19 +5233,19 @@ fn plan_strips(
     if wanted < 2 {
         return vec![0, target.height];
     }
-    let extents = pdf_render::command_extents(list, target);
-    let costs = pdf_render::row_costs(&extents, target);
-    let (unsplittable, freed_fills) =
-        pdf_render::unsplittable_rows_and_freed_fills(list, target, &|mark| {
-            drawn_row_by_row(mark, anti_alias, target)
-        });
+    // Read on the pool the strips are about to run on, every number the serial reading's, so
+    // the cuts are the ones a single thread would choose (`pdf_render::StripInputs`). The bounds
+    // are the ones the draw measures anyway (ADR 1841), measured here first so that the reading
+    // takes each command's from them rather than measuring it twice more (ADR 1882).
+    let bounds = list.mark_bounds(target.transform);
+    let inputs = pdf_render::strip_inputs(list, target, &bounds, &|mark| {
+        drawn_row_by_row(mark, anti_alias, target)
+    });
+    let costs = inputs.costs();
+    let unsplittable = inputs.unsplittable();
     // ADR 0139's rows for every fill beside the backend's answer for strokes: the division this
     // backend made before it asked fills at all.
-    let between_fills: Vec<bool> = unsplittable
-        .iter()
-        .zip(&freed_fills)
-        .map(|(forbidden, freed)| *forbidden || *freed)
-        .collect();
+    let between_fills = inputs.between_fills();
 
     // Asked for from the most strips downwards, keeping a division only where its replay is
     // affordable. A strip pays again for every command that reaches it — see
@@ -5256,7 +5264,7 @@ fn plan_strips(
     // of both rows, and the division kept is the one of most strips either affords within the
     // bound. No smaller count can make more strips than it asks for, so the search stops once the
     // best division found has as many. ADR 1837.
-    let affordable = |division: &[u32]| pdf_render::replay_ratio(&extents, division) <= MAX_REPLAY;
+    let affordable = |division: &[u32]| inputs.replay_ratio(division) <= MAX_REPLAY;
     let mut best: Option<Vec<u32>> = None;
     let mut count = wanted;
     while count > 1 && strips_in(best.as_deref()) < count {

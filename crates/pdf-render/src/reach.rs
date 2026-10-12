@@ -90,6 +90,27 @@ impl MarkBounds {
         self.bounds.is_empty()
     }
 
+    /// Every top-level command's own [`Command::device_bounds`](crate::Command::device_bounds)
+    /// under `transform`, exactly as that function states it, where these were measured under
+    /// `transform` itself — all six of its numbers the same bits — and `None` under any other.
+    ///
+    /// No margin and no move: a strip planner reads these as the bounds it would measure, and
+    /// a bound moved from another translation is only within [`SHIFT_SLACK`] of that.
+    pub(crate) fn exactly_at(&self, transform: Transform) -> Option<&[Option<Rect>]> {
+        let at = self.at;
+        let same = [
+            (at.a, transform.a),
+            (at.b, transform.b),
+            (at.c, transform.c),
+            (at.d, transform.d),
+            (at.e, transform.e),
+            (at.f, transform.f),
+        ]
+        .iter()
+        .all(|(kept, asked)| kept.to_bits() == asked.to_bits());
+        same.then_some(self.bounds.as_slice())
+    }
+
     /// Whether these bounds answer for `transform`: the same magnification — the same linear
     /// part, compared exactly — under any translation.
     #[must_use]

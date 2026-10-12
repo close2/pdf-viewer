@@ -287,6 +287,15 @@ calibration_ms = 0.62 .. 0.78
 # in the same runs are the same cause. The band is kept: `MemoryHints::MemoryUsage` reads
 # `request_device` at 1.8 to 4.0 ms and the usable device at 15.2 to 24.3 ms on the full carve-out,
 # which is this band again, and is `raster-gpu`'s lever to take with the frame gates beside it.
+#
+# **So it is judged only where the carve-out had room for the device, and so is every row's
+# `first_page_ms`** (ADR 1891). The bring-up child and each first-page child read their own
+# placement once the device is up — `amd-requested-vram` and `drm-memory-vram` of their DRM clients
+# in `/proc/self/fdinfo`, and the adapter's `mem_info_vram_used` and `mem_info_vram_total` — and the
+# gate prints it beneath both figures on every run. Where any kibibyte the device asked of the
+# carve-out was not placed there, the figure is printed with that reading and not judged, named
+# for the carve-out, which is the guard made of what moves the figure (trap 34); the processor
+# probes cannot see it. An adapter that reports no placement is judged as before.
 bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.

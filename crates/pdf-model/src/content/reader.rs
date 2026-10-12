@@ -397,6 +397,9 @@ enum Held<'a> {
         bytes: &'a [u8],
         /// How far the cursor has got.
         at: usize,
+        /// Where these bytes begin in a page's whole stream and how long that stream is, for a
+        /// piece of one (ADR 1880); `None` for a stream that is its own whole.
+        of_page: Option<(usize, usize)>,
     },
     /// A page's `/Contents`, pumped into a fixed buffer.
     ///
@@ -410,7 +413,62 @@ impl<'a> ContentReader<'a> {
     #[must_use]
     pub fn over(bytes: &'a [u8]) -> Self {
         Self {
-            held: Held::Whole { bytes, at: 0 },
+            held: Held::Whole {
+                bytes,
+                at: 0,
+                of_page: None,
+            },
+        }
+    }
+
+    /// A reader over one piece of a page's stream, `from` bytes into a stream `of` bytes long,
+    /// whose progress is the page's (ADR 1880).
+    #[must_use]
+    pub(super) fn piece(bytes: &'a [u8], from: usize, of: usize) -> Self {
+        Self {
+            held: Held::Whole {
+                bytes,
+                at: 0,
+                of_page: Some((from, of)),
+            },
+        }
+    }
+
+    /// Skips the white space and comments before the next token and answers where it begins —
+    /// `None` for a windowed reader, whose positions are not offsets into one buffer.
+    pub(super) fn next_token_start(&mut self) -> Option<usize> {
+        match &mut self.held {
+            Held::Whole { bytes, at, .. } => {
+                let mut lexer = Lexer::at(bytes, *at);
+                lexer.skip_whitespace();
+                *at = lexer.position();
+                Some(*at)
+            }
+            Held::Window(_) => None,
+        }
+    }
+
+    /// Where the cursor is, for a reader over bytes already whole.
+    pub(super) fn position(&self) -> Option<usize> {
+        match &self.held {
+            Held::Whole { at, .. } => Some(*at),
+            Held::Window(_) => None,
+        }
+    }
+
+    /// Reads everything that is left into one buffer, unless it comes to more than `most` bytes —
+    /// then `None`, and what was read is dropped with the reader's position past it.
+    ///
+    /// The bound is what keeps a divided read from making a decompression bomb an allocation
+    /// (ADR 0362, ADR 1880): the caller sizes it from the bytes the file spent on the stream.
+    #[must_use]
+    pub(super) fn read_to_end_within(&mut self, most: usize) -> Option<Vec<u8>> {
+        match &mut self.held {
+            Held::Whole { .. } => {
+                let rest = self.read_to_end();
+                (rest.len() <= most).then_some(rest)
+            }
+            Held::Window(window) => window.read_to_end_within(most),
         }
     }
 
@@ -513,7 +571,7 @@ impl<'a> ContentReader<'a> {
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
         match &mut self.held {
-            Held::Whole { bytes, at } => {
+            Held::Whole { bytes, at, .. } => {
                 let mut lexer = Lexer::at(bytes, *at);
                 // A whole stream ends where its bytes do, so a string running to the end is ended
                 // there, as the lexer ends it.
@@ -545,7 +603,7 @@ impl<'a> ContentReader<'a> {
     /// half of the pair is what tells "the stream ends here" from "the buffer does".
     pub fn lookahead(&mut self, want: usize) -> (&[u8], bool) {
         match &mut self.held {
-            Held::Whole { bytes, at } => (bytes.get(*at..).unwrap_or_default(), true),
+            Held::Whole { bytes, at, .. } => (bytes.get(*at..).unwrap_or_default(), true),
             Held::Window(window) => window.lookahead(want),
         }
     }
@@ -553,7 +611,7 @@ impl<'a> ContentReader<'a> {
     /// Consumes `count` bytes of what [`Self::lookahead`] returned.
     pub fn skip(&mut self, count: usize) {
         match &mut self.held {
-            Held::Whole { bytes, at } => *at = at.saturating_add(count).min(bytes.len()),
+            Held::Whole { bytes, at, .. } => *at = at.saturating_add(count).min(bytes.len()),
             Held::Window(window) => window.skip(count),
         }
     }
@@ -566,7 +624,7 @@ impl<'a> ContentReader<'a> {
     #[must_use]
     pub fn read_to_end(&mut self) -> Vec<u8> {
         match &mut self.held {
-            Held::Whole { bytes, at } => {
+            Held::Whole { bytes, at, .. } => {
                 let rest = bytes.get(*at..).unwrap_or_default().to_vec();
                 *at = bytes.len();
                 rest
@@ -588,6 +646,13 @@ impl<'a> ContentReader<'a> {
     #[must_use]
     pub fn progress(&self) -> Option<(usize, usize)> {
         match &self.held {
+            // A piece of a page's stream answers for the page: how far into the whole stream the
+            // piece has read, of the whole stream's length (ADR 1880).
+            Held::Whole {
+                at,
+                of_page: Some((from, of)),
+                ..
+            } => Some((from.saturating_add(*at), *of)),
             Held::Whole { .. } => None,
             Held::Window(window) => window.progress(),
         }
@@ -1185,6 +1250,20 @@ impl Window {
     }
 
     /// See [`ContentReader::read_to_end`].
+    fn read_to_end_within(&mut self, most: usize) -> Option<Vec<u8>> {
+        let mut out = Vec::new();
+        loop {
+            out.extend_from_slice(self.buffer.get(self.at..self.filled).unwrap_or_default());
+            self.at = self.filled;
+            if out.len() > most {
+                return None;
+            }
+            if !self.pull() {
+                return Some(out);
+            }
+        }
+    }
+
     fn read_to_end(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         loop {

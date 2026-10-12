@@ -108,6 +108,9 @@ pub(super) struct ListBudget {
     readback_seen: Readback,
     /// Whether the refusal has been reported, so it is reported once.
     reported: bool,
+    /// The share of [`MAX_LIST_BYTES`] the other pieces of a divided read hold, which this one
+    /// may not spend (ADR 1880); zero for a run that is the whole page.
+    held_back: usize,
 }
 
 impl ListBudget {
@@ -119,6 +122,48 @@ impl ListBudget {
     /// The operator count at which the loop next asks this bound.
     pub(super) const fn next_check(self) -> usize {
         self.next_check
+    }
+
+    /// The budget of one of `pieces` pieces of a page's stream, whose list begins with `clips`
+    /// clips another piece charged (ADR 1880).
+    ///
+    /// Each piece may spend its share of the bound and no more, so that `pieces` lists built at
+    /// once cannot together hold more than one page's bound; a piece that reaches its share
+    /// ends the division and the page is read whole, where the bound is the page's again.
+    pub(super) fn for_piece(pieces: usize, clips: usize) -> Self {
+        let share = MAX_LIST_BYTES.checked_div(pieces).unwrap_or(MAX_LIST_BYTES);
+        Self {
+            clips_charged: clips,
+            held_back: MAX_LIST_BYTES.saturating_sub(share),
+            ..Self::default()
+        }
+    }
+
+    /// Whether the bound was reached.
+    pub(super) const fn reached(self) -> bool {
+        self.reported
+    }
+
+    /// Adds a later piece's charge to this one's, less `returned` bytes of clips the joined
+    /// table already held, and takes the joined list's lengths as seen (ADR 1880).
+    pub(super) fn absorb(&mut self, piece: Self, returned: usize, commands: usize, clips: usize) {
+        self.charged = self
+            .charged
+            .saturating_add(piece.charged)
+            .saturating_sub(returned);
+        self.commands_seen = commands;
+        self.clips_charged = clips;
+        self.held_back = 0;
+        // The readback a piece charged is moved with it (the last piece's text), so what it saw
+        // is seen.
+        let seen = piece.readback_seen;
+        let own = &mut self.readback_seen;
+        own.text = own.text.max(seen.text);
+        own.placed = own.placed.max(seen.placed);
+        own.described = own.described.max(seen.described);
+        own.artifacts = own.artifacts.max(seen.artifacts);
+        own.marked = own.marked.max(seen.marked);
+        own.associated = own.associated.max(seen.associated);
     }
 }
 
@@ -177,7 +222,7 @@ fn shading_bytes(paint: &Paint) -> usize {
 }
 
 /// A clip and the path it owns.
-fn clip_bytes(clip: &Clip) -> usize {
+pub(super) fn clip_bytes(clip: &Clip) -> usize {
     size_of::<Clip>().saturating_add(elements(
         clip.path.commands().len(),
         size_of::<PathCommand>(),
@@ -308,7 +353,12 @@ impl Interpreter<'_> {
     /// before a tiling's next copy, so the copy that would cross the bound is not made.
     pub(super) fn list_past(&mut self, more: usize) -> bool {
         let budget = self.list_budget;
-        if budget.charged.saturating_add(more) <= MAX_LIST_BYTES {
+        if budget
+            .charged
+            .saturating_add(budget.held_back)
+            .saturating_add(more)
+            <= MAX_LIST_BYTES
+        {
             return false;
         }
         // Spent stays spent: every operator after this one, in this stream and in every stream

@@ -1798,3 +1798,251 @@ fn the_merge_runs_the_launch_gate_with_its_clocks_and_its_line_names_what_moved(
          beside a walk"
     );
 }
+
+/// **A round's export is HEAD plus the round's own paths and hunks, with every ignored path linked
+/// in, its own build directory and today's times** (ADR 1890). The worktree holds a sibling's edit
+/// of one file, a shared file both edited, the round's own file and new directory, an ignored
+/// specification and the batch's `.cargo/config.toml`; the export takes the round's paths whole,
+/// the shared file as the round's patch to HEAD's copy, leaves the sibling's at HEAD and counts it,
+/// links the specification (traps 150, 162) and not `.cargo/`, names a build directory of its own
+/// (trap 129), and stamps a file the commit dated 2001 with today's time (trap 114).
+///
+/// Calibrated by planting (trap 13): with `tar -m` taken out the 2001 file kept its date and this
+/// test failed; with `git apply` run without the ceiling, the patch skipped the export's paths as
+/// outside the directory and the shared file stayed HEAD's.
+#[test]
+fn export_is_head_plus_the_rounds_own_hunks_with_every_ignored_path_and_its_own_target() {
+    let sandbox = Sandbox::with_files(
+        "export",
+        &[
+            (".gitignore", ".cargo/\n*.pdf\n__pycache__/\n"),
+            ("shared.txt", "one\ntwo\nthree\n"),
+            ("mine.txt", "head\n"),
+            // A tracked file beside the ignored specification, as `doc/` has: git then names the
+            // specification itself as ignored, not its directory.
+            ("doc/README.md", "the specifications\n"),
+        ],
+    );
+    let worktree = sandbox.worktree();
+    // A file the commit dates in 2001, so the archive would hand it that time.
+    sandbox.write("old.txt", "old\n");
+    sandbox.git(&worktree, &["add", "old.txt"]);
+    let dated = sandbox
+        .command("git", &worktree)
+        .env("GIT_COMMITTER_DATE", "2001-01-01T00:00:00Z")
+        .env("GIT_AUTHOR_DATE", "2001-01-01T00:00:00Z")
+        .args(["commit", "-q", "-m", "old"])
+        .output()
+        .expect("git runs");
+    assert!(dated.status.success(), "the dated commit: {}", text(&dated));
+
+    sandbox.write("a.txt", "a sibling's edit\n");
+    sandbox.write("shared.txt", "ONE\ntwo\nTHREE\n");
+    sandbox.write("mine.txt", "mine\n");
+    sandbox.write("new/mine.rs", "fn mine() {}\n");
+    sandbox.write("doc/spec.pdf", "%PDF-2.0\n");
+    let own_hunk = sandbox.base.join("mine.patch");
+    std::fs::write(
+        &own_hunk,
+        "diff --git a/shared.txt b/shared.txt\n--- a/shared.txt\n+++ b/shared.txt\n\
+         @@ -1,3 +1,3 @@\n one\n two\n-three\n+THREE\n",
+    )
+    .expect("the round's own hunk");
+    let own_hunk = own_hunk.to_str().expect("a temporary path is UTF-8");
+    let targets = sandbox.base.join("targets");
+    let export = |arguments: &[&str]| {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("BATCH_EXPORT_TARGET_ROOT", &targets)
+            .arg(sandbox.repo().join("tools/batch.sh"))
+            .args(arguments)
+            .output()
+            .expect("bash runs tools/batch.sh")
+    };
+
+    let made = export(&["export", "9001", "--patch", own_hunk, "mine.txt", "new/"]);
+    assert!(made.status.success(), "export failed: {}", text(&made));
+    let out = worktree.join("scratchpad/r9001/export");
+    let read = |relative: &str| std::fs::read_to_string(out.join(relative)).unwrap_or_default();
+    assert_eq!(
+        read("mine.txt"),
+        "mine\n",
+        "the round's own file is the worktree's"
+    );
+    assert_eq!(
+        read("new/mine.rs"),
+        "fn mine() {}\n",
+        "a new file under a named directory"
+    );
+    assert_eq!(
+        read("a.txt"),
+        "a\n",
+        "a sibling's edit stayed out (trap 153)"
+    );
+    assert_eq!(
+        read("shared.txt"),
+        "one\ntwo\nTHREE\n",
+        "the shared file is HEAD's with the round's hunk and without the sibling's"
+    );
+    let spec = out.join("doc/spec.pdf");
+    assert!(
+        spec.is_symlink() && read("doc/spec.pdf") == "%PDF-2.0\n",
+        "the ignored specification is linked in (trap 162)"
+    );
+    let config = read(".cargo/config.toml");
+    assert!(
+        !out.join(".cargo").is_symlink()
+            && config.contains(&format!("{}/r9001-export", targets.display())),
+        "the export names a build directory of its own, not the batch's (trap 129): {config}"
+    );
+    let stamped = std::fs::metadata(out.join("old.txt"))
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.elapsed().ok());
+    assert!(
+        stamped.is_some_and(|age| age.as_secs() < 3600),
+        "a file the commit dated 2001 kept the commit's time, older than any build (trap 114): \
+         {stamped:?}"
+    );
+    let record = std::fs::read_to_string(worktree.join("scratchpad/r9001/export.export"))
+        .expect("the export's record");
+    for said in [
+        "HEAD plus 2 path(s) and 1 patch(es)",
+        "taken:  M\tmine.txt",
+        "taken: ??\tnew/mine.rs",
+        "left at HEAD: 1 changed path(s)",
+        "\tshared.txt (mine.patch)",
+    ] {
+        assert!(record.contains(said), "the record lacks {said:?}: {record}");
+    }
+}
+
+/// `export-sums` writes the SHA-256 of every executable an export's build directory holds — each
+/// profile's programs, its examples and its test binaries — into the export's record, and of no
+/// library, dep-info file or build script (ADR 1890, trap 50).
+#[test]
+fn export_sums_hashes_every_executable_the_exports_build_directory_holds_and_nothing_else() {
+    let sandbox = Sandbox::new("export-sums");
+    let targets = sandbox.base.join("targets");
+    let batch = |arguments: &[&str]| {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("BATCH_EXPORT_TARGET_ROOT", &targets)
+            .arg(sandbox.repo().join("tools/batch.sh"))
+            .args(arguments)
+            .output()
+            .expect("bash runs tools/batch.sh")
+    };
+    let early = batch(&["export-sums", "9002"]);
+    assert!(
+        !early.status.success() && text(&early).contains("no export record"),
+        "export-sums ran with no export: {}",
+        text(&early)
+    );
+    let made = batch(&["export", "9002"]);
+    assert!(made.status.success(), "export failed: {}", text(&made));
+    // The hashes: the executables of every profile, its examples and its test binaries, and no
+    // library, dep-info or build script's file.
+    let target = targets.join("r9002-export");
+    for (relative, executable) in [
+        ("release/quorra", true),
+        ("release/examples/zoom_frame", true),
+        ("release/deps/launch_path-0123abcd", true),
+        ("release/deps/libraster-0123abcd.rlib", false),
+        ("release/deps/launch_path-0123abcd.d", false),
+        ("release/build/x-0123abcd/build-script-build", true),
+    ] {
+        let artefact = target.join(relative);
+        std::fs::create_dir_all(artefact.parent().expect("a parent")).expect("a target directory");
+        std::fs::write(&artefact, relative).expect("a stand-in artefact");
+        if executable {
+            let made = Command::new("chmod")
+                .arg("+x")
+                .arg(&artefact)
+                .status()
+                .is_ok_and(|status| status.success());
+            assert!(made, "the stand-in artefact could not be made executable");
+        }
+    }
+    let summed = batch(&["export-sums", "9002"]);
+    assert!(
+        summed.status.success() && text(&summed).contains("3 executable(s)"),
+        "export-sums: {}",
+        text(&summed)
+    );
+    let record = std::fs::read_to_string(sandbox.worktree().join("scratchpad/r9002/export.export"))
+        .expect("the export's record");
+    let built: Vec<&str> = record
+        .lines()
+        .filter_map(|line| line.strip_prefix("built: "))
+        .collect();
+    assert_eq!(built.len(), 3, "{record}");
+    for name in [
+        "release/quorra",
+        "release/examples/zoom_frame",
+        "release/deps/launch_path-0123abcd",
+    ] {
+        assert!(
+            built
+                .iter()
+                .any(|line| line.ends_with(&format!("  {name}"))),
+            "{name} is not summed: {record}"
+        );
+    }
+}
+
+/// `export` refuses a path that names no change of the worktree — it would export HEAD's copy and
+/// read as the change (trap 25) — and a patch that does not apply to HEAD, and either refusal
+/// leaves the last export as it was (ADR 1890).
+#[test]
+fn export_refuses_a_path_with_no_change_and_a_patch_of_another_tree_and_keeps_the_last() {
+    let sandbox = Sandbox::with_files("export-refusals", &[("shared.txt", "one\ntwo\nthree\n")]);
+    sandbox.write("mine.txt", "mine\n");
+    let export = |arguments: &[&str]| {
+        sandbox
+            .command("bash", &sandbox.repo())
+            .env("BATCH_EXPORT_TARGET_ROOT", sandbox.base.join("targets"))
+            .arg(sandbox.repo().join("tools/batch.sh"))
+            .args(arguments)
+            .output()
+            .expect("bash runs tools/batch.sh")
+    };
+    let made = export(&["export", "9001", "mine.txt"]);
+    assert!(made.status.success(), "export failed: {}", text(&made));
+    let out = sandbox.worktree().join("scratchpad/r9001/export");
+    let read = |relative: &str| std::fs::read_to_string(out.join(relative)).unwrap_or_default();
+    let unnamed = export(&["export", "9001", "shared.txt"]);
+    assert!(
+        !unnamed.status.success() && text(&unnamed).contains("names no changed path"),
+        "a path with no change was exported as HEAD's: {}",
+        text(&unnamed)
+    );
+    assert_eq!(
+        read("mine.txt"),
+        "mine\n",
+        "a refused export removed the last one"
+    );
+    let stale = sandbox.base.join("stale.patch");
+    std::fs::write(
+        &stale,
+        "diff --git a/shared.txt b/shared.txt\n--- a/shared.txt\n+++ b/shared.txt\n\
+         @@ -1,3 +1,3 @@\n uno\n two\n-three\n+THREE\n",
+    )
+    .expect("a patch of another tree");
+    let refused = export(&[
+        "export",
+        "9001",
+        "--patch",
+        stale.to_str().expect("a temporary path is UTF-8"),
+    ]);
+    assert!(
+        !refused.status.success() && text(&refused).contains("does not apply to HEAD"),
+        "a patch that does not apply was taken: {}",
+        text(&refused)
+    );
+    assert_eq!(
+        read("mine.txt"),
+        "mine\n",
+        "a refused patch removed the last export"
+    );
+}

@@ -444,6 +444,21 @@ impl Parts {
         self.shared.arrived.notify_all();
     }
 
+    /// Spoils the hand-over for `reason`: the parts handed are no longer known to be the list's,
+    /// and the drawer draws the finished list whole (ADR 1855 §1).
+    ///
+    /// For a reader that handed parts of a list it then gave up and read again (ADR 1880): the
+    /// list read again states the same commands, but a part already handed names a list that no
+    /// longer exists.
+    pub(crate) fn spoil(&self, reason: &'static str) {
+        let mut state = self.lock();
+        if state.ended.is_none() && state.spoiled.is_none() {
+            state.spoiled = Some(reason);
+        }
+        drop(state);
+        self.shared.arrived.notify_all();
+    }
+
     /// The reading thread's side, once the run's list is finished: the last chance to find a
     /// command handed over and then taken back.
     pub(crate) fn conclude(&self, list: &mut DisplayList) {

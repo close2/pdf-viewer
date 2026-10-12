@@ -32,11 +32,14 @@
 //! expands to nothing and which is drawn there as the stroker's own two round caps instead
 //! ([`raster::dot_pieces`]).
 
-use raster_scene::{Affine, ClipId, Color, LineCap, LineJoin, MaskId, Point, Rect, Segment};
+use raster_scene::{
+    Affine, ClipId, Color, Command, LineCap, LineJoin, MaskId, Point, Rect, Segment,
+};
 
 use super::Encoder;
 use super::device_space::{apply, compose, transform_preserves_axes};
 use super::expansion::{self, Expansion};
+use super::instance::{LINE_HEAD_BYTES, LineInstance, line_head};
 use crate::error::RenderError;
 use crate::raster::{self, DeviceTransform, Rule};
 
@@ -52,6 +55,72 @@ pub(super) struct LineMark {
     pub color: Color,
     pub clip: Option<ClipId>,
     pub mask: Option<MaskId>,
+}
+
+impl LineMark {
+    /// A line command's fields, or `None` for every other command.
+    pub(super) fn of(command: &Command) -> Option<Self> {
+        match *command {
+            Command::Line {
+                from,
+                to,
+                transform,
+                width,
+                adjust,
+                cap,
+                color,
+                clip,
+                mask,
+            } => Some(Self {
+                from,
+                to,
+                transform,
+                width,
+                adjust,
+                cap,
+                color,
+                clip,
+                mask,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// What the closed form makes of a line at one view before its clip is known: the instance's
+/// head ([`line_head`]) and the box the line's ink lies in on the device.
+///
+/// **A pure function of the command and the view** (ADR 1878 §3): nothing it reads is decided
+/// by the frame's order, nor by the clip chain, whose resolution is the walk's. That is what lets
+/// the walk have it made on other threads before it reaches the line (`lines_ahead`, ADR 1884),
+/// and it is the one construction both the walk and those threads ask, so the two cannot come to
+/// differ.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Unclipped {
+    head: [u8; LINE_HEAD_BYTES],
+    ink: Rect,
+}
+
+impl Unclipped {
+    /// The closed form of `line` under `to_device`, or `None` where the line takes the stroke
+    /// road: a transform that does not keep the axes, or no pen ([`pen`]).
+    pub(super) fn of(line: &LineMark, to_device: &DeviceTransform) -> Option<Self> {
+        if !transform_preserves_axes(to_device) {
+            return None;
+        }
+        let pen = pen(line, to_device)?;
+        Some(Self {
+            head: line_head((pen.from, pen.to), (pen.half, pen.cap), line.color),
+            ink: pen.ink(),
+        })
+    }
+
+    /// The instance under a chain of rectangles alone whose rectangle, met with the target's,
+    /// is `admit` — or `None` where no pixel of the ink is admitted, which is a culled line.
+    pub(super) fn under(&self, admit: Rect) -> Option<LineInstance> {
+        let ink = self.ink.intersection(admit);
+        (!ink.is_empty()).then(|| LineInstance::under(&self.head, admit, ink))
+    }
 }
 
 /// The device shape of a line under a transform that keeps the axes: the two endpoints and
@@ -154,25 +223,31 @@ impl Encoder<'_> {
         let mask_index = self.use_mask(line.mask)?;
         let resolved = self.resolve_clip(line.clip)?;
         let to_device = compose(line.transform, self.viewport);
-        if transform_preserves_axes(&to_device)
-            && resolved.residues.is_none()
-            && let Some(pen) = pen(line, &to_device)
+        if resolved.residues.is_none()
+            && let Some(unclipped) = Unclipped::of(line, &to_device)
         {
-            let admit = resolved.rect.intersection(self.visible);
-            let ink = pen.ink().intersection(admit);
-            if ink.is_empty() {
-                self.note_culled();
-                return Ok(());
-            }
-            return self.push_line_instance(
-                (pen.from, pen.to),
-                (pen.half, pen.cap),
-                line.color,
-                (admit, ink),
+            return self.place_line(
+                &unclipped,
+                resolved.rect.intersection(self.visible),
                 mask_index,
             );
         }
         self.encode_line_as_stroke(line, &to_device, &resolved, mask_index)
+    }
+
+    /// Place a line's closed form under the rectangle `admit` its chain and the target leave:
+    /// counted as culled where no pixel of its ink is admitted, an instance otherwise.
+    pub(super) fn place_line(
+        &mut self,
+        unclipped: &Unclipped,
+        admit: Rect,
+        mask_index: Option<u32>,
+    ) -> Result<(), RenderError> {
+        if let Some(instance) = unclipped.under(admit) {
+            return self.push_line_instance(instance, mask_index);
+        }
+        self.note_culled();
+        Ok(())
     }
 
     /// A line the closed form does not reach, drawn as the stroke of a two-point outline.
@@ -180,7 +255,7 @@ impl Encoder<'_> {
     /// The same flattening, expansion and fill the stroke arm takes when nothing is queued,
     /// so a line drawn here is the stroke of the same path to the bit; the miter limit is
     /// immaterial, since one segment has no join.
-    fn encode_line_as_stroke(
+    pub(super) fn encode_line_as_stroke(
         &mut self,
         line: &LineMark,
         to_device: &DeviceTransform,

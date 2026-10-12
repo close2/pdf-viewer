@@ -1384,6 +1384,8 @@ documents (`doc/*.pdf`) are not there at all, and a gate run from
 such an export skips their pages and says so only in a line nobody greps — round 1502's first `turn`
 run reported "10 page(s) absent" (ADR 1841). An export links the corpora in the way
 `tools/batch.sh open` does before any walk, and a gate's "absent" count is read as a refusal.
+`tools/batch.sh export <session>` is that export: HEAD's archive with every submodule and every
+gitignored path linked in (ADR 1890).
 
 ### 153. An export's copy of a shared file is HEAD plus your own hunks
 
@@ -1424,7 +1426,26 @@ Round 1520's export of HEAD plus its hunks was a `git archive` with the corpora 
 is gitignored and the archive leaves it out, so the clock hold was spent on a child that opened
 nothing. Trap 150 names the untracked documents and `tools/batch.sh open` links them for a
 worktree; a round's own export does the same from `git status --ignored`, every path it names, before
-the first gate runs in it.
+the first gate runs in it. `tools/batch.sh export <session> [<path>...]` does, and its record in
+`scratchpad/r<session>/export.export` counts what it linked (ADR 1890).
+
+### 163. An export under the worktree is patched with the repository search stopped, and conformance runs in the worktree
+
+Three rounds of batch eighty-three patched an export kept under `scratchpad/r<n>/` with `git apply`
+and measured HEAD twice: run inside a repository's subdirectory, `git apply` silently skips every
+path outside that subdirectory, and the "after" binary had HEAD's md5 (rounds 1522, 1523, 1527 —
+trap 50's tell from a new cause). `tools/batch.sh export` applies under `GIT_CEILING_DIRECTORIES`
+(ADR 1890). And `cargo test -p conformance` cannot run in a `git archive` export at all: its sweeps
+read git's tracked files and fail with "the population is not the tree", and `undenominated` fails
+until the corpora submodules are linked (round 1526) — it runs in the worktree.
+
+### 164. A lock line's clocks are wall time, and a suspend is in them
+
+Round 1524's lane-2 build wrapper reported `hold=10178s` for a build cargo timed at 350 s, and its
+six arms 11 412 s held, while round 1522's clock run waited 11 120 s behind them and was killed at
+its budget: the machine had slept about 9 800 s. The log's `hold=` and `wait=` are wall clocks and
+include a suspend, so a huge hold may be the machine sleeping and not a walk. Read
+`CLOCK_BOOTTIME − CLOCK_MONOTONIC` over the interval before blaming a run or a neighbour.
 
 ## Things worth knowing
 

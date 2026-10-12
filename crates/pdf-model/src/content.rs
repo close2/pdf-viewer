@@ -44,6 +44,7 @@ pub(crate) use ext_gstate::resources_blend;
 
 mod annotations;
 mod colour;
+pub mod divide;
 mod ext_gstate;
 mod font;
 mod image;
@@ -2071,16 +2072,19 @@ fn interpret_into(
     // one the run alone would have built (ADR 1321). The scope ends only once every decode it
     // started has, which is why the table is closed first: nothing queued is started after the
     // content stream has been read.
+    // A large stream is read on many threads where §8.4.2's `Q` lets it be cut (ADR 1880), and
+    // as before wherever it cannot.
+    let inputs = divide::Inputs::new(document, page, state, presses, fonts, references);
     match interpreter.plan_decodes_ahead(&page.resources, &initial) {
         Some(plan) => {
             rayon::in_place_scope(|scope| {
                 scope.spawn(|scope| image::walk_ahead(scope, document, page, &plan));
-                interpreter.run_reader(&mut reader, &page.resources, &initial);
+                divide::read_page(&mut interpreter, &mut reader, &inputs, &initial);
                 plan.ahead().close();
             });
             interpreter.end_decodes_ahead();
         }
-        None => interpreter.run_reader(&mut reader, &page.resources, &initial),
+        None => divide::read_page(&mut interpreter, &mut reader, &inputs, &initial),
     }
     interpreter.leave_ledger_frame();
     // §7.4.1's second half, for a part whose damage the pump met while the page was being

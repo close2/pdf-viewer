@@ -714,6 +714,9 @@ pub struct Host {
     /// Page one being drawn while it is read on the opening thread, until the join hands it to
     /// [`Self::drawing`] (ADRs 1855, 1867).
     ahead: Option<viewer_host::Ahead>,
+    /// The window as the core was last told it, which a page turn's drawing ahead draws into
+    /// (ADR 1871); `None` before the first allocation.
+    extent: Option<viewer_host::loading::Window>,
     /// The last look at page one as it was read, shown until the page has a frame of its own.
     read_look: Option<viewer_host::loading::Look>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
@@ -869,6 +872,7 @@ impl Host {
                 anticipated: Some(thread),
                 awaiting: None,
                 ahead: Some(ahead),
+                extent: None,
                 read_look: None,
                 preparing: None,
             })
@@ -909,13 +913,15 @@ impl Host {
         // Page one's drawing ahead draws into the target the first frame will be asked at, which is
         // this viewport's; a size that changes while the page is read is told again, and a frame
         // asked at another target than the one drawn is drawn whole (ADR 1855).
+        let window = viewer_host::loading::Window {
+            width,
+            height,
+            inset: 0,
+            scale,
+        };
+        self.extent = Some(window);
         if let Some(ahead) = self.ahead.as_ref() {
-            ahead.window_is(viewer_host::loading::Window {
-                width,
-                height,
-                inset: 0,
-                scale,
-            });
+            ahead.window_is(window);
         }
         if !self.opened {
             self.opened = true;
@@ -1854,6 +1860,29 @@ impl Host {
         self.pump_drawing();
     }
 
+    /// A page turn, with the page it brings on drawn while it is read (ADRs 1871, 1886).
+    ///
+    /// `quorra`'s `App::turn`, in this window: the turn is handled with the read left to this
+    /// window ([`Viewer::handle_unread`]); the page is read here, on the toolkit thread, where a
+    /// turn's read has always been, because the read is the turn's critical path (trap 154); it is
+    /// drawn beside the read on a thread [`viewer_host::Ahead`] spawns; and the frame of it is
+    /// finished by [`Self::drawing`] from that drawing where the request is for that list at that
+    /// target. Nothing is drawn ahead until the read has run `GLIMPSE_AFTER`, so a page that reads
+    /// quickly is a turn as before and a thread. Before the first allocation there is no target to
+    /// draw into, and the turn is handled whole.
+    fn turn(&mut self, command: Command) -> Vec<Event> {
+        let Some(window) = self.extent else {
+            return self.viewer.handle(command).collect();
+        };
+        let mut events: Vec<Event> = self.viewer.handle_unread(command).collect();
+        let ahead = viewer_host::Ahead::page_sized();
+        ahead.window_is(window);
+        events.extend(ahead.anticipate(&mut self.viewer));
+        events.extend(self.viewer.read_the_rest());
+        self.drawing.draw_ahead(ahead);
+        events
+    }
+
     /// One command through the viewer, with what it produced put back on the queue.
     ///
     /// The body of [`Self::pump`]'s inner loop, named so that a command run *ahead* of another —
@@ -1873,7 +1902,11 @@ impl Host {
             self.spoken = None;
         }
         let supplied = matches!(command, Command::Supply { .. });
-        let events: Vec<Event> = self.viewer.handle(command).collect();
+        let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
+            self.turn(command)
+        } else {
+            self.viewer.handle(command).collect()
+        };
         if let Some(described) = described {
             self.trace.say(
                 Topic::Events,

@@ -98,8 +98,8 @@ pub use shading::{
 };
 pub use soft_mask::{BlackHalf, Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{
-    PlannedFill, PlannedMark, PlannedStroke, command_extents, replay_ratio, row_costs,
-    strip_boundaries, strip_boundaries_avoiding, unsplittable_rows,
+    PlannedFill, PlannedMark, PlannedStroke, StripInputs, command_extents, replay_ratio, row_costs,
+    strip_boundaries, strip_boundaries_avoiding, strip_inputs, unsplittable_rows,
     unsplittable_rows_and_freed_fills, unsplittable_rows_where,
 };
 pub use sub_pixel::{

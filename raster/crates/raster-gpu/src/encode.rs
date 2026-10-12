@@ -102,6 +102,7 @@ mod hull;
 mod instance;
 mod layer;
 mod line;
+mod lines_ahead;
 mod meet;
 mod opacity;
 mod overprint;
@@ -273,9 +274,6 @@ struct Encoder<'a> {
     /// Marks whose coverage has not been made yet, in encounter order ([`parallel`]).
     /// Always empty when `threads` is one.
     queue: Vec<Job<'a>>,
-    /// The line instances queued jobs of consecutive lines name by range, in encounter order:
-    /// a run of lines behind a queued mark is one job rather than a job each (ADR 1878).
-    queued_lines: Vec<instance::QueuedLine>,
     /// The atlas keys the queue will write, so that two queued jobs cannot rasterise
     /// one key against an atlas neither has reached (`parallel`'s guard).
     queued_keys: FastSet<GlyphKey>,
@@ -365,9 +363,18 @@ pub(crate) fn encode(
         None,
     );
 
-    for (index, command) in commands.iter().enumerate() {
-        encoder.command(index, command)?;
-    }
+    // The line commands' closed forms are made on other threads ahead of the walk where the
+    // page is mostly lines (`lines_ahead`, ADR 1884); every other step is the walk's.
+    encoder.walk_lines_ahead(
+        commands.len(),
+        lines,
+        |at| commands.get(at).map(|command| (at, command)),
+        |encoder, at| {
+            commands
+                .get(at)
+                .map_or(Ok(()), |command| encoder.command(at, command))
+        },
+    )?;
     // The last run of marks, which no later command drained. Everything below reads the
     // sheet, the budget and the plans, and every one of those is what the queue has yet
     // to touch.
@@ -456,7 +463,35 @@ pub(crate) fn replay(
         Some((list.distinct_outlines, list.segments)),
     );
 
-    for record in &list.records {
+    let records = &list.records;
+    // As the walk: a slow record's line command is made ahead where the page is mostly lines
+    // (`lines_ahead`, ADR 1884).
+    encoder.walk_lines_ahead(
+        records.len(),
+        lines,
+        |at| match records.get(at) {
+            Some(&ReplayRecord::Slow { index }) => commands
+                .get(index as usize)
+                .map(|command| (index as usize, command)),
+            _ => None,
+        },
+        |encoder, at| {
+            records
+                .get(at)
+                .map_or(Ok(()), |record| encoder.replay_record(record, commands))
+        },
+    )?;
+    encoder.drain_last()?;
+    finish(encoder, commands.len())
+}
+
+impl<'a> Encoder<'a> {
+    /// One record of [`replay`], replayed.
+    fn replay_record(
+        &mut self,
+        record: &ReplayRecord,
+        commands: &'a [Command],
+    ) -> Result<(), RenderError> {
         match record {
             ReplayRecord::Rect {
                 rect,
@@ -464,9 +499,9 @@ pub(crate) fn replay(
                 color,
                 clip,
             } => {
-                encoder.begin_command_records(0);
-                encoder.record(record.clone());
-                encoder.encode_rect(*rect, *transform, *color, *clip, None)?;
+                self.begin_command_records(0);
+                self.record(record.clone());
+                self.encode_rect(*rect, *transform, *color, *clip, None)?;
             }
             ReplayRecord::SolidFill {
                 outline,
@@ -479,9 +514,9 @@ pub(crate) fn replay(
                 clip,
                 style,
             } => {
-                encoder.begin_command_records(0);
-                encoder.record(record.clone());
-                encoder.replay_solid_fill(
+                self.begin_command_records(0);
+                self.record(record.clone());
+                self.replay_solid_fill(
                     *outline,
                     *control_box,
                     *rect_hint,
@@ -500,12 +535,11 @@ pub(crate) fn replay(
                 // it — so the scene here is the scene the walk recorded. The bound is
                 // ownership's, not a runtime promise.
                 let command = &commands[index];
-                encoder.command(index, command)?;
+                self.command(index, command)?;
             }
         }
+        Ok(())
     }
-    encoder.drain_last()?;
-    finish(encoder, commands.len())
 }
 
 /// One frame's [`Encoder`], as both the walk ([`encode`]) and the record replay
@@ -600,7 +634,6 @@ fn encoder_for<'a>(
         expansions: expansion::Expansions::of(scene, frame_budget_bytes),
         threads,
         queue: Vec::new(),
-        queued_lines: Vec::new(),
         queued_keys: FastSet::default(),
         queued_inserts: crate::atlas::PendingInserts::default(),
         queued_weight: 0,
@@ -664,27 +697,10 @@ impl Encoder<'_> {
             } => self.encode_stroke(
                 index, *outline, *transform, *stroke, *paint, *clip, *blend, *mask,
             ),
-            Command::Line {
-                from,
-                to,
-                transform,
-                width,
-                adjust,
-                cap,
-                color,
-                clip,
-                mask,
-            } => self.encode_line(&line::LineMark {
-                from: *from,
-                to: *to,
-                transform: *transform,
-                width: *width,
-                adjust: *adjust,
-                cap: *cap,
-                color: *color,
-                clip: *clip,
-                mask: *mask,
-            }),
+            // `of` answers every line command, so the `None` arm draws nothing it could have.
+            Command::Line { .. } => {
+                line::LineMark::of(command).map_or(Ok(()), |line| self.encode_line(&line))
+            }
             Command::Image {
                 image,
                 transform,

@@ -1360,6 +1360,21 @@ impl DisplayList {
         self.commands.push(command);
     }
 
+    /// Appends the commands of every one of `pieces`, in order — what as many
+    /// [`DisplayList::push`]es would, with one reservation and one copy of each piece.
+    ///
+    /// For a reader that built a page's list in pieces at once and joins them in order (ADR 1880):
+    /// the pieces' commands are most of a large page's list, and pushing them one at a time grows
+    /// the vector by doubling, which copies what was joined before each growth again.
+    pub fn append(&mut self, pieces: Vec<Vec<Command>>) {
+        self.bounds.forget();
+        let more = pieces.iter().map(Vec::len).fold(0, usize::saturating_add);
+        self.commands.reserve_exact(more);
+        for mut piece in pieces {
+            self.commands.append(&mut piece);
+        }
+    }
+
     /// Returns how many commands have been pushed.
     ///
     /// Exists for [`DisplayList::split_off_commands`]: a caller that is about to run

@@ -985,6 +985,30 @@ pub(super) struct Readings {
 }
 
 impl Readings {
+    /// Whether a piece of a divided read left this record as one the join carries (ADR 1880):
+    /// one reading in force throughout, nothing sealed, and whatever was painted under it.
+    ///
+    /// With one reading in force the record's only outcome is whether anything the flag
+    /// reinterprets was painted — which reading it was painted under is the one in force — so the
+    /// pieces' records join by that one fact, and the page's last settling walks every command
+    /// after the first piece's last one again.
+    pub(super) fn carried_by_join(self, began: Self) -> bool {
+        self.in_force == began.in_force
+            && !self.sealed
+            && self.start == began.start
+            && self.knockout_elements == began.knockout_elements
+            && self
+                .painted
+                .is_none_or(|painted| painted == AlphaSourcesSeen::of(began.in_force))
+    }
+
+    /// Takes in what a later piece of a divided read painted (ADR 1880).
+    pub(super) fn absorb_piece(&mut self, piece: Self) {
+        if self.painted.is_none() {
+            self.painted = piece.painted;
+        }
+    }
+
     /// A scope beginning at command `at` under the reading `alpha_is_shape`.
     pub(super) fn open(alpha_is_shape: bool, at: usize) -> Self {
         Self {

@@ -176,9 +176,12 @@ pub(crate) struct Prediction {
     /// costs are read per.
     pub(crate) commands: usize,
     /// What the device was predicted to take, and whether from this window's own measurement of
-    /// these pages or from [`Costs::DEVICE_SEED`].
+    /// these pages or from a seed ([`Costs::DEVICE_SEED`], [`Costs::DEVICE_KEPT_SEED`]).
     pub(crate) device: Duration,
     pub(crate) device_measured: bool,
+    /// Whether the device's figure is for a frame that draws the scene the device already holds of
+    /// these pages (ADR 1877) rather than one that builds it ([`Costs::holds`], ADR 1886).
+    pub(crate) scene_kept: bool,
     /// What the processor was predicted to take, likewise.
     pub(crate) processor: Duration,
     pub(crate) processor_measured: bool,
@@ -200,28 +203,58 @@ pub(crate) struct Prediction {
 /// frame nobody waits for, and the device is where `CLAUDE.md` puts a page. Past it, the lane with
 /// the smaller prediction draws — a person waiting seconds is owed the faster of the two, and the
 /// processor's draw is the one that can be shown as it is built, taken back and stopped.
+///
+/// **The device has two prices, and the frame it is asked decides which** (ADR 1886). A frame that
+/// builds its scene walks every command into it; a frame of pages whose scene the device already
+/// holds re-encodes it at the new view and builds nothing (ADR 1877), and on the owner's drawing that
+/// is about a quarter of the build. One price per command for both made the device's first, built,
+/// frame price every later one: a page whose build passes `WARN` would go to the processor at every
+/// notch of a zoom after it, though each of them is a re-encode.
 #[derive(Debug, Default)]
 struct Costs {
     /// Newest first, at most [`Self::KEPT`].
     held: Vec<Measured>,
+    /// The pages whose scene the device holds: those of the last frame it drew, built or kept or
+    /// replayed, until it draws others or refuses (`render-raster`'s one `FrameSlot`).
+    ///
+    /// The window's record rather than the device's word, because the next frame is priced before
+    /// it is asked: where the render thread's idle work drew another page on the device in between,
+    /// the scene was replaced and the frame priced as kept builds — one frame mispriced, and its
+    /// cost read into the built price where it belongs.
+    holds: Option<Vec<crate::stale::Picture>>,
 }
 
 /// One arrangement's last measured price per command on each lane, in nanoseconds.
 #[derive(Debug)]
 struct Measured {
     pictures: Vec<crate::stale::Picture>,
-    device: Option<f64>,
+    /// A device frame that built its scene.
+    device_built: Option<f64>,
+    /// A device frame that drew the scene an earlier frame built.
+    device_kept: Option<f64>,
     processor: Option<f64>,
     /// Whether the device has been asked these pages at all — it drew them, or refused them at
-    /// some magnification — which is what [`Costs::predict`]'s one ask of an unmeasured device
+    /// some magnification — which is what [`Costs::forecast`]'s one ask of an unmeasured device
     /// waits for.
     device_asked: bool,
+    /// Whether the processor has drawn these pages, a frame finished from the page drawn while it
+    /// was read included — the other half of that one ask's condition.
+    ///
+    /// Not [`Self::processor`]: a frame finished from its drawing ahead measures nothing (trap
+    /// 143), and every notch of a zoom over a page the processor is drawing is taken back before
+    /// it lands, so a price is never measured during a gesture and an ask that waited for one
+    /// waited until the person stopped (ADR 1886).
+    processor_drew: bool,
 }
 
 /// Which lane drew a frame, for [`Costs::measure`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lane {
-    Device,
+    /// The device, and whether the frame drew a scene an earlier frame built
+    /// (`FrameCost::scene_kept`).
+    Device {
+        scene_kept: bool,
+    },
     Processor,
 }
 
@@ -229,14 +262,24 @@ impl Costs {
     /// How many arrangements' prices are kept — [`Refusals::KEPT`]'s count, for its reason.
     const KEPT: usize = 32;
 
-    /// What one command costs the device before it has drawn a page here: the owner's drawing's
-    /// fit frame on the Radeon 890M's `Cpu` lane, headless, the quicker of two at 1 113.7 ms over
-    /// 4 408 406 commands (`render-raster`'s `zoom_frame`, ADR 1860 section 3).
-    const DEVICE_SEED: f64 = 253.0;
+    /// What one command costs the device in a frame that builds its scene, before it has drawn a
+    /// page here: the owner's drawing's first zoom notch in this window on the owner's display, on
+    /// the Radeon 890M's compute lane and the global pool, the quicker of the first hold's two at
+    /// 825.4 ms over 4 408 405 commands (ADR 1886 section 3; the second read 797.3 and 750.5). Headless at four threads the same build is 801.9
+    /// and 1 373.6 ms on the `Cpu` lane; the window's own figure is the one it predicts.
+    const DEVICE_SEED: f64 = 187.0;
+
+    /// What one command costs the device in a frame that draws a scene it holds, before it has
+    /// drawn one here: the notch after that one, the least culled frame of the scene kept, the
+    /// quicker of two at 320.8 ms over 4 408 405 commands (ADR 1886 section 3).
+    const DEVICE_KEPT_SEED: f64 = 73.0;
 
     /// What one command costs the processor before it has drawn a page here: the same drawing's
     /// first frame in this window on the owner's display, on the global pool, the quickest of four
-    /// at 530.0 ms over 4 408 405 commands (ADR 1860 section 3).
+    /// at 530.0 ms over 4 408 405 commands (ADR 1860 section 3). Kept rather than re-measured:
+    /// that frame is now finished from the page drawn while it was read and prices nothing, and the
+    /// one zoomed frame the processor drew in ADR 1886's runs, 785.8 ms at the first notch, prices
+    /// above it.
     const PROCESSOR_SEED: f64 = 120.0;
 
     /// The pictures an arrangement is priced by.
@@ -244,25 +287,42 @@ impl Costs {
         pages.iter().map(|placed| placed.of).collect()
     }
 
-    /// The prediction for `pages`, where the processor is the lane to take; `None` where the
-    /// device is.
-    fn processor_for(&self, pages: &[crate::stale::Placed]) -> Option<Prediction> {
+    /// What `pages` are predicted to cost on each lane, and whether that gives them to the
+    /// processor.
+    fn forecast_for(&self, pages: &[crate::stale::Placed]) -> (Prediction, bool) {
         let commands: usize = pages
             .iter()
             .map(|placed| placed.list.commands().len())
             .sum();
-        self.predict(&Self::key(pages), commands)
+        self.forecast(&Self::key(pages), commands)
     }
 
-    /// [`Self::processor_for`] over the pictures and the count it reads.
+    /// [`Self::forecast_for`]'s prediction where it gives the processor the pages; `None` where the
+    /// device keeps them.
+    #[cfg(test)]
     fn predict(&self, pictures: &[crate::stale::Picture], commands: usize) -> Option<Prediction> {
+        let (prediction, processor) = self.forecast(pictures, commands);
+        processor.then_some(prediction)
+    }
+
+    /// [`Self::forecast_for`] over the pictures and the count it reads.
+    fn forecast(&self, pictures: &[crate::stale::Picture], commands: usize) -> (Prediction, bool) {
         let held = self.held.iter().find(|held| held.pictures == *pictures);
-        let device = held.and_then(|held| held.device);
+        let scene_kept = self.holds.as_deref() == Some(pictures);
+        let (device, device_seed) = if scene_kept {
+            (
+                held.and_then(|held| held.device_kept),
+                Self::DEVICE_KEPT_SEED,
+            )
+        } else {
+            (held.and_then(|held| held.device_built), Self::DEVICE_SEED)
+        };
         let processor = held.and_then(|held| held.processor);
         let prediction = Prediction {
             commands,
-            device: Self::cost(device.unwrap_or(Self::DEVICE_SEED), commands),
+            device: Self::cost(device.unwrap_or(device_seed), commands),
             device_measured: device.is_some(),
+            scene_kept,
             processor: Self::cost(processor.unwrap_or(Self::PROCESSOR_SEED), commands),
             processor_measured: processor.is_some(),
         };
@@ -276,12 +336,15 @@ impl Costs {
         // A refusal is an answer too: a device that refused these pages at one magnification is
         // not asked again at the next on the strength of its seed, or every notch of a zoom on a
         // device that refuses would pay the attempt (ADR 1831 section 1 measured 2.2 s of it).
-        let device_unasked =
-            !held.is_some_and(|held| held.device_asked) && prediction.processor_measured;
-        (!device_unasked
+        //
+        // "The processor having drawn them" is the processor's frame, not its price: a page drawn
+        // while it was read and every notch taken back before it landed are frames the processor
+        // drew that measured nothing (`Measured::processor_drew`, ADR 1886).
+        let device_unasked = held.is_some_and(|held| !held.device_asked && held.processor_drew);
+        let processor = !device_unasked
             && prediction.device >= viewer_host::drawing::WARN
-            && prediction.processor < prediction.device)
-            .then_some(prediction)
+            && prediction.processor < prediction.device;
+        (prediction, processor)
     }
 
     /// `commands` at `nanoseconds` each.
@@ -321,14 +384,35 @@ impl Costs {
         let each = took.as_secs_f64() * 1e9 / commands as f64;
         let mut measured = self.taken(pictures);
         match lane {
-            Lane::Device => {
-                measured.device = Some(each);
+            Lane::Device { scene_kept: true } => {
+                measured.device_kept = Some(each);
                 measured.device_asked = true;
             }
-            Lane::Processor => measured.processor = Some(each),
+            Lane::Device { scene_kept: false } => {
+                measured.device_built = Some(each);
+                measured.device_asked = true;
+            }
+            Lane::Processor => {
+                measured.processor = Some(each);
+                measured.processor_drew = true;
+            }
         }
         self.held.insert(0, measured);
         self.held.truncate(Self::KEPT);
+    }
+
+    /// Keeps that the processor drew `pages` in a frame that priced nothing — one finished from
+    /// the page drawn while it was read, or one taken back ([`Measured::processor_drew`]).
+    fn drawn_by_the_processor(&mut self, pages: &[crate::stale::Placed]) {
+        let mut measured = self.taken(Self::key(pages));
+        measured.processor_drew = true;
+        self.held.insert(0, measured);
+        self.held.truncate(Self::KEPT);
+    }
+
+    /// Keeps that the device's scene is of `pages` now, or of nothing after a refusal.
+    fn scene_of(&mut self, pages: Option<&[crate::stale::Placed]>) {
+        self.holds = pages.map(Self::key);
     }
 
     /// Keeps that the device refused `pages`, which prices nothing but is the device's answer for
@@ -351,9 +435,11 @@ impl Costs {
             Some(at) => self.held.remove(at),
             None => Measured {
                 pictures,
-                device: None,
+                device_built: None,
+                device_kept: None,
                 processor: None,
                 device_asked: false,
+                processor_drew: false,
             },
         }
     }
@@ -526,6 +612,9 @@ pub(crate) struct Landed {
     pub(crate) processor_drew: Option<Duration>,
     /// Where the processor drew because it was predicted the faster lane, the prediction.
     pub(crate) chose: Option<Prediction>,
+    /// What the window predicted the frame would cost on each lane, whichever it took — so a frame
+    /// the device keeps says its lane and its figures as one the processor takes does (ADR 1886).
+    pub(crate) predicted: Option<Prediction>,
     /// Whether the frame was page one drawn while it was read, finished (ADR 1855).
     pub(crate) finished_ahead: bool,
     /// Whether the processor's draw was taken back: no pixels landed, and nothing about this frame
@@ -655,6 +744,9 @@ struct Flight {
     pages: Vec<crate::stale::Placed>,
     interrupt: Interrupt,
     on_the_processor: Arc<AtomicBool>,
+    /// [`Landed::predicted`], kept here for the frame's landing rather than sent with the job,
+    /// because nothing on the render thread reads it.
+    predicted: Option<Prediction>,
 }
 
 /// This window's half of the arrangement: the surface, and a handle on the thread that draws.
@@ -1118,28 +1210,11 @@ impl Window {
         }
         let done = newest?;
         self.pipelines = self.pipelines.or(done.pipelines);
-        self.in_flight = None;
+        let predicted = self.in_flight.take().and_then(|flight| flight.predicted);
         self.partial = None;
         self.partial_news = false;
         let drew = done.finished.saturating_duration_since(done.started);
-        // What each lane charged for these pages, which the next frame of them is priced by. A
-        // draw taken back is a sample of nothing (`adopt_composed`'s reason, ADR 0657).
-        if !done.abandoned {
-            if let Some(took) = done.device_drew {
-                self.costs.measure(&done.pages, Lane::Device, took);
-            }
-            if let Some(took) = done.processor_drew
-                && done.refused.is_none()
-            {
-                self.costs.measure(&done.pages, Lane::Processor, took);
-            }
-        }
-        if done.refused_now
-            && let Some(said) = done.fell_back.as_deref()
-        {
-            self.refusals.remember(&done.pages, said);
-            self.costs.refused(&done.pages);
-        }
+        self.price(&done);
         if done.abandoned {
             // **Nothing of it reaches the window**: the processor was taken back before it drew,
             // so the pair holds whatever the device left in it, and it goes back to be drawn into
@@ -1153,6 +1228,7 @@ impl Window {
                 device_tried: done.device_tried,
                 processor_drew: done.processor_drew,
                 chose: done.chose,
+                predicted,
                 finished_ahead: done.finished_ahead,
                 abandoned: true,
                 refused: done.refused,
@@ -1184,11 +1260,53 @@ impl Window {
             device_tried: done.device_tried,
             processor_drew: done.processor_drew,
             chose: done.chose,
+            predicted,
             finished_ahead: done.finished_ahead,
             abandoned: false,
             refused: done.refused,
             function_refusals: done.function_refusals,
         })
+    }
+
+    /// What a landed frame says about each lane's price for its pages, and about what the device
+    /// holds of them (ADRs 1831, 1860, 1886) — everything [`Costs`] and [`Refusals`] learn from it.
+    fn price(&mut self, done: &Done) {
+        // What each lane charged for these pages, which the next frame of them is priced by. A
+        // draw taken back is a sample of nothing (`adopt_composed`'s reason, ADR 0657).
+        if !done.abandoned {
+            if let Some(took) = done.device_drew {
+                let scene_kept = done.cost.scene_kept;
+                self.costs
+                    .measure(&done.pages, Lane::Device { scene_kept }, took);
+            }
+            if let Some(took) = done.processor_drew
+                && done.refused.is_none()
+            {
+                self.costs.measure(&done.pages, Lane::Processor, took);
+            }
+        }
+        // A frame the processor drew that priced nothing is still the processor's frame of these
+        // pages, which is what the device's one ask waits for (ADR 1886).
+        let processor_drew = done.chose.is_some() || done.finished_ahead;
+        if processor_drew && (done.abandoned || done.finished_ahead) {
+            self.costs.drawn_by_the_processor(&done.pages);
+        }
+        // The device asked and not refused drew these pages and holds their scene; a refusal
+        // leaves it none; a frame the processor drew instead leaves it what it had.
+        if !processor_drew && !done.pages.is_empty() {
+            match (&done.fell_back, done.device_tried) {
+                (None, _) => self.costs.scene_of(Some(&done.pages)),
+                (Some(_), Some(_)) => self.costs.scene_of(None),
+                // Not asked: a refusal remembered, and the device holds what it held.
+                (Some(_), None) => {}
+            }
+        }
+        if done.refused_now
+            && let Some(said) = done.fell_back.as_deref()
+        {
+            self.refusals.remember(&done.pages, said);
+            self.costs.refused(&done.pages);
+        }
     }
 
     /// Asks for a frame, spawning the render thread if this is the first.
@@ -1225,10 +1343,11 @@ impl Window {
             self.declined.clear();
         }
         let known_refusal = self.refusals.said(&pages).map(str::to_owned);
-        let cheaper = if known_refusal.is_none() {
-            self.costs.processor_for(&pages)
+        let (predicted, cheaper) = if known_refusal.is_none() && !pages.is_empty() {
+            let (prediction, processor) = self.costs.forecast_for(&pages);
+            (Some(prediction), processor.then_some(prediction))
         } else {
-            None
+            (None, None)
         };
         // Page one drawn while it was read, where this is its frame at the target it was drawn at
         // (ADR 1855). The lane is the processor's for it: all of the page but its last part is
@@ -1247,6 +1366,7 @@ impl Window {
             pages: pages.clone(),
             interrupt: interrupt.clone(),
             on_the_processor: Arc::clone(&on_the_processor),
+            predicted,
         };
         let job = Job {
             width,
@@ -2496,27 +2616,33 @@ mod tests {
         assert!(refusals.said(&placed(0, 1.125, 0.0)).is_some());
     }
 
-    /// The owner's drawing, before anything has been measured: the seeds put it on the processor,
-    /// at the figures they were measured as (ADRs 1831, 1860).
+    /// The owner's drawing, before anything has been measured: the device's seed for a frame that
+    /// builds its scene keeps it inside `WARN`, so the device draws it, at the figures the seeds were
+    /// measured as (ADRs 1860, 1886).
     #[test]
-    fn a_page_of_millions_of_commands_goes_to_the_processor_on_the_seeds() {
+    fn the_owner_s_drawing_stays_on_the_device_on_the_seeds() {
         let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
-        let chose = Costs::default()
-            .predict(&pictures, 4_408_405)
-            .expect("1.1 s on the device against 0.5 s on the processor");
-        assert!(!chose.device_measured && !chose.processor_measured);
-        assert_eq!(chose.device.as_millis(), 1_115);
-        assert_eq!(chose.processor.as_millis(), 529);
+        let (prediction, processor) = Costs::default().forecast(&pictures, 4_408_405);
+        assert!(!processor, "0.82 s on the device is inside WARN");
+        assert!(!prediction.device_measured && !prediction.processor_measured);
+        assert!(!prediction.scene_kept);
+        assert_eq!(prediction.device.as_millis(), 824);
+        assert_eq!(prediction.processor.as_millis(), 529);
     }
 
     /// A frame the device is predicted to draw inside `WARN` stays there, whatever the processor
-    /// is predicted to take: nobody waits for it, and the device is where page one goes.
+    /// is predicted to take: nobody waits for it, and the device is where page one goes. At the
+    /// seeds the line is `WARN` over 187 ns, 5 347 593 commands.
     #[test]
     fn a_frame_nobody_waits_for_stays_on_the_device() {
         let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
-        assert_eq!(Costs::default().predict(&pictures, 3_900_000), None);
-        assert!(Costs::default().predict(&pictures, 4_000_000).is_some());
+        assert_eq!(Costs::default().predict(&pictures, 5_300_000), None);
+        assert!(Costs::default().predict(&pictures, 5_400_000).is_some());
     }
+
+    /// Commands enough that the seeds give the processor the page: twice the owner's drawing,
+    /// whose own 4 408 405 the device's seed now keeps inside `WARN`.
+    const HEAVY: usize = 8_816_810;
 
     /// What a lane measured on these pages replaces its seed, and only on these pages.
     #[test]
@@ -2530,19 +2656,29 @@ mod tests {
         };
         let mut costs = Costs::default();
         // Large fills: the processor took twenty seconds over the page, so the device draws it.
-        costs.measured(page(0), 4_408_405, Lane::Processor, Duration::from_secs(20));
-        assert_eq!(costs.predict(&page(0), 4_408_405), None);
+        costs.measured(page(0), HEAVY, Lane::Processor, Duration::from_secs(20));
+        assert_eq!(costs.predict(&page(0), HEAVY), None);
         assert!(
-            costs.predict(&page(1), 4_408_405).is_some(),
+            costs.predict(&page(1), HEAVY).is_some(),
             "another page is still priced by the seeds"
         );
         // A device that drew it in half a second keeps it, measured.
-        costs.measured(page(2), 4_408_405, Lane::Device, Duration::from_millis(500));
-        assert_eq!(costs.predict(&page(2), 4_408_405), None);
+        costs.measured(
+            page(2),
+            HEAVY,
+            Lane::Device { scene_kept: false },
+            Duration::from_millis(500),
+        );
+        assert_eq!(costs.predict(&page(2), HEAVY), None);
         // The processor measured faster than the device measured: the processor, and it says so.
-        costs.measured(page(2), 4_408_405, Lane::Device, Duration::from_secs(8));
-        costs.measured(page(2), 4_408_405, Lane::Processor, Duration::from_secs(2));
-        let chose = costs.predict(&page(2), 4_408_405).expect("2 s against 8 s");
+        costs.measured(
+            page(2),
+            HEAVY,
+            Lane::Device { scene_kept: false },
+            Duration::from_secs(8),
+        );
+        costs.measured(page(2), HEAVY, Lane::Processor, Duration::from_secs(2));
+        let chose = costs.predict(&page(2), HEAVY).expect("2 s against 8 s");
         assert!(chose.device_measured && chose.processor_measured);
         assert_eq!(costs.held.len(), 2, "one entry an arrangement");
     }
@@ -2555,43 +2691,103 @@ mod tests {
         let pictures = vec![crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
         let mut costs = Costs::default();
         assert!(
-            costs.predict(&pictures, 4_408_405).is_some(),
+            costs.predict(&pictures, HEAVY).is_some(),
             "the seeds give the processor the first frame"
         );
         costs.measured(
             pictures.clone(),
-            4_408_405,
+            HEAVY,
             Lane::Processor,
             Duration::from_millis(900),
         );
         assert_eq!(
-            costs.predict(&pictures, 4_408_405),
+            costs.predict(&pictures, HEAVY),
             None,
             "the next frame is the device's, its one ask"
         );
         costs.measured(
             pictures.clone(),
-            4_408_405,
-            Lane::Device,
+            HEAVY,
+            Lane::Device { scene_kept: false },
             Duration::from_millis(1_500),
         );
         let chose = costs
-            .predict(&pictures, 4_408_405)
+            .predict(&pictures, HEAVY)
             .expect("measured, 0.9 s against 1.5 s");
         assert!(chose.device_measured && chose.processor_measured);
 
         let refusing = vec![crate::stale::Picture::new(viewer_core::DocumentId(1), 1, 0)];
         costs.measured(
             refusing.clone(),
-            4_408_405,
+            HEAVY,
             Lane::Processor,
             Duration::from_millis(900),
         );
         costs.refused_pictures(refusing.clone());
         let chose = costs
-            .predict(&refusing, 4_408_405)
+            .predict(&refusing, HEAVY)
             .expect("a refusal is the device's answer; the seed decides again");
         assert!(!chose.device_measured && chose.processor_measured);
+    }
+
+    /// A frame the processor drew that priced nothing — one finished from the page drawn while it
+    /// was read, or one taken back by the next notch — is the processor's frame of the page, so the
+    /// device is asked the next one; and once the device holds the page's scene, the next frame is
+    /// priced by what drawing a held scene costs, not by what building it did (ADR 1886).
+    #[test]
+    fn the_device_is_asked_after_a_frame_drawn_ahead_and_a_kept_scene_is_priced_as_kept() {
+        let at_fit = |page: usize| placed(page, 1.0, 0.0);
+        let pictures = |page: usize| Costs::key(&at_fit(page));
+        let commands = HEAVY;
+        let mut costs = Costs::default();
+        assert!(
+            costs.predict(&pictures(0), commands).is_some(),
+            "the seeds give the processor a page this heavy"
+        );
+        costs.drawn_by_the_processor(&at_fit(0));
+        assert_eq!(
+            costs.predict(&pictures(0), commands),
+            None,
+            "a page drawn ahead is the processor's frame: the device is asked the next"
+        );
+        // The device's first frame built the scene in 1.5 s; drawing it again is a re-encode.
+        costs.measured(
+            pictures(0),
+            commands,
+            Lane::Device { scene_kept: false },
+            Duration::from_millis(1_500),
+        );
+        costs.measured(
+            pictures(0),
+            commands,
+            Lane::Processor,
+            Duration::from_millis(900),
+        );
+        let chose = costs
+            .predict(&pictures(0), commands)
+            .expect("no scene held: 0.9 s against the 1.5 s build");
+        assert!(!chose.scene_kept);
+        costs.scene_of(Some(&at_fit(0)));
+        let (kept, processor) = costs.forecast(&pictures(0), commands);
+        assert!(kept.scene_kept && !kept.device_measured);
+        assert!(
+            !processor,
+            "a held scene at the kept seed stays on the device"
+        );
+        costs.measured(
+            pictures(0),
+            commands,
+            Lane::Device { scene_kept: true },
+            Duration::from_millis(180),
+        );
+        let (kept, processor) = costs.forecast(&pictures(0), commands);
+        assert!(kept.scene_kept && kept.device_measured && !processor);
+        assert!((kept.device.as_secs_f64() - 0.18).abs() < 1e-6);
+        // Another page's frame on the device replaces the scene, and the build prices again.
+        costs.scene_of(Some(&at_fit(1)));
+        assert!(costs.predict(&pictures(0), commands).is_some());
+        costs.scene_of(None);
+        assert!(!costs.forecast(&pictures(1), commands).0.scene_kept);
     }
 
     /// Only a refusal that is a fact about the frame is kept: the budget is, a lost device is not.

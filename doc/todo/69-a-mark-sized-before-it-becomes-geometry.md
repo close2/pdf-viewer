@@ -1,7 +1,7 @@
 # A mark sized before it becomes geometry: the increments ADR 1817 picked
 
 Status: **open — sections 1, 2, 3 built (ADRs 1829, 1835, 1841) and section 4 built in `quorra` (ADR
-1855); section 5's scene half built (ADRs 1877, 1878); section 6 not, and it is the next build for the first frame (ADR 1873).** ADR 1817 argues the file and prices it against the other candidate, ADR 1845
+1855); section 5's scene half built (ADRs 1877, 1878); section 6 built in `pdf-model` (ADR 1880), section 7 the next build for the first frame (ADR 1888).** ADR 1817 argues the file and prices it against the other candidate, ADR 1845
 re-takes the pipeline after sections 1 and 2 and picks between sections 4 and 5; this file is the
 work, in the order it is to be taken.
 Priority: 40-band — performance, measured and priced; the band was full when this was written.
@@ -88,22 +88,25 @@ one strip, every corpus first page checked. ADR 1855 has the rule for each page 
 instead and the figures. `quorra --cpu` and a page turn after the launch are drawn while read too,
 the turn read on the toolkit thread beside a drawer (ADR 1871: a turn's read's end to frame 0.55 →
 0.09 s), and the confined worker's turn too (its draw after the read 0.50–0.66 → 0.05–0.08 s); the
-confined window's launch is priced and not built (ADR 1871 §4). **Owed**: the two
-toolkit windows call `viewer_host::Ahead` (four calls in each host, listed in ADR 1855 §5).
+confined window's launch is priced and not built (ADR 1871 §4). The two toolkit windows draw page
+one while it is read (ADR 1867) and a turn too, the draw after the read 0.51–0.56 → 0.05–0.11 s on
+the owner's display (ADR 1886 §3).
 
 ## 5. A line kept on the device, the view a uniform — the scene half built (ADRs 1877, 1878)
 
 A scene of lines is kept across views: a segment is a raster line at every view, its width resolved
 per placement, and a round dot is kept beside the scene and asked again at each view (ADR 1877); a
-run of lines behind a queued mark is one job (ADR 1878). The device's zoom step on the witness went
-from 912–1 051 ms to 334–467 ms against a replay of 179 ms, and on the owner's display the last of
-ten notches lands 0.19 s after its key where it took 0.43–1.02 s. What is left is raster's encode of
-every line per view (734 instructions a line) and the instances staged again: a line's instance in
-page space with the view a uniform the line shader applies would keep the stream resident and make a
-step cost the replay (ADR 1877 section 5); encoding a run of lines on the fan-out's threads is the
-cheaper step before it (ADR 1878 section 3).
+run of lines behind a queued mark is one job (ADR 1878), and a line's closed form is made on other
+threads ahead of the walk, its instance written where the walk meets it (ADR 1884). The device's
+zoom step on the witness went from 912–1 051 ms to 334–467 ms against a replay of 179 ms, and its
+encode from 225–231 ms to 118–130 ms; on the owner's display the last of ten notches lands 0.19 s
+after its key where it took 0.43–1.02 s. What is left is the walk's ordered share of every line per
+view (about 280 instructions a line) and the instances staged again: a line's instance in page space
+with the view a uniform the line shader applies would keep the stream resident and make a step cost
+the replay (ADR 1877 section 5). The device's memory hint was priced and kept at the default
+(ADR 1885).
 
-## 6. One page read on many threads, divided where `Q` restores the state — the next build (ADR 1873)
+## 6. One page read on many threads, divided where `Q` restores the state — built (ADR 1880)
 
 The read is now 96–97 % of the witness's first frame (2.48–3.52 s on the owner's display) and one
 thread's work; its lexing is 335–342 ms of 1 739–1 929 ms, so lexing on many threads with one
@@ -115,4 +118,29 @@ once that records each piece's effect on the state stack, composed in order; eac
 from its composed state on the window's pool; cuts only where no path, text object, marked-content
 sequence, compatibility section or inline image is open; the budgets, reports, caches and ADR
 1855's parts kept the page's; every corpus first page that divides byte for byte the page's list.
-ADR 1873 §5 is the list in full.
+ADR 1873 §5 is the list in full. **Built** in `content/divide.rs`: what it carries, what still
+declines a division (an `/ExtGState`, marked content, an inline image, text before the last piece)
+and what the witness reads in are ADR 1880's.
+
+## 7. What §6 leaves serial: the inflate pipelined into it, and the drawer after it (ADR 1888)
+
+Status: **priced, not built** — the first two items are requirements of §6's build, the third the
+build after it. Instrument: `crates/pdf-model/examples/serial_terms_price.rs`. Once the pieces run at
+once, the witness's read is the inflate and a tail: 48 pieces on 12 threads take 394–442 ms after a
+163–175 ms inflate and **268–306 ms** behind it, each piece started when the inflate has passed its
+end. The draw whole on the pool, 490–525 ms and the same on 12 threads as on 24, is then the first
+frame's largest term.
+
+- **Pipeline the inflate** (§7.4.4.1's Flate, one decoder on one fast core, into place): at least
+  four pieces a thread, since the last piece starts when the inflate ends.
+- **Plan without a serial lex**: the lexer reads at 0.71–0.78 GB/s and the inflate writes at
+  1.69–1.80 GB/s, so an exact planner behind the inflate is the floor (359–397 ms). Guess each cut
+  from a `Q` between delimiters (4.6 GB/s), and let the piece before confirm it: its lex must arrive
+  at the cut between tokens, at the depth it summarised, with nothing ADR 1873 §5.2 refuses open. A
+  failed guess moves the cut and never the list.
+- **Then the drawer**: find what in the draw on the pool does not divide (the strip planner first),
+  then take the pieces in order as they finish (the first at 44–55 ms, half at 166–206 ms). One
+  thread's `render_cpu::Underway` takes 1.17–1.26 s and does not qualify.
+- **Not taken**: dividing the inflate itself. The witness's one stream has no restart point
+  (`00 00 FF FF` count 0), so dividing it means rapidgzip's speculative decoder in-tree, for at most
+  42–45 ms of the read.

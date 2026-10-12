@@ -941,3 +941,10 @@ probe that stamped the worker's stages into the frame it sends showed the draw a
 gone from 504–657 ms to 53–83 ms, and the drawer went back in (ADR 1871). When a change moves one
 stage and the end-to-end figure is noisier than that stage, the stage is measured as itself — a
 stamp, a split clock — before the change is judged, and the record says which figure judged it.
+
+## 92. A clock hold's output is written to a file whole
+
+Round 1524 cut its first clock hold's output through `tail` and had to take a second hold for the
+figures the cut removed. A hold is the batch's scarcest resource (every waiting clock run stops the
+siblings' grants, ADR 1863): its whole output goes to a file under `scratchpad/r<n>/`, and the
+report reads from the file.

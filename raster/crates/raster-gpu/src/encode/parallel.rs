@@ -241,12 +241,13 @@ enum Place<'a> {
     /// An instance of the analytic rectangle lane (ADR 0007): no geometry, only a place
     /// in the draw order (ADR 1409).
     Rect { rect: Rect },
-    /// A run of consecutive line instances (ADR 0097), likewise geometry-free: the queued lines
-    /// from `start` to `end` in [`Encoder::queued_lines`](super::Encoder), each with its own
-    /// draw. One job for the run rather than one each, because a job record is several hundred
-    /// bytes copied three times between the walk and the commit, and a page of millions of lines
-    /// between its other marks paid that for every one of them (ADR 1878).
-    Lines { start: usize, end: usize },
+    /// A run of consecutive line instances (ADR 0097) under one style and one soft mask, likewise
+    /// geometry-free: the instances from `start` to `end` of the line stream, written when the
+    /// walk met them, whose draw is placed at this commit (ADR 1884). One job for the run rather
+    /// than one each, because a job record is several hundred bytes copied three times between
+    /// the walk and the commit, and a page of millions of lines between its other marks paid that
+    /// for every one of them (ADR 1878).
+    Lines { start: u32, end: u32 },
     /// A tile of the compute lane (ADR 0080): the device flattens and fills it, so the
     /// host's part is a seat and a record, taken at the commit (ADR 1409).
     Compute {
@@ -466,39 +467,36 @@ impl<'a> Job<'a> {
         }
     }
 
-    /// A run of queued lines beginning with the one at `start`, queued behind the marks before
-    /// it as a rectangle is (ADR 1409, ADR 1878). Its own draw is the first line's, which nothing
-    /// reads: each line carries its own.
-    pub(super) fn lines(start: usize, first: &super::instance::QueuedLine) -> Self {
+    /// A run of lines beginning with the instance at `start`, queued behind the marks before it
+    /// as a rectangle is (ADR 1409, ADR 1884): its draw's style and mask are the run's, and its
+    /// colour and clip, which no commit of a run reads, are a transparent nothing.
+    pub(super) fn lines(start: u32, style: DrawStyle, mask: Option<u32>) -> Self {
+        let nowhere = Rect::new(
+            raster_scene::Point::new(0.0, 0.0),
+            raster_scene::Point::new(0.0, 0.0),
+        );
         Self {
             place: Place::Lines {
                 start,
                 end: start.saturating_add(1),
             },
             ..Self::rect(
-                first.line.ink,
-                Draw::new(first.color, first.line.admit, first.style, first.mask),
+                nowhere,
+                Draw::new(Color::new(0.0, 0.0, 0.0, 0.0), nowhere, style, mask),
             )
         }
     }
 
-    /// Extends this job's run by the line queued at `index`, where it is a run that ends there.
-    pub(super) fn extend_lines(&mut self, index: usize) -> bool {
+    /// Extends this job's run by the line instance at `index`, where it is a run that ends there
+    /// under the same style and mask.
+    pub(super) fn extend_lines(&mut self, index: u32, style: DrawStyle, mask: Option<u32>) -> bool {
+        let same = self.draw.style == style && self.draw.mask == mask;
         match &mut self.place {
-            Place::Lines { end, .. } if *end == index => {
+            Place::Lines { end, .. } if same && *end == index => {
                 *end = index.saturating_add(1);
                 true
             }
             _ => false,
-        }
-    }
-
-    /// The range of [`Encoder::queued_lines`](super::Encoder) this job commits, where it is a
-    /// run of lines.
-    pub(super) fn line_run(&self) -> Option<std::ops::Range<usize>> {
-        match self.place {
-            Place::Lines { start, end } => Some(start..end),
-            _ => None,
         }
     }
 

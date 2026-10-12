@@ -606,6 +606,13 @@ rounded only — so the residue was the processor's extra rounding of each area,
 was nothing (round 1519, ADR 1876). A mechanism is named after the model reproduces the figure,
 not before.
 
+### 166. Two display lists are compared with the memos masked and NaN tolerated
+
+`==` on a `DisplayList` is false for any list holding a NaN, and its `Debug` rendering prints each
+`Path`'s memo caches (the hull and the rest), so a list built another way — read in pieces and
+joined — can differ from the whole reading by nothing a pixel shows. `raster_golden` digests that
+rendering, so a divided page can move its digest without a pixel moving (round 1522, ADR 1880). A
+merged-against-original comparison masks the memos and tolerates NaN, and the pixels are looked at.
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

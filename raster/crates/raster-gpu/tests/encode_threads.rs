@@ -849,3 +849,202 @@ fn a_stroke_placed_many_times_draws_what_it_draws_placed_alone() {
         }
     }
 }
+
+/// More line commands than `lines_ahead`'s floor, so that their closed forms are made on other
+/// threads ahead of the walk (ADR 1884): lines under no clip, under a rectangle clip and under a
+/// curve clip (whose residue the stroke road meets), dots, lines off the target (culled), lines
+/// under a rotation (the stroke road) and, unless `plain`, lines under a soft mask — interrupted
+/// by fills, which queue, so that runs of lines wait behind queued marks, and by a group, whose
+/// plan the walk switches to and back.
+///
+/// The lines overlap at less than full alpha, so a line drawn out of order is a different
+/// colour, not the same one. `plain` leaves out every structure a record replay refuses (the
+/// mask, the curve clip and the group), so that the page is replayed at a second view.
+fn lines_page(device: &mut Device, plain: bool) -> Scene {
+    let small = device.upload_outline(&blob(6, 4.0)).unwrap();
+    let large = device.upload_outline(&blob(24, 22.0)).unwrap();
+    let boxed = device.upload_outline(&square(40.0)).unwrap();
+    let mut builder = SceneBuilder::new();
+    let boxed_clip = builder
+        .clip(
+            boxed,
+            Affine::translate(110.0, 110.0),
+            FillRule::NonZero,
+            None,
+        )
+        .unwrap();
+    let curve_clip = builder
+        .clip(
+            large,
+            Affine::translate(60.0, 60.0),
+            FillRule::NonZero,
+            None,
+        )
+        .unwrap();
+    let mask = (!plain).then(|| {
+        builder
+            .mask(raster_scene::MaskKind::Alpha, None, |body| {
+                body.fill(
+                    large,
+                    Affine::translate(150.0, 70.0),
+                    FillRule::NonZero,
+                    ink(0.5),
+                    None,
+                    BlendMode::Normal,
+                    Compose::SrcOver,
+                    None,
+                )
+            })
+            .unwrap()
+    });
+    let caps = [LineCap::Butt, LineCap::Round, LineCap::Square];
+    for index in 0..30_000_u32 {
+        let step = f32::from((index % 997) as u16);
+        let shade = f32::from((index % 11) as u16) / 11.0;
+        let from = Point::new(8.0 + (step * 0.211) % 200.0, 8.0 + (step * 0.377) % 200.0);
+        let to = match index % 5 {
+            // A dot: §8.5.3.2's filled circle where the cap is round.
+            0 => from,
+            1 => Point::new(from.x + 9.5, from.y),
+            2 => Point::new(from.x, from.y + 7.25),
+            _ => Point::new(from.x + 5.0, from.y + 3.0),
+        };
+        let cap = caps[(index % 3) as usize];
+        if from == to && cap != LineCap::Round {
+            continue;
+        }
+        let transform = match index % 401 {
+            // Off the target, whole: culled.
+            17 => Affine::translate(400.0, 0.0),
+            // A rotation, which the closed form does not reach: the stroke road.
+            29 => Affine {
+                a: 0.8,
+                b: 0.6,
+                c: -0.6,
+                d: 0.8,
+                e: 20.0,
+                f: 0.0,
+            },
+            _ => Affine::IDENTITY,
+        };
+        let clip = match index % 7 {
+            2 => Some(boxed_clip),
+            5 if !plain => Some(curve_clip),
+            _ => None,
+        };
+        let masked = mask.filter(|_| index % 211 == 3);
+        builder
+            .line(
+                (from, to),
+                transform,
+                (f32::from((index % 4) as u16) * 0.75, index % 9 == 0),
+                cap,
+                Color::new(shade, 0.3, 1.0 - shade, 0.6),
+                clip,
+                masked,
+            )
+            .unwrap();
+        // A fill where the lines are, so that a line drawn on the wrong side of it shows.
+        if index % 97 == 0 {
+            builder
+                .fill(
+                    if index % 2 == 0 { small } else { large },
+                    Affine::translate(from.x, from.y),
+                    FillRule::NonZero,
+                    ink(shade),
+                    None,
+                    BlendMode::Normal,
+                    Compose::SrcOver,
+                    None,
+                )
+                .unwrap();
+        }
+        if !plain && index == 15_000 {
+            grouped(&mut builder, small, index, shade);
+        }
+    }
+    builder.finish()
+}
+
+/// **A line whose form was made ahead of the walk is the line the walk makes** (ADR 1884): a page
+/// of thirty thousand lines between queued fills draws the same bytes and counts the same numbers
+/// at every thread count, on the page-turn lane and on the compute lane.
+#[test]
+fn a_page_of_lines_is_the_same_bytes_at_every_thread_count() {
+    for coverage in [Coverage::Cpu, Coverage::Compute] {
+        let options = |threads: usize| Options {
+            adapter: Some("llvmpipe".into()),
+            encode_threads: threads,
+            coverage,
+            ..Options::default()
+        };
+        let scene = |device: &mut Device| lines_page(device, false);
+        let (alone, counters) = draw_with(&options(1), scene);
+        assert!(
+            counters.lanes.line > 16_384 && counters.commands_culled > 0 && counters.tiles > 0,
+            "the fixture has more lines than the floor, culls some and strokes some: \
+             {counters:?}"
+        );
+        for threads in COUNTS.into_iter().skip(1) {
+            let (divided, also) = draw_with(&options(threads), scene);
+            assert_eq!(
+                counters, also,
+                "the counters moved at {threads} threads ({coverage:?})"
+            );
+            assert!(
+                divided == alone,
+                "the page of lines drawn on {threads} threads is not the one drawn on one \
+                 ({coverage:?})"
+            );
+        }
+    }
+}
+
+/// The same, where the walk is a record replay at a second view (ADR 0087): a line command is a
+/// slow record, made ahead like the walk's own, so a zoom step on the compute lane draws the bytes
+/// a one-threaded replay draws.
+#[test]
+fn a_replayed_page_of_lines_is_the_same_bytes_at_every_thread_count() {
+    let replayed = |threads: usize| {
+        let mut device = Device::headless(&Options {
+            adapter: Some("llvmpipe".into()),
+            encode_threads: threads,
+            coverage: Coverage::Compute,
+            ..Options::default()
+        })
+        .expect("llvmpipe is present wherever this suite runs");
+        device.wait_until_warm();
+        let scene = lines_page(&mut device, true);
+        let mut retained = raster_gpu::RetainedScene::new(scene);
+        device
+            .render_retained(
+                &mut retained,
+                &Viewport::full(SIDE, SIDE, Affine::IDENTITY),
+                Target::Readback,
+            )
+            .expect("the fixture is inside every budget");
+        let frame = device
+            .render_retained(
+                &mut retained,
+                &Viewport::full(SIDE, SIDE, Affine::scale(1.25, 1.25)),
+                Target::Readback,
+            )
+            .expect("the fixture is inside every budget");
+        assert_eq!(
+            frame.encode_source(),
+            raster_gpu::EncodeSource::RecordReplayed,
+            "the plain page replays at a second view, or this test walks it"
+        );
+        let counters = frame.counters();
+        (frame.into_raster().unwrap().into_pixels(), counters)
+    };
+    let (alone, counters) = replayed(1);
+    for threads in COUNTS.into_iter().skip(1) {
+        let (divided, also) = replayed(threads);
+        assert_eq!(counters, also, "the counters moved at {threads} threads");
+        assert!(
+            divided == alone,
+            "the replayed page drawn on {threads} threads is not the one drawn on one"
+        );
+    }
+}

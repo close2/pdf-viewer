@@ -47,7 +47,7 @@ use crate::trace::Topic;
 /// text is rather than to move this number.
 const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 
-/// What the window predicted for a frame it gave the processor, as a person reads it (ADR 1831).
+/// What the window predicted for a frame, as a person reads it (ADRs 1831, 1886).
 fn predicted(chose: &crate::renderer::Prediction) -> String {
     let whence = |measured: bool| {
         if measured {
@@ -56,9 +56,14 @@ fn predicted(chose: &crate::renderer::Prediction) -> String {
             "before this window had measured it"
         }
     };
+    let scene = if chose.scene_kept {
+        "drawing the scene it holds"
+    } else {
+        "building its scene"
+    };
     format!(
-        "{} commands predicted at {:.1} s on the processor ({}) against {:.1} s on the graphics \
-         device ({})",
+        "{} commands predicted at {:.2} s on the processor ({}) against {:.2} s on the graphics \
+         device ({scene}, {})",
         chose.commands,
         chose.processor.as_secs_f64(),
         whence(chose.processor_measured),
@@ -729,14 +734,34 @@ impl App {
         }
     }
 
-    /// Rule 3 for a frame given to the processor as the faster lane (ADR 1831): what was
-    /// predicted, and what it then took.
+    /// Rule 3 for the lane a frame took (ADRs 1831, 1886): what was predicted on each, and what
+    /// the lane taken then cost.
     fn say_the_lane(&self, landed: &crate::renderer::Landed) {
         if landed.finished_ahead {
             self.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page drawn while it was read, finished on the processor in {:.1} ms",
+                    landed.drew.as_secs_f64() * 1e3
+                ),
+            );
+        }
+        // A frame the device kept says so too, so that a zoom's notches each name their lane.
+        if landed.chose.is_none()
+            && landed.fell_back.is_none()
+            && !landed.finished_ahead
+            && let Some(forecast) = &landed.predicted
+        {
+            let scene = if landed.cost.scene_kept {
+                "drawing the scene it held"
+            } else {
+                "building its scene"
+            };
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "device chosen: {}; it drew in {:.1} ms, {scene}",
+                    predicted(forecast),
                     landed.drew.as_secs_f64() * 1e3
                 ),
             );

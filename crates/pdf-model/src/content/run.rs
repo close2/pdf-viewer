@@ -276,21 +276,41 @@ impl Interpreter<'_> {
     ///
     /// A page's `/Contents` is read this way — see [`ContentReader`] for why that one and not
     /// the nested content streams above.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "a bytecode dispatch table reads better whole than split; see above"
-    )]
     pub(super) fn run_reader(
         &mut self,
         reader: &mut ContentReader<'_>,
         resources: &Dictionary,
         initial: &GraphicsState,
     ) {
+        if let Some(left) = self.run_from(reader, resources, Composed::fresh(initial)) {
+            self.end_of_stream(left, initial);
+        }
+    }
+
+    /// Runs a stream's operators from `from`, and hands back what the run left open where the
+    /// stream ran out — `None` where the list's budget stopped it.
+    ///
+    /// **The stream's end is not run here**, which is what lets a piece of a page's stream end
+    /// where the next piece begins (ADR 1880): [`Self::run_reader`] runs [`Self::end_of_stream`]
+    /// after it, and a divided read runs it once, after the last piece.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a bytecode dispatch table reads better whole than split; see above"
+    )]
+    pub(super) fn run_from(
+        &mut self,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        from: Composed,
+    ) -> Option<Leftover> {
         // What the stream has stated since the last operator. §7.8.2 makes an operator's own
         // operands the ones that *immediately precede* it, which is a distinction only a
         // malformed stream can show: `operands_before` is what turns this into that slice.
         let mut pending: Vec<Object> = Vec::new();
-        let mut state = initial.clone();
+        let Composed {
+            mut state,
+            mut stack,
+        } = from;
         // §8.4.2's stack, carrying §9.4.2's two text matrices beside the graphics state.
         //
         // ISO 32000-2 §9.4.2, as Errata Collection 3 adds it (issue #368, `/State` `Review`
@@ -303,7 +323,6 @@ impl Interpreter<'_> {
         // and restored *with* it, which is what "as part of the graphics state stack" says, and
         // holding them in a stack of their own would let the two go out of step on a stream
         // whose `q` is inside a text object and whose `Q` is outside it. ADR 0421.
-        let mut stack: Vec<(GraphicsState, Transform, Transform)> = Vec::new();
 
         // The path being built, and the pending clip requested by `W`/`W*`.
         let mut path = Path::new();
@@ -474,7 +493,7 @@ impl Interpreter<'_> {
             // or in any stream enclosing this one.
             if self.operations >= self.list_budget.next_check() {
                 if self.list_spent(state.stroke.dash_array.len()) {
-                    return;
+                    return None;
                 }
                 // The window's figure rides the same check, so it costs the loop nothing between
                 // checks and a thread nobody is watching one thread-local look (ADR 1811).
@@ -1265,6 +1284,40 @@ impl Interpreter<'_> {
             pending.clear();
         }
 
+        Some(Leftover {
+            composed: Composed { state, stack },
+            in_text,
+            text_object,
+            pending_clip,
+            marked,
+            compatibility,
+            path_open: !path.commands().is_empty(),
+        })
+    }
+
+    /// What a stream's end says about what it left open, and the `/AIS` reading it began under
+    /// in force again.
+    pub(super) fn end_of_stream(&mut self, left: Leftover, initial: &GraphicsState) {
+        self.report_leftover(left);
+        // §8.10.1's `Do` ends with "[r]estores the saved graphics state, as if by invoking the Q
+        // operator", and a Type 3 glyph's description and an appearance stream are run the same
+        // way: whatever reading of §11.6.4.3's `/AIS` this stream left in force, the one it began
+        // under is in force again for whatever follows it. Stated whether or not it changed,
+        // because the statement is also what joins this stream's last elements to the record
+        // before a caller takes them off the list (ADR 1319).
+        self.note_alpha_source(initial.alpha_is_shape);
+    }
+
+    /// What a stream's end says about what it left open: a text object, a pending clip, a
+    /// marked-content sequence.
+    pub(super) fn report_leftover(&mut self, left: Leftover) {
+        let Leftover {
+            in_text,
+            mut text_object,
+            pending_clip,
+            marked,
+            ..
+        } = left;
         // An unclosed `BT` is malformed but harmless here; noted so it is not invisible.
         // Any glyph outlines a clipping render mode accumulated are discarded with it —
         // §9.3.6 makes `ET` the moment they become a clip, and a text object that never
@@ -1279,14 +1332,6 @@ impl Interpreter<'_> {
             self.absorb_reading(reading, text_object.start);
             self.note_alpha_source(in_force);
         }
-        // §8.10.1's `Do` ends with "[r]estores the saved graphics state, as if by invoking the Q
-        // operator", and a Type 3 glyph's description and an appearance stream are run the same
-        // way: whatever reading of §11.6.4.3's `/AIS` this stream left in force, the one it began
-        // under is in force again for whatever follows it. Stated whether or not it changed,
-        // because the statement is also what joins this stream's last elements to the record
-        // before a caller takes them off the list (ADR 1319).
-        self.note_alpha_source(initial.alpha_is_shape);
-
         // A `W` the stream ended on modified nothing: §8.5.4 has it "modify the effect of the
         // succeeding painting operator", and none succeeded it in this stream. It does not
         // reach the stream that invoked this one either — §8.10.1 makes a form "a self-contained
@@ -1322,6 +1367,59 @@ impl Interpreter<'_> {
         for section in &marked {
             self.close_marking(section.mcid);
         }
+    }
+}
+
+/// §8.4.2's current graphics state and the stack beneath it, carrying §9.4.2's two text matrices
+/// beside each saved state — where a run begins, and where it ends.
+#[derive(Debug, Clone)]
+pub(super) struct Composed {
+    /// The current graphics state.
+    pub(super) state: GraphicsState,
+    /// The states `q` saved, innermost last.
+    pub(super) stack: Vec<(GraphicsState, Transform, Transform)>,
+}
+
+impl Composed {
+    /// A stream's own beginning: `initial` in force and nothing saved.
+    pub(super) fn fresh(initial: &GraphicsState) -> Self {
+        Self {
+            state: initial.clone(),
+            stack: Vec::new(),
+        }
+    }
+}
+
+/// What a run left open where its stream ran out, for [`Interpreter::end_of_stream`] to report.
+#[derive(Debug)]
+pub(super) struct Leftover {
+    /// The state the run ended in.
+    pub(super) composed: Composed,
+    /// Whether a text object was open.
+    in_text: bool,
+    /// The text object's own parameters.
+    text_object: TextObject,
+    /// A `W` or `W*` no painting operator followed.
+    pending_clip: Option<FillRule>,
+    /// The marked-content sections still open.
+    marked: Vec<Marked>,
+    /// How many compatibility sections were still open.
+    compatibility: usize,
+    /// Whether a path was under construction.
+    path_open: bool,
+}
+
+impl Leftover {
+    /// Whether nothing but the graphics state is open — the only point at which a page's stream
+    /// may be divided (ADR 1880): no text object (§9.4.1), no path or pending clip (§8.5.2.1),
+    /// no marked-content sequence (§8.11.3.2) and no compatibility section (§7.8.2).
+    pub(super) fn nothing_open(&self) -> bool {
+        !self.in_text
+            && self.pending_clip.is_none()
+            && self.marked.is_empty()
+            && self.compatibility == 0
+            && !self.path_open
+            && self.text_object.enclosing_reading.is_none()
     }
 }
 
@@ -1490,6 +1588,23 @@ impl Operator {
             | Self::ImageData
             | Self::EndImage => return None,
         })
+    }
+
+    /// Whether this is one of Table 59's path-painting operators, which end a path object.
+    pub(super) const fn paints(self) -> bool {
+        matches!(
+            self,
+            Self::Stroke
+                | Self::CloseStroke
+                | Self::Fill
+                | Self::FillObsolete
+                | Self::FillEvenOdd
+                | Self::FillStroke
+                | Self::FillStrokeEvenOdd
+                | Self::CloseFillStroke
+                | Self::CloseFillStrokeEvenOdd
+                | Self::EndPath
+        )
     }
 
     /// The operators ISO 32000-2 §8.6.8 says an uncoloured figure's content stream may not use.

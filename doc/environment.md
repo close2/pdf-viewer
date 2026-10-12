@@ -42,7 +42,8 @@ names; a round reads this block, and opens the section only where a line bites (
 - **Run the viewer under Xvfb only as *The machine, the account and the display* says**; drive a
   host feature in every window before calling it done.
 - **A measurement builds its own `--release` binary first** and never runs from the main
-  checkout's `target/`; two exported trees get two target directories and an `md5sum` (trap 50).
+  checkout's `target/`; two exported trees are `tools/batch.sh export <session> --as <name>`
+  twice, each with its own target directory and `export-sums` (ADR 1890, trap 50).
 
 ## Working agreements
 

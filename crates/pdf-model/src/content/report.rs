@@ -1245,6 +1245,16 @@ impl Notes {
         true
     }
 
+    /// Takes in what another piece of the same page noted, as though this run had met it too
+    /// (ADR 1880): the items are a set and the keywords' sentences a union, so the page's notes
+    /// are the same whichever piece met each first.
+    pub(super) fn absorb(&mut self, other: Self) {
+        self.items.extend(other.items);
+        for (keyword, sentences) in other.keywords {
+            *self.keywords.entry(keyword).or_insert(0) |= sentences;
+        }
+    }
+
     /// The items, in order.
     pub(super) fn into_items(self) -> impl Iterator<Item = Unsupported> {
         self.items.into_iter()
