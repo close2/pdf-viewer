@@ -108,7 +108,8 @@ pub use sub_pixel::{
     sub_pixel_bands, sub_pixel_caps, substitute_width, substitute_width_across, unmeasurable_width,
 };
 pub use thin_segment::{
-    InkBox, PixelBlock, THIN_SEGMENT_BLOCK, ThinSegment, disc_in_triangle, thin_segment,
+    InkBox, PixelBlock, THIN_SEGMENT_BLOCK, ThinDots, ThinSegment, disc_in_triangle, segment_ends,
+    thin_dots, thin_segment,
 };
 pub use transfer_channel::{
     TransferBuilder, TransferChannel, TransferMap, TransferRun, resolve_transfers, shape_of,

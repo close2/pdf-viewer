@@ -103,6 +103,9 @@ pub struct Opening {
     /// The thread, until the first allocation joins it — a [`viewer_host::Loading`], so that page
     /// one publishes how far it has got (ADR 1811).
     thread: viewer_host::Loading<(Viewer, Vec<Event>)>,
+    /// Page one drawn while it is read on that thread (ADRs 1855, 1867): told the window's size on
+    /// the first allocation, looked at while the bar is up, and handed to the drawing at the join.
+    ahead: viewer_host::Ahead,
 }
 
 impl Opening {
@@ -138,6 +141,8 @@ impl Opening {
             None,
             fragment.clone(),
         );
+        let ahead = viewer_host::Ahead::page_sized();
+        let drawing_ahead = ahead.clone();
         let thread = viewer_host::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
@@ -159,7 +164,10 @@ impl Opening {
             for command in commands {
                 events.extend(viewer.handle(command));
             }
-            events.extend(viewer.anticipate());
+            // Page one read here as `Viewer::anticipate` reads it, and drawn beside the read on a
+            // thread of its own once the read has run `GLIMPSE_AFTER` (ADR 1855): the read keeps
+            // the thread the launch placed it on (trap 154).
+            events.extend(drawing_ahead.anticipate(&mut viewer));
             (viewer, events)
         });
         Ok(Self {
@@ -167,6 +175,7 @@ impl Opening {
             bytes,
             fragment,
             thread,
+            ahead,
         })
     }
 }
@@ -702,6 +711,11 @@ pub struct Host {
     /// The latest viewport the window was given while the document was still opening, which the
     /// join tells the core rather than the first one.
     awaiting: Option<Command>,
+    /// Page one being drawn while it is read on the opening thread, until the join hands it to
+    /// [`Self::drawing`] (ADRs 1855, 1867).
+    ahead: Option<viewer_host::Ahead>,
+    /// The last look at page one as it was read, shown until the page has a frame of its own.
+    read_look: Option<viewer_host::loading::Look>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -772,6 +786,7 @@ impl Host {
             bytes,
             fragment,
             thread,
+            ahead,
         } = opening;
         let path = path.as_path();
         trace.say(
@@ -853,6 +868,8 @@ impl Host {
                 viewport: (1, 1),
                 anticipated: Some(thread),
                 awaiting: None,
+                ahead: Some(ahead),
+                read_look: None,
                 preparing: None,
             })
         })
@@ -889,6 +906,17 @@ impl Host {
             height,
             scale,
         };
+        // Page one's drawing ahead draws into the target the first frame will be asked at, which is
+        // this viewport's; a size that changes while the page is read is told again, and a frame
+        // asked at another target than the one drawn is drawn whole (ADR 1855).
+        if let Some(ahead) = self.ahead.as_ref() {
+            ahead.window_is(viewer_host::loading::Window {
+                width,
+                height,
+                inset: 0,
+                scale,
+            });
+        }
         if !self.opened {
             self.opened = true;
             self.trace.say(
@@ -924,11 +952,16 @@ impl Host {
     /// loop goes on answering the window, and [`Self::mind_the_opening`] joins it on the
     /// [`viewer_host::loading::TICK`] that finds it ready, with the window's size as it is then.
     fn join_the_opening(&mut self, resize: Command) {
-        if self
-            .anticipated
-            .as_ref()
-            .is_some_and(|opening| !opening.wait())
-        {
+        // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
+        // from which its looks are what the window shows (ADR 1855).
+        let drawing_ahead = self.ahead.is_some();
+        if self.anticipated.as_ref().is_some_and(|opening| {
+            !if drawing_ahead {
+                opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
+            } else {
+                opening.wait()
+            }
+        }) {
             self.trace
                 .say(Topic::Launch, format_args!("document still opening"));
             self.awaiting = Some(resize);
@@ -962,10 +995,15 @@ impl Host {
             .is_some_and(viewer_host::Loading::ended)
         {
             self.show_the_opening();
+            self.show_the_read();
             return self.anticipated.is_some();
         }
-        self.ui.loading.set_visible(false);
-        self.say(viewer_host::loading::READ);
+        // A bar that never went up is not taken down with a sentence: a page read between
+        // `GLIMPSE_AFTER` and `WARN` was shown as it was read and said nothing (ADR 1811).
+        if self.ui.loading.is_visible() {
+            self.ui.loading.set_visible(false);
+            self.say(viewer_host::loading::READ);
+        }
         if let Some(resize) = self.awaiting.take() {
             self.take_the_opening(resize);
         }
@@ -998,8 +1036,43 @@ impl Host {
         self.ui.loading.set_visible(true);
     }
 
+    /// Puts page one up as it stands while it is read, where a newer look at it has been drawn
+    /// (ADRs 1855, 1867). Nothing is answered to the core, which has no document yet; the frame
+    /// that answers is the first, and [`Self::placements`] shows the look until it lands.
+    fn show_the_read(&mut self) {
+        let Some(look) = self.ahead.as_ref().and_then(viewer_host::Ahead::look) else {
+            return;
+        };
+        if self
+            .read_look
+            .as_ref()
+            .is_some_and(|shown| shown.serial == look.serial)
+        {
+            return;
+        }
+        let commands = look.commands;
+        let first = self.read_look.is_none();
+        self.read_look = Some(look);
+        self.refresh();
+        self.trace.say(
+            Topic::Frames,
+            format_args!("page 1 shown as it is read, {commands} commands drawn"),
+        );
+        if first {
+            self.trace.say(
+                Topic::Launch,
+                format_args!("page shown as it is read at {:?}", self.trace.since_start()),
+            );
+        }
+    }
+
     /// Takes in the document the opening thread opened, and tells it its viewport.
     fn take_the_opening(&mut self, resize: Command) {
+        // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
+        // is finished from that drawing rather than drawn (ADR 1855).
+        if let Some(ahead) = self.ahead.take() {
+            self.drawing.draw_ahead(ahead);
+        }
         let joined = self.anticipated.take().map(viewer_host::Loading::join);
         let Some(Ok((viewer, opened))) = joined else {
             if joined.is_some() {
@@ -2094,6 +2167,16 @@ impl Host {
     fn look_at_the_drawing(&mut self) {
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
+        // The rows the window shows are on it, finished, before the page lands (ADR 1868).
+        if let Some((page, after)) = self.drawing.seen_drawn() {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} shown finished where the window shows it, {after:?} after it was asked",
+                    page.saturating_add(1)
+                ),
+            );
+        }
         if queue.is_empty() {
             // A page still being drawn has shown how it stands: that is a picture worth the
             // copy, where a look that found nothing is not (ADR 1825).
@@ -2236,9 +2319,11 @@ impl Host {
             // the toolkit's own thread would let a page written to draw for 27.6 s take the window
             // with it — no repaint, no key, and no thread from which `pdf_render::Interrupt` could
             // be raised. What comes back arrives in `take_the_drawn`.
+            // The rows the window shows are drawn first, and the rest of the page after (ADR 1868).
             Event::NeedsRender(request) => {
                 self.retained.asked(&request);
-                self.drawing.ask(request);
+                let seen = self.seen_of(&request);
+                self.drawing.ask_showing(request, seen);
             }
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows
@@ -2352,6 +2437,21 @@ impl Host {
         }
     }
 
+    /// The rows of a request's target this window shows, for the drawing to draw first — `None`
+    /// for a page of a document behind the one in front, which the arrangement does not place
+    /// (ADR 1868).
+    fn seen_of(&self, request: &viewer_core::RenderRequest) -> Option<std::ops::Range<u32>> {
+        if request.document != self.documents.focused() {
+            return None;
+        }
+        match self.viewer.query(Query::PageGeometry(request.page)) {
+            Answer::Geometry(geometry) => {
+                viewer_host::drawing::seen(request.target, geometry, self.viewport.1)
+            }
+            _ => None,
+        }
+    }
+
     /// The textures to put on the screen, and where.
     ///
     /// **One texture per page of Table 29's arrangement**, since `/PageLayout` was obeyed; under
@@ -2370,12 +2470,9 @@ impl Host {
                 glimpsed: None,
             };
         }
-        let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
-            return Pictures {
-                placements: Vec::new(),
-                held: 0,
-                glimpsed: None,
-            };
+        let frames = match self.viewer.query(Query::Frame) {
+            Answer::Frame(frames) => frames,
+            _ => Vec::new(),
         };
         let held = frames.len();
         let partial = self.drawing.partial();
@@ -2387,14 +2484,27 @@ impl Host {
         // the extent the page has now until its own lands (ADR 1843), and a page with no frame
         // at all shown from its retained picture (ADR 1866).
         let focused = self.documents.focused();
-        let frames = self.retained.fill(
-            viewer_host::stand_in::placed(
-                viewer_host::drawing::over_frames(frames, partial, focused, geometry),
+        let frames = match self.read_look.as_ref() {
+            // Page one as it stood at its last look while it was read, until the page has pixels
+            // of its own (ADR 1867): the page's own picture at the target its first frame is drawn
+            // at, placed where that frame will be — and only while that frame is still coming, so
+            // a page whose read failed is not left showing part of itself (trap 5).
+            Some(look)
+                if held == 0
+                    && partial.is_none()
+                    && (self.anticipated.is_some() || self.drawing.interval().is_some()) =>
+            {
+                vec![look.placed()]
+            }
+            _ => self.retained.fill(
+                viewer_host::stand_in::placed(
+                    viewer_host::drawing::over_frames(frames, partial, focused, geometry),
+                    geometry,
+                ),
+                focused,
                 geometry,
             ),
-            focused,
-            geometry,
-        );
+        };
         let glimpsed = partial
             .filter(|partial| {
                 frames
@@ -2481,6 +2591,7 @@ impl Host {
             }
             if !self.presented && held > 0 {
                 self.presented = true;
+                self.read_look = None;
                 self.trace.say(
                     Topic::Launch,
                     format_args!(

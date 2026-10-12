@@ -273,6 +273,9 @@ struct Encoder<'a> {
     /// Marks whose coverage has not been made yet, in encounter order ([`parallel`]).
     /// Always empty when `threads` is one.
     queue: Vec<Job<'a>>,
+    /// The line instances queued jobs of consecutive lines name by range, in encounter order:
+    /// a run of lines behind a queued mark is one job rather than a job each (ADR 1878).
+    queued_lines: Vec<instance::QueuedLine>,
     /// The atlas keys the queue will write, so that two queued jobs cannot rasterise
     /// one key against an atlas neither has reached (`parallel`'s guard).
     queued_keys: FastSet<GlyphKey>,
@@ -597,6 +600,7 @@ fn encoder_for<'a>(
         expansions: expansion::Expansions::of(scene, frame_budget_bytes),
         threads,
         queue: Vec::new(),
+        queued_lines: Vec::new(),
         queued_keys: FastSet::default(),
         queued_inserts: crate::atlas::PendingInserts::default(),
         queued_weight: 0,

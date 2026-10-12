@@ -22,6 +22,33 @@ impl App {
         self.pump(VecDeque::from([command]));
     }
 
+    /// A page turn, with the page it brings on drawn while it is read (ADR 1871).
+    ///
+    /// The turn is handled with the read left to this window
+    /// ([`viewer_core::Viewer::handle_unread`]); the page is read on this thread — the toolkit's,
+    /// where a turn's read has always been, because the read is the turn's critical path (trap
+    /// 154) — and drawn beside it on a thread [`viewer_host::Ahead`] spawns, and the frame of it
+    /// is finished from that drawing where the request is for that list at that target. Nothing
+    /// is drawn ahead until the read has run `GLIMPSE_AFTER`, so a turn whose page reads quickly
+    /// is a turn as before and a thread. Nothing is shown while the page is read: the thread that
+    /// would put a look up is the one reading.
+    fn turn(&mut self, command: Command) -> Vec<Event> {
+        let Some(window) = self.window_now() else {
+            return self.viewer.handle(command).collect();
+        };
+        let mut events: Vec<Event> = self.viewer.handle_unread(command).collect();
+        let ahead = crate::drawing_ahead();
+        ahead.window_is(window);
+        events.extend(ahead.anticipate(&mut self.viewer));
+        events.extend(self.viewer.read_the_rest());
+        if let Some(window) = self.device_window() {
+            window.draw_ahead(ahead);
+        } else if let Some(composer) = self.composer() {
+            composer.draw_ahead(ahead);
+        }
+        events
+    }
+
     /// Reacts to events that were produced somewhere other than a [`Self::dispatch`].
     ///
     /// One caller: the thread that opens the document while the window and the graphics device
@@ -109,7 +136,11 @@ impl App {
                 self.spoken = None;
             }
             let supplied = matches!(command, Command::Supply { .. });
-            let events: Vec<Event> = self.viewer.handle(command).collect();
+            let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
+                self.turn(command)
+            } else {
+                self.viewer.handle(command).collect()
+            };
             if let Some(described) = described {
                 self.trace.say(
                     topic,

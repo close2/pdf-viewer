@@ -66,6 +66,16 @@
 //! The same thing [`crate::renderer`]'s does: one whole page at [`crate::stale::PROXY_EDGE`] per
 //! idle turn, so that a page turn, a `GoTo` and a resize have pixels to show. Nothing on the launch
 //! path makes one — the thread does not exist until the first job, and it draws that job first.
+//!
+//! # What a person sees while a frame is drawn for seconds — ADRs 1831 and 1855
+//!
+//! The thread draws under [`viewer_ui::software::compose_pages_watched`]'s looks and sends each
+//! one back as [`Finished::Partial`]; the event thread puts it up only where the window holds no
+//! picture of those pages — the first frame, a page turn — which is the device window's rule
+//! (`crate::renderer::Window::shows_as_built`). And page one is drawn while it is read
+//! ([`viewer_host::Ahead`]): the window puts each look up while the document opens
+//! ([`Composer::show_read`]), and the first frame of that page at that target is finished from
+//! the drawing rather than drawn ([`Job::ahead`]).
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -85,6 +95,9 @@ struct Job {
     pages: Vec<crate::stale::Placed>,
     /// The flag the event thread raises to take this thread back — see [`InFlight`].
     interrupt: Interrupt,
+    /// Page one as it was drawn while it was read, where this job is that page's first frame at
+    /// the target it was drawn at — finished from it rather than drawn (ADR 1855).
+    ahead: Option<render_cpu::Underway>,
 }
 
 /// The job the composing thread is inside, as the event thread remembers it.
@@ -124,6 +137,8 @@ enum Drawn {
 /// One finished window frame, on its way back to the thread that will present it.
 #[derive(Debug)]
 struct Done {
+    /// Whether it was finished from the page drawn while it was read ([`Job::ahead`]).
+    finished_ahead: bool,
     pages: Vec<crate::stale::Placed>,
     /// The window's own pixels, what refused to draw them, or the interrupt coming back.
     ///
@@ -152,6 +167,18 @@ enum Finished {
     Frame(Box<Done>),
     /// A whole page at [`crate::stale::PROXY_EDGE`], drawn while nothing else was asked for.
     Page(crate::stale::Retained<Arc<Raster>>),
+    /// The frame in flight as it stands, at a look (ADR 1831).
+    Partial(Box<AsBuilt>),
+}
+
+/// A window frame part-way through its draw: the arrangement it is of, and the picture so far,
+/// whose rows no strip has answered for yet are transparent.
+#[derive(Debug)]
+struct AsBuilt {
+    pages: Vec<crate::stale::Placed>,
+    picture: Raster,
+    /// How much of the arrangement's drawing it holds, in `[0, 1]`.
+    fraction: f64,
 }
 
 /// Whether two arrangements are the same picture at the same placements.
@@ -216,6 +243,9 @@ pub(crate) struct Landed {
     /// different things with them: a refusal is answered to the core and an abandonment is not
     /// answered at all. See [`Drawn`].
     pub(crate) abandoned: bool,
+    /// Whether it was finished from the page drawn while it was read, so that what it cost — its
+    /// last part — predicts nothing about the next frame (trap 143, ADR 1855).
+    pub(crate) finished_ahead: bool,
 }
 
 /// This window's half of the arrangement: the surface, the pixels it is showing, and a handle on
@@ -277,6 +307,13 @@ pub(crate) struct Composer {
     /// and putting them up unmoved afterwards would move the picture back to where the view no
     /// longer is.
     presented: bool,
+    /// Page one drawn while it is read (ADR 1855), handed over when the document is taken in: the
+    /// first ask for that page at that target takes the drawing, and any other leaves it.
+    ahead: Option<viewer_host::Ahead>,
+    /// The serial of the last look at page one being read that went up, so each goes up once.
+    read_looked: u64,
+    /// The frame in flight as it last stood, and whether that look has not been up yet.
+    partial: Option<(AsBuilt, bool)>,
 }
 
 impl std::fmt::Debug for Composer {
@@ -301,7 +338,81 @@ impl Composer {
             in_flight: None,
             declined: Vec::new(),
             presented: false,
+            ahead: None,
+            read_looked: 0,
+            partial: None,
         }
+    }
+
+    /// Page one as it is drawn while it is read, and the frame of it to be finished from that
+    /// drawing (ADR 1855) — handed over by the window when it takes its document in.
+    pub(crate) fn draw_ahead(&mut self, ahead: viewer_host::Ahead) {
+        self.ahead = Some(ahead);
+    }
+
+    /// Puts page one up as it stands while it is read, where a newer look at it has been drawn at
+    /// this window's `extent` — and answers how many of its commands the look holds where it went
+    /// up. Nothing is answered to the core, which has no document yet (ADR 1855).
+    ///
+    /// # Errors
+    ///
+    /// Whatever the software surface refused.
+    pub(crate) fn show_read(
+        &mut self,
+        ahead: &viewer_host::Ahead,
+        extent: (u32, u32),
+    ) -> Result<Option<usize>, SoftwareError> {
+        let Some(look) = ahead.look().filter(|look| look.serial != self.read_looked) else {
+            return Ok(None);
+        };
+        if (look.target.width, look.target.height) != extent {
+            return Ok(None);
+        }
+        self.read_looked = look.serial;
+        self.surface.present(&look.raster, &[])?;
+        Ok(Some(look.commands))
+    }
+
+    /// Whether the frame in flight is to be put up as it stands: a look of exactly this
+    /// arrangement has arrived, and the window holds no picture of any of its pages — the first
+    /// frame, a page turn — which is the device window's rule (ADR 1831).
+    pub(crate) fn shows_as_built(&self, pages: &[crate::stale::Placed]) -> bool {
+        let Some((partial, _)) = self.partial.as_ref() else {
+            return false;
+        };
+        partial.pages.len() == pages.len()
+            && partial
+                .pages
+                .iter()
+                .zip(pages)
+                .all(|(drawn, asked)| drawn.is(asked))
+            && !self
+                .shown
+                .iter()
+                .any(|held| pages.iter().any(|asked| asked.of == held.of))
+    }
+
+    /// Puts the newest look at the frame in flight on the window over the window's ground, where
+    /// it has not been up yet — `Ok(Some(fraction))` with the share it holds where it went up.
+    ///
+    /// The held frame is left alone: a look is not a frame, and the frame that lands is what the
+    /// window settles on.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the software surface refused.
+    pub(crate) fn put_up_as_built(
+        &mut self,
+        overlays: &[&DisplayList],
+    ) -> Result<Option<f64>, SoftwareError> {
+        let Some((partial, news)) = self.partial.as_mut().filter(|(_, news)| *news) else {
+            return Ok(None);
+        };
+        *news = false;
+        let picture = viewer_ui::software::over_the_ground(&partial.picture)?;
+        let fraction = partial.fraction;
+        self.surface.present(&picture, overlays)?;
+        Ok(Some(fraction))
     }
 
     /// Whether the window is holding a rendering it has never put up.
@@ -435,6 +546,7 @@ impl Composer {
                     // of a page rather than of a moment, so an older one is not superseded by a
                     // newer one of a *different* page.
                     Finished::Page(page) => arrived.push(page),
+                    Finished::Partial(partial) => self.partial = Some((*partial, true)),
                 }
             }
         }
@@ -442,6 +554,8 @@ impl Composer {
             self.proxies.keep(page);
         }
         let done = newest?;
+        // The frame the looks were of has landed, so they are pictures of nothing in flight.
+        self.partial = None;
         let waited = self.in_flight.take().map_or(Duration::ZERO, |in_flight| {
             done.finished.saturating_duration_since(in_flight.asked)
         });
@@ -467,6 +581,7 @@ impl Composer {
             waited,
             refused,
             abandoned,
+            finished_ahead: done.finished_ahead,
         })
     }
 
@@ -492,9 +607,14 @@ impl Composer {
         // **One interrupt per job**, never one per composer: a flag that outlived the draw it was
         // raised on would abandon the frame after it before that frame had drawn a command.
         let interrupt = Interrupt::new();
+        let ahead = match (self.ahead.as_ref(), pages.as_slice()) {
+            (Some(ahead), [placed]) => ahead.take_for(&placed.list, placed.target),
+            _ => None,
+        };
         let job = Job {
             pages: pages.clone(),
             interrupt: interrupt.clone(),
+            ahead,
         };
         // A send that fails is a thread that has ended; the frame is not in flight, so the window
         // keeps presenting what it has and asks again.
@@ -648,7 +768,7 @@ fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &S
         };
         if let Some(job) = job {
             showing.clone_from(&job.pages);
-            let finished = compose(job);
+            let finished = compose(job, done);
             // A send that fails is an event thread that has gone, and there is nobody left to draw
             // for.
             if done.send(Finished::Frame(Box::new(finished))).is_err() {
@@ -684,15 +804,47 @@ fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &S
 /// move with the page, and it is composited by the thread that presents — which is what lets a
 /// stand-in put fresh chrome over an old page, and what makes the raster this hands back the
 /// window's own picture *without* the chrome, which is exactly what the other surface's base is.
-fn compose(job: Job) -> Done {
-    let Job { pages, interrupt } = job;
+///
+/// Drawn under its looks, each sent back as [`Finished::Partial`] (ADR 1831) — or, where it is
+/// page one's first frame at the target it was drawn at while it was read, finished from that
+/// drawing (ADR 1855).
+fn compose(job: Job, done: &Sender<Finished>) -> Done {
+    let Job {
+        pages,
+        interrupt,
+        ahead,
+    } = job;
     let began = Instant::now();
-    let drawn = {
+    // A drawing ahead that cannot become this frame is drawn whole, as every other frame is.
+    let finished = match (ahead, pages.as_slice()) {
+        (Some(ahead), [placed]) => ahead.finish(&placed.list).ok(),
+        _ => None,
+    };
+    let finished_ahead = finished.is_some();
+    let drawn = if let Some(raster) = finished {
+        Drawn::Frame(Box::new(raster))
+    } else {
         let borrowed: Vec<(&DisplayList, TargetSpec)> = pages
             .iter()
             .map(|placed| (placed.list.as_ref(), placed.target))
             .collect();
-        match viewer_ui::software::compose_pages_interruptibly(&borrowed, Some(&interrupt)) {
+        let looked = |assembly: &viewer_ui::software::Assembly| {
+            if interrupt.raised() {
+                return;
+            }
+            // A send that fails is an event thread that has gone; the frame's own send says so.
+            let _ = done.send(Finished::Partial(Box::new(AsBuilt {
+                pages: pages.clone(),
+                picture: assembly.picture().clone(),
+                fraction: assembly.fraction(),
+            })));
+        };
+        match viewer_ui::software::compose_pages_watched(
+            &borrowed,
+            Some(&interrupt),
+            viewer_ui::software::Looks::SHIPPED,
+            looked,
+        ) {
             Ok(raster) => Drawn::Frame(Box::new(raster)),
             // **Asked of the error rather than of the flag**, and that is not fastidiousness: the
             // flag can be raised in the moment between the last command and the return, and a
@@ -702,6 +854,7 @@ fn compose(job: Job) -> Done {
         }
     };
     Done {
+        finished_ahead,
         cost: began.elapsed(),
         pages,
         drawn,

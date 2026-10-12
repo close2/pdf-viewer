@@ -39,6 +39,11 @@ pub(crate) const QUAD_INSTANCE_STRIDE: u64 = 64;
 /// fifteen floats. Must match `line.wgsl` (ADR 0097).
 pub(crate) const LINE_INSTANCE_STRIDE: u64 = 60;
 
+/// [`LINE_INSTANCE_STRIDE`] as the length of the array one instance is written from, held to it
+/// at compile time.
+const LINE_INSTANCE_BYTES: usize = 60;
+const _: () = assert!(LINE_INSTANCE_BYTES as u64 == LINE_INSTANCE_STRIDE);
+
 /// Which lane a batch draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BatchKind {
@@ -117,6 +122,15 @@ pub(super) struct LineInstance {
     pub admit: Rect,
     /// The mark's box inside `admit`, for the plan.
     pub ink: Rect,
+}
+
+/// A line instance waiting behind a queued mark, with what its draw needs (ADR 1878).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct QueuedLine {
+    pub line: LineInstance,
+    pub color: raster_scene::Color,
+    pub style: DrawStyle,
+    pub mask: Option<u32>,
 }
 
 /// The number `line.wgsl` reads Table 53's end by: 0 a butt, 1 a round, 2 a projecting end.
@@ -213,7 +227,12 @@ impl Encoder<'_> {
             ink,
         };
         if !self.queue.is_empty() {
-            return self.enqueue(Job::line(line, Draw::new(color, admit, style, mask)));
+            return self.enqueue_line(QueuedLine {
+                line,
+                color,
+                style,
+                mask,
+            });
         }
         self.write_line_instance(&line, color, style, mask);
         Ok(())
@@ -254,9 +273,14 @@ impl Encoder<'_> {
             line.admit.max.x,
             line.admit.max.y,
         ];
-        for value in values {
-            self.line_instances.extend_from_slice(&value.to_le_bytes());
+        // One write of the whole instance rather than fifteen of four bytes: the stream grows by
+        // millions of these on a page of lines, and each `extend_from_slice` asks for room
+        // (ADR 1878).
+        let mut bytes = [0_u8; LINE_INSTANCE_BYTES];
+        for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
+            slot.copy_from_slice(&value.to_le_bytes());
         }
+        self.line_instances.extend_from_slice(&bytes);
         self.lanes.line = self.lanes.line.saturating_add(1);
         self.note_batch(BatchKind::Line, style, mask);
     }

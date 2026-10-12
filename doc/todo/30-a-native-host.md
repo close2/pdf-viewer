@@ -131,9 +131,12 @@ These are the places where a native host's shape differs from the tier-2 host's,
 - **Opening is off the event thread too, past `WARN`** (`viewer_host::Loading`, ADR 1811): the
   document's thread is waited for no longer than `drawing::WARN`, and a page still being read then
   is a bar — GTK's and Qt's own widget in the status bar, the title in `quorra` and
-  `quorra-confined` — until the look that finds it read. What is still owed: a page interpreted
-  *after* the launch (a turn, a re-interpretation) is read on the toolkit's thread with no bar, and
-  an in-process interpretation has no stop but the window's close. `quorra-confined` owes neither:
+  `quorra-confined` — until the look that finds it read. **Page one is drawn while it is read** in
+  both toolkit windows as in `quorra` (`viewer_host::Ahead`, ADRs 1855, 1867): from half a second
+  into the read the window shows the page as it stands, placed where its first frame will be, and
+  the first frame is finished from that drawing. What is still owed: a page interpreted *after* the
+  launch (a turn, a re-interpretation) is read on the toolkit's thread with no bar, and an
+  in-process interpretation has no stop but the window's close. `quorra-confined` owes neither:
   every command goes to its worker on a thread past `WARN` and the reader's keys are held meanwhile
   (ADR 1827); what it owes is a worker that takes a command while it draws, so that a held key
   reaches the viewer sooner.
@@ -151,8 +154,11 @@ These are the places where a native host's shape differs from the tier-2 host's,
   `--proxy-pages N` in both windows, until its frame lands (ADR 1866). No window has a view rotation,
   so a turn has nothing to stand in for. **A page's own pixels are shown at a whole device pixel**,
   and a transition's faces are that picture (`viewer_host::clock::face_as_shown`), so the effect's
-  last frame meets the page without a seam (ADR 1865). What is still owed: a page never drawn before
-  that a notch out brings on screen has no picture of any kind until it is drawn.
+  last frame meets the page without a seam (ADR 1865). **A page zoomed until the window shows less
+  than half of it has those rows drawn first**, as a look of their own over the stand-in, and the
+  page whole after as the frame (`Drawing::ask_showing`, ADR 1868); the protocol still asks for and
+  answers whole pages. What is still owed: a page never drawn before that a notch out brings on
+  screen has no picture of any kind until it is drawn.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

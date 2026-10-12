@@ -246,6 +246,7 @@ pub fn serve() -> Result<(), std::io::Error> {
     }));
     let mut marks = protocol::Marks::default();
     let mut preparing = Preparing::default();
+    let mut turning = Turning::default();
 
     while let Some(incoming) = read_frame(&mut input, limits.message_budget)? {
         // Header and payload in two calls rather than one concatenated buffer: a raster is 4.1 MB
@@ -261,8 +262,7 @@ pub fn serve() -> Result<(), std::io::Error> {
                 answer(
                     &mut viewer,
                     &mut rasterizer,
-                    &mut marks,
-                    &mut preparing,
+                    (&mut marks, &mut preparing, &mut turning),
                     (kind, payload, descriptors),
                 )
             }),
@@ -385,8 +385,7 @@ fn read_frame(input: &mut impl Source, budget: u64) -> Result<Option<Incoming>, 
 fn answer(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
-    marks: &mut protocol::Marks,
-    preparing: &mut Preparing,
+    (marks, preparing, turning): (&mut protocol::Marks, &mut Preparing, &mut Turning),
     (kind, payload, mut descriptors): (u8, Vec<u8>, Vec<ReceivedDescriptor>),
 ) -> (u8, Vec<u8>) {
     preparing.look(viewer);
@@ -396,7 +395,7 @@ fn answer(
             drop(payload);
             drop(descriptors);
             match decoded {
-                Ok(command) => perform(viewer, rasterizer, marks, preparing, command),
+                Ok(command) => perform(viewer, rasterizer, (marks, preparing, turning), command),
                 Err(error) => refuse(&error.to_string()),
             }
         }
@@ -444,8 +443,7 @@ fn answer(
 fn perform(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
-    marks: &mut protocol::Marks,
-    preparing: &mut Preparing,
+    (marks, preparing, turning): (&mut protocol::Marks, &mut Preparing, &mut Turning),
     command: Command,
 ) -> (u8, Vec<u8>) {
     // What the preparation said since the last events frame goes first: it is about the page as
@@ -457,6 +455,7 @@ fn perform(
     // at all the same, while the host's device comes up, and the first `Resize` finds it done.
     // Behind a viewport the arrangement has already interpreted it, and the call does nothing.
     let opens = matches!(command, Command::Open { .. });
+    turning.told(&command);
     let mut pending: Vec<Command> = vec![command];
 
     // A render's answer can itself produce events — a page that finished drawing damages the
@@ -464,16 +463,31 @@ fn perform(
     // the only command it adds and a viewer that has been given the frame it asked for does not
     // ask again for the same one.
     while let Some(command) = pending.pop() {
-        for event in viewer.handle(command) {
+        // A page turn's page is drawn while it is read (ADR 1871); every other command is
+        // handled whole, as it always was.
+        let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
+            turning.turn(viewer, rasterizer, command)
+        } else {
+            viewer.handle(command).collect()
+        };
+        for event in events {
             match event {
                 Event::NeedsRender(request) => {
+                    let ahead = turning.take_for(&request);
                     let rendered = match marks.decide(&request, placement(viewer, request.page)) {
                         // **The render that does not happen.** The host is being handed this
                         // page's own display list, so pixels of it would be drawn, held and
                         // thrown away.
                         protocol::Carries::Marks => Rendered::Listed,
                         protocol::Carries::Pixels => {
-                            match rasterizer.rasterize(&request.list, request.target) {
+                            // The page drawn while it was read, finished from where its read
+                            // ended; a drawing that cannot become the page is drawn whole.
+                            let finished =
+                                ahead.and_then(|underway| underway.finish(&request.list).ok());
+                            match finished.map_or_else(
+                                || rasterizer.rasterize(&request.list, request.target),
+                                Ok,
+                            ) {
                                 Ok(raster) => Rendered::Raster(raster),
                                 // Named rather than swallowed: a viewer that silently showed the
                                 // previous page when a render failed would be telling a person
@@ -511,6 +525,141 @@ fn perform(
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
+    }
+}
+
+/// A page turn's page, drawn on a thread of this process's own while it is read (ADR 1871).
+///
+/// **The in-process windows' arrangement (ADR 1855), in the one process that links no host
+/// crate**: `viewer_host::Ahead` brings the host's HTTP client and its TLS with it, which is
+/// exactly what a confined process is not to hold, so the few steps it takes are taken here with
+/// the two types they are made of — `pdf_model::progress::Parts` and `render_cpu::Underway`.
+/// The read stays on the worker's thread, where every read of a page has been (trap 154); the
+/// drawer is a scoped thread beside it, which `Profile::Interpreter` permits.
+///
+/// **It starts drawing at the first part the read hands over rather than after a wait**, because
+/// this process reads no clock it was not handed (ADR 1811): a page under
+/// `pdf_model::progress::FIRST_PART` commands hands nothing over and is drawn whole as before, so
+/// what an ordinary turn pays is the drawer's spawn.
+#[derive(Debug, Default)]
+struct Turning {
+    /// The viewport the last `Command::Resize` stated, in device pixels, and its scale.
+    viewport: Option<((u32, u32), f32)>,
+    /// The page drawn while it was read, with the hand-over that names the list it was drawn from.
+    drawn: Option<(pdf_model::progress::Parts, render_cpu::Underway)>,
+}
+
+impl Turning {
+    /// Takes in what a command says about the window: a resize's viewport.
+    fn told(&mut self, command: &Command) {
+        if let Command::Resize {
+            width,
+            height,
+            scale,
+        } = command
+        {
+            self.viewport = Some(((*width, *height), *scale));
+        }
+    }
+
+    /// Handles a page turn with the page it brings on read on this thread and drawn beside it,
+    /// answering what [`Viewer::handle`] would have — and keeping the drawing for the request it
+    /// can become ([`Self::take_for`]).
+    fn turn(
+        &mut self,
+        viewer: &mut Viewer,
+        rasterizer: &CpuRasterizer,
+        command: Command,
+    ) -> Vec<Event> {
+        self.drawn = None;
+        let Some((viewport, scale)) = self
+            .viewport
+            .filter(|&((width, height), _)| width > 0 && height > 0)
+        else {
+            return viewer.handle(command).collect();
+        };
+        let mut events: Vec<Event> = viewer.handle_unread(command).collect();
+        let read_and_drawn = viewer.anticipating().map(|anticipating| {
+            let parts = pdf_model::progress::Parts::new();
+            let target = anticipating
+                .foresee(viewport, scale)
+                .map(|foreseen| foreseen.target);
+            let (read, drawn) = std::thread::scope(|scope| {
+                let handing = &parts;
+                // The pool's own stack: the drawer draws what a strip draws. Unnamed, because
+                // naming a thread is a `prctl` the filter kills this process for, which
+                // `tests/confined.rs`'s page turn found. A spawn this process is refused is a
+                // turn drawn whole, as it was before there was a drawer.
+                let drawer = target.and_then(|target| {
+                    std::thread::Builder::new()
+                        .stack_size(RASTERISING_STACK)
+                        .spawn_scoped(scope, move || draw_beside(rasterizer, target, handing))
+                        .ok()
+                });
+                let read = anticipating.reader().read(&parts);
+                let drawn = drawer.and_then(|drawer| match drawer.join() {
+                    Ok(drawn) => drawn,
+                    Err(panic) => std::panic::resume_unwind(panic),
+                });
+                (read, drawn)
+            });
+            (read, parts, drawn)
+        });
+        match read_and_drawn {
+            Some((read, parts, drawn)) => {
+                events.extend(viewer.anticipated(read, Some(&parts)));
+                self.drawn = drawn.map(|underway| (parts, underway));
+            }
+            None => events.extend(viewer.anticipate()),
+        }
+        events.extend(viewer.read_the_rest());
+        events
+    }
+
+    /// The page drawn while it was read, for the request that asks for its list at the target it
+    /// was drawn at — and nothing for any other, after which a request for that list at another
+    /// target has made the drawing a picture of nothing anybody will ask for.
+    fn take_for(&mut self, request: &viewer_core::RenderRequest) -> Option<render_cpu::Underway> {
+        let (parts, underway) = self.drawn.as_ref()?;
+        if !parts.is(&request.list) {
+            return None;
+        }
+        let matches = underway.target() == request.target;
+        let (_, underway) = self.drawn.take()?;
+        matches.then_some(underway)
+    }
+}
+
+/// The drawer's side of [`Turning::turn`]: every part the read hands over, drawn into one target as
+/// it arrives — `None` where nothing was handed over, or what was drawn cannot be the page.
+///
+/// It ends when the read's hand-over does: `Parts::during` concludes it however the read ends.
+fn draw_beside(
+    rasterizer: &CpuRasterizer,
+    target: pdf_render::TargetSpec,
+    parts: &pdf_model::progress::Parts,
+) -> Option<render_cpu::Underway> {
+    use pdf_model::progress::Handed;
+
+    // How long a take waits before it asks again; the hand-over wakes it the moment a part or the
+    // end arrives, so this bounds nothing but a wake that was missed.
+    const POLL: std::time::Duration = std::time::Duration::from_millis(5);
+    let mut underway = None;
+    loop {
+        match parts.take(POLL) {
+            Some(Handed::Part(part)) => {
+                let drawing = match underway.as_mut() {
+                    Some(drawing) => drawing,
+                    None => underway.insert(render_cpu::Underway::new(rasterizer, target)?),
+                };
+                if !drawing.take(part) {
+                    return None;
+                }
+            }
+            Some(Handed::Ended(Ok(_))) => return underway,
+            Some(Handed::Ended(Err(_))) => return None,
+            None => {}
+        }
     }
 }
 
@@ -699,5 +848,100 @@ mod tests {
             }
             other => panic!("the frame was {other:?}"),
         }
+    }
+
+    /// A document of two pages, the second of many marks — more than a read hands over in one
+    /// part — so that a turn to it is drawn while it is read.
+    fn a_turn_to_many_marks() -> Vec<u8> {
+        use std::fmt::Write as _;
+
+        let mut marks = String::new();
+        for y in (0..120_u32).step_by(2) {
+            for x in (0..200_u32).step_by(2) {
+                // Writing to a `String` cannot fail.
+                let _ = writeln!(marks, "{x} {y} 0.5 0.5 re f");
+            }
+        }
+        let page_two = format!("<< /Length {} >>\nstream\n{marks}endstream", marks.len());
+        let objects: [&[u8]; 5] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R >>",
+            page_two.as_bytes(),
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
+    }
+
+    /// A turn's page drawn while it is read is the page drawn whole, byte for byte, and the
+    /// drawing is held for the one request it can become (ADR 1871).
+    #[test]
+    fn a_turn_drawn_while_it_is_read_is_the_page_drawn_whole() {
+        use pdf_render::Rasterizer as _;
+        use viewer_core::{Command, DocumentId, Event, PageTarget, Viewer};
+
+        let mut viewer = Viewer::new(0, 0, 1.0);
+        let mut turning = super::Turning::default();
+        for command in [
+            Command::Resize {
+                width: 300,
+                height: 300,
+                scale: 1.0,
+            },
+            Command::Open {
+                id: DocumentId(1),
+                bytes: a_turn_to_many_marks().into(),
+                password: None,
+                fragment: None,
+            },
+        ] {
+            turning.told(&command);
+            viewer.handle(command).for_each(drop);
+        }
+        let mut rasterizer = render_cpu::CpuRasterizer::new();
+        let events = turning.turn(&mut viewer, &rasterizer, Command::GoTo(PageTarget::Next));
+        let requests: Vec<_> = events
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::NeedsRender(request) => Some(request),
+                _ => None,
+            })
+            .collect();
+        let [request] = requests.as_slice() else {
+            panic!(
+                "the turn asks for page two once, and asked {}",
+                requests.len()
+            );
+        };
+        assert_eq!(request.page, 1);
+        let underway = turning
+            .take_for(request)
+            .expect("page two was drawn while it was read");
+        assert!(turning.take_for(request).is_none(), "and is taken once");
+        let finished = underway.finish(&request.list).expect("it becomes the page");
+        let whole = rasterizer
+            .rasterize(&request.list, request.target)
+            .expect("the page draws");
+        assert_eq!(
+            (finished.width, finished.height),
+            (whole.width, whole.height)
+        );
+        assert!(finished.data == whole.data, "the same bytes");
     }
 }

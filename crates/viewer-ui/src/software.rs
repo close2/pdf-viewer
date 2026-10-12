@@ -655,6 +655,22 @@ pub fn surround(width: u32, height: u32) -> Result<Raster, SoftwareError> {
         .map_err(|problem| SoftwareError::Page { page: 0, problem })
 }
 
+/// A picture part-way through its draw — an [`Assembly`]'s, whose rows no strip has answered for
+/// yet are transparent — over the window's own ground, so that a window with no device shows
+/// [`surround`] there as the device window shows its medium (ADR 1831).
+///
+/// # Errors
+///
+/// As [`surround`].
+pub fn over_the_ground(picture: &Raster) -> Result<Raster, SoftwareError> {
+    match picture.format {
+        RasterFormat::Rgba8 => {}
+    }
+    let mut ground = surround(picture.width, picture.height)?;
+    source_over(&mut ground, picture);
+    Ok(ground)
+}
+
 /// Draws every overlay over `page`, in order, and answers the result.
 ///
 /// The overlays are window-pixel display lists — selection quads, the sidebar, the modal card —
@@ -753,7 +769,37 @@ mod tests {
         RasterFormat, Size, TargetSpec,
     };
 
-    use super::{compose, compose_pages, compose_pages_interruptibly, was_interrupted};
+    use super::{
+        compose, compose_pages, compose_pages_interruptibly, over_the_ground, surround,
+        was_interrupted,
+    };
+
+    /// A picture part-way through its draw shows the window's ground where no strip has answered
+    /// yet and its own pixels where one has (ADR 1831): the rows it holds are kept, and the
+    /// transparent rows are the surround's.
+    #[test]
+    fn a_picture_part_way_shows_the_ground_where_nothing_is_drawn_yet() {
+        let (width, height) = (4, 4);
+        let mut picture = page(width, height, [0, 0, 0, 0]);
+        let drawn = [200, 10, 10, 255];
+        let row = (width as usize).saturating_mul(4);
+        for pixel in picture.data[..row].chunks_exact_mut(4) {
+            pixel.copy_from_slice(&drawn);
+        }
+        let shown = over_the_ground(&picture).expect("a picture of a window's extent");
+        let ground = surround(width, height).expect("the window's ground");
+        assert!(
+            shown.data[..row]
+                .chunks_exact(4)
+                .all(|pixel| pixel == drawn),
+            "the drawn row is the picture's"
+        );
+        assert_eq!(
+            &shown.data[row..],
+            &ground.data[row..],
+            "the rest is the ground"
+        );
+    }
 
     /// A window-sized opaque page, one colour throughout.
     fn page(width: u32, height: u32, colour: [u8; 4]) -> Raster {

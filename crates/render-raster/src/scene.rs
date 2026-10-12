@@ -51,6 +51,10 @@ pub(crate) struct Encoder<'a> {
     /// every viewport and survives view changes (ADR 0702); one that did is rebuilt
     /// per view, exactly as every scene was before that ADR.
     consumed_view: bool,
+    /// The round dots this scene drew as lines, each true at another view only where that view
+    /// would draw it as a line too ([`crate::stroke::DotAsLine`], ADR 1877) — the one question a
+    /// scene of lines still asks of the view.
+    dots: Vec<crate::stroke::DotAsLine>,
     /// Whether the scene is built in page space (ADR 0702): geometry placed without
     /// the target, the viewport carrying it — and the one behavioural fork, §14.11.2.1's
     /// crop, emitted unconditionally because its early-out reads the view.
@@ -358,6 +362,7 @@ impl<'a> Encoder<'a> {
                 target.transform
             },
             consumed_view: false,
+            dots: Vec::new(),
             page_space,
             caches,
             transient,
@@ -377,6 +382,16 @@ impl<'a> Encoder<'a> {
     /// built scene is only correct at the target it was built for.
     pub(crate) fn consumed_view(&self) -> bool {
         self.consumed_view
+    }
+
+    /// The round dots this scene drew as lines (ADR 1877), handed to the scene that keeps them.
+    pub(crate) fn take_dots(&mut self) -> Vec<crate::stroke::DotAsLine> {
+        std::mem::take(&mut self.dots)
+    }
+
+    /// Notes a round dot drawn as a line, which a later view asks again before it keeps the scene.
+    pub(crate) fn keep_dot(&mut self, dot: crate::stroke::DotAsLine) {
+        self.dots.push(dot);
     }
 
     /// Hangs every clip chain in this list from §14.11.2.1's boundary.

@@ -13,7 +13,13 @@
 //! ZOOM_FRAME_ROUNDS=5        cargo run --release -p render-raster --example zoom_frame -- …
 //! ZOOM_FRAME_SEQUENCE=1,1.25,1.5,1.25,1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_COVERAGE=compute cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_DIGEST=1 cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_DIGEST` prints each frame's FNV-1a digest as it lands**, with whether it kept the
+//! scene of the frame before: a sequence whose second view kept the first's scene, against a run
+//! of that view alone, is the witness's test that a kept scene draws the fresh build's bytes
+//! (ADR 1877).
 //!
 //! **`ZOOM_FRAME_COVERAGE` names the coverage lane, and `cpu` — raster's own default — is what
 //! every earlier table was taken at.** It exists because the default is *not* the lane the shipped
@@ -189,6 +195,7 @@ fn main() {
         .and_then(|n| n.parse().ok())
         .unwrap_or(3);
     let instrument = variable("ZOOM_FRAME_ENCODE_PHASES").is_some_and(|on| on != "0");
+    let digest = variable("ZOOM_FRAME_DIGEST").is_some_and(|on| on != "0");
     // The one knob a *deterministic* run needs: callgrind counts instructions across every
     // thread raster's geometry phase spawns, so an attribution of the walk this example is
     // about is read from a single-threaded arm. Named like the corpus gate's own two knobs
@@ -275,9 +282,23 @@ fn main() {
                 raster: None,
                 overlays: &[],
             };
-            backend
+            let drawn = backend
                 .rasterize_frame(&frame)
                 .unwrap_or_else(|error| panic!("refused: {error}"));
+            if digest {
+                // FNV-1a over the frame's bytes, printed as it lands, beside whether the frame kept
+                // the scene of the one before (ADR 1877) — so a kept frame and a fresh one at the
+                // same view can be held equal across two runs.
+                let hash = drawn.data.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+                    (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+                });
+                println!(
+                    "digest {}x{} {hash:016x} scene kept {}",
+                    target.width,
+                    target.height,
+                    backend.last_frame().scene_kept
+                );
+            }
             let sample = Sample::of(backend.last_frame(), backend.last_phases());
             if slot.as_ref().is_none_or(|kept| sample.total < kept.total) {
                 *slot = Some(sample);

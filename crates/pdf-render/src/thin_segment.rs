@@ -72,6 +72,15 @@
 //!   falls under it; the processor's floor for a thin segment lifts every pixel such a mark
 //!   touches, which at a pixel's corner is four levels for a mark of two, and the device's line
 //!   lane has no floor and would round each quarter to nothing.
+//!
+//!   **Every degenerate subpath is that dot**, whatever spelling made it: §8.5.3.2 names "a
+//!   single-point closed path" (`m h`) beside "two or more points at the same coordinates", and
+//!   both are one point with a segment, so [`segment_ends`] reads either as a segment from the
+//!   point to itself (ADR 1875). **A dot inside a longer path is the same disc** where it is the
+//!   only mark in its pixels: [`thin_dots`] takes a path's dots out of it when every one of them is
+//!   admitted and no two share a pixel, because one fill of their union and one composite of each
+//!   then put the same area in every pixel. Where two do share one, separate composites would not
+//!   be the union §8.4.3.2's set is, and the whole path stays with [`crate::split_degenerate`].
 //! - **No dash.** §8.4.3.6's pattern cuts the segment into pieces this shape is not.
 //! - **A solid paint and §11.3.5's `Normal` blend.** The backend composites the coverage once with
 //!   the paint's own colour; a shading would be evaluated per pixel and a computed blend function
@@ -83,6 +92,7 @@
 //!   to four pixels; a larger mark is the general construction's, where it costs little beside its
 //!   pixels anyway.
 
+use crate::degenerate::subpaths;
 use crate::geom::{Path, PathCommand, Point, Transform};
 use crate::paint::{BlendMode, LineCap, Paint, Stroke};
 
@@ -126,9 +136,7 @@ pub fn thin_segment(
     if !stroke.dash_array.is_empty() || !to_device.preserves_axes() {
         return None;
     }
-    let [PathCommand::MoveTo(start), PathCommand::LineTo(end)] = path.commands() else {
-        return None;
-    };
+    let (start, end) = segment_ends(path)?;
     let determinant = to_device.determinant();
     if !(determinant.is_finite() && determinant != 0.0) {
         return None;
@@ -137,7 +145,7 @@ pub fn thin_segment(
     if !(width.is_finite() && width > 0.0) {
         return None;
     }
-    let (from, to) = (to_device.apply(*start), to_device.apply(*end));
+    let (from, to) = (to_device.apply(start), to_device.apply(end));
     // A segment of no length on the device is a disc under a round cap — the capsule at length
     // zero, which is §8.5.3.2's filled circle where the path's own points coincide and the same
     // set to the rounding where the transform merged two — and under the other two caps it has no
@@ -177,6 +185,122 @@ pub fn thin_segment(
 
 /// One level of an eight-bit coverage, as a share of a pixel: the least a pixel can be painted at.
 const ONE_LEVEL: f64 = 1.0 / 255.0;
+
+/// The two points of a path that is one straight segment, in the path's own space, or `None` for
+/// any other path: the shape [`thin_segment`] classifies, stated once so that a backend which
+/// sends the segment's own points reads the same paths as one (trap 2).
+///
+/// A move and a line is the segment. A move followed only by commands that stay at its point — a
+/// line to it, a curve whose three points are it, and a close as the last of them — is
+/// §8.5.3.2's degenerate subpath:
+///
+/// > If a subpath is degenerate (consists of a single-point closed path or of two or more points
+/// > at the same coordinates), the S operator shall paint it only if round line caps have been
+/// > specified, producing a filled circle centred at the single point.
+///
+/// and is the segment from that point to itself, the capsule at length zero (ADR 1857, ADR
+/// 1875). A lone move has no segment and paints nothing, so it is not one.
+#[must_use]
+pub fn segment_ends(path: &Path) -> Option<(Point, Point)> {
+    match path.commands() {
+        [PathCommand::MoveTo(from), PathCommand::LineTo(to)] => Some((*from, *to)),
+        [PathCommand::MoveTo(at), rest @ ..] => {
+            let (last, body) = rest.split_last()?;
+            let stays = |command: &PathCommand| match *command {
+                PathCommand::LineTo(p) => p == *at,
+                PathCommand::CurveTo(a, b, p) => a == *at && b == *at && p == *at,
+                PathCommand::MoveTo(_) | PathCommand::Close => false,
+            };
+            (body.iter().all(stays) && (stays(last) || *last == PathCommand::Close))
+                .then_some((*at, *at))
+        }
+        _ => None,
+    }
+}
+
+/// A stroked path's §8.5.3.2 dots as [`ThinSegment`]s, and the rest of the path without them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThinDots {
+    /// The subpaths that are not dots, to be stroked as the command asks, a closed subpath's
+    /// successor given back the move its close implied. Empty where every subpath was a dot.
+    pub rest: Path,
+    /// Each dot's centre in the path's own space, and the dot at the device transform — in the
+    /// order the path states them, which is the order they are composited in.
+    pub dots: Vec<(Point, ThinSegment)>,
+}
+
+/// The dots of a stroked path of more than one subpath, where each is [`thin_segment`]'s disc and
+/// the disc is the only mark in its pixels; `None` otherwise, and the whole path is then
+/// [`crate::split_degenerate`]'s.
+///
+/// A path of one subpath is [`thin_segment`]'s question and is `None` here. **Every dot must be
+/// admitted, and no two may meet one pixel** (the module comment's population): a pixel two discs
+/// share holds the area of their union in one fill and less than their sum in two composites, so
+/// the separate discs are the set only where they never meet. Admitting some of a path's dots and
+/// leaving the others to a fill would bring the same question back between the two groups, so the
+/// answer is for the whole path. The stroked rest and the dots were two draws before and are two
+/// draws here: the rest first, as [`crate::split_degenerate`]'s callers draw it.
+#[must_use]
+pub fn thin_dots(
+    path: &Path,
+    stroke: &Stroke,
+    paint: &Paint,
+    blend: BlendMode,
+    to_device: Transform,
+) -> Option<ThinDots> {
+    if stroke.cap != LineCap::Round
+        || !matches!(path.commands().first(), Some(PathCommand::MoveTo(_)))
+        || subpaths(path).nth(1).is_none()
+        || !subpaths(path).any(|s| s.degenerate && s.segments > 0)
+    {
+        return None;
+    }
+    let mut rest = Path::new();
+    let mut dots = Vec::new();
+    let mut taken: Vec<(i64, i64)> = Vec::new();
+    for subpath in subpaths(path) {
+        let commands = &path.commands()[subpath.range()];
+        if !(subpath.degenerate && subpath.segments > 0) {
+            // A subpath that begins after a close begins where the closed one did (Table 58), and
+            // that point is lost with the dot it may have been, so it is stated.
+            if !matches!(commands.first(), Some(PathCommand::MoveTo(_))) {
+                rest.push(PathCommand::MoveTo(subpath.start));
+            }
+            rest.extend(commands);
+            continue;
+        }
+        let mut dot = Path::new();
+        dot.push(PathCommand::MoveTo(subpath.start));
+        dot.push(PathCommand::LineTo(subpath.start));
+        let thin = thin_segment(&dot, stroke, paint, blend, to_device)?;
+        let block = thin.pixels()?;
+        for row in 0..block.rows {
+            for column in 0..block.columns {
+                taken.push(pixel_index(block.column, column, block.row, row)?);
+            }
+        }
+        dots.push((subpath.start, thin));
+    }
+    // Sorted, a pixel two discs meet is two equal neighbours: a path's dots are asked once each.
+    taken.sort_unstable();
+    if taken.windows(2).any(|pair| pair[0] == pair[1]) {
+        return None;
+    }
+    Some(ThinDots { rest, dots })
+}
+
+/// A pixel of a [`PixelBlock`] as whole numbers, or `None` past what an `i64` holds.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the value is a whole number checked to lie inside i64's range before the cast"
+)]
+fn pixel_index(column: f64, across: u8, row: f64, down: u8) -> Option<(i64, i64)> {
+    let whole = |v: f64| (v.is_finite() && v.abs() < 9.0e15).then_some(v as i64);
+    Some((
+        whole(column + f64::from(across))?,
+        whole(row + f64::from(down))?,
+    ))
+}
 
 /// A rectangle in device space, by its four sides, in the `f64` the coverage is computed in.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -587,7 +711,7 @@ pub fn disc_in_triangle(a: (f64, f64), b: (f64, f64)) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ThinSegment, disc_in_triangle, thin_segment};
+    use super::{ThinSegment, disc_in_triangle, segment_ends, thin_dots, thin_segment};
     use crate::geom::{Path, PathCommand, Point, Transform};
     use crate::paint::{BlendMode, Color, LineCap, Paint, Stroke};
 
@@ -855,5 +979,98 @@ mod tests {
             classify(&segment(&[(3.5, 7.75), (4.25, 7.75)]), &butt, at).expect("in the block");
         assert!((thin.coverage(3.0, 7.0) - 0.25).abs() < 1e-12);
         assert!((thin.coverage(4.0, 7.0) - 0.125).abs() < 1e-12);
+    }
+
+    #[test]
+    fn every_spelling_of_a_degenerate_subpath_is_the_segment_from_its_point_to_itself() {
+        let (p, q) = (Point::new(3.5, 7.5), Point::new(4.0, 7.5));
+        let path = |commands: &[PathCommand]| {
+            let mut path = Path::new();
+            for command in commands {
+                path.push(*command);
+            }
+            path
+        };
+        let (m, h) = (PathCommand::MoveTo(p), PathCommand::Close);
+        let (to_p, to_q) = (PathCommand::LineTo(p), PathCommand::LineTo(q));
+        let curve_at_p = PathCommand::CurveTo(p, p, p);
+        // §8.5.3.2's "single-point closed path" and its "two or more points at the same
+        // coordinates", in each spelling a content stream can give them.
+        for dot in [
+            vec![m, h],
+            vec![m, to_p],
+            vec![m, to_p, h],
+            vec![m, to_p, to_p],
+            vec![m, curve_at_p],
+            vec![m, curve_at_p, h],
+        ] {
+            assert_eq!(segment_ends(&path(&dot)), Some((p, p)), "{dot:?}");
+        }
+        assert_eq!(segment_ends(&path(&[m, to_q])), Some((p, q)));
+        // A lone move has no segment; a second segment, a close before the end, or a curve off
+        // the point is not one segment.
+        for other in [
+            vec![m],
+            vec![m, to_q, h],
+            vec![m, h, to_p],
+            vec![m, to_p, to_q],
+            vec![m, PathCommand::CurveTo(p, q, p)],
+            vec![to_p],
+        ] {
+            assert_eq!(segment_ends(&path(&other)), None, "{other:?}");
+        }
+        // And `m h` is classified as the dot `m l` to the same point is.
+        let round = stroke(0.8, LineCap::Round);
+        let at = Transform::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+        assert_eq!(
+            classify(&path(&[m, h]), &round, at),
+            classify(&path(&[m, to_p]), &round, at)
+        );
+        assert!(classify(&path(&[m, h]), &round, at).is_some());
+        assert!(classify(&path(&[m, h]), &stroke(0.8, LineCap::Square), at).is_none());
+    }
+
+    #[test]
+    fn a_dot_inside_a_longer_path_is_taken_out_where_no_other_dot_meets_its_pixels() {
+        let at = Transform::new(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+        let round = stroke(0.8, LineCap::Round);
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(1.0, 1.0)));
+        path.push(PathCommand::LineTo(Point::new(20.0, 1.0)));
+        path.push(PathCommand::MoveTo(Point::new(5.5, 9.5)));
+        path.push(PathCommand::Close);
+        // After a close the next subpath begins where the closed one did.
+        path.push(PathCommand::LineTo(Point::new(5.5, 15.0)));
+        path.push(PathCommand::MoveTo(Point::new(12.5, 9.5)));
+        path.push(PathCommand::LineTo(Point::new(12.5, 9.5)));
+        let thin =
+            thin_dots(&path, &round, &black(), BlendMode::Normal, at).expect("two lone dots");
+        let centres: Vec<Point> = thin.dots.iter().map(|(centre, _)| *centre).collect();
+        assert_eq!(centres, vec![Point::new(5.5, 9.5), Point::new(12.5, 9.5)]);
+        assert!(thin.dots.iter().all(|(_, dot)| dot.from == dot.to));
+        assert_eq!(
+            thin.rest.commands(),
+            &[
+                PathCommand::MoveTo(Point::new(1.0, 1.0)),
+                PathCommand::LineTo(Point::new(20.0, 1.0)),
+                PathCommand::MoveTo(Point::new(5.5, 9.5)),
+                PathCommand::LineTo(Point::new(5.5, 15.0)),
+            ]
+        );
+        // Two dots that share a pixel are a union, not two composites: the path is declined whole.
+        let mut shared = path.clone();
+        shared.push(PathCommand::MoveTo(Point::new(12.9, 9.5)));
+        shared.push(PathCommand::Close);
+        assert!(thin_dots(&shared, &round, &black(), BlendMode::Normal, at).is_none());
+        // A dot the kernel does not take — under a level everywhere — keeps the whole path out.
+        let faint = stroke(0.02, LineCap::Round);
+        assert!(thin_dots(&path, &faint, &black(), BlendMode::Normal, at).is_none());
+        // A path of one subpath is `thin_segment`'s question, and other caps paint no dot at all.
+        let mut lone = Path::new();
+        lone.push(PathCommand::MoveTo(Point::new(5.5, 9.5)));
+        lone.push(PathCommand::Close);
+        assert!(thin_dots(&lone, &round, &black(), BlendMode::Normal, at).is_none());
+        let butt = stroke(0.8, LineCap::Butt);
+        assert!(thin_dots(&path, &butt, &black(), BlendMode::Normal, at).is_none());
     }
 }

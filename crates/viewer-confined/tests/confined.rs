@@ -444,6 +444,115 @@ fn turning_a_page_and_magnifying_it_both_draw_behind_the_filter() {
     );
 }
 
+/// Two pages, the second of six thousand marks — more than a read hands over in one part, so a
+/// turn to it is drawn while it is read (ADR 1871) — in a window small enough that the page
+/// crosses as pixels.
+fn a_turn_to_many_marks() -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let mut marks = String::new();
+    for y in (0..120_u32).step_by(2) {
+        for x in (0..200_u32).step_by(2) {
+            // Writing to a `String` cannot fail.
+            let _ = writeln!(marks, "{x} {y} 0.5 0.5 re f");
+        }
+    }
+    let page_two = format!("<< /Length {} >>\nstream\n{marks}endstream", marks.len());
+    let objects: [&[u8]; 5] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 5 0 R >>",
+        page_two.as_bytes(),
+    ];
+    let mut out = b"%PDF-2.0\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = out.len();
+    out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+    for offset in offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+/// **A turn's page drawn while it is read, behind the filter, is the page drawn here** (ADR
+/// 1871): the drawer is a thread of the confined process, and what it draws crosses as the
+/// page's pixels, byte for byte the one-strip draw of this side.
+#[test]
+fn a_turn_drawn_while_it_is_read_behind_the_filter_is_the_page_drawn_here() {
+    const SMALL: (u32, u32) = (120, 120);
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    let resize = Command::Resize {
+        width: SMALL.0,
+        height: SMALL.1,
+        scale: 1.0,
+    };
+    confined.handle(&resize).expect("a resize crosses");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes: a_turn_to_many_marks().into(),
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+    confined
+        .handle(&Command::GoTo(PageTarget::Next))
+        .expect("a page turn crosses");
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds the frame it drew");
+    };
+    let [frame] = frames.as_slice() else {
+        panic!("one page is on the screen: {} frames", frames.len());
+    };
+    assert_eq!(frame.page, 1);
+    let viewer_confined::Payload::Raster(raster) = &frame.payload else {
+        panic!("the page crosses as the pixels the worker drew, not as its marks");
+    };
+
+    let mut viewer = Viewer::new(SMALL.0, SMALL.1, 1.0);
+    let mut rasterizer = CpuRasterizer::new().with_strips(1);
+    let mut pending = vec![
+        Command::Open {
+            id: DOCUMENT,
+            bytes: a_turn_to_many_marks().into(),
+            password: None,
+            fragment: None,
+        },
+        Command::GoTo(PageTarget::Next),
+    ];
+    pending.reverse();
+    while let Some(command) = pending.pop() {
+        for event in viewer.handle(command) {
+            if let Event::NeedsRender(request) = event {
+                let drawn = rasterizer
+                    .rasterize(&request.list, request.target)
+                    .expect("the CPU backend draws this page");
+                pending.push(Command::RenderReady {
+                    token: request.token,
+                    rendered: Rendered::Raster(drawn),
+                });
+            }
+        }
+    }
+    let (page_here, raster_here, _) = frame_here(&viewer);
+    assert_eq!(page_here, 1);
+    assert_eq!(
+        differing_bytes(&raster.data, &raster_here.data),
+        0,
+        "the confined process drew a different page 2"
+    );
+}
+
 /// The confinement itself, as the worker reports it.
 ///
 /// A property of the machine as much as of the code, and deliberately so: this kernel supports

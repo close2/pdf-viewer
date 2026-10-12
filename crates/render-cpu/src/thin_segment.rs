@@ -7,26 +7,33 @@
 //! blending its pixels — and none of it was the area: a stroker's outline, a scan converter's edges
 //! and a compositing pipeline built per mark. ADR 1829 is this construction.
 //!
-//! # Composited the way every other mark is
+//! # Composited at its area, rounded once
 //!
-//! The coverage meets the clip and the soft mask exactly as `scan::intersected` composes a mark it
-//! measured itself: §10.7.4's set `C · S` by `min`, §11.6.5's value `S` by a product, with
-//! `scan::scaled`'s rounding, so a mark drawn here and the same mark drawn there are one function of
-//! their coverage. The paint is then laid over the backdrop by §11.3.6's `Normal` compositing,
-//! `cr = (1 − αs) · cb + cs` on premultiplied values, written out in the arithmetic `tiny-skia`'s
-//! high-precision pipeline uses for a solid colour drawn through a mask — the coverage as a level
-//! divided by 255, the backdrop read as a level times the reciprocal of 255, and the result rounded
-//! to the nearest level, ties to even — so that a pixel this module and the library are both handed
-//! at one coverage comes out as the same byte (ADR 0418 is why that pipeline is the high-precision
-//! one).
+//! The area is composited as it was measured, not as an eight-bit level: one rounding per mark —
+//! the pixel's own, when the result is stored — and not two (ADR 1876). A page of such marks lays
+//! them over each other by the hundred, each through §11.3.6 one at a time, and a level taken off
+//! every mark's area before its composite is an error of up to half a level that the marks of one
+//! column share, so it adds instead of cancelling: on the witness drawing it put the processor
+//! 0.36 of a level per byte from the exact composition of the same areas, a quarter of a level
+//! darker on average and 14 at worst, where one rounding per mark is 0.28 and unbiased — and it was
+//! the whole of what the graphics device's line lane, which composites the same areas unrounded,
+//! drew differently.
 //!
-//! # The level, and the one place it is lifted
+//! The coverage meets the clip and the soft mask as `scan::intersected` composes a mark it measured
+//! itself, as factors: §10.7.4's set `C · S` by `min`, §11.6.5's value `S` by a product, each read
+//! as its level over 255. The paint is then laid over the backdrop by §11.3.6's `Normal`
+//! compositing, `cr = (1 − αs) · cb + cs` on premultiplied values, in the order of operations
+//! `tiny-skia`'s high-precision pipeline uses for a solid colour drawn through a mask — the backdrop
+//! read as a level times the reciprocal of 255, `d · (1 − αs) + s` unfused, the result rounded to
+//! the nearest level, ties to even — so that a coverage that is a whole level comes out as the byte
+//! the library would store for it (ADR 0418 is why that pipeline is the high-precision one).
 //!
-//! A coverage is rounded to the nearest level. A mark none of whose pixels reaches one level is the
-//! exception `scan::mask_rectangle` makes for a rectangle, for the same clause and on the same
-//! terms (ADR 1374): every pixel it touches is stated at one level, because §10.7.4's purpose is that
-//! "no shape ever disappears as a result of unfavourable placement relative to the device pixel
-//! grid".
+//! # The one place a coverage is lifted
+//!
+//! A mark none of whose pixels reaches one level is the exception `scan::mask_rectangle` makes for a
+//! rectangle, for the same clause and on the same terms (ADR 1374): every pixel it touches is stated
+//! at one level, because §10.7.4's purpose is that "no shape ever disappears as a result of
+//! unfavourable placement relative to the device pixel grid".
 
 use pdf_render::{BlendMode, Paint, Path, Stroke, Transform};
 
@@ -66,16 +73,76 @@ pub(crate) fn draw(
     ) else {
         return false;
     };
-    let top = to_device.top;
+    fits(pixmap, clip) && paint_segment(pixmap, thin, colour, to_device.top, clip)
+}
+
+/// The dots of the stroke `path` that [`pdf_render::thin_dots`] takes out of it, where the clip's
+/// buffers match the pixmap so that each can be painted here; `None` otherwise, and the path is
+/// drawn whole by the ordinary construction.
+///
+/// The caller strokes [`pdf_render::ThinDots::rest`] and then paints the dots with
+/// [`paint_segment`], the order `split_degenerate`'s rest and dots are drawn in (ADR 1875).
+pub(crate) fn dots(
+    pixmap: &tiny_skia::PixmapMut<'_>,
+    (path, stroke, paint): (&Path, &Stroke, &Paint),
+    (transform, to_device): (Transform, ToDevice),
+    clip: scan::Clip<'_>,
+) -> Option<pdf_render::ThinDots> {
+    if !matches!(paint, Paint::Solid(_)) || !fits(pixmap, clip) {
+        return None;
+    }
+    pdf_render::thin_dots(
+        path,
+        stroke,
+        paint,
+        BlendMode::Normal,
+        transform.then(to_device.page),
+    )
+}
+
+/// Whether the clip's buffers are the pixmap's size — the pairing `scan::intersected` declines
+/// otherwise, and which [`paint_segment`] needs to read them pixel for pixel.
+fn fits(pixmap: &tiny_skia::PixmapMut<'_>, clip: scan::Clip<'_>) -> bool {
     let (width, height) = (pixmap.width(), pixmap.height());
     let (bound, value) = clip.factors();
-    if bound.is_some_and(|bound| bound.width() != width || bound.height() != height) {
+    bound.is_none_or(|bound| bound.width() == width && bound.height() == height)
+        && value.is_none_or(|value| value.len() == (width as usize).saturating_mul(height as usize))
+}
+
+/// Paints the dots [`dots`] took out of a stroke, after the stroke's rest, in the stroke's paint.
+pub(crate) fn paint_dots(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    thin: Option<pdf_render::ThinDots>,
+    paint: &Paint,
+    top: u32,
+    clip: scan::Clip<'_>,
+) {
+    let (Some(thin), Paint::Solid(colour)) = (thin, paint) else {
+        return;
+    };
+    for (_, dot) in thin.dots {
+        // `dots` admitted the path only where the clip fits the pixmap, which is the one condition
+        // under which this paints nothing, and only in a solid paint.
+        paint_segment(pixmap, dot, *colour, top, clip);
+    }
+}
+
+/// Paints one admitted segment in `colour` through `clip`, its rows moved from the page's grid to
+/// the surface's, which holds the page from row `top`. `false`, with nothing painted, where its
+/// block is not stated or the clip does not [`fits`] the pixmap.
+pub(crate) fn paint_segment(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    thin: pdf_render::ThinSegment,
+    colour: pdf_render::Color,
+    top: u32,
+    clip: scan::Clip<'_>,
+) -> bool {
+    if !fits(pixmap, clip) {
         return false;
     }
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let (bound, value) = clip.factors();
     let stride = width as usize;
-    if value.is_some_and(|value| value.len() != stride.saturating_mul(height as usize)) {
-        return false;
-    }
     let Some((block, areas)) = thin.cells() else {
         return false;
     };
@@ -107,22 +174,23 @@ pub(crate) fn draw(
         let (Some(x), Some(y)) = (index_of(x, width), index_of(y, height)) else {
             continue;
         };
-        let level = if lifted && coverage > 0.0 {
-            1
+        let area = if lifted && coverage > 0.0 {
+            ONE_LEVEL
         } else {
-            level_of(coverage)
+            coverage.clamp(0.0, 1.0)
         };
         let at = y.saturating_mul(stride).saturating_add(x);
+        let level = |byte: u8| f64::from(byte) / 255.0;
         let mask = match (bound, value) {
-            (None, None) => level,
-            (Some(bound), None) => bound.data().get(at).map_or(0, |&b| level.min(b)),
-            (None, Some(value)) => value.get(at).map_or(0, |&s| scan::scaled(level, s)),
+            (None, None) => area,
+            (Some(bound), None) => bound.data().get(at).map_or(0.0, |&b| area.min(level(b))),
+            (None, Some(value)) => value.get(at).map_or(0.0, |&s| area * level(s)),
             (Some(bound), Some(value)) => match (bound.data().get(at), value.get(at)) {
-                (Some(&b), Some(&s)) => scan::scaled(level, s).min(b),
-                _ => 0,
+                (Some(&b), Some(&s)) => (area * level(s)).min(level(b)),
+                _ => 0.0,
             },
         };
-        if mask == 0 {
+        if mask <= 0.0 {
             continue;
         }
         let byte = at.saturating_mul(4);
@@ -144,29 +212,20 @@ fn index_of(value: f64, limit: u32) -> Option<usize> {
     (value >= 0.0 && value < f64::from(limit)).then_some(value as usize)
 }
 
-/// A coverage in `0.0..=1.0` as the level an eight-bit mask holds, rounded to nearest.
+/// §11.3.6's `Normal` compositing of a premultiplied colour at coverage `mask`, in `0.0..=1.0`,
+/// over one premultiplied pixel, in the high-precision pipeline's own order of operations: the
+/// source scaled by the coverage, the backdrop read as `level · (1 / 255)`, `d · (1 − αs) + s`
+/// unfused, and the result clamped and rounded to the nearest level, ties to even, as
+/// `_mm_cvtps_epi32` does. The coverage is narrowed to `f32` here, where the pipeline's own
+/// arithmetic is, and not to a level (the module comment's first section).
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "the value is a coverage clamped to 0..=1 multiplied by 255, so the cast is in range by \
-              construction"
+    reason = "the coverage is in 0..=1, which f32 holds to its precision, and the result is clamped \
+              to 0..=1 and multiplied by 255 before the cast, so it is in u8's range by construction"
 )]
-fn level_of(coverage: f64) -> u8 {
-    (coverage.clamp(0.0, 1.0) * 255.0).round() as u8
-}
-
-/// §11.3.6's `Normal` compositing of a premultiplied colour at coverage `mask` over one
-/// premultiplied pixel, in the high-precision pipeline's own order of operations: the source scaled
-/// by `mask / 255`, the backdrop read as `level · (1 / 255)`, `d · (1 − αs) + s` unfused, and the
-/// result clamped and rounded to the nearest level, ties to even, as `_mm_cvtps_epi32` does.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the value is clamped to 0..=1 and multiplied by 255 before the cast, so it is in u8's \
-              range by construction"
-)]
-fn source_over(pixel: &mut [u8], colour: tiny_skia::PremultipliedColor, mask: u8) {
-    let scale = f32::from(mask) / 255.0;
+fn source_over(pixel: &mut [u8], colour: tiny_skia::PremultipliedColor, mask: f64) {
+    let scale = mask as f32;
     let source = [
         colour.red() * scale,
         colour.green() * scale,

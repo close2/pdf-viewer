@@ -71,26 +71,19 @@ path = "doc/ISO_32000-2_sponsored_EC3.pdf"
 page = 101
 commands = 3007
 # observed 7.20 .. 8.99 ms (turn), 1.57 .. 1.72 ms (step)
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 5.65 ms against a floor of 6.1 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 5.65 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 4.83 ms in the 2026-10-06 table of
+# `doc/performance.md` and 3.07 now, with the interpretation 1.49 → 1.32. With ADR 1861's lexer
+# change compiled out, one clock hold reads 5.47 ms without it against HEAD's 5.49, so the lexer
+# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
+# since it or the day's machine — is not separated.
 turn_ms = 4.8 .. 10.8
 # seventh frame of a long-lived device (ADR 1607): observed 7.20 .. 8.10 ms
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 5.67 ms against a floor of 6.1 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 5.67 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 5.07 ms in the table's seventh row
+# and 3.36 now. With ADR 1861's lexer change compiled out, one clock hold reads 5.64 ms without it
+# against HEAD's 5.58, so the lexer moved none of it (ADR 1870). What moved the stage since the
+# table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 4.8 .. 9.8
 step_ms = 1.3 .. 2.1
 why = "text, 3 007 commands: the turn is raster's encode of the glyphs on the fan-out, which runs at the clock the processor gives the cores its threads wake on, so a child's figure is 7.2 to about 9.5 ms by that clock and not by the tree, and the band spans both ends (ADR 1519)"
@@ -103,19 +96,20 @@ commands = 18
 # 10.23 .. 10.98 on 2026-10-06, five gate runs and three frame_budget runs, pinned, load 1.2 to 2.8
 turn_ms = 7.3 .. 10.8
 # seventh frame of a long-lived device (ADR 1607): observed 9.63 .. 11.31 ms
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 8.03 ms against a floor of 8.1 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 8.03 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is what the gate prints no stage for — the
+# elsewhere 2.13 → 1.67 ms and the scene; the encode, 1.35 → 1.33, did not move. With ADR 1861's
+# lexer change compiled out, one clock hold reads 8.18 ms without it against HEAD's 8.27, so the
+# lexer moved none of it (ADR 1870). What moved the stage since the table — the device lane's
+# changes since it or the day's machine — is not separated.
 seventh_ms = 6.8 .. 13.6
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 8.38 ms at the least against a floor of 8.4, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 8.38 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the scene with what else the gate prints no
+# stage for, 5.09 ms in the 2026-10-06 table of `doc/performance.md` (the scene 3.28 of it) and 3.13
+# now; the encode, 4.68 → 4.80, and the transfer, 0.52, did not move. With ADR 1861's lexer change
+# compiled out, one clock hold reads 8.39 ms without it against HEAD's 8.45, so the lexer moved none
+# of it (ADR 1870). What moved the stage since the table — the device lane's changes since it or the
+# day's machine — is not separated.
 step_ms = 7.1 .. 12.5
 why = "§8.7.4.5.7 patch meshes: the scene walk divides the mesh rows across the pool (ADR 1259). A turn past 10.8 ms is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores, which read 9.3 to 9.8 ms where cold cores after a second's idle read 11.2 to 11.7 (ADR 1577), and the busy end is the cores the child is not pinned to kept busy, 13.3 to 13.9 at a load average the ceiling admits (ADR 1556), so the band holds a machine neither idle nor saturated"
 
@@ -126,9 +120,12 @@ commands = 2
 # observed 29.92 .. 33.10 ms (turn), 2.99 .. 3.31 ms (step)
 turn_ms = 25.4 .. 39.8
 # seventh frame of a long-lived device (ADR 1607): observed 32.36 .. 34.98 ms
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 27.03 ms at the least against a floor of 27.5, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 27.03 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the interpretation, which is the photograph's
+# decode: 29.20 ms in the table's seventh row and 25.15 in the turn's now. With ADR 1861's lexer
+# change compiled out, one clock hold reads 27.79 ms without it against HEAD's 27.63, so the lexer
+# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
+# since it or the day's machine — is not separated.
 seventh_ms = 22.9 .. 42.0
 step_ms = 2.5 .. 4.0
 why = "one 5 280 × 3 792 photograph whose codestream has no EOI, decoded in bands at its restart intervals (ADRs 1433, 1513): 69 ms where the bands are declined, which is the regression this row exists to see"
@@ -141,9 +138,13 @@ commands = 70
 turn_ms = 42.6 .. 61.8
 # seventh frame of a long-lived device (ADR 1607): observed 49.31 .. 59.53 ms
 seventh_ms = 41.9 .. 71.5
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 13.24 ms at the least against a floor of 12.5, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 13.24 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the transfer, 6.61 ms in the 2026-10-06 table
+# of `doc/performance.md` and 5.86 now, and what the gate prints no stage for, 1.54 → 1.14; the
+# encode, 6.41 → 6.49, did not move. With ADR 1861's lexer change compiled out, one clock hold reads
+# 13.52 ms without it against HEAD's 13.49, so the lexer moved none of it (ADR 1870). What moved the
+# stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 step_ms = 11.2 .. 18.3
 why = "four photographs and four DCTDecode masks with no restart interval, decoded beside each other on the pool (ADRs 1321, 1505)"
 
@@ -154,19 +155,19 @@ commands = 513
 # observed 21.55 .. 22.38 ms (turn, ten runs re-banded for ADR 1519), 6.01 .. 7.18 ms (step)
 turn_ms = 18.3 .. 26.9
 # seventh frame of a long-lived device (ADR 1607): observed 21.90 .. 23.18 ms
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 19.43 ms at the least against a floor of 18.6, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 19.43 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the interpretation, 16.61 ms in the table's
+# seventh row and 15.85 in the turn's now, and the transfer, which this row does not print and the
+# turn's reads 3.94 → 2.70. With ADR 1861's lexer change compiled out, one clock hold reads 19.53 ms
+# without it against HEAD's 20.04, so the lexer moved none of it (ADR 1870). What moved the stage
+# since the table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 16.5 .. 27.9
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 4.47 ms against a floor of 5.1 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 4.47 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the transfer, 4.98 ms in the 2026-10-06 table
+# of `doc/performance.md` and 3.65 now. With ADR 1861's lexer change compiled out, one clock hold
+# reads 4.39 ms without it against HEAD's 4.47, so the lexer moved none of it (ADR 1870). What moved
+# the stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 step_ms = 3.7 .. 8.7
 why = "one photograph under a /Matte mask, its frame decoded beside its mask (ADR 1481) and the mask's opacity written by the inversion, the multiplication's pass over 51 MB gone (ADR 1519): 24 ms where that pass is made"
 
@@ -175,15 +176,21 @@ path = "doc/pdf.js/test/pdfs/images.pdf"
 page = 1
 commands = 2
 # observed 34.51 .. 36.86 ms (turn), 9.56 .. 10.15 ms (step)
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 30.42 ms at the least against a floor of 29.3, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 30.42 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the transfer, 6.13 ms in the 2026-10-06 table
+# of `doc/performance.md` and 3.09 now, with the interpretation 25.74 → 24.76. With ADR 1861's lexer
+# change compiled out, one clock hold reads 30.76 ms without it against HEAD's 31.00, so the lexer
+# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
+# since it or the day's machine — is not separated.
 turn_ms = 25.8 .. 44.3
 # seventh frame of a long-lived device (ADR 1607): observed 33.01 .. 34.00 ms
 seventh_ms = 28.0 .. 40.8
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 8.27 ms at the least against a floor of 8.1, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 8.27 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the transfer, 4.64 ms in the 2026-10-06 table
+# of `doc/performance.md` and 3.96 now, and the encode, 3.33 → 2.94. With ADR 1861's lexer change
+# compiled out, one clock hold reads 8.27 ms without it against HEAD's 8.09, so the lexer moved none
+# of it (ADR 1870). What moved the stage since the table — the device lane's changes since it or the
+# day's machine — is not separated.
 step_ms = 7.0 .. 12.2
 why = "this tree's own sample unpacking and soft-mask combination (ADRs 1433, 1469)"
 
@@ -197,19 +204,18 @@ commands = 959
 # observed 15.80 .. 17.08 ms (turn), 8.22 .. 8.62 ms (step)
 turn_ms = 13.4 .. 20.5
 # seventh frame of a long-lived device (ADR 1607): observed 15.97 .. 16.90 ms
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 14.29 ms at the least against a floor of 13.5, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 14.29 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the encode, 10.98 ms in the table's seventh
+# row and 9.73 now. With ADR 1861's lexer change compiled out, one clock hold reads 14.21 ms without
+# it against HEAD's 14.15, so the lexer moved none of it (ADR 1870). What moved the stage since the
+# table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 12.1 .. 20.3
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 6.77 ms against a floor of 6.9 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 6.77 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 6.18 ms in the 2026-10-06 table of
+# `doc/performance.md` and 5.47 now, and what the gate prints no stage for, 1.46 → 0.85. With ADR
+# 1861's lexer change compiled out, one clock hold reads 6.49 ms without it against HEAD's 6.50, so
+# the lexer moved none of it (ADR 1870). What moved the stage since the table — the device lane's
+# changes since it or the day's machine — is not separated.
 step_ms = 5.7 .. 10.4
 why = "curved strokes bent tighter than their half-width: two chords a flat piece (ADR 1443) and the tiling of a tight bend (ADR 1375) are its encode"
 
@@ -218,26 +224,19 @@ path = "doc/pdf.js/test/pdfs/issue19802.pdf"
 page = 1
 commands = 1032
 # observed 6.19 .. 6.73 ms (turn), 1.33 .. 1.44 ms (step)
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 4.72 ms against a floor of 5.2 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 4.72 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 4.30 ms in the 2026-10-06 table of
+# `doc/performance.md` and 3.43 now. With ADR 1861's lexer change compiled out, one clock hold reads
+# 4.71 ms without it against HEAD's 4.66, so the lexer moved none of it (ADR 1870). What moved the
+# stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 turn_ms = 4.0 .. 8.1
 # seventh frame of a long-lived device (ADR 1607): observed 5.94 .. 6.31 ms
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 4.68 ms against a floor of 5.0 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 4.68 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 4.45 ms in the table's seventh row
+# and 3.42 now. With ADR 1861's lexer change compiled out, one clock hold reads 4.45 ms without it
+# against HEAD's 4.46, so the lexer moved none of it (ADR 1870). What moved the stage since the
+# table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 3.9 .. 7.6
 step_ms = 1.1 .. 1.8
 why = "1 032 commands of text and rules"
@@ -250,23 +249,27 @@ path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 page = 1
 commands = 152
 # observed 10.39 .. 10.93 ms (turn), 11.04 .. 11.71 ms (step)
-# Floor moved down at batch eighty-one's merge, where the merge's own run of this gate read
-# 8.55 ms against a floor of 8.8 and the batch's changes landed together: the device's zero-length
-# strokes and its offscreen frame drawn from the marks that reach it (ADRs 1857, 1858 — round 1510's
-# run of this gate on its own tree read six figures under their floors already) and the content
-# lexer's string test (ADR 1861), which is in the turn's interpretation. The merge's A/B of the launch
-# gate (HEAD and the batch in one hold) read HEAD's page turn under its own floor as well, so part of
-# every move here is the day's machine and the share is not separated. This file's rule over the
-# merge's figure (× 0.85, rounded down to a tenth); the ceilings stay. The `commands` witness is
-# unchanged, so the instrument still draws what it drew.
+# Floor at this file's rule over batch eighty-one's merge figure, 8.55 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 8.94 ms in the 2026-10-06 table of
+# `doc/performance.md` and 7.21 to 8.44 now — this row's encode spreads by a millisecond between
+# children, which is also why HEAD read the slower of the two arms here. With ADR 1861's lexer
+# change compiled out, one clock hold reads 8.54 ms without it against HEAD's 9.74, so the lexer
+# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
+# since it or the day's machine — is not separated.
 turn_ms = 7.2 .. 13.2
 # seventh frame of a long-lived device (ADR 1607): observed 9.92 .. 10.60 ms
-# Floor moved down with the turn's above, for the same reason: the merge's quiet re-run read 8.20 ms
-# against a floor of 8.4 — the same page on a device that has lived, so the same win; × 0.85, rounded down.
+# Floor at this file's rule over batch eighty-one's merge figure, 8.20 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 8.61 ms in the table's seventh row
+# and 7.20 now. With ADR 1861's lexer change compiled out, one clock hold reads 8.47 ms without it
+# against HEAD's 8.26, so the lexer moved none of it (ADR 1870). What moved the stage since the
+# table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 6.9 .. 12.8
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 9.51 ms at the least against a floor of 9.3, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 9.51 ms (× 0.85, rounded down to a
+# tenth); the ceiling stays. The stage that moved is the encode, 10.43 ms in the 2026-10-06 table of
+# `doc/performance.md` and 9.13 now. With ADR 1861's lexer change compiled out, one clock hold reads
+# 9.57 ms without it against HEAD's 9.72, so the lexer moved none of it (ADR 1870). What moved the
+# stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 step_ms = 8.0 .. 14.1
 why = "stroked Type 3 glyphs in a tiling under a residue clip: each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
 
@@ -275,18 +278,26 @@ path = "doc/pdf.js/test/pdfs/bug1743245.pdf"
 page = 1
 commands = 269
 # observed 40.24 .. 43.19 ms (turn), 38.33 .. 40.52 ms (step)
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 35.36 ms at the least against a floor of 34.2, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 35.36 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the encode, 33.25 ms in the 2026-10-06 table
+# of `doc/performance.md` and 31.49 now, with the interpretation 3.38 → 2.67. With ADR 1861's lexer
+# change compiled out, one clock hold reads 35.54 ms without it against HEAD's 35.46, so the lexer
+# moved none of it (ADR 1870). What moved the stage since the table — the device lane's changes
+# since it or the day's machine — is not separated.
 turn_ms = 30.0 .. 51.9
 # seventh frame of a long-lived device (ADR 1607): observed 39.14 .. 40.89 ms
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 35.03 ms at the least against a floor of 33.2, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 35.03 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the encode, 35.12 ms in the table's seventh
+# row and 31.32 now. With ADR 1861's lexer change compiled out, one clock hold reads 35.06 ms
+# without it against HEAD's 34.99, so the lexer moved none of it (ADR 1870). What moved the stage
+# since the table — the device lane's changes since it or the day's machine — is not separated.
 seventh_ms = 29.7 .. 49.1
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 33.24 ms at the least against a floor of 32.5, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 33.24 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the encode, 34.12 ms in the 2026-10-06 table
+# of `doc/performance.md` and 32.83 now. With ADR 1861's lexer change compiled out, one clock hold
+# reads 33.77 ms without it against HEAD's 33.50, so the lexer moved none of it (ADR 1870). What
+# moved the stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 step_ms = 28.2 .. 48.7
 why = "tight bends: the tiling's own cost, which ADR 1505 divided across the fan-out"
 
@@ -298,14 +309,23 @@ commands = 1
 # tree with ADR 1644, interleaved with three of the tree before it, and two gate runs, 2026-10-07,
 # pinned, warm cores, load 1.3 for the runs and 1.4 to 2.2 for the gate; the step interprets
 # nothing, did not move and keeps its band
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 126.62 ms at the least against a floor of 119.8, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 126.62 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the interpretation, 59.88 ms in the
+# 2026-10-06 table of `doc/performance.md` and 50.69 now, and the scene, which the gate prints no
+# stage for (77.97 in the table, 75.46 now with the rest it does not print). With ADR 1861's lexer
+# change compiled out, one clock hold reads 128.24 ms without it against HEAD's 128.13; the lexer is
+# 1.85 ms of the interpretation's 9.19 (52.54 without it), inside the figure's spread (ADR 1870).
+# What moved the stage since the table — the device lane's changes since it or the day's machine —
+# is not separated.
 turn_ms = 107.6 .. 177.1
 # seventh frame of a long-lived device (ADR 1607): observed 140.97 .. 145.61 ms
-# Floor moved down at batch eighty-one's merge, as the first row's note says: the merge's two quiet
-# re-runs read 125.61 ms at the least against a floor of 119.8, within six per cent of it, and the
-# batch's win is one the whole set shares; × 0.85, rounded down to a tenth. The ceiling stays.
+# Floor at this file's rule over batch eighty-one's merge figure, 125.61 ms (× 0.85, rounded down to
+# a tenth); the ceiling stays. The stage that moved is the interpretation, 59.07 ms in the table's
+# seventh row and 50.69 in the turn's now, and the scene. With ADR 1861's lexer change compiled out,
+# one clock hold reads 128.21 ms without it against HEAD's 126.40; the lexer is about 1.8 ms of the
+# 14.6 the row moved, by the turn's interpretation (52.54 without it against 50.69) (ADR 1870). What
+# moved the stage since the table — the device lane's changes since it or the day's machine — is not
+# separated.
 seventh_ms = 106.7 .. 174.8
 step_ms = 69.3 .. 101.6
 why = "a four-component group of 3 518 residue-clipped shadings, drawn as two frames of one geometry (ADRs 1471, 1529), whose exact meets are made beside the walk (ADR 1541) and whose shading quads read one buffer of their numbers at their own offsets (ADR 1555): the tree before that read 191 to 203 and 118 to 126 ms beside it, past the top of both bands, so the bands hold that change. Its 132 ramps, first seen on the turn, are sampled beside each other (ADR 1567), and its meets of a disc with a dot clip are measured from the two convex polygons (ADR 1582), which took the turn's scene 5 ms quicker beside the tree before it; a run of its shading quads is one instanced draw (ADR 1594) and its black frame is walked while the device draws the chromatic one (ADR 1595), which took the turn 1.5 ms quicker and leaves the step where it was, a device of its own paying for wgpu's command encoders as the overlap first needs them; a child's composite is drawn in the pass of the marks after it and the frame's end timestamp on its last pass, 193 passes a turn where it recorded 222 (ADR 1618), which took each row 0.6 to 1.4 ms quicker beside the tree before it and, in one sitting, read the seventh frame the quicker of the two; a composite's backdrop is copied by a transfer (ADR 1630) and a composite waits past the next child where their rectangles stand apart and the priced peak holds both (ADR 1631), 114 passes a turn where it recorded 193, which took every row quicker than the tree before them in each of eight interleaved pairs, the turn by 0.57 to 3.49 ms; its 41 shadings' functions are parsed once an interpretation rather than once a build under each conversion, 41 parses a run where it made 137 (ADR 1644), which took the turn 1.9 to 3.5 ms quicker and the seventh frame 0.8 to 2.8 in each of three interleaved pairs, the turn's interp 2.5 to 3.8; the bands follow that re-take, and its black run, 486.6 M instructions of the turn's 1 258.9 M, is not drawn from the chromatic list because the black component is not in that list (ADR 1645)"

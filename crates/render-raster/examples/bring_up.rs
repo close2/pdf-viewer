@@ -18,6 +18,12 @@
 //!
 //! and compare processes, not lines. `overlap` asks the other question — whether the instance's
 //! creation can be hidden behind the document's, which is `doc/QUORRA_FEEDBACK.md` section 8.
+//!
+//! A second argument, `usage`, asks for the device under `wgpu::MemoryHints::MemoryUsage` rather
+//! than the default `Performance`: `wgpu-hal`'s first device-local block is then 8 MiB rather than
+//! 128 MiB, which is what `request_device` allocates whatever the program asks of it, and on an
+//! integrated adapter whose carve-out the desktop has filled that block is system memory the
+//! kernel allocates and clears inside the call.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use std::time::Instant;
@@ -72,6 +78,11 @@ fn overlap() {
 
 fn main() {
     let which = std::env::args().nth(1).unwrap_or_else(|| "all".to_owned());
+    let memory_hints = match std::env::args().nth(2).as_deref() {
+        None | Some("performance") => wgpu::MemoryHints::Performance,
+        Some("usage") => wgpu::MemoryHints::MemoryUsage,
+        Some(other) => panic!("unknown memory hint {other:?}; try performance or usage"),
+    };
     if which == "overlap" {
         overlap();
         return;
@@ -105,6 +116,7 @@ fn main() {
         label: Some("bring_up"),
         required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
         required_limits: adapter.limits(),
+        memory_hints: memory_hints.clone(),
         ..Default::default()
     }))
     .expect("a device");
@@ -112,7 +124,10 @@ fn main() {
     let total = ms(whole);
     drop(device);
 
-    println!("backends {which}, chose {} ({:?})", info.name, info.backend);
+    println!(
+        "backends {which}, memory hints {memory_hints:?}, chose {} ({:?})",
+        info.name, info.backend
+    );
     println!("  instance creation   {instance_creation:8.3} ms");
     println!("  request_adapter     {request:8.3} ms");
     println!("  request_device      {device_creation:8.3} ms");

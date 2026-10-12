@@ -257,6 +257,33 @@ fn open_document(
     (viewer, events)
 }
 
+/// The arrangement a page is drawn by while it is read (ADRs 1855, 1871): page one at launch, and
+/// the page a turn brings on.
+///
+/// The window's frame of one page is the processor's composition of it onto the window's ground,
+/// which is what the device window's processor lane and `--cpu`'s composing thread both draw, so
+/// either window takes the same drawing.
+pub(crate) fn drawing_ahead() -> viewer_host::Ahead {
+    viewer_host::Ahead::new(
+        render_cpu::CpuRasterizer::new().with_medium(pdf_render::Medium::WINDOW),
+        Box::new(
+            |foreseen: viewer_core::Foreseen, window: viewer_host::loading::Window| {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a panel width in pixels, which is hundreds"
+                )]
+                let edge = window.inset as f32;
+                surface::in_the_window(
+                    foreseen.target,
+                    foreseen.origin,
+                    edge,
+                    (window.width, window.height),
+                )
+            },
+        ),
+    )
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the launch path, in launch order: a split would scatter the sequence whose ordering is the whole of CLAUDE.md's startup rule"
@@ -311,31 +338,11 @@ fn main() {
     // **And the thread is a [`viewer_host::Loading`]**, so that page one's interpretation publishes
     // how far it has got, and a page that outlasts `WARN` is a bar in the title rather than a
     // window that waits for it (ADR 1811).
-    // **And page one drawn while it is read** (ADR 1855): the read on a thread of its own, its
-    // list handed over in parts, and each part drawn on the opening thread into the window's target
-    // once the read has run `GLIMPSE_AFTER` — so a page that reads for seconds is on the window as
-    // it stands, and its first frame is finished from that drawing rather than drawn. The window's
-    // frame of one page is the processor's composition of it onto the window's ground.
-    let ahead = (!processor).then(|| {
-        viewer_host::Ahead::new(
-            render_cpu::CpuRasterizer::new().with_medium(pdf_render::Medium::WINDOW),
-            Box::new(
-                |foreseen: viewer_core::Foreseen, window: viewer_host::loading::Window| {
-                    #[expect(
-                        clippy::cast_precision_loss,
-                        reason = "a panel width in pixels, which is hundreds"
-                    )]
-                    let edge = window.inset as f32;
-                    surface::in_the_window(
-                        foreseen.target,
-                        foreseen.origin,
-                        edge,
-                        (window.width, window.height),
-                    )
-                },
-            ),
-        )
-    });
+    // **And page one drawn while it is read** (ADR 1855): the read on the opening thread, its
+    // list handed over in parts, and each part drawn on a thread of its own into the window's
+    // target once the read has run `GLIMPSE_AFTER` — so a page that reads for seconds is on the
+    // window as it stands, and its first frame is finished from that drawing rather than drawn.
+    let ahead = Some(drawing_ahead());
     let opening = viewer_host::Loading::start({
         let path = path.clone();
         let fragment = fragment.clone();

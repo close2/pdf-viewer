@@ -1128,6 +1128,13 @@ impl App {
                 ),
             );
         }
+        // The frame in flight goes up as it stands where the window holds no picture of these
+        // pages — the first frame, a page turn — which is the device window's rule (ADR 1831).
+        if stand_in && self.composer()?.shows_as_built(pages) {
+            self.cadence.owed(now);
+            self.put_up_composed_as_built(pages, &overlays);
+            return None;
+        }
         if !stand_in || !self.stale.has_rendering() {
             // The clock stays armed, so page one arrives on the tick after it is drawn rather than
             // waiting for an event that is not coming.
@@ -1221,15 +1228,66 @@ impl App {
         if landed.refused.is_some() {
             return landed.refused;
         }
+        if landed.finished_ahead {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page drawn while it was read, finished on the processor in {:.1} ms",
+                    landed.cost.as_secs_f64() * 1e3
+                ),
+            );
+        }
         // What the window is now able to draw, and what waiting for it cost. The next view change
         // reads both: the placement to carry the pixels *from*, and the cost to predict whether the
         // frame after it will miss its refresh (`doc/todo/37` rule 5, ADR 0384). Every frame on
         // this surface builds its picture — there is no encode to replay — so the prediction is
         // updated by all of them.
+        //
+        // A frame finished from the page drawn while it was read cost its last part, which says
+        // no more about the next frame than a replay does (trap 143, ADR 1855).
         if !landed.pages.is_empty() {
-            self.stale.settled(&landed.pages, landed.waited, true);
+            self.stale
+                .settled(&landed.pages, landed.waited, !landed.finished_ahead);
         }
         None
+    }
+
+    /// Puts the frame the composing thread is drawing up as it stands, where a newer look has
+    /// arrived — and answers nothing to the core, because the frame that answers is the finished
+    /// one (ADR 1825's rule: `first frame on the screen` stays the finished page).
+    fn put_up_composed_as_built(
+        &mut self,
+        pages: &[crate::stale::Placed],
+        overlays: &[&pdf_render::DisplayList],
+    ) {
+        let Some(page) = pages
+            .first()
+            .map(|placed| placed.of.page().saturating_add(1))
+        else {
+            return;
+        };
+        let Some(composer) = self.composer() else {
+            return;
+        };
+        match composer.put_up_as_built(overlays) {
+            Ok(Some(fraction)) => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a share in [0, 1], times a hundred"
+                )]
+                let percent = (fraction.clamp(0.0, 1.0) * 100.0).floor() as u32;
+                self.trace.say(
+                    Topic::Frames,
+                    format_args!("page {page} shown as it stands, {percent} % drawn"),
+                );
+            }
+            Ok(None) => {}
+            Err(problem) => self.trace.say(
+                Topic::Frames,
+                format_args!("page {page} as it stands was not put up: {problem}"),
+            ),
+        }
     }
 
     /// Puts up a rendering the window is holding and has never shown, where a stand-in was refused.

@@ -768,3 +768,200 @@ fn a_mark_under_one_level_everywhere_is_lifted_rather_than_lost() {
         .collect();
     assert_eq!(painted, vec![1], "the dot is one pixel at one level");
 }
+
+/// The dots of one rung as paths in the path's own space: each `m` at the dot's point followed by
+/// `tail`, which spells the subpath's one point another way (`h`, a line back to it).
+fn dots_spelled(dots: &[Mark], tail: impl Fn(Point) -> Vec<PathCommand>) -> Vec<Path> {
+    dots.iter()
+        .map(|dot| {
+            let centre = match path_of(dot, (1.0, 1.0)).commands() {
+                [PathCommand::MoveTo(centre), ..] => *centre,
+                _ => unreachable!("`path_of` begins with its move"),
+            };
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(centre));
+            for command in tail(centre) {
+                path.push(command);
+            }
+            path
+        })
+        .collect()
+}
+
+/// §8.5.3.2's "single-point closed path" is the dot "two or more points at the same coordinates"
+/// is: `m h` paints the bytes `m l` to the same point paints, at every placement of a rung, because
+/// both are the capsule at length zero measured in closed form (ADR 1875).
+#[test]
+fn a_single_point_closed_subpath_paints_the_dot_of_a_line_to_its_own_point() {
+    for width in [0.375_f32, 0.75] {
+        let half = f64::from(width) / 2.0;
+        let dots = marks(false, 0.0, half, half, LineCap::Round);
+        let page = placement((1.0, 1.0)).then(Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, PAGE));
+        let draw = |paths: &[Path]| {
+            let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+            for path in paths {
+                assert!(
+                    pdf_render::thin_segment(
+                        path,
+                        &stroke(width, LineCap::Round),
+                        &Paint::Solid(Color::BLACK),
+                        BlendMode::Normal,
+                        page,
+                    )
+                    .is_some(),
+                    "{path:?} is the kernel's dot"
+                );
+                list.push(command(
+                    path.clone(),
+                    (1.0, 1.0),
+                    stroke(width, LineCap::Round),
+                    None,
+                ));
+            }
+            raster(&list).data
+        };
+        let line = draw(&dots_spelled(&dots, |p| vec![PathCommand::LineTo(p)]));
+        let closed = draw(&dots_spelled(&dots, |_| vec![PathCommand::Close]));
+        let both = draw(&dots_spelled(&dots, |p| {
+            vec![PathCommand::LineTo(p), PathCommand::Close]
+        }));
+        assert!(
+            line == closed,
+            "width {width}: `m h` paints apart from `m l`"
+        );
+        assert!(
+            line == both,
+            "width {width}: `m l h` paints apart from `m l`"
+        );
+    }
+}
+
+/// A dot inside a longer path is the disc the same dot is alone, where no other dot meets its
+/// pixels: one stroke of a rule and eighty-one dots paints the bytes of the rule and then each dot
+/// as a stroke of its own (ADR 1875).
+#[test]
+fn a_dot_inside_a_longer_path_paints_the_bytes_of_the_dot_alone() {
+    let width = 0.75_f32;
+    let half = f64::from(width) / 2.0;
+    let dots = dots_spelled(&marks(false, 0.0, half, half, LineCap::Round), |_| {
+        vec![PathCommand::Close]
+    });
+    // A rule along the raster's top row, below every dot's cell, in the path's own space.
+    let mut rule = Path::new();
+    rule.push(PathCommand::MoveTo(Point::new(2.0, PAGE - 1.5)));
+    rule.push(PathCommand::LineTo(Point::new(PAGE - 2.0, PAGE - 1.5)));
+    let mut whole = rule.clone();
+    for dot in &dots {
+        whole.extend(dot.commands());
+    }
+    let mut one = DisplayList::new(Size::new(PAGE, PAGE));
+    one.push(command(
+        whole,
+        (1.0, 1.0),
+        stroke(width, LineCap::Round),
+        None,
+    ));
+    let mut apart = DisplayList::new(Size::new(PAGE, PAGE));
+    apart.push(command(
+        rule,
+        (1.0, 1.0),
+        stroke(width, LineCap::Round),
+        None,
+    ));
+    for dot in dots {
+        apart.push(command(
+            dot,
+            (1.0, 1.0),
+            stroke(width, LineCap::Round),
+            None,
+        ));
+    }
+    assert!(
+        raster(&one).data == raster(&apart).data,
+        "the dots of one path paint apart from the same dots alone"
+    );
+}
+
+/// A mark's area is composited as it was measured and rounded once, when the pixel is stored —
+/// §11.3.6's `(1 − αs) · cb + cs` of a grey at the area over white — rather than rounded to a level
+/// first and again when stored (ADR 1876). Grey is what tells the two apart: under black on white
+/// a level taken off the area is the level the store would round to.
+#[test]
+fn a_mark_is_composited_at_its_area_and_rounded_once() {
+    let grey = Color {
+        r: 0.5,
+        g: 0.5,
+        b: 0.5,
+        a: 1.0,
+    };
+    let page = placement((1.0, 1.0)).then(Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, PAGE));
+    let mut moved_by_a_second_rounding = 0;
+    // Each rung on a page of its own: the rungs' cells are the same pixels.
+    for (length, width) in [(0.25, 0.75_f32), (0.0, 0.5), (0.5, 0.375)] {
+        let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+        let mut paper = Path::new();
+        paper.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
+        paper.push(PathCommand::LineTo(Point::new(PAGE, 0.0)));
+        paper.push(PathCommand::LineTo(Point::new(PAGE, PAGE)));
+        paper.push(PathCommand::LineTo(Point::new(0.0, PAGE)));
+        paper.push(PathCommand::Close);
+        list.push(Command::Fill {
+            path: Arc::new(paper),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::WHITE),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        // The areas are the kernel's own, which the rungs above hold to the set's integral: this
+        // rung is about what is done with them.
+        let mut cells = Vec::new();
+        let half = f64::from(width) / 2.0;
+        for mark in marks(false, length, half, half, LineCap::Round) {
+            let path = path_of(&mark, (1.0, 1.0));
+            let stroke = stroke(width, LineCap::Round);
+            let paint = Paint::Solid(grey);
+            let thin = pdf_render::thin_segment(&path, &stroke, &paint, BlendMode::Normal, page)
+                .expect("a mark of the kernel's population");
+            let (block, areas) = thin.cells().expect("its block");
+            let mut area = areas.iter();
+            for row in 0..block.rows {
+                for column in 0..block.columns {
+                    let at = (block.column + f64::from(column), block.row + f64::from(row));
+                    cells.push((at, *area.next().expect("an area a pixel")));
+                }
+            }
+            list.push(Command::Stroke {
+                path: Arc::new(path),
+                transform: placement((1.0, 1.0)),
+                stroke,
+                paint,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        let raster = raster(&list);
+        for ((x, y), area) in cells {
+            let stored = 255.0 * (1.0 - 0.5 * area);
+            let want = stored.round_ties_even() as u8;
+            let near_a_tie = (stored - stored.floor() - 0.5).abs() < 0.01;
+            let got = red(&raster, x as u32, y as u32);
+            assert!(
+                got == want || near_a_tie && got.abs_diff(want) <= 1,
+                "pixel ({x}, {y}) of area {area:.6} stored {got} where one rounding stores {want}"
+            );
+            let twice = 255.0 * (1.0 - 0.5 * (area * 255.0).round() / 255.0);
+            if twice.round_ties_even() as u8 != want {
+                moved_by_a_second_rounding += 1;
+            }
+        }
+    }
+    // Control: the rung holds pixels where rounding the area first stores another byte, so a
+    // kernel that did would fail above.
+    assert!(
+        moved_by_a_second_rounding > 50,
+        "only {moved_by_a_second_rounding} pixels tell one rounding from two"
+    );
+}

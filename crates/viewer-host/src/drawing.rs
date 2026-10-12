@@ -111,11 +111,14 @@
 //! size the arrangement now places that page at. ADR 1825.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{DisplayList, Interrupt, Raster, RasterFormat, Rasterizer as _, TargetSpec};
+use pdf_render::{
+    DisplayList, Interrupt, Raster, RasterFormat, Rasterizer as _, TargetSpec, Transform,
+};
 use render_cpu::{CpuRasterError, CpuRasterizer, Glance, Glimpse};
 use viewer_core::{FrameView, PageGeometry, RenderRequest, Rendered};
 
@@ -185,6 +188,9 @@ struct Job<R> {
     /// The page already drawn through all but its last part while it was read, where this is
     /// the request it was drawn for (ADR 1855): finished rather than drawn.
     ahead: Option<render_cpu::Underway>,
+    /// The rows of the target the window shows, where the host said ([`Drawing::ask_showing`]):
+    /// drawn first, as a band of their own, and the rest of the page after (ADR 1868).
+    seen: Option<Range<u32>>,
 }
 
 /// One page's rasterisation, on its way back.
@@ -215,6 +221,9 @@ struct InFlight {
     serial: u64,
     /// The target the page is drawn at, which a glimpse's rows are rows of.
     target: TargetSpec,
+    /// The rows of it the window shows, where the host said ([`Drawing::ask_showing`]), until
+    /// the glimpses have shown every one of them finished.
+    seen: Option<Range<u32>>,
 }
 
 /// The page being drawn, as it stood at the last glimpse of it.
@@ -285,10 +294,32 @@ impl Partial {
             rows.copy_from_slice(&glimpse.rows.data);
         }
         let band = (glimpse.top, glimpse.rows.height, glimpse.drawn, glimpse.of);
-        match self.bands.iter_mut().find(|held| held.0 == glimpse.top) {
-            Some(held) => *held = band,
-            None => self.bands.push(band),
+        // A run of rows replaces every run it covers: a band drawn first answers in its own strips
+        // as it goes and then once whole, and counting both would count its rows twice.
+        let end = glimpse.top.saturating_add(glimpse.rows.height);
+        self.bands
+            .retain(|held| held.0 < glimpse.top || held.0.saturating_add(held.1) > end);
+        self.bands.push(band);
+    }
+
+    /// Whether every row of `rows` has been shown finished — drawn through every command of the
+    /// page.
+    fn finished_over(&self, rows: &Range<u32>) -> bool {
+        let mut finished: Vec<(u32, u32)> = self
+            .bands
+            .iter()
+            .filter(|&&(_, _, drawn, of)| drawn >= of)
+            .map(|&(top, height, _, _)| (top, top.saturating_add(height)))
+            .collect();
+        finished.sort_unstable();
+        let mut reached = rows.start;
+        for (top, end) in finished {
+            if top > reached {
+                break;
+            }
+            reached = reached.max(end);
         }
+        reached >= rows.end
     }
 }
 
@@ -366,13 +397,19 @@ pub struct Drawing<R: DrawRequest = RenderRequest> {
     /// raster and a superseded frame is simply not drawn, while this one is asked for each page
     /// separately and *owes an answer for every one of them* — a request dropped on the floor is a
     /// page whose outstanding request is never satisfied and which therefore never draws again.
-    queued: VecDeque<R>,
+    ///
+    /// Each with the rows of its target the window shows, where the host said
+    /// ([`Drawing::ask_showing`]).
+    queued: VecDeque<(R, Option<Range<u32>>)>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
     landed: Vec<Finished<R>>,
     /// The page in flight as it stood at its last glimpse — see [`Drawing::partial`].
     partial: Option<Partial>,
     /// Whether a glimpse has arrived since a host last asked [`Drawing::glimpsed`].
     fresh: bool,
+    /// The page whose rows the window shows have all been shown finished, and how long after it
+    /// was asked for, until a host asks [`Drawing::seen_drawn`].
+    seen_drawn: Option<(usize, Duration)>,
     /// The next [`Job::serial`].
     serial: u64,
     /// Page one drawn while it was read, until the request it was drawn for is dispatched —
@@ -476,6 +513,7 @@ impl<R: DrawRequest> Default for Drawing<R> {
             landed: Vec::new(),
             partial: None,
             fresh: false,
+            seen_drawn: None,
             serial: 0,
             ahead: None,
             spent: Duration::ZERO,
@@ -504,6 +542,19 @@ impl<R: DrawRequest> Drawing<R> {
     /// so the draw in flight is answering a question nobody holds any more and the thread is taken
     /// back for the new one. Nothing about cost is asked, and no clock is read.
     pub fn ask(&mut self, request: R) {
+        self.ask_showing(request, None);
+    }
+
+    /// [`Self::ask`], for a request of which the window shows only `seen`, the rows of its target
+    /// that lie inside the viewport ([`seen_rows`]): those rows are drawn first as a band of their
+    /// own and shown the moment they are drawn, and the rest of the page after, into the one page
+    /// raster the viewer is answered with (ADR 1868).
+    ///
+    /// **The viewer is asked nothing new and told nothing new**: the request is for the whole page
+    /// and its answer is the whole page, so every other host on this boundary reads both as before.
+    /// What changes is the order the drawing thread draws the page's rows in, and that the rows a
+    /// person is looking at are on the screen, finished, before the rows nobody is.
+    pub fn ask_showing(&mut self, request: R, seen: Option<Range<u32>>) {
         if let Some(in_flight) = self.in_flight.as_ref()
             && in_flight.page == request.page()
             && in_flight.document == request.document()
@@ -512,10 +563,10 @@ impl<R: DrawRequest> Drawing<R> {
         }
         // A queued request for the same page is dead for the same reason and has not cost anything
         // yet; it is replaced rather than drawn and thrown away.
-        self.queued.retain(|queued| {
+        self.queued.retain(|(queued, _)| {
             queued.page() != request.page() || queued.document() != request.document()
         });
-        self.queued.push_back(request);
+        self.queued.push_back((request, seen));
         self.dispatch();
     }
 
@@ -697,6 +748,13 @@ impl<R: DrawRequest> Drawing<R> {
                 });
                 partial.take(&glimpse);
                 self.fresh = true;
+                if in_flight
+                    .seen
+                    .take_if(|seen| partial.finished_over(seen))
+                    .is_some()
+                {
+                    self.seen_drawn = Some((in_flight.page, in_flight.asked.elapsed()));
+                }
             }
         }
         let due = !in_flight.interrupt.raised()
@@ -724,6 +782,14 @@ impl<R: DrawRequest> Drawing<R> {
     /// for one, and never otherwise.
     pub fn glimpsed(&mut self) -> bool {
         std::mem::take(&mut self.fresh)
+    }
+
+    /// The page in flight whose rows the window shows have all been shown finished since this was
+    /// last asked, and how long after the request — once a draw, for a window's trace: the moment
+    /// a person looking at the window has the page they asked for, before the page has landed
+    /// (ADR 1868).
+    pub fn seen_drawn(&mut self) -> Option<(usize, Duration)> {
+        self.seen_drawn.take()
     }
 
     /// [`Self::collect`], having first waited for the page in flight out of a `budget`.
@@ -790,9 +856,10 @@ impl<R: DrawRequest> Drawing<R> {
     /// this module replaced, reached only where the arrangement is unavailable.
     fn dispatch(&mut self) {
         while self.in_flight.is_none() {
-            let Some(request) = self.queued.pop_front() else {
+            let Some((request, seen)) = self.queued.pop_front() else {
                 return;
             };
+            let watched = seen.clone();
             if self.link.is_none() {
                 self.link = spawn();
             }
@@ -816,6 +883,7 @@ impl<R: DrawRequest> Drawing<R> {
                 glance: glance.clone(),
                 serial,
                 ahead,
+                seen,
             };
             let returned = match self.link.as_ref() {
                 Some(link) => link.jobs.send(job).err().map(|refused| refused.0),
@@ -831,6 +899,7 @@ impl<R: DrawRequest> Drawing<R> {
                     glanced: None,
                     serial,
                     target,
+                    seen: watched,
                 });
                 return;
             };
@@ -913,6 +982,7 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
         glance,
         serial,
         ahead,
+        seen,
     } = job;
     let began = Instant::now();
     // Page one drawn while it was read is finished here, from the list it was read into; a page
@@ -924,8 +994,23 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
             cost: began.elapsed(),
         };
     }
+    // The rows the window shows first, as a look of their own, where it shows less than half the
+    // page (ADR 1868) — and then the page whole, as before, which is the frame. A page whose band
+    // was drawn is not glanced at again: its rows on the screen are finished, a look at the page
+    // part-way would put them back part-way, and the rest of it is off the screen.
+    let band = shown
+        .zip(seen.and_then(|seen| band_of(request.target(), &seen)))
+        .is_some_and(|(shown, band)| {
+            draw_band(
+                request.list(),
+                request.target(),
+                &band,
+                &interrupt,
+                (shown, &glance, serial),
+            )
+        });
     let mut rasteriser = CpuRasterizer::new().interruptible(interrupt);
-    if let Some(shown) = shown {
+    if let Some(shown) = shown.filter(|_| !band) {
         let shown = shown.clone();
         rasteriser = rasteriser.showing(glance, move |glimpse| {
             // A host that has gone has nobody to show.
@@ -949,6 +1034,119 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
     }
 }
 
+/// The rows of `target` a viewport `viewport_height` device pixels tall shows, where the
+/// arrangement places the page at `geometry` — what a host hands [`Drawing::ask_showing`] for a
+/// request, from `viewer_core::Query::PageGeometry`'s answer for its page.
+///
+/// `None` where the arrangement places the page at another size than the target's — the request
+/// is then not for the page the window shows — or where the viewport shows none of its rows. A row
+/// `r` of the target is on the screen at `geometry.origin.1 + r`.
+#[must_use]
+pub fn seen(
+    target: TargetSpec,
+    geometry: PageGeometry,
+    viewport_height: u32,
+) -> Option<Range<u32>> {
+    ((geometry.width, geometry.height) == (target.width, target.height))
+        .then(|| seen_rows(geometry.origin.1, target.height, viewport_height))
+        .flatten()
+}
+
+/// The rows of a raster `height` rows tall, placed at `origin_y` in a viewport `viewport_height`
+/// rows tall, that the viewport shows.
+fn seen_rows(origin_y: f32, height: u32, viewport_height: u32) -> Option<Range<u32>> {
+    // Rows are counted in whole pixels, the first a row any part of which is inside the viewport
+    // and the last likewise, so the band never leaves a sliver of the window undrawn.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "a page's origin is a few thousand pixels either side of the viewport, and the \
+                  clamp to the raster's rows comes before the cast"
+    )]
+    let row = |y: f32| y.clamp(0.0, height as f32) as u32;
+    let top = row((-origin_y).floor());
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a viewport is a few thousand pixels tall"
+    )]
+    let bottom = row((viewport_height as f32 - origin_y).ceil());
+    (top < bottom).then_some(top..bottom)
+}
+
+/// The rows of `target` to draw first for a window showing `seen` of them — the rows it shows —
+/// or `None` where it shows half the page or more.
+///
+/// **Half, because the band is paid for twice.** The band is a look and not the frame: the page is
+/// then drawn whole as before, so what the band costs is added to the frame's landing and bought
+/// back only in how soon the rows a person is looking at are finished. On the owner's drawing the
+/// processor's whole draw is about half planning — the strip planner reads every command's extent,
+/// on one thread — and a band showing half the page or more costs nearly what the page does
+/// (ADR 1868, `examples/band_first`). Every page at its fit is here, so a launch's first frame is
+/// never drawn twice.
+fn band_of(target: TargetSpec, seen: &Range<u32>) -> Option<Range<u32>> {
+    let shown = u64::from(seen.end.saturating_sub(seen.start));
+    let rows = seen.start.min(target.height)..seen.end.min(target.height);
+    (!rows.is_empty() && shown.saturating_mul(2) < u64::from(target.height)).then_some(rows)
+}
+
+/// The rows `rows` of `target`, as a target of their own: the page's transform with the band's
+/// first row moved to the top.
+fn band_target(target: TargetSpec, rows: &Range<u32>) -> TargetSpec {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let first = rows.start as f32;
+    TargetSpec {
+        width: target.width,
+        height: rows.end.saturating_sub(rows.start),
+        transform: target.transform.then(Transform::translate(0.0, -first)),
+    }
+}
+
+/// The rows `band` of `target` that a window shows, drawn as a target of their own and sent to
+/// `shown` the moment they are finished, with every glance at them meanwhile answered with their
+/// rows where they belong in the page (ADR 1868).
+///
+/// **A look, and not part of the frame.** The band is drawn at its own origin, so where a curve
+/// crosses its edge its rows are the page's only very nearly — the reason the processor's planner
+/// cuts a page only where no curve crosses (ADRs 0139, 1819, 1837) — and so the frame the viewer
+/// is answered with is the page drawn whole afterwards, exactly as before. Answers `false` where
+/// the band was interrupted or failed: the whole draw then says which, as it always did.
+fn draw_band(
+    list: &DisplayList,
+    target: TargetSpec,
+    band: &Range<u32>,
+    interrupt: &Interrupt,
+    (shown, glance, serial): (&Sender<(u64, Glimpse)>, &Glance, u64),
+) -> bool {
+    let (sending, first) = (shown.clone(), band.start);
+    let drawn = CpuRasterizer::new()
+        .interruptible(interrupt.clone())
+        .showing(glance.clone(), move |mut glimpse| {
+            glimpse.top = glimpse.top.saturating_add(first);
+            // A host that has gone has nobody to show.
+            let _ = sending.send((serial, glimpse));
+        })
+        .rasterize(list, band_target(target, band));
+    let Ok(rows) = drawn else {
+        return false;
+    };
+    let of = list.commands().len();
+    // A host that has gone has nobody to show.
+    let _ = shown.send((
+        serial,
+        Glimpse {
+            top: band.start,
+            rows,
+            drawn: of,
+            of,
+        },
+    ));
+    true
+}
+
 /// The frames a window shows: the viewer's, with the page being drawn put where it belongs as it
 /// stands.
 ///
@@ -956,9 +1154,15 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
 /// viewer to ask. **The partial is shown only where the arrangement places that page at the size
 /// it is being drawn at**, which is what makes it the page the window is waiting for rather than a
 /// picture from before a zoom; and only for `focused`, the document in front, because a draw for a
-/// tab behind it belongs to that tab. It takes the place of whatever the viewer holds for the page
-/// — a stand-in or the page at its last size — and is added where the viewer holds nothing yet,
+/// tab behind it belongs to that tab. It takes the place of the page's pixels at this size — a
+/// frame being drawn again under a new ink — and is added where the viewer holds nothing yet,
 /// which is a first frame.
+///
+/// **A frame of another size stays, under it** (ADR 1868): the page at its last magnification,
+/// which `crate::stand_in::placed` scales to the extent the page has now, is shown wherever the
+/// partial holds no rows yet — the rows of a page drawn band first that are still to come, the
+/// strips of one drawn in painting order that have not answered — and the partial over it, so a
+/// look is a picture only of the rows it has drawn and the stand-in is a picture of the rest.
 #[must_use]
 pub fn over_frames<'a>(
     mut frames: Vec<FrameView<'a>>,
@@ -980,11 +1184,23 @@ pub fn over_frames<'a>(
         raster: &partial.raster,
         origin: placed.origin,
     };
-    if let Some(frame) = frames.iter_mut().find(|frame| frame.page == partial.page) {
-        *frame = shown;
-    } else {
-        frames.push(shown);
-        frames.sort_by_key(|frame| frame.page);
+    let size = (partial.raster.width, partial.raster.height);
+    match frames.iter().position(|frame| frame.page == partial.page) {
+        Some(at)
+            if frames
+                .get(at)
+                .is_some_and(|frame| (frame.raster.width, frame.raster.height) == size) =>
+        {
+            if let Some(frame) = frames.get_mut(at) {
+                *frame = shown;
+            }
+        }
+        // Drawn after the stand-in, so a window painting in order puts the partial over it.
+        Some(at) => frames.insert(at.saturating_add(1), shown),
+        None => {
+            frames.push(shown);
+            frames.sort_by_key(|frame| frame.page);
+        }
     }
     frames
 }
@@ -1007,7 +1223,8 @@ mod tests {
         BlendMode, Color, Command as Mark, DisplayList, FillRule, Paint, Path as MarkPath,
         PathCommand, Point, Transform,
     };
-    use viewer_core::{Command, DocumentId, Event, RenderRequest, Rendered, Viewer};
+    use pdf_render::{Rasterizer as _, TargetSpec};
+    use viewer_core::{Command, DocumentId, Event, FrameView, RenderRequest, Rendered, Viewer};
 
     use super::{Drawing, Finished, POLL, Partial, SETTLE, WARN, over_frames};
 
@@ -1576,5 +1793,205 @@ mod tests {
             "a draw for a tab behind is that tab's"
         );
         assert!((partial.fraction() - 0.5).abs() < 1e-9);
+    }
+
+    /// A frame from before a zoom stays under the partial, so the rows the partial has not drawn
+    /// show the stand-in rather than the ground; a frame at the partial's own size is replaced
+    /// (ADR 1868).
+    #[test]
+    fn a_partial_is_drawn_over_a_frame_of_another_size_and_replaces_one_of_its_own() {
+        let raster = |width: u32, height: u32| pdf_render::Raster {
+            width,
+            height,
+            format: pdf_render::RasterFormat::Rgba8,
+            data: vec![7; (width * height * 4) as usize],
+        };
+        let partial = Partial {
+            page: 0,
+            document: Some(DocumentId(1)),
+            raster: raster(8, 6),
+            bands: vec![(2, 2, 10, 10)],
+        };
+        let placed = |page: usize| {
+            (page == 0).then_some(viewer_core::PageGeometry {
+                page: pdf_render::Size::new(4.0, 3.0),
+                scale: 2.0,
+                width: 8,
+                height: 6,
+                origin: (0.0, 0.0),
+            })
+        };
+        let before = raster(4, 3);
+        let frame = |raster| FrameView {
+            page: 0,
+            raster,
+            origin: (0.0, 0.0),
+        };
+        let shown = over_frames(vec![frame(&before)], Some(&partial), DocumentId(1), placed);
+        assert_eq!(shown.len(), 2, "the stand-in and the partial over it");
+        assert!(std::ptr::eq(shown[0].raster, &raw const before));
+        assert!(std::ptr::eq(shown[1].raster, &raw const partial.raster));
+        let same = raster(8, 6);
+        let shown = over_frames(vec![frame(&same)], Some(&partial), DocumentId(1), placed);
+        assert_eq!(shown.len(), 1);
+        assert!(std::ptr::eq(shown[0].raster, &raw const partial.raster));
+    }
+
+    /// A band that answers in its strips and then once whole is counted once, and the rows the
+    /// window shows are finished only when every one of them has been drawn through every command.
+    #[test]
+    fn a_band_answered_twice_is_counted_once_and_finishes_the_rows_it_covers() {
+        let rows = |top: u32, height: u32, drawn: usize| render_cpu::Glimpse {
+            top,
+            rows: pdf_render::Raster {
+                width: 1,
+                height,
+                format: pdf_render::RasterFormat::Rgba8,
+                data: vec![9; (height * 4) as usize],
+            },
+            drawn,
+            of: 10,
+        };
+        let mut partial = Partial {
+            page: 0,
+            document: None,
+            raster: pdf_render::Raster {
+                width: 1,
+                height: 100,
+                format: pdf_render::RasterFormat::Rgba8,
+                data: vec![0; 400],
+            },
+            bands: Vec::new(),
+        };
+        partial.take(&rows(40, 10, 10));
+        partial.take(&rows(50, 10, 4));
+        assert!(partial.finished_over(&(40..50)));
+        assert!(
+            !partial.finished_over(&(40..60)),
+            "rows 50..60 are part-way"
+        );
+        partial.take(&rows(40, 30, 10));
+        assert_eq!(partial.bands.len(), 1, "the whole band replaces its strips");
+        assert!((partial.fraction() - 0.3).abs() < 1e-9);
+        assert!(partial.finished_over(&(45..70)));
+        assert!(!partial.finished_over(&(30..50)));
+    }
+
+    /// The rows a viewport shows of a page placed above, across and below it, and none of a page
+    /// placed at another size than the target's.
+    #[test]
+    fn the_rows_a_window_shows_are_the_rows_inside_its_viewport() {
+        let target = TargetSpec {
+            width: 100,
+            height: 4000,
+            transform: Transform::IDENTITY,
+        };
+        let at = |y: f32, height: u32| viewer_core::PageGeometry {
+            page: pdf_render::Size::new(100.0, 4000.0),
+            scale: 1.0,
+            width: 100,
+            height,
+            origin: (0.0, y),
+        };
+        assert_eq!(
+            super::seen(target, at(-1500.0, 4000), 1000),
+            Some(1500..2500)
+        );
+        assert_eq!(
+            super::seen(target, at(-1500.5, 4000), 1000),
+            Some(1500..2501)
+        );
+        assert_eq!(super::seen(target, at(20.0, 4000), 1000), Some(0..980));
+        assert_eq!(
+            super::seen(target, at(-3500.0, 4000), 1000),
+            Some(3500..4000)
+        );
+        assert_eq!(super::seen(target, at(1200.0, 4000), 1000), None);
+        assert_eq!(super::seen(target, at(-1500.0, 2000), 1000), None);
+    }
+
+    /// A window showing less than half the page has those rows drawn first, as a look of their own
+    /// that is the page's own rows within ADR 1758's bound, and the frame it is answered with is
+    /// the page drawn whole, byte for byte; a window showing more draws it whole (ADR 1868).
+    #[test]
+    fn the_rows_a_window_shows_are_drawn_first_and_the_frame_is_the_page_drawn_whole() {
+        let fit = a_real_request();
+        let list = &fit.list;
+        // The page at three times its fit, so that a window of the fit's height shows a third.
+        let target = TargetSpec {
+            width: fit.target.width * 3,
+            height: fit.target.height * 3,
+            transform: fit.target.transform.then(Transform::scale(3.0, 3.0)),
+        };
+        let seen = target.height / 3..target.height * 2 / 3;
+        assert_eq!(super::band_of(target, &seen), Some(seen.clone()));
+        assert_eq!(super::band_of(target, &(0..target.height / 2)), None);
+        let whole = render_cpu::CpuRasterizer::new()
+            .rasterize(list, target)
+            .expect("the page drawn whole");
+
+        let (shown, glimpses) = std::sync::mpsc::channel();
+        let glance = render_cpu::Glance::new();
+        let interrupt = pdf_render::Interrupt::new();
+        assert!(super::draw_band(
+            list,
+            target,
+            &seen,
+            &interrupt,
+            (&shown, &glance, 7)
+        ));
+        let (serial, band) = glimpses
+            .try_recv()
+            .expect("the band is sent when it is drawn");
+        assert_eq!(
+            (serial, band.top, band.rows.height),
+            (7, seen.start, seen.end - seen.start)
+        );
+        assert_eq!(band.drawn, band.of);
+        let stride = (whole.width * 4) as usize;
+        let rows = &whole.data[seen.start as usize * stride..seen.end as usize * stride];
+        let worst = band
+            .rows
+            .data
+            .iter()
+            .zip(rows)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap_or(0);
+        let differing = band
+            .rows
+            .data
+            .chunks_exact(4)
+            .zip(rows.chunks_exact(4))
+            .filter(|(a, b)| a != b)
+            .count();
+        println!("band {seen:?}: {differing} pixels differ from the page's, by at most {worst}");
+        assert!(
+            worst <= 3,
+            "the band's rows are the page's within ADR 1758's bound"
+        );
+
+        let mut drawing = Drawing::new();
+        drawing.ask_showing(
+            RenderRequest {
+                target,
+                ..fit.clone()
+            },
+            Some(seen),
+        );
+        let finished = wait(&mut drawing);
+        let Some(Rendered::Raster(frame)) =
+            finished.into_iter().next().and_then(|done| done.outcome)
+        else {
+            panic!("the page lands as a raster");
+        };
+        assert!(
+            frame.data == whole.data,
+            "the frame is the page drawn whole"
+        );
+        assert!(
+            drawing.seen_drawn().is_some(),
+            "the rows the window shows were finished before the page landed"
+        );
     }
 }

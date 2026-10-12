@@ -596,6 +596,16 @@ coverage drew it — with `placed_once` planted to answer false, the whole and c
 same bytes (round 1510, ADR 1858). When a frame changes after a cull, each scene-wide heuristic is
 neutralised in turn before the change is attributed to geometry.
 
+### 160. A difference between two lanes is reproduced by an exact model of each lane's arithmetic before it is named
+
+The thin-mark residue between the processor and the device on the witness had a plausible name,
+overlap order, and the brief carried it as the hypothesis. An `f64` model of the witness's 4 396 311
+thin marks, composited from §11.4.7's page group with each rounding switched on and off, reproduced
+the oracle to 20 bytes with the area rounded to a level first and the device with the stored pixel
+rounded only — so the residue was the processor's extra rounding of each area, and overlap order
+was nothing (round 1519, ADR 1876). A mechanism is named after the model reproduces the figure,
+not before.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

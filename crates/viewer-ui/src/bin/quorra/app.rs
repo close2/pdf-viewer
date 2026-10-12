@@ -637,8 +637,8 @@ pub(crate) struct App {
     pub(crate) opening: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
     /// Page one drawn while it is read, on the opening thread at the target the window's size
     /// foretells (ADR 1855): told the window's size, shown while the document opens, and handed to
-    /// the window's renderer when the document is taken in. `None` once it has been handed over,
-    /// and under `--cpu`, whose composer draws every frame unobserved.
+    /// the window's renderer — or, under `--cpu`, its composer — when the document is taken in.
+    /// `None` once it has been handed over.
     pub(crate) ahead: Option<viewer_host::Ahead>,
     /// Whether page one has been put up as it is read, which the launch timeline marks once.
     pub(crate) read_shown: bool,

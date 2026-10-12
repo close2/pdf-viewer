@@ -1400,6 +1400,32 @@ log whose first line says queued may belong to a walk that has been running for 
 wait is stopped only after `/home/AI/heavy-walk.log`, `<lock>.queue` or the walk's own output has
 said it is still waiting.
 
+### 158. A share found by counting instructions is re-taken on the clock before a lever is sized from it
+
+Lexing was 35 % of the witness's read by callgrind (ADR 1833), and batch eighty-two's brief sized a
+3× lever on that share; on the clock, after ADRs 1849 and 1861 had cut beside it, lexing was 18–19 %
+and the lever's ceiling 1.24× (round 1518, ADR 1873). An instruction share decays with every cut
+made beside it, and the clock is the unit a lever is priced in. Count instructions to find where the
+time goes; re-take the share on the clock before a build is sized from it.
+
+### 159. A rule that frees a lane while a claim waits also stops counting the tickets it cannot grant
+
+ADR 1869 lets small walks onto the second lane while a clock run waits for the first. The brief's
+hypothesis missed that a `--long` run's earlier ticket, which can never be granted while the clock
+turn is held, would have kept the second lane idle under the new rule exactly as under the old one
+(round 1516). A rule about who may be granted is also a rule about which tickets count, and the
+self-test plants that case (`bounded.sh --self-test`, case 9, run 99) so the rule cannot be called
+built without it.
+
+### 162. An export links every gitignored path, not only the corpora
+
+Round 1520's export of HEAD plus its hunks was a `git archive` with the corpora linked in, and
+`turn_path` in it failed with "measured nothing": the gate's own document, `doc/PDF20_AN001-BPC.pdf`,
+is gitignored and the archive leaves it out, so the clock hold was spent on a child that opened
+nothing. Trap 150 names the untracked documents and `tools/batch.sh open` links them for a
+worktree; a round's own export does the same from `git status --ignored`, every path it names, before
+the first gate runs in it.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

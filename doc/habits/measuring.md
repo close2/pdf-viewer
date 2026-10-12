@@ -932,3 +932,12 @@ end of trap 110, and told nothing about the tree. A clock gate is re-run alone: 
 checks go before or after it, never beside, and a round working outside the batch runs its heavy
 commands through `tools/bounded.sh --lock` so they queue behind the hold instead of under it. The
 re-run waits for the load the band file names, and the log says what the load was.
+
+## 91. A stage noisier than the end-to-end figure is measured as itself before a change is called lost
+
+Round 1517 drew the confined worker's page turn beside its read and withdrew it once, because the
+end-to-end turn sat inside the read's own spread (3.14–4.08 s in both arms) and showed nothing. A
+probe that stamped the worker's stages into the frame it sends showed the draw after the read had
+gone from 504–657 ms to 53–83 ms, and the drawer went back in (ADR 1871). When a change moves one
+stage and the end-to-end figure is noisier than that stage, the stage is measured as itself — a
+stamp, a split clock — before the change is judged, and the record says which figure judged it.

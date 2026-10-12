@@ -1,7 +1,7 @@
 # A mark sized before it becomes geometry: the increments ADR 1817 picked
 
-Status: **open — sections 1, 2 and 3 built (ADRs 1829, 1835, 1841), sections 4 and 5 not; section 4 is the
-next build (ADR 1845).** ADR 1817 argues the file and prices it against the other candidate, ADR 1845
+Status: **open — sections 1, 2, 3 built (ADRs 1829, 1835, 1841) and section 4 built in `quorra` (ADR
+1855); section 5's scene half built (ADRs 1877, 1878); section 6 not, and it is the next build for the first frame (ADR 1873).** ADR 1817 argues the file and prices it against the other candidate, ADR 1845
 re-takes the pipeline after sections 1 and 2 and picks between sections 4 and 5; this file is the
 work, in the order it is to be taken.
 Priority: 40-band — performance, measured and priced; the band was full when this was written.
@@ -31,8 +31,10 @@ first cut left the witness's 667 904 hatching dots on the general path — and
 not the 0.46 s priced, and what is left is the command loop: every strip replays every command's
 extent test. Two things are still owed. `drawn_row_by_row` may let a cut pass a stroke this kernel
 draws, whatever its width. §8.5.3.2's round dot, a `m` and an `l` to one point, is one of these
-marks on both backends (ADR 1857), unless no pixel of it holds a level; a single-point closed
-subpath and a dot inside a longer path are still `split_degenerate`'s.
+marks on both backends (ADR 1857), unless no pixel of it holds a level; on the processor so is a
+single-point closed subpath, and a dot inside a longer path where no two of the path's dots share a
+pixel (ADR 1875); the device takes `m h` through `pdf_render::segment_ends` too. The kernel composites each area unrounded and rounds once when the pixel
+is stored, which was the whole of the line lane's residue against it on the witness (ADR 1876).
 
 **Owed beside it**: a unit ladder of the kernel against the clause's closed form — sizes 0.05 to
 2 px, positions across pixel edges, all three caps, both axes — whose expected values are the
@@ -83,15 +85,34 @@ one is read on a thread of its own once the read has run `GLIMPSE_AFTER`, each p
 the first frame's target as it arrives (`render_cpu::Underway`), `quorra` shows each look while the
 document opens, and the first frame is finished from that drawing — byte for byte the page drawn as
 one strip, every corpus first page checked. ADR 1855 has the rule for each page that is drawn whole
-instead and the figures. **Owed**: the two toolkit windows call `viewer_host::Ahead` (four calls in
-each host, listed in ADR 1855 §5); `quorra --cpu`'s composer and a page turn after the launch.
+instead and the figures. `quorra --cpu` and a page turn after the launch are drawn while read too,
+the turn read on the toolkit thread beside a drawer (ADR 1871: a turn's read's end to frame 0.55 →
+0.09 s), and the confined worker's turn too (its draw after the read 0.50–0.66 → 0.05–0.08 s); the
+confined window's launch is priced and not built (ADR 1871 §4). **Owed**: the two
+toolkit windows call `viewer_host::Ahead` (four calls in each host, listed in ADR 1855 §5).
 
-## 5. A line kept on the device, the view a uniform — the build after
+## 5. A line kept on the device, the view a uniform — the scene half built (ADRs 1877, 1878)
 
-The device's zoom step on the witness is 1 168–1 196 ms (scene 399–417, encode 500–536, execute
-108–153); the same frame replayed is 178 ms (ADR 1845 §4). Raster's line instances stated in the
-scene's space and kept resident, the view's transform and §8.4.3.2's device-dependent thinnest width
-applied in the shader, would make a step cost about the replay — vello's shape (`Scene::append`, its
-flattening in compute). It needs the argument ADR 1835 §2 declined, that a scene holding a line is
-true at every view; the lane rule that asks the device once on a page the seeds gave the processor
-is built, with the seeds re-measured (ADR 1860).
+A scene of lines is kept across views: a segment is a raster line at every view, its width resolved
+per placement, and a round dot is kept beside the scene and asked again at each view (ADR 1877); a
+run of lines behind a queued mark is one job (ADR 1878). The device's zoom step on the witness went
+from 912–1 051 ms to 334–467 ms against a replay of 179 ms, and on the owner's display the last of
+ten notches lands 0.19 s after its key where it took 0.43–1.02 s. What is left is raster's encode of
+every line per view (734 instructions a line) and the instances staged again: a line's instance in
+page space with the view a uniform the line shader applies would keep the stream resident and make a
+step cost the replay (ADR 1877 section 5); encoding a run of lines on the fan-out's threads is the
+cheaper step before it (ADR 1878 section 3).
+
+## 6. One page read on many threads, divided where `Q` restores the state — the next build (ADR 1873)
+
+The read is now 96–97 % of the witness's first frame (2.48–3.52 s on the owner's display) and one
+thread's work; its lexing is 335–342 ms of 1 739–1 929 ms, so lexing on many threads with one
+dispatcher is worth at most 1.24×. §8.4.2's `Q` restores the entire graphics state, so a stream cut
+after a `Q` that returns to a depth is interpretable piece by piece from that depth's composed
+state: `examples/read_split_price.rs` (pdf-model) reads the witness in 236–267 ms on twelve pieces
+against 1 828 ms whole, and the joined list equals the page's. The build: a pass on the pieces at
+once that records each piece's effect on the state stack, composed in order; each piece interpreted
+from its composed state on the window's pool; cuts only where no path, text object, marked-content
+sequence, compatibility section or inline image is open; the budgets, reports, caches and ADR
+1855's parts kept the page's; every corpus first page that divides byte for byte the page's list.
+ADR 1873 §5 is the list in full.

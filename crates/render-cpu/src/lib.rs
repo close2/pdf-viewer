@@ -767,12 +767,18 @@ impl CpuRasterizer {
         // population and the reason are `pdf_render::thin_segment`'s, one copy for every backend
         // (trap 2), and the composition `thin_segment::draw`'s, on the page's own grid as the strip
         // planner asks (ADRs 1829, 1847, 1857).
-        if self.anti_alias
-            && blend == tiny_skia::BlendMode::SourceOver
-            && thin_segment::draw(pixmap, (path, stroke, paint), (transform, to_device), clip)
-        {
+        let (mark, placed) = ((path, stroke, paint), (transform, to_device));
+        let closed_form = self.anti_alias && blend == tiny_skia::BlendMode::SourceOver;
+        if closed_form && thin_segment::draw(pixmap, mark, placed, clip) {
             return Ok(());
         }
+        // A dot inside a longer path is the same disc where it is the only mark in its pixels, and
+        // `pdf_render::thin_dots` takes such dots out of the path: the rest is stroked below and the
+        // dots painted after it, the order `split_degenerate`'s rest and circles are drawn in (ADR
+        // 1875).
+        let thin_dots = closed_form.then(|| thin_segment::dots(pixmap, mark, placed, clip));
+        let thin_dots = thin_dots.flatten();
+        let path = thin_dots.as_ref().map_or(path, |thin| &thin.rest);
         let width = stroke.device_width(at);
         // §8.5.3.2's marks are circles and squares of the line's width, so a width under the
         // device's coverage quantum makes each of them a shape whose *area* is under the square
@@ -882,6 +888,7 @@ impl CpuRasterizer {
                 clip,
             );
         }
+        thin_segment::paint_dots(pixmap, thin_dots, paint, to_device.top, clip);
         Ok(())
     }
 

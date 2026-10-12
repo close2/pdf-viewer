@@ -165,6 +165,13 @@ pub struct FrameCost {
     /// [`raster_gpu::Device::render_retained`] has no encode source to report, which is the
     /// same answer [`Self::device`]'s zero gives.
     pub encode_source: Option<raster_gpu::EncodeSource>,
+    /// Whether this frame drew the scene an earlier frame built rather than building its own.
+    ///
+    /// The scene's half of what [`Self::encode_source`] says of the encode, and the observable a
+    /// test of a scene kept across views asserts on (ADR 0702, ADR 1877): a frame at a new view
+    /// re-encodes whatever happened to its scene, so the encode source cannot say whether the scene
+    /// survived, and a small [`Self::scene`] is an inference rather than a state.
+    pub scene_kept: bool,
     /// Heap bytes the retained encode holds, or zero when none is retained.
     ///
     /// The price of the reuse above, reported every frame because it is the number a host
@@ -268,6 +275,9 @@ struct Retained {
     /// true at every viewport, and [`Retained::draws`] then ignores the placement and
     /// the frame's extent — the scene survives every zoom, scroll and resize.
     view_free: bool,
+    /// The round dots the scene drew as lines, by the page each is on: a view-free scene is kept at
+    /// another view only where every one is a line there too (ADR 1877).
+    dots: Vec<(usize, crate::stroke::DotAsLine)>,
     /// The pages this scene was built from — **the identities, and the pins that make them ones**.
     ///
     /// Their addresses are what [`Self::draws`] compares, and holding the `Arc`s is what stops the
@@ -307,18 +317,23 @@ impl Retained {
     /// The pages need no length check of their own: [`SceneKey::pages`] holds one placement per
     /// page, so a key that compared equal has already said the two frames show as many.
     fn draws(&self, frame: &PresentFrame<'_>, key: &SceneKey) -> bool {
-        let keyed = if self.view_free {
-            // ADR 0702: a view-free page-space scene is true at every placement and
-            // every window size, so only what reaches its pixels is compared — the
-            // medium, the absence of a raster, and the page count (the identities
-            // below carry which page).
-            self.key.medium == key.medium
+        let keyed = self.key == *key
+            || (self.view_free
+                // ADR 0702: a view-free page-space scene is true at every placement and
+                // every window size, so only what reaches its pixels is compared — the
+                // medium, the absence of a raster, and the page count (the identities
+                // below carry which page) …
+                && self.key.medium == key.medium
                 && self.key.raster.is_none()
                 && key.raster.is_none()
                 && self.key.pages.len() == key.pages.len()
-        } else {
-            self.key == *key
-        };
+                // … and every dot it drew as a line is one at this view too (ADR 1877).
+                && self.dots.iter().all(|(page, dot)| {
+                    frame
+                        .pages
+                        .get(*page)
+                        .is_some_and(|(_, target)| dot.is_line_at(target.transform))
+                }));
         keyed
             && self
                 .pages
@@ -353,6 +368,20 @@ fn culls(previous: Option<&Retained>, frame: &PresentFrame<'_>, page_space: bool
                     .zip(frame.pages)
                     .all(|(kept, (asked, _))| identity(kept) == identity(asked))
         })
+}
+
+/// Releases a scene's transient resources, keeping the first refusal: every id is still asked, so
+/// one the device refuses leaves none of the others held.
+fn release_all(
+    device: &mut raster_gpu::Device,
+    ids: Vec<ResourceId>,
+    first_error: &mut Option<raster_gpu::DeviceError>,
+) {
+    for id in ids {
+        if let Err(error) = device.release(id) {
+            first_error.get_or_insert(error);
+        }
+    }
 }
 
 /// A display list's address, which is a page's identity for exactly as long as something pins it.
@@ -443,11 +472,7 @@ impl FrameSlot {
                 // scene used is never evicted — while moving it off the frames that reuse one.
                 let settling = std::time::Instant::now();
                 if let Some(previous) = slot.take() {
-                    for id in previous.transient {
-                        if let Err(error) = device.release(id) {
-                            release_error.get_or_insert(error);
-                        }
-                    }
+                    release_all(device, previous.transient, &mut release_error);
                 }
                 let evicted = caches.evict_settled(device);
                 cost.settle = settling.elapsed();
@@ -472,16 +497,12 @@ impl FrameSlot {
                 cost.uploads = caches
                     .stored()
                     .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
-                let consumed_view = match built {
-                    Ok(consumed) => consumed,
+                let (consumed_view, dots) = match built {
+                    Ok(built) => built,
                     Err(problem) => {
                         // Nothing will draw this scene, so its resources go back now rather
                         // than waiting for a replacement that will never be asked for.
-                        for id in transient {
-                            if let Err(error) = device.release(id) {
-                                release_error.get_or_insert(error);
-                            }
-                        }
+                        release_all(device, transient, &mut release_error);
                         return Err(problem);
                     }
                 };
@@ -489,6 +510,7 @@ impl FrameSlot {
                     key,
                     page_space,
                     view_free: page_space && !consumed_view,
+                    dots,
                     pages: frame
                         .pages
                         .iter()
@@ -513,6 +535,7 @@ impl FrameSlot {
             cost.handover = caches.handed();
             cost.outline_segments = caches.segments();
         }
+        cost.scene_kept = !rebuilt;
 
         let submitted = std::time::Instant::now();
         // For a baked scene the target transform is inside every command
@@ -557,11 +580,7 @@ impl FrameSlot {
     ) -> Result<(), QuorraRasterError> {
         let mut release_error: Option<raster_gpu::DeviceError> = None;
         if let Some(previous) = self.held.take() {
-            for id in previous.transient {
-                if let Err(error) = device.release(id) {
-                    release_error.get_or_insert(error);
-                }
-            }
+            release_all(device, previous.transient, &mut release_error);
         }
         release_error.map_or(Ok(()), |error| Err(error.into()))
     }
@@ -1222,6 +1241,9 @@ fn page_space(medium: Option<Medium>, frame: &PresentFrame<'_>) -> bool {
 /// no more, while what a window shows where there is no page is this program's own choice. So the
 /// surround is one rectangle over the whole frame and 𝑊 is one rectangle per placed page, at that
 /// page's own boundary — which is what makes the gap between two pages of a column visible at all.
+///
+/// Answers whether the build read the view (ADR 0702), and the round dots it drew as lines by
+/// page, which another view asks again before it keeps the scene (ADR 1877).
 pub(crate) fn build(
     device: &mut raster_gpu::Device,
     caches: &mut crate::cache::ResourceCaches,
@@ -1230,7 +1252,7 @@ pub(crate) fn build(
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
-) -> Result<bool, QuorraRasterError> {
+) -> Result<(bool, Vec<(usize, crate::stroke::DotAsLine)>), QuorraRasterError> {
     let page_space = page_space(medium, frame);
     // The surround first, where there is one: a window frame has no compositor behind it to
     // impose on, so what lies outside every page is the bottom of the scene itself.
@@ -1248,10 +1270,11 @@ pub(crate) fn build(
     }
 
     let mut consumed_view = false;
+    let mut dots = Vec::new();
     // One encoder per page, in the order the arrangement placed them. Table 29's `SinglePage` is
     // the one-element case and is what this loop was before ADR 0442; the pages of a column do
     // not overlap, so the order is the arrangement's rather than a compositing decision.
-    for (list, target) in frame.pages {
+    for (page, (list, target)) in frame.pages.iter().enumerate() {
         // §11.4.7's 𝑊 under *this* page and nowhere else. Drawn as part of the scene rather than
         // imposed afterwards for the reason `QuorraRasterizer::rasterize_frame` states: a window
         // has no compositor behind it, so the bottom of the scene is the medium. Its extent is
@@ -1295,6 +1318,7 @@ pub(crate) fn build(
             encoder.consume_view();
         }
         consumed_view |= encoder.consumed_view();
+        dots.extend(encoder.take_dots().into_iter().map(|dot| (page, dot)));
     }
     if let Some(raster) = frame.raster {
         // Through the same clock as every other upload (`Encoder::handing_over`): a fallback
@@ -1343,7 +1367,7 @@ pub(crate) fn build(
         Encoder::new(device, list, spec, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
-    Ok(consumed_view)
+    Ok((consumed_view, dots))
 }
 
 /// One flat rectangle in window pixels, which is what both halves of the medium are.

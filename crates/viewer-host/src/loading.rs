@@ -313,6 +313,29 @@ pub struct Look {
     pub target: TargetSpec,
     /// How many of the page's commands they hold.
     pub commands: usize,
+    /// Which page they are of, counted from zero.
+    pub page: usize,
+    /// Where the core will place the page's first frame in the viewport, in device pixels — the
+    /// forecast the target was taken from ([`Foreseen::origin`]), so a window that places page
+    /// rasters puts the look exactly where the frame that replaces it will be.
+    pub origin: (f32, f32),
+}
+
+impl Look {
+    /// The look as a window that places page rasters shows it: at its own size, where the core
+    /// will place the first frame (ADR 1867).
+    #[must_use]
+    pub fn placed(&self) -> crate::stand_in::Placed<'_> {
+        crate::stand_in::Placed {
+            frame: viewer_core::FrameView {
+                page: self.page,
+                raster: &self.raster,
+                origin: self.origin,
+            },
+            extent: (self.raster.width, self.raster.height),
+            retained: false,
+        }
+    }
 }
 
 /// How often the opening thread looks for the window and the read while it waits to draw.
@@ -462,6 +485,8 @@ impl Ahead {
                     raster: Arc::new(raster),
                     target,
                     commands: underway.drawn().commands,
+                    page: foreseen.page,
+                    origin: foreseen.origin,
                 });
                 looked = Some(Instant::now());
             }

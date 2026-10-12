@@ -137,6 +137,9 @@ pub struct Viewer {
     /// producer — so a file that states both has stated a walk that arrives at a page whose own
     /// `/PresSteps` would walk again, and a reader may not take a producer's advice as a bound.
     stepping: bool,
+    /// Whether the arrangement's unread pages are left for the host to read, for the length of
+    /// one [`Self::handle_unread`] (ADR 1871).
+    unread: bool,
     /// Whether the host says §12.4.4's presentation is running.
     ///
     /// Held here rather than per document for [`Self::delegated`]'s reason: it is a fact about the
@@ -271,6 +274,7 @@ impl Viewer {
             next_token: 0,
             raising: false,
             stepping: false,
+            unread: false,
             presenting: crate::PresentationMode::default(),
             holds_rasters: true,
             restrictions: crate::RestrictionPolicy::default(),
@@ -3881,7 +3885,7 @@ impl Viewer {
     /// after the first pass and the arrangement then has to be made again — the same work, and
     /// one description of it rather than two.
     fn arrange(&mut self, id: DocumentId, magnification: f32, events: &mut Vec<Event>) {
-        let (viewport, scale) = (self.viewport, self.scale);
+        let (viewport, scale, unread) = (self.viewport, self.scale, self.unread);
         let Some(open) = self.documents.get_mut(&id) else {
             return;
         };
@@ -3930,7 +3934,9 @@ impl Viewer {
             open.selection = None;
         }
 
-        Self::interpret_arranged(open, id, events);
+        if !unread {
+            Self::interpret_arranged(open, id, events);
+        }
     }
 
     /// Interprets every page of the arrangement that is not interpreted yet.
@@ -4124,6 +4130,10 @@ impl Viewer {
     /// asked at, both borrowing this viewer. `None` where there is nothing to read — no document,
     /// or a page already interpreted — and then [`Self::anticipate`] is all there is to do.
     ///
+    /// **And the same for the page a turn brings on** (ADR 1871): after [`Self::handle_unread`]
+    /// the arrangement holds the page unread, and this hands out its read exactly as it hands out
+    /// page one's.
+    ///
     /// **The core still spawns nothing** (rule 4): [`Reader::read`] runs on whatever thread
     /// the host runs it on, and [`Self::anticipated`] takes what it read in, after which the
     /// viewer is exactly the viewer `anticipate` would have left.
@@ -4198,6 +4208,34 @@ impl Viewer {
         {
             parts.keep(&list);
         }
+        events.into_iter()
+    }
+
+    /// [`Self::handle`], with the read of the pages the command brings onto the screen left to the
+    /// host, so that a page turn can be drawn while it is read as page one is (ADR 1871).
+    ///
+    /// Everything the command does is done, in the order `handle` does it, except that the
+    /// arrangement's unread pages stay unread and nothing is asked to be drawn of them. The host
+    /// then reads the one page through [`Self::anticipating`] and takes it in with
+    /// [`Self::anticipated`] — or calls [`Self::anticipate`] where `anticipating` answers `None` —
+    /// and ends with [`Self::read_the_rest`], which a host must call: until it does, the pages
+    /// the command brought on are neither read nor asked for.
+    ///
+    /// **The core still spawns nothing** (rule 4), and the read is the one `handle` would have
+    /// made: [`Reader::read`] makes the first read `crate::open::interpret` makes of a page with
+    /// no replacement, and `anticipating` hands out none for a page that holds one.
+    pub fn handle_unread(&mut self, command: Command) -> impl Iterator<Item = Event> + use<> {
+        self.unread = true;
+        let events: Vec<Event> = self.handle(command).collect();
+        self.unread = false;
+        events.into_iter()
+    }
+
+    /// Reads whatever of the arrangement is still unread and asks for what is to be drawn — the
+    /// end of a [`Self::handle_unread`].
+    pub fn read_the_rest(&mut self) -> impl Iterator<Item = Event> + use<> {
+        let mut events = Vec::new();
+        self.settle(&mut events);
         events.into_iter()
     }
 
@@ -6096,6 +6134,8 @@ pub struct Foreseen {
     /// Where that raster sits in the viewport, in device pixels —
     /// [`crate::Answer::Geometry`]'s origin.
     pub origin: (f32, f32),
+    /// Which page it is, counted from zero — the page the document opens at.
+    pub page: usize,
 }
 
 /// Written by hand because a read is a whole interpretation, which nobody wants printed.
@@ -6134,7 +6174,11 @@ impl<'a> Anticipating<'a> {
         let target =
             TargetSpec::for_page(&DisplayList::new(size), magnification, self.budget).ok()?;
         let origin = crate::layout::origin_of(self.open, page, viewport, scale, magnification)?;
-        Some(Foreseen { target, origin })
+        Some(Foreseen {
+            target,
+            origin,
+            page,
+        })
     }
 }
 
@@ -6187,6 +6231,107 @@ mod tests {
             format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
         );
         out
+    }
+
+    /// A document of two pages, each a different size and each with a mark on it, so that a turn
+    /// moves the target as well as the list.
+    fn two_pages() -> Vec<u8> {
+        let objects: [&[u8]; 6] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 5 0 R >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 6 0 R >>",
+            b"<< /Length 14 >>\nstream\n0 0 50 50 re f\nendstream",
+            b"<< /Length 16 >>\nstream\n10 10 80 80 re f\nendstream",
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
+    }
+
+    /// A viewer showing page one of [`two_pages`], drawn.
+    fn showing_page_one() -> Viewer {
+        let mut viewer = Viewer::new(300, 200, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: two_pages().into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        viewer
+    }
+
+    /// What a run of events asks to be drawn: page, target and how many commands, in order.
+    fn asked(events: &[crate::Event]) -> Vec<(usize, pdf_render::TargetSpec, usize)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                crate::Event::NeedsRender(request) => {
+                    Some((request.page, request.target, request.list.command_count()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A turn whose read is left to the host asks for nothing until the host has read the page,
+    /// and then asks for exactly what the turn handled whole asks for — the page, its target and
+    /// its list — and the target the core foretells is the one it asks at (ADR 1871).
+    #[test]
+    fn a_turn_read_by_the_host_asks_for_what_a_turn_handled_whole_asks_for() {
+        let mut whole = showing_page_one();
+        let expected: Vec<crate::Event> = whole
+            .handle(Command::GoTo(crate::PageTarget::Next))
+            .collect();
+        let expected = asked(&expected);
+        assert_eq!(expected.len(), 1, "the whole turn asks for page two once");
+        assert!(
+            expected
+                .iter()
+                .all(|&(page, _, commands)| page == 1 && commands > 0),
+            "and page two's mark is in its list"
+        );
+
+        let mut viewer = showing_page_one();
+        let unread: Vec<crate::Event> = viewer
+            .handle_unread(Command::GoTo(crate::PageTarget::Next))
+            .collect();
+        assert!(
+            asked(&unread).is_empty(),
+            "nothing is asked of a page unread"
+        );
+        let (read, foreseen) = {
+            let anticipating = viewer
+                .anticipating()
+                .expect("the page the turn brought on is handed out unread");
+            let foreseen = anticipating.foresee((300, 200), 1.0);
+            let parts = pdf_model::progress::Parts::new();
+            (anticipating.reader().read(&parts), foreseen)
+        };
+        let mut events: Vec<crate::Event> = viewer.anticipated(read, None).collect();
+        events.extend(viewer.read_the_rest());
+        assert_eq!(asked(&events), expected);
+        assert_eq!(
+            foreseen.map(|foreseen| foreseen.target),
+            expected.first().map(|&(_, target, _)| target),
+            "the target foretold is the target asked at"
+        );
     }
 
     /// A page interpreted ahead under a host's delegated widgets is the page the first `Resize`

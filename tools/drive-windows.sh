@@ -3607,6 +3607,79 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# band_first: step 82's third half (ADR 1868) — a page zoomed until the window shows less than half
+# of it has the rows the window shows drawn first, as a look of their own, and the page whole after.
+# The drive's own page: a red block at its middle and a body of 2 400 000 fills at its foot, which
+# the rows the window shows do not reach, so the band is cheap and the page is not. Zoomed in by `=`
+# about the window's middle, each notch waited for until its frame lands, until the page is more
+# than twice and a quarter the window's height; one notch more must then say `shown finished where
+# the window shows it` before its frame lands, and the photograph taken then must hold the red
+# block where the landed frame holds it. HEAD's windows never say it (the control). `quorra` draws a
+# window-sized frame and is not offered.
+band_first() {
+    local step=82-band-first file="$FIXTURES/drive-band.pdf" traced=$LAUNCH_TRACE mark mid settled notch size
+    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+        verdict "$step" "not offered" "this window draws a window-sized frame, not a page raster"
+        return
+    fi
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, zlib, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+body = (b"1 0 0 rg 276 366 60 60 re f\n"
+        + b"0.9 0.9 0.9 rg 300 40 1 1 re f\n" * 2_400_000)
+content = pikepdf.Stream(pdf, zlib.compress(body, 9))
+content.Filter = Name.FlateDecode
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1], compress_streams=False)
+PY2
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    local X Y WIDTH HEIGHT
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    for notch in 1 2 3 4 5 6 7 8 9 10; do
+        mark=$(lines)
+        xdotool key equal
+        wait_for 30 said_since "$mark" "rasterised"
+        size=$(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -oE 'rasterised [0-9]+x[0-9]+' | grep -oE '[0-9]+$')
+        [ "${size:-0}" -gt $((HEIGHT * 9 / 4)) ] && break
+        sleep 0.5
+    done
+    # One notch more, photographed the moment the band is said.
+    mark=$(lines)
+    xdotool key equal
+    if ! wait_for 30 said_since "$mark" "shown finished where the window shows it"; then
+        verdict "$step" wrong "no band was said after $notch notches (the page last ${size:-?} rows tall)"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    shot "$step-band"
+    if said_since "$mark" "rasterised"; then
+        verdict "$step" wrong "the frame landed before the photograph of the band was taken"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    wait_for 30 said_since "$mark" "rasterised"
+    sleep 0.7
+    xdotool key shift; sleep 0.5
+    shot "$step-settled"
+    mid=$(magick "$OUT/shots/$WINDOW/$step-band.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if python3 - "$mid" "$settled" <<'PY2'
+import re, sys
+boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if re.match(r"\d+x\d+\+\d+\+\d+$", b) else None for b in sys.argv[1:]]
+sys.exit(0 if None not in boxes and all(abs(a - b) <= 2 for a, b in zip(*boxes)) else 1)
+PY2
+    then
+        verdict "$step" works "the band said before the frame; its red block $mid, the landed frame's $settled"
+    else
+        verdict "$step" wrong "the band's red block $mid against the landed frame's $settled"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # --- step 83: a transition's frames are the two pages and nothing else (ADR 1853) ----------------
 # transition_frames: the drive's own slide show — red, blue and green slides, each with a white
 # square at a corner of its own, the second and third moved to by Table 164's `Wipe` and an outward
@@ -3995,6 +4068,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     page_as_built
     zoom_stand_in
     retained_page
+    band_first
     transition_frames
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

@@ -1005,6 +1005,14 @@ section_gates_cost() {
 # ADR 1756 section 5 and ADR 1790 section 6, which replays the same lines under each rule, is the
 # command the section's last line prints with the batch filled in; its script is kept outside the
 # tree, beside the replays it was built from.
+#
+# **And the small walks' queue while the second lane stood free is summed** (ADR 1869). A small walk
+# takes either lane, so a second it queued with nothing holding the second lane is a second some rule
+# kept it off a free lane: the gate did, while a clock run waited for the first lane behind a large
+# walk, 1 130–9 179 s a batch. Each small walk's wait (ask to ask plus `wait=`) is read against the
+# batch's holds of the second lane (`lane=2` and `lane=1+2`, grant to grant plus `hold=`), which the
+# lane's own lock keeps disjoint; what of the wait no hold covers is the figure. Under ADR 1869's rule
+# it is a poll a walk, half a second, and the clock run's look; a larger one is the rule failing.
 lock_cost() {
     local log=${HEAVY_WALK_LOG:-/home/AI/heavy-walk.log}
     heading "what the heavy-walk lock cost: the last batch's runs under tools/bounded.sh --lock, or LOCK_COST_BATCH's" "$log"
@@ -1111,6 +1119,19 @@ lock_cost() {
                 }
             }
             printf "%d pair(s) of batch %s granted out of ask order, the later ask taking a lane the earlier takes while it waited\n", out_of_order, last
+            for (i = 1; i <= seen; i++) {
+                if (kinds[i] != "small" || waits[i] <= 0) continue
+                small_waits++; free_for = waits[i]
+                for (j = 1; j <= seen; j++) {
+                    if (lanes[j] != "2" && lanes[j] != "1+2") continue
+                    from = at[j] + waits[j]; until = from + holds[j]
+                    lo = (from > at[i]) ? from : at[i]; hi = (until < at[i] + waits[i]) ? until : at[i] + waits[i]
+                    if (hi > lo) free_for -= hi - lo
+                }
+                if (free_for < 0) free_for = 0
+                lane2_free += free_for; if (free_for > lane2_free_max) lane2_free_max = free_for
+            }
+            printf "%d small walk(s) of batch %s queued; %.1fs of their queue passed while the second lane stood free, the longest %.1fs\n", small_waits, last, lane2_free, lane2_free_max
             printf "the re-take of ADR 1756 section 5 and ADR 1790 section 6 over these lines: cd %s && PYTHONDONTWRITEBYTECODE=1 python3 retake.py %s\n", replay, last
         }' "$log" "$log"
 }
@@ -1216,14 +1237,16 @@ section_batches() {
 # three digits that no digit precedes, followed by groups of exactly three, is joined into one before
 # anything is read; a session number has four digits, so `1450 7 000 s` is a round and its 7 000 s,
 # and `1435 974 s` stays a round and 974 s. The gate line is read in each shape the bodies have used:
-# `33 of 33 green, 1 755 s of gate wall time`, `32 of 33 green at the run (1 783 s …` and `… green in
-# the batch run, 1576 s …`. `tools/state.sh --batch-figures` is this function, which
+# `33 of 33 green, 1 755 s of gate wall time`, `32 of 33 green at the run (1 783 s …`, `… green in
+# the batch run, 1576 s …`, and from batch seventy-four `33 of 33 gates green, 1 836 s of gate wall
+# time` and `34 of 36 gates green at the run, 2 248 s …`, which a pattern without the word `gates`
+# read as no gate line for eight batches (review 1513 section 1, ADR 1869). `tools/state.sh --batch-figures` is this function, which
 # `tools/conformance/tests/state_sections.rs` asks of planted bodies (ADR 1756).
 batch_figures() {
     local body gates rounds seconds figures named unsummed bare
     body=$(tr '\n' ' ' | tr -s ' ' |
         perl -CSD -pe 's/(?<![0-9])([0-9]{1,3}(?:[ \x{2009}][0-9]{3})+)(?![0-9])/$1 =~ s{[ \x{2009}]}{}gr/ge')
-    gates=$(printf '%s' "$body" | grep -oE '[0-9]+ of [0-9]+ green[^0-9]{0,24}[0-9]+ s of gate wall time' | tail -1)
+    gates=$(printf '%s' "$body" | grep -oE '[0-9]+ of [0-9]+ (gates )?green[^0-9]{0,24}[0-9]+ s of gate wall time' | tail -1)
     rounds=$(printf '%s' "$body" | sed -n 's/.*Round durations[^:]*: *//p' | sed 's/ *Co-Authored-By.*//')
     seconds=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | awk '{ t += $1 } END { print t + 0 }')
     figures=$(printf '%s' "$rounds" | grep -oE '[0-9]+ s\b' | grep -c .)

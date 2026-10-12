@@ -902,10 +902,12 @@ impl App {
             self.launch.mark("document joined");
             // Page one as it was drawn while it was read goes to the renderer whose first frame of
             // it is finished from that drawing (ADR 1855).
-            if let Some(ahead) = self.ahead.take()
-                && let Some(window) = self.device_window()
-            {
-                window.draw_ahead(ahead);
+            if let Some(ahead) = self.ahead.take() {
+                if let Some(window) = self.device_window() {
+                    window.draw_ahead(ahead);
+                } else if let Some(composer) = self.composer() {
+                    composer.draw_ahead(ahead);
+                }
             }
             if self.loading.take().is_some() {
                 println!("note: {}", viewer_host::loading::READ);
@@ -953,43 +955,64 @@ impl App {
     /// Tells page one's drawing ahead how large the window is, while the document is opening —
     /// the target it draws into is this window's (ADR 1855).
     fn tell_the_opening(&self) {
-        let (Some(ahead), Some(state), Some(_)) = (
+        let (Some(ahead), Some(_), Some(window)) = (
             self.ahead.as_ref(),
-            self.state.as_ref(),
             self.opening.as_ref(),
+            self.window_now(),
         ) else {
             return;
         };
+        ahead.window_is(window);
+    }
+
+    /// The window as a drawing ahead is told about it: its size, the panel's inset and its scale.
+    pub(crate) fn window_now(&self) -> Option<viewer_host::loading::Window> {
+        let state = self.state.as_ref()?;
         let size = state.window.inner_size();
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = state.window.scale_factor() as f32;
-        ahead.window_is(viewer_host::loading::Window {
+        Some(viewer_host::loading::Window {
             width: size.width.max(1),
             height: size.height.max(1),
             inset: self.panel.inset(scale),
             scale,
-        });
+        })
     }
 
     /// Puts page one up as it stands while it is read, where a newer look at it has been drawn
     /// (ADR 1855): sends the look to be uploaded, and puts up the last one that has been. Nothing
     /// is answered to the core, which has no document yet; the frame that answers is the first.
+    /// Under `--cpu` the look is copied onto the window as it is: there is nothing to upload.
     fn show_the_read(&mut self) {
         let Some(ahead) = self.ahead.clone() else {
             return;
         };
         let trace = self.trace;
-        let Some(window) = self.device_window() else {
+        let extent = self.state.as_ref().map(|state| {
+            let size = state.window.inner_size();
+            (size.width.max(1), size.height.max(1))
+        });
+        let shown = if let Some(window) = self.device_window() {
+            window.show_read(&ahead);
+            // What arrived is taken in here: no frame is in flight to take it in with.
+            drop(window.collect());
+            window
+                .present_as_built()
+                .map(|shown| shown.map(|_| ()))
+                .map_err(|problem| problem.to_string())
+        } else if let (Some(composer), Some(extent)) = (self.composer(), extent) {
+            composer
+                .show_read(&ahead, extent)
+                .map(|shown| shown.map(|_| ()))
+                .map_err(|problem| problem.to_string())
+        } else {
             return;
         };
-        window.show_read(&ahead);
-        // What arrived is taken in here: no frame is in flight to take it in with.
-        drop(window.collect());
-        match window.present_as_built() {
-            Ok(Some(_)) => {
+        match shown {
+            Ok(Some(())) => {
                 let commands = ahead.look().map_or(0, |look| look.commands);
                 trace.say(
                     Topic::Frames,

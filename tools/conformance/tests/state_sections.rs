@@ -426,7 +426,10 @@ fn batch_figures(body: &str) -> String {
 /// moved too. Calibrated against bodies read by hand: batch seventy-one's (`8b8f86f0`, summed by
 /// hand to 47 135 s over six rounds), batch sixty-eight's (`ebe5f2e2`, whose `974 s` beside a
 /// session number must not join it, and whose `3 100 s + 1 600 s` is two figures), an ungrouped body
-/// of the older shape, and a thin-spaced one.
+/// of the older shape, and a thin-spaced one. And from batch seventy-four the bodies say `gates
+/// green`, which the pattern read as no gate line for eight batches (review 1513 section 1, ADR
+/// 1869): batch seventy-four's (`02b035a8`) and batch eighty-one's (`88e5070b`), each of which
+/// `tools/state.sh batches` printed as "no gate wall-time line" before.
 #[test]
 fn the_batches_section_reads_a_grouped_figure_whole() {
     let seventy_one = "Gates: tier 1 \u{2014} fmt 0, clippy 0, nextest 0 (6 814 passed), conformance 0 \
@@ -456,5 +459,18 @@ fn the_batches_section_reads_a_grouped_figure_whole() {
     assert_eq!(
         batch_figures(thin),
         "gates: 33 of 33 green, 1755 s of gate wall time  rounds: 17938 s over 2 figure(s) for 2 round(s)"
+    );
+    let seventy_four = "Gates: tier 1 green (fmt, clippy, nextest 6 847 passed / 45 skipped, conformance, \
+        fuzz check); 33 of 33 gates green, 1 836 s of gate wall time; `tools/batch.sh check` clean.\n\n\
+        Round durations (wall, tool uses): 1468 4 100 s, 150; 1469 3 000 s, 120.\n";
+    assert_eq!(
+        batch_figures(seventy_four),
+        "gates: 33 of 33 gates green, 1836 s of gate wall time  rounds: 7100 s over 2 figure(s) for 2 round(s)"
+    );
+    let eighty_one = "Gates: tier 1 green; 34 of 36 gates green at the run, 2 248 s of gate wall time; the \
+        two others are timing.\n\nRound durations (wall, tool uses): 1509 12 000 s, 200.\n";
+    assert_eq!(
+        batch_figures(eighty_one),
+        "gates: 34 of 36 gates green at the run, 2248 s of gate wall time  rounds: 12000 s over 1 figure(s) for 1 round(s)"
     );
 }

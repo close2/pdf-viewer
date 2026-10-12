@@ -202,21 +202,25 @@ pub(crate) fn encode(
     )
 }
 
-/// A stroke [`pdf_render::thin_segment`] admits, drawn as one [`raster_scene::Command::Line`] —
-/// its exact area in the shader, with no outline behind it (raster's ADR 0097) — and `true`; or
-/// `false`, and nothing drawn, for every stroke it does not admit.
+/// A stroke of one straight segment, drawn as one [`raster_scene::Command::Line`] — its exact area
+/// in the shader, with no outline behind it (raster's ADR 0097) — and `true`; or `false`, and
+/// nothing drawn, for every stroke that is not one.
 ///
-/// §8.5.3.2's round dot is one of them, its two points equal: the line's set at length zero is
-/// the clause's filled circle, so it never reaches `split_degenerate`'s circle of four cubics, and
-/// the device and the processor measure it by the one closed form (ADR 1857).
+/// **Which strokes are lines is decided without the view** (ADR 1877). Raster's line is
+/// §8.4.3.2's set with Table 53's end by its exact area at every size, and it resolves the
+/// width per placement exactly as it resolves a stroke's (its ADR 0085: §8.4.3.2's zero and
+/// §10.7.5's adjustment), so nothing about a segment of two distinct points needs this view to be
+/// drawn right — and a scene holding only such lines is true at every view (ADR 0702), which is
+/// what lets a zoom step keep it. The processor keeps its own population, the segments whose ink
+/// fits [`pdf_render::thin_segment`]'s block at this view (ADR 1829): the two backends measure
+/// one set by two constructions past that block, which raster ADR 0082's bound covers.
 ///
-/// The population is decided at the device transform — the two by two block is this view's
-/// pixels — so a scene holding one is true only at this view (ADR 0702), exactly as a scene
-/// holding §8.5.3.2's dots is. The width crosses resolved, in the path's own space, so that
-/// §8.4.3.2's zero and §10.7.5's adjustment are answered once, here, where the classification
-/// answered them; raster's pen is then half that width under each of the transform's two
-/// stretches, which is the pen `pdf_render::ThinSegment` states, and its area in a pixel the
-/// one `ThinSegment::coverage` states.
+/// §8.5.3.2's round dot is the one line still decided at the view, by
+/// [`pdf_render::thin_segment`] as the processor decides it: whether its area reaches a level is
+/// what keeps it from §10.7.4's substitution in `split_degenerate`, and the device and the
+/// processor then measure it by the one closed form (ADR 1857). So the scene keeps each such dot
+/// as a [`DotAsLine`] instead of reading the view, and is kept at another view only where every
+/// one of them is a line there too (ADR 1877).
 fn thin_line(
     enc: &mut Encoder<'_>,
     builder: &mut SceneBuilder,
@@ -226,18 +230,32 @@ fn thin_line(
     paint: &Paint,
     (clip, mask, blend): (Option<ClipId>, Option<SoftMaskId>, BlendMode),
 ) -> Result<bool, QuorraRasterError> {
-    let to_device = transform.then(enc.target().transform);
-    if pdf_render::thin_segment(path, s, paint, blend, to_device).is_none() {
-        return Ok(false);
-    }
-    // `thin_segment` admits exactly one move and one line in a solid paint.
-    let (Paint::Solid(color), [PathCommand::MoveTo(from), PathCommand::LineTo(to)]) =
-        (paint, path.commands())
-    else {
+    // One straight segment, or §8.5.3.2's single point however the path states it (`m l`, `m h`,
+    // a curve that stays at its point), read by the shared rule the processor reads it by.
+    let (Paint::Solid(color), Some((from, to))) = (paint, pdf_render::segment_ends(path)) else {
         return Ok(false);
     };
+    if !is_view_free_line(transform, s, blend, (from, to)) {
+        return Ok(false);
+    }
+    if from == to {
+        // Under the other two caps a dot paints nothing (§8.5.3.2), which `split_degenerate`
+        // states; a line of no length has no direction to put such an end along.
+        if s.cap != LineCap::Round {
+            return Ok(false);
+        }
+        let dot = DotAsLine {
+            path: Arc::clone(path),
+            transform,
+            stroke: s.clone(),
+            paint: paint.clone(),
+        };
+        if !dot.is_line_at(enc.target().transform) {
+            return Ok(false);
+        }
+        enc.keep_dot(dot);
+    }
     let mask = enc.mask_id(builder, mask)?;
-    enc.consume_view();
     let reach = reach(path, transform, s, (&Path::new(), 1.0));
     let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip, reach)? else {
         return Ok(true); // the clip admits nothing
@@ -248,13 +266,76 @@ fn thin_line(
             raster_scene::Point::new(to.x, to.y),
         ),
         enc.placed(transform),
-        (s.device_width(to_device), false),
+        (s.width, s.adjust),
         cap(s.cap),
         colour(*color),
         clip,
         mask,
     )?;
     Ok(true)
+}
+
+/// A round dot a scene drew as a line, kept so that another view can ask whether it would draw
+/// it as a line too (ADR 1877).
+///
+/// Whether §8.5.3.2's dot is the line's disc or §10.7.4's substitution is a question about the
+/// pixels it lands in, so it is the one answer a scene of lines carries from the view it was
+/// built at. A fresh build at another view asks it again of every dot, and a kept scene is that
+/// build only where every answer is the same — which this asks, by the same call.
+#[derive(Debug, Clone)]
+pub(crate) struct DotAsLine {
+    /// The dot's own path: a single point, however the path states it.
+    path: Arc<Path>,
+    transform: Transform,
+    /// The command's stroke, whose dash array a line's is empty.
+    stroke: Stroke,
+    paint: Paint,
+}
+
+impl DotAsLine {
+    /// Whether this dot is drawn as a line at a view placing the page by `view`.
+    ///
+    /// Where the processor's block admits it, by the processor's own call; and past the block,
+    /// wherever the dot is at least a device pixel across both ways: its disc then covers more
+    /// than π/4 of a pixel, so §10.7.4 substitutes nothing for it, and the line's disc is the
+    /// clause's filled circle by its exact area at any size.
+    pub(crate) fn is_line_at(&self, view: Transform) -> bool {
+        let to_device = self.transform.then(view);
+        let across = self.stroke.device_width(to_device) * to_device.min_stretch();
+        (self.stroke.cap == LineCap::Round && to_device.preserves_axes() && across >= 1.0)
+            || pdf_render::thin_segment(
+                &self.path,
+                &self.stroke,
+                &self.paint,
+                BlendMode::Normal,
+                to_device,
+            )
+            .is_some()
+    }
+}
+
+/// Whether a solid stroke of the one segment `from`–`to` is a raster line at every view: no dash
+/// (the dash pattern is this crate's to cut), `Normal` (raster's line composites over), a path
+/// transform that keeps the axes and collapses nothing — the line's pen is an ellipse on the
+/// device's axes only there, and a page placement keeps the axes — and coordinates and a width
+/// raster's scene admits, so that a line it would refuse takes the stroke road rather than losing
+/// the frame.
+fn is_view_free_line(
+    transform: Transform,
+    s: &Stroke,
+    blend: BlendMode,
+    (from, to): (Point, Point),
+) -> bool {
+    let inside = |v: f32| v.is_finite() && v.abs() <= raster_scene::MAX_COORDINATE;
+    let determinant = transform.determinant();
+    blend == BlendMode::Normal
+        && s.dash_array.is_empty()
+        && transform.preserves_axes()
+        && determinant.is_finite()
+        && determinant != 0.0
+        && [from.x, from.y, to.x, to.y].into_iter().all(inside)
+        && inside(s.width)
+        && s.width >= 0.0
 }
 
 /// The raster paint this stroke draws with, or `None` where what it names paints nothing.

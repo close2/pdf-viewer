@@ -379,23 +379,23 @@ fn append_circle(into: &mut Path, centre: Point, width: f32) {
 }
 
 /// One subpath's extent within a path's command list, and whether it has any length.
-struct Subpath {
+pub(crate) struct Subpath {
     /// Index of the subpath's first command.
     first: usize,
     /// Index one past its last command.
     last: usize,
     /// Where the subpath begins. Every point of a degenerate subpath equals it.
-    start: Point,
+    pub(crate) start: Point,
     /// The last point the subpath reaches, which for a dash is where it points.
     end: Point,
     /// How many commands add a segment. Zero means a lone `m`.
-    segments: usize,
+    pub(crate) segments: usize,
     /// True when the subpath spans no distance at all.
-    degenerate: bool,
+    pub(crate) degenerate: bool,
 }
 
 impl Subpath {
-    fn range(&self) -> core::ops::Range<usize> {
+    pub(crate) fn range(&self) -> core::ops::Range<usize> {
         self.first..self.last
     }
 }
@@ -406,7 +406,7 @@ impl Subpath {
 /// current subpath. Appending another segment to the current path shall begin a new subpath,
 /// even if the new segment begins at the endpoint reached by the h operation" — and that new
 /// subpath begins where the closed one did, which is the point `h` returned to.
-fn subpaths(path: &Path) -> impl Iterator<Item = Subpath> + '_ {
+pub(crate) fn subpaths(path: &Path) -> impl Iterator<Item = Subpath> + '_ {
     let commands = path.commands();
     let mut index = 0usize;
     // The point the most recent `m` set. A subpath that begins after an `h` has no `m` of

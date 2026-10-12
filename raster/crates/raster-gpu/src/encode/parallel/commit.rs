@@ -200,6 +200,39 @@ impl<'a> Encoder<'a> {
         Ok(())
     }
 
+    /// Queue one line behind the marks queued before it, as a run of lines where the last job
+    /// queued is one (ADR 1878).
+    ///
+    /// The bound on what the queue holds is kept as [`Encoder::enqueue`] keeps it, a line at a
+    /// time; where it drains, the line is written straight after, which is where the walk with
+    /// nothing queued writes it.
+    pub(in crate::encode) fn enqueue_line(
+        &mut self,
+        line: super::super::instance::QueuedLine,
+    ) -> Result<(), RenderError> {
+        let held = size_of::<super::super::instance::QueuedLine>() as u64;
+        if self.queued_bytes.saturating_add(held) > self.in_flight_limit {
+            self.drain_queue()?;
+        }
+        if self.queue.is_empty() {
+            self.write_line_instance(&line.line, line.color, line.style, line.mask);
+            return Ok(());
+        }
+        let index = self.queued_lines.len();
+        self.queued_bytes = self.queued_bytes.saturating_add(held);
+        let extended = self
+            .queue
+            .last_mut()
+            .is_some_and(|last| last.extend_lines(index));
+        if !extended {
+            let job = Job::lines(index, &line);
+            self.queued_bytes = self.queued_bytes.saturating_add(job.held());
+            self.queue.push(job);
+        }
+        self.queued_lines.push(line);
+        Ok(())
+    }
+
     /// Rasterise everything queued and commit it, in encounter order.
     ///
     /// The queue is emptied **before** the commit runs, so the commit reaches the same
@@ -222,6 +255,7 @@ impl<'a> Encoder<'a> {
     fn drain(&mut self, last: bool) -> Result<(), RenderError> {
         while !self.queue.is_empty() {
             let jobs = std::mem::take(&mut self.queue);
+            let lines = std::mem::take(&mut self.queued_lines);
             self.queued_keys.clear();
             self.queued_inserts.clear();
             self.queued_bytes = 0;
@@ -238,13 +272,35 @@ impl<'a> Encoder<'a> {
             rasterise_then(&jobs, threads, (lent.as_ref(), last), |masks| {
                 self.clock.geometry(span);
                 for (job, mask) in jobs.iter().zip(masks) {
-                    self.commit(job, mask)?;
+                    match job.line_run() {
+                        Some(run) => self.commit_lines(&lines[run])?,
+                        None => self.commit(job, mask)?,
+                    }
                 }
                 Ok::<(), RenderError>(())
             })?;
+            // The run's buffer serves the next drain, unless a commit queued lines of its own.
+            if self.queued_lines.is_empty() {
+                let mut lines = lines;
+                lines.clear();
+                self.queued_lines = lines;
+            }
             if lent.is_some() && !last {
                 self.hand_on_waiting_meets();
             }
+        }
+        Ok(())
+    }
+
+    /// Write a run of queued lines, in encounter order: anything a commit before it queued is
+    /// drawn first, as for every other job, and a line queues nothing of its own.
+    fn commit_lines(
+        &mut self,
+        lines: &[super::super::instance::QueuedLine],
+    ) -> Result<(), RenderError> {
+        self.drain_queue()?;
+        for queued in lines {
+            self.write_line_instance(&queued.line, queued.color, queued.style, queued.mask);
         }
         Ok(())
     }
@@ -279,11 +335,8 @@ impl<'a> Encoder<'a> {
                 self.write_rect_instance(*rect, job.draw.color, job.draw.style, job.draw.mask);
                 Ok(())
             }
-            Place::Line { line } => {
-                self.drain_queue()?;
-                self.write_line_instance(line, job.draw.color, job.draw.style, job.draw.mask);
-                Ok(())
-            }
+            // Committed by `commit_lines`, which `drain` hands the run's lines to.
+            Place::Lines { .. } => Ok(()),
             Place::Compute {
                 outline,
                 to_device,

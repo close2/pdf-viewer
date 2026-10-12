@@ -441,3 +441,12 @@ frame in `quorra-gtk` differed from the settled page along the page's edge by ab
 showed the same seam on the owner's display (round 1514, ADR 1865). A face, a stand-in or an end
 frame drawn apart from the page it gives way to is drawn the way that window draws the page, at the
 whole pixel the page is shown at, and the drive judges it against the settled frame.
+
+### 161. A window's trace or a drive's ink test can say a picture is shown when nothing is painted
+
+Qt's look fired its trace line when the look was stored; the paint is C++'s and came later, and
+for a while never. Step 81's `drawn_on_the_shot` said "inked: yes" for that unpainted look, and
+"inked: no" for HEAD's Qt, so the test was not calibrated for Qt at all (round 1515, ADR 1867). The
+bug was found only by photographing the window by its id under Xvfb and looking at the picture.
+Before a line or a test is trusted to say *shown*, it is calibrated against a window that paints
+nothing, and the photograph is looked at.

@@ -241,9 +241,12 @@ enum Place<'a> {
     /// An instance of the analytic rectangle lane (ADR 0007): no geometry, only a place
     /// in the draw order (ADR 1409).
     Rect { rect: Rect },
-    /// An instance of the line lane (ADR 0097), likewise geometry-free: the endpoints and the
-    /// pen, with the clip's rectangle in the draw.
-    Line { line: super::instance::LineInstance },
+    /// A run of consecutive line instances (ADR 0097), likewise geometry-free: the queued lines
+    /// from `start` to `end` in [`Encoder::queued_lines`](super::Encoder), each with its own
+    /// draw. One job for the run rather than one each, because a job record is several hundred
+    /// bytes copied three times between the walk and the commit, and a page of millions of lines
+    /// between its other marks paid that for every one of them (ADR 1878).
+    Lines { start: usize, end: usize },
     /// A tile of the compute lane (ADR 0080): the device flattens and fills it, so the
     /// host's part is a seat and a record, taken at the commit (ADR 1409).
     Compute {
@@ -463,11 +466,39 @@ impl<'a> Job<'a> {
         }
     }
 
-    /// A line instance, queued behind the marks before it as a rectangle is (ADR 1409).
-    pub(super) fn line(line: super::instance::LineInstance, draw: Draw) -> Self {
+    /// A run of queued lines beginning with the one at `start`, queued behind the marks before
+    /// it as a rectangle is (ADR 1409, ADR 1878). Its own draw is the first line's, which nothing
+    /// reads: each line carries its own.
+    pub(super) fn lines(start: usize, first: &super::instance::QueuedLine) -> Self {
         Self {
-            place: Place::Line { line },
-            ..Self::rect(line.ink, draw)
+            place: Place::Lines {
+                start,
+                end: start.saturating_add(1),
+            },
+            ..Self::rect(
+                first.line.ink,
+                Draw::new(first.color, first.line.admit, first.style, first.mask),
+            )
+        }
+    }
+
+    /// Extends this job's run by the line queued at `index`, where it is a run that ends there.
+    pub(super) fn extend_lines(&mut self, index: usize) -> bool {
+        match &mut self.place {
+            Place::Lines { end, .. } if *end == index => {
+                *end = index.saturating_add(1);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The range of [`Encoder::queued_lines`](super::Encoder) this job commits, where it is a
+    /// run of lines.
+    pub(super) fn line_run(&self) -> Option<std::ops::Range<usize>> {
+        match self.place {
+            Place::Lines { start, end } => Some(start..end),
+            _ => None,
         }
     }
 
@@ -487,7 +518,7 @@ impl<'a> Job<'a> {
             | Place::Follows { .. }
             | Place::Sheet
             | Place::Rect { .. }
-            | Place::Line { .. }
+            | Place::Lines { .. }
             | Place::Compute { .. } => None,
         }
     }

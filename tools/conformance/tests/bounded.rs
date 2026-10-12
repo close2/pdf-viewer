@@ -31,9 +31,10 @@
 //! than handed to its command: a daemon the command leaves running does not keep it, `--held`
 //! reads the marker inside a hold and not outside it, and a `--lock` run nested in a hold runs
 //! under it (ADR 1674) — and the lock's two lanes: a small walk granted the second lane beside a
-//! large one, a clock run planted behind two lane holders that waits for both while a walk asked
-//! after it is granted nothing until it ends, and a `--clock` outside a lock or inside a hold of one
-//! lane refused (ADR 1684) — and a `--build` run inside the hold before its command, a failed one
+//! large one, a clock run planted behind two lane holders that waits for the first while a small
+//! walk asked after it is granted the second, and a large walk asked after it, a long run asked after
+//! it, and a small walk asked once it has the first, are granted nothing until it ends, and a
+//! `--clock` outside a lock or inside a hold of one lane refused (ADRs 1684, 1869) — and a `--build` run inside the hold before its command, a failed one
 //! ending the run unstarted (ADR 1710) — and a `--long` run pinned to the second lane: a second long
 //! run queues behind the first with the first lane free while a small walk takes that lane at once,
 //! `--long` refused outside a lock, beside `--clock`, above 6 GiB and inside a hold of the first lane,
@@ -348,6 +349,58 @@ fn the_lock_cost_counts_a_line_that_names_no_batch_for_the_batch_its_round_is_in
             && stdout.contains("1 of those line(s) name no batch branch and are counted by their round, 30.0s of queue")
             && stdout.contains("1 line(s) of the log name no batch branch and a round no batch on the log holds"),
         "a line counted by its round is not marked so, or one no batch holds was counted:\n{stdout}"
+    );
+}
+
+/// `tools/state.sh gates-cost` sums the small walks' queue that passed while the second lane stood
+/// free, the figure ADR 1869's side lane is to bring to a poll a walk (review 1513 section 1.1.1
+/// measured the gate's cost as lane 2's idle time instead). The planted batch: a large walk holds the
+/// first lane for 100 s and a small walk the second for 10 s; a small walk asked two seconds in
+/// queues 8 s behind that holder, all of it with the lane held, so it adds nothing — the calibration,
+/// since a reading that took a wait as free time adds its 8 s; a clock run asked at 5 s waits 95 s
+/// and holds both lanes for 5 s; a small walk asked at 20 s waits 85 s, of which the clock run's
+/// hold covers the last 5 s, so 80 s of it passed with the lane free — and a reading that left out
+/// the clock run's `1+2` hold of the second lane says 85.
+#[test]
+fn the_lock_cost_sums_the_small_walks_queue_while_the_second_lane_stood_free() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("lane2-free-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    let line = |at: &str, round: u32, wait: &str, hold: &str, kind: &str, lane: &str| {
+        format!(
+            "2026-10-12T10:{at} batch=batch-100-105 round={round} wait={wait}s hold={hold}s exit=0 \
+             peak=0.10GiB behind=- kind={kind} lane={lane} cmd=walk {round}\n"
+        )
+    };
+    let planted = [
+        line("00:00", 101, "0.0", "100.0", "large", "1"),
+        line("00:00", 102, "0.0", "10.0", "small", "2"),
+        line("00:02", 103, "8.0", "5.0", "small", "2"),
+        line("00:05", 104, "95.0", "5.0", "clock", "1+2"),
+        line("00:20", 105, "85.0", "1.0", "small", "2"),
+    ]
+    .concat();
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(
+            "2 small walk(s) of batch batch-100-105 queued; 80.0s of their queue passed while the \
+             second lane stood free, the longest 80.0s"
+        ),
+        "the small walks' queue while the second lane stood free is not the planted 80 s:\n{stdout}"
     );
 }
 

@@ -277,6 +277,16 @@ calibration_ms = 0.62 .. 0.78
 # ceiling at 25.5, inside the 25.2 to 28.3 that GL's return read, which is the regression this
 # band exists to name; one run in sixteen past the edge by 0.66 ms is not a band failing on
 # alternate runs.
+#
+# **It fails while the desktop holds the adapter's carve-out, and that is the environment's**
+# (ADR 1872). From 2026-10-12 the figure read 21.4 to 32.7 ms with nothing installed or compiled on
+# its path changed: `request_device` alone moved, 1.0 to 1.9 ms then and 7.0 to 10.9 now, because
+# the session's other clients held 409 to 420 MiB of the 512 MiB carve-out and `wgpu`'s first
+# 128 MiB device-local block went to system memory, cleared inside the call (the process's `fdinfo`:
+# 197 476 KiB asked of VRAM, 868 KiB placed there). The four `first_page_ms` rows past their bands
+# in the same runs are the same cause. The band is kept: `MemoryHints::MemoryUsage` reads
+# `request_device` at 1.8 to 4.0 ms and the usable device at 15.2 to 24.3 ms on the full carve-out,
+# which is this band again, and is `raster-gpu`'s lever to take with the frame gates beside it.
 bring_up_ms = 13.6 .. 20.6
 
 # What the device costs in *allocated* memory, in the same process that has done nothing else.
@@ -346,11 +356,11 @@ warm_open_ms = 0.26 .. 0.40
 # same three runs as `bring_up_ms` above, this file's clock rule over them. Here they read 24.76,
 # 26.57 and 26.67 ms.
 first_page_ms = 21.0 .. 32.1
-# Floor moved down at batch eighty-one's merge, which read 3.394 ms against 3.4. Not the batch's:
-# the merge's A/B ran HEAD's gate and the batch's in one clock hold, twice each, and HEAD read the
-# 57-page document's turn at 3.59 and 3.67 ms, under its old floor too, so the day's machine turns a
-# page faster than the one the band was derived on. The floor follows the figure (× 0.85); the
-# ceiling stays, and nothing here is credited to the tree.
+# Floor at batch eighty-one's merge figure, 3.394 ms × 0.85; the ceiling stays. The day's machine and
+# not the tree: the merge's A/B read HEAD's 57-page turn at 3.59 and 3.67 ms, under the floor the
+# band was derived with, and with ADR 1861's lexer change compiled out one clock hold reads 3.685
+# ms against HEAD's 3.683 (ADR 1870). The gate prints no stage of a turn; turn-path.toml's text row
+# moved in its encode and not its interpretation.
 turn_ms = 2.88 .. 5.6
 script_spawn_ms = none
 script_first_run_ms = none
@@ -360,10 +370,10 @@ read_kib = 86 .. 92
 read_calls = 23 .. 27
 # ADR 1543's band over 4029.3 three times (see the clocks above); ADR 1044 took §12.8's signature
 # walk off the same open before it, for the same reason.
-# Moved down for ADR 1861: the content lexer asks the string test where it stands and skips the
-# white space once, which round 1512 counted at −0.15 % to −3.05 % on the six launch documents'
-# open and first page (callgrind); the merge's gate read 3972.917 thousand against a floor of 3989.
-# The floor is the merge's figure less one per cent, this file's rule; the ceiling stays.
+# The floor is batch eighty-one's merge figure, 3972.917 thousand, less one per cent, this file's rule;
+# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
+# stands and skips the white space once, and compiled out it counts 4031.383 thousand against
+# HEAD's 3972.634 in one clock hold, 1.46 % (ADR 1870).
 open_kinstructions = 3933 .. 4070
 why = "the five-page end of principle 2's own claim that a 500-page document must open no slower than a five-page one"
 
@@ -379,11 +389,11 @@ warm_open_ms = 0.79 .. 1.18
 # allocations read 25.6 to 26.5 MiB. This page's `ICCBased` page group is converted on more than
 # one thread (`pdf_render::resolve_cube`).
 first_page_ms = 22.8 .. 37.8
-# Floor moved down at batch eighty-one's merge, which read 3.748 ms against 3.99. Not the batch's:
-# the merge's A/B ran HEAD's gate and the batch's in one clock hold, twice each, and HEAD read the
-# 57-page document's turn at 3.59 and 3.67 ms, under its old floor too, so the day's machine turns a
-# page faster than the one the band was derived on. The floor follows the figure (× 0.85); the
-# ceiling stays, and nothing here is credited to the tree.
+# Floor at batch eighty-one's merge figure, 3.748 ms × 0.85; the ceiling stays. The day's machine and
+# not the tree: the merge's A/B read HEAD's 57-page turn at 3.59 and 3.67 ms, under the floor the
+# band was derived with, and with ADR 1861's lexer change compiled out one clock hold reads 3.737
+# ms against HEAD's 3.839 (ADR 1870). The gate prints no stage of a turn; turn-path.toml's text row
+# moved in its encode and not its interpretation.
 turn_ms = 3.18 .. 6.6
 script_spawn_ms = none
 script_first_run_ms = none
@@ -394,10 +404,10 @@ read_calls = 28 .. 32
 # Moved down for ADR 1833: the content lexer's fast path for a number and a keyword takes this
 # document's open from 13 051 (its old floor) to 13 039 thousand instructions at batch seventy-nine's
 # merge; the floor follows the win, the ceiling stays.
-# Moved down for ADR 1861: the content lexer asks the string test where it stands and skips the
-# white space once, which round 1512 counted at −0.15 % to −3.05 % on the six launch documents'
-# open and first page (callgrind); the merge's gate read 12752.523 thousand against a floor of 13020.
-# The floor is the merge's figure less one per cent, this file's rule; the ceiling stays.
+# The floor is batch eighty-one's merge figure, 12752.523 thousand, less one per cent, this file's rule;
+# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
+# stands and skips the white space once, and compiled out it counts 13041.702 thousand against
+# HEAD's 12752.380 in one clock hold, 2.22 % (ADR 1870).
 open_kinstructions = 12624 .. 13316
 why = "a middling text-heavy document, so that the two ends of the set are not the only shape measured"
 
@@ -432,10 +442,10 @@ peak_anon_mib = 25.5 .. 32.0
 open_peak_mib = 9 .. 14
 read_kib = 99 .. 105
 read_calls = 25 .. 29
-# Moved down for ADR 1861: the content lexer asks the string test where it stands and skips the
-# white space once, which round 1512 counted at −0.15 % to −3.05 % on the six launch documents'
-# open and first page (callgrind); the merge's gate read 68847.151 thousand against a floor of 69645.
-# The floor is the merge's figure less one per cent, this file's rule; the ceiling stays.
+# The floor is batch eighty-one's merge figure, 68847.151 thousand, less one per cent, this file's rule;
+# the ceiling stays. All of the move is ADR 1861's: the content lexer asks the string test where it
+# stands and skips the white space once, and compiled out it counts 70297.058 thousand against
+# HEAD's 68847.136 in one clock hold, 2.06 % (ADR 1870).
 open_kinstructions = 68158 .. 71052
 why = "the other end of that claim at two hundred times its pages — 1023 of them and 19 MB, the document every launch measurement in doc/performance.md is taken on. Its cold open is 36 times the five-page document's, which is the claim not holding of the open; its time to first page is inside the same band, which is the claim holding of the launch, because the graphics device is longer than either"
 
