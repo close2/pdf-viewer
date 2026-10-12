@@ -664,7 +664,10 @@ for entry in members:
     # fuzz manifest has no fuzz workspace to check.
     local fuzz
     if [ -f fuzz/Cargo.toml ]; then
-        fuzz=$("$wt/tools/bounded.sh" --lock --round check --tree 6 -- cargo check -q --manifest-path fuzz/Cargo.toml 2>&1) && found= || found=$fuzz
+        # `--color never`: the lines are read by the grep below and not by a person, and CI sets
+        # `CARGO_TERM_COLOR=always`, under which `error[E0308]` begins with an escape and the grep
+        # matched nothing (ADR 1879 section 5).
+        fuzz=$("$wt/tools/bounded.sh" --lock --round check --tree 6 -- cargo check -q --color never --manifest-path fuzz/Cargo.toml 2>&1) && found= || found=$fuzz
         printf 'cargo check of the fuzz workspace %s\n' "$([ -z "$found" ] && echo clean || echo fails)"
         [ -z "$found" ] || { printf '%s\n' "$found" | grep -E '^(error|warning)(\[|:)' | sort | uniq -c | head -20 | sed 's/^/    /'; bad=1; }
     else

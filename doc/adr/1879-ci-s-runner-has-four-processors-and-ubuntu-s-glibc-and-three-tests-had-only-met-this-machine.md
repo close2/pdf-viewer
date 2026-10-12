@@ -79,3 +79,16 @@ The `nightly` job, run with the nightly each run would have installed:
   through GL (`radeonsi`), `mod/negative-dividend` reads 2 where the reference says -2. That is not
   CI's (CI has no GPU, and lavapipe and llvmpipe both pass), but it is a real disagreement on this
   machine's GL path.
+
+## 5. The first run after this ADR, and the one failure it had hidden
+
+Run 38241435033 (`c6fb18fb`) passed the three targets above and failed one more, which `cargo test`
+had never reached behind them: `tools/conformance/tests/batch.rs`'s
+`check_compiles_the_fuzz_workspace_and_names_a_target_that_does_not`. It plants a type error in a
+sandbox's fuzz target and asserts that `tools/batch.sh check` names it — `error[E0308]` under the
+line `cargo check of the fuzz workspace fails`. The workflow sets `CARGO_TERM_COLOR: always`, so on
+the runner cargo's line begins with a colour escape and the script's `grep -E '^(error|warning)'`
+matches nothing; here, where nothing sets the variable and the pipe is not a terminal, cargo prints
+plain lines and the test passes. Reproduced on this machine with the variable set, before and after
+the fix. The `cargo check` the script runs now says `--color never`: the lines are read by a grep,
+not by a person, and a reader's colour setting is not the script's to inherit.
