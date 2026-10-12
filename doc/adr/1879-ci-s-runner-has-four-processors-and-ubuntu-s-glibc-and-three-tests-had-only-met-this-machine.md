@@ -92,3 +92,11 @@ matches nothing; here, where nothing sets the variable and the pipe is not a ter
 plain lines and the test passes. Reproduced on this machine with the variable set, before and after
 the fix. The `cargo check` the script runs now says `--color never`: the lines are read by a grep,
 not by a person, and a reader's colour setting is not the script's to inherit.
+
+The second instance was behind the first: run 38248537857 (`e2383644`) failed
+`tools/conformance/tests/worker_features.rs`, whose `cargo tree -f '{p}|{f}'` lines arrived with the
+`(*)` of a repeated node wrapped in escapes, so `thiserror`'s features read `std (*)` and the check
+named a feature nobody turned on. That `cargo tree` says `--color never` too. The rule both share:
+a cargo line a program parses is asked for uncoloured, whatever the environment says — and the
+whole workspace's tests were run here under `CARGO_TERM_COLOR=always` before this was committed, so
+that the third instance, if there is one, is found on this machine rather than on the runner.

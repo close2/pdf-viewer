@@ -59,9 +59,14 @@ fn repository_root() -> &'static Path {
 /// choosing which packages the resolution is made for.
 fn tree(selection: &[&str], prefix: &str, dedupe: bool) -> String {
     let mut command = Command::new(env!("CARGO"));
+    // `--color never`: the lines are parsed, not read, and CI sets `CARGO_TERM_COLOR=always`, under
+    // which the `(*)` a repeated node carries arrives wrapped in escapes that `package_and_features`
+    // then takes for a feature (ADR 1879 section 5).
     command
         .current_dir(repository_root())
-        .args(["tree", "--locked", "-e", "normal", "--prefix", prefix])
+        .args([
+            "tree", "--locked", "--color", "never", "-e", "normal", "--prefix", prefix,
+        ])
         .args(["-f", "{p}|{f}"])
         .args(selection);
     if !dedupe {
