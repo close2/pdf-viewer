@@ -467,7 +467,7 @@ raster_examples() {
 # Every one of them has bitten a merge, and every one was a command somebody had to remember: a
 # stray file with no place in the tree, a specification written into a worktree that dies with it
 # (sessions 1071, 1079), a `\uXXXX` in a ledger note that blocks tier 1 for all six rounds, a record
-# over `doc/todo/02` section 8's budget, a record numbered behind one already committed, an escaped
+# over `doc/todo/02` section 8's budget, a record numbered as one already committed, an escaped
 # section sign that hides a clause citation from the gate that reads them, a symlink staged where
 # git expects a submodule, and a formatting difference that fails tier 1 after the commit. Each is a
 # command remembered and therefore a command forgotten; this is one command, and its exit status is
@@ -549,22 +549,25 @@ check_batch() {
         bad=1
     }
 
-    # A record numbered behind one that is already committed. `doc/history/` is read by `ls`
+    # A record numbered as one that is already committed. `doc/history/` is read by `ls`
     # order, so a record whose number a committed one already carries sorts into somebody else's
     # round and is invisible where it belongs — and the number is the only thing in the file that
-    # says which round wrote it.
+    # says which round wrote it. The comparison is against the committed numbers themselves, not
+    # the newest of them: a round the owner asks for outside the batches (round 1521, CI) is
+    # committed ahead of the batch whose sessions were numbered before it, and those records carry
+    # numbers no committed record has, which is the whole claim this line makes.
     #
     # **Untracked records only**, which is what a round adds: a tracked one's number is committed
     # by definition, so including it would fire on every run and stop being a signal (trap 39).
     # The leading `<n>-` and nothing else is the number — a file name carrying `19005` reads as a
     # record from the twenty-thousandth session to a grep that takes any digits in the path.
-    local newest
-    newest=$(git ls-files doc/history |
-        sed -n 's|^doc/history/\([0-9]\{1,\}\)-.*\.md$|\1|p' | sort -n | tail -1)
+    local committed
+    committed=$(git ls-files doc/history |
+        sed -n 's|^doc/history/\([0-9]\{1,\}\)-.*\.md$|\1|p' | sort -n | tr '\n' ' ')
     found=$(untracked_paths | grep '^doc/history/' |
         sed -n 's|^\(doc/history/\([0-9]\{1,\}\)-.*\.md\)$|\2 \1|p' |
-        awk -v newest="${newest:-0}" '$1 <= newest { printf "%s is numbered %s, behind the committed %s\n", $2, $1, newest }' || true)
-    printf 'record numbered behind a merged one %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) record(s)")"
+        awk -v committed=" ${committed:-} " 'index(committed, " " $1 " ") { printf "%s is numbered %s, which a committed record already carries\n", $2, $1 }' || true)
+    printf 'record numbered as a merged one   %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) record(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 
     # An escaped section sign in a doc comment of a file this batch changed. `tools/conformance`'s
