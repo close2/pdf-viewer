@@ -103,7 +103,8 @@ pub(crate) struct Stroked {
     pub tiles: bool,
 }
 
-/// [`stroke_polylines`], saying besides whether the pieces tile the set ([`Stroked::tiles`]).
+/// A stroke's closed pieces, saying besides whether they tile the set ([`Stroked::tiles`]);
+/// `stroke_polylines` is the pieces alone, the fixtures' form.
 pub(crate) fn stroke_pieces(polylines: &[Polyline], stroke: Stroke, device_width: f32) -> Stroked {
     let hw = device_width * 0.5;
     let subpaths: Vec<Subpath> = polylines
@@ -584,7 +585,7 @@ fn arc_steps(sweep: f32, radius: f32) -> usize {
 /// A step of angle `a` is a sector of area `r² · a / 2`. The triangles from the centre to
 /// its two ends and a point at radius `ρ` on its bisector hold `r · ρ · sin(a / 2)`, which is
 /// the sector's where `ρ = r · (a / 2) / sin(a / 2)` — a hair past the arc, `r · a² / 24` at
-/// the most, where the one chord fell `r · a² / 8` inside it. §10.7.4: "[t]he area covered by
+/// the most, where the one chord fell `r · a² / 8` inside it. §10.7.4: "\[t]he area covered by
 /// painted pixels shall always be at least as large as the area of the original shape", and
 /// one chord per step is an inscribed polygon that takes the arc's segments out of it.
 fn arc_waist(sweep: f32, steps: usize) -> f32 {

@@ -82,7 +82,7 @@ impl CpuRasterizer {
         //
         // Through the memo rather than straight to `area_averaged`, because the work is per
         // *source* sample and this function is called once per strip and once per redraw:
-        // `images` has the measurement and the key.
+        // `reduced_images` has the measurement and the key.
         let reduced = self.reduced_images.reduced(image, placement);
         let image = reduced.as_ref().unwrap_or(image);
 

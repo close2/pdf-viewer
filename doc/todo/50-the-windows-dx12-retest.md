@@ -92,6 +92,15 @@ one zoom notch. Read against the first:
   edges wherever a device pixel gathered two samples or more, and not below that. Fixed and held
   by a fixture (ADR 1287); the owner's own file would confirm it is the same mechanism.
 
+## What the third report answered
+
+The owner, 2026-10-15, without `--cpu`: FXC refused `raster image` with X3500 and X3511. The image
+lane's polygon was appended through a run-time index, which FXC cannot write, and the line lane's
+had the same construction; both are now written by constant indices, the pixels the same on every
+lane here (ADR 1928). The refusal had also escaped its error scope — a backend compiler's refusal is
+`wgpu`'s *internal* type — so the frame was handed a pipeline `wgpu` had marked invalid; it is now
+captured, kept, and answered by the processor, said once (ADR 1929).
+
 ## What to run, when the machine is next available
 
 All with a build carrying ADR 0761, `--trace=frames`, and the same document:
@@ -112,5 +121,8 @@ All with a build carrying ADR 0761, `--trace=frames`, and the same document:
    wants attached.
 4. **Say what `entwurf.3.trace.txt` was**: it ends three lines in, before `backend asked for` —
    a run killed early, or a hang in adapter/device bring-up? If the latter, that is a new item.
-5. Still standing from the original file: a traced cold open of the ISO specification, ten zoom
+5. **A page with an image, without `--cpu`** (ADR 1928): expected, the device draws it and no
+   `D3DCompile` line is printed. If FXC still refuses a lane, the terminal says `drawn on the
+   processor` once with FXC's words, and those words are the next fix.
+6. Still standing from the original file: a traced cold open of the ISO specification, ten zoom
    steps, a drag — the columns against the Linux numbers beside quorra ADR 0095.

@@ -44,7 +44,10 @@ impl Host {
                     .say(Topic::Frames, format_args!("{placed}"));
             }
         }
+        // A window drawn of a page zoomed past it is the page's frame on the screen,
+        // though the viewer holds no pixels of it (ADR 1930).
         let held = self.playing.is_some()
+            || self.state.oversized.shows(self.state.documents.focused())
             || matches!(self.state.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
         if !self.presented && held {
             self.presented = true;
@@ -106,6 +109,9 @@ impl Host {
             let Some(rendered) = finished.outcome else {
                 continue;
             };
+            // The page's own frame, so the window that stood in for it since a notch back is let
+            // go (ADR 1930).
+            self.state.oversized.answered_whole(&finished.request);
             if let viewer_core::Rendered::Raster(raster) = &rendered {
                 let began = std::time::Instant::now();
                 if self.state.retained.landed(&finished.request, raster) {
@@ -124,28 +130,34 @@ impl Host {
                 token: finished.request.token,
                 rendered,
             });
-            // The reader has their page, so the document may now be asked what it says about
-            // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
-            // rule both follow. ADR 1044.
-            if self.state.showing.report_due.after_a_frame() {
-                queue.push_back(Command::Report);
-                // And its open sequence, after the first present and never in front of it (ADR
-                // 1602).
-                queue.push_back(Command::Presented);
-            }
-            // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
-            // size, which is known now and not before; the window asks `place_window` with its
-            // own extents (ADR 1429).
-            if self.presenting.owes_placing() {
-                self.update.placement = true;
-            }
-            // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
-            // so this is where an armed one can begin. Only while a presentation is running,
-            // because taking the face costs a whole-viewport rasterisation.
-            self.face_arrived(&finished.request);
+            self.answered(&finished.request, queue);
         }
         self.take_the_windows(queue);
         self.mind_a_long_draw();
+    }
+
+    /// What follows the viewer's being answered for `request`, by its whole frame or by the first
+    /// window drawn of it (ADR 1930).
+    fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
+        // The reader has their page, so the document may now be asked what it says about
+        // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
+        // rule both follow. ADR 1044.
+        if self.state.showing.report_due.after_a_frame() {
+            queue.push_back(Command::Report);
+            // And its open sequence, after the first present and never in front of it (ADR
+            // 1602).
+            queue.push_back(Command::Presented);
+        }
+        // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
+        // size, which is known now and not before; the window asks `place_window` with its
+        // own extents (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.update.placement = true;
+        }
+        // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
+        // so this is where an armed one can begin. Only while a presentation is running,
+        // because taking the face costs a whole-viewport rasterisation.
+        self.face_arrived(request);
     }
 
     /// Takes the windows the drawing has finished, and answers the viewer for the first of each
@@ -175,8 +187,10 @@ impl Host {
                 self.state.oversized.abandoned(&finished.request, window);
                 continue;
             }
+            let request = finished.request.clone();
             if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
                 queue.push_back(Command::RenderReady { token, rendered });
+                self.answered(&request, queue);
             }
         }
     }

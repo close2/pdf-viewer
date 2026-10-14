@@ -603,10 +603,10 @@ impl RarePaint {
 /// > values have fractional parts of one-half -shall be mapped back into source space to
 /// > determine how to colour the pixel.
 ///
-/// and §8.9.4 gives source space one unit per sample, "[t]he upper-left corner of the first
+/// and §8.9.4 gives source space one unit per sample, "\[t]he upper-left corner of the first
 /// sample is at coordinates (0, 0)". So the texel a nearest lookup reads is the one whose
 /// square holds that point — the sample whose upper-left corner is the floor of it, which is
-/// §10.7.4's own convention for pixels ("[a] pixel is a square region identified by the
+/// §10.7.4's own convention for pixels ("\[a] pixel is a square region identified by the
 /// location of its corner with minimum horizontal and vertical coordinates"), applied to the
 /// samples, where §8.9.4 states the squares and not which of two neighbours owns the edge
 /// they share. That edge is where a pixel centre lands at one device pixel per sample with the

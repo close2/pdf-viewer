@@ -128,7 +128,7 @@ fn lay_out(stops: &[Stop], runs: &[(usize, usize)]) -> Vec<Segment> {
 /// - **Row 2**, the layout: texel 0 the segment count as a little-endian `u32`, texel
 ///   `k + 1` segment `k`'s first texel and texel count as two little-endian `u16`s.
 ///
-/// The shader's `ramp_texel` is the reader and [`texel_for`] its statement in Rust.
+/// The shader's `ramp_texel` is the reader and `texel_for` its statement in Rust.
 // Every offset below is a texel slot inside one of the three rows, whose length is fixed.
 #[expect(clippy::arithmetic_side_effects)]
 pub(super) fn sample_ramp(stops: &[Stop]) -> Vec<u8> {
@@ -166,15 +166,15 @@ pub(super) fn sample_ramp(stops: &[Stop]) -> Vec<u8> {
     out
 }
 
-/// One segment's colour texels: texel `j` is [`ramp_color_at`] of `own` at
+/// One segment's colour texels: texel `j` is `ramp_color_at` of `own` at
 /// `lo + (hi − lo) · j / last`, each component scaled to 255 and rounded half away from zero.
 ///
-/// **The same bytes as asking [`ramp_color_at`] at every texel, in about a fifth less time**
+/// **The same bytes as asking `ramp_color_at` at every texel, in about a fifth less time**
 /// (ADR 1567): `t` never falls as `j` rises — the stops were validated ascending at upload, and
 /// a product by a non-negative constant and a sum with a constant are monotone in IEEE
 /// arithmetic — so the stop above `t` is found by a cursor that only moves forward rather than
 /// by a scan from the first stop each texel, and the interval arithmetic is
-/// [`ramp_color_at`]'s statement for statement. The rounding is [`texel_byte`]. `tests.rs`
+/// `ramp_color_at`'s statement for statement. The rounding is [`texel_byte`]. `tests.rs`
 /// holds the table to the per-texel statement over every ramp shape it generates.
 // Every slot is inside `run`, which is four bytes a texel; `j` is below 4096.
 #[expect(clippy::arithmetic_side_effects, clippy::cast_precision_loss)]

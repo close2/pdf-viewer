@@ -1495,6 +1495,14 @@ the read (round 1544, ADR 1924). A census of a threaded pipeline runs under `--f
 its order is confirmed natively; and this machine has no `/usr/bin/time`, so a process's peak is
 read with `os.wait4` in a Python wrapper (round 1544's `py/`).
 
+### 180. An inline quotation in a Rust doc comment is no gate's population
+
+`every_quotation_is_the_standards_own_words` reads rustdoc blockquotes, and `--bin quotations` reads
+Markdown and the ledger's notes. A `"…"` quotation written inline in a `///` or `//!` comment is read
+by neither: round 1551 planted a misquotation inside one and both runs stayed green. A sentence of the
+standard that matters goes in a blockquote under its clause number, where it is checked; an inline
+quotation is prose that claims to be a quote, which principle 5 forbids unless it is verbatim and
+somebody looked.
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

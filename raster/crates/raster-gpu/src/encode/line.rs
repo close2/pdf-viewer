@@ -1,6 +1,6 @@
 //! The line lane: one straight segment's exact area, computed in the shader (ADR 0097).
 //!
-//! A [`Command::Line`](raster_scene::Command::Line) is a stroke with nothing general left in
+//! A [`Command::Line`] is a stroke with nothing general left in
 //! it: one open segment, so no join (ISO 32000-2 §8.4.3.4 applies where "consecutive segments
 //! of a path connect"), no dash, a solid colour and `Normal`. §8.4.3.2 makes its set the points
 //! within half the width of the segment, and §8.4.3.3's Table 53 adds the ends. Under a

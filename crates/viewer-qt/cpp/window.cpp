@@ -1737,7 +1737,7 @@ void MainWindow::buildFindBar()
     // hosts agreeing about what it means.
     //
     // **It used to be forwarded only in full screen and swallowed otherwise**, so every other row
-    // of `viewer_host::keys`' Escape — clearing §12.4.2's selection since ADR 0526, and stopping a
+    // of `viewer_host::keys`' Escape — clearing the text selection since ADR 0526, and stopping a
     // draw the window has warned about — never reached the table in this host at all. Found by
     // pressing the key at a window that was showing the warning and watching nothing happen.
     // What this window legitimately owns is the *ordering* of the chrome over the page (keys.rs,

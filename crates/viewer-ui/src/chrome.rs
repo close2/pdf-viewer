@@ -149,9 +149,9 @@ const MISSING_EDGE: f32 = 0.06;
 /// The fonts this program draws its own text with.
 ///
 /// Four faces rather than one because §12.3.3's Table 151 gives an outline item a `/F` whose two
-/// low bits are Table 152's italic and bold — "[a] set of flags specifying style characteristics for
-/// displaying the outline item's text" — so a document that asks for bold gets bold. Loaded once
-/// and held: `LoadedFont` caches its own outlines, and re-deriving Liberation Sans' glyphs per
+/// low bits are Table 152's italic and bold — "\[a] set of flags specifying style characteristics
+/// for displaying the outline item's text" — so a document that asks for bold gets bold. Loaded
+/// once and held: `LoadedFont` caches its own outlines, and re-deriving Liberation Sans' glyphs per
 /// frame would be the one avoidable cost on a path that runs at pointer speed.
 pub struct Chrome {
     /// Regular, bold, italic, bold italic — the order [`pdf_font::standard::face`] holds the
@@ -665,7 +665,7 @@ impl Chrome {
 
     /// How wide a string is at a size, in the same pixels [`Self::text`] draws it in.
     ///
-    /// Character for character with [`Self::text`], through [`Self::set`]: a placeholder box has
+    /// Character for character with [`Self::text`], through `Self::set`: a placeholder box has
     /// a width because it is drawn, and a measurement that disagreed with the drawing would put
     /// every elision and every wrap in the wrong place.
     #[must_use]
@@ -684,7 +684,7 @@ impl Chrome {
     /// [`Self::caret`] and [`Self::without_a_code`] cannot disagree about a right-to-left label any
     /// more than [`Self::set`] lets them disagree about a character. The label is one paragraph
     /// whose direction is its own first strong character's, by rules P2 and P3, and not this
-    /// window's: §12.3.3's title is "[t]he text that shall be displayed on the screen for this
+    /// window's: §12.3.3's title is "\[t]he text that shall be displayed on the screen for this
     /// item", and the standard states no direction for it, for a file name or for any text of this
     /// window's own. A presentation form or a mirrored bracket is a character like any other to
     /// [`Self::set`], so a face the machine offers for it is asked for off this thread (ADR 1406).
@@ -745,14 +745,14 @@ impl Chrome {
 
     /// How many of a string's characters this face has no glyph for at all.
     ///
-    /// **The count of boxes**, which [`Self::set`] decides: a character the `cmap` states draws
+    /// **The count of boxes**, which `Self::set` decides: a character the `cmap` states draws
     /// instead of counting, so this is not the count of characters with no *code* (ADR 0326).
     ///
     /// [`Self::text`] draws a box for one, which says *that* something is missing and cannot say
     /// how much; this is what lets a caller say how many — which is what §12.5.6.14's popup does
     /// under a note (ADR 0191).
     ///
-    /// Counted through [`Self::set`], so it counts exactly the boxes: a blank and a control
+    /// Counted through `Self::set`, so it counts exactly the boxes: a blank and a control
     /// character are not among them, and a count that disagreed with the picture beside it would
     /// be worse than no count.
     #[must_use]
@@ -770,7 +770,7 @@ impl Chrome {
     /// names: glyph outlines are y-up in font units and the panel is y-down in pixels, so the
     /// `d` component is negative and `f` is the baseline itself.
     ///
-    /// The string is drawn as [`Self::laid_out`] displays it, so an Arabic or Hebrew label reads
+    /// The string is drawn as `Self::laid_out` displays it, so an Arabic or Hebrew label reads
     /// right to left from its left edge, joined; a line is anchored at its left whatever its
     /// direction, because the window's layout is left to right and a list whose rows started at
     /// different edges would no longer read as one list (ADR 1417).
@@ -1175,7 +1175,7 @@ pub enum Hit {
     /// §12.3.4: show this page, by its zero-based index.
     ///
     /// A page index rather than an object, unlike the outline's [`Self::Activate`]: §12.3.4's
-    /// thumbnail "represent[s] the contents of its page", and the page is already numbered — so
+    /// thumbnail "represent\[s] the contents of its page", and the page is already numbered — so
     /// there is no destination to resolve and nothing for the document to decide.
     GoTo(usize),
     /// §8.11: switch an optional content group on or off.
@@ -1259,7 +1259,7 @@ impl Sidebar {
     /// Which of §12.3.4's rows are on the screen, so that a host fetches those and no others.
     ///
     /// **The half that makes the panel demand-driven**, and it is answerable only because every
-    /// row of that tab is [`THUMBNAIL_UNITS`] tall whether or not it has a picture — see
+    /// row of that tab is `THUMBNAIL_UNITS` tall whether or not it has a picture — see
     /// [`Content::pages`] for what a height that depended on the fetch cost this host.
     ///
     /// One row of margin either side, because a list is scrolled: a fetch bounded exactly to what
@@ -2813,11 +2813,11 @@ const POPUP_TITLE: Color = Color {
 /// which is a host's business and is written down as a choice:
 ///
 /// - a title bar in Table 166's `/C`, which is the one thing the standard does say about a
-///   popup's appearance: "[t]he title bar of the annotation's popup window";
-/// - Table 172's `/T` in it, "[t]he text label that shall be displayed in the title bar of the
+///   popup's appearance: "\[t]he title bar of the annotation's popup window";
+/// - Table 172's `/T` in it, "\[t]he text label that shall be displayed in the title bar of the
 ///   annotation's popup window", with Table 166's `/M` after it where there is room;
 /// - the `/Contents` under that, wrapped, with Table 172's own clause's paragraph rule applied
-///   (ISO 32000-2 section 12.5.6.2): "[w]hen
+///   (ISO 32000-2 section 12.5.6.2): "\[w]hen
 ///   separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example,
 ///   a LINE FEED character (0Ah)" — so a carriage return starts a paragraph here, and a line feed
 ///   is accepted as one too, because a reader that obeyed the writer's rule as if it were its own
@@ -3094,9 +3094,9 @@ fn draw_plain(
 /// line in the window's own pixels — or `None` where the window has no place for one or the place
 /// is below the window's bottom edge.
 ///
-/// **The same layout [`popup_windows`] draws**, read out of [`popup_carets`] rather than worked
+/// **The same layout [`popup_windows`] draws**, read out of `popup_carets` rather than worked
 /// out a second time, so that the caret cannot stand where the next character does not go (ADR
-/// 1739): [`draw_plain`]'s lines for Table 166's `/Contents`, and `rich::draw`'s glyphs for a
+/// 1739): `draw_plain`'s lines for Table 166's `/Contents`, and `rich::draw`'s glyphs for a
 /// window drawn from Table 172's `/RC`, each glyph's edges placed on the `/Contents` offsets its
 /// characters are (ADR 1770). A white-space run the layout draws as one space has one place for a
 /// caret each side of the space.
@@ -3417,7 +3417,7 @@ impl ChoiceList {
     /// full window of rows is shown.
     ///
     /// `None` where there is nothing to list, which is a choice field whose `/Opt` is absent:
-    /// Table 234 says "[i]f this entry is not present, no choices should be presented to the
+    /// Table 234 says "\[i]f this entry is not present, no choices should be presented to the
     /// user", so a list with no rows is not drawn at all rather than drawn empty.
     #[must_use]
     pub fn of(
@@ -3689,7 +3689,7 @@ const PASSWORD_ECHO: char = '\u{2022}';
 /// [`viewer_host::password`]'s, shared with the other two hosts.
 ///
 /// **The typed password never leaves this value except to [`viewer_core::Command::Open`]**, and it
-/// is a [`viewer_core::Secret`] the whole way: the card draws [`PASSWORD_ECHO`] once per character
+/// is a [`viewer_core::Secret`] the whole way: the card draws `PASSWORD_ECHO` once per character
 /// and never the characters, and no [`std::fmt::Debug`] anywhere in this host can print one.
 ///
 /// [`viewer_host::password`]: https://docs.rs/viewer-host

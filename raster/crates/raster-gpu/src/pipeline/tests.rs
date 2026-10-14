@@ -17,11 +17,15 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use raster_scene::{Affine, BlendMode, Color, ImageFilter, ImageSpec, Point, Rect, SceneBuilder};
+
 use super::warm::WarmUpGuard;
 use super::{Kind, PipelineStore, WARM_FORMAT};
 use crate::device::Device;
-use crate::error::PipelineProblem;
+use crate::error::{PipelineProblem, RenderError};
 use crate::startup::{Options, WarmUp};
+use crate::target::Target;
+use crate::viewport::Viewport;
 
 /// The software adapter, as everywhere in this crate's tests.
 fn device() -> Device {
@@ -260,4 +264,90 @@ fn a_refusal_names_the_pipeline_and_the_format() {
     let message = reason.to_string();
     assert!(message.contains("raster composite"), "{message}");
     assert!(message.contains("Rgba8Snorm"), "{message}");
+}
+
+/// A pipeline `create_render_pipeline` refuses takes the frame that needs it with it, by name,
+/// and nothing else (ADR 1929): the frame is a [`RenderError`] a window answers by drawing on
+/// the processor, the next frame that needs the pipeline is refused in the same words without a
+/// second compile, and a frame that does not need it still draws on the device.
+///
+/// The plant is the image lane built against an entry point its module does not have — a
+/// refusal every backend agrees on, as the owner's DX12 compiler refused the lane's real one.
+#[test]
+fn a_frame_whose_pipeline_will_not_build_is_refused_by_name_and_only_that_frame() {
+    let mut device = device();
+    device.pipelines().break_pipeline(Kind::ImageOver);
+    let image = device
+        .upload_image(&ImageSpec {
+            width: 2,
+            height: 2,
+            data: Arc::from(vec![255_u8; 16]),
+        })
+        .expect("a two-by-two image uploads");
+    let mut builder = SceneBuilder::new();
+    builder
+        .image(
+            image,
+            Affine {
+                a: 8.0,
+                d: 8.0,
+                ..Affine::IDENTITY
+            },
+            1.0,
+            ImageFilter::Auto { interpolate: false },
+            None,
+            BlendMode::Normal,
+            None,
+        )
+        .expect("an image command is a valid scene");
+    let with_image = builder.finish();
+    let mut refusal = || match device.render(
+        &with_image,
+        &Viewport::full(8, 8, Affine::IDENTITY),
+        Target::Readback,
+    ) {
+        Err(RenderError::PipelineUnavailable {
+            reason: PipelineProblem::Pipeline {
+                pipeline, detail, ..
+            },
+        }) => (pipeline, detail),
+        other => panic!("expected the image lane refused by name, got {other:?}"),
+    };
+    let first = refusal();
+    assert_eq!(first.0, "raster image");
+    assert_eq!(
+        refusal(),
+        first,
+        "the second frame hears the first refusal's words"
+    );
+    assert!(
+        device
+            .pipelines()
+            .lock()
+            .refused
+            .contains_key(&(Kind::ImageOver, WARM_FORMAT)),
+        "the refusal is kept, so the second frame compiled nothing"
+    );
+    let mut builder = SceneBuilder::new();
+    builder
+        .rect(
+            Rect::new(Point { x: 0.0, y: 0.0 }, Point { x: 8.0, y: 8.0 }),
+            Affine::IDENTITY,
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            None,
+            None,
+        )
+        .expect("a rectangle is a valid scene");
+    device
+        .render(
+            &builder.finish(),
+            &Viewport::full(8, 8, Affine::IDENTITY),
+            Target::Readback,
+        )
+        .expect("a frame with no image does not need the refused pipeline");
 }

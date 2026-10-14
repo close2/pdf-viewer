@@ -165,7 +165,7 @@ impl SoftMaskAtDeviceScale {
 ///
 /// Integer arithmetic, and the last sample is never passed: `cells` is at most `samples`, so
 /// `(2 × index + 1) × samples ÷ (2 × cells)` is below `samples` for every `index` below `cells`.
-pub(super) fn centre(index: u64, cells: u64, samples: u64) -> usize {
+fn centre(index: u64, cells: u64, samples: u64) -> usize {
     let numerator = index
         .saturating_mul(2)
         .saturating_add(1)
@@ -238,5 +238,47 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
                 ..self.base.clone()
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// §10.7.4's centre rule, which is what maps a device pixel back to a mask sample.
+    ///
+    /// > The position of the centre of such a pixel -in other words, the point whose
+    /// > coordinate values have fractional parts of one-half -shall be mapped back into
+    /// > source space to determine how to colour the pixel.
+    ///
+    /// Three properties, and the first is the one a corner rule fails: a grid that is not
+    /// reduced at all reads every sample once and in order, so nothing shifts when a mask
+    /// happens to be the size the device wants. The second is the rule itself at a four-fold
+    /// reduction — cell `i` of 2 over 8 samples reads the sample at `(2i + 1) x 8 / 4`, which
+    /// is 2 and 6, the centres of the two halves rather than their corners. The third is that
+    /// no index ever leaves the source, which is what a bounds check would otherwise have to
+    /// do once per sample.
+    #[test]
+    fn a_device_cell_reads_the_sample_under_its_centre() {
+        for index in 0..8u64 {
+            assert_eq!(
+                super::centre(index, 8, 8),
+                usize::try_from(index).expect("a literal under eight"),
+                "the identity"
+            );
+        }
+        assert_eq!((super::centre(0, 2, 8), super::centre(1, 2, 8)), (2, 6));
+        assert_eq!(
+            (
+                super::centre(0, 3, 7),
+                super::centre(1, 3, 7),
+                super::centre(2, 3, 7)
+            ),
+            (1, 3, 5),
+            "an odd reduction that divides nothing evenly"
+        );
+        for cells in 1..=32u64 {
+            for index in 0..cells {
+                assert!(super::centre(index, cells, 32) < 32);
+            }
+        }
     }
 }

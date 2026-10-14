@@ -73,6 +73,11 @@ fn two_pages() -> Vec<u8> {
         "<< /Type /Outlines /First 8 0 R /Last 8 0 R /Count 1 >>".to_owned(),
         format!("<< /Title (Totals) /Parent 7 0 R /A {} >>", script("B")),
     ];
+    written(&bodies)
+}
+
+/// A file of `bodies`, numbered from 1, the first the catalog.
+fn written(bodies: &[String]) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for (index, body) in bodies.iter().enumerate() {
@@ -333,7 +338,13 @@ fn an_outline_items_activation_hands_its_script_to_the_runner() {
         .clone();
     assert_eq!(
         sites,
-        vec![(ScriptSite::Outline, "B".to_owned())],
+        vec![(
+            ScriptSite::Outline {
+                number: OUTLINE_ITEM.number,
+                generation: OUTLINE_ITEM.generation,
+            },
+            "B".to_owned()
+        )],
         "{events:?}"
     );
     assert!(
@@ -568,4 +579,118 @@ fn a_script_reads_the_keys_the_host_last_sent() {
     let read: Vec<pdf_model::view::Keys> =
         seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
     assert_eq!(read, vec![held, pdf_model::view::Keys::default()]);
+}
+
+/// Two pages, the first carrying a link whose `/A` is a script that executes the outline's one
+/// item, whose `/A` goes to page two and then runs a script.
+fn executed_item() -> Vec<u8> {
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R] >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] >>".to_owned(),
+        format!(
+            "<< /Type /Annot /Subtype /Link /Rect [100 300 300 350] /A {} >>",
+            script("this.bookmarkRoot.children[0].execute\\(\\);")
+        ),
+        "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>".to_owned(),
+        format!(
+            "<< /Title (Totals) /Parent 6 0 R /A << /S /GoTo /D [4 0 R /Fit] /Next {} >> >>",
+            script("B")
+        ),
+    ];
+    written(&bodies)
+}
+
+/// A runner that records what it is handed and, where a script spells `execute`, executes the
+/// outline item `executed_item` holds, as the engine's `Bookmark.execute()` would.
+#[derive(Debug)]
+struct Executing(Handed);
+
+impl ScriptRunner for Executing {
+    fn run(&self, event: &ScriptEvent<'_>) -> ScriptResult {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((event.site, event.script.to_owned()));
+        let edits = if event.script.contains("execute") {
+            vec![pdf_model::view::ScriptEdit::Bookmark {
+                number: 7,
+                generation: 0,
+            }]
+        } else {
+            Vec::new()
+        };
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits,
+            report: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Executors(Handed);
+
+impl ScriptRunners for Executors {
+    fn runner(&self) -> Arc<dyn ScriptRunner> {
+        Arc::new(Executing(Arc::clone(&self.0)))
+    }
+}
+
+/// A script's `Bookmark.execute()` is carried out as a click on the item: its `/A` chain's go-to
+/// turns the page and its script reaches the runner at the item's own site (ADR 1934).
+#[test]
+fn an_executed_outline_item_is_activated_as_a_click_activates_it() {
+    let handed = Handed::default();
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Scripts(Scripting::Run(Arc::new(Executors(
+            Arc::clone(&handed),
+        )))))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: executed_item().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Presented).for_each(drop);
+    handed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
+    let on = on_rect(&viewer, [100.0, 300.0, 300.0, 350.0]);
+    let mut events = Vec::new();
+    events.extend(point(&mut viewer, on, PointerAction::Moved));
+    events.extend(point(&mut viewer, on, PointerAction::Pressed));
+    events.extend(point(&mut viewer, on, PointerAction::Released));
+    let sites: Vec<ScriptSite> = handed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|(site, _)| *site)
+        .collect();
+    assert_eq!(
+        sites,
+        vec![
+            ScriptSite::Annotation(Trigger::Up),
+            ScriptSite::Outline {
+                number: 7,
+                generation: 0
+            }
+        ],
+        "{events:?}"
+    );
+    assert!(
+        matches!(
+            viewer.query(Query::CurrentPage),
+            Answer::Page { index: 1, .. }
+        ),
+        "the item's go-to turned the page: {events:?}"
+    );
 }

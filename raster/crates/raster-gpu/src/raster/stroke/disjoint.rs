@@ -18,8 +18,8 @@
 //! whatever the pieces before it already hold, `P_k − (P_0 ∪ … ∪ P_{k−1})`, which leaves
 //! the union exactly as it was and no two fragments sharing any area.
 //!
-//! Every piece [`stroke_polylines`](super::stroke_polylines) emits is convex, and a convex
-//! piece less another is a set of convex fragments ([`convex`](super::convex)), so the tiling
+//! Every piece [`stroke_pieces`](super::stroke_pieces) emits is convex, and a convex
+//! piece less another is a set of convex fragments ([`convex`](mod@super::convex)), so the tiling
 //! needs no boolean library.
 //!
 //! Only the pieces that meet a tight bend take part — the segments and joins at a vertex

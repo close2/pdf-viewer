@@ -16,7 +16,7 @@
 //! its two inner control points, and on to its end. A single chord joins two points *on*
 //! the curve and so lies wholly on the curve's concave side — an inscribed polygon, which
 //! takes two thirds of the piece's height times its length out of every rim pixel. §10.7.4
-//! names the side an error may fall on — "[t]he area covered by painted pixels shall always
+//! names the side an error may fall on — "\[t]he area covered by painted pixels shall always
 //! be at least as large as the area of the original shape" — and §10.7.2's NOTE 2 says the
 //! tolerance is "not to draw inscribed polygons". The triangle through the inner controls'
 //! midpoint encloses the piece's own area wherever the piece's controls sit at the thirds

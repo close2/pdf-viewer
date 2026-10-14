@@ -80,7 +80,7 @@ fn disagreement(first: Transform, then: Transform, over: &TargetSpec) -> f32 {
 /// `doc/traps/pixels-and-rasterisers.md` trap 12 is about. `doc/PDF20_AN001-BPC.pdf` in
 /// `OneColumn` in an 800×1000 window, through fifteen scrolls of 137 px and five zoom steps —
 /// the arrangement `viewer_core::layout` states rather than one composed here, which is
-/// [`tests::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused`]:
+/// `tests::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused`:
 ///
 /// | view change | of a picture of | disagreement | against this bound |
 /// |---|---|---|---|

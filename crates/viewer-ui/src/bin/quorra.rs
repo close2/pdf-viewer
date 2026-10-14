@@ -67,6 +67,8 @@
 //! | [`stale`] | the reprojection a slow view change shows until the real frame lands |
 //! | [`access`] | §14.7's tree handed to AccessKit |
 //! | [`window`] | winit's callbacks and the key table |
+//!
+//! [`arguments`]: mod@arguments
 
 #![expect(
     clippy::expect_used,

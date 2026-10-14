@@ -13,7 +13,7 @@ use crate::{convert, scan};
 ///
 /// # What is owed, and how far down
 ///
-/// The clause's stated purpose covers strokes as well as fills — "[t]his rule applies both to fill
+/// The clause's stated purpose covers strokes as well as fills — "\[t]his rule applies both to fill
 /// operations and to strokes with non-zero width":
 ///
 /// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
@@ -128,7 +128,7 @@ pub(crate) fn draw_sub_pixel_rule(
 /// > fewer pixels than the rule implies.
 ///
 /// A `0 w` rule is the case the inclusive end is about. §10.7.4's exemption is a `may`, so
-/// drawing it short is allowed; §8.4.3.2 says "[a] line width of 0 shall denote the thinnest line
+/// drawing it short is allowed; §8.4.3.2 says "\[a] line width of 0 shall denote the thinnest line
 /// that can be rendered at device resolution: 1 device pixel wide". `pdf_render::Stroke::
 /// device_width` resolves the zero to one device pixel **in the shared crate**, so both backends
 /// draw one mark from one number, and a boundary that excluded its own value would put that mark

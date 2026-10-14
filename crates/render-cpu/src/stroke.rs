@@ -319,7 +319,7 @@ impl<'a> SolidOutline<'a> {
 /// the library choose. `tiny-skia` draws every stroke at or under one device pixel as a hairline,
 /// which lays one pixel per step along the longer device axis and so carries `cos θ` of a turned
 /// rule's area — 29.3% short at 45°, measured by `render-raster/examples/sub_pixel_marks` at every
-/// thickness. That reads directly against "[t]he area covered by painted pixels shall always be at
+/// thickness. That reads directly against "\[t]he area covered by painted pixels shall always be at
 /// least as large as the area of the original shape". A boundary either backend can be given by
 /// its own library is a boundary neither backend chose (trap 2), so this function takes every
 /// width the raster can state a coverage for — down to [`pdf_render::unmeasurable_width`] — and

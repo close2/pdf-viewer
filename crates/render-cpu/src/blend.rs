@@ -271,7 +271,7 @@ impl NonSeparable {
     /// and it means a backend that implements §11.3.5.3 for three components implements the
     /// black component's rule as well, with no second vocabulary anywhere between the
     /// interpreter and the raster. ADR 0277;
-    /// [`tests::the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair`]
+    /// `tests::the_clauses_own_functions_give_the_black_components_rule_on_a_neutral_pair`
     /// is the check over 200 000 pairs.
     fn blend(self, backdrop: Rgb, source: Rgb) -> Rgb {
         match self {
@@ -566,7 +566,7 @@ pub(crate) fn knockout_average(
 ///
 /// Multiplying through by `αr = αb + αs − αb·αs` and substituting the premultiplied
 /// `c = α·C` gives `cr = (1 − αs)·cb + (1 − αb)·cs + αs·αb·B(Cb, Cs)`, which has no division
-/// by `αr` and so no case for §11.3.6's NOTE 2, "[i]f 𝛼𝑟 is zero, the result colour is
+/// by `αr` and so no case for §11.3.6's NOTE 2, "\[i]f 𝛼𝑟 is zero, the result colour is
 /// undefined": a zero result alpha needs both inputs transparent, and every term is then
 /// zero.
 pub(crate) fn composite(

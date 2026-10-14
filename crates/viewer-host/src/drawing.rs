@@ -193,8 +193,8 @@ struct Job<R> {
     /// The rows of the target the window shows, where the host said ([`Drawing::ask_showing`]):
     /// drawn first, as a band of their own, and the rest of the page after (ADR 1868).
     seen: Option<Range<u32>>,
-    /// The part of the target to draw instead of all of it, for a page past the whole-page bound
-    /// ([`Drawing::ask_window`], ADR 1892).
+    /// The part of the target to draw instead of all of it, for a page zoomed past its window
+    /// ([`Drawing::ask_window`], `crate::oversize`, ADRs 1892, 1930).
     window: Option<Window>,
 }
 
@@ -422,7 +422,8 @@ pub struct Drawing<R: DrawRequest = RenderRequest> {
     queued: VecDeque<(R, Option<Range<u32>>, Option<Window>)>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
     landed: Vec<Finished<R>>,
-    /// Windows of pages past the whole-page bound that have finished — see [`Drawing::windows`].
+    /// Windows of pages zoomed past them, finished — see
+    /// [`Drawing::windows`].
     windows: Vec<(Finished<R>, Window)>,
     /// The page in flight as it stood at its last glimpse — see [`Drawing::partial`].
     partial: Option<Partial>,
@@ -592,8 +593,8 @@ impl<R: DrawRequest> Drawing<R> {
         self.dispatch();
     }
 
-    /// [`Self::ask`], for the part `window` of a request's target: a page whose whole raster would
-    /// be past `viewer_core::MAX_PIXELS`, drawn as much as the window shows of it (ADR 1892).
+    /// [`Self::ask`], for the part `window` of a request's target: a page zoomed past its window,
+    /// drawn as much as the window shows of it (`crate::oversize`, ADRs 1892, 1930).
     ///
     /// **The same arrangement as every other request**: one job in flight, a newer request for the
     /// page taking the thread back from it, glimpses of it as it is drawn. What comes back is
@@ -1208,6 +1209,11 @@ fn seen_rows(origin_y: f32, height: u32, viewport_height: u32) -> Option<Range<u
 /// on one thread — and a band showing half the page or more costs nearly what the page does
 /// (ADR 1868, `examples/band_first`). Every page at its fit is here, so a launch's first frame is
 /// never drawn twice.
+///
+/// **A page zoomed past its window is not drawn whole at all** (`crate::oversize`, ADR 1930), so
+/// the page that reaches this is one a window of would cost more than: a tall page a few notches
+/// into a wide window, whose rows the window shows are under half of it and whose columns are all
+/// of it, or a neighbour scrolled mostly out of a continuous arrangement.
 fn band_of(target: TargetSpec, seen: &Range<u32>) -> Option<Range<u32>> {
     let shown = u64::from(seen.end.saturating_sub(seen.start));
     let rows = seen.start.min(target.height)..seen.end.min(target.height);

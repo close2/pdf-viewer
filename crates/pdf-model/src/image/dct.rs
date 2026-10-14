@@ -211,7 +211,7 @@ fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
 /// such image, and which drew nothing at all until this (`doc/todo/28`).
 ///
 /// [`apply_decode_to_channels`]: super::convert::apply_decode_to_channels
-pub(super) fn ycck_to_cmyk(pixels: &mut [u8]) {
+fn ycck_to_cmyk(pixels: &mut [u8]) {
     for pixel in pixels.chunks_exact_mut(4) {
         let (Some(y), Some(cb), Some(cr)) = (
             pixel.first().copied(),
@@ -1001,5 +1001,48 @@ pub fn banded_decodes(data: &[u8], band_lines: u32) -> BandedDecodes {
         whole,
         at_restarts,
         at_rows,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Adobe's APP14 transform 2, arithmetic first — §7.4.8's codestream through ISO/IEC 10918.
+    ///
+    /// Three values whose answers are exact and need no reference: white, black, and a colour
+    /// whose YCbCr is a whole number in every channel. What is being checked is that the four
+    /// channels stay four and that the transform is JFIF's inverse followed by the inversion an
+    /// Adobe four-component JPEG already assumes — the same convention transform 0 delivers, so
+    /// that a file's own `/Decode [1 0 1 0 1 0 1 0]` undoes exactly one of them.
+    ///
+    /// **No corpus document carries a YCCK JPEG**, which is why this is arithmetic rather than a
+    /// picture. The witness is a 92-page commercial catalogue outside this repository whose every
+    /// page is one such image and which drew nothing at all until this (`doc/todo/28`); on its
+    /// first page ours is 0.0113 from `poppler` where `mupdf` is 0.0384, so the picture is
+    /// checked — it is simply not checkable *here*.
+    #[test]
+    fn a_ycck_codestreams_four_channels_stay_four() {
+        // Y = 255, Cb = Cr = 128 is white: R = G = B = 255, so C = M = Y = 0.
+        let mut white = [255, 128, 128, 17];
+        super::ycck_to_cmyk(&mut white);
+        assert_eq!(white, [0, 0, 0, 17], "K passes through untouched");
+
+        // Y = 0 is black: R = G = B = 0, so C = M = Y = 255.
+        let mut black = [0, 128, 128, 200];
+        super::ycck_to_cmyk(&mut black);
+        assert_eq!(black, [255, 255, 255, 200]);
+
+        // And a chrominance that separates the channels, so that a transform which dropped Cb or
+        // Cr would fail rather than pass by symmetry. Y = 128, Cb = 128, Cr = 255: red is
+        // 128 + 1.402 × 127 = 306, clamped to 255, so C is 0; blue is 128 + 1.772 × 0 = 128.
+        let mut red = [128, 128, 255, 0];
+        super::ycck_to_cmyk(&mut red);
+        assert_eq!(red[0], 0, "cyan: the red channel saturated");
+        assert!(
+            red[1] > 200,
+            "magenta: green fell a long way, got {}",
+            red[1]
+        );
+        assert_eq!(red[2], 127, "yellow: blue is unmoved at 128");
+        assert_eq!(red[3], 0);
     }
 }

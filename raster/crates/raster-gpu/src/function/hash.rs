@@ -40,7 +40,7 @@ use raster_scene::FnOp;
 
 use super::OPERATORS;
 
-/// Bumped whenever [`super::generate`] emits different WGSL for the same inputs.
+/// Bumped whenever [`super::generate()`] emits different WGSL for the same inputs.
 ///
 /// A number rather than a date so that it orders, and a constant rather than a git revision
 /// so that it is a decision someone takes rather than a fact about a checkout.

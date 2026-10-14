@@ -3614,17 +3614,18 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
-# band_first: step 82's third half (ADR 1868) — a page zoomed until the window shows less than half
-# of it has the rows the window shows drawn first, as a look of their own, and the page whole after.
-# The drive's own page: a red block at its middle and a body of 2 400 000 fills at its foot, which
-# the rows the window shows do not reach, so the band is cheap and the page is not. Zoomed in by `=`
-# about the window's middle, each notch waited for until its frame lands, until the page is more
-# than twice and a quarter the window's height; one notch more must then say `shown finished where
-# the window shows it` before its frame lands, and the photograph taken then must hold the red
-# block where the landed frame holds it. HEAD's windows never say it (the control). `quorra` draws a
-# window-sized frame and is not offered.
-band_first() {
-    local step=82-band-first file="$FIXTURES/drive-band.pdf" traced=$LAUNCH_TRACE mark mid settled notch size
+# zoomed_window: step 82's third part (ADR 1930) — a page zoomed until its largest window, the
+# viewport and a quarter of it on every side, is half of it or less is drawn as the window shows it
+# and not whole. The drive's own page: a red block of 60 points at its middle and a body of 2 400 000 fills at its
+# foot, which no window about the middle reaches, so the window is cheap and the page is not.
+# Zoomed in by `=` about the window's middle, each notch waited for until its frame or its window
+# lands, until a notch says `window … rasterised`: the window must be half the page it is of or
+# less, and the photograph taken then must hold the red block at the size the magnification gives
+# it, 60 points of that page. HEAD's windows draw every such page whole and never say a window (the
+# control). `quorra` draws a window-sized frame and is
+# not offered.
+zoomed_window() {
+    local step=82-zoomed-window file="$FIXTURES/drive-band.pdf" traced=$LAUNCH_TRACE mark first notch box whole of
     if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
         verdict "$step" "not offered" "this window draws a window-sized frame, not a page raster"
         return
@@ -3647,43 +3648,42 @@ PY2
     local X Y WIDTH HEIGHT
     eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
     xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
-    for notch in 1 2 3 4 5 6 7 8 9 10; do
+    first=$(lines)
+    for notch in 1 2 3 4 5 6 7 8; do
         mark=$(lines)
         xdotool key equal
         wait_for 30 said_since "$mark" "rasterised"
-        size=$(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -oE 'rasterised [0-9]+x[0-9]+' | grep -oE '[0-9]+$')
-        [ "${size:-0}" -gt $((HEIGHT * 9 / 4)) ] && break
+        said_since "$mark" "window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised" && break
         sleep 0.5
     done
-    # One notch more, photographed the moment the band is said.
-    mark=$(lines)
-    xdotool key equal
-    if ! wait_for 30 said_since "$mark" "shown finished where the window shows it"; then
-        verdict "$step" wrong "no band was said after $notch notches (the page last ${size:-?} rows tall)"
+    if ! said_since "$mark" "window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised"; then
+        verdict "$step" wrong "no window was drawn after $notch notches: $(tail -n "+$((first + 1))" "$LOG" | grep -oE 'rasterised [0-9]+x[0-9]+' | tail -1)"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
     fi
-    shot "$step-band"
-    if said_since "$mark" "rasterised"; then
-        verdict "$step" wrong "the frame landed before the photograph of the band was taken"
-        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
-        return
-    fi
-    wait_for 30 said_since "$mark" "rasterised"
     sleep 0.7
     xdotool key shift; sleep 0.5
-    shot "$step-settled"
-    mid=$(magick "$OUT/shots/$WINDOW/$step-band.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
-    settled=$(magick "$OUT/shots/$WINDOW/$step-settled.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
-    if python3 - "$mid" "$settled" <<'PY2'
+    shot "$step"
+    of=$(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -oE 'asked as the window shows it, [0-9]+x[0-9]+ at [0-9]+,[0-9]+ of [0-9]+x[0-9]+')
+    whole=$(tail -n "+$((first + 1))" "$LOG" | grep -oE 'page 1 rasterised [0-9]+x[0-9]+' | grep -oE '[0-9]+x[0-9]+$' | tail -1)
+    box=$(magick "$OUT/shots/$WINDOW/$step.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if python3 - "$of" "${whole:-0x0}" "$box" <<'PY2'
 import re, sys
-boxes = [tuple(map(int, re.match(r"(\d+)x(\d+)\+(\d+)\+(\d+)$", b).groups())) if re.match(r"\d+x\d+\+\d+\+\d+$", b) else None for b in sys.argv[1:]]
-sys.exit(0 if None not in boxes and all(abs(a - b) <= 2 for a, b in zip(*boxes)) else 1)
+of, whole, box = sys.argv[1:]
+m = re.search(r"(\d+)x(\d+) at \d+,\d+ of (\d+)x(\d+)$", of)
+b = re.match(r"(\d+)x(\d+)\+\d+\+\d+$", box)
+w = re.match(r"(\d+)x(\d+)$", whole)
+if not (m and b and w):
+    sys.exit(1)
+window_w, window_h, page_w, page_h = map(int, m.groups())
+side = 60 * page_h / 792
+half_or_less = 2 * window_w * window_h <= page_w * page_h
+sys.exit(0 if half_or_less and all(abs(int(v) - side) <= 2 for v in b.groups()) else 1)
 PY2
     then
-        verdict "$step" works "the band said before the frame; its red block $mid, the landed frame's $settled"
+        verdict "$step" works "a window drawn at notch $notch ($of), the page last drawn whole at ${whole:-none}; its red block $box"
     else
-        verdict "$step" wrong "the band's red block $mid against the landed frame's $settled"
+        verdict "$step" wrong "at notch $notch: ${of:-no window asked}, the page last drawn whole at ${whole:-none}, the red block ${box:-not found}"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
@@ -4208,7 +4208,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     page_as_built
     zoom_stand_in
     retained_page
-    band_first
+    zoomed_window
     zoom_past_the_bound
     transition_frames
     bare_session_start

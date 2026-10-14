@@ -50,6 +50,10 @@
 //! 32000-2 states none of these — §7.10.5 bounds neither a program's length nor its operand stack —
 //! so all three are ours, and each is a public constant a caller can compare a program
 //! against without asking a device anything.
+//!
+//! [`analyse`]: fn@analyse
+//! [`generate`]: fn@generate
+//! [`admit`]: fn@admit
 
 mod admit;
 mod analyse;
@@ -80,7 +84,7 @@ use raster_scene::{Color, FnRange, Rect};
 /// invalidates the pipelines built before the edit.
 pub const OPERATORS: &str = include_str!("shaders/function_ops.wgsl");
 
-/// The name of the function [`generate`] emits.
+/// The name of the function [`generate()`] emits.
 ///
 /// One name for every program: the shader module differs per program and is compiled
 /// separately, so nothing is gained by making the symbol differ too — and a stable name is

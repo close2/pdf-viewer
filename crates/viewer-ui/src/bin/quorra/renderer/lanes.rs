@@ -292,7 +292,7 @@ impl Costs {
     }
 
     /// Keeps that the device refused `pages`, which prices nothing but is the device's answer for
-    /// [`Self::predict`]'s one ask.
+    /// [`Self::forecast`]'s one ask.
     pub(super) fn refused(&mut self, pages: &[crate::stale::Placed]) {
         self.refused_pictures(Self::key(pages));
     }

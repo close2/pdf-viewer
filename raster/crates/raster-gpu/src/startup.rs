@@ -535,7 +535,7 @@ pub fn create_instance_with(backends: wgpu::Backends) -> wgpu::Instance {
 /// it set, `wgpu` builds two compute pipelines inside `request_device` — one to check an
 /// indirect dispatch's arguments and one an indirect draw's — so that a device's construction
 /// waits for a shader compilation, which `CLAUDE.md` principle 2 forbids the launch path
-/// ("[t]he graphics library must return a usable device before it is warm"). On the Radeon
+/// ("\[t]he graphics library must return a usable device before it is warm"). On the Radeon
 /// 890M through RADV it was about 0.8 ms of a 2.2 ms `request_device` and 3.7 M of its
 /// instructions (ADR 1569).
 ///

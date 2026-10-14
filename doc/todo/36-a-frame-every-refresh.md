@@ -43,10 +43,9 @@ rather than inherit:
   no single witness can rank this work, and the population is part of the claim.
 - **The graphics device's own passes are a few per cent of every row.** A frame that misses the
   refresh is a host thread every time, which is what makes each remaining item a host item.
-- **A frame goes up as it lands where its refresh has had no present.** The render thread wakes
-  the loop for it, and a tick that put nothing up moves the tick on without spending the refresh
-  (ADR 1926); the `--cpu` window's composing thread wakes nothing yet, so its frames still wait
-  for the tick.
+- **A frame goes up as it lands where its refresh has had no present.** The render thread and the
+  `--cpu` window's composing thread each wake the loop for a frame and for a look, and a tick that
+  put nothing up moves the tick on without spending the refresh (ADRs 1926, 1936).
 
 ## The two halves
 

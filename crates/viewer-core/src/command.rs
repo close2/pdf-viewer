@@ -367,8 +367,9 @@ pub enum Command {
     /// holds whole-page rasters is refused such a page, and one that draws only the part of it its
     /// window shows allocates a window and nothing more. [`Oversize::Listed`] says this host is
     /// the second kind for those pages: the request is made at the page's whole target, the host
-    /// takes its list ([`Rendered::Listed`]) and draws what its window shows of it, and every page
-    /// under the bound is asked for and answered exactly as before (ADR 1892).
+    /// takes its list ([`Rendered::Listed`]) and draws what its window shows of it — for a page past
+    /// the bound, and for one under it whose largest window is half the page's area or less (ADR
+    /// 1930); a page the host still draws whole is asked for and answered as before (ADR 1892).
     ///
     /// **Nothing changes for a host that never sends this**: [`Oversize::Refused`] is the default,
     /// and such a page is refused by name, once for each magnification it is refused at.
@@ -564,10 +565,11 @@ pub enum Command {
     Save,
     /// Ask the focused document what it says about *itself*, and be told in words.
     ///
-    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s nine clauses
+    /// Answered with [`crate::Event::Reported`] carrying [`crate::notes::about`]'s clauses
     /// — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files, §14.13.2's
     /// associated files that are not embedded, §7.5's rebuilt cross-reference table, Annex I's
-    /// version, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` — with no page on it,
+    /// version, Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` —
+    /// with no page on it,
     /// because not one of them is about a page. A document with nothing to say answers with
     /// nothing, which is a normal answer here as everywhere.
     ///

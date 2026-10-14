@@ -12,7 +12,8 @@
 //! a presenter draws with is in the warm set of every device built for a surface
 //! (ADR 0043's second set, extended by ADR 0056), so it is built by the thread nobody
 //! waits on — and if it is not yet, the first present builds it inline and says so in
-//! [`PresentCost::compiled`], which is exactly what a first frame does with any lane.
+//! [`PresentCost::compiled`](crate::PresentCost::compiled), which is exactly what a first frame
+//! does with any lane.
 
 use std::sync::Arc;
 

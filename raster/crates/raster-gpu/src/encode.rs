@@ -486,7 +486,7 @@ pub(crate) fn replay(
 }
 
 impl<'a> Encoder<'a> {
-    /// One record of [`replay`], replayed.
+    /// One record of [`replay()`], replayed.
     fn replay_record(
         &mut self,
         record: &ReplayRecord,
@@ -543,7 +543,7 @@ impl<'a> Encoder<'a> {
 }
 
 /// One frame's [`Encoder`], as both the walk ([`encode`]) and the record replay
-/// ([`replay`]) construct it — one literal, so the two cannot come to disagree about
+/// ([`replay()`]) construct it — one literal, so the two cannot come to disagree about
 /// an initial state.
 #[expect(clippy::too_many_arguments)] // the encode's own signature, shared once
 fn encoder_for<'a>(

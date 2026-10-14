@@ -315,7 +315,7 @@ impl CpuRasterizer {
     /// converts the result out (ISO 32000-2 §11.6.6, §11.7.2).
     ///
     /// §11.7.2: "all blending and compositing computations shall be done in that space",
-    /// and "[t]he resulting colours shall then be interpreted in the group's colour space
+    /// and "\[t]he resulting colours shall then be interpreted in the group's colour space
     /// when the group is subsequently composited with its backdrop". For four components the
     /// first sentence is two `encode` passes — §11.3.4 composites per component, so four
     /// components are two passes of three, the same construction `rasterize` applies to
@@ -392,9 +392,9 @@ impl CpuRasterizer {
     /// > In a knockout group, each individual element shall be composited with the group's
     /// > initial backdrop rather than with the stack of preceding elements in the group.
     ///
-    /// The clause's two stages, per element: a) "[c]omposite the source object with the
+    /// The clause's two stages, per element: a) "\[c]omposite the source object with the
     /// group's initial backdrop, disregarding the object's shape and using a source shape
-    /// value of 1.0 everywhere", then b) "[c]ompute a weighted average of this result with
+    /// value of 1.0 everywhere", then b) "\[c]ompute a weighted average of this result with
     /// the object's immediate backdrop, using the source shape as the weighting factor".
     /// Stage a) is the element drawn onto a scratch copy of the backdrop `B` — its blend
     /// mode, opacity and soft mask all applied, against `B` — and stage b) is

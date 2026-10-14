@@ -290,8 +290,9 @@ impl ViewState {
     /// item", and §12.6.4.17 makes the trigger of an ECMAScript action an execution. **What a host
     /// calls as it performs the item's other actions**, so that the action path's refusal of the
     /// same scripts is said only where none was handed over (ADR 1752). The script's event is
-    /// Adobe's `Bookmark` `Mouse Up`, with the item's `/Title` as `event.targetName`; `page` is the
-    /// zero-based page the host shows, `this.pageNum` (ADR 1904). Before
+    /// Adobe's `Bookmark` `Mouse Up`, with the item's `/Title` as `event.targetName` and its
+    /// `Bookmark` as `event.target`; `page` is the zero-based page the host shows, `this.pageNum`
+    /// (ADRs 1904, 1934). Before
     /// [`Self::run_open_scripts`] has run nothing is run, as at every other site
     /// ([`Self::before_open`]).
     pub fn run_outline_scripts(
@@ -330,7 +331,13 @@ impl ViewState {
                 label: &title,
                 script,
                 page,
-                ..ScriptEvent::at(ScriptSite::Outline, "")
+                ..ScriptEvent::at(
+                    ScriptSite::Outline {
+                        number: item.number,
+                        generation: item.generation,
+                    },
+                    "",
+                )
             };
             if let Some((result, applied)) = self.run_event(document, &table, event) {
                 ran.count(applied);

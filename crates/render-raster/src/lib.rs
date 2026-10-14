@@ -54,7 +54,12 @@ pub enum QuorraRasterError {
     /// prefix to add.
     #[error("{0}")]
     Device(#[from] raster_gpu::DeviceError),
-    /// raster refused the frame (budget, limits, or a dangling resource id).
+    /// raster refused the frame (budget, limits, a dangling resource id, or a pipeline this
+    /// adapter would not build).
+    ///
+    /// A pipeline refused once is refused again in the same words without a second compile, and
+    /// only for the frames that need it (raster's `PipelineStore`, ADR 1929); `quorra`'s window
+    /// answers it as it answers every refused frame, by drawing it on the processor and saying so.
     #[error("frame refused: {0}")]
     Render(#[from] raster_gpu::RenderError),
     /// raster's scene boundary refused a value the display list carried.

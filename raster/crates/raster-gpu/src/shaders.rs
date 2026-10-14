@@ -11,10 +11,10 @@
 //! What each shader *does* is stated in its own header. `function_ops.wgsl` has no
 //! constant here because it is not a pipeline's shader: it is the operator library a
 //! generated program is built from, and `crate::function::OPERATORS` publishes it for
-//! the conformance corpus. It is still WGSL this crate holds, so [`ALL`] names it under
+//! the conformance corpus. It is still WGSL this crate holds, so `ALL` names it under
 //! the constant that owns it — a gate over the shader *text* has no reason to skip it.
 //!
-//! [`ALL`] is that one list made enumerable, and the test below holds it to the
+//! `ALL` is that one list made enumerable, and the test below holds it to the
 //! directory: a `.wgsl` file this crate does not name fails the build rather than going
 //! unread by every gate. The three gates that read shader text — `layout`, `copies` and
 //! `shape_inputs`, the last two over the extractor in `wgsl` — are `#[cfg(test)]`

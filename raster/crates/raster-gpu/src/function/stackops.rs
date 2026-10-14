@@ -1,7 +1,7 @@
 //! ISO 32000-2 Table 42's six stack operators, which are the ones with a count.
 //!
 //! One responsibility: **`copy`, `dup`, `exch`, `index`, `pop` and `roll` over the walk's
-//! compile-time operand stack.** They are here rather than in [`super::analyse`] because
+//! compile-time operand stack.** They are here rather than in [`mod@super::analyse`] because
 //! they are the only operators whose *operands decide which slots the shader touches*, and
 //! that is the whole of the pinned decision "`copy`, `index` and `roll` must have a
 //! statically resolvable count, or the program is refused".

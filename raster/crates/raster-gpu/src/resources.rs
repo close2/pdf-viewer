@@ -128,7 +128,7 @@ impl StoredOutline {
     /// `upload_outline` on a 3 011 919-segment drawing, all of it converting a
     /// representation that frame never read: their default is
     /// [`Coverage::Cpu`](crate::startup::Coverage::Cpu) and
-    /// [`Encoder::gpu_lane_admissible`](crate::encode::Encoder) answers `false` on sight
+    /// `Encoder::gpu_lane_admissible` answers `false` on sight
     /// under it. So the conversion moved here, behind the lane's own cheap tests.
     ///
     /// The budget is charged **when the bytes become resident**, not when the outline

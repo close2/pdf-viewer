@@ -152,7 +152,7 @@ impl ComputeSheet {
     /// Bytes this sheet costs on the device, for the frame budget — counted before
     /// anything is allocated, and zero when no tile took the lane. **The edge buffer
     /// is deliberately absent**: its size is the count pass's answer, checked against
-    /// the same budget at allocation ([`dispatch_into`]). The resident arena is
+    /// the same budget where it grows ([`ComputePersist::grow`]). The resident arena is
     /// charged to the resource side, where residency lives.
     // lengths of Vecs this frame just built
     pub(crate) fn device_bytes(&self) -> u64 {

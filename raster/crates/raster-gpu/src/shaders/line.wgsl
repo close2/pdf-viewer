@@ -135,27 +135,50 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: Instance) -> VsOu
 
 // A convex polygon of at most eight vertices: a quadrilateral cut by four lines gains at
 // most four.
+//
+// **Every loop over its vertices runs to the constant eight and leaves at `count`, and no vertex
+// is written through an index computed at run time** — `image.wgsl`'s polygon and its reason
+// (ADR 1928): DX12's FXC compiler refuses an array element written by a run-time index (X3500)
+// and a loop it cannot unroll to make that index constant (X3511). A read by a run-time index is
+// admitted, so the vertices are still read by `i`.
 struct Polygon {
     v: array<vec2<f32>, 8>,
     count: u32,
+}
+
+// `p` with `vertex` after its last: each of the eight slots is written by a constant index and
+// keeps what it held unless it is slot `count` (ADR 1928). A ninth vertex is dropped, as the
+// caller's guard already ensures none arrives.
+fn push_vertex(p: ptr<function, Polygon>, vertex: vec2<f32>) {
+    let at = (*p).count;
+    (*p).v[0] = select((*p).v[0], vertex, at == 0u);
+    (*p).v[1] = select((*p).v[1], vertex, at == 1u);
+    (*p).v[2] = select((*p).v[2], vertex, at == 2u);
+    (*p).v[3] = select((*p).v[3], vertex, at == 3u);
+    (*p).v[4] = select((*p).v[4], vertex, at == 4u);
+    (*p).v[5] = select((*p).v[5], vertex, at == 5u);
+    (*p).v[6] = select((*p).v[6], vertex, at == 6u);
+    (*p).v[7] = select((*p).v[7], vertex, at == 7u);
+    (*p).count = at + 1u;
 }
 
 // `p` less everything where dot(normal, x) < offset (Sutherland–Hodgman, one line).
 fn cut(p: Polygon, normal: vec2<f32>, offset: f32) -> Polygon {
     var out: Polygon;
     out.count = 0u;
-    for (var i = 0u; i < p.count; i++) {
+    for (var i = 0u; i < 8u; i++) {
+        if i >= p.count {
+            break;
+        }
         let here = p.v[i];
         let next = p.v[(i + 1u) % p.count];
         let sh = dot(normal, here) - offset;
         let sn = dot(normal, next) - offset;
         if sh >= 0.0 && out.count < 8u {
-            out.v[out.count] = here;
-            out.count += 1u;
+            push_vertex(&out, here);
         }
         if (sh >= 0.0) != (sn >= 0.0) && out.count < 8u {
-            out.v[out.count] = here + (sh / (sh - sn)) * (next - here);
-            out.count += 1u;
+            push_vertex(&out, here + (sh / (sh - sn)) * (next - here));
         }
     }
     return out;
@@ -176,7 +199,10 @@ fn cross2(a: vec2<f32>, b: vec2<f32>) -> f32 {
 // A polygon's area, the shoelace sum halved.
 fn shoelace(p: Polygon) -> f32 {
     var sum = 0.0;
-    for (var i = 0u; i < p.count; i++) {
+    for (var i = 0u; i < 8u; i++) {
+        if i >= p.count {
+            break;
+        }
         sum += cross2(p.v[i], p.v[(i + 1u) % p.count]);
     }
     return abs(sum) * 0.5;
@@ -240,7 +266,10 @@ fn half_disc_in_box(centre: vec2<f32>, outward: vec2<f32>, low: vec2<f32>, high:
     }
     let part = cut(box_polygon(low, high), outward, dot(outward, centre));
     var sum = 0.0;
-    for (var i = 0u; i < part.count; i++) {
+    for (var i = 0u; i < 8u; i++) {
+        if i >= part.count {
+            break;
+        }
         sum += disc_in_triangle(part.v[i] - centre, part.v[(i + 1u) % part.count] - centre);
     }
     return abs(sum);

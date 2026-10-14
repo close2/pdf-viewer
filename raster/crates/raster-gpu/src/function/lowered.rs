@@ -3,8 +3,8 @@
 //! One responsibility: **vocabulary for a program whose every static question is already
 //! answered.** A [`Step`] names the slots it reads and the slot it writes; a
 //! [`Branch`](Step::Branch) is a tree rather than a jump target; the choice between Table
-//! 42's two `not`s is already made. Nothing here decides anything — [`super::analyse`]
-//! decided it all, and [`super::generate`] only prints.
+//! 42's two `not`s is already made. Nothing here decides anything — [`super::analyse()`]
+//! decided it all, and [`super::generate()`] only prints.
 //!
 //! That seam is the reason this is a type rather than a `String` the walk appends to (as
 //! the spike's `walk.rs` did): the analysis is testable without a generator, the generator
@@ -108,7 +108,7 @@ pub enum Step {
 /// principle 3 asks for a number derived from what is actually stored rather than from
 /// what a bound allows: a `Branch` holds two more lists and a `Permute` one, so a length
 /// in instructions is not a length in bytes. Recursion terminates because
-/// [`super::analyse`] refuses at [`MAX_BRANCH_NESTING`](super::MAX_BRANCH_NESTING).
+/// [`super::analyse()`] refuses at [`MAX_BRANCH_NESTING`](super::MAX_BRANCH_NESTING).
 pub(crate) fn steps_bytes(steps: &[Step]) -> u64 {
     let own = (steps.len() as u64).saturating_mul(size_of::<Step>() as u64);
     steps.iter().fold(own, |total, step| match step {

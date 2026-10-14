@@ -256,7 +256,7 @@ pointer and focus through `run_annotation_scripts`, the page shown changing thro
 `run_page_scripts` with Table 197's four page events beside it, nothing before the open sequence
 (ADR 1750), raised in all three windows, a press a toolkit's own control took included (ADR
 1752), and an outline item's `/A` handed over as the item is activated, at Adobe's `Bookmark`
-event (ADR 1904), with `this.bookmarkRoot` answering its `parent` and `doc` and refusing the rest of the reference's `Bookmark` by name (ADR 1922) — a commit runs `/V` and every `/CO` entry's `/C` with
+event (ADR 1904), with `this.bookmarkRoot` and the reference's `Bookmark` answering from the outline a person sees, read on first use, `execute` activating the item as a click does and every write refused as the document's structure (ADRs 1922, 1934) — a commit runs `/V` and every `/CO` entry's `/C` with
 `event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),
@@ -390,7 +390,11 @@ dialogue opens on. **And the two entries of it that decide pixels decide them**:
 §14.11.2's boundaries twice, `Page::print_box` and `Page::print_clip_box` beside `display_box` and
 `clip_box`, and `Page::render_for_printing` selects between the pairs where the print operation
 stated `Purpose::Print` — so a document naming `/PrintArea /MediaBox` lays a wider square onto paper
-than it shows on the screen (ADR 1227).
+than it shows on the screen (ADR 1227). **Before the grant, a print through §14.11.5's output intent
+says what it does not do with it**: the device the page was drawn through is named, and Table 401's
+output transformation into that device's colourants is not performed, because the page goes to the
+print system as the RGB the screen shows (ADR 1932). An XFA form is said on the document's report,
+once: this program does not implement XFA, as §K.1 permits, and what it shows instead.
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -694,7 +698,7 @@ its last frame, eight pages kept and `--proxy-pages` the extent as in `quorra` (
 page's own pixels go up at a whole device pixel, a transition's faces being that same picture, so
 the effect ends on the page without a seam (ADR 1865); a page zoomed until the window shows less
 than half of it has those rows drawn first, a look over the stand-in, and the page whole after as
-the frame (ADR 1868); a page zoomed past `viewer_core::MAX_PIXELS` is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it — rather than refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
+the frame (ADR 1868); a page zoomed until its largest window is half of it or less, or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
 magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
 `WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADR 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The

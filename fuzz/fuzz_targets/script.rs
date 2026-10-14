@@ -60,8 +60,9 @@ use pdf_model::aform::Trigger;
 use std::rc::Rc;
 
 use pdf_model::view::{
-    Alignment, BorderStyle, Colour, CommitKey, Display, DocumentState, DocumentTrigger, FieldState,
-    FieldType, InfoEntry, Keys, Layer, PageState, ScriptEvent, ScriptSite, WidgetState,
+    Alignment, BookmarkState, BorderStyle, Colour, CommitKey, Display, DocumentState,
+    DocumentTrigger, FieldState, FieldType, InfoEntry, Keys, Layer, PageState, ScriptEvent,
+    ScriptSite, WidgetState,
 };
 use pdf_script::{Answer, Asker, Budget, Button, Ending, Nobody, Question, Realm, Request, wire};
 
@@ -152,6 +153,28 @@ fn document() -> DocumentState {
                 words: Some(Vec::new()),
             },
         ],
+        // Two items, one inside the other, so that a script's `bookmarkRoot` walk reaches an item
+        // at each depth and one with no children (ADR 1934).
+        outline: Some(vec![
+            BookmarkState {
+                number: 20,
+                generation: 0,
+                parent: None,
+                name: "Chapter".to_owned(),
+                open: true,
+                style: 2,
+                colour: [1.0, 0.0, 0.0],
+            },
+            BookmarkState {
+                number: 21,
+                generation: 0,
+                parent: Some(0),
+                name: "Section".to_owned(),
+                open: false,
+                style: 0,
+                colour: [0.0; 3],
+            },
+        ]),
     }
 }
 

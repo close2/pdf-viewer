@@ -528,3 +528,27 @@ pub(super) fn convert_channels(
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SampleMemo;
+
+    /// The memo answers with what the conversion would have answered, and nothing else.
+    ///
+    /// Direct-mapped with no chaining, so a collision must *miss* rather than return the
+    /// occupant — a table that answered the wrong colour would be invisible on a photograph and
+    /// obvious on nothing.
+    #[test]
+    fn the_memo_answers_only_for_the_key_it_holds() {
+        let mut cache = SampleMemo::for_pixels(64, pdf_render::Color::BLACK);
+        let colour = pdf_render::Color {
+            r: 0.25,
+            g: 0.5,
+            b: 0.75,
+            a: 1.0,
+        };
+        cache.put(7, colour);
+        assert_eq!(cache.get(7), Some(colour));
+        assert_eq!(cache.get(8), None, "a key the table does not hold");
+    }
+}

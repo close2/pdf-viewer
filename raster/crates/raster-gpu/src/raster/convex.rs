@@ -43,7 +43,8 @@ impl Convex {
     ///
     /// Repeated consecutive points are edges of no length: they bound nothing and are passed
     /// over. A straight-on corner is allowed. "Goes round once" is read as
-    /// [`flatten::convex`](super::flatten) reads it — each coordinate changing direction at most
+    /// [`flatten::convex`](super::flatten::convex) reads it — each coordinate changing direction
+    /// at most
     /// twice round the loop — which a polygon turning one way throughout meets exactly when its
     /// turns sum to one revolution.
     #[expect(clippy::arithmetic_side_effects)] // `(i + 1) % n` with `i < n`

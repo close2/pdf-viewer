@@ -425,7 +425,7 @@ impl MaskPlane {
 /// ([`grey_plane_of_samples`]) or behind `DCTDecode` in a frame of one component
 /// ([`grey_plane_of_frame`]). Those are written as the plane directly, through the same `/Decode`
 /// table the raster's route reads.
-pub(super) fn mask_plane(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+fn mask_plane(document: &Document, mask: &Stream) -> Option<MaskPlane> {
     if let Some(plane) =
         grey_plane_of_samples(document, mask).or_else(|| grey_plane_of_frame(document, mask))
     {
@@ -516,7 +516,7 @@ fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStrea
 ///
 /// [`decode_parts`]: super::decode_parts
 /// [`unpack`]: super::unpack::unpack
-pub(super) fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane> {
     let (width, height, source, table) = grey_mask(document, mask)?;
     if source.codec.is_some() {
         return None;
@@ -565,7 +565,7 @@ pub(super) fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Optio
 ///
 /// [`apply_decode_to_channels`]: super::convert::apply_decode_to_channels
 /// [`decode_jpeg`]: super::dct::decode_jpeg
-pub(super) fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> {
+fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> {
     use zune_jpeg::zune_core::colorspace::ColorSpace;
 
     let (_, _, source, table) = grey_mask(document, mask)?;
@@ -935,4 +935,100 @@ pub(super) fn eager_soft_mask(
     // mask's samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
     // to agree, because `soft_mask_entry` decided this mask was usable from the first.
     mask_plane(document, &mask_stream)
+}
+
+#[cfg(test)]
+mod tests {
+    /// **A soft mask's plane written directly is the plane [`crate::image::decode`] would have
+    /// given.**
+    /// Each admitted shape is decoded both ways and held to the same bytes: raw samples under the
+    /// default `/Decode`, an inverted one and a narrowed one, short of the grid, past it and with
+    /// no `/BitsPerComponent`; and a `DCTDecode` frame of one component (`tests/cut/grey.jpg`)
+    /// plain and inverted. A four-bit mask, one carrying a colour key, and a three-component frame
+    /// a dictionary calls `DeviceGray` are left to the decode route (ADR 1481).
+    #[test]
+    fn a_grey_mask_plane_is_its_decoded_first_channel() {
+        let samples: Vec<u8> = (0..48_u8).map(|index| index.wrapping_mul(37)).collect();
+        let grey: &[u8] = include_bytes!("../../tests/cut/grey.jpg");
+        let colour: &[u8] = include_bytes!("../../tests/cut/hv.jpg");
+        let raw = "/Width 8 /Height 5 /BitsPerComponent 8";
+        let frame = "/Width 48 /Height 200 /BitsPerComponent 8 /Filter /DCTDecode";
+        let cases: [(String, &[u8], Option<&str>); 10] = [
+            (raw.to_owned(), &samples, Some("samples")),
+            (format!("{raw} /Decode [1 0]"), &samples, Some("samples")),
+            (
+                format!("{raw} /Decode [0.25 0.75]"),
+                &samples,
+                Some("samples"),
+            ),
+            (raw.to_owned(), &samples[..29], Some("samples")),
+            ("/Width 8 /Height 5".to_owned(), &samples, Some("samples")),
+            (
+                "/Width 8 /Height 5 /BitsPerComponent 4".to_owned(),
+                &samples[..24],
+                None,
+            ),
+            (format!("{raw} /Mask [0 100]"), &samples, None),
+            (frame.to_owned(), grey, Some("frame")),
+            (format!("{frame} /Decode [1 0]"), grey, Some("frame")),
+            (frame.to_owned(), colour, None),
+        ];
+        for (entries, data, route) in cases {
+            let mut file = b"%PDF-1.7\n".to_vec();
+            let mut offsets = Vec::new();
+            offsets.push(file.len());
+            file.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+            offsets.push(file.len());
+            file.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n");
+            offsets.push(file.len());
+            file.extend_from_slice(
+                format!(
+                    "3 0 obj\n<< /Type /XObject /Subtype /Image /ColorSpace /DeviceGray {entries} \
+                     /Length {} >>\nstream\n",
+                    data.len()
+                )
+                .as_bytes(),
+            );
+            file.extend_from_slice(data);
+            file.extend_from_slice(b"\nendstream\nendobj\n");
+            let at = file.len();
+            file.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+            for offset in &offsets {
+                file.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+            }
+            file.extend_from_slice(
+                format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n").as_bytes(),
+            );
+            let document = pdf_syntax::Document::open(file).expect("the fixture opens");
+            let object = document.get(pdf_syntax::ObjectId::new(3, 0));
+            let stream = object.as_stream().expect("object 3 is the mask");
+            let decoded = super::MaskPlane::of_decoded(
+                crate::image::decode(
+                    &document,
+                    stream,
+                    &pdf_syntax::Dictionary::new(),
+                    pdf_render::Color::BLACK,
+                    &crate::colour::Conversion::device(),
+                )
+                .expect("the mask decodes"),
+            );
+            let direct = match route {
+                Some("samples") => super::grey_plane_of_samples(&document, stream),
+                Some(_) => super::grey_plane_of_frame(&document, stream),
+                None => super::grey_plane_of_samples(&document, stream)
+                    .or_else(|| super::grey_plane_of_frame(&document, stream)),
+            };
+            assert_eq!(direct.is_some(), route.is_some(), "{entries}");
+            if let Some(direct) = direct {
+                assert_eq!(
+                    (direct.width, direct.height),
+                    (decoded.width, decoded.height)
+                );
+                assert_eq!(direct.opacity, decoded.opacity, "{entries}");
+                assert_eq!(direct.shortfall, decoded.shortfall, "{entries}");
+            }
+            let either = super::mask_plane(&document, stream).expect("the mask decodes");
+            assert_eq!(either.opacity, decoded.opacity, "{entries}");
+        }
+    }
 }

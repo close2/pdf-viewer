@@ -88,6 +88,30 @@ fn annotations() -> Vec<AnnotationState> {
     ]
 }
 
+/// Two outline items, the second a child of the first, bold and italic (ADR 1934).
+fn outline() -> Vec<pdf_model::view::BookmarkState> {
+    vec![
+        pdf_model::view::BookmarkState {
+            number: 12,
+            generation: 1,
+            parent: None,
+            name: "Chapter".to_owned(),
+            open: true,
+            style: 0,
+            colour: [0.0; 3],
+        },
+        pdf_model::view::BookmarkState {
+            number: 13,
+            generation: 0,
+            parent: Some(0),
+            name: "Section é".to_owned(),
+            open: false,
+            style: 3,
+            colour: [1.0, 0.5, 0.25],
+        },
+    ]
+}
+
 fn request(site: ScriptSite) -> Request {
     Request {
         site,
@@ -164,6 +188,7 @@ fn request(site: ScriptSite) -> Request {
                 locked: false,
                 intent: vec!["View".to_owned(), "Design".to_owned()],
             }],
+            outline: Some(outline()),
             ..DocumentState::default()
         }),
         view: WINDOW,
@@ -264,6 +289,11 @@ fn view_and_option_edits() -> Vec<ScriptEdit> {
         ]
         .map(ScriptEdit::Console),
     )
+    // An outline item executed (ADR 1934).
+    .chain([ScriptEdit::Bookmark {
+        number: 12,
+        generation: 1,
+    }])
     .collect()
 }
 
@@ -357,7 +387,10 @@ fn a_request_and_an_outcome_come_back_as_they_went() {
         ScriptSite::OpenAction,
         ScriptSite::Library,
         ScriptSite::Timer,
-        ScriptSite::Outline,
+        ScriptSite::Outline {
+            number: 12,
+            generation: 1,
+        },
     ]
     .into_iter()
     .chain(DocumentTrigger::ALL.map(ScriptSite::Document))

@@ -1,34 +1,9 @@
-//! Unit tests for the image module's internals; each names the clause or the ADR whose
+//! Unit tests for the image module's internals that name items of two of its modules or more; a
+//! test of one module sits in that module (ADR 1912 §2). Each names the clause or the ADR whose
 //! claim it checks.
 
-use super::ccitt::ccitt_rows;
-use super::convert::{SampleMemo, convert_three};
+use super::convert::convert_three;
 use crate::colour::ColourSpace;
-
-/// ISO 32000-2 §7.4.6 Table 11: `/EndOfBlock` overrides `/Rows`, and its default is true.
-///
-/// The four cases are the entry's two sentences crossed with the two values of the flag.
-/// The first row is the one `hayro`'s issue 1337 is about — a producer's wrong `/Rows`
-/// under the default flag — and it is the reason this function exists rather than a
-/// `match` at the call site: the answer is derived from a clause, so it is worth a place
-/// a test can reach.
-#[test]
-fn end_of_block_overrides_the_rows_parameter() {
-    // "overriding the Rows parameter": true is the default, so a `/Rows` disagreeing with
-    // `/Height` says nothing about where the decode stops.
-    assert_eq!(ccitt_rows(272, true, 523), 523);
-    assert_eq!(ccitt_rows(9000, true, 523), 523);
-    // "If false , the filter shall stop when it has decoded the number of lines indicated
-    // by Rows or when its data has been exhausted, whichever occurs first."
-    assert_eq!(ccitt_rows(272, false, 523), 272);
-    // Table 11's `/Rows` row: zero or absent means the height "is not predetermined", so
-    // §8.9.5.1's `/Height` is the only statement of it left — whatever the flag says.
-    assert_eq!(ccitt_rows(0, false, 523), 523);
-    assert_eq!(ccitt_rows(0, true, 523), 523);
-    // The ordinary file, where the two agree and nothing above can be observed.
-    assert_eq!(ccitt_rows(523, true, 523), 523);
-    assert_eq!(ccitt_rows(523, false, 523), 523);
-}
 
 /// A calibrated space whose conversion is neither the identity nor a device one.
 ///
@@ -72,6 +47,8 @@ fn raster(pixels: usize) -> Vec<u8> {
 ///
 /// Band sizes 1 and 3 are the interesting ones: they make the memo miss almost every time,
 /// which is exactly the case a wrong key would show up in.
+///
+/// [`SampleMemo`]: super::convert::SampleMemo
 #[test]
 fn a_band_boundary_changes_no_pixel() {
     let space = calibrated();
@@ -238,198 +215,6 @@ fn a_mask_multiplied_in_place_is_the_combination() {
         &mut image,
         plane(raster(3, 4, 7)).samples()
     ));
-}
-
-/// **A soft mask's plane written directly is the plane [`super::decode`] would have given.**
-/// Each admitted shape is decoded both ways and held to the same bytes: raw samples under the
-/// default `/Decode`, an inverted one and a narrowed one, short of the grid, past it and with
-/// no `/BitsPerComponent`; and a `DCTDecode` frame of one component (`tests/cut/grey.jpg`)
-/// plain and inverted. A four-bit mask, one carrying a colour key, and a three-component frame
-/// a dictionary calls `DeviceGray` are left to the decode route (ADR 1481).
-#[test]
-fn a_grey_mask_plane_is_its_decoded_first_channel() {
-    let samples: Vec<u8> = (0..48_u8).map(|index| index.wrapping_mul(37)).collect();
-    let grey: &[u8] = include_bytes!("../../tests/cut/grey.jpg");
-    let colour: &[u8] = include_bytes!("../../tests/cut/hv.jpg");
-    let raw = "/Width 8 /Height 5 /BitsPerComponent 8";
-    let frame = "/Width 48 /Height 200 /BitsPerComponent 8 /Filter /DCTDecode";
-    let cases: [(String, &[u8], Option<&str>); 10] = [
-        (raw.to_owned(), &samples, Some("samples")),
-        (format!("{raw} /Decode [1 0]"), &samples, Some("samples")),
-        (
-            format!("{raw} /Decode [0.25 0.75]"),
-            &samples,
-            Some("samples"),
-        ),
-        (raw.to_owned(), &samples[..29], Some("samples")),
-        ("/Width 8 /Height 5".to_owned(), &samples, Some("samples")),
-        (
-            "/Width 8 /Height 5 /BitsPerComponent 4".to_owned(),
-            &samples[..24],
-            None,
-        ),
-        (format!("{raw} /Mask [0 100]"), &samples, None),
-        (frame.to_owned(), grey, Some("frame")),
-        (format!("{frame} /Decode [1 0]"), grey, Some("frame")),
-        (frame.to_owned(), colour, None),
-    ];
-    for (entries, data, route) in cases {
-        let mut file = b"%PDF-1.7\n".to_vec();
-        let mut offsets = Vec::new();
-        offsets.push(file.len());
-        file.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-        offsets.push(file.len());
-        file.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n");
-        offsets.push(file.len());
-        file.extend_from_slice(
-            format!(
-                "3 0 obj\n<< /Type /XObject /Subtype /Image /ColorSpace /DeviceGray {entries} \
-                 /Length {} >>\nstream\n",
-                data.len()
-            )
-            .as_bytes(),
-        );
-        file.extend_from_slice(data);
-        file.extend_from_slice(b"\nendstream\nendobj\n");
-        let at = file.len();
-        file.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
-        for offset in &offsets {
-            file.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
-        }
-        file.extend_from_slice(
-            format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n").as_bytes(),
-        );
-        let document = pdf_syntax::Document::open(file).expect("the fixture opens");
-        let object = document.get(pdf_syntax::ObjectId::new(3, 0));
-        let stream = object.as_stream().expect("object 3 is the mask");
-        let decoded = super::soft_mask::MaskPlane::of_decoded(
-            super::decode(
-                &document,
-                stream,
-                &pdf_syntax::Dictionary::new(),
-                pdf_render::Color::BLACK,
-                &crate::colour::Conversion::device(),
-            )
-            .expect("the mask decodes"),
-        );
-        let direct = match route {
-            Some("samples") => super::soft_mask::grey_plane_of_samples(&document, stream),
-            Some(_) => super::soft_mask::grey_plane_of_frame(&document, stream),
-            None => super::soft_mask::grey_plane_of_samples(&document, stream)
-                .or_else(|| super::soft_mask::grey_plane_of_frame(&document, stream)),
-        };
-        assert_eq!(direct.is_some(), route.is_some(), "{entries}");
-        if let Some(direct) = direct {
-            assert_eq!(
-                (direct.width, direct.height),
-                (decoded.width, decoded.height)
-            );
-            assert_eq!(direct.opacity, decoded.opacity, "{entries}");
-            assert_eq!(direct.shortfall, decoded.shortfall, "{entries}");
-        }
-        let either = super::soft_mask::mask_plane(&document, stream).expect("the mask decodes");
-        assert_eq!(either.opacity, decoded.opacity, "{entries}");
-    }
-}
-
-/// [`beside`] answers with both closures' results, whichever thread ran the second.
-///
-/// [`beside`]: super::dispatch::beside
-#[test]
-fn beside_answers_both() {
-    let (here, there) = super::dispatch::beside(|| 6 * 7, || "beside");
-    assert_eq!((here, there), (42, Some("beside")));
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build()
-        .expect("a pool");
-    let (here, there) = pool.install(|| super::dispatch::beside(|| 1, || 2));
-    assert_eq!((here, there), (1, Some(2)));
-}
-
-/// Adobe's APP14 transform 2, arithmetic first — §7.4.8's codestream through ISO/IEC 10918.
-///
-/// Three values whose answers are exact and need no reference: white, black, and a colour
-/// whose YCbCr is a whole number in every channel. What is being checked is that the four
-/// channels stay four and that the transform is JFIF's inverse followed by the inversion an
-/// Adobe four-component JPEG already assumes — the same convention transform 0 delivers, so
-/// that a file's own `/Decode [1 0 1 0 1 0 1 0]` undoes exactly one of them.
-///
-/// **No corpus document carries a YCCK JPEG**, which is why this is arithmetic rather than a
-/// picture. The witness is a 92-page commercial catalogue outside this repository whose every
-/// page is one such image and which drew nothing at all until this (`doc/todo/28`); on its
-/// first page ours is 0.0113 from `poppler` where `mupdf` is 0.0384, so the picture is
-/// checked — it is simply not checkable *here*.
-#[test]
-fn a_ycck_codestreams_four_channels_stay_four() {
-    // Y = 255, Cb = Cr = 128 is white: R = G = B = 255, so C = M = Y = 0.
-    let mut white = [255, 128, 128, 17];
-    super::dct::ycck_to_cmyk(&mut white);
-    assert_eq!(white, [0, 0, 0, 17], "K passes through untouched");
-
-    // Y = 0 is black: R = G = B = 0, so C = M = Y = 255.
-    let mut black = [0, 128, 128, 200];
-    super::dct::ycck_to_cmyk(&mut black);
-    assert_eq!(black, [255, 255, 255, 200]);
-
-    // And a chrominance that separates the channels, so that a transform which dropped Cb or
-    // Cr would fail rather than pass by symmetry. Y = 128, Cb = 128, Cr = 255: red is
-    // 128 + 1.402 × 127 = 306, clamped to 255, so C is 0; blue is 128 + 1.772 × 0 = 128.
-    let mut red = [128, 128, 255, 0];
-    super::dct::ycck_to_cmyk(&mut red);
-    assert_eq!(red[0], 0, "cyan: the red channel saturated");
-    assert!(
-        red[1] > 200,
-        "magenta: green fell a long way, got {}",
-        red[1]
-    );
-    assert_eq!(red[2], 127, "yellow: blue is unmoved at 128");
-    assert_eq!(red[3], 0);
-}
-
-/// §10.7.4's centre rule, which is what maps a device pixel back to a mask sample.
-///
-/// > The position of the centre of such a pixel -in other words, the point whose
-/// > coordinate values have fractional parts of one-half -shall be mapped back into
-/// > source space to determine how to colour the pixel.
-///
-/// Three properties, and the first is the one a corner rule fails: a grid that is not
-/// reduced at all reads every sample once and in order, so nothing shifts when a mask
-/// happens to be the size the device wants. The second is the rule itself at a four-fold
-/// reduction — cell `i` of 2 over 8 samples reads the sample at `(2i + 1) x 8 / 4`, which
-/// is 2 and 6, the centres of the two halves rather than their corners. The third is that
-/// no index ever leaves the source, which is what a bounds check would otherwise have to
-/// do once per sample.
-#[test]
-fn a_device_cell_reads_the_sample_under_its_centre() {
-    for index in 0..8u64 {
-        assert_eq!(
-            super::device_scale::centre(index, 8, 8),
-            usize::try_from(index).expect("a literal under eight"),
-            "the identity"
-        );
-    }
-    assert_eq!(
-        (
-            super::device_scale::centre(0, 2, 8),
-            super::device_scale::centre(1, 2, 8)
-        ),
-        (2, 6)
-    );
-    assert_eq!(
-        (
-            super::device_scale::centre(0, 3, 7),
-            super::device_scale::centre(1, 3, 7),
-            super::device_scale::centre(2, 3, 7)
-        ),
-        (1, 3, 5),
-        "an odd reduction that divides nothing evenly"
-    );
-    for cells in 1..=32u64 {
-        for index in 0..cells {
-            assert!(super::device_scale::centre(index, cells, 32) < 32);
-        }
-    }
 }
 
 /// An eight-bit grey or RGB image unpacked by the table route is the image the per-sample
@@ -923,23 +708,4 @@ fn a_combined_raster_is_its_sources_nearest_samples() {
             }
         }
     }
-}
-
-/// The memo answers with what the conversion would have answered, and nothing else.
-///
-/// Direct-mapped with no chaining, so a collision must *miss* rather than return the
-/// occupant — a table that answered the wrong colour would be invisible on a photograph and
-/// obvious on nothing.
-#[test]
-fn the_memo_answers_only_for_the_key_it_holds() {
-    let mut cache = SampleMemo::for_pixels(64, pdf_render::Color::BLACK);
-    let colour = pdf_render::Color {
-        r: 0.25,
-        g: 0.5,
-        b: 0.75,
-        a: 1.0,
-    };
-    cache.put(7, colour);
-    assert_eq!(cache.get(7), Some(colour));
-    assert_eq!(cache.get(8), None, "a key the table does not hold");
 }

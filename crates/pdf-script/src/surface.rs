@@ -274,8 +274,7 @@ pub const EXCLUDED: &[Excluded] = &[
 ];
 
 /// What RFC 0008 section 4.2 admits to Tier 1, or `A193`'s rule brings into it, and this program
-/// refuses by name, each row with the reason, as the clause after "because it" (ADRs 1724, 1725,
-/// 1922).
+/// refuses by name, each row with the reason, as the clause after "because it" (ADRs 1724, 1725).
 ///
 /// Not Tier 2 — the RFC admits each — and not a member waiting to be bridged: each reaches
 /// something this program keeps out of a document's realm, or that no reader's edit reaches, and
@@ -295,13 +294,6 @@ pub const REFUSED: &[Excluded] = &[
                  previous view to go back to either, so there is nothing a script's request could \
                  reach",
     },
-    Excluded {
-        holder: Holder::Bookmark,
-        members: &["children", "color", "execute", "name", "open", "style"],
-        reason: "reads or performs an item of the document's outline, and the realm is not handed \
-                 the outline; a write to one would change the document's structure, which is \
-                 immutable",
-    },
 ];
 
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
@@ -319,7 +311,9 @@ pub const REFUSED: &[Excluded] = &[
 /// `event.shift`, `modifier`, `keyDown`, `richValue` and `richChange`, a field's `lineWidth`,
 /// `textSize` and `textFont`, the page's words, `util`'s `scand`, `crackURL`, `spansToXML`,
 /// `xmlToSpans`, `streamFromString`, `stringFromStream` and `iconStreamFromIcon` — the last refused
-/// with its reason — `console`'s `show`, `hide` and `clear`, and `OCG.getIntent`.
+/// with its reason — `console`'s `show`, `hide` and `clear`, and `OCG.getIntent`, and
+/// `this.bookmarkRoot` with the `Bookmark` object read from the document's outline (ADRs 1922,
+/// 1934).
 ///
 /// Empty: every member section 4.2 admits is carried, or refused by name in [`REFUSED`] or by its
 /// own native with a reason. The list stays as the place an admitted member waits, each a property

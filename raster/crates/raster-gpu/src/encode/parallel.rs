@@ -88,6 +88,10 @@
 //! What is not code is mostly this comment, which is the design argument the caller's
 //! `doc/QUORRA_ENCODE_THREADS.md` asked for and the reason a reader can check the
 //! determinism claim at all.
+//!
+//! [`Encoder::drain_queue`]: super::Encoder::drain_queue
+//! [`Encoder::follow_queued`]: super::Encoder::follow_queued
+//! [`Encoder::prospect_for`]: super::Encoder::prospect_for
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -172,6 +176,9 @@ pub(super) struct Job<'a> {
     /// [`Encoder::enqueue`] keeps the sum of these under
     /// [`Encoder::in_flight_limit`], which is what stops a queue from being a way to
     /// hold a thousand full-page tiles at once where the walk held one (principle 3).
+    ///
+    /// [`Encoder::enqueue`]: super::Encoder::enqueue
+    /// [`Encoder::in_flight_limit`]: super::Encoder::in_flight_limit
     held: u64,
     /// The stored outline a fill's segments are, when the job is one: it answers once,
     /// for every placement, whether the outline winds two neighbouring values, and a fill
@@ -508,7 +515,8 @@ impl<'a> Job<'a> {
         matches!(self.place, Place::Atlas { .. } | Place::Sheet)
     }
 
-    /// The atlas key this job would write, for the guard in [`Encoder::enqueue`].
+    /// The atlas key this job would write, for the guard in
+    /// [`Encoder::enqueue`](super::Encoder::enqueue).
     fn key_written(&self) -> Option<GlyphKey> {
         match self.place {
             Place::Atlas { key, .. } => Some(key),
@@ -672,7 +680,7 @@ pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised>
     rasterise_then(jobs, threads, (None, false), |masks| masks)
 }
 
-/// [`rasterise_all`]'s masks, handed to `then` — the drain's commit — and, where `lent` is
+/// `rasterise_all`'s masks, handed to `then` — the drain's commit — and, where `lent` is
 /// given, with the fan-out's threads lent to the frame's exact meets for as long as `then`
 /// runs (ADR 1692), and after it until nothing is given where `last` says the walk has nothing
 /// left to do but settle them ([`Lent::finish`]).

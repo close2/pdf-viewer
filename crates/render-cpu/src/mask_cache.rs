@@ -326,7 +326,7 @@ impl MaskCache {
     /// > intersection of the set of pixels defined by the clipping region with the set of pixels
     /// > for the region to be painted.
     ///
-    /// and §8.5.4 says the same of the shape — "[t]he effective shape is the intersection of the
+    /// and §8.5.4 says the same of the shape — "\[t]he effective shape is the intersection of the
     /// object's intrinsic shape with the clipping path". `S ∩ C = S` where `S` lies inside `C`,
     /// at every pixel, the mark's own anti-aliased boundary included. ADR 1095.
     ///

@@ -488,6 +488,10 @@ that finds the session locked says "locked" and takes no figure — the hold is 
 resource (ADR 1863). The owner's word of 2026-10-14: the loop may unlock the session, with
 `loginctl unlock-session <id>` and no other command — not a typed password, not `xdotool` on the lock
 screen, not a killed locker — and the script says it did.
+And the count that tells locked from open is a window of the loop's own: `xdotool search --onlyvisible
+--name .` read 0 on the owner's *open* Wayland session exactly as it did on the locked one, so a loop
+script opens one `quorra` window under X11 as a control and writes "locked" only when that window is
+not visible either — calibrated at 0 while locked and 1 while open (round 1550, ADR 1936).
 
 ### 176. A missing Wayland socket does not give X11; unsetting both variables does
 
@@ -504,4 +508,6 @@ sentence (`page 1: this page cannot be drawn at this size`) and once as the trac
 line. Step 82 counted both and read ten refusals where the confined window had said five — once a
 size, as ADR 1892 §2.4 asks of a window that keeps the bound — and the step read `wrong` from round
 1528 until round 1542 found the doubling (ADR 1921). A count of a sentence filters the trace
-(`grep -v '^trace:'`), and a step is calibrated on HEAD's log before it judges a tree.
+(`grep -v '^trace:'`), and a step is calibrated on HEAD's log before it judges a tree. The filter is
+for a *sentence*: the `frames` topic prints its own lines under the `trace:` prefix, so a step that
+reads frames must keep them (round 1547's first drive run filtered them away and read `wrong`).

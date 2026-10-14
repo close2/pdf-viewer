@@ -471,3 +471,81 @@ fn asking_about_the_fidelity_starts_a_job_either_way() {
     );
     assert_eq!(fidelity(&events), Some(Fidelity::Faithful));
 }
+
+/// The one-page document of [`page_with`]'s shape whose catalog states one output intent, under
+/// the sRGB profile this project ships, named by Table 401's `/OutputCondition`.
+fn with_output_intent() -> Vec<u8> {
+    let profile: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
+    let mut hex = String::new();
+    for byte in profile {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OutputIntents [<< /Type /OutputIntent \
+         /S /GTS_PDFX /OutputCondition (Test press) /OutputConditionIdentifier (Custom) \
+         /DestOutputProfile 5 0 R >>] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /N 3 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}>\nendstream\nendobj\n",
+        hex.len() + 1
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §14.11.5's print-time report: a print of a document whose colours are read through an output
+/// intent says, before the grant and once per job, that the intent's output transformation is
+/// not performed.
+///
+/// Table 401 names the direction a print to the intended device uses — "[t]he output
+/// transformation uses the profile's "from CIE" information (BToA in ICC terminology)" — and this
+/// program reads only the other one, so the sentence is owed wherever an intent is in force. **The
+/// control is [`page_with`]'s document, which states none**: a report that fired on every print
+/// would pass the first half and fail the second (trap 11). ADR 1932.
+#[test]
+fn a_print_of_a_document_with_an_output_intent_says_its_transformation_is_not_performed() {
+    let said_before_the_grant = |bytes: Vec<u8>| {
+        let mut viewer = reading(bytes);
+        let mut said = Vec::new();
+        for event in sent(&mut viewer, Command::Print(Printing::Start(a4()))) {
+            match event {
+                Event::Reported {
+                    page: None, notes, ..
+                } => said.extend(notes),
+                Event::Printing { .. } => return said,
+                _ => {}
+            }
+        }
+        panic!("the print was not granted");
+    };
+    let said = said_before_the_grant(with_output_intent());
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("Test press (GTS_PDFX)")
+            && said[0].contains("§14.11.5")
+            && said[0].contains("not performed"),
+        "{said:?}"
+    );
+    assert!(
+        said_before_the_grant(page_with("/F 4")).is_empty(),
+        "a document stating no output intent prints without the sentence"
+    );
+}

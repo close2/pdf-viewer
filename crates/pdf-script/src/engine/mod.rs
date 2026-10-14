@@ -27,6 +27,7 @@
 //! the process's to bound, and ADRs 1590 and 1602 name each.
 
 mod annotations;
+mod bookmarks;
 mod bridge;
 mod choices;
 mod guard;

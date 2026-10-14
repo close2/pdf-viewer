@@ -17,7 +17,7 @@
 //!
 //! It is pure: no device, no allocation from an unchecked number, and every budget it
 //! enforces is a public constant a caller can compare against before the frame
-//! ([`MAX_PROGRAM_LENGTH`](super::MAX_PROGRAM_LENGTH),
+//! ([`MAX_PROGRAM_LENGTH`],
 //! [`MAX_OPERAND_SLOTS`](super::MAX_OPERAND_SLOTS),
 //! [`MAX_BRANCH_NESTING`](super::MAX_BRANCH_NESTING)).
 //!
@@ -180,7 +180,7 @@ impl Analysis {
 
     /// The identity of the *program*, which is what an upload deduplicates by.
     ///
-    /// Computed by the walk rather than by [`generate`](super::generate) so that a pipeline
+    /// Computed by the walk rather than by [`generate`](fn@super::generate) so that a pipeline
     /// cache can be asked its question before any WGSL exists — a lookup that had to
     /// generate the text first would not be a cache.
     #[must_use]

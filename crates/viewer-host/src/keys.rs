@@ -518,7 +518,7 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
         }),
         Key::W => Meaning::Window(WindowAct::FitControls),
         Key::A => Meaning::Send(Command::Select(Selection::All)),
-        // Full screen first, then the draw the window has warned about, then §12.4.2's selection.
+        // Full screen first, then the draw the window has warned about, then the text selection.
         // All three are documented choices and the module documentation has the argument for
         // each — including why the warning's row is *below* full screen rather than above it.
         Key::Escape if presenting => Meaning::Window(WindowAct::LeaveFullScreen),

@@ -76,6 +76,13 @@
 //! ([`viewer_host::Ahead`]): the window puts each look up while the document opens
 //! ([`Composer::show_read`]), and the first frame of that page at that target is finished from
 //! the drawing rather than drawn ([`Job::ahead`]).
+//!
+//! # What tells the event thread that something landed
+//!
+//! The same wake [`crate::renderer`]'s thread sends: a finished frame and a look each wake the
+//! event loop as they are sent, so the window takes them when they land rather than at the next
+//! tick of the clock it keeps while a frame is out (ADRs 1926, 1936). A retained page wakes
+//! nothing, as on the other surface: it is a picture for a view nobody has asked for yet.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -314,6 +321,9 @@ pub(crate) struct Composer {
     read_looked: u64,
     /// The frame in flight as it last stood, and whether that look has not been up yet.
     partial: Option<(AsBuilt, bool)>,
+    /// What the composing thread wakes the event loop with, handed to it when the first job
+    /// starts it; `None` where the loop has none to give (ADR 1936).
+    waker: Option<winit::event_loop::EventLoopProxy<()>>,
 }
 
 impl std::fmt::Debug for Composer {
@@ -327,8 +337,13 @@ impl std::fmt::Debug for Composer {
 }
 
 impl Composer {
-    /// A window drawn on by the processor, retaining `proxy_pages` whole pages.
-    pub(crate) fn new(surface: SoftwareSurface, proxy_pages: usize) -> Self {
+    /// A window drawn on by the processor, retaining `proxy_pages` whole pages, whose finished
+    /// frames and looks wake the event loop through `waker`.
+    pub(crate) fn new(
+        surface: SoftwareSurface,
+        proxy_pages: usize,
+        waker: Option<winit::event_loop::EventLoopProxy<()>>,
+    ) -> Self {
         Self {
             surface,
             held: crate::stale::Canvas::default(),
@@ -341,6 +356,7 @@ impl Composer {
             ahead: None,
             read_looked: 0,
             partial: None,
+            waker,
         }
     }
 
@@ -599,7 +615,7 @@ impl Composer {
         if self.thread.is_none() {
             // The first job is what starts the thread, which is `CLAUDE.md`'s startup rule: a
             // spawn in `resumed` would put a scheduler decision in front of a launch milestone.
-            self.thread = Some(spawn(self.proxies.extent()));
+            self.thread = Some(spawn(self.proxies.extent(), self.waker.clone()));
         }
         let Some(link) = self.thread.as_ref() else {
             return;
@@ -728,7 +744,7 @@ impl Composer {
 }
 
 /// Starts the composing thread, and hands back the channels to it.
-fn spawn(proxy_pages: usize) -> Link {
+fn spawn(proxy_pages: usize, waker: Option<winit::event_loop::EventLoopProxy<()>>) -> Link {
     let (jobs, incoming) = channel::<Job>();
     let (outgoing, done) = channel::<Finished>();
     // A spawn this machine refuses is a machine with no thread to spare, and the window then
@@ -736,7 +752,16 @@ fn spawn(proxy_pages: usize) -> Link {
     // failing already means, so there is one path rather than two.
     let thread = std::thread::Builder::new()
         .name("page composer".to_owned())
-        .spawn(move || compose_until_told_to_stop(proxy_pages, &incoming, &outgoing))
+        .spawn(move || {
+            // A wake sent to a loop that has exited is nothing: the window is closing, and the
+            // send that follows each wake's news is what notices.
+            let wake = || {
+                if let Some(waker) = &waker {
+                    let _ = waker.send_event(());
+                }
+            };
+            compose_until_told_to_stop(proxy_pages, &wake, &incoming, &outgoing);
+        })
         .ok();
     Link { jobs, done, thread }
 }
@@ -750,7 +775,14 @@ fn spawn(proxy_pages: usize) -> Link {
 /// always wins: the channel is asked first, a retained page is drawn only when it is empty, and one
 /// page is drawn per idle turn so that a view change arriving mid-way waits for one low-resolution
 /// frame rather than for a set of them.
-fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &Sender<Finished>) {
+///
+/// `wake` tells the event loop that a frame or a look has been sent (ADR 1936).
+fn compose_until_told_to_stop(
+    proxy_pages: usize,
+    wake: &dyn Fn(),
+    jobs: &Receiver<Job>,
+    done: &Sender<Finished>,
+) {
     use std::sync::mpsc::TryRecvError;
 
     let mut proxies: crate::stale::Proxies<Arc<Raster>> = crate::stale::Proxies::new(proxy_pages);
@@ -768,12 +800,15 @@ fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &S
         };
         if let Some(job) = job {
             showing.clone_from(&job.pages);
-            let finished = compose(job, done);
+            let finished = compose(job, done, wake);
             // A send that fails is an event thread that has gone, and there is nobody left to draw
             // for.
             if done.send(Finished::Frame(Box::new(finished))).is_err() {
                 return;
             }
+            // Woken so that the window takes the frame when it lands rather than at the next tick
+            // (ADR 1936).
+            wake();
             continue;
         }
         if let Some(page) = proxies.wanted(&showing)
@@ -808,7 +843,7 @@ fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &S
 /// Drawn under its looks, each sent back as [`Finished::Partial`] (ADR 1831) — or, where it is
 /// page one's first frame at the target it was drawn at while it was read, finished from that
 /// drawing (ADR 1855).
-fn compose(job: Job, done: &Sender<Finished>) -> Done {
+fn compose(job: Job, done: &Sender<Finished>, wake: &dyn Fn()) -> Done {
     let Job {
         pages,
         interrupt,
@@ -833,11 +868,16 @@ fn compose(job: Job, done: &Sender<Finished>) -> Done {
                 return;
             }
             // A send that fails is an event thread that has gone; the frame's own send says so.
-            let _ = done.send(Finished::Partial(Box::new(AsBuilt {
-                pages: pages.clone(),
-                picture: assembly.picture().clone(),
-                fraction: assembly.fraction(),
-            })));
+            if done
+                .send(Finished::Partial(Box::new(AsBuilt {
+                    pages: pages.clone(),
+                    picture: assembly.picture().clone(),
+                    fraction: assembly.fraction(),
+                })))
+                .is_ok()
+            {
+                wake();
+            }
         };
         match viewer_ui::software::compose_pages_watched(
             &borrowed,
@@ -877,4 +917,63 @@ fn draw_whole_page(page: &crate::stale::Placed) -> Option<crate::stale::Retained
         target,
         pixels: Arc::new(raster),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    use pdf_render::{DisplayList, Interrupt, Size, TargetSpec, Transform};
+    use viewer_core::DocumentId;
+
+    use super::{Finished, Job, compose_until_told_to_stop};
+    use crate::stale::{Depicts, Picture, Placed};
+
+    /// A frame the composing thread finishes wakes the event loop, and the frame is already in the
+    /// channel when the wake comes, so the tick it wakes collects it (ADR 1936).
+    #[test]
+    fn a_finished_frame_wakes_the_loop_after_it_is_sent() {
+        let (jobs, incoming) = channel::<Job>();
+        let (outgoing, done) = channel::<Finished>();
+        let (woken, wakes) = channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let wake = || {
+                let _ = woken.send(());
+            };
+            compose_until_told_to_stop(0, &wake, &incoming, &outgoing);
+        });
+        let page = Placed {
+            of: Picture::new(DocumentId(1), 0, 0),
+            list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
+            target: TargetSpec {
+                width: 60,
+                height: 84,
+                transform: Transform::scale(0.1, -0.1).then(Transform::translate(0.0, 84.2)),
+            },
+            depicts: Depicts::Page,
+        };
+        jobs.send(Job {
+            pages: vec![page],
+            interrupt: Interrupt::new(),
+            ahead: None,
+        })
+        .expect("the composing thread is running");
+        wakes
+            .recv_timeout(Duration::from_mins(1))
+            .expect("a frame was drawn and nothing woke the loop");
+        let frames = done
+            .try_iter()
+            .filter(|finished| matches!(finished, Finished::Frame(_)))
+            .count();
+        assert_eq!(
+            frames, 1,
+            "the wake came before the frame it is for was sent"
+        );
+        drop(jobs);
+        thread
+            .join()
+            .expect("the composing thread ends when its jobs do");
+    }
 }

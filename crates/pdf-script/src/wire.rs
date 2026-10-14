@@ -15,10 +15,10 @@ use pdf_model::aform::Trigger;
 use pdf_model::destination::View;
 use pdf_model::form::Choice;
 use pdf_model::view::{
-    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BorderStyle, Colour,
-    ConsoleCommand, Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType, FontName,
-    Glyph, InfoEntry, Layer, PageState, Property, ScriptEdit, ScriptSite, Sound, TextFlag,
-    ViewChange, WidgetState, WindowView, ZoomType,
+    Alignment, AnnotationChange, AnnotationReach, AnnotationState, BookmarkState, BorderStyle,
+    Colour, ConsoleCommand, Display, DocumentState, DocumentTrigger, Face, FieldState, FieldType,
+    FontName, Glyph, InfoEntry, Layer, PageState, Property, ScriptEdit, ScriptSite, Sound,
+    TextFlag, ViewChange, WidgetState, WindowView, ZoomType,
 };
 use pdf_model::viewer_preferences::PageLayout;
 
@@ -43,8 +43,9 @@ use crate::{
 /// script's change to it (ADR 1736), and a field's `/Opt` as a script rewrote it (ADR 1737); 12 a
 /// named destination's page and view as one change to the window's view (ADR 1751); 13 the keys
 /// held at the event, the field's rich value, a widget's line width and its `/DA` font and size, a
-/// group's intent, the pages' words, and a request to the host's console (ADR 1762).
-pub const VERSION: u8 = 13;
+/// group's intent, the pages' words, and a request to the host's console (ADR 1762); 14 the
+/// outline, the item an outline item's script runs at, and an item executed (ADR 1934).
+pub const VERSION: u8 = 14;
 
 /// The console's three requests, in the order their tag counts them (ADR 1762).
 const CONSOLE_COMMANDS: [ConsoleCommand; 3] = [
@@ -496,7 +497,11 @@ fn put_site(out: &mut Vec<u8>, site: ScriptSite) {
             put_u8(out, tag_of(&DOCUMENT_TRIGGERS, &trigger));
         }
         ScriptSite::Timer => put_u8(out, 6),
-        ScriptSite::Outline => put_u8(out, 7),
+        ScriptSite::Outline { number, generation } => {
+            put_u8(out, 7);
+            put_u32(out, number);
+            out.extend_from_slice(&generation.to_le_bytes());
+        }
     }
 }
 
@@ -563,7 +568,8 @@ fn put_optional_u32(out: &mut Vec<u8>, number: Option<u32>) {
     }
 }
 
-/// Writes the document as a whole: its information dictionary's entries, then its groups.
+/// Writes the document as a whole: its information dictionary's entries, its groups, its
+/// annotations, its pages, and its outline where it was read.
 fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
     put_len(out, document.info.len());
     for entry in &document.info {
@@ -611,6 +617,29 @@ fn put_document(out: &mut Vec<u8>, document: &DocumentState) {
                 }
             }
         }
+    }
+    match &document.outline {
+        None => put_u8(out, 0),
+        Some(items) => {
+            put_u8(out, 1);
+            put_len(out, items.len());
+            for item in items {
+                put_bookmark(out, item);
+            }
+        }
+    }
+}
+
+/// Writes one outline item as a realm holds it (ADR 1934).
+fn put_bookmark(out: &mut Vec<u8>, item: &BookmarkState) {
+    put_u32(out, item.number);
+    out.extend_from_slice(&item.generation.to_le_bytes());
+    put_optional_u32(out, item.parent);
+    put_str(out, &item.name);
+    put_bool(out, item.open);
+    put_u8(out, item.style);
+    for component in item.colour {
+        put_f64(out, component);
     }
 }
 
@@ -820,6 +849,11 @@ fn put_edit(out: &mut Vec<u8>, edit: &ScriptEdit) {
         ScriptEdit::Console(command) => {
             put_u8(out, 15);
             put_u8(out, tag_of(&CONSOLE_COMMANDS, command));
+        }
+        ScriptEdit::Bookmark { number, generation } => {
+            put_u8(out, 16);
+            put_u32(out, *number);
+            out.extend_from_slice(&generation.to_le_bytes());
         }
     }
 }
@@ -1157,7 +1191,10 @@ impl<'a> Reader<'a> {
             4 => ScriptSite::Library,
             5 => ScriptSite::Document(self.tagged(&DOCUMENT_TRIGGERS, "trigger")?),
             6 => ScriptSite::Timer,
-            7 => ScriptSite::Outline,
+            7 => ScriptSite::Outline {
+                number: self.u32()?,
+                generation: u16::from_le_bytes(self.array()?),
+            },
             _ => return Err(WireError::Invalid("site")),
         })
     }
@@ -1318,11 +1355,37 @@ impl<'a> Reader<'a> {
                 words,
             });
         }
+        let outline = match self.u8()? {
+            0 => None,
+            1 => {
+                let count = self.count()?;
+                let mut items = Vec::new();
+                for _ in 0..count {
+                    items.push(self.bookmark()?);
+                }
+                Some(items)
+            }
+            _ => return Err(WireError::Invalid("outline")),
+        };
         Ok(DocumentState {
             info,
             layers,
             annotations,
             pages,
+            outline,
+        })
+    }
+
+    /// One outline item as a realm holds it (ADR 1934).
+    fn bookmark(&mut self) -> Result<BookmarkState, WireError> {
+        Ok(BookmarkState {
+            number: self.u32()?,
+            generation: u16::from_le_bytes(self.array()?),
+            parent: self.optional_u32()?,
+            name: self.string()?,
+            open: self.boolean()?,
+            style: self.u8()?,
+            colour: [self.f64()?, self.f64()?, self.f64()?],
         })
     }
 
@@ -1365,39 +1428,11 @@ impl<'a> Reader<'a> {
                 field: self.string()?,
                 value: self.string()?,
             },
-            1 => {
-                let field = self.string()?;
-                let widget = self.optional_u32()?;
-                let property = match self.u8()? {
-                    0 => Property::Display(self.tagged(&DISPLAYS, "display")?),
-                    1 => Property::ReadOnly(self.boolean()?),
-                    2 => Property::Required(self.boolean()?),
-                    3 => Property::TextColor(self.colour()?),
-                    4 => Property::FillColor(self.colour()?),
-                    5 => Property::StrokeColor(self.colour()?),
-                    6 => Property::BorderStyle(self.tagged(&BORDER_STYLES, "border style")?),
-                    7 => Property::Alignment(self.tagged(&ALIGNMENTS, "alignment")?),
-                    8 => Property::CharLimit(self.u32()?),
-                    9 => {
-                        Property::TextFlag(self.tagged(&TEXT_FLAGS, "text flag")?, self.boolean()?)
-                    }
-                    10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
-                    11 => Property::Style(self.tagged(&Glyph::ALL, "style")?),
-                    12 => Property::Options(self.options()?),
-                    13 => Property::LineWidth(self.f64()?),
-                    14 => Property::TextSize(self.f64()?),
-                    15 => Property::TextFont(FontName {
-                        base: self.string()?,
-                        resource: self.string()?,
-                    }),
-                    _ => return Err(WireError::Invalid("property")),
-                };
-                ScriptEdit::Property {
-                    field,
-                    widget,
-                    property,
-                }
-            }
+            1 => ScriptEdit::Property {
+                field: self.string()?,
+                widget: self.optional_u32()?,
+                property: self.property()?,
+            },
             2 => {
                 let count = self.count()?;
                 let mut fields = Vec::new();
@@ -1456,7 +1491,37 @@ impl<'a> Reader<'a> {
                 change: self.view_change()?,
             },
             15 => ScriptEdit::Console(self.tagged(&CONSOLE_COMMANDS, "console command")?),
+            16 => ScriptEdit::Bookmark {
+                number: self.u32()?,
+                generation: u16::from_le_bytes(self.array()?),
+            },
             _ => return Err(WireError::Invalid("edit")),
+        })
+    }
+
+    /// One property a script set on a field.
+    fn property(&mut self) -> Result<Property, WireError> {
+        Ok(match self.u8()? {
+            0 => Property::Display(self.tagged(&DISPLAYS, "display")?),
+            1 => Property::ReadOnly(self.boolean()?),
+            2 => Property::Required(self.boolean()?),
+            3 => Property::TextColor(self.colour()?),
+            4 => Property::FillColor(self.colour()?),
+            5 => Property::StrokeColor(self.colour()?),
+            6 => Property::BorderStyle(self.tagged(&BORDER_STYLES, "border style")?),
+            7 => Property::Alignment(self.tagged(&ALIGNMENTS, "alignment")?),
+            8 => Property::CharLimit(self.u32()?),
+            9 => Property::TextFlag(self.tagged(&TEXT_FLAGS, "text flag")?, self.boolean()?),
+            10 => Property::Caption(self.tagged(&FACES, "face")?, self.string()?),
+            11 => Property::Style(self.tagged(&Glyph::ALL, "style")?),
+            12 => Property::Options(self.options()?),
+            13 => Property::LineWidth(self.f64()?),
+            14 => Property::TextSize(self.f64()?),
+            15 => Property::TextFont(FontName {
+                base: self.string()?,
+                resource: self.string()?,
+            }),
+            _ => return Err(WireError::Invalid("property")),
         })
     }
 

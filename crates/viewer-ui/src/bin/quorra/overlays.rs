@@ -81,7 +81,7 @@ const MEASURED_POINT: f32 = 2.5;
 
 /// The colour ISO 32000-2 Annex O's `highlight` rectangle is washed in.
 ///
-/// Table Annex O.4 says "[t]he nature of the highlighting is implementation-dependent" outright,
+/// Table Annex O.4 says "\[t]he nature of the highlighting is implementation-dependent" outright,
 /// so this is the one overlay whose colour the standard *hands* to a processor rather than leaving
 /// unsaid. A third hue for the same reason the find bar's is a second one: "the rectangle the URI
 /// asked for", "where else the word is" and "what you have selected" are three different

@@ -44,8 +44,8 @@ use crate::surface::ToDevice;
 const ONE_LEVEL: f64 = 1.0 / 255.0;
 
 /// Paints the stroke `path` under `stroke` in `paint` onto `pixmap` through `clip` where
-/// [`pdf_render::thin_segment`] admits it, and returns whether it did. `false`, with nothing drawn,
-/// for any other mark, and where the clip's buffers do not match the pixmap — the pairing
+/// [`pdf_render::thin_segment()`] admits it, and returns whether it did. `false`, with nothing
+/// drawn, for any other mark, and where the clip's buffers do not match the pixmap — the pairing
 /// `scan::intersected` declines too, and which the ordinary construction then answers.
 ///
 /// **The mark is admitted and measured on the whole page's device grid, and only its rows are moved

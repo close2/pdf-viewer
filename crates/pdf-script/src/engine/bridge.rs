@@ -11,7 +11,8 @@
 //! with what each site raises; `app`'s six properties naming the
 //! viewer, `util.printd` and `util.printx` (ADR 1615); the reference's `display`, `border`, `font`
 //! and `color` constants; `console` (ADR 1762); a field's `lineWidth`, `textSize` and `textFont`
-//! and `event`'s keys and rich pair (ADR 1762); `bookmarkRoot`'s `parent` and `doc` (ADR 1922); and
+//! and `event`'s keys and rich pair (ADR 1762); `bookmarkRoot` and the `Bookmark` object (ADRs 1922,
+//! 1934); and
 //! the `AF*` library, each function a native that hands
 //! its arguments to
 //! `pdf_model::aform` — the Rust Tier 0 runs, so that a format called from a script and a format
@@ -84,21 +85,6 @@ pub(super) fn install(context: &mut Context) -> JsResult<()> {
     Ok(())
 }
 
-/// `this.bookmarkRoot`: the reference's `Bookmark` object for the root of the outline, as its
-/// "Doc properties" and "Bookmark properties" pages define it (ADR 1922).
-///
-/// The realm is not handed the document's outline, so what it can say of the root is what holds
-/// of every root: its `parent` is null and its `doc` is this document. Every other member is
-/// refused by name with its reason ([`crate::surface`]), so that a script reading the outline
-/// learns why it cannot rather than meeting `undefined`.
-fn bookmark_root(global: &JsObject, context: &mut Context) -> JsResult<()> {
-    let root = ObjectInitializer::new(context).build();
-    data(&root, "parent", JsValue::null(), false, context)?;
-    data(&root, "doc", JsValue::from(global.clone()), false, context)?;
-    refusers(&root, Holder::Bookmark, context)?;
-    data(global, "bookmarkRoot", JsValue::from(root), false, context)
-}
-
 /// Installs one run's `event`, and answers it.
 ///
 /// # Errors
@@ -111,20 +97,24 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
         !request.field.is_empty() && matches!(request.site, ScriptSite::Annotation(_)),
     );
     // The reference's "Event type/name combinations" page makes the document the target of every
-    // `Doc` event — the open and Table 200's five (ADR 1614). A `Bookmark` event's target is the
-    // reference's bookmark object for the item, which this realm does not carry, so it is null and
-    // the item is named by `targetName` (ADR 1904).
+    // `Doc` event — the open and Table 200's five (ADR 1614), and a `Bookmark` event's the item's
+    // `Bookmark`, which `targetName` names by its title too (ADRs 1904, 1934).
     let target = match request.site {
         ScriptSite::Library
         | ScriptSite::OpenAction
         | ScriptSite::Document(_)
         | ScriptSite::Timer => JsValue::from(context.global_object()),
-        ScriptSite::Outline => JsValue::null(),
+        ScriptSite::Outline { number, generation } => {
+            super::bookmarks::target(number, generation, context)?
+        }
         _ => field_object(context, &request.field).map_or_else(JsValue::null, JsValue::from),
     };
     let source =
         field_object(context, &request.event.source).map_or_else(JsValue::null, JsValue::from);
-    let target_name = if matches!(request.site, ScriptSite::Library | ScriptSite::Outline) {
+    let target_name = if matches!(
+        request.site,
+        ScriptSite::Library | ScriptSite::Outline { .. }
+    ) {
         request.label.as_str()
     } else {
         request.field.as_str()
@@ -271,7 +261,7 @@ fn document(context: &mut Context) -> JsResult<()> {
     super::pages::document(&global, context)?;
     super::window::install(&global, context)?;
     super::annotations::install(&global, context)?;
-    bookmark_root(&global, context)?;
+    super::bookmarks::install(&global, context)?;
     refusers(&global, Holder::Doc, context)?;
     refusers(&global, Holder::Global, context)?;
 
@@ -1641,7 +1631,7 @@ pub(super) fn write_value(name: &str, value: &JsValue, context: &mut Context) ->
 }
 
 /// A colour as the reference's array.
-fn colour_array(colour: Colour, context: &mut Context) -> JsValue {
+pub(super) fn colour_array(colour: Colour, context: &mut Context) -> JsValue {
     let mut items = Vec::new();
     let space = |name: &str| JsValue::from(JsString::from(name));
     match colour {

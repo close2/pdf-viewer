@@ -1,25 +1,36 @@
-//! A page whose whole raster would be past `viewer_core::MAX_PIXELS`, drawn as the window shows it.
+//! A page zoomed past its window, drawn as the window shows it.
 //!
-//! A toolkit window holds a page as one raster of the whole page, and the viewer refuses a page
-//! past [`viewer_core::MAX_PIXELS`] because that raster is an allocation. Zoomed far enough into a
-//! large page — an A1 drawing at a few times its fit on a large screen — every notch was refused,
-//! and the window showed the last frame it had, enlarged and blurred, with the refusal said again
-//! at every command that settled. `quorra` never met the bound: it draws a window-sized frame from
-//! the marks that reach it (ADR 1841). This module is the same answer for the two toolkit windows
-//! (ADR 1892).
+//! A toolkit window holds a page as one raster of the whole page, copied into the toolkit's own
+//! image at every update. At the fit that is the page on the screen and nothing else; zoomed in,
+//! it is the page and every row of it nobody can see, drawn at every notch and copied at every
+//! update — 65 to 250 ms a pump for a page of half a gigabyte to one, and past
+//! [`viewer_core::MAX_PIXELS`] an allocation the viewer refuses. `quorra` never met either: it
+//! draws a window-sized frame from the marks that reach it (ADR 1841). This module is the same
+//! answer for the two toolkit windows (ADRs 1892, 1930).
 //!
-//! **The bound is kept and moved to where the allocation now is.** The window tells the viewer it
-//! draws such a page from its list (`viewer_core::Command::Oversize`), so the request is made at
-//! the page's whole target; [`Oversized`] holds it, the drawing draws the part of the target the
-//! viewport shows with a margin round it ([`crate::Drawing::ask_window`]), and the viewer is told
-//! the host took the list (`viewer_core::Rendered::Listed`) once the first window of it has
-//! landed. What is allocated is the window, a few times the viewport, and never the page. A scroll
-//! that leaves what was drawn asks for the window again. **Every page under the bound is asked for
-//! and drawn exactly as before**, so no frame a gate digests moves.
+//! **Which pages: those whose window is at most half of them.** [`oversized`] holds a page drawn
+//! this way where [`largest_window`] — the viewport and a quarter of it on every side, inside the
+//! page — is at most half the page's area, or where its whole raster would be past
+//! [`viewer_core::MAX_PIXELS`]. A window is drawn from a list of its own, of the marks that reach
+//! it (ADR 1841), and measured on the witness one that is most of the page lands later than the
+//! page drawn whole while one under half of it lands sooner, by more the deeper the zoom (ADR
+//! 1930 §3); a page drawn whole is also drawn once for every scroll, where a window is drawn again
+//! at each scroll past its margin. So every page at the fit and the first notches past it is
+//! asked for, drawn and answered exactly as before, and no frame of it moves.
+//!
+//! The window tells the viewer it draws a page from its list (`viewer_core::Command::Oversize`),
+//! so a page past the bound is asked for at its whole target rather than refused; [`Oversized`]
+//! holds every request [`oversized`] names, the drawing draws the part of the target the viewport
+//! shows with a margin round it ([`crate::Drawing::ask_window`]), and the viewer is told the host
+//! took the list (`viewer_core::Rendered::Listed`) once the first window of it has landed. What
+//! is allocated and copied is the window, and never the page. A scroll that leaves what was drawn
+//! asks for the window again.
 //!
 //! Until a window lands the page stands in as any page does: the viewer keeps its last frame of
-//! the page while the request is outstanding (ADR 1843), and the retained picture shows under the
-//! window once it has (ADR 1866).
+//! the page while the request is outstanding (ADR 1843), the retained picture shows under the
+//! window once it has (ADR 1866), and the last window drawn of the page stands in, scaled, for the
+//! next one at another magnification — and for the page drawn whole, after a notch back to a size
+//! drawn whole, until that frame lands (ADR 1930).
 
 use pdf_render::{Raster, TargetSpec, Transform};
 use viewer_core::{DocumentId, FrameView, PageGeometry, RenderRequest, RenderToken};
@@ -67,12 +78,33 @@ impl Window {
     }
 }
 
-/// Whether a request's whole raster would be past [`viewer_core::MAX_PIXELS`] — the pages this
-/// module draws as the window shows them, and the only ones.
+/// Whether a request is for a page drawn as the window shows it — the pages this module holds,
+/// and the only ones: the largest window a viewport `viewport` device pixels across draws of it is
+/// at most half its target's area, or its whole raster is past [`viewer_core::MAX_PIXELS`]
+/// (ADRs 1892, 1930).
+///
+/// **Half, because a window that is most of the page costs more than the page.** The window is
+/// drawn from the marks that reach it, which are found for every window drawn, and on the
+/// witness a window of nine tenths of the page landed 60–130 ms after the page drawn whole and one
+/// of two fifths 180–220 ms before it (ADR 1930 §3). It is the same half for the same reason as
+/// the band's (`drawing::band_of`, ADR 1868): the fixed part of a draw is about half of it.
 #[must_use]
-pub fn oversized(request: &RenderRequest) -> bool {
-    u64::from(request.target.width).saturating_mul(u64::from(request.target.height))
-        > viewer_core::MAX_PIXELS
+pub fn oversized(request: &RenderRequest, viewport: (u32, u32)) -> bool {
+    let target = request.target;
+    let (width, height) = largest_window(viewport);
+    let area = |width: u32, height: u32| u64::from(width).saturating_mul(u64::from(height));
+    let page = area(target.width, target.height);
+    let window = area(width.min(target.width), height.min(target.height));
+    window.saturating_mul(2) <= page || page > viewer_core::MAX_PIXELS
+}
+
+/// The largest window a viewport `viewport` device pixels across is drawn as: the viewport and a
+/// quarter of it on every side, [`with_margin`]'s growth of a page that runs past the viewport on
+/// every side.
+#[must_use]
+pub fn largest_window(viewport: (u32, u32)) -> (u32, u32) {
+    let grown = |length: u32| length.saturating_add((length / 4).saturating_mul(2));
+    (grown(viewport.0), grown(viewport.1))
 }
 
 /// The part of `target` a viewport `viewport` device pixels across shows, where the arrangement
@@ -140,10 +172,14 @@ fn with_margin(shown: Window, target: TargetSpec, viewport: (u32, u32)) -> Windo
 /// screen is asked for again when it comes back.
 const HELD: usize = 4;
 
-/// One page past the bound: the viewer's request for it, and the window drawn of it.
+/// One page drawn as the window shows it: the viewer's request for it, and the window drawn of it.
 #[derive(Debug)]
 struct Held {
     request: RenderRequest,
+    /// Whether the request is for a page drawn as the window shows it. `false` once the viewer
+    /// has asked for the page at a size drawn whole: the last window drawn then only stands in,
+    /// scaled, until that frame lands ([`Oversized::answered_whole`]), and nothing is asked.
+    windowed: bool,
     /// Whether the viewer has been told the host took this request's list.
     answered: bool,
     /// The window handed to the drawing and not yet landed.
@@ -152,55 +188,79 @@ struct Held {
     /// arrangement — which is not asked again while the view stays inside it: a page drawn whole
     /// is drawn again when the view changes and not before, and so is a window.
     declined: Option<Window>,
-    /// The last window drawn of this page, its pixels, and the target it is a window of — this
-    /// request's, or the one before it, which stands in scaled until this one's lands.
-    drawn: Option<(Window, Raster, TargetSpec)>,
+    /// The last window drawn of this page — this request's, or one before it, which stands in
+    /// until this one's lands.
+    drawn: Option<Drawn>,
 }
 
-/// The pages a window holds past the whole-page bound, and what it has drawn of each (ADR 1892).
+/// A window that landed, and what it is a window of.
+#[derive(Debug)]
+struct Drawn {
+    window: Window,
+    raster: Raster,
+    /// The target it is a window of, which places it on a page drawn at another magnification.
+    of: TargetSpec,
+    /// The request it was drawn for. **Only that request's window holds what the view shows**:
+    /// one drawn for the request before it at the same target is the page under another ink — a
+    /// field typed into, an appearance under the pointer — and stands in until the new ink's
+    /// window lands, as a whole page's last frame does (ADR 1843).
+    token: RenderToken,
+}
+
+/// The pages a window holds drawn as it shows them, and what it has drawn of each (ADRs 1892,
+/// 1930).
 #[derive(Debug, Default)]
 pub struct Oversized {
     held: Vec<Held>,
 }
 
 impl Oversized {
-    /// The viewer asked for a page: an oversized one is held and answers `true` — the window then
-    /// draws it through [`Self::due`] — and any other request for that page lets go of what was
-    /// held for it, because the viewer's own frame is the page now.
-    pub fn asked(&mut self, request: &RenderRequest) -> bool {
+    /// The viewer asked for a page, in a viewport `viewport` device pixels across: one
+    /// [`oversized`] is held and answers `true` — the window then draws it through [`Self::due`] —
+    /// and any other request for that page answers `false` and is drawn whole, with the last
+    /// window drawn of the page standing in until that frame lands.
+    pub fn asked(&mut self, request: &RenderRequest, viewport: (u32, u32)) -> bool {
         let same = |held: &Held| {
             held.request.document == request.document && held.request.page == request.page
         };
-        if !oversized(request) {
-            self.held.retain(|held| !same(held));
-            return false;
-        }
-        // The last window drawn of the page stays, as a stand-in, until the new request's lands:
-        // at the same target it is the same place under the old ink, and at another it is the
-        // page at the old magnification, scaled to the new one as a toolkit stands in (ADR 1843).
+        let windowed = oversized(request, viewport);
+        // The last window drawn of the page stays, as a stand-in, until the new request's frame
+        // lands: at the same target it is the same place under the old ink, and at another it is
+        // the page at the old magnification, scaled to the new one as a toolkit stands in (ADR
+        // 1843).
         let drawn = self
             .held
             .iter()
             .position(same)
             .and_then(|at| self.held.remove(at).drawn);
         self.held.retain(|held| !same(held));
-        self.held.insert(
-            0,
-            Held {
-                request: request.clone(),
-                answered: false,
-                asked: None,
-                declined: None,
-                drawn,
-            },
-        );
-        self.held.truncate(HELD);
-        true
+        if windowed || drawn.is_some() {
+            self.held.insert(
+                0,
+                Held {
+                    request: request.clone(),
+                    windowed,
+                    answered: false,
+                    asked: None,
+                    declined: None,
+                    drawn,
+                },
+            );
+            self.held.truncate(HELD);
+        }
+        windowed
+    }
+
+    /// The page's whole frame for `request` finished — drawn, or refused, either of which is the
+    /// page's answer now: the window standing in for it is let go.
+    pub fn answered_whole(&mut self, request: &RenderRequest) {
+        self.held
+            .retain(|held| held.windowed || held.request.token != request.token);
     }
 
     /// The windows to draw now: for each page held of `focused` that the arrangement places at its
     /// target's size, the part the viewport shows, with its margin, where neither the window drawn
-    /// nor the one asked for holds it.
+    /// for the request nor the one asked for holds it.
     pub fn due(
         &mut self,
         focused: DocumentId,
@@ -211,7 +271,7 @@ impl Oversized {
         for held in self
             .held
             .iter_mut()
-            .filter(|held| held.request.document == focused)
+            .filter(|held| held.windowed && held.request.document == focused)
         {
             let target = held.request.target;
             let Some(shown) =
@@ -220,11 +280,12 @@ impl Oversized {
                 continue;
             };
             let covered = |window: Option<Window>| window.is_some_and(|window| window.holds(shown));
+            let token = held.request.token;
             let drawn = held
                 .drawn
                 .as_ref()
-                .filter(|(_, _, of)| *of == target)
-                .map(|(window, _, _)| *window);
+                .filter(|drawn| drawn.token == token)
+                .map(|drawn| drawn.window);
             if covered(held.asked) || covered(drawn) || covered(held.declined) {
                 continue;
             }
@@ -234,6 +295,20 @@ impl Oversized {
             due.push((held.request.clone(), window));
         }
         due
+    }
+
+    /// Whether a window drawn for the request held is on the screen for a page of `focused` — a
+    /// frame, for a window deciding whether it has shown its first.
+    #[must_use]
+    pub fn shows(&self, focused: DocumentId) -> bool {
+        self.held.iter().any(|held| {
+            held.windowed
+                && held.request.document == focused
+                && held
+                    .drawn
+                    .as_ref()
+                    .is_some_and(|drawn| drawn.token == held.request.token)
+        })
     }
 
     /// A window the drawing finished: kept where it is of the request still held, and the token
@@ -248,13 +323,18 @@ impl Oversized {
         let held = self
             .held
             .iter_mut()
-            .find(|held| held.request.token == finished.request.token)?;
+            .find(|held| held.windowed && held.request.token == finished.request.token)?;
         if held.asked == Some(window) {
             held.asked = None;
         }
         let answer = match finished.outcome? {
             viewer_core::Rendered::Raster(raster) => {
-                held.drawn = Some((window, raster, held.request.target));
+                held.drawn = Some(Drawn {
+                    window,
+                    raster,
+                    of: held.request.target,
+                    token: held.request.token,
+                });
                 viewer_core::Rendered::Listed
             }
             other => other,
@@ -288,7 +368,9 @@ impl Oversized {
 
     /// `placed` with the windows drawn of `focused`'s held pages put over it, each at the part of
     /// the page it is of — and the window being drawn over those, as it stands — where the
-    /// arrangement places the page at its target's size.
+    /// arrangement places the page at its target's size. A window standing in for a page asked
+    /// for whole is placed the same way, scaled, over the retained picture: the viewer holds no
+    /// frame of a page it was answered `Listed` for.
     #[must_use]
     pub fn place<'a>(
         &'a self,
@@ -330,13 +412,13 @@ impl Oversized {
             .filter(|held| held.request.document == focused)
         {
             let target = held.request.target;
-            if let Some((window, raster, of)) = held.drawn.as_ref()
-                && let Some(shown) = at(held.request.page, target, *of, *window)
+            if let Some(drawn) = held.drawn.as_ref()
+                && let Some(shown) = at(held.request.page, target, drawn.of, drawn.window)
             {
-                placed.push(window_placed(held.request.page, raster, shown));
+                placed.push(window_placed(held.request.page, &drawn.raster, shown));
             }
             if let Some(partial) = partial.filter(|partial| {
-                self.holds_partial(partial) && partial.page() == held.request.page
+                held.windowed && self.holds_partial(partial) && partial.page() == held.request.page
             }) && let Some(window) = partial.window()
                 && let Some(shown) = at(held.request.page, target, target, window)
             {

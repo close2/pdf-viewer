@@ -27,8 +27,9 @@ reads the section below it only where a line here sends it (ADR 1639).
    paraphrased; a `§` is ISO 32000-2's.
 3. **Tier 1 is every round's, scoped to what you touched**: `rustfmt --check --edition 2024` on
    your files; `RUSTFLAGS="-D warnings" cargo clippy -p <crate> --all-targets` and
-   `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`. Tier 2
-   only for the subsystem the change reaches, by section 2's rule list and map, behind the lock,
+   `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`; and
+   `tools/state.sh --round <session> docs` where you touched a crate its section holds (ADR 1938).
+   Tier 2 only for the subsystem the change reaches, by section 2's rule list and map, behind the lock,
    each run declaring its kind: `--tree 6` for a walk under 6 GiB, `--clock` for one whose verdict
    is a time (ADR 1684), `--long` for a campaign or a census whose length is its own choice, which
    holds the second lane only (ADR 1756). Walks are granted in the order they asked, and a run
@@ -106,6 +107,7 @@ cargo test --workspace --doc                # the one doctest nextest does not r
 cargo fmt --manifest-path fuzz/Cargo.toml --check                            # `fuzz/` is not a workspace member
 RUSTFLAGS="-D warnings" cargo clippy --manifest-path fuzz/Cargo.toml --all-targets   # nor is it here
 cargo test -p conformance -- --nocapture    # seconds, and it reads the citations and quotations out of the tree
+tools/state.sh --round <session> docs       # rustdoc, warnings denied and private items included, over the crates held at zero; the section holds the list (ADR 1938)
 ```
 
 **Tier 2 — the round that touched the subsystem.** The map below says which of these this round

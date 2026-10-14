@@ -1,9 +1,10 @@
 //! The frame executor: layers, composites, mask reductions, and the passes that
 //! carry them, recorded into one submission.
 //!
-//! ISO 32000-2 clause 11, run: each [`LayerPlan`] renders bottom-up into its own
-//! premultiplied texture; a [`ChildOp`] closes the current pass, renders the child,
-//! and composites it onto the accumulated parent through `composite.wgsl` — from a
+//! ISO 32000-2 clause 11, run: each [`LayerPlan`](crate::encode::LayerPlan) renders bottom-up
+//! into its own premultiplied texture; a [`ChildOp`](crate::encode::ChildOp) closes the current
+//! pass, renders the child, and composites it onto the accumulated parent through
+//! `composite.wgsl` — from a
 //! copy of the backdrop it covers, transferred out of the parent's one texture first,
 //! because a pass cannot read its own attachment (ADRs 0038, 1630). Soft masks realise first, in id order (they may only reference
 //! earlier masks), each reduced to R8 by `reduce.wgsl`. A frame whose root has no

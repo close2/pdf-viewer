@@ -557,7 +557,7 @@ fn a_restricted_document_refuses_and_the_reader_can_turn_that_off() {
 ///
 /// This host's seam is `Host::key`, which C++ calls with `Qt::ShiftModifier` and
 /// `Qt::ControlModifier` already read — so what is checked here is the whole of what crosses:
-/// the same letter, with and without Control, one of which marks up §12.4.2's selection and
+/// the same letter, with and without Control, one of which marks up the text selection and
 /// one of which is a press addressed to something else. Before ADR 1192 the window discarded
 /// the modifier and both did the same thing.
 ///

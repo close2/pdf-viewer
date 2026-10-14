@@ -362,7 +362,7 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///
 /// A stroke has one exception and two more conditions, and a fill none of them:
 ///
-/// - **A thin segment is free whatever its width**: [`pdf_render::thin_segment`]'s marks never
+/// - **A thin segment is free whatever its width**: [`pdf_render::thin_segment()`]'s marks never
 ///   reach a converter, and `thin_segment::draw` admits and measures each on the page's own grid,
 ///   moving only its rows to the surface — so it asks under the transform this question is asked
 ///   under, and every division draws the same bytes for it (ADR 1847, trap 146).

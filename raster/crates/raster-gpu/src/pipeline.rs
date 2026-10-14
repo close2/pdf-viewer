@@ -36,11 +36,12 @@
 //! back a handle either way and the error goes to the device's uncaptured-error
 //! handler, whose default is to panic — on whatever thread was compiling, which for
 //! the warm set is a thread nobody is listening to. Every compile here therefore runs
-//! inside a validation error scope (`captured`), a captured failure becomes a
-//! [`PipelineProblem`], and the store's `get` is fallible so the frame that needed
-//! the pipeline is refused by name (ADR 0042). What the warm-up thread ends with is
-//! recorded in [`WarmUp`] on **every** exit path, so its `wait_until_warm`
-//! always returns.
+//! inside a validation and an internal error scope (`captured`), a captured failure
+//! becomes a [`PipelineProblem`], and the store's `get` is fallible so the frame that
+//! needed the pipeline is refused by name (ADR 0042) — and refused again in the same
+//! words without a second compile, because the adapter's answer does not change (ADR
+//! 1929). What the warm-up thread ends with is recorded in [`WarmUp`] on **every** exit
+//! path, so its `wait_until_warm` always returns.
 //!
 //! # The module's five files, and what each one's one thing is
 //!
@@ -97,7 +98,8 @@ pub(crate) use spec::{Kind, Style};
 /// which every headless frame needs.
 pub(crate) const WARM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
-/// Run `create` inside a `wgpu` validation error scope, and hand back what it captured.
+/// Run `create` inside a `wgpu` validation and an internal error scope, and hand back what
+/// either captured.
 ///
 /// This is the whole mechanism by which a refused shader becomes a value rather than a
 /// panic. The scope is thread-local, so the warm-up thread and a frame compiling on
@@ -105,7 +107,15 @@ pub(crate) const WARM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Un
 /// [`Presenter`](crate::present::Presenter) binding a layer texture on a third thread,
 /// which is the other creation in this crate whose failure must be a value (ADR 0056).
 ///
-/// `pollster` resolves the pop, which blocks on nothing: `wgpu`'s own backend pops the
+/// **Two scopes, because a scope catches one of `wgpu`'s error types and a refused pipeline
+/// arrives as either** (ADR 1929). What `wgpu` finds wrong with a descriptor is a validation
+/// error; what the backend's own shader compiler refuses — DX12's FXC failing to compile the
+/// HLSL `naga` wrote — is an internal one (`wgpu-core` 30 maps `hal::PipelineError::Linkage`
+/// to `CreateRenderPipelineError::Internal`). A validation scope alone let that reach the
+/// uncaptured handler while the handle came back as though built, and the frame then drew
+/// with a pipeline that did not exist. They are popped innermost first, as `wgpu` requires.
+///
+/// `pollster` resolves the pops, which block on nothing: `wgpu`'s own backend pops a
 /// scope synchronously and returns an already-ready future, so this is the same "a
 /// thread is not a runtime" position CLAUDE.md's stack table takes for the two awaits
 /// in device creation.
@@ -113,10 +123,12 @@ pub(crate) fn captured<T>(
     device: &wgpu::Device,
     create: impl FnOnce() -> T,
 ) -> (T, Option<String>) {
-    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let handle = create();
-    let error = pollster::block_on(scope.pop());
-    (handle, error.map(|error| error.to_string()))
+    let invalid = pollster::block_on(validation.pop());
+    let failed = pollster::block_on(internal.pop());
+    (handle, invalid.or(failed).map(|error| error.to_string()))
 }
 
 /// The ten parsed WGSL modules, made together on first need.
@@ -182,6 +194,15 @@ struct StoreState {
     /// refusal is also what lets every later frame be refused in the same words.
     modules: Option<Result<Modules, PipelineProblem>>,
     pipelines: HashMap<(Kind, wgpu::TextureFormat), Arc<wgpu::RenderPipeline>>,
+    /// The pipelines this adapter refused, kept for the reason `modules` keeps a refused
+    /// module (ADR 1929): the same descriptor is refused in the same words every time, and on
+    /// DX12 asking again costs a whole failing FXC compile inside every frame that needs it.
+    /// Keyed as `pipelines` is, so one refused format takes no other format with it.
+    refused: HashMap<(Kind, wgpu::TextureFormat), PipelineProblem>,
+    /// A kind built against an entry point its module does not have, so that a test can
+    /// watch `create_render_pipeline` refuse (ADR 1929).
+    #[cfg(test)]
+    broken: Option<Kind>,
     /// One parsed module per generated shader, shared by that shader's three styles.
     function_modules: HashMap<ProgramHash, wgpu::ShaderModule>,
     /// Which program each generated shader came from, so that a released program can find
@@ -234,6 +255,9 @@ impl PipelineStore {
                 layouts: None,
                 modules: None,
                 pipelines: HashMap::new(),
+                refused: HashMap::new(),
+                #[cfg(test)]
+                broken: None,
                 function_modules: HashMap::new(),
                 function_shaders: HashMap::new(),
                 function_pipelines: HashMap::new(),
@@ -251,9 +275,10 @@ impl PipelineStore {
     /// # Errors
     ///
     /// [`PipelineProblem`] when this adapter refuses one of the crate's shader modules
-    /// or the pipeline built from them. Nothing is cached for a format that failed, so
-    /// a later `get` for another format is unaffected — but a module that would not
-    /// parse is remembered, because it will not parse next time either.
+    /// or the pipeline built from them. Both are remembered, because neither will build
+    /// next time either: a refused pipeline is refused again for its kind and format
+    /// without a second compile (ADR 1929), and a later `get` for another format is
+    /// unaffected.
     pub(crate) fn get(
         &self,
         kind: Kind,
@@ -263,12 +288,28 @@ impl PipelineStore {
         if let Some(pipeline) = state.pipelines.get(&(kind, format)) {
             return Ok((Arc::clone(pipeline), None));
         }
+        if let Some(problem) = state.refused.get(&(kind, format)) {
+            return Err(problem.clone());
+        }
         let started = Instant::now();
-        let pipeline = Arc::new(self.compile(&mut state, kind, format)?);
+        let pipeline = match self.compile(&mut state, kind, format) {
+            Ok(pipeline) => Arc::new(pipeline),
+            Err(problem) => {
+                state.refused.insert((kind, format), problem.clone());
+                return Err(problem);
+            }
+        };
         state
             .pipelines
             .insert((kind, format), Arc::clone(&pipeline));
         Ok((pipeline, Some(started.elapsed())))
+    }
+
+    /// Builds `kind`'s pipeline from here on against an entry point its module does not
+    /// have, so that `create_render_pipeline` refuses it (ADR 1929).
+    #[cfg(test)]
+    pub(crate) fn break_pipeline(&self, kind: Kind) {
+        self.lock().broken = Some(kind);
     }
 
     /// The bind-group layout for the globals uniform.
@@ -379,8 +420,18 @@ impl PipelineStore {
         kind: Kind,
         format: wgpu::TextureFormat,
     ) -> Result<wgpu::RenderPipeline, PipelineProblem> {
+        #[cfg(test)]
+        let broken = state.broken == Some(kind);
         let (layouts, modules) = Self::base(&self.device, state)?;
         let spec = Spec::of(kind, layouts, modules);
+        #[cfg(test)]
+        let entry = if broken {
+            "an_entry_point_no_module_has"
+        } else {
+            spec.entry
+        };
+        #[cfg(not(test))]
+        let entry = spec.entry;
         let buffers: Vec<Option<wgpu::VertexBufferLayout<'_>>> = spec
             .buffer
             .map(|(stride, attributes)| {
@@ -414,7 +465,7 @@ impl PipelineStore {
                     multisample: wgpu::MultisampleState::default(),
                     fragment: Some(wgpu::FragmentState {
                         module: spec.shader,
-                        entry_point: Some(spec.entry),
+                        entry_point: Some(entry),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                         targets: &[Some(wgpu::ColorTargetState {
                             format,

@@ -178,7 +178,8 @@ pub struct Device {
     /// Whether a frame subdivides its encode phase (ADR 0023).
     instrument_encode: bool,
     /// How many threads a frame's geometry may use, as the host stated it
-    /// ([`Options::encode_threads`]). Clamped where the device is built, so the encoder
+    /// ([`Options::encode_threads`](crate::startup::Options::encode_threads)). Clamped where
+    /// the device is built, so the encoder
     /// reads a number rather than a request.
     encode_threads: usize,
     coverage_samples: u32,

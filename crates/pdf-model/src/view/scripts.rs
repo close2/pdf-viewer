@@ -305,6 +305,9 @@ pub(super) struct Scripting {
     /// Every page's words as `getPageNthWord` reads them, once a script of the document has
     /// spelled either member: `None` per page past what the reading reached (ADR 1762).
     words: Option<Vec<Option<Vec<String>>>>,
+    /// The outline as a realm is told it, once a script has needed it, and the items scripts
+    /// executed (ADR 1934).
+    pub(super) bookmarks: super::script_bookmarks::Bookmarks,
 }
 
 /// Most console requests a view state holds for a host: a script that clears the console in a
@@ -400,6 +403,8 @@ struct Told {
     names: BTreeSet<String>,
     /// Whether the pages' words had been read when the realm was told (ADR 1762).
     words: bool,
+    /// Whether the outline had been read when the realm was told (ADR 1934).
+    outline: bool,
 }
 
 /// What applying one result's edits did, for the sequence that ran it.
@@ -913,6 +918,11 @@ impl ViewState {
         if self.scripting.words.is_none() && spells_words(event.script) {
             self.read_words(document);
         }
+        self.read_outline_for(
+            document,
+            event.script,
+            matches!(event.site, ScriptSite::Outline { .. }),
+        );
         let (fields, whole) = self.tell(document, table);
         let rich_value = match event.site {
             // The reference makes the pair a field event's, so a cursor crossing a widget reads no
@@ -992,11 +1002,13 @@ impl ViewState {
     ) -> (Vec<FieldState>, Option<DocumentState>) {
         let annotations = self.annotation_states(document);
         let words = self.scripting.words.is_some();
+        let outline = self.outline_read();
         let whole = match self.scripting.told.as_deref() {
             Some(told)
                 if told.optional_content == self.optional_content
                     && told.annotations == annotations
-                    && told.words == words =>
+                    && told.words == words
+                    && told.outline == outline =>
             {
                 None
             }
@@ -1061,6 +1073,7 @@ impl ViewState {
             annotations,
             names: told_names,
             words,
+            outline,
         }));
         (states, whole)
     }
@@ -1167,6 +1180,9 @@ impl ViewState {
                 ScriptEdit::Calculation { on } => self.scripting.calculations_off = !*on,
                 ScriptEdit::View { change } => self.ask_view(document, *change),
                 ScriptEdit::Console(command) => self.ask_console(*command),
+                ScriptEdit::Bookmark { number, generation } => {
+                    self.ask_bookmark(*number, *generation);
+                }
             }
         }
         applied.drawn =

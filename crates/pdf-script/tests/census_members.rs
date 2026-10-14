@@ -96,6 +96,7 @@ fn document() -> DocumentState {
         ],
         annotations: Vec::new(),
         pages: Vec::new(),
+        outline: None,
     }
 }
 

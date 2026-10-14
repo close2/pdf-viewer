@@ -40,7 +40,7 @@ impl App {
     /// screen reader's click cannot become a *different* click from a person's by drifting from
     /// it (ADR 0425).
     pub(crate) fn click_page(&mut self, at: (f32, f32), element: ElementState) {
-        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing it
+        // §12.9's mode takes the press before the text selection does, which is the one thing it
         // takes away: the two gestures are the same gesture and a window cannot tell them apart
         // from the pointer alone (ADR 1191).
         if self.measuring.is_on() {
@@ -703,7 +703,7 @@ impl App {
                 self.redraw();
             }
             // §12.9's measuring. No pixel of the page is different: what the mode changes is that
-            // a press is a point rather than the start of §12.4.2's selection.
+            // a press is a point rather than the start of the text selection.
             viewer_host::WindowAct::Measure => {
                 let on = self.measuring.toggle();
                 self.measured = viewer_host::measuring::switched(on);

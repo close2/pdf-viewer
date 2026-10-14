@@ -48,6 +48,7 @@ impl Host {
         // placed where that frame will be — and only while that frame is still coming, so a page
         // whose read failed is not left showing part of itself (trap 5).
         if frames.is_empty()
+            && !self.state.oversized.shows(focused)
             && self.state.drawing.partial().is_none()
             && (self.anticipated.is_some() || self.state.drawing.interval().is_some())
             && let Some(look) = self.state.read_look.as_ref()
@@ -55,7 +56,7 @@ impl Host {
             return vec![look.placed()];
         }
         // And a page with no frame at all shown from its retained picture (ADR 1866), with a page
-        // past the whole-page bound shown over it from what its window drew (ADR 1892).
+        // zoomed past its window shown over it from what that drew (ADRs 1892, 1930).
         self.state.oversized.place(
             self.state.retained.fill(
                 viewer_host::stand_in::placed(

@@ -309,6 +309,7 @@ impl Viewer {
         self.carry_out_page_requests(&mut events);
         self.carry_out_focus_requests(&mut events);
         self.carry_out_view_requests(&mut events);
+        self.carry_out_bookmark_requests(&mut events);
         self.say_what_scripts_said(&mut events);
         self.ask_about_scripts(&mut events);
         self.put_script_questions(&mut events);
@@ -995,7 +996,7 @@ impl Viewer {
             // stream. The rest arrives per page, below.
             //
             // **What the document says about *itself* is not here, and that is principle 2.**
-            // `notes::about` answers nine clauses about the file, and §12.8's answer reads and
+            // `notes::about` answers clauses about the file, and §12.8's answer reads and
             // digests the signed byte ranges — on a signed document that is the whole file, and
             // none of it draws a page. `Command::Report` is what asks for it, and `Open::about`
             // is what makes asking twice cost once. ADR 1044.
@@ -2360,6 +2361,16 @@ impl Viewer {
             .set_purpose(pdf_model::optional_content::Purpose::Print);
         open.view.set_paper(paper_of(sheet));
         open.stale();
+        // What the print will not do with the document, said before it prints and once per job:
+        // before the grant, so that a host showing events in order shows it ahead of its dialogue.
+        let notes = crate::notes::what_a_print_does_not_do(&open.document);
+        if !notes.is_empty() {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes,
+            });
+        }
         events.push(Event::Printing {
             document: id,
             pages: open.page_count,
@@ -2565,7 +2576,7 @@ impl Viewer {
 
     /// [`Command::Report`]: what the focused document says about itself, in words.
     ///
-    /// **The one place `notes::about` is called, and it is not the open path.** Its nine clauses
+    /// **The one place `notes::about` is called, and it is not the open path.** Its clauses
     /// are claims about the *file* — §12.8's signatures above all, whose answer reads and digests
     /// the signed byte ranges — and `CLAUDE.md` principle 2 defers what page one does not need
     /// until something asks. This is the asking; [`crate::open::Open::about`] is the `OnceLock`
@@ -5304,6 +5315,22 @@ impl Viewer {
                 self.go_to(PageTarget::Index(page), Turn::Requested, events);
             }
             self.focus_on(id, Some(widget), events);
+        }
+    }
+
+    /// A script's `Bookmark.execute()`, carried out as a person's click on the item in the outline
+    /// panel: §12.3.3's activation, its destination or its action, the item's scripts among them
+    /// (ADRs 1904, 1934).
+    ///
+    /// Only the document in front activates, as only it turns a page. An item's own script may
+    /// execute an item again, and what it asks is held for the next command rather than performed
+    /// in this one, so a document whose items execute each other in a ring cannot hold a command.
+    fn carry_out_bookmark_requests(&mut self, events: &mut Vec<Event>) {
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        for item in open.view.take_bookmark_requests() {
+            self.activate(item, events);
         }
     }
 

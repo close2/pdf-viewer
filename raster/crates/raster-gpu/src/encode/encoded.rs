@@ -101,7 +101,8 @@ pub(crate) struct Encoded {
 }
 
 impl Encoded {
-    /// Heap bytes this encode holds — what a [`RetainedScene`] costs to keep alive
+    /// Heap bytes this encode holds — what a [`RetainedScene`](crate::RetainedScene) costs to
+    /// keep alive
     /// (ADR 0048).
     ///
     /// Every buffer, so the number can be budgeted against rather than sampled: the two

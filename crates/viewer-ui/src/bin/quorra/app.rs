@@ -1157,7 +1157,7 @@ impl App {
 
     /// What the title bar calls the document — §12.2's `/DisplayDocTitle`.
     ///
-    /// Table 147: "[a] flag specifying whether the window's title bar should display the document
+    /// Table 147: "\[a] flag specifying whether the window's title bar should display the document
     /// title taken from the dc:title element of the XMP metadata stream … If false, the title bar
     /// should instead display the name of the PDF file containing the document." The title is
     /// [`viewer_host::documents::document_title`]'s, the rule the other two windows take too: XMP's

@@ -214,11 +214,11 @@ impl Host {
             // window with it — no repaint, no key, and no thread from which `pdf_render::Interrupt`
             // could be raised. What comes back arrives in `take_the_drawn`.
             // The rows the window shows are drawn first, and the rest of the page after (ADR 1868).
-            // A page past the whole-page bound is held, and drawn as the window shows it once the
-            // commands are run (ADR 1892).
+            // A page zoomed past its window is held, and drawn as the window shows it
+            // once the commands are run (ADRs 1892, 1930).
             Event::NeedsRender(request) => {
                 self.state.retained.asked(&request);
-                if !self.state.oversized.asked(&request) {
+                if !self.state.oversized.asked(&request, self.state.viewport) {
                     let seen = self.seen_of(&request);
                     self.state.drawing.ask_showing(request, seen);
                 }

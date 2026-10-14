@@ -5,7 +5,7 @@
 //! host's. Since ADR 0316 the core does keep the presentation **mode**, because §12.4.4.2
 //! conditions a state machine on it.
 //!
-//! **And since ADR 0470 there is a window.** Table 29's `/PageMode /FullScreen` is "[f]ull-screen
+//! **And since ADR 0470 there is a window.** Table 29's `/PageMode /FullScreen` is "\[f]ull-screen
 //! mode, with no menu bar, window controls, or any other window visible", §12.2's three hide flags
 //! are the same subject in the smaller, and `/NonFullScreenPageMode` is the way back out —
 //! `viewer_host::Presenting` is all four sentences, shared with the other two hosts, and what is

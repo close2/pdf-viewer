@@ -1,11 +1,13 @@
-//! A page whose whole raster would be past `viewer_core::MAX_PIXELS`, asked for, drawn as the
-//! window shows it and answered, through the pieces both toolkit windows use (ADR 1892).
+//! A page zoomed past its window — twice the largest window or more, or past
+//! `viewer_core::MAX_PIXELS` — asked for, drawn as the window shows it and answered, through the
+//! pieces both toolkit windows use (ADRs 1892, 1930).
 
 use std::time::{Duration, Instant};
 
 use viewer_core::{Command, DocumentId, Event, Oversize, Query, Rendered, Viewer, Zoom};
 use viewer_host::Drawing;
-use viewer_host::oversize::{Oversized, oversized};
+use viewer_host::drawing::Finished;
+use viewer_host::oversize::{Oversized, largest_window, oversized};
 
 /// The identity the one document is opened under.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -82,7 +84,7 @@ fn a_page_past_the_bound_is_drawn_as_the_window_shows_it_and_answered_listed() {
             })
             .collect(),
     );
-    assert!(opened.iter().all(|request| !oversized(request)));
+    assert!(opened.iter().all(|request| !oversized(request, viewport)));
     let zoomed: Vec<Event> = viewer
         .handle(Command::Zoom {
             zoom: Zoom::Scale(20.0),
@@ -100,12 +102,12 @@ fn a_page_past_the_bound_is_drawn_as_the_window_shows_it_and_answered_listed() {
         panic!("one page, one request: {asked:?}");
     };
     assert!(
-        oversized(request),
+        oversized(request, viewport),
         "the case has to be past the bound to be the case"
     );
 
     let mut held = Oversized::default();
-    assert!(held.asked(request));
+    assert!(held.asked(request, viewport));
     let due = held.due(DOCUMENT, |page| placed(&viewer, page), viewport);
     let [(window_of, window)] = due.as_slice() else {
         panic!("the page on the screen is due once: {due:?}");
@@ -171,5 +173,168 @@ fn a_page_past_the_bound_is_drawn_as_the_window_shows_it_and_answered_listed() {
         held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
             .is_empty(),
         "and what the window drew holds what it shows"
+    );
+}
+
+/// The one request a zoom to `scale` makes.
+#[expect(
+    clippy::panic,
+    reason = "a test's helper stops the test where its case is not the case"
+)]
+fn zoomed(viewer: &mut Viewer, scale: f32) -> viewer_core::RenderRequest {
+    let asked = requests(
+        viewer
+            .handle(Command::Zoom {
+                zoom: Zoom::Scale(scale),
+                at: None,
+            })
+            .collect(),
+    );
+    let [request] = asked.as_slice() else {
+        panic!("one page, one request: {asked:?}");
+    };
+    request.clone()
+}
+
+/// A viewer of `viewport` device pixels that draws a page past the bound from its list, with the
+/// A1 page open.
+fn opened_a1(viewport: (u32, u32)) -> Viewer {
+    let mut viewer = Viewer::new(viewport.0, viewport.1, 1.0);
+    viewer
+        .handle(Command::Oversize(Oversize::Listed))
+        .for_each(drop);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: a1_in_red().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+}
+
+/// What the drawing hands back for `window` of `request`: the window drawn, in red.
+fn drawn_red(
+    request: &viewer_core::RenderRequest,
+    window: viewer_host::oversize::Window,
+) -> Finished {
+    let pixels = usize::try_from(u64::from(window.width).saturating_mul(u64::from(window.height)))
+        .unwrap_or(usize::MAX);
+    Finished {
+        request: request.clone(),
+        outcome: Some(Rendered::Raster(pdf_render::Raster {
+            width: window.width,
+            height: window.height,
+            format: pdf_render::RasterFormat::Rgba8,
+            data: [255, 0, 0, 255].repeat(pixels),
+        })),
+        cost: Duration::ZERO,
+        waited: Duration::ZERO,
+    }
+}
+
+#[test]
+fn a_page_whose_window_is_more_than_half_of_it_is_drawn_whole_and_one_of_half_or_less_is_not() {
+    // ADR 1930: the viewport and a quarter of it on every side is the most a window of a page is
+    // drawn as, and a page is drawn as its windows where that is at most half of it.
+    let viewport = (800, 600);
+    assert_eq!(largest_window(viewport), (1200, 900));
+    let area = |request: &viewer_core::RenderRequest| {
+        u64::from(request.target.width) * u64::from(request.target.height)
+    };
+    let mut viewer = opened_a1(viewport);
+    // The A1 page is 1684 × 2384 points: at 0.72 it is 1213 × 1717 and its window 1200 × 900, a
+    // little over half of it; at 0.75, 1263 × 1788, a little under.
+    let whole = zoomed(&mut viewer, 0.72);
+    assert!(2 * 1200 * 900 > area(&whole), "{:?}", whole.target);
+    assert!(!oversized(&whole, viewport), "{:?}", whole.target);
+    let mut held = Oversized::default();
+    assert!(!held.asked(&whole, viewport));
+    assert!(
+        held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
+            .is_empty(),
+        "a page drawn whole asks for no window"
+    );
+    let past = zoomed(&mut viewer, 0.75);
+    assert!(2 * 1200 * 900 <= area(&past), "{:?}", past.target);
+    assert!(oversized(&past, viewport), "{:?}", past.target);
+    assert!(held.asked(&past, viewport));
+    assert_eq!(
+        held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
+            .len(),
+        1,
+        "the page twice its window is drawn as the window shows it"
+    );
+}
+
+#[test]
+fn a_window_drawn_under_the_last_request_stands_in_for_the_next_and_does_not_answer_it() {
+    // A new request at the same target is the page under another ink — or interpreted again — and
+    // the window drawn for the last one is not its picture: it stands in, and a window is drawn.
+    let viewport = (800, 600);
+    let mut viewer = opened_a1(viewport);
+    let first = zoomed(&mut viewer, 2.0);
+    let mut held = Oversized::default();
+    assert!(held.asked(&first, viewport));
+    let due = held.due(DOCUMENT, |page| placed(&viewer, page), viewport);
+    let [(_, window)] = due.as_slice() else {
+        panic!("one window: {due:?}");
+    };
+    assert!(held.landed(drawn_red(&first, *window), *window).is_some());
+    assert!(held.shows(DOCUMENT));
+    zoomed(&mut viewer, 3.0);
+    let again = zoomed(&mut viewer, 2.0);
+    assert_eq!(again.target, first.target, "the same target, asked again");
+    assert_ne!(again.token, first.token);
+    assert!(held.asked(&again, viewport));
+    assert!(
+        !held.shows(DOCUMENT),
+        "the window drawn is not this request's"
+    );
+    let placed_now = held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page));
+    assert_eq!(placed_now.len(), 1, "the last window stands in meanwhile");
+    assert_eq!(
+        held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
+            .len(),
+        1,
+        "and the new request's window is drawn"
+    );
+}
+
+#[test]
+fn a_notch_back_to_a_page_drawn_whole_keeps_the_last_window_standing_in_until_its_frame_lands() {
+    let viewport = (800, 600);
+    let mut viewer = opened_a1(viewport);
+    let deep = zoomed(&mut viewer, 2.0);
+    let mut held = Oversized::default();
+    assert!(held.asked(&deep, viewport));
+    let due = held.due(DOCUMENT, |page| placed(&viewer, page), viewport);
+    let [(_, window)] = due.as_slice() else {
+        panic!("one window: {due:?}");
+    };
+    let Some((token, rendered)) = held.landed(drawn_red(&deep, *window), *window) else {
+        panic!("the first window answers the request");
+    };
+    viewer
+        .handle(Command::RenderReady { token, rendered })
+        .for_each(drop);
+    let whole = zoomed(&mut viewer, 0.3);
+    assert!(!held.asked(&whole, viewport), "drawn whole");
+    assert!(
+        held.due(DOCUMENT, |page| placed(&viewer, page), viewport)
+            .is_empty(),
+        "a page drawn whole asks for no window"
+    );
+    let standing = held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page));
+    let [shown] = standing.as_slice() else {
+        panic!("the last window stands in for the page drawn whole: {standing:?}");
+    };
+    assert!(shown.stands_in(), "scaled to the page's new extent");
+    held.answered_whole(&whole);
+    assert!(
+        held.place(Vec::new(), None, DOCUMENT, |page| placed(&viewer, page))
+            .is_empty(),
+        "and is let go when the page's own frame lands"
     );
 }

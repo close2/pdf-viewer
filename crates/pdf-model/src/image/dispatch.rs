@@ -877,7 +877,7 @@ const fn article(word: &str) -> &'static str {
 /// if `there` unwound, which the scope has already re-raised by then.
 ///
 /// [`DecodesAhead`]: super::DecodesAhead
-pub(super) fn beside<A, B: Send, There: FnOnce() -> B + Send>(
+fn beside<A, B: Send, There: FnOnce() -> B + Send>(
     here: impl FnOnce() -> A,
     there: There,
 ) -> (A, Option<B>) {
@@ -907,4 +907,22 @@ pub(super) fn beside<A, B: Send, There: FnOnce() -> B + Send>(
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     (first, second)
+}
+
+#[cfg(test)]
+mod tests {
+    /// [`beside`] answers with both closures' results, whichever thread ran the second.
+    ///
+    /// [`beside`]: super::beside
+    #[test]
+    fn beside_answers_both() {
+        let (here, there) = super::beside(|| 6 * 7, || "beside");
+        assert_eq!((here, there), (42, Some("beside")));
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("a pool");
+        let (here, there) = pool.install(|| super::beside(|| 1, || 2));
+        assert_eq!((here, there), (1, Some(2)));
+    }
 }

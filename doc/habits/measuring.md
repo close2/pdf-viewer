@@ -990,3 +990,19 @@ Q271 counted 158 projected maps with degree-shaped registration points, and the 
 departure at 158 gained. Re-run through the program's own reading at HEAD, 151 were refused by their
 point shape and 7 by their projection method or WKT first — 151 is the gain (round 1541, ADR 1918). A
 departure is priced by the census the program runs, not the census the question ran.
+
+## 98. An object a confined worker asks the host to act on is checked against what the host told it
+
+`bookmarkRoot.execute()` asks the viewer to activate an outline item. The view state holds the request
+only if the object is in the outline the realm was told, and refuses any other with a sentence,
+because a confined worker's answer is data and not a command (round 1549, ADR 1934). ADR 1922's
+refusing object never needed the check because it carried nothing; the moment an object carries a
+reference the host acts on, the reference is checked against the host's own list.
+
+## 99. An owner's "Owes" line copied from an RFC carries the RFC's date
+
+A254's "Owes" copied RFC 0009 §12's list, written 2026-10-05; the poster it named had been built by
+ADR 1561 on 2026-10-06, two days before the answer was given, and round 1548 found that only by
+reading the §13.4 row's history before building. Before a slot builds an item an answer owes, the
+row's status and the ADRs it cites are read at HEAD; an item already built is a sentence in the
+record, not a day's work.

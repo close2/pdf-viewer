@@ -54,6 +54,9 @@ impl Host {
             let Some(rendered) = finished.outcome else {
                 continue;
             };
+            // The page's own frame, so the window that stood in for it since a notch back is let
+            // go (ADR 1930).
+            self.state.oversized.answered_whole(&finished.request);
             if let viewer_core::Rendered::Raster(raster) = &rendered {
                 let began = std::time::Instant::now();
                 if self.state.retained.landed(&finished.request, raster) {
@@ -72,28 +75,34 @@ impl Host {
                 token: finished.request.token,
                 rendered,
             });
-            // The reader has their page, so the document may now be asked what it says about
-            // itself — §12.8's signatures above all, whose answer digests the signed part of the
-            // file. Once per opened document; `viewer_host::report::Due` is the rule. ADR 1044.
-            if self.state.showing.report_due.after_a_frame() {
-                queue.push_back(Command::Report);
-                // And its open sequence, at the same moment and for the same reason: after the
-                // first present, never in front of it (ADR 1602).
-                queue.push_back(Command::Presented);
-            }
-            // Table 147's `/FitWindow` is about the first displayed page's size, which is known
-            // now and not before (ADR 1429).
-            if self.presenting.owes_placing() {
-                self.fit_the_window();
-            }
-            // §12.4.4.1: the page a transition moves *to* is the one whose list has just
-            // arrived, so this is where an armed one can begin. The face is kept whether or not
-            // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
-            // §12.6.4.15's transition needs a page to move *from* and states no mode (ADR 1216).
-            self.face_arrived(&finished.request);
+            self.answered(&finished.request, queue);
         }
         self.take_the_windows(queue);
         self.mind_a_long_draw();
+    }
+
+    /// What follows the viewer's being answered for `request`, by its whole frame or by the first
+    /// window drawn of it (ADR 1930).
+    fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
+        // The reader has their page, so the document may now be asked what it says about
+        // itself — §12.8's signatures above all, whose answer digests the signed part of the
+        // file. Once per opened document; `viewer_host::report::Due` is the rule. ADR 1044.
+        if self.state.showing.report_due.after_a_frame() {
+            queue.push_back(Command::Report);
+            // And its open sequence, at the same moment and for the same reason: after the
+            // first present, never in front of it (ADR 1602).
+            queue.push_back(Command::Presented);
+        }
+        // Table 147's `/FitWindow` is about the first displayed page's size, which is known
+        // now and not before (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.fit_the_window();
+        }
+        // §12.4.4.1: the page a transition moves *to* is the one whose list has just
+        // arrived, so this is where an armed one can begin. The face is kept whether or not
+        // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
+        // §12.6.4.15's transition needs a page to move *from* and states no mode (ADR 1216).
+        self.face_arrived(request);
     }
 
     /// Takes the windows the drawing has finished, and answers the viewer for the first of each
@@ -128,8 +137,10 @@ impl Host {
                 self.state.oversized.abandoned(&finished.request, window);
                 continue;
             }
+            let request = finished.request.clone();
             if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
                 queue.push_back(Command::RenderReady { token, rendered });
+                self.answered(&request, queue);
             }
         }
         if repaint {

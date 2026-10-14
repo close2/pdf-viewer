@@ -6,7 +6,7 @@
 //! it was pushed as where it was pushed as one, and whether an inexact operator is upstream
 //! of it.
 //!
-//! Three modules meet here, and they answer three questions. [`super::analyse`] owns *what an
+//! Three modules meet here, and they answer three questions. [`mod@super::analyse`] owns *what an
 //! admitted program is* — the type a caller holds, the budgets, the `Range` a shading brings
 //! later. [`super::typing`] owns *what type each operator leaves and where a wrong one is a
 //! refusal*. This one owns *how the instruction list is read*: the stack, the branches, the

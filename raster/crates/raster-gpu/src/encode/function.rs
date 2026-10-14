@@ -17,7 +17,8 @@
 //! A program that is not resident, and a `Range` the resident program cannot fill. The
 //! first is the resource contract every family has; the second is the one question about a
 //! function paint that *cannot* be answered before the program and the shading meet, which
-//! is why [`Analysis::admits`] is public API a caller can ask early and a refusal here
+//! is why [`Analysis::admits`](crate::function::Analysis::admits) is public API a caller can
+//! ask early and a refusal here
 //! rather than a black quad.
 //!
 //! Everything else about the program was settled at `Device::upload_function`: the frame

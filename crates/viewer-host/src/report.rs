@@ -1,9 +1,9 @@
 //! When a host asks the document what it says about itself.
 //!
-//! `viewer_core::Command::Report` answers eight clauses about the *file* rather than about any
+//! `viewer_core::Command::Report` answers clauses about the *file* rather than about any
 //! page — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files, §14.13.2's
 //! associated files that are not embedded, §7.5's rebuilt cross-reference table, Annex I's
-//! version, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML`. The core used to say them
+//! version, Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML`. The core used to say them
 //! as part of opening the document and no longer does, because §12.8.1's byte range digest reads
 //! and hashes the signed part of the file and `CLAUDE.md` principle 2 keeps off a launch
 //! "[a]nything not needed to show page one".

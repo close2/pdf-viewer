@@ -29,7 +29,7 @@
 //! 4. **The set.** Walking each band from the left with the winding now absolute, the
 //!    inside intervals are bounded by the edges where the rule changes its answer; those
 //!    boundaries are deposited by the fill's own trapezoid arithmetic
-//!    ([`deposit_slab`](super::deposit_slab)) into a one-pixel window, a left boundary
+//!    ([`deposit_slab`]) into a one-pixel window, a left boundary
 //!    adding one and a right one taking it away, so what the pixel holds is the inside
 //!    area and never more than the pixel.
 

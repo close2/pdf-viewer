@@ -1,7 +1,7 @@
 //! WGSL for one admitted program.
 //!
 //! One responsibility: **printing.** Every decision about the *program* was taken by
-//! [`super::analyse`]; this module resolves nothing about it. That is why it takes an
+//! [`super::analyse()`]; this module resolves nothing about it. That is why it takes an
 //! [`Analysis`] rather than a `&[FnOp]` — a generator that re-decided a program's
 //! admission would be a second answer to "is this program drawable".
 //!

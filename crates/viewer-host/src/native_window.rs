@@ -3,7 +3,7 @@
 //!
 //! `viewer-gtk` and `viewer-qt` each drive one [`Viewer`] behind a window their toolkit draws, and
 //! most of what either does with it names no toolkit type: opening the next document waiting,
-//! taking the drawing thread back, asking for the part of an oversized page the viewport shows,
+//! taking the drawing thread back, asking for the part of a zoomed page the viewport shows,
 //! saying how a search stands, arming §12.4.4.1's transition. Those were written twice, line for
 //! line, and the second copy is where two hosts stop agreeing — this crate's own test, applied to
 //! a window's methods rather than to a mapping.
@@ -152,7 +152,7 @@ pub struct WindowState {
     /// A small picture of each page drawn lately, shown where a page arrives on the screen with
     /// no frame until its own lands (ADR 1866).
     pub retained: crate::stand_in::Retained,
-    /// The pages past the whole-page bound, drawn as the window shows them (ADR 1892).
+    /// The pages zoomed past their window, drawn as it shows them (ADRs 1892, 1930).
     pub oversized: crate::oversize::Oversized,
     /// Which page this window has told the person is taking a long time to draw.
     ///
@@ -406,9 +406,9 @@ pub trait NativeWindow {
         }
     }
 
-    /// Asks the drawing for the part of each page past the whole-page bound that the viewport
-    /// shows and nothing drawn holds — after a zoom to such a page, and after a scroll out of the
-    /// window drawn of it (ADR 1892).
+    /// Asks the drawing for the part of each page zoomed past its window that the viewport shows
+    /// and nothing drawn holds — after a zoom to such a page, and after a scroll out of the window
+    /// drawn of it (ADRs 1892, 1930).
     fn ask_for_windows(&mut self) {
         let state = self.state_mut();
         let viewer = &state.viewer;

@@ -133,7 +133,7 @@ const COVER_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
 ];
 
 /// Everything that distinguishes one [`Kind`] from another, in one place, so
-/// [`PipelineStore::compile`] is the descriptor and nothing else.
+/// [`PipelineStore::compile`](super::PipelineStore::compile) is the descriptor and nothing else.
 pub(crate) struct Spec<'a> {
     pub(crate) label: &'static str,
     pub(crate) shader: &'a wgpu::ShaderModule,

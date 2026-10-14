@@ -183,13 +183,13 @@ impl Exact {
 /// > for the region to be painted.
 ///
 /// §11.6.5 defines a soft mask's *values*, and §11.3.7.2 states what is done with them: the
-/// mask shape `fₘ` is one of three inputs of which "[t]he three shape inputs shall be
+/// mask shape `fₘ` is one of three inputs of which "\[t]he three shape inputs shall be
 /// multiplied together, producing an intermediate value called the source shape". A product
 /// the standard asks for, in other words, where the clip is a set the standard intersects.
 ///
 /// **§8.5.4 also states the order the two go in**, which is what lets a mask carrying both stay
 /// apart rather than collapsing into a `Value`: the clipping path constrains the *object's* own
-/// shape — "[t]he effective shape is the intersection of the object's intrinsic shape with the
+/// shape — "\[t]he effective shape is the intersection of the object's intrinsic shape with the
 /// clipping path" — and it is that effective shape which then enters §11.3.7.2's product. So
 /// `fₛ = (fⱼ ∩ C) · fₘ` and not `fⱼ · (C · fₘ)`, and [`Both`](Clip::Both) is the variant that
 /// keeps the two factors of the second bracket apart far enough to say so.
@@ -399,7 +399,7 @@ fn fill_as(
 ///
 /// # Several rectangles are one object, and that is why they are one call
 ///
-/// A path's subpaths are portions of one graphics object, and §11.6.2 says "[p]ortions of an
+/// A path's subpaths are portions of one graphics object, and §11.6.2 says "\[p]ortions of an
 /// object shall not be composited with one another". [`Exact::Several`] therefore carries the
 /// invariant its own comment states — no two of its rectangles fall in one device pixel — so the
 /// loop below composites each portion with the backdrop and none of them with each other, and the
@@ -529,7 +529,7 @@ pub(crate) fn fill_rectangles(
 /// That method multiplies the mask into the mark's coverage, so a mark whose own boundary falls
 /// in a pixel a clip boundary also crosses is painted at the product of two fractions. §10.7.4
 /// asks for the *intersection of two sets of pixels* and §8.5.4 for the intersection of two
-/// shapes — "[t]he effective shape is the intersection of the object's intrinsic shape with the
+/// shapes — "\[t]he effective shape is the intersection of the object's intrinsic shape with the
 /// clipping path; the source shape value shall be 0.0 outside this intersection" — and neither
 /// lowers a value the clip admits. The whole argument for `min` over the product is
 /// [`mask_intersect`]'s, unchanged: it is exact where the two boundaries coincide or nest, and
@@ -1034,7 +1034,7 @@ pub(crate) fn stroke(
 /// [`tiny_skia::Mask::fill_path`], with the range applied to `anti_alias`.
 ///
 /// `exact` is the device rectangle `pdf_render::device_rectangle` says this path is, where it says
-/// so, and it is the same substitution [`fill_rectangle`] makes for a mark: §10.7.4 says the
+/// so, and it is the same substitution [`fill_rectangles`] makes for a mark: §10.7.4 says the
 /// clipping region "consists of the set of pixels that would be included by a fill operation", so a
 /// rectangular clip is scan-converted by the rule a rectangular fill is. **The two have to agree or
 /// the identity `S ∩ C = S` breaks**: a mark painted at its exact area under a region measured to a
@@ -1279,7 +1279,7 @@ fn area_of(rect: tiny_skia::Rect) -> pdf_render::Rect {
 
 /// Writes an axis-aligned rectangle's own coverage into `mask` — ISO 32000-2 §10.7.4.
 ///
-/// The same nine pieces [`fill_rectangle`] hands to `tiny-skia`'s rectangle scan converter — one
+/// The same nine pieces [`fill_rectangles`] hands to `tiny-skia`'s rectangle scan converter — one
 /// interior run, four edges, four corners — written out here because a `Mask` has no rectangle
 /// entry point of its own, only `fill_path`. `pdf_render::rectangle_coverage` is the arithmetic in
 /// both places, so the mark and the region are measured by one rule.
@@ -1395,7 +1395,7 @@ fn level_of(coverage: f32) -> u8 {
 /// > intersection of the set of pixels defined by the clipping region with the set of pixels
 /// > for the region to be painted.
 ///
-/// §8.5.4 says the same thing from the transparent imaging model's side — "[t]he effective
+/// §8.5.4 says the same thing from the transparent imaging model's side — "\[t]he effective
 /// shape is the intersection of the object's intrinsic shape with the clipping path; the source
 /// shape value shall be 0.0 outside this intersection" — which constrains a clip's effect
 /// *outside* the region and says nothing about lowering anything inside it.
@@ -1408,7 +1408,7 @@ fn level_of(coverage: f32) -> u8 {
 ///
 /// - a product raises that fraction to a power, so a rectangle stated as a clip *n* times over
 ///   is drawn with an edge at `cᶰ`, further from the clause's whole pixel with every restatement
-///   and in the direction the same subclause's "[t]he area covered by painted pixels shall
+///   and in the direction the same subclause's "\[t]he area covered by painted pixels shall
 ///   always be at least as large as the area of the original shape" forbids;
 /// - `min` is exact where the two boundaries coincide or nest — restating a clip then changes
 ///   nothing, which is what a set intersection does — and elsewhere it is never below the

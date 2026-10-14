@@ -207,7 +207,7 @@ pub(crate) enum Drawing {
 /// What a person is typing into.
 ///
 /// **Two, and the standard is why**: §12.7.4.3 lays out the value of a field, and §12.5.6.6 sends
-/// its own annotation to that same subclause — "[s]ubclause 12.7.4.3, 'Variable text', describes
+/// its own annotation to that same subclause — "\[s]ubclause 12.7.4.3, 'Variable text', describes
 /// the process of using these entries to generate the appearance of the text in these
 /// annotations". The caret, the selection and every key below are the *same* for both, because the
 /// core answers `Query::Caret`, `Query::Offset` and `Query::FieldSelection` for both; what differs
@@ -836,9 +836,9 @@ impl App {
     /// the pointer.
     ///
     /// What to send: §12.7.5.2.4 states the rule for turning one off, and it is a flag rather than
-    /// a convention — "[i]f set, exactly one radio button shall be selected at all times; selecting
-    /// the currently selected button has no effect. If clear, clicking the selected button
-    /// deselects it, leaving no button selected."
+    /// a convention — "\[i]f set, exactly one radio button shall be selected at all times;
+    /// selecting the currently selected button has no effect. If clear, clicking the selected
+    /// button deselects it, leaving no button selected."
     ///
     /// Table 227 bit 1 is checked here as well as in the core, and neither is redundant: the core
     /// refuses the edit, and a host that sent it anyway would be a program that looks broken

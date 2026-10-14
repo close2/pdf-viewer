@@ -186,6 +186,65 @@ fn with_no_runner_the_open_says_how_many_document_level_scripts_went_unrun() {
     );
 }
 
+/// A runner whose every run executes the outline items `items` names, by object number.
+#[derive(Debug)]
+struct Executing(Vec<u32>);
+
+impl ScriptRunner for Executing {
+    fn run(&self, _event: &ScriptEvent<'_>) -> ScriptResult {
+        ScriptResult {
+            rc: true,
+            value: None,
+            change: None,
+            edits: self
+                .0
+                .iter()
+                .map(|number| pdf_model::view::ScriptEdit::Bookmark {
+                    number: *number,
+                    generation: 0,
+                })
+                .collect(),
+            report: Vec::new(),
+        }
+    }
+}
+
+#[test]
+fn an_executed_object_that_is_no_item_of_the_outline_told_activates_nothing_and_is_said() {
+    // A realm runs in a confined worker whose answers are data (RFC 0008 section 6.2), so an item
+    // it executes is checked against the outline it was told: the widget, object 4, is not one,
+    // and the item, object 6, is (ADR 1934).
+    let document = document(
+        "/AcroForm << /Fields [4 0 R] >> /Names << /JavaScript << /Names [(a) 7 0 R] >> >> \
+         /Outlines 5 0 R",
+        "",
+        &[4],
+        &[
+            text_field("Amount", "", ""),
+            "<< /Type /Outlines /First 6 0 R /Last 6 0 R /Count 1 >>".to_owned(),
+            "<< /Title (Only) /Parent 5 0 R /Dest [3 0 R /Fit] >>".to_owned(),
+            "<< /S /JavaScript /JS (this.bookmarkRoot;) >>".to_owned(),
+        ],
+    );
+    let mut view = ViewState::of(&document);
+    view.run_scripts_with(Some(Arc::new(Executing(vec![4, 6]))));
+    view.run_open_scripts(&document, 0);
+    assert_eq!(
+        view.take_bookmark_requests(),
+        vec![pdf_syntax::ObjectId::new(6, 0)],
+        "{:?}",
+        view.script_reports()
+    );
+    assert!(
+        view.script_reports()
+            .iter()
+            .any(|sentence| sentence.contains("object 4 0")
+                && sentence.contains("not an item of the outline")),
+        "{:?}",
+        view.script_reports()
+    );
+}
+
 #[cfg(feature = "engine")]
 mod engine {
     use std::fmt::Write as _;
@@ -345,8 +404,8 @@ mod engine {
     fn an_outline_items_script_runs_at_the_bookmark_event_and_calls_the_library() {
         // §12.3.3: activating an item triggers its action, and §12.6.4.17 executes an ECMAScript
         // one. The event is the reference's Bookmark/Mouse Up, the item's /Title its targetName,
-        // its target null, and the function Table 32's tree defined at the open is the one it
-        // calls (ADR 1904).
+        // its target the item's Bookmark, and the function Table 32's tree defined at the open is
+        // the one it calls (ADRs 1904, 1934).
         let document = document(
             "/AcroForm << /Fields [4 0 R] >> \
              /Names << /JavaScript << /Names [(lib) 5 0 R] >> >> /Outlines 6 0 R",
@@ -358,7 +417,8 @@ mod engine {
                     .to_owned(),
                 "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>".to_owned(),
                 "<< /Title (Totals) /Parent 6 0 R /A << /S /JavaScript /JS (mark\\(event.type + '/' + \
-                 event.name + '/' + event.targetName + '/' + \\(event.target === null\\)\\);) >> >>"
+                 event.name + '/' + event.targetName + '/' + event.target.name + '/' + \\
+                 \\(event.target.parent === this.bookmarkRoot\\)\\);) >> >>"
                     .to_owned(),
             ],
         );
@@ -369,10 +429,92 @@ mod engine {
         assert!(ran.changed, "the script wrote a field a page draws");
         assert_eq!(
             value(&view, &document, "Log"),
-            "Bookmark/Mouse Up/Totals/true",
+            "Bookmark/Mouse Up/Totals/Totals/true",
             "{:?}",
             view.script_reports()
         );
+    }
+
+    /// A document whose outline is two items under one, the second bold, red and closed over a
+    /// child, and whose field `Log` has a format script `script`.
+    fn outlined(script: &str) -> Document {
+        document(
+            "/AcroForm << /Fields [4 0 R] >> /Outlines 5 0 R",
+            "",
+            &[4],
+            &[
+                text_field(
+                    "Log",
+                    &format!("/F << /S /JavaScript /JS ({script}) >>"),
+                    "/V (1)",
+                ),
+                "<< /Type /Outlines /First 6 0 R /Last 6 0 R /Count 3 >>".to_owned(),
+                "<< /Title (Book) /Parent 5 0 R /First 7 0 R /Last 8 0 R /Count 2 >>".to_owned(),
+                "<< /Title (One) /Parent 6 0 R /Next 8 0 R /Dest [3 0 R /Fit] >>".to_owned(),
+                "<< /Title (Two) /Parent 6 0 R /Prev 7 0 R /F 2 /C [1 0 0] /First 9 0 R \
+                 /Last 9 0 R /Count -1 >>"
+                    .to_owned(),
+                "<< /Title (Deep) /Parent 8 0 R >>".to_owned(),
+            ],
+        )
+    }
+
+    #[test]
+    fn the_bookmark_root_walks_the_outline_a_person_sees_and_execute_asks_the_host() {
+        // The reference's "Bookmark properties" walk, read from Table 151 and Table 152: a title is
+        // `name`, the sign of `/Count` is `open`, `/C` is `color`, `/F`'s bits are `style`, and an
+        // item with no children has null for them. `execute` hands the item to the host, which
+        // activates it as a click on it (ADR 1934).
+        let document = outlined(
+            "function walk\\(b, d\\) { var s = d + b.name + ':' + b.open + ':' + b.style + ':' + \\
+             b.color.join\\(','\\) + ';'; if \\(b.children != null\\) for \\(var i = 0; i < \\
+             b.children.length; i++\\) s += walk\\(b.children[i], d + '-'\\); return s; } \\
+             var root = this.bookmarkRoot; event.value = walk\\(root, ''\\) + \\
+             \\(root.children[0].children[1].parent.name\\); root.children[0].children[1].execute\\(\\); \\
+             root.execute\\(\\);",
+        );
+        let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
+        assert_eq!(
+            view.displayed_value(&document, "Log").as_deref(),
+            Some(
+                ":true:0:RGB,0,0,0;-Book:true:0:RGB,0,0,0;--One:false:0:RGB,0,0,0;\
+                 --Two:false:2:RGB,1,0,0;---Deep:false:0:RGB,0,0,0;Book"
+            ),
+            "{:?}",
+            view.script_reports()
+        );
+        assert_eq!(
+            view.take_bookmark_requests(),
+            vec![id(8)],
+            "the item executed, once, and the root's execute asks for nothing"
+        );
+        assert!(view.take_bookmark_requests().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn a_write_to_a_bookmark_is_refused_as_the_document_s_structure() {
+        // The reference makes `name`, `open`, `color` and `style` writable outside a reader; each
+        // is what Table 151 or Table 152 states of the item, so each write is Tier 2's (ADR 1934).
+        let document = outlined(
+            "var b = this.bookmarkRoot.children[0]; var s = ''; \\
+             ['name', 'open', 'color', 'style', 'children'].forEach\\(function \\(m\\) { \\
+             try { b[m] = 1; s += m + '=;'; } catch \\(e\\) { s += e.name + ';'; } }\\); \\
+             event.value = s + b.name;",
+        );
+        let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
+        assert_eq!(
+            view.displayed_value(&document, "Log").as_deref(),
+            Some(
+                "NotAllowedError;NotAllowedError;NotAllowedError;NotAllowedError;NotAllowedError;Book"
+            ),
+            "{:?}",
+            view.script_reports()
+        );
+        let reports = view.script_reports().join("\n");
+        assert!(reports.contains("Bookmark.name="), "{reports}");
+        assert!(reports.contains("Tier 2"), "{reports}");
     }
 
     #[test]

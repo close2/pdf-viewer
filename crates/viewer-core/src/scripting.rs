@@ -205,7 +205,7 @@ fn subject(event: &ScriptEvent<'_>) -> String {
         ScriptSite::Library => format!("the document-level script {:?}", event.label),
         ScriptSite::Document(trigger) => format!("the document's /{} script", trigger.key()),
         ScriptSite::Timer => "a timer's expression".to_owned(),
-        ScriptSite::Outline => format!("the script of the outline item {:?}", event.label),
+        ScriptSite::Outline { .. } => format!("the script of the outline item {:?}", event.label),
     }
 }
 

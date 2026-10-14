@@ -32,7 +32,8 @@
 //!
 //! # When the list exists, and when it dies
 //!
-//! Recording is attempted only under [`Coverage::Compute`] — the lane the caller
+//! Recording is attempted only under [`Coverage::Compute`](crate::startup::Coverage::Compute)
+//! — the lane the caller
 //! moves views on — and is abandoned (`None`, permanently, for that encode) the
 //! moment the walk meets something whose *frame-wide* state a per-record replay
 //! cannot rebuild: a child layer, a soft mask, a residue clip, an atlas or winding

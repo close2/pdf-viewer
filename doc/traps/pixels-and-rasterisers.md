@@ -622,6 +622,16 @@ after the read gave 0.92–1.01 s, a 0.8 s loss on the owner's first frame that 
 (round 1530, ADR 1896). No gate saw it: nothing compares the drawn-ahead frame's time with the frame
 drawn after the read. A slot that changes a read's shape re-takes the drawer's figure beside it.
 
+### 179. A `wgpu` error scope catches one error type, and a compiler's refusal is the other one
+
+`PipelineStore::captured` opened a validation scope around every pipeline creation. `wgpu-core` 30
+classes a backend compiler's failure — FXC refusing the image shader on Windows — as an *internal*
+error (`hal::PipelineError::Linkage` → `CreateRenderPipelineError::Internal`), which no validation
+scope sees, so the refusal went to the uncaptured handler and `get` handed the frame a pipeline the
+library had marked invalid; the owner met it as a validation error in the encoder (round 1546, ADR
+1929). A pipeline creation is wrapped in both scopes, popped innermost first, and the refusal is kept
+by kind and format so the lane refuses once and the processor draws.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

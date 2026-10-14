@@ -478,6 +478,7 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                 }],
                 annotations: Vec::new(),
                 pages: Vec::new(),
+                outline: None,
             });
             let ran = outcome(&asked);
             assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);
@@ -503,10 +504,11 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
 }
 
 #[test]
-fn the_bookmark_root_answers_its_parent_and_doc_and_refuses_the_outline_by_name() {
+fn the_bookmark_root_answers_its_parent_and_doc_and_refuses_an_outline_it_was_not_told() {
     // The reference's "Bookmark properties": the root's parent is null and its doc is the Doc it
-    // resides in. The walk its "children" example makes reads the outline, which the realm is not
-    // handed, so the first step throws by name rather than meeting undefined (ADR 1922).
+    // resides in. The walk its "children" example makes reads the outline, which this request does
+    // not tell the realm, so the first step throws by name rather than meeting an outline that
+    // looks empty (ADRs 1922, 1934).
     let ran = outcome(&request(
         Trigger::Format,
         "var root = this.bookmarkRoot; \
@@ -537,7 +539,7 @@ fn the_bookmark_root_answers_its_parent_and_doc_and_refuses_the_outline_by_name(
     assert!(
         ran.refusals[0]
             .sentence()
-            .contains("is not handed the outline"),
+            .contains("is told the document's outline when a script spells bookmarkRoot"),
         "{}",
         ran.refusals[0].sentence()
     );

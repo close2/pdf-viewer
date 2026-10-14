@@ -60,6 +60,7 @@ pub mod named_page;
 pub mod navigation;
 pub mod optional_content;
 pub mod outline;
+pub mod output_intent;
 pub mod page;
 pub mod page_label;
 pub mod popup;
@@ -82,6 +83,7 @@ pub mod uri;
 mod variable_text;
 pub mod view;
 pub mod viewer_preferences;
+pub mod xfa;
 pub mod xfdf;
 pub mod xmp;
 

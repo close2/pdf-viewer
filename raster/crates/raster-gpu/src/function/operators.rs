@@ -27,7 +27,7 @@
 /// `not` is absent by name and present twice: Table 42's `not` is two operators wearing
 /// one name — logical negation on a boolean, one's complement on an integer — and which
 /// one an occurrence means is a static property of its operand that
-/// [`super::analyse`] resolves. That resolution is the whole reason a literal carries its
+/// [`super::analyse()`] resolves. That resolution is the whole reason a literal carries its
 /// type in [`FnOp`](raster_scene::FnOp).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unary {

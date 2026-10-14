@@ -153,7 +153,7 @@ impl CpuRasterizer {
     ///
     /// # What it is worth, and what it costs
     ///
-    /// The flag is read once per command in [`CpuRasterizer::encode`], which is the loop nothing
+    /// The flag is read once per command in `CpuRasterizer::encode`, which is the loop nothing
     /// bounds: 1567 bytes of PDF amplify to ten thousand page-covering fills, 990 kB of marks and
     /// **27.6 s** of drawing at a 900x1165 window, and raising it returns the thread in 1.3 to
     /// 2.1 ms. What it cannot interrupt is one command's own scan conversion and the per-pixel
@@ -189,7 +189,7 @@ impl CpuRasterizer {
     /// Asks for a fixed number of horizontal strips instead of one per thread of the pool.
     ///
     /// **This changes how long a page takes and almost nothing about what it looks like**, which
-    /// is [`Surface`]'s claim and is the reason this method exists: the property is only
+    /// is `Surface`'s claim and is the reason this method exists: the property is only
     /// checkable by rendering one page several ways and comparing the bytes, which is what
     /// `strip_parallelism.rs` does — over six scenes here, and over three real pages in
     /// `pdf-model`, which is where the exception the six scenes could not hold was found. What
@@ -199,8 +199,6 @@ impl CpuRasterizer {
     /// **One** is the value a caller with no filesystem must pass, because asking the machine
     /// reads `/proc` (ADR 0218). A page still gets fewer strips than asked for where its curves
     /// forbid the cuts.
-    ///
-    /// [`Surface`]: crate::surface::Surface
     #[must_use]
     pub fn with_strips(mut self, strips: u32) -> Self {
         self.strips = Some(strips);

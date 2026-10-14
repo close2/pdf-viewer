@@ -181,7 +181,7 @@ impl App {
     /// which is why nothing is fetched for a collection presented as a tree, a details view or a
     /// tile view (ADR 1251).
     ///
-    /// The window's own region is given to the panel where Table 158 asks for it — "[t]he entire
+    /// The window's own region is given to the panel where Table 158 asks for it — "\[t]he entire
     /// window region shall be dedicated to the file navigation view" — and taken back the moment
     /// the document states something else, so nothing survives a second document (ADR 1252).
     pub(crate) fn fill_collection_previews(&mut self) {

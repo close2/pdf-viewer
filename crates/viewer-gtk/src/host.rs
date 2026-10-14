@@ -230,8 +230,8 @@ fn opening_commands(
         // first interpretation is, so a preference applied after the page had been drawn would
         // have drawn the other picture first (ADR 1228).
         Command::Separations(separations),
-        // A page past the whole-page bound is drawn as much as the window shows of it, as `quorra`
-        // draws every page, rather than refused at the notch that crosses it (ADR 1892).
+        // A page zoomed past its window is drawn as much as the window shows of it, as `quorra`
+        // draws every page, and one past the whole-page bound is not refused (ADRs 1892, 1930).
         Command::Oversize(viewer_core::Oversize::Listed),
         Command::Open {
             id: DOCUMENT,

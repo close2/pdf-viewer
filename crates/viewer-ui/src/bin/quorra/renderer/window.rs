@@ -154,7 +154,7 @@ pub(crate) struct Window {
 /// waits for the device to come idle, and wgpu's own documentation of it says what happens when
 /// that wait meets a busy queue: "Submissions that happen _during_ the configure may cause the
 /// internal wait-for-idle to fail, raising a validation error"
-/// (`wgpu-30.0.0/src/api/surface.rs`). This viewer submits from [`Self::ask`]'s render thread and
+/// (`wgpu-30.0.0/src/api/surface.rs`). This viewer submits from [`Window::ask`]'s render thread and
 /// configures from the event thread's present, microseconds apart, by design (ADR 0391) — so the
 /// race is structural rather than unlucky, which is why the project owner met it once and not
 /// twice.

@@ -151,7 +151,7 @@ pub(crate) fn area_averaged(spec: &ImageSpec, reduced: Reduction, threads: usize
     }
 }
 
-/// The cells `columns` × `rows` of [`area_averaged`]'s grid, row-major, four straight-alpha
+/// The cells `columns` × `rows` of `area_averaged`'s grid, row-major, four straight-alpha
 /// bytes each: the same bytes as the whole grid's cells at those places, because each cell
 /// reads only its own block (the module comment). A range past the grid is cut at its edge.
 ///

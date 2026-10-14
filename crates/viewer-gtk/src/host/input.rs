@@ -269,7 +269,7 @@ impl Host {
                 self.apply_chrome();
             }
             // §12.9's measuring. Nothing is drawn differently: what the mode changes is that a
-            // press on the page is a point rather than the start of §12.4.2's selection.
+            // press on the page is a point rather than the start of the text selection.
             viewer_host::WindowAct::Measure => {
                 let on = self.state.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
@@ -382,7 +382,7 @@ impl Host {
             reason = "a pointer position inside a window is far inside f32's exact integer range"
         )]
         let at = ((x * scale) as f32, (y * scale) as f32);
-        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing it
+        // §12.9's mode takes the press before the text selection does, which is the one thing it
         // takes away: the two gestures are the same gesture and a window cannot tell them apart
         // from the pointer alone (ADR 1191).
         if self.state.showing.measuring.is_on() {

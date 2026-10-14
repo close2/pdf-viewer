@@ -321,6 +321,19 @@ section_conformance() {
         cargo test -p conformance -- --nocapture
 }
 
+# The documentation build, warnings denied, of the crates held at zero: every item, private ones
+# included, as `--document-private-items` builds it — so a link to an item that moved or is compiled
+# only for tests, a bracketed letter rustdoc reads as a link, an ambiguous name and a public page
+# linking a private item fail here rather than on a reader's page (ADR 1938). The list below is the
+# whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A small
+# walk, because it checks every dependency of the three: 2.1 GiB at its peak when it was added.
+section_docs() {
+    run "rustdoc with warnings denied, over the crates held at zero (ADR 1938)" \
+        '^(error|warning)|Generated|Finished' \
+        walk small -- env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items \
+        -p render-cpu -p raster-gpu -p viewer-ui
+}
+
 section_tests() {
     run "tests" 'Summary|tests run|test result' walk large -- cargo nextest run --workspace
     # Only the crate that has one; two dozen "0 passed" lines are not a summary.
@@ -1789,8 +1802,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1832,6 +1845,7 @@ for section in $sections; do
     prose) section_prose ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;
+    docs) section_docs ;;
     tests) section_tests ;;
     corpus) section_corpus ;;
     golden) section_golden ;;

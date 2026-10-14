@@ -1,9 +1,9 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Nine clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! None of what is said here is about a page. §12.11's requirements, §12.8's signatures,
 //! §7.11.4's embedded files, §14.13.2's associated files that are *not* embedded, §7.5's
 //! recovered cross-reference table, §7.7.3's page tree recovered by scanning, Annex I's version,
-//! §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
+//! Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
 //! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
 //! part of the page's own report.
@@ -179,17 +179,25 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
         ));
     }
 
-    // §14.13.2's *other* form, and the reason it is said here rather than listed with the files
-    // above: an associated file's specification "represents either a file external to the PDF file
-    // or an embedded file stream", and an external one has no bytes in the document at all. This
-    // program cannot follow it — principle 3 gives the renderer no filesystem — but naming it
-    // needs no filesystem, and §7.11's own reading is that refusing a file and being unable to
-    // name it are different things. A document that associates a file nobody here can reach is
-    // exactly the kind of fact this module exists for: what you are looking at is not the whole of
-    // what the producer assembled. **The catalog is the scope, which is the scope the embedded
-    // list above already has** — §14.13.4 to §14.13.9's other carriers are read by
-    // `attachment::external_associated` and reach no caller. No corpus document states one, so the
-    // witness is hand-built (trap 8); ADR 0918 has the counts.
+    external_associated_files(document, &mut notes);
+    xfa_form(document, &mut notes);
+    tagged_structure(document, &mut notes);
+    signatures(document, trust, &mut notes, &mut published);
+    About { notes, published }
+}
+
+/// §14.13.2's *other* form, and the reason it is said here rather than listed with [`about`]'s
+/// embedded files: an associated file's specification "represents either a file external to the PDF file
+/// or an embedded file stream", and an external one has no bytes in the document at all. This
+/// program cannot follow it — principle 3 gives the renderer no filesystem — but naming it
+/// needs no filesystem, and §7.11's own reading is that refusing a file and being unable to
+/// name it are different things. A document that associates a file nobody here can reach is
+/// exactly the kind of fact this module exists for: what you are looking at is not the whole of
+/// what the producer assembled. **The catalog is the scope, which is the scope the embedded
+/// list already has** — §14.13.4 to §14.13.9's other carriers are read by
+/// `attachment::external_associated` and reach no caller. No corpus document states one, so the
+/// witness is hand-built (trap 8); ADR 0918 has the counts.
+fn external_associated_files(document: &Document, notes: &mut Vec<String>) {
     if let Ok(catalog) = document.catalog() {
         for file in pdf_model::attachment::external_associated(document, &catalog) {
             let named = if file.name.is_empty() {
@@ -204,10 +212,103 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> About {
             ));
         }
     }
+}
 
-    tagged_structure(document, &mut notes);
-    signatures(document, trust, &mut notes, &mut published);
-    About { notes, published }
+/// What a print of this document will not do with it, said once per print job before it starts.
+///
+/// Not part of [`about`], because it is a statement about an *operation* rather than about the
+/// file: a reader who never prints is told nothing, and one who prints twice is told twice,
+/// once before each job. `crate::Viewer`'s `begin_printing` says it.
+///
+/// **§14.11.5's output intent, on the way to paper.** The interpreter reads a document's device
+/// colours through the intent's profile in its "to CIE" direction, which Table 401 names as the
+/// one for "screen preview or hardcopy proofing"; the same table makes the other direction the
+/// one a print to the intended device uses:
+///
+/// > The output transformation uses the profile's "from CIE" information (BToA in ICC
+/// > terminology); the "to CIE" (AToB) information may optionally be used to remap source colour
+/// > values to some other destination colour space, such as for screen preview or hardcopy
+/// > proofing.
+///
+/// This program has no evaluator for that direction and hands its print system RGB, so a print
+/// carries the colours as the screen shows them and the output transformation is not performed —
+/// the clause's own permission, "PDF processors are free to disregard it", taken for output. The
+/// condition is the interpreter's: an intent in force for some page, read by the selection the
+/// interpreter uses, so the device named is the one the colours were drawn through (RFC 0009
+/// §2.6, `doc/questions/A254`, ADR 1932).
+pub(crate) fn what_a_print_does_not_do(document: &Document) -> Vec<String> {
+    let intents = pdf_model::output_intent::in_force_on_pages(document);
+    if intents.is_empty() {
+        return Vec::new();
+    }
+    let named: Vec<String> = intents
+        .iter()
+        .map(|intent| {
+            let device = intent
+                .condition
+                .clone()
+                .unwrap_or_else(|| "a device its output intent does not name".to_owned());
+            intent
+                .subtype
+                .as_ref()
+                .map_or(device.clone(), |subtype| format!("{device} ({subtype})"))
+        })
+        .collect();
+    let (profile, device) = if named.len() > 1 {
+        ("those profiles", "those devices'")
+    } else {
+        ("that profile", "that device's")
+    };
+    vec![format!(
+        "this document's colours were prepared for {} (§14.11.5's output intent); this program \
+         reads them through {profile} and prints them as it shows them — the output \
+         transformation into {device} colourants, Table 401's from-CIE direction, is not \
+         performed, and this machine's print system manages the colour from there",
+        named.join(" and ")
+    )]
+}
+
+/// Annex K's form, declined on its own permission and said to be declined, once per document.
+///
+/// §K.1, the permission this program takes (`CLAUDE.md`'s XFA exclusion):
+///
+/// > The implementation of such a schema driven page generation involves considerable effort
+/// > beyond that for a simple PDF viewer and therefore a PDF processor may choose to not
+/// > implement this feature.
+///
+/// Taking it silently is what is owed against: a dynamic form's pages are often a notice
+/// addressed to processors that decline, and a hybrid form's own calculations and validations
+/// live in the XFA resource, so a reader who is not told sees a notice or a quiet form and no
+/// reason (trap 5). The
+/// sentence names what *is* done, because §K.2 is what makes it the form: "[t]he other entries
+/// in the interactive form dictionary shall be consistent with the information in the XFA
+/// resource". Both conditions are the annex's own entries — Table 224's `/XFA` in either of
+/// §K.2's two forms, and Table 29's `/NeedsRendering` stated `true` — and
+/// [`pdf_model::xfa::stated`] reads them without decoding a packet (RFC 0009 §4.4, ADR 1932).
+fn xfa_form(document: &Document, notes: &mut Vec<String>) {
+    let Some(stated) = pdf_model::xfa::stated(document) else {
+        return;
+    };
+    let declined = "this program does not implement XFA, which §K.1 permits a processor to choose";
+    notes.push(match (stated.resource, stated.needs_rendering) {
+        (true, false) => format!(
+            "this document carries an XFA form (Annex K); {declined}, so the form shown and \
+             filled here is its AcroForm, which §K.2 requires to be consistent with the XFA \
+             resource — what only the XFA resource states, such as its own calculations, \
+             validations and formatting, is not carried out"
+        ),
+        (true, true) => format!(
+            "this document is an XFA form that asks to be regenerated when it is opened \
+             (Table 29's /NeedsRendering, Annex K); {declined}, so the pages shown are the ones \
+             the file holds for processors that do not regenerate it, which are often only a \
+             notice, and the form filled here is its AcroForm"
+        ),
+        (false, _) => format!(
+            "this document asks to be regenerated from an XFA form when it is opened (Table \
+             29's /NeedsRendering) but carries no XFA resource for it (§K.2); {declined}, and \
+             the pages shown are the ones the file holds"
+        ),
+    });
 }
 
 /// §14.8.6's two requirements on the file, said where the file is what is being described.
@@ -3399,5 +3500,51 @@ mod tests {
             ["reported", "published http://127.0.0.1:9/p.pdf for 1"]
         );
         assert_eq!(kinds(signed_under_a_policy(None)), ["reported"]);
+    }
+
+    /// Annex K's form is declined out loud, once per kind, on the annex's own two entries.
+    ///
+    /// §K.1's permission — "a PDF processor may choose to not implement this feature" — is taken,
+    /// and the sentence says so and says what is done instead. The three kinds are the two
+    /// entries' combinations a document can state; **the control is the same form without
+    /// `/XFA`**, which is an `AcroForm` and owes nothing (trap 11). ADR 1932.
+    #[test]
+    fn an_xfa_form_is_said_to_be_declined_and_its_acroform_named() {
+        let said = |catalog: &str| {
+            about(
+                &document(&[
+                    catalog,
+                    "<< /Type /Pages /Kids [] /Count 0 >>",
+                    "<< /Length 9 >>\nstream\n<xdp:xdp>\nendstream",
+                ]),
+                &crate::TrustPolicy::default(),
+            )
+            .notes
+            .join("\n")
+        };
+        let hybrid =
+            said("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /XFA 3 0 R >> >>");
+        assert!(
+            hybrid.contains("carries an XFA form (Annex K)")
+                && hybrid.contains("§K.1")
+                && hybrid.contains("its AcroForm"),
+            "{hybrid}"
+        );
+        let dynamic = said(
+            "<< /Type /Catalog /Pages 2 0 R /NeedsRendering true \
+             /AcroForm << /Fields [] /XFA [(xdp:xdp) 3 0 R] >> >>",
+        );
+        assert!(
+            dynamic.contains("asks to be regenerated when it is opened")
+                && dynamic.contains("often only a notice"),
+            "{dynamic}"
+        );
+        let flag_alone = said("<< /Type /Catalog /Pages 2 0 R /NeedsRendering true >>");
+        assert!(
+            flag_alone.contains("carries no XFA resource"),
+            "{flag_alone}"
+        );
+        let acroform = said("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] >> >>");
+        assert!(!acroform.contains("XFA"), "{acroform}");
     }
 }

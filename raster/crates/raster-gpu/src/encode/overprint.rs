@@ -1,14 +1,14 @@
 //! ISO 32000-2 §11.7.4.3's special overprinting blend mode where it keeps a proper subset of
 //! the channels: the one fill that draws through a layer for a reason other than §11.3.5.
 //!
-//! [`Compose::DestOverIn`](raster_scene::Compose::DestOverIn) carries the derivation:
+//! [`Compose::DestOverIn`] carries the derivation:
 //! destination-over in the channels the mark leaves alone, source-over in the rest, and the
 //! union alpha in both. No blend state states two operators at once, so the fill is drawn
 //! alone into a layer — onto transparency, where it is its own premultiplied colour — and
 //! `composite.wgsl` composites that layer once with §11.3.6's formula and the clause's
 //! selected `B`. The two uniform selections never come here: they are
-//! [`Compose::DestOver`](raster_scene::Compose::DestOver)'s blend state and
-//! [`Compose::SrcOver`](raster_scene::Compose::SrcOver)'s (`doc/adr/1295`).
+//! [`Compose::DestOver`]'s blend state and
+//! [`Compose::SrcOver`]'s (`doc/adr/1295`).
 
 use raster_scene::{Affine, BlendMode, ClipId, Compose, FillRule, OutlineId, Paint};
 

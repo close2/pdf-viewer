@@ -1677,7 +1677,7 @@ impl App {
     fn software(&self, window: &Arc<Window>) -> Option<Surface> {
         match SoftwareSurface::new(Arc::clone(window)) {
             Ok(surface) => Some(Surface::Processor(Box::new(
-                crate::composer::Composer::new(surface, self.proxy_pages),
+                crate::composer::Composer::new(surface, self.proxy_pages, self.waker.clone()),
             ))),
             Err(problem) => {
                 eprintln!(

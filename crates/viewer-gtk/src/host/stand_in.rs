@@ -33,7 +33,12 @@ impl Host {
             Answer::Frame(frames) => frames,
             _ => Vec::new(),
         };
-        let held = frames.len();
+        let focused = self.state.documents.focused();
+        // A window drawn of a page zoomed past it is the page's frame on the screen,
+        // though the viewer holds no pixels of it (ADR 1930).
+        let held = frames
+            .len()
+            .saturating_add(usize::from(self.state.oversized.shows(focused)));
         let partial = self.state.drawing.partial();
         let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
@@ -42,7 +47,6 @@ impl Host {
         // A page drawn part-way where it belongs (ADR 1825), a frame from before a zoom scaled to
         // the extent the page has now until its own lands (ADR 1843), and a page with no frame
         // at all shown from its retained picture (ADR 1866).
-        let focused = self.state.documents.focused();
         let frames = match self.state.read_look.as_ref() {
             // Page one as it stood at its last look while it was read, until the page has pixels
             // of its own (ADR 1867): the page's own picture at the target its first frame is drawn
@@ -55,7 +59,8 @@ impl Host {
             {
                 vec![look.placed()]
             }
-            // A page past the whole-page bound shown over them from what its window drew (ADR 1892).
+            // A page zoomed past its window shown over them from what that drew (ADRs 1892,
+            // 1930).
             _ => self.state.oversized.place(
                 self.state.retained.fill(
                     viewer_host::stand_in::placed(

@@ -102,7 +102,7 @@ impl Host {
                 self.update.window = true;
             }
             // §12.9's measuring. No pixel of the page is different: what the mode changes is
-            // that a press is a point rather than the start of §12.4.2's selection.
+            // that a press is a point rather than the start of the text selection.
             viewer_host::WindowAct::Measure => {
                 let on = self.state.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
@@ -230,7 +230,7 @@ impl Host {
                 return;
             }
         };
-        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing
+        // §12.9's mode takes the press before the text selection does, which is the one thing
         // it takes away: the two gestures are the same gesture and a window cannot tell them
         // apart from the pointer alone (ADR 1191).
         if self.state.showing.measuring.is_on() {

@@ -38,8 +38,13 @@ pub enum ScriptSite {
     /// its period has elapsed on the host's ticks (ADR 1702).
     Timer,
     /// §12.3.3's outline item, activated: the ECMAScript actions of its Table 151 `/A` chain
-    /// (ADR 1904).
-    Outline,
+    /// (ADR 1904), named by the item's object so that `event.target` is its `Bookmark` (ADR 1934).
+    Outline {
+        /// The item dictionary's object number.
+        number: u32,
+        /// Its generation number.
+        generation: u16,
+    },
 }
 
 /// One of Table 200's five events of the document as a whole, each an entry of the catalog's
@@ -297,6 +302,10 @@ pub struct DocumentState {
     /// Every page in page order, as `getPageLabel`, `getPageBox` and `getPageRotation` read it
     /// (ADR 1724); at most [`MAX_PAGES`].
     pub pages: Vec<PageState>,
+    /// Every item of §12.3.3's outline as `bookmarkRoot` walks it, each after its parent, at most
+    /// [`MAX_BOOKMARKS`]: `None` where it was not read, because no script of the document has
+    /// spelled `bookmarkRoot` and no outline item's script has run (ADR 1934).
+    pub outline: Option<Vec<BookmarkState>>,
 }
 
 /// One page as a document's realm holds it: what Adobe's `getPageLabel`, `getPageBox` and
@@ -453,6 +462,36 @@ pub struct Layer {
     pub intent: Vec<String>,
 }
 
+/// One item of §12.3.3's outline as a document's realm holds it: what Adobe's `Bookmark` object
+/// reads, each property from the entry Table 151 or Table 152 states for it (ADR 1934).
+///
+/// The property names are Adobe's *JavaScript for Acrobat API Reference*, "Bookmark properties",
+/// read at the commit `crates/pdf-script`'s root names — documented choices under principle 5.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookmarkState {
+    /// The item dictionary's object number, which names it in a [`ScriptEdit::Bookmark`].
+    pub number: u32,
+    /// Its generation number.
+    pub generation: u16,
+    /// The item's parent, as its place in [`DocumentState::outline`]; `None` for a top-level
+    /// item, whose parent is the outline dictionary — the reference's root bookmark.
+    pub parent: Option<u32>,
+    /// Table 151's `/Title`, Adobe's `name`.
+    pub name: String,
+    /// Whether the item is open, from the sign of Table 151's `/Count`, Adobe's `open`.
+    pub open: bool,
+    /// Table 152's `/F` bits 1 (italic) and 2 (bold) as a number, which is Adobe's `style` — the
+    /// reference's 1 is italic, 2 bold and 3 both.
+    pub style: u8,
+    /// Table 151's `/C`, the `DeviceRGB` colour of the item's text, Adobe's `color`.
+    pub colour: [f64; 3],
+}
+
+/// Most outline items a realm is told of: half the wire's count, as for the pages (ADR 1934). An
+/// outline past it is told its first items in the order a reader meets them, and the reading says
+/// so once.
+pub const MAX_BOOKMARKS: usize = 1 << 15;
+
 impl ScriptSite {
     /// Adobe's `event.type` and `event.name` for this site.
     ///
@@ -504,7 +543,7 @@ impl ScriptSite {
             Self::Timer => ("App", "Timer"),
             // The reference's "Event type/name combinations" page raises `Bookmark`'s `Mouse Up`
             // when a person clicks an outline item that executes a script (ADR 1904).
-            Self::Outline => ("Bookmark", "Mouse Up"),
+            Self::Outline { .. } => ("Bookmark", "Mouse Up"),
         }
     }
 }
@@ -1128,6 +1167,15 @@ pub enum ScriptEdit {
     /// `console.show`, `console.hide` or `console.clear`: a request to the host's console, which
     /// shows what scripts log (ADR 1762).
     Console(ConsoleCommand),
+    /// `Bookmark.execute()`: §12.3.3's outline item activated as a person's click activates it,
+    /// which a host carries out — a view state holds the request and performs no action of its
+    /// own ([`ViewState::take_bookmark_requests`], ADR 1934).
+    Bookmark {
+        /// The item dictionary's object number.
+        number: u32,
+        /// Its generation number.
+        generation: u16,
+    },
 }
 
 /// What a script asked of the host's console (ADR 1762): Adobe's "console methods", each a
@@ -1202,7 +1250,8 @@ impl ScriptEdit {
             | Self::Destination { .. }
             | Self::Calculation { .. }
             | Self::View { .. }
-            | Self::Console(_) => false,
+            | Self::Console(_)
+            | Self::Bookmark { .. } => false,
         }
     }
 }
@@ -1637,6 +1686,7 @@ impl ViewState {
         for (index, page) in state.pages.iter_mut().enumerate() {
             page.words = self.words_of(index);
         }
+        state.outline = self.bookmarks_told();
         let Some(content) = self.optional_content.as_ref() else {
             return state;
         };

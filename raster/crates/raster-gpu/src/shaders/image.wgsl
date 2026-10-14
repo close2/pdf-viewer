@@ -113,9 +113,32 @@ fn to_texel(p: vec2f) -> vec2f {
 
 // One convex polygon of at most eight corners: the pixel's rectangle in texel space, as the
 // four sides of the image's square cut it.
+//
+// **Every loop over its corners runs to the constant eight and leaves at `count`, and no corner
+// is written through an index computed at run time** (ADR 1928). DX12's FXC compiler cannot
+// address a local array element as an l-value by a run-time index (its X3500), and unrolls a
+// loop to make the index constant (X3511), which a run-time bound defeats; the owner's DX12
+// adapter refused this pipeline for both. A read by a run-time index is FXC's own selection
+// among registers and is admitted, so the corners are still read by `i`.
 struct Polygon {
     corner: array<vec2f, 8>,
     count: u32,
+}
+
+// `polygon` with `corner` after its last: each of the eight slots is written by a constant index
+// and keeps what it held unless it is slot `count` (ADR 1928). A ninth corner is dropped, as the
+// caller's guard already ensures none arrives.
+fn push_corner(polygon: ptr<function, Polygon>, corner: vec2f) {
+    let at = (*polygon).count;
+    (*polygon).corner[0] = select((*polygon).corner[0], corner, at == 0u);
+    (*polygon).corner[1] = select((*polygon).corner[1], corner, at == 1u);
+    (*polygon).corner[2] = select((*polygon).corner[2], corner, at == 2u);
+    (*polygon).corner[3] = select((*polygon).corner[3], corner, at == 3u);
+    (*polygon).corner[4] = select((*polygon).corner[4], corner, at == 4u);
+    (*polygon).corner[5] = select((*polygon).corner[5], corner, at == 5u);
+    (*polygon).corner[6] = select((*polygon).corner[6], corner, at == 6u);
+    (*polygon).corner[7] = select((*polygon).corner[7], corner, at == 7u);
+    (*polygon).count = at + 1u;
 }
 
 // The part of `polygon` on the kept side of `axis = bound` (Sutherland–Hodgman): above it
@@ -123,18 +146,19 @@ struct Polygon {
 fn keep_side(polygon: Polygon, axis: u32, bound: f32, above: bool) -> Polygon {
     var out: Polygon;
     out.count = 0u;
-    for (var i = 0u; i < polygon.count; i++) {
+    for (var i = 0u; i < 8u; i++) {
+        if i >= polygon.count {
+            break;
+        }
         let here = polygon.corner[i];
         let next = polygon.corner[(i + 1u) % polygon.count];
         let sh = select(bound - here[axis], here[axis] - bound, above);
         let sn = select(bound - next[axis], next[axis] - bound, above);
         if sh >= 0.0 && out.count < 8u {
-            out.corner[out.count] = here;
-            out.count += 1u;
+            push_corner(&out, here);
         }
         if (sh >= 0.0) != (sn >= 0.0) && out.count < 8u {
-            out.corner[out.count] = here + (next - here) * (sh / (sh - sn));
-            out.count += 1u;
+            push_corner(&out, here + (next - here) * (sh / (sh - sn)));
         }
     }
     return out;
@@ -163,7 +187,10 @@ fn oblique_area(lo: vec2f, hi: vec2f, centre: vec2f, st: vec2f, dims: vec2f) -> 
     polygon = keep_side(polygon, 1u, -st.y, true);
     polygon = keep_side(polygon, 1u, dims.y - st.y, false);
     var twice = 0.0;
-    for (var i = 0u; i < polygon.count; i++) {
+    for (var i = 0u; i < 8u; i++) {
+        if i >= polygon.count {
+            break;
+        }
         let a = polygon.corner[i];
         let b = polygon.corner[(i + 1u) % polygon.count];
         twice += a.x * b.y - b.x * a.y;

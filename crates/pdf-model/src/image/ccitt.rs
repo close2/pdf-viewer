@@ -48,7 +48,7 @@ use super::unpack::{Painting, Samples, unpack};
 /// clause asked for.
 ///
 /// [`ccitt_bound_below_its_height`]: super::mask::ccitt_bound_below_its_height
-pub(super) fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
+fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
     match rows {
         0 => height,
         _ if end_of_block => height,
@@ -261,5 +261,35 @@ fn leave_unpainted(rgba: &mut [u8], delivered: u32, width: u32) {
         .saturating_mul(4);
     if let Some(rest) = rgba.get_mut(painted..) {
         rest.fill(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ccitt_rows;
+
+    /// ISO 32000-2 §7.4.6 Table 11: `/EndOfBlock` overrides `/Rows`, and its default is true.
+    ///
+    /// The four cases are the entry's two sentences crossed with the two values of the flag.
+    /// The first row is the one `hayro`'s issue 1337 is about — a producer's wrong `/Rows`
+    /// under the default flag — and it is the reason this function exists rather than a
+    /// `match` at the call site: the answer is derived from a clause, so it is worth a place
+    /// a test can reach.
+    #[test]
+    fn end_of_block_overrides_the_rows_parameter() {
+        // "overriding the Rows parameter": true is the default, so a `/Rows` disagreeing with
+        // `/Height` says nothing about where the decode stops.
+        assert_eq!(ccitt_rows(272, true, 523), 523);
+        assert_eq!(ccitt_rows(9000, true, 523), 523);
+        // "If false , the filter shall stop when it has decoded the number of lines indicated
+        // by Rows or when its data has been exhausted, whichever occurs first."
+        assert_eq!(ccitt_rows(272, false, 523), 272);
+        // Table 11's `/Rows` row: zero or absent means the height "is not predetermined", so
+        // §8.9.5.1's `/Height` is the only statement of it left — whatever the flag says.
+        assert_eq!(ccitt_rows(0, false, 523), 523);
+        assert_eq!(ccitt_rows(0, true, 523), 523);
+        // The ordinary file, where the two agree and nothing above can be observed.
+        assert_eq!(ccitt_rows(523, true, 523), 523);
+        assert_eq!(ccitt_rows(523, false, 523), 523);
     }
 }

@@ -553,7 +553,7 @@ fn exact_areas(
 /// The mark's coverage met with the chain's: `tile ← min(tile, clip)`, per pixel.
 ///
 /// The same paragraph of §10.7.4 says which side of the interval
-/// `[max(0, s + c − 1), min(s, c)]` an estimate may take: "[t]he area covered by painted
+/// `[max(0, s + c − 1), min(s, c)]` an estimate may take: "\[t]he area covered by painted
 /// pixels shall always be at least as large as the area of the original shape." `min` is
 /// the least value never below the intersection, and it is the intersection wherever one
 /// set holds the other in the pixel (ADR 1444) — every pixel [`exact_areas`] does not
