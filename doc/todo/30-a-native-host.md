@@ -157,8 +157,11 @@ These are the places where a native host's shape differs from the tier-2 host's,
   last frame meets the page without a seam (ADR 1865). **A page zoomed until the window shows less
   than half of it has those rows drawn first**, as a look of their own over the stand-in, and the
   page whole after as the frame (`Drawing::ask_showing`, ADR 1868); the protocol still asks for and
-  answers whole pages. What is still owed: a page never drawn before that a notch out brings on
-  screen has no picture of any kind until it is drawn.
+  answers whole pages. **A page zoomed past `viewer_core::MAX_PIXELS` is drawn as the window shows
+  it** (`viewer_host::oversize`, `Command::Oversize`, ADR 1892) rather than refused. What is still
+  owed: a page never drawn before that a notch out brings on screen has no picture of any kind until
+  it is drawn; and a page under the bound is still drawn whole and copied whole into the toolkit at
+  every update, where drawing every zoomed page as a window would bound both (ADR 1892 §4).
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

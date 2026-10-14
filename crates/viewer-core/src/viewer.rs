@@ -159,6 +159,10 @@ pub struct Viewer {
     /// host answering it for one page and [`Rendered::Raster`] for the next is a host this
     /// crate is still holding pixels for.
     holds_rasters: bool,
+    /// What the host does with a page whose whole raster would be past [`MAX_PIXELS`]
+    /// ([`crate::Command::Oversize`], ADR 1892): refused until a host says it draws such a page
+    /// from its list, as much of it as its window shows.
+    oversize: crate::Oversize,
     /// What this reader does with the restrictions a document asserts over it.
     ///
     /// The whole of the policy `CLAUDE.md`'s "a document's restrictions are the reader's to set"
@@ -277,6 +281,7 @@ impl Viewer {
             unread: false,
             presenting: crate::PresentationMode::default(),
             holds_rasters: true,
+            oversize: crate::Oversize::Refused,
             restrictions: crate::RestrictionPolicy::default(),
             trust: crate::TrustPolicy::default(),
             scripting: crate::Scripting::Off,
@@ -728,6 +733,9 @@ impl Viewer {
             // §10.8.3's simulation, applied to every open document and to every one opened
             // afterwards — `Command::Restrict`'s rule, for its reason. Every page already
             // interpreted was interpreted for the other answer, so all of them are superseded.
+            // A page refused at the old answer is asked for at the next settle, which follows
+            // every command: the refusal it was said under is a refusal this host no longer makes.
+            Command::Oversize(oversize) => self.oversize = oversize,
             Command::Separations(simulate) => {
                 self.separations = simulate;
                 for open in self.documents.values_mut() {
@@ -3752,8 +3760,14 @@ impl Viewer {
     ///
     /// A host that answers [`Rendered::Listed`] for some pages is the first kind: the budget is
     /// per request and it has not stopped taking rasters.
+    ///
+    /// **A host that draws an oversized page from its list is the second kind for that page**
+    /// ([`crate::Oversize::Listed`]): it allocates what its window shows and not the page, so the
+    /// request goes out at the page's whole target and [`Rendered::Listed`] is its answer. Every
+    /// page under the bound is asked for exactly as before; which of the two a request is, the
+    /// host reads off the target (ADR 1892).
     const fn raster_budget(&self) -> u64 {
-        if self.holds_rasters {
+        if self.holds_rasters && matches!(self.oversize, crate::Oversize::Refused) {
             MAX_PIXELS
         } else {
             u64::MAX
@@ -3919,6 +3933,7 @@ impl Viewer {
                 shown: None,
                 frame: None,
                 pending: None,
+                refused: None,
             });
         }
         open.on_screen.sort_by_key(|on_screen| on_screen.page);
@@ -4116,6 +4131,7 @@ impl Viewer {
                     shown: None,
                     frame: None,
                     pending: None,
+                    refused: None,
                 });
                 open.on_screen.sort_by_key(|on_screen| on_screen.page);
             }
@@ -4159,6 +4175,7 @@ impl Viewer {
                 shown: None,
                 frame: None,
                 pending: None,
+                refused: None,
             });
             open.on_screen.sort_by_key(|on_screen| on_screen.page);
         }
@@ -4264,15 +4281,23 @@ impl Viewer {
             let target = match TargetSpec::for_page(&list, magnification, budget) {
                 Ok(target) => target,
                 // Named rather than clamped, because a page silently drawn at a scale nobody chose
-                // is a page a person has been told something false about.
+                // is a page a person has been told something false about. **Named once for the
+                // view it is about**: every command settles, a pointer moving over the window
+                // included, and a refusal said again at each of them is a sentence a person sees
+                // a hundred times a second for nothing that changed. A new magnification or a new
+                // interpretation is a new question, and is answered again (ADR 1892).
                 Err(error) => {
-                    refusals.push((
-                        on_screen.page,
-                        format!("this page cannot be drawn at this size: {error}"),
-                    ));
+                    let view = (magnification.to_bits(), on_screen.revision);
+                    if on_screen.refused.replace(view) != Some(view) {
+                        refusals.push((
+                            on_screen.page,
+                            format!("this page cannot be drawn at this size: {error}"),
+                        ));
+                    }
                     continue;
                 }
             };
+            on_screen.refused = None;
             let showing = on_screen.shown == Some((target, on_screen.revision));
             let asked = on_screen.pending.as_ref().is_some_and(|pending| {
                 pending.target == target && pending.revision == on_screen.revision

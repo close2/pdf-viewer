@@ -442,99 +442,21 @@ impl FrameSlot {
         into: raster_gpu::Target<'_>,
         reported: &mut Reported<'_>,
     ) -> Result<raster_gpu::Frame, QuorraRasterError> {
-        // Every path into this backend funnels through here — `Rasterizer::rasterize`,
-        // `QuorraRasterizer::rasterize_frame` and the window's own `render` — which is why the
-        // group-cost bound is asked here and not at each of the three. The *overlays* are not
-        // asked: they are this program's own chrome rather than a document's, and a bound on
-        // what we ourselves draw would be a bound on a bug. `pdf_render::group_cost` has the
-        // measure, the census that sized it and the page that made it necessary.
-        for (list, target) in frame.pages {
-            pdf_render::check_group_blit(list, *target)?;
-        }
-
         let Reported {
             cost,
             functions,
             phases,
         } = reported;
-        let began = std::time::Instant::now();
-        let key = SceneKey::of(frame, medium, &mut self.rasters);
-        let page_space = page_space(medium, frame);
         let mut release_error: Option<raster_gpu::DeviceError> = None;
-        let mut rebuilt = false;
-        let held = match &mut self.held {
-            Some(held) if held.draws(frame, &key) => held,
-            slot => {
-                rebuilt = true;
-                let cull = culls(slot.as_ref(), frame, page_space);
-                // Settling first, and with the cache's clock still on the scene being replaced:
-                // that keeps `evict_settled`'s rule exactly what it was — an entry the *current*
-                // scene used is never evicted — while moving it off the frames that reuse one.
-                let settling = std::time::Instant::now();
-                if let Some(previous) = slot.take() {
-                    release_all(device, previous.transient, &mut release_error);
-                }
-                let evicted = caches.evict_settled(device);
-                cost.settle = settling.elapsed();
-                evicted?;
-
-                caches.begin_frame();
-                let mut builder = raster_scene::SceneBuilder::new();
-                let mut transient: Vec<ResourceId> = Vec::new();
-                // Cleared here rather than per frame, because what it describes is the *scene*:
-                // a replayed frame draws the paints this build chose, and forgetting them on the
-                // frame after would make a still page look as though it had stopped using them.
-                functions.clear();
-                let built = build(
-                    device,
-                    caches,
-                    (medium, cull),
-                    &mut builder,
-                    frame,
-                    &mut transient,
-                    functions,
-                );
-                cost.uploads = caches
-                    .stored()
-                    .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
-                let (consumed_view, dots) = match built {
-                    Ok(built) => built,
-                    Err(problem) => {
-                        // Nothing will draw this scene, so its resources go back now rather
-                        // than waiting for a replacement that will never be asked for.
-                        release_all(device, transient, &mut release_error);
-                        return Err(problem);
-                    }
-                };
-                slot.insert(Retained {
-                    key,
-                    page_space,
-                    view_free: page_space && !consumed_view,
-                    dots,
-                    pages: frame
-                        .pages
-                        .iter()
-                        .map(|(list, _)| Arc::clone(list))
-                        .collect(),
-                    overlays: frame.overlays.iter().map(|list| (*list).clone()).collect(),
-                    scene: raster_gpu::RetainedScene::new(builder.finish()),
-                    transient,
-                })
-            }
-        };
-        // The two are disjoint by construction — a rebuild does one and then the other, a reuse
-        // does neither — so this reports what the trace's columns have always reported.
-        cost.scene = began.elapsed().saturating_sub(cost.settle);
-        // A subdivision of the line above rather than a phase beside it. Read only on a
-        // rebuild: `begin_frame` zeroes the accumulators and only a rebuild reaches one,
-        // so on a reuse they still hold the *last* rebuild's numbers — reported as this
-        // frame's, they would charge a frame that uploaded nothing with the whole
-        // handover of the frame that built the scene. Found the day ADR 0702 made
-        // reuse the common case for a moved view; a reuse reports zero for both.
-        if rebuilt {
-            cost.handover = caches.handed();
-            cost.outline_segments = caches.segments();
-        }
+        let (held, rebuilt) = Self::scene_for(
+            &mut self.held,
+            &mut self.rasters,
+            (device, caches),
+            medium,
+            frame,
+            (&mut **cost, &mut **functions),
+            &mut release_error,
+        )?;
         cost.scene_kept = !rebuilt;
 
         let submitted = std::time::Instant::now();
@@ -567,6 +489,140 @@ impl FrameSlot {
             return Err(error.into());
         }
         Ok(drawn)
+    }
+
+    /// The scene `frame` asks for: the one held where it draws it (ADR 0351, ADR 1877), built
+    /// otherwise — and whether it was built. Fills `cost`'s scene, settle, handover and upload
+    /// figures, which are a build's and zero on a frame that keeps its scene.
+    ///
+    /// The half of [`Self::render`] that [`Self::prepare`] runs alone. An associated function
+    /// over the two fields rather than a method, so that the scene it returns borrows
+    /// [`Self::held`] and nothing else.
+    fn scene_for<'held>(
+        held: &'held mut Option<Retained>,
+        rasters: &mut u64,
+        (device, caches): (&mut raster_gpu::Device, &mut crate::cache::ResourceCaches),
+        medium: Option<Medium>,
+        frame: &PresentFrame<'_>,
+        (cost, functions): (&mut FrameCost, &mut FunctionPaints),
+        release_error: &mut Option<raster_gpu::DeviceError>,
+    ) -> Result<(&'held mut Retained, bool), QuorraRasterError> {
+        // Every path into this backend funnels through here — `Rasterizer::rasterize`,
+        // `QuorraRasterizer::rasterize_frame` and the window's own `render` — which is why the
+        // group-cost bound is asked here and not at each of the three. The *overlays* are not
+        // asked: they are this program's own chrome rather than a document's, and a bound on
+        // what we ourselves draw would be a bound on a bug. `pdf_render::group_cost` has the
+        // measure, the census that sized it and the page that made it necessary.
+        for (list, target) in frame.pages {
+            pdf_render::check_group_blit(list, *target)?;
+        }
+
+        let began = std::time::Instant::now();
+        let key = SceneKey::of(frame, medium, rasters);
+        let page_space = page_space(medium, frame);
+        let mut rebuilt = false;
+        let keeps = held.as_ref().is_some_and(|held| held.draws(frame, &key));
+        let held = match (keeps, held) {
+            (true, Some(held)) => held,
+            (_, slot) => {
+                rebuilt = true;
+                let cull = culls(slot.as_ref(), frame, page_space);
+                // Settling first, and with the cache's clock still on the scene being replaced:
+                // that keeps `evict_settled`'s rule exactly what it was — an entry the *current*
+                // scene used is never evicted — while moving it off the frames that reuse one.
+                let settling = std::time::Instant::now();
+                if let Some(previous) = slot.take() {
+                    release_all(device, previous.transient, release_error);
+                }
+                let evicted = caches.evict_settled(device);
+                cost.settle = settling.elapsed();
+                evicted?;
+
+                caches.begin_frame();
+                let mut builder = raster_scene::SceneBuilder::new();
+                let mut transient: Vec<ResourceId> = Vec::new();
+                // Cleared here rather than per frame, because what it describes is the *scene*:
+                // a replayed frame draws the paints this build chose, and forgetting them on the
+                // frame after would make a still page look as though it had stopped using them.
+                functions.clear();
+                let built = build(
+                    device,
+                    caches,
+                    (medium, cull),
+                    &mut builder,
+                    frame,
+                    &mut transient,
+                    functions,
+                );
+                cost.uploads = caches
+                    .stored()
+                    .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
+                let (consumed_view, dots) = match built {
+                    Ok(built) => built,
+                    Err(problem) => {
+                        // Nothing will draw this scene, so its resources go back now rather
+                        // than waiting for a replacement that will never be asked for.
+                        release_all(device, transient, release_error);
+                        return Err(problem);
+                    }
+                };
+                slot.insert(Retained {
+                    key,
+                    page_space,
+                    view_free: page_space && !consumed_view,
+                    dots,
+                    pages: frame
+                        .pages
+                        .iter()
+                        .map(|(list, _)| Arc::clone(list))
+                        .collect(),
+                    overlays: frame.overlays.iter().map(|list| (*list).clone()).collect(),
+                    scene: raster_gpu::RetainedScene::new(builder.finish()),
+                    transient,
+                })
+            }
+        };
+        // The two are disjoint by construction — a rebuild does one and then the other, a reuse
+        // does neither — so this reports what the trace's columns have always reported.
+        cost.scene = began.elapsed().saturating_sub(cost.settle);
+        // A subdivision of the line above rather than a phase beside it. Read only on a
+        // rebuild: `begin_frame` zeroes the accumulators and only a rebuild reaches one,
+        // so on a reuse they still hold the *last* rebuild's numbers — reported as this
+        // frame's, they would charge a frame that uploaded nothing with the whole
+        // handover of the frame that built the scene. Found the day ADR 0702 made
+        // reuse the common case for a moved view; a reuse reports zero for both.
+        if rebuilt {
+            cost.handover = caches.handed();
+            cost.outline_segments = caches.segments();
+        }
+        Ok((held, rebuilt))
+    }
+
+    /// Builds the scene `frame` asks for where the one held would not draw it, and draws nothing:
+    /// the next frame of these pages at a view the scene is true at then keeps it (ADR 1898).
+    /// Answers whether it built.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the translation, the eviction or the device refused, as [`Self::render`].
+    pub(crate) fn prepare(
+        &mut self,
+        (device, caches): (&mut raster_gpu::Device, &mut crate::cache::ResourceCaches),
+        medium: Option<Medium>,
+        frame: &PresentFrame<'_>,
+        (cost, functions): (&mut FrameCost, &mut FunctionPaints),
+    ) -> Result<bool, QuorraRasterError> {
+        let mut release_error: Option<raster_gpu::DeviceError> = None;
+        let (_, rebuilt) = Self::scene_for(
+            &mut self.held,
+            &mut self.rasters,
+            (device, caches),
+            medium,
+            frame,
+            (cost, functions),
+            &mut release_error,
+        )?;
+        release_error.map_or(Ok(rebuilt), |error| Err(error.into()))
     }
 
     /// Forgets the retained scene, releasing what it alone was holding.
@@ -711,6 +767,14 @@ pub struct QuorraWindowRenderer {
     page: Lane,
     /// The chrome, over transparency. See [`Lane`] for why it is not the page's.
     chrome: Lane,
+    /// A page the processor drew, uploaded (ADR 1898).
+    ///
+    /// **Its own lane so that an upload does not take the page's scene away.** A raster frame
+    /// never keeps a scene ([`SceneKey::raster`]), so through the page's lane every processor
+    /// frame, look and retained page replaced the scene the device had built of the page, and
+    /// the device's next frame of it built again what it had held. It costs the last upload's
+    /// image held on the device until the next one replaces it — a window's pixels, once.
+    uploads: Lane,
     last: FrameCost,
     functions: FunctionPaints,
     phases: Vec<(&'static str, std::time::Duration)>,
@@ -868,6 +932,7 @@ impl QuorraWindowRenderer {
             medium: Medium::WINDOW,
             page: Lane::new(),
             chrome: Lane::new(),
+            uploads: Lane::new(),
             last: FrameCost::default(),
             functions: FunctionPaints::default(),
             phases: Vec::new(),
@@ -1007,9 +1072,14 @@ impl QuorraWindowRenderer {
         if frame.width == 0 || frame.height == 0 {
             return Ok(()); // minimised: nothing to draw into
         }
-        let drawn = self.page.slot.render(
+        let lane = if frame.raster.is_some() {
+            &mut self.uploads
+        } else {
+            &mut self.page
+        };
+        let drawn = lane.slot.render(
             &mut self.device,
-            &mut self.page.caches,
+            &mut lane.caches,
             Some(self.medium),
             &PresentFrame {
                 overlays: &[],
@@ -1079,9 +1149,14 @@ impl QuorraWindowRenderer {
         if frame.width == 0 || frame.height == 0 {
             return Ok(()); // minimised: nothing to draw into
         }
-        let drawn = self.page.slot.render(
+        let lane = if frame.raster.is_some() {
+            &mut self.uploads
+        } else {
+            &mut self.page
+        };
+        let drawn = lane.slot.render(
             &mut self.device,
-            &mut self.page.caches,
+            &mut lane.caches,
             Some(self.medium),
             &PresentFrame {
                 overlays: &[],
@@ -1096,6 +1171,39 @@ impl QuorraWindowRenderer {
         );
         self.last.total = began.elapsed();
         drawn.map(|_| ())
+    }
+
+    /// Builds the page's scene for `frame` and draws nothing (ADR 1898): the next frame of these
+    /// pages at a view the scene is true at keeps it, and re-encodes rather than builds (ADR 1877).
+    /// A frame whose scene is held already builds nothing. Answers what the build cost — its scene,
+    /// settle, handover and upload figures, and [`FrameCost::scene_kept`] where nothing was built —
+    /// and leaves [`Self::last_frame`] the last frame's.
+    ///
+    /// For a host's idle time: the build is the part of a device frame no later view repeats, so
+    /// paying it while nobody waits takes it out of the next frame somebody does wait for. A frame
+    /// with a raster builds nothing here, because it keeps no scene.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the page lane's translation, eviction or device call refused.
+    pub fn prepare(&mut self, frame: PresentFrame<'_>) -> Result<FrameCost, QuorraRasterError> {
+        let began = std::time::Instant::now();
+        let mut cost = FrameCost::default();
+        if frame.width == 0 || frame.height == 0 || frame.raster.is_some() {
+            return Ok(cost);
+        }
+        let built = self.page.slot.prepare(
+            (&mut self.device, &mut self.page.caches),
+            Some(self.medium),
+            &PresentFrame {
+                overlays: &[],
+                ..frame
+            },
+            (&mut cost, &mut self.functions),
+        )?;
+        cost.scene_kept = !built;
+        cost.total = began.elapsed();
+        Ok(cost)
     }
 
     /// A texture this device can render a window layer into **and** sample afterwards.

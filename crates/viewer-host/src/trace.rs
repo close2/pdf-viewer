@@ -8,6 +8,42 @@
 
 use std::time::Instant;
 
+/// The first `chars` characters of `value`'s `Debug` form, and no more of it formatted.
+///
+/// **Formatting stops where the line does.** A command's `Debug` form is what an `events` line
+/// shows, and `Command::RenderReady` carries a page's raster: formatted whole, a 718 MB frame is
+/// seven hundred million numbers written out to keep a hundred and twenty characters of them, and
+/// it held the toolkit's thread for ten seconds at every frame of a page zoomed past twelve
+/// thousand pixels (ADR 1892).
+#[must_use]
+pub fn described(value: &impl std::fmt::Debug, chars: usize) -> String {
+    use std::fmt::Write as _;
+    /// A `String` that refuses to grow past its `left`, which ends the formatting there.
+    struct Bounded {
+        text: String,
+        left: usize,
+    }
+    impl std::fmt::Write for Bounded {
+        fn write_str(&mut self, piece: &str) -> std::fmt::Result {
+            for character in piece.chars() {
+                if self.left == 0 {
+                    return Err(std::fmt::Error);
+                }
+                self.text.push(character);
+                self.left = self.left.saturating_sub(1);
+            }
+            Ok(())
+        }
+    }
+    let mut bounded = Bounded {
+        text: String::new(),
+        left: chars,
+    };
+    // An error here is the bound reached, which is the point: what was written is the line.
+    let _ = write!(bounded, "{value:?}");
+    bounded.text
+}
+
 /// What a `--trace` line is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Topic {

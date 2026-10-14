@@ -155,6 +155,22 @@
 # mebibyte**, which is one huge page's headroom on the smallest of them and a little more on the
 # rest. Eleven samples at one-minute load averages between 4.0 and 11.2.
 #
+# **And every row's `peak_anon_mib` is taken in a child whose transparent huge pages are off**
+# (ADR 1902), one beside the row's first-page children, which keep the machine's. The huge page
+# above was not a step the program took, and it was not only granularity either: where
+# `transparent_hugepage/enabled` is `always` and `defrag` is `madvise`, a fault in an aligned
+# two-mebibyte range of a large anonymous mapping takes a whole huge page only where the buddy
+# allocator has a free block at that moment, and only for the ranges the mapping's placement
+# aligns. So the same binary's first page of the five-page row reached two huge pages in some
+# children and three in others with every block free, 19.4 to 20.9 MiB; on 2026-10-12, beside
+# neighbours' builds, it read 17.8 to 18.6, which is the figure with no huge page at all — under a
+# floor of 19.5, on a tree that had not moved it.
+# A decline could not have mended the first of those, because no fault fell back. With the pages
+# off (`prctl(PR_SET_THP_DISABLE)`) the child reads what the program touched: twelve children per
+# row in one hold on 2026-10-14, interleaved with twelve of the machine's, each row's band this
+# file's allocation rule over its twelve. The gate refuses a figure whose child does not say its
+# pages were off, and prints the first-page children's own allocation beside it, unbanded.
+#
 # **The figures with a clock in them are asked for rather than assumed, since round 938, and that
 # is `doc/questions/Q29`'s option 2 as the owner answered it.** `doc/todo/02` section 2 runs this
 # gate with no `PDFVIEWER_LAUNCH_CLOCKS` in the environment: it then measures one sample of each
@@ -310,7 +326,11 @@ bring_up_ms = 13.6 .. 20.6
 # Its own spread over eleven consecutive samples was 0.8%; the band is the observed range widened
 # by a tenth on each side and rounded outwards, which is the rule every `*_anon_mib` here uses and
 # which is a transparent huge page's worth of headroom on the smallest of them.
-bring_up_anon_mib = 5.5 .. 7.5
+# Floor moved down at batch eighty-four's merge, for the driver and not the tree: mesa went 26.2.3 →
+# 26.2.4 on 2026-10-13 (`/var/log/pacman.log`), and the merge's gate read 5.309 where three runs on 26.2.3
+# read 6.36 to 6.45 — the device's own allocation at bring-up, which this gate exists to make legible as
+# the driver's. The observed figure less a tenth, rounded outwards; the ceiling stays.
+bring_up_anon_mib = 4.8 .. 7.5
 
 # The disk's *latency*, where `io_ms` below is its throughput, timed beside every cold sample.
 #
@@ -373,7 +393,9 @@ first_page_ms = 21.0 .. 32.1
 turn_ms = 2.88 .. 5.6
 script_spawn_ms = none
 script_first_run_ms = none
-peak_anon_mib = 19.5 .. 25.5
+# In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
+# huge pages beside them 19.37 to 20.79.
+peak_anon_mib = 15.5 .. 20.0
 open_peak_mib = 5 .. 9
 read_kib = 86 .. 92
 read_calls = 23 .. 27
@@ -406,7 +428,9 @@ first_page_ms = 22.8 .. 37.8
 turn_ms = 3.18 .. 6.6
 script_spawn_ms = none
 script_first_run_ms = none
-peak_anon_mib = 23.0 .. 29.5
+# In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
+# huge pages beside them 22.76 to 24.11.
+peak_anon_mib = 18.5 .. 24.0
 open_peak_mib = 6 .. 11
 read_kib = 115 .. 121
 read_calls = 28 .. 32
@@ -446,7 +470,9 @@ first_page_ms = 22.1 .. 31.7
 turn_ms = 3.8 .. 7.2
 script_spawn_ms = none
 script_first_run_ms = none
-peak_anon_mib = 25.5 .. 32.0
+# In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
+# huge pages beside them 27.69 to 28.32.
+peak_anon_mib = 23.0 .. 29.5
 # 18 → 11 to 12 MiB, of which 11.6 → 3.9 allocated: the outline and the placed tree are no longer held.
 open_peak_mib = 9 .. 14
 read_kib = 99 .. 105
@@ -500,7 +526,9 @@ first_page_ms = 24.0 .. 36.2
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
-peak_anon_mib = 41.0 .. 59.0
+# In small pages (ADR 1902, see the header): 43.29 to 53.0 MiB over twelve children, the machine's
+# huge pages beside them 44.99 to 54.80.
+peak_anon_mib = 38.5 .. 58.5
 open_peak_mib = 5 .. 9
 read_kib = 83 .. 87
 read_calls = 23 .. 27
@@ -532,7 +560,9 @@ script_spawn_ms = none
 script_first_run_ms = none
 # Re-taken for ADR 1532 (see the first row): 12.8 to 13.1 MiB against 17.4 to 17.7. Its first
 # page read 24.5 to 26.7 ms in the same runs and stays unbanded for the reason above.
-peak_anon_mib = 11.5 .. 14.5
+# In small pages (ADR 1902, see the header): 10.52 to 11.33 MiB over twelve children, the machine's
+# huge pages beside them 12.57 to 13.19.
+peak_anon_mib = 9.0 .. 12.5
 open_peak_mib = 4 .. 9
 # Moved for ADR 1543 (see the first row): 99 → 87 KiB in 26 → 24 calls, and 1821.4 → 1160.3
 # thousand instructions.
@@ -560,7 +590,9 @@ turn_ms = none
 # `first_page_ms`; a worker started before the frame is a failure of its own, judged on any machine.
 script_spawn_ms = 0.58 .. 0.86
 script_first_run_ms = 0.38 .. 0.57
-peak_anon_mib = 14.0 .. 18.5
+# In small pages (ADR 1902, see the header): 13.96 to 14.60 MiB over twelve children, the machine's
+# huge pages beside them 15.35 to 16.16.
+peak_anon_mib = 12.5 .. 16.5
 open_peak_mib = 5 .. 9
 read_kib = 40 .. 44
 read_calls = 29 .. 33

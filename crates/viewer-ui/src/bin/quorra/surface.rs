@@ -592,17 +592,13 @@ impl App {
         );
     }
 
-    /// Takes whatever the render thread has finished, and records what it is.
-    ///
-    /// Everything a landed frame says about itself is said here, once: the launch timeline's
-    /// scene mark, the note a device refusal earns, the §8.7.4.5.2 programs it drew from the
-    /// grid, and the view it settled — which is what the next reprojection composes against.
-    fn adopt(&mut self, now: std::time::Instant, stages: &mut Stages) {
-        let Some(window) = self.device_window() else {
-            return;
-        };
-        let landed = window.collect();
-        let sharpened = window.sharpened();
+    /// Says what the render thread did while nobody waited: a sharp pass that landed, and the
+    /// device's scene built ahead of the next view (ADRs 0699, 1898).
+    fn said_idle_work(
+        &self,
+        sharpened: Option<std::time::Duration>,
+        built_ahead: Option<render_raster::FrameCost>,
+    ) {
         if let Some(took) = sharpened {
             // Rule 3's sentence for ADR 0699: the page on the window just became the 2×
             // rendering shown box-filtered down, and a trace that did not say so would
@@ -615,6 +611,35 @@ impl App {
                 ),
             );
         }
+        if let Some(built) = built_ahead {
+            // The next frame of these pages is priced as one that keeps the device's scene, and a
+            // trace that did not say why would show a cheaper prediction with no cause (ADR 1898).
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "built ahead: the device's scene of the page on hand, {:.1} ms on the render \
+                     thread while nobody waited ({:.1} of it the scene, {} uploads)",
+                    built.total.as_secs_f64() * 1e3,
+                    built.scene.as_secs_f64() * 1e3,
+                    built.uploads
+                ),
+            );
+        }
+    }
+
+    /// Takes whatever the render thread has finished, and records what it is.
+    ///
+    /// Everything a landed frame says about itself is said here, once: the launch timeline's
+    /// scene mark, the note a device refusal earns, the §8.7.4.5.2 programs it drew from the
+    /// grid, and the view it settled — which is what the next reprojection composes against.
+    fn adopt(&mut self, now: std::time::Instant, stages: &mut Stages) {
+        let Some(window) = self.device_window() else {
+            return;
+        };
+        let landed = window.collect();
+        let sharpened = window.sharpened();
+        let built_ahead = window.built_ahead();
+        self.said_idle_work(sharpened, built_ahead);
         let Some(landed) = landed else {
             return;
         };

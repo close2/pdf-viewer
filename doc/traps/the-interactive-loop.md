@@ -458,3 +458,21 @@ page one is finished from the drawing made while it was read, which prices nothi
 next notches is taken back before it lands, so the window never asked the device during a gesture
 (round 1525, ADR 1886). The condition is "the lane drew it", not "the lane priced it", and a frame
 that finished ahead or was taken back counts as drawn.
+
+### 167. A sentence from a function every command runs through is said at every pointer move
+
+The owner's "endless rejection loop" in the toolkit windows was the pointer: `schedule` pushed
+"this page cannot be drawn at this size" at every settle, every command settles, and a pointer move
+is a command — 51 refusals in ten seconds with the pointer over the Qt window, one without it (round
+1528, ADR 1892). A sentence is said once for the state it is about, and the state is remembered. The
+same round found the events trace formatting a 718 MB `RenderReady` whole before cutting to 120
+characters, 8–11 s a frame: a cut that comes after the formatting has paid for all of it.
+
+### 170. A window's figure counts only if the quiet window outlasts the program's longest silent stage
+
+Round 1532 read PdfCraft's "Rendering…" placeholder as a 0.56 s first frame and a 0.08 s zoom, and
+threw both away when the settled picture was looked at (ADR 1900). The quiet window a figure waits
+for is longer than the longest stage in which the program shows nothing new, and the picture at the
+end is looked at before the figure is written. And after a session change a window started through
+the owner's loop may draw and be found by nothing — `xdotool` by pid, title or class — so a run that
+pressed no key says "not pressed" and reports no figure (seven of eight toolkit runs on 2026-10-14).

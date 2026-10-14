@@ -617,6 +617,41 @@ are its reduction's row split, one scope a turn and none a step, the only set on
 page `turn_path` times: starting them is 0.10 ms at eight threads and 0.49 at 24 against 4.4 ms of
 one thread's reduction, and capping them at 4, 8 or 12 moved no row (ADR 1704).
 
+## Where this program stands against the others
+
+**Measured on 2026-10-14 against okular, `mutool`, `pdftoppm` and PdfCraft** (upstream `e4028b3c`,
+built `--release`), on the owner's witness and on the launch gate's six documents (ADR 1900). HEAD
+was `77fa741b`. The witness is `demo_heavy_engineering_A1.pdf` from
+<https://github.com/cyfung1031/BergPDF> (`a9f4bac2`, `sample/`), linked from PdfCraft's issue 563.
+It is not in the repository. Every window was timed by one instrument, not by its program's own
+clock: `xwd -id` photographs every 9–32 ms, and the first picture equal to the settled one is the
+figure. `quorra`'s own trace agrees within one picture.
+
+| the witness, s | `quorra` | `quorra-gtk` / `-qt` | okular | PdfCraft | headless |
+|---|---|---|---|---|---|
+| first frame, owner's display | 2.04–2.26 | 1.72 / 1.70–1.76 | 11.34 | 6.95–8.04 | `quorra-transform` 1.13–1.16, `mutool` 4.71–4.76, `pdfcraft-cli` 5.71–5.75, `pdftoppm` 10.05–10.22 |
+| zoom step, owner's display | 0.74 | 0.46 / 0.41 | 11.53 | 2.81–2.96 (Xvfb) | |
+| turn into it, owner's display | 1.95 | 1.61 / 1.83 | 4.44 | 1.99 | |
+
+On the six ordinary documents, `quorra`'s first frame on the owner's display is 0.071–0.184 s.
+That is the quickest of the five windows on five of the six; okular is 0.231–0.444 s and PdfCraft
+0.264–1.402 s. Every program's turn and zoom step there is within one or two refreshes of the
+instrument's 20–30 ms floor, except okular's zoom on two documents (0.22–0.42 s) and PdfCraft's
+(0.07–0.21 s).
+
+Two figures are still behind, and neither is visible in a window:
+
+- **`pdfcraft-cli` reads small pages faster**, by 2–10 ms, headless. On `WTPDF`, 60 M of 97 M
+  instructions are page 1's 350 × 350 `ICCBased` photograph, converted sample by sample in
+  `pdf_model::image::convert_three`. PdfCraft builds one 8-bit transform instead.
+- **The witness costs `quorra-transform` 1.84–1.86 GiB and 11.5 CPU-seconds**, against `mutool`'s
+  278 MiB in 4.7 s.
+
+What is left on the witness's first frame is the drawer. The page is interpreted at 0.77–0.95 s,
+and one thread then draws it for 1.24–1.27 s more. ADR 1888 measured the pooled draw at 0.49–0.52 s.
+**After that build, ADR 1900 calls performance at diminishing returns**, and names the refactoring
+targets a code-improvement batch takes.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

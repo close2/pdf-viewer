@@ -20,7 +20,7 @@
 //! trap 18 read from the other side: there the limit destroyed the channel that reports it; here
 //! the channel that measures the limit could stop, and nothing said so.
 //!
-//! The self-test's fourteen cases are the script's own (`tools/bounded.sh --self-test` prints one line
+//! The self-test's cases are the script's own (`tools/bounded.sh --self-test` prints one line
 //! each): a synthetic table of a hundred thousand children sampled in a fraction of the interval,
 //! a chain, a cycle and a duplicated row walked once each, a live tree that fans out, a child
 //! over the ceiling stopped with exit 137, a sampler that never returns stopping the tree after
@@ -43,7 +43,9 @@
 //! take a freed second lane first-asked first, the last of them asked while the lane was free, and a
 //! large walk's ask holds back no lane but the first — and a wait that ends before a grant on a line:
 //! a walk and a clock run stopped with `TERM` while they queue each leave `lane=-` at once, and a walk
-//! killed with `KILL` leaves a ticket that holds back nobody (ADR 1790). Every hand-off between a case's runs waits for the run to say
+//! killed with `KILL` leaves a ticket that holds back nobody (ADR 1790) — and a suspend on the line
+//! rather than inside its clocks: a run the machine slept through part of its queue and its hold says
+//! `slept_queued=` and `slept=` before `cmd=`, and one it did not says nothing (ADR 1903). Every hand-off between a case's runs waits for the run to say
 //! what it was asked, never for a hold of so many seconds, and the one cost it bounds is processor
 //! time: a hold an idle machine always outlasted failed inside the merge's whole-workspace test run at
 //! a load of 16 (ADR 1710). This test runs the script and repeats what it said.
@@ -402,6 +404,52 @@ fn the_lock_cost_sums_the_small_walks_queue_while_the_second_lane_stood_free() {
         ),
         "the small walks' queue while the second lane stood free is not the planted 80 s:\n{stdout}"
     );
+}
+
+/// `tools/state.sh gates-cost` takes a suspend off the line it was inside (trap 164, ADR 1903).
+/// Trap 164's two lines: a build that read `hold=10178s` for 350 s of cargo, and a clock run that
+/// queued 11 120 s behind a machine that slept about 9 800 s of it. Planted with the wrapper's
+/// `slept=` and `slept_queued=`, the rounds' sums are 350 s held and 1 320 s queued, and the batch's
+/// one line says how much was taken off. A third line with neither is summed as written — the calibration,
+/// since a reading that subtracted something from every line would move it.
+#[test]
+fn the_lock_cost_takes_a_suspend_off_the_line_it_was_inside() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let scratch = std::env::temp_dir().join(format!("slept-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&scratch).expect("a temporary directory");
+    let log = scratch.join("heavy-walk.log");
+    let planted = "2026-10-12T10:00:00 batch=batch-100-105 round=101 wait=1.0s hold=10178.0s exit=0 \
+                   peak=0.10GiB behind=- kind=large lane=1 slept=9828.0s cmd=walk 101\n\
+                   2026-10-12T10:01:00 batch=batch-100-105 round=102 wait=11120.0s hold=60.0s exit=0 \
+                   peak=0.10GiB behind=- kind=clock lane=1+2 slept_queued=9800.0s cmd=walk 102\n\
+                   2026-10-12T10:03:00 batch=batch-100-105 round=103 wait=2.0s hold=5.0s exit=0 \
+                   peak=0.10GiB behind=- kind=small lane=2 cmd=walk 103\n";
+    std::fs::write(&log, planted).expect("a planted lock log");
+    let gates = scratch.join("batch-gates.log");
+    std::fs::write(&gates, "").expect("an empty gate log");
+    let output = Command::new("bash")
+        .arg(repository_root().join("tools/state.sh"))
+        .arg("gates-cost")
+        .env("HEAVY_WALK_LOG", &log)
+        .env("BATCH_GATES_LOG", &gates)
+        .output()
+        .expect("bash runs tools/state.sh");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "round 101     1 run(s)  queued      1.0s  held    350.0s",
+        "round 102     1 run(s)  queued   1320.0s  held     60.0s",
+        "round 103     1 run(s)  queued      2.0s  held      5.0s",
+        "2 of those line(s) say the machine was suspended inside them, 19628.0s taken off their \
+         waits and holds (trap 164)",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "the lock cost does not say `{expected}`:\n{stdout}"
+        );
+    }
 }
 
 /// Whether `line` tells a person to take the heavy-walk lock with `flock` on the lock's path, as

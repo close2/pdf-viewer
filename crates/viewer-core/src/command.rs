@@ -360,6 +360,19 @@ pub enum Command {
     /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
     /// fact about the *reader* rather than about any one file. ADR 1228.
     Separations(bool),
+    /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
+    ///
+    /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**
+    /// [`crate::MAX_PIXELS`] bounds an allocation, so it applies where one happens: a host that
+    /// holds whole-page rasters is refused such a page, and one that draws only the part of it its
+    /// window shows allocates a window and nothing more. [`Oversize::Listed`] says this host is
+    /// the second kind for those pages: the request is made at the page's whole target, the host
+    /// takes its list ([`Rendered::Listed`]) and draws what its window shows of it, and every page
+    /// under the bound is asked for and answered exactly as before (ADR 1892).
+    ///
+    /// **Nothing changes for a host that never sends this**: [`Oversize::Refused`] is the default,
+    /// and such a page is refused by name, once for each magnification it is refused at.
+    Oversize(Oversize),
     /// A name held in reserve for a document this program opens **beside** the one showing.
     ///
     /// **The eleventh host-supplied policy value, and the same shape as [`Self::Trust`],
@@ -1522,6 +1535,18 @@ pub enum Purpose {
     /// anything else is an application, and starting one is what the sandbox withholds (ADRs
     /// 1368, 1358).
     LaunchDocument,
+}
+
+/// What a host does with a page whose whole raster would be past [`crate::MAX_PIXELS`] —
+/// [`Command::Oversize`]'s value (ADR 1892).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Oversize {
+    /// The page is refused at that size, by name: the host holds whole-page rasters.
+    #[default]
+    Refused,
+    /// The page is asked for at its whole target and the host answers [`Rendered::Listed`],
+    /// drawing from the list only the part of the page its window shows.
+    Listed,
 }
 
 /// What a worker did with a [`crate::RenderRequest`].

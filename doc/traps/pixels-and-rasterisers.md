@@ -613,6 +613,15 @@ not before.
 joined — can differ from the whole reading by nothing a pixel shows. `raster_golden` digests that
 rendering, so a divided page can move its digest without a pixel moving (round 1522, ADR 1880). A
 merged-against-original comparison masks the memos and tolerates NaN, and the pixels are looked at.
+### 168. A drawer that draws ahead is re-priced whenever the read it overlaps changes shape
+
+ADR 1855's drawer finished page one on one thread while the page was read, and it paid: the read took
+two seconds and the drawer kept up. ADR 1880 divided the read to 0.6 s, so the thread had the first of
+48 pieces and drew the other 47 alone after the read — a frame at 1.73–1.75 s where the pooled draw
+after the read gave 0.92–1.01 s, a 0.8 s loss on the owner's first frame that two batches shipped
+(round 1530, ADR 1896). No gate saw it: nothing compares the drawn-ahead frame's time with the frame
+drawn after the read. A slot that changes a read's shape re-takes the drawer's figure beside it.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

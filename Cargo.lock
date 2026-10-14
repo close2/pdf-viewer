@@ -5855,6 +5855,7 @@ dependencies = [
  "raster-scene",
  "render-cpu",
  "render-raster",
+ "rustix 1.1.4",
  "sha2",
  "softbuffer",
  "test-scenes",

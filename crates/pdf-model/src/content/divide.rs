@@ -33,16 +33,20 @@
 //! The division is exact or it does not happen: a page whose stream states anything the join
 //! does not carry is read as it was before — whole, on one thread — and the reason is a
 //! sentence ([`Declined`]) a census can print. **That list is the build's honest limit, not a
-//! clause's**: a text object, a marked-content sequence, an `/ExtGState`, an inline image, a
-//! compatibility section, or a piece whose reading left page-level state the join does not
-//! carry (a soft mask, a transfer function, §11.6.4.3's readings, text met inside a form). Each
-//! is the next build's to carry, and ADR 1880 says what each needs.
+//! clause's**: a text object, a marked-content sequence, an inline image, a compatibility
+//! section, or a piece whose reading left page-level state the join does not carry (a soft mask,
+//! a transfer function, §11.6.4.3's readings, the compositing record, text met inside a form).
+//! A `gs` is carried as a statement of the spine, and declines only where it reaches one of those
+//! records (ADR 1894). Each of the rest is the next build's to carry, and ADR 1880 says what each
+//! needs.
 
 use std::cell::Cell;
 use std::ops::Range;
 
 use pdf_render::{ClipId, Command};
 use pdf_syntax::{Dictionary, Document, Token};
+
+mod pipeline;
 
 use super::reader::{CEILING, ContentReader, Operator};
 use super::run::Composed;
@@ -93,6 +97,10 @@ pub struct Division {
     pub from: usize,
     /// How many pieces, or `None` for the pool's thread count with [`PIECE_FLOOR`] each.
     pub pieces: Option<usize>,
+    /// Whether the pieces start as the inflate passes them ([`pipeline`]), or once the whole
+    /// stream is inflated and planned — the second is what the first falls back to, and what an
+    /// instrument prices it against.
+    pub pipelined: bool,
 }
 
 impl Division {
@@ -100,12 +108,20 @@ impl Division {
     pub const DEFAULT: Self = Self {
         from: DIVIDE_FROM,
         pieces: None,
+        pipelined: true,
+    };
+
+    /// The division as ADR 1880 built it: the whole stream inflated, then planned, then read.
+    pub const AFTER_THE_INFLATE: Self = Self {
+        pipelined: false,
+        ..Self::DEFAULT
     };
 
     /// No division: every page read whole, as before ADR 1880.
     pub const NEVER: Self = Self {
         from: usize::MAX,
         pieces: Some(1),
+        pipelined: false,
     };
 
     /// Runs `run` with this division in force for every interpretation it makes on this thread.
@@ -136,6 +152,15 @@ impl Division {
 thread_local! {
     static IN_FORCE: Cell<Option<Division>> = const { Cell::new(None) };
     static LAST: Cell<Option<Reading>> = const { Cell::new(None) };
+    static LAST_PIPELINE: Cell<Option<Declined>> = const { Cell::new(None) };
+}
+
+/// Why the last page interpreted on this thread was not read with its inflate pipelined into
+/// the pieces, where it was asked to be and the reading fell back to [`Division::AFTER_THE_INFLATE`]'s
+/// — `None` where the pipeline read it, or was not asked. For a census, as [`last_reading`] is.
+#[must_use]
+pub fn last_pipeline_decline() -> Option<Declined> {
+    LAST_PIPELINE.try_with(Cell::get).ok().flatten()
 }
 
 /// How a page's stream was read.
@@ -226,43 +251,75 @@ fn read<'r>(
     let most = encoded
         .saturating_mul(INFLATION_BOUND)
         .min(inputs.document.limits().max_stream_len);
-    let Some(bytes) = reader.read_to_end_within(most) else {
+    let _ = LAST_PIPELINE.try_with(|slot| slot.set(None));
+    let bytes = if division.pipelined {
+        match pipeline::read(interpreter, reader, inputs, initial, division.pieces, most) {
+            pipeline::Outcome::Divided => return None,
+            pipeline::Outcome::PastBound => None,
+            pipeline::Outcome::Windowed(reason) => {
+                let _ = LAST_PIPELINE.try_with(|slot| slot.set(Some(reason)));
+                windowed_again(interpreter, reader, inputs, initial);
+                return Some(reason);
+            }
+            pipeline::Outcome::Inflated(bytes, reason) => {
+                let _ = LAST_PIPELINE.try_with(|slot| slot.set(Some(reason)));
+                Some(bytes)
+            }
+        }
+    } else {
+        reader.read_to_end_within(most)
+    };
+    let Some(bytes) = bytes else {
         windowed_again(interpreter, reader, inputs, initial);
         return Some(Declined("the stream inflates past its bound"));
     };
+    after_the_inflate(interpreter, reader, inputs, initial, &bytes, division)
+}
+
+/// Divides a stream already inflated whole: planned, then read in pieces (ADR 1880) — what the
+/// pipeline falls back to where one of its guessed cuts was not confirmed.
+fn after_the_inflate<'r>(
+    interpreter: &mut Interpreter<'_>,
+    reader: &mut ContentReader<'r>,
+    inputs: &Inputs<'r>,
+    initial: &GraphicsState,
+    bytes: &[u8],
+    division: Division,
+) -> Option<Declined> {
     let pieces = division.pieces.unwrap_or_else(|| {
         rayon::current_num_threads()
             .saturating_mul(PIECES_PER_THREAD)
             .min(bytes.len() / PIECE_FLOOR)
             .max(1)
     });
-    let plan = match Plan::of(&bytes, pieces) {
+    let plan = match Plan::of(bytes, pieces) {
         Ok(plan) => plan,
         Err(Refusal::Lexing(reason)) => {
             windowed_again(interpreter, reader, inputs, initial);
             return Some(reason);
         }
         Err(Refusal::Joining(reason)) => {
-            whole(interpreter, &bytes, inputs, initial);
+            whole(interpreter, bytes, inputs, initial);
             return Some(reason);
         }
     };
     // Zero, one cut and the length are two pieces; anything less is the stream whole.
     if plan.cuts.len() < 3 {
-        whole(interpreter, &bytes, inputs, initial);
+        whole(interpreter, bytes, inputs, initial);
         return Some(Declined(
             "the stream has no point where only the state is open",
         ));
     }
     let seam = interpreter.checkpoint();
-    match interpreter.read_divided(&bytes, &plan, inputs, initial) {
+    match interpreter.read_divided(bytes, &plan, inputs, initial) {
         Ok(()) => None,
         Err(reason) => {
             interpreter.restore(seam);
+            interpreter.forget_memos();
             if let Some(parts) = &interpreter.hand_over {
-                parts.spoil("the divided read was given up after a part was handed over");
+                parts.spoil_if_handed("the divided read was given up after a part was handed over");
             }
-            whole(interpreter, &bytes, inputs, initial);
+            whole(interpreter, bytes, inputs, initial);
             Some(reason)
         }
     }
@@ -367,6 +424,29 @@ impl Level {
 struct Effect {
     pops: usize,
     levels: Vec<Level>,
+    /// How many `EMC`s closed sections opened before the chunk.
+    closes: usize,
+    /// The `BMC` and `BDC` statements the chunk left open, outermost first.
+    opens: Vec<Range<usize>>,
+}
+
+/// The composed state at a point of the stream, as statements: the state stack's levels, and the
+/// marked-content sections open there (§8.11.3.2), whose statements the next piece's spine
+/// states again after the levels — a section nests independently of `q` and `Q`.
+#[derive(Debug, Clone)]
+struct Stack {
+    levels: Vec<Level>,
+    sections: Vec<Range<usize>>,
+}
+
+impl Stack {
+    /// A stream's beginning: one level, keeping nothing, and no section open.
+    fn fresh() -> Self {
+        Self {
+            levels: vec![Level::default()],
+            sections: Vec::new(),
+        }
+    }
 }
 
 impl Effect {
@@ -374,6 +454,23 @@ impl Effect {
         Self {
             pops: 0,
             levels: vec![Level::default()],
+            closes: 0,
+            opens: Vec::new(),
+        }
+    }
+
+    /// The same effect with every kept statement's bytes `by` further into the stream — a chunk
+    /// lexed from a buffer that begins there.
+    fn shift(&mut self, by: usize) {
+        let moved =
+            |bytes: &Range<usize>| bytes.start.saturating_add(by)..bytes.end.saturating_add(by);
+        for level in &mut self.levels {
+            for kept in &mut level.kept {
+                kept.bytes = moved(&kept.bytes);
+            }
+        }
+        for opened in &mut self.opens {
+            *opened = moved(opened);
         }
     }
 
@@ -383,7 +480,30 @@ impl Effect {
     }
 
     /// The stack `below` with this effect applied on top of it.
-    fn after(&self, below: &[Level]) -> Result<Vec<Level>, Refusal> {
+    ///
+    /// An `EMC` with no section open is ignored by the interpreter (`marked.pop()` finds
+    /// nothing), so the sections close down to none and no further.
+    fn after(&self, below: &Stack) -> Result<Stack, Refusal> {
+        let mut sections: Vec<Range<usize>> = below
+            .sections
+            .iter()
+            .take(below.sections.len().saturating_sub(self.closes))
+            .cloned()
+            .collect();
+        sections.extend(self.opens.iter().cloned());
+        if sections.len() > MOST_KEPT {
+            return Err(Refusal::Joining(Declined(
+                "more marked-content sections open than a piece may compose",
+            )));
+        }
+        Ok(Stack {
+            levels: self.levels_after(&below.levels)?,
+            sections,
+        })
+    }
+
+    /// The state stack's levels `below` with this effect applied on top of them.
+    fn levels_after(&self, below: &[Level]) -> Result<Vec<Level>, Refusal> {
         let kept = below
             .len()
             .checked_sub(self.pops)
@@ -435,6 +555,9 @@ struct Chunk {
     ended: (usize, bool),
     /// Where the chunk's first text object begins, if it holds one.
     first_text: Option<usize>,
+    /// Whether the chunk's last token is a `Q` operator that ends exactly at the chunk's end with
+    /// no path or clip open — what confirms a cut guessed from the bytes (ADR 1894).
+    closes_on_a_q: bool,
 }
 
 /// Where the stream is cut, and the state each piece begins in.
@@ -487,8 +610,8 @@ impl Plan {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let mut stack = vec![Level::default()];
-        let mut found: Vec<(usize, Vec<Level>)> = Vec::new();
+        let mut stack = Stack::fresh();
+        let mut found: Vec<(usize, Stack)> = Vec::new();
         for (index, chunk) in chunks.iter().enumerate() {
             let next = starts.get(index.saturating_add(1)).copied();
             if let Some(next) = next
@@ -499,6 +622,7 @@ impl Plan {
                 )));
             }
             if stack
+                .levels
                 .len()
                 .saturating_sub(chunk.effect.pops)
                 .saturating_add(chunk.deepest)
@@ -524,13 +648,13 @@ impl Plan {
         let mut spines = vec![Vec::new()];
         for &target in &targets {
             let floor = cuts.last().copied().unwrap_or(0).max(target);
-            if let Some((at, levels)) = found.iter().find(|(at, _)| *at >= floor && *at > 0)
+            if let Some((at, composed)) = found.iter().find(|(at, _)| *at >= floor && *at > 0)
                 && *at < length
                 && *at <= text_from
                 && cuts.last() != Some(at)
             {
                 cuts.push(*at);
-                spines.push(spine(bytes, levels));
+                spines.push(spine(bytes, composed));
             }
         }
         cuts.push(length);
@@ -548,16 +672,29 @@ impl Plan {
 
 /// The spine's statements as one stream: each level's kept statements, with a `q` between one
 /// level and the next — the producer's own bytes, in the producer's order.
-fn spine(bytes: &[u8], levels: &[Level]) -> Vec<u8> {
+fn spine(bytes: &[u8], composed: &Stack) -> Vec<u8> {
+    spine_of(composed, |range| bytes.get(range).unwrap_or_default())
+}
+
+/// [`spine`], each statement's bytes found by `statement` — in whichever piece of the stream
+/// holds them, where the stream is held in pieces.
+fn spine_of<'b>(composed: &Stack, statement: impl Fn(Range<usize>) -> &'b [u8]) -> Vec<u8> {
     let mut spine = Vec::new();
-    for (index, level) in levels.iter().enumerate() {
+    for (index, level) in composed.levels.iter().enumerate() {
         if index > 0 {
             spine.extend_from_slice(b"q\n");
         }
-        for statement in &level.kept {
-            spine.extend_from_slice(bytes.get(statement.bytes.clone()).unwrap_or_default());
+        for kept in &level.kept {
+            spine.extend_from_slice(statement(kept.bytes.clone()));
             spine.push(b'\n');
         }
+    }
+    // The sections open at the cut, opened again in order: whether each hides what follows is
+    // decided by the view's optional content configuration (§8.11.4), not by the graphics state
+    // the levels above composed, so they may follow all of it.
+    for section in &composed.sections {
+        spine.extend_from_slice(statement(section.clone()));
+        spine.push(b'\n');
     }
     spine
 }
@@ -627,6 +764,7 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
         .peekable();
     let mut first_candidate = true;
     let mut first_text: Option<usize> = None;
+    let mut closed_on_a_q = false;
     while let Some(begins) = reader.next_token_start() {
         if begins >= stop {
             break;
@@ -647,10 +785,20 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
         }
         let operator = match lexed {
             Lexed::End => break,
+            Lexed::Dictionary if arrays == 0 => {
+                // A marked-content operator's property list (§14.6.2). The plan steps over it as
+                // `inline_dictionary` reads it, and declines one whose shape that reader would
+                // read some other way — then the two could disagree about where it ends.
+                let after = step_over_dictionary(&mut reader, 0)?;
+                statement.get_or_insert(begins);
+                closed_on_a_q = false;
+                operands = operands.saturating_add(1);
+                ended = (after, false);
+                continue;
+            }
             Lexed::Dictionary => {
-                return Err(Refusal::Lexing(Declined(
-                    "an inline dictionary, which only a marked-content operator or an inline \
-                     image states",
+                return Err(Refusal::Joining(Declined(
+                    "a dictionary inside an array outside a property list",
                 )));
             }
             Lexed::Operand | Lexed::ArrayOpen | Lexed::ArrayClose => {
@@ -660,6 +808,7 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
                     _ => {}
                 }
                 statement.get_or_insert(begins);
+                closed_on_a_q = false;
                 operands = operands.saturating_add(1);
                 if operands >= MAX_OPERANDS {
                     return Err(Refusal::Joining(Declined(
@@ -672,12 +821,16 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
             Lexed::Keyword(_) if arrays > 0 => {
                 // §7.3.6: a keyword inside an array is neither an element nor an operator; the
                 // interpreter reports it and keeps the array.
+                closed_on_a_q = false;
                 ended = (ends, false);
                 continue;
             }
             Lexed::Keyword(operator) => operator,
         };
         ended = (ends, true);
+        closed_on_a_q = matches!(operator, Some(Operator::Restore))
+            && path == PathState::Closed
+            && !clip_pending;
         let range = statement.take().unwrap_or(begins)..ends;
         operands = 0;
         let Some(operator) = operator else {
@@ -715,7 +868,14 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
                     }
                 }
             }
-            Operator::Concatenate | Operator::RenderingIntent => top.keep(Kind::Ordered, range)?,
+            // §8.4.5's `gs` sets graphics state parameters, and §8.4.2's `Q` restores them as it
+            // restores the rest — so its statement is kept in order, like a `cm`, and the spine
+            // states it again. A parameter it sets that reaches a page-level record — a soft
+            // mask, a transfer function, §11.6.4.3's alpha source, the compositing record — is
+            // met by the piece that states it, which `outside_the_division` then declines.
+            Operator::Concatenate | Operator::RenderingIntent | Operator::ExtGState => {
+                top.keep(Kind::Ordered, range)?;
+            }
             Operator::LineWidth => top.keep(Kind::Line(0), range)?,
             Operator::LineCap => top.keep(Kind::Line(1), range)?,
             Operator::LineJoin => top.keep(Kind::Line(2), range)?,
@@ -789,8 +949,10 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
                 first_text.get_or_insert(range.start);
             }
             // A shading, an XObject and a text object's own operators leave no state behind: §8.10.1's
-            // `Do` restores what it saved.
-            Operator::Shade
+            // `Do` restores what it saved. A marked-content point opens no section.
+            Operator::MarkPoint
+            | Operator::MarkPointProperties
+            | Operator::Shade
             | Operator::XObject
             | Operator::EndText
             | Operator::MoveText
@@ -805,6 +967,17 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
             Operator::BeginImage | Operator::ImageData | Operator::EndImage => {
                 return Err(Refusal::Lexing(Declined(beyond_the_join(operator))));
             }
+            // §14.6's marked-content sections. A cut may fall inside one: the next piece's spine
+            // opens it again, and a piece declines where one it leaves open records anything but
+            // whether it hides (`Leftover::only_plain_sections_open`).
+            Operator::BeginMarked | Operator::BeginMarkedProperties => {
+                effect.opens.push(range);
+            }
+            Operator::EndMarked => {
+                if effect.opens.pop().is_none() {
+                    effect.closes = effect.closes.saturating_add(1);
+                }
+            }
             other => return Err(Refusal::Joining(Declined(beyond_the_join(other)))),
         }
     }
@@ -814,22 +987,106 @@ fn lex_chunk(bytes: &[u8], start: usize, stop: usize, targets: &[usize]) -> Resu
         candidates,
         ended,
         first_text,
+        closes_on_a_q: closed_on_a_q && ended == (stop, true),
     })
+}
+
+/// Steps over an inline dictionary after its `<<`, as `reader::inline_dictionary` reads it, and
+/// answers where it ended — or declines one that reader would read otherwise: a key that is not a
+/// name, a value missing, a nesting past its bound, an array past its count.
+fn step_over_dictionary(reader: &mut ContentReader<'_>, depth: usize) -> Result<usize, Refusal> {
+    /// The same for an array after its `[`, inside a property list.
+    fn step_over_array(
+        reader: &mut ContentReader<'_>,
+        depth: usize,
+        step: &mut impl FnMut(&mut ContentReader<'_>) -> Result<Step, Refusal>,
+    ) -> Result<(), Refusal> {
+        let malformed = || {
+            Refusal::Joining(Declined(
+                "an inline array whose shape the property-list reader reads otherwise",
+            ))
+        };
+        if depth > MAX_DEPTH {
+            return Err(malformed());
+        }
+        for _ in 0..MAX_ELEMENTS {
+            match step(reader)? {
+                Step::ArrayClose => return Ok(()),
+                Step::ArrayOpen => step_over_array(reader, depth.saturating_add(1), step)?,
+                Step::Open => {
+                    step_over_dictionary(reader, depth.saturating_add(1))?;
+                }
+                Step::Name | Step::Other => {}
+                Step::Close | Step::End => return Err(malformed()),
+            }
+        }
+        Err(malformed())
+    }
+
+    /// `inline_dictionary`'s own bounds: past them it reads a shape this walk does not follow.
+    const MAX_DEPTH: usize = 8;
+    const MAX_ELEMENTS: usize = 65_536;
+    /// One token, for the walk.
+    enum Step {
+        Open,
+        Close,
+        ArrayOpen,
+        ArrayClose,
+        Name,
+        Other,
+        End,
+    }
+    let malformed = || {
+        Refusal::Joining(Declined(
+            "an inline dictionary whose shape the property-list reader reads otherwise",
+        ))
+    };
+    let mut step = |reader: &mut ContentReader<'_>| -> Result<Step, Refusal> {
+        let begins = reader.next_token_start().ok_or_else(malformed)?;
+        let step = reader.with_token(|token| match token {
+            None => Step::End,
+            Some(Token::DictOpen) => Step::Open,
+            Some(Token::DictClose) => Step::Close,
+            Some(Token::ArrayOpen) => Step::ArrayOpen,
+            Some(Token::ArrayClose) => Step::ArrayClose,
+            Some(Token::Name(_)) => Step::Name,
+            Some(_) => Step::Other,
+        });
+        let ends = reader.position().unwrap_or(begins);
+        if ends.saturating_sub(begins) > CEILING {
+            return Err(Refusal::Lexing(Declined(
+                "a token longer than the window's ceiling",
+            )));
+        }
+        Ok(step)
+    };
+    if depth > MAX_DEPTH {
+        return Err(malformed());
+    }
+    loop {
+        match step(reader)? {
+            Step::Close => return reader.position().ok_or_else(malformed),
+            Step::Name => {}
+            _ => return Err(malformed()),
+        }
+        match step(reader)? {
+            Step::Open => {
+                step_over_dictionary(reader, depth.saturating_add(1))?;
+            }
+            Step::ArrayOpen => step_over_array(reader, depth.saturating_add(1), &mut step)?,
+            Step::Name | Step::Other => {}
+            Step::Close | Step::ArrayClose | Step::End => return Err(malformed()),
+        }
+    }
 }
 
 /// Why an operator the plan meets declines the division: the state it sets, or the span it opens,
 /// is one the join does not carry.
 const fn beyond_the_join(operator: Operator) -> &'static str {
     match operator {
-        Operator::ExtGState => "an /ExtGState, whose parameters reach page-level records",
         Operator::BeginImage | Operator::ImageData | Operator::EndImage => {
             "an inline image, whose data the plan does not step over"
         }
-        Operator::MarkPoint
-        | Operator::MarkPointProperties
-        | Operator::BeginMarked
-        | Operator::BeginMarkedProperties
-        | Operator::EndMarked => "marked content, whose spans the join does not carry",
         Operator::BeginCompatibility | Operator::EndCompatibility => "a compatibility section",
         Operator::GlyphWidth | Operator::GlyphWidthAndBox => "a glyph description's operator",
         _ => "a text operator outside a text object, whose effect the plan does not compose",
@@ -854,6 +1111,27 @@ struct Readback {
     text_operations: usize,
 }
 
+impl Readback {
+    /// The readback `piece` built, taken out of it.
+    fn taken_from(piece: &mut Interpreter<'_>) -> Self {
+        Self {
+            text: std::mem::take(&mut piece.text),
+            text_layer: std::mem::take(&mut piece.text_layer),
+            word_gaps: std::mem::take(&mut piece.word_gaps),
+            glyph_coverage: std::mem::take(&mut piece.glyph_coverage),
+            glyphs: piece.glyphs,
+            codes_without_a_glyph: piece.codes_without_a_glyph,
+            codes_reaching_a_blank_glyph: piece.codes_reaching_a_blank_glyph,
+            codes_without_a_vertical_form: piece.codes_without_a_vertical_form,
+            codes_without_a_character: std::mem::take(&mut piece.codes_without_a_character),
+            inferred_separators: piece.inferred_separators,
+            reversed_chars: piece.reversed_chars,
+            text_cursor: piece.text_cursor,
+            text_operations: piece.text_operations,
+        }
+    }
+}
+
 /// One piece's reading, handed back from its thread.
 struct PieceRun {
     /// The last piece's readback, which is the page's: every text object is the last piece's.
@@ -861,6 +1139,15 @@ struct PieceRun {
     /// §11.6.4.3's record as the piece left it.
     readings: super::Readings,
     list: pdf_render::DisplayList,
+    /// The spans of the sections the piece closed, in the order it closed them (ADR 1894).
+    described: Vec<crate::accessibility::Described>,
+    artifacts: Vec<super::ArtifactSpan>,
+    marked: Vec<super::MarkedSpan>,
+    associated: Vec<(Range<usize>, crate::attachment::Attachment)>,
+    /// The extents of sections with an `/MCID` still open, which only the last piece may leave.
+    marking: Vec<super::marked::OpenSequence>,
+    /// How many hiding sections were open at the piece's end.
+    hidden: usize,
     seeded: usize,
     notes: super::report::Notes,
     notes_raised: usize,
@@ -897,9 +1184,11 @@ impl Interpreter<'_> {
                 let (send, range, number) = (send.clone(), range.clone(), *number);
                 let last = number.saturating_add(1) == count;
                 scope.spawn(move |_| {
+                    let piece = bytes.get(range.clone()).unwrap_or_default();
+                    let run =
+                        run_piece(inputs, piece, range.start, bytes.len(), spine, count, last);
                     // A receiver gone is a division already given up, which wants no answer.
-                    let _ =
-                        send.send((number, run_piece(inputs, bytes, range, spine, count, last)));
+                    let _ = send.send((number, run));
                 });
             }
             drop(send);
@@ -915,9 +1204,9 @@ impl Interpreter<'_> {
                     Composed::fresh(initial),
                 )
                 .ok_or(Declined("the list's bound stopped the first piece"))?;
-            if !left.nothing_open() {
+            if !left.only_plain_sections_open() {
                 return Err(Declined(
-                    "the first piece ended with more than the state open",
+                    "the first piece ended with more open than the state and plain sections",
                 ));
             }
             if let Some(reason) = self.outside_the_division(readings, false) {
@@ -950,6 +1239,21 @@ impl Interpreter<'_> {
         Ok(())
     }
 
+    /// Empties the memos a reading given up left behind, so that the page read again reports
+    /// what its own reading meets: a font whose load failed is remembered as failed, and the
+    /// remembered failure says nothing the second time (`font.rs`'s `cached_font`), so a report the
+    /// given-up reading made and [`Interpreter::restore`] took back would otherwise be lost.
+    fn forget_memos(&mut self) {
+        drop(std::mem::take(&mut self.fonts));
+        drop(std::mem::take(&mut self.shadings));
+        drop(std::mem::take(&mut self.image_masks));
+        drop(std::mem::take(&mut self.image_rasters));
+        drop(std::mem::take(&mut self.icc_spaces));
+        drop(std::mem::take(&mut self.resource_tables));
+        drop(std::mem::take(&mut self.stream_structures));
+        self.clip_extents.clear();
+    }
+
     /// Takes the next piece's reading into this one, which read every piece before it (ADR 1880
     /// §2).
     fn join(&mut self, mut run: PieceRun) -> Result<(), Declined> {
@@ -978,6 +1282,12 @@ impl Interpreter<'_> {
         self.view_dependent |= run.view_dependent;
         self.magnified_tiling |= run.magnified_tiling;
         self.readings.absorb_piece(run.readings);
+        self.described.append(&mut run.described);
+        self.artifacts.append(&mut run.artifacts);
+        self.marked.append(&mut run.marked);
+        self.associated.append(&mut run.associated);
+        self.marking.append(&mut run.marking);
+        self.hidden = run.hidden;
         if let Some(readback) = run.text {
             self.text = readback.text;
             self.text_layer = readback.text_layer;
@@ -1055,16 +1365,14 @@ impl Interpreter<'_> {
         {
             return Some("a piece before the last showed text, whose readback is the last piece's");
         }
-        if !self.described.is_empty()
-            || !self.artifacts.is_empty()
-            || !self.marked.is_empty()
-            || !self.structural_annotations.is_empty()
-            || !self.associated.is_empty()
-            || !self.marking.is_empty()
-            || !self.clip_extents.is_empty()
-            || self.hidden > 0
-        {
-            return Some("a piece met marked content, whose spans the join does not carry");
+        // A closed section's spans are offsets into the readback, which is empty before the
+        // last piece in the page's reading as in the piece's, so they join in order; one that
+        // records an extent and is still open does not (ADR 1894). `clip_extents` is a memo of
+        // the piece's own clip table, and is left behind.
+        if !self.structural_annotations.is_empty() || (!text_allowed && !self.marking.is_empty()) {
+            return Some(
+                "a piece left a sequence with an /MCID open, whose extent the join does not carry",
+            );
         }
         if self.list.soft_mask_count() > 0 {
             return Some("a piece set a soft mask, whose table the join does not carry");
@@ -1091,8 +1399,9 @@ impl Interpreter<'_> {
 /// Reads one piece on a thread of its own: its state composed from the spine, then its bytes.
 fn run_piece(
     inputs: &Inputs<'_>,
-    bytes: &[u8],
-    range: Range<usize>,
+    piece_bytes: &[u8],
+    from: usize,
+    of: usize,
     spine: &[u8],
     count: usize,
     last: bool,
@@ -1122,15 +1431,24 @@ fn run_piece(
         let left = scratch
             .run_from(&mut reader, resources, Composed::fresh(initial))
             .ok_or(Declined("the list's bound stopped a spine"))?;
-        if !left.nothing_open() {
-            return Err(Declined("a spine ended with more than the state open"));
+        if !left.only_plain_sections_open() {
+            return Err(Declined(
+                "a spine ended with more open than the state and plain sections",
+            ));
         }
-        left.composed
+        left.into_composed()
     };
     if scratch.list.soft_mask_count() > 0 {
         return Err(Declined("a spine set a soft mask"));
     }
     let mut piece = fresh();
+    // What the spine's statements reported is the page's to say: they are the producer's own, run
+    // in the page's order, and a font they loaded first reports its defect here or nowhere, since
+    // the cache across pieces loads it once. The notes are a set, so a report an earlier piece made
+    // too is said once; `notes_raised` stays the piece's, which only brackets its own sections.
+    piece
+        .unsupported
+        .absorb(std::mem::take(&mut scratch.unsupported));
     let readings = piece.readings;
     let seeded = scratch.list.clip_count();
     for index in 0..seeded {
@@ -1151,11 +1469,8 @@ fn run_piece(
         }
     }
     piece.list_budget = super::list_budget::ListBudget::for_piece(count, seeded);
-    let mut reader = ContentReader::piece(
-        bytes.get(range.clone()).unwrap_or_default(),
-        range.start,
-        bytes.len(),
-    );
+    piece.hidden = composed.hiding();
+    let mut reader = ContentReader::piece(piece_bytes, from, of);
     let leftover = piece
         .run_from(&mut reader, resources, composed)
         .ok_or(Declined("the list's bound stopped a piece"))?;
@@ -1163,8 +1478,10 @@ fn run_piece(
         // The stream's end is the last piece's, and what it says is said here; the `/AIS`
         // reading the page began under is put back on the joined list, which is the page's.
         piece.report_leftover(leftover);
-    } else if !leftover.nothing_open() {
-        return Err(Declined("a piece ended with more than the state open"));
+    } else if !leftover.only_plain_sections_open() {
+        return Err(Declined(
+            "a piece ended with more open than the state and plain sections",
+        ));
     }
     if let Some(reason) = piece.outside_the_division(readings, last) {
         return Err(Declined(reason));
@@ -1172,23 +1489,15 @@ fn run_piece(
     // What the piece's list gained after its last check is its charge too: the page's own reading
     // would have charged it at the check after, which falls in the next piece's operators.
     piece.settle_list_charge();
-    let text = last.then(|| Readback {
-        text: std::mem::take(&mut piece.text),
-        text_layer: std::mem::take(&mut piece.text_layer),
-        word_gaps: std::mem::take(&mut piece.word_gaps),
-        glyph_coverage: std::mem::take(&mut piece.glyph_coverage),
-        glyphs: piece.glyphs,
-        codes_without_a_glyph: piece.codes_without_a_glyph,
-        codes_reaching_a_blank_glyph: piece.codes_reaching_a_blank_glyph,
-        codes_without_a_vertical_form: piece.codes_without_a_vertical_form,
-        codes_without_a_character: piece.codes_without_a_character,
-        inferred_separators: piece.inferred_separators,
-        reversed_chars: piece.reversed_chars,
-        text_cursor: piece.text_cursor,
-        text_operations: piece.text_operations,
-    });
+    let text = last.then(|| Readback::taken_from(&mut piece));
     Ok(PieceRun {
         list: piece.list,
+        described: piece.described,
+        artifacts: piece.artifacts,
+        marked: piece.marked,
+        associated: piece.associated,
+        marking: piece.marking,
+        hidden: piece.hidden,
         seeded,
         notes: piece.unsupported,
         notes_raised: piece.notes_raised,

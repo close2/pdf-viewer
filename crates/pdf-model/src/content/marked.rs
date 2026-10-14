@@ -55,6 +55,21 @@ pub(super) struct Marked {
     pub(super) reversed: bool,
 }
 
+impl Marked {
+    /// Whether the section records nothing but whether it hides: no `/MCID`, `/ActualText`,
+    /// description, artifact, associated file or `ReversedChars` — so that where it opens and
+    /// where it closes may fall in two pieces of a divided stream, with nothing between them that
+    /// a join would have to carry (ADR 1894).
+    pub(super) fn records_nothing(&self) -> bool {
+        self.mcid.is_none()
+            && self.actual_text.is_none()
+            && self.described.is_none()
+            && self.artifact.is_none()
+            && self.associated.is_empty()
+            && !self.reversed
+    }
+}
+
 /// What [`Interpreter::clip_extent`] has worked out about one of the display list's clips.
 ///
 /// Three states rather than two nested `Option`s, because the middle one is the surprising one:

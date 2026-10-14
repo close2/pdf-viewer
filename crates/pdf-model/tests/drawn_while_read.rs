@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pdf_model::Pages;
-use pdf_model::content::divide::{Division, Reading, last_reading};
+use pdf_model::content::divide::{Division, Reading, last_pipeline_decline, last_reading};
 use pdf_model::content::{Interpretation, displayed_size, interpret};
 use pdf_model::progress::{Handed, Parts};
 use pdf_render::{DisplayList, Raster, Rasterizer as _, TargetSpec};
@@ -38,12 +38,24 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 
 /// A one-page document of `size` points square, with `resources` and `content`.
 fn page_with(size: u32, resources: &str, content: &str) -> Vec<u8> {
+    page_with_catalog(size, "", resources, content, "")
+}
+
+/// [`page_with`], the catalog stating `catalog` beside its pages and the file holding `objects`
+/// after the four it always holds.
+fn page_with_catalog(
+    size: u32,
+    catalog: &str,
+    resources: &str,
+    content: &str,
+    objects: &str,
+) -> Vec<u8> {
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {size} {size}] \
          /Resources {resources} /Contents 4 0 R >>\nendobj\n\
-         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n{objects}",
         content.len().saturating_add(1)
     );
     let mut out = String::from("%PDF-1.7\n");
@@ -225,6 +237,7 @@ const fn every_stream(pieces: usize) -> Division {
     Division {
         from: 0,
         pieces: Some(pieces),
+        pipelined: true,
     }
 }
 
@@ -352,21 +365,68 @@ fn a_page_read_in_pieces_is_the_page_read_whole() {
 
 #[test]
 fn a_page_whose_state_the_join_does_not_carry_is_read_whole_and_says_why() {
-    let resources = "<< /ExtGState << /Half << /ca 0.5 >> >> >>";
-    let mut content = String::from(
-        "q /Half gs
-",
-    );
+    // §11.6.4.3's alpha source changed part-way down the page: the record of which reading the
+    // marks painted under is the page's, and the piece that changes it declines the division.
+    let resources = "<< /ExtGState << /Shape << /AIS true >> >> >>";
+    let mut content = marks(2_000);
+    content.push_str("/Shape gs\n");
     content.push_str(&marks(2_000));
-    content.push_str(
-        "Q
-",
-    );
     let document = Document::open(page_with(200, resources, &content)).expect("the fixture opens");
     let (declined, same) = divided_against_whole(&document, 4).expect("page one reads");
     assert!(same, "the page read whole is the page");
     assert!(
-        declined.is_some_and(|reason| reason.contains("ExtGState")),
+        declined.is_some_and(|reason| reason.contains("alpha readings")),
+        "the decline names what declined it: {declined:?}"
+    );
+}
+
+/// §8.4.5's `gs` composed into a later piece's state, and §8.11.3.2's optional content decided
+/// for a piece that begins inside a section: one layer on, one off by the default configuration
+/// (§8.11.4.3's `/OFF`), each open across many cuts, a section with an `/MCID` closed inside a
+/// piece, and a property list written inline (§14.6.2) — ADR 1894.
+#[test]
+fn a_page_under_gs_and_inside_optional_content_is_read_in_pieces_as_the_page_read_whole() {
+    let resources = "<< /ExtGState << /Half << /ca 0.5 /CA 0.5 /LW 2 /LC 1 >> >> \
+                     /Properties << /On 5 0 R /Off 6 0 R >> >>";
+    let catalog = "/OCProperties << /OCGs [5 0 R 6 0 R] /D << /OFF [6 0 R] >> >> \
+                   /MarkInfo << /Marked true >>";
+    let objects = "5 0 obj\n<< /Type /OCG /Name (on) >>\nendobj\n\
+                   6 0 obj\n<< /Type /OCG /Name (off) >>\nendobj\n";
+    let mut content = String::from("q /Half gs /OC /On BDC\n");
+    content.push_str(&marks(3_000));
+    content.push_str("/Span << /MCID 0 /Lang (en) >> BDC 0 0 9 9 re f EMC\n");
+    content.push_str("/Layer BMC\n");
+    content.push_str(&marks(3_000));
+    content.push_str("EMC EMC /OC /Off BDC\n");
+    content.push_str(&marks(3_000));
+    content.push_str("EMC /P <</MCID 1>> DP Q\n");
+    content.push_str(&marks(1_000));
+    let document = Document::open(page_with_catalog(
+        200, catalog, resources, &content, objects,
+    ))
+    .expect("the fixture opens");
+    for pieces in [2, 5, 9] {
+        let (declined, same) = divided_against_whole(&document, pieces).expect("page one reads");
+        assert_eq!(declined, None, "{pieces} pieces: the page divides");
+        assert!(
+            same,
+            "{pieces} pieces: the page read in pieces is the page read whole"
+        );
+    }
+}
+
+/// A section that records an extent — an `/MCID` — open across every cut is the one marked
+/// content a piece still declines, and it says so.
+#[test]
+fn a_page_whose_whole_content_is_one_tagged_section_is_read_whole_and_says_why() {
+    let mut content = String::from("/P << /MCID 0 >> BDC\n");
+    content.push_str(&marks(4_000));
+    content.push_str("EMC\n");
+    let document = Document::open(page_with(200, "<< >>", &content)).expect("the fixture opens");
+    let (declined, same) = divided_against_whole(&document, 4).expect("page one reads");
+    assert!(same, "the page read whole is the page");
+    assert!(
+        declined.is_some_and(|reason| reason.contains("plain sections")),
         "the decline names what declined it: {declined:?}"
     );
 }
@@ -498,6 +558,8 @@ fn every_tracked_first_page_read_in_pieces_is_the_page_read_whole() {
     };
     let mut divided = 0_usize;
     let mut divided_as_shipped = 0_usize;
+    let mut pipelined = 0_usize;
+    let mut fell_back: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut drawn_same = 0_usize;
     let mut declined: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut different = Vec::new();
@@ -511,6 +573,8 @@ fn every_tracked_first_page_read_in_pieces_is_the_page_read_whole() {
         let Some((reading, same)) = divided_against_whole(&document, 4) else {
             continue;
         };
+        // Whether the pipeline settled the page, or handed it to the plan after the inflate.
+        let pipeline = last_pipeline_decline();
         // The division a viewer gets, which reads only a stream of a mebibyte or more in pieces:
         // a page it divides is a page whose list the corpus gates' arms would see (ADR 1863).
         if let Some(page) = Pages::new(&document).get(0) {
@@ -523,7 +587,13 @@ fn every_tracked_first_page_read_in_pieces_is_the_page_read_whole() {
             different.push(path.display().to_string());
         }
         match reading {
-            None => divided += 1,
+            None => {
+                divided += 1;
+                match pipeline {
+                    None => pipelined += 1,
+                    Some(reason) => *fell_back.entry(reason.0).or_default() += 1,
+                }
+            }
             Some(reason) => {
                 *declined.entry(reason).or_default() += 1;
                 continue;
@@ -546,7 +616,8 @@ fn every_tracked_first_page_read_in_pieces_is_the_page_read_whole() {
     println!(
         "{} documents: {divided} first pages read in four pieces, each stating what the whole \
          reading states; {drawn_same} of them drawn while read byte for byte the page drawn \
-         whole; {divided_as_shipped} divided as shipped; read whole instead: {declined:#?}",
+         whole; {pipelined} of them with the inflate pipelined in, the rest divided after it: \
+         {fell_back:#?}; {divided_as_shipped} divided as shipped; read whole instead: {declined:#?}",
         files.len()
     );
     assert!(

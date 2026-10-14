@@ -3680,6 +3680,76 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
+# zoom_past_the_bound: step 82's fourth part (ADR 1892) — a page zoomed until its whole raster
+# would be past `viewer_core::MAX_PIXELS` is drawn as the window shows it and not refused, and a
+# refusal is said once for the view it is about rather than at every command that settles. The
+# drive's own A1 page: white, a red square of 200 points at its middle and a black bar one point
+# wide down the square's middle. Eighteen `=` notches 300 ms apart about the window's middle take it
+# past the bound in Xvfb's window (fifteen cross it); then the pointer is moved twenty times across
+# the window, which is what the owner's endless refusals followed. A toolkit window must say
+# `window … rasterised` and, photographed then, show the bar sharp — tens of pixels wide, where the
+# retained picture standing in for a refused page shows it a pixel wide or not at all — and say no
+# refusal. Every window, `quorra` and the confined one included, may say a refusal at most once.
+# `zoom_past_the_bound_heavy` is the same zoom on `HEAVY_FILE`, with the picture not judged.
+zoom_past_the_bound() { zoom_past "$FIXTURES/drive-a1.pdf" 82-zoom-past-the-bound judged; }
+zoom_past_the_bound_heavy() { zoom_past "$HEAVY_FILE" 82-zoom-past-the-bound-heavy counted; }
+zoom_past() { # file step judged|counted
+    local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark refusals black X Y WIDTH HEIGHT
+    [ -s "$file" ] || [ "$how" = counted ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary
+pdf = pikepdf.new()
+body = b"1 0 0 rg 742 1092 200 200 re f\n0 0 0 rg 841.5 1092 1 200 re f\n"
+content = pikepdf.Stream(pdf, body)
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 1684, 2384],
+                                         Contents=pdf.make_indirect(content))))
+pdf.save(sys.argv[1])
+PY2
+    if [ ! -s "$file" ]; then
+        verdict "$step" "not offered" "no $file to zoom into"
+        return
+    fi
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file"
+    LAUNCH_TRACE=$traced
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+    mark=$(lines)
+    for _ in $(seq 18); do xdotool key equal; sleep 0.3; done
+    if [ "$WINDOW" = quorra-gtk ] || [ "$WINDOW" = quorra-qt ]; then
+        if ! wait_for 90 said_since "$mark" "window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised"; then
+            verdict "$step" wrong "no window was drawn after eighteen notches: $(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -E 'cannot be drawn|rasterised [0-9]')"
+            kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+            return
+        fi
+    else
+        wait_for 60 said_since "$mark" "rasterised\\|first frame\\|frame on the device\\|frame drawn"
+    fi
+    sleep 1
+    for step_x in $(seq 20); do
+        xdotool mousemove $((X + WIDTH / 4 + step_x * WIDTH / 40)) $((Y + HEIGHT / 2)); sleep 0.05
+    done
+    sleep 1
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.5
+    shot "$step"
+    refusals=$(tail -n "+$((mark + 1))" "$LOG" | grep -c "cannot be drawn at this size")
+    if [ "$refusals" -gt 1 ]; then
+        verdict "$step" wrong "the refusal was said $refusals times over eighteen notches and twenty pointer moves"
+    elif [ "$how" = counted ] || { [ "$WINDOW" != quorra-gtk ] && [ "$WINDOW" != quorra-qt ]; }; then
+        verdict "$step" works "$refusals refusal(s) said over eighteen notches and twenty pointer moves$(tail -n "+$((mark + 1))" "$LOG" | grep -c 'window [0-9]*x[0-9]* at' | sed 's/^/, windows drawn: /')"
+    elif [ "$refusals" -ne 0 ]; then
+        verdict "$step" wrong "a toolkit window was refused a page it draws as it shows it"
+    else
+        black=$(magick "$OUT/shots/$WINDOW/$step.png" -alpha off -gravity center -crop 50%x50%+0+0 -fuzz 10% -fill white +opaque "#000000" -fill black -opaque "#000000" -negate -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
+        if [ "${black:-0}" -gt 2000 ]; then
+            verdict "$step" works "drawn as the window shows it, no refusal; ${black} black pixels of the bar in the window's middle"
+        else
+            verdict "$step" wrong "a window was drawn but the photograph holds ${black:-?} black pixels of the bar"
+        fi
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # --- step 83: a transition's frames are the two pages and nothing else (ADR 1853) ----------------
 # transition_frames: the drive's own slide show — red, blue and green slides, each with a white
 # square at a corner of its own, the second and third moved to by Table 164's `Wipe` and an outward
@@ -4028,6 +4098,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         located_displayed
         signature_policy
         loading_bar
+        zoom_past_the_bound
         continue
     fi
     drive
@@ -4069,6 +4140,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     zoom_stand_in
     retained_page
     band_first
+    zoom_past_the_bound
     transition_frames
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \

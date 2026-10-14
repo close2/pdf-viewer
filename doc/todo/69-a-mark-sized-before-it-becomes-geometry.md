@@ -103,8 +103,11 @@ encode from 225–231 ms to 118–130 ms; on the owner's display the last of ten
 after its key where it took 0.43–1.02 s. What is left is the walk's ordered share of every line per
 view (about 280 instructions a line) and the instances staged again: a line's instance in page space
 with the view a uniform the line shader applies would keep the stream resident and make a step cost
-the replay (ADR 1877 section 5). The device's memory hint was priced and kept at the default
-(ADR 1885).
+the replay (ADR 1877 section 5) — repriced at no more than the staging and transfer, 37 ms of a
+304 ms step, because the walk's batches are per view while lines share them with marks whose
+coverage is (ADR 1898 §4). The device's memory hint was priced and kept at the default (ADR 1885).
+`quorra` builds the device's scene after a processor frame while nobody waits, and an upload no
+longer replaces it (ADR 1898).
 
 ## 6. One page read on many threads, divided where `Q` restores the state — built (ADR 1880)
 
@@ -124,23 +127,28 @@ and what the witness reads in are ADR 1880's.
 
 ## 7. What §6 leaves serial: the inflate pipelined into it, and the drawer after it (ADR 1888)
 
-Status: **priced, not built** — the first two items are requirements of §6's build, the third the
-build after it. Instrument: `crates/pdf-model/examples/serial_terms_price.rs`. Once the pieces run at
+Status: **the first two items built (ADR 1894)**, the third ADR 1896's. Instrument: `crates/pdf-model/examples/serial_terms_price.rs`. Once the pieces run at
 once, the witness's read is the inflate and a tail: 48 pieces on 12 threads take 394–442 ms after a
 163–175 ms inflate and **268–306 ms** behind it, each piece started when the inflate has passed its
 end. The draw whole on the pool, 490–525 ms and the same on 12 threads as on 24, is then the first
 frame's largest term.
 
-- **Pipeline the inflate** (§7.4.4.1's Flate, one decoder on one fast core, into place): at least
-  four pieces a thread, since the last piece starts when the inflate ends.
+- **Pipeline the inflate — built (ADR 1894)** (§7.4.4.1's Flate, one decoder on a thread of the
+  pool, into place): at least four pieces a thread, since the last piece starts when the inflate
+  ends. `gs` and marked-content sections that record nothing but whether they hide now go through
+  the join as well.
 - **Plan without a serial lex**: the lexer reads at 0.71–0.78 GB/s and the inflate writes at
   1.69–1.80 GB/s, so an exact planner behind the inflate is the floor (359–397 ms). Guess each cut
   from a `Q` between delimiters (4.6 GB/s), and let the piece before confirm it: its lex must arrive
   at the cut between tokens, at the depth it summarised, with nothing ADR 1873 §5.2 refuses open. A
   failed guess moves the cut and never the list.
-- **Then the drawer**: find what in the draw on the pool does not divide (the strip planner first),
-  then take the pieces in order as they finish (the first at 44–55 ms, half at 166–206 ms). One
-  thread's `render_cpu::Underway` takes 1.17–1.26 s and does not qualify.
+- **The drawer — built (ADR 1896)**: `render_cpu::Underway::in_strips` draws the waiting parts in
+  even strips on the pool and finishes the rest there, and the join hands each piece over as it is
+  joined. What does not divide in the draw whole is the strip count: the planner cuts the witness's
+  1 000 rows into 10 strips on 12 threads and on 24 (`MIN_STRIP_ROWS` under `MAX_STRIPS`, then the
+  halving search), with the slowest strip about three times the quickest; even cuts at the pool's
+  width draw it faster (ADR 1896 §3). **Next**: the planner asked for the pool's width at a
+  1 000-row target, which moves the processor arms' digests and owes them.
 - **Not taken**: dividing the inflate itself. The witness's one stream has no restart point
   (`00 00 FF FF` count 0), so dividing it means rapidgzip's speculative decoder in-tree, for at most
   42–45 ms of the read.

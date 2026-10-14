@@ -158,6 +158,12 @@ request, a variant changing shape would mean two different facts carried at one 
 `Query` is no use for an answer that arrives unasked. One consumer failed to compile —
 `viewer-ui`, the only one that matches `Rendered` exhaustively — `QUORRA_EVENT_KIND_COUNT` stayed
 where it is, because an outcome is not an event, and the C ABI gained no entry point (ADR 0640).
+**And the fifteen-hundred-and-twenty-eighth added a `Command` for the same population**:
+`Command::Oversize(Oversize::Listed)` says a host draws a page past `MAX_PIXELS` from its list, as
+much as its window shows, so the viewer asks for it rather than refusing it and the host answers
+`Rendered::Listed`; the default refuses, and the confined worker, which holds rasters under its
+ceiling, is not sent it (`Uncarried`). Three consumers matched `Command` exhaustively and each gained
+an arm (ADR 1892).
 **And the seven-hundred-and-fifty-fourth added nothing at all either**, which is the sixth time and
 the one that moved the most host code: both native windows rasterised inside their
 `Event::NeedsRender` arm, on the toolkit's main thread, so a page written to draw for 27.6 s took

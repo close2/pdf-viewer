@@ -251,11 +251,13 @@ fn operators(count: u64) -> String {
 /// target is the window's. The parts that came in the meantime are waiting for the drawer and are
 /// drawn first.
 ///
-/// **The pixels are the page's**, by `render_cpu::Underway`'s construction, and every page where
-/// that is not known — a part taken back by the reader, a soft mask, a page finished with a plane
-/// of its own, a request at another target than the one drawn — is drawn whole by the drawing
-/// thread exactly as before. What a page drawn ahead costs that one drawn after does not is the
-/// reader sharing the machine with one drawing thread for the length of the read.
+/// **The pixels are the page's at the drawing's own cuts**, by `render_cpu::Underway`'s
+/// construction: as many even strips as the pool is wide, where the whole draw balances its own
+/// (`Underway::in_strips`). Every page where that is not known — a part taken back by the reader,
+/// a soft mask, a mark across a cut, a page finished with a plane of its own, a request at another
+/// target than the one drawn — is drawn whole by the drawing thread exactly as before. What a
+/// page drawn ahead costs that one drawn after does not is the reader sharing the pool with the
+/// drawing of each part for the length of the read.
 #[derive(Clone)]
 pub struct Ahead {
     shared: Arc<AheadShared>,
@@ -461,18 +463,34 @@ impl Ahead {
         };
         let foreseen = anticipating.foresee(window.viewport(), window.scale)?;
         let target = (self.shared.place)(foreseen, window);
-        let mut underway = Underway::new(&self.shared.rasterizer, target)?;
+        // In strips on the pool, so that the rest of the page is drawn there once the read ends:
+        // on the owner's drawing one thread finished the frame later than the pool draws the
+        // page whole after the read (ADR 1896).
+        let mut underway = Underway::in_strips(&self.shared.rasterizer, target)?;
         let mut looked: Option<Instant> = None;
         let mut serial = 0_u64;
         loop {
-            match parts.take(AHEAD_POLL) {
-                Some(Handed::Part(part)) => {
-                    if !underway.take(part) {
-                        return None;
+            // Every part that is waiting is drawn in one pass over the strips, which reaches more
+            // of the page than one part's marks do (`Underway::take_all`).
+            let mut waiting = Vec::new();
+            let mut ended = None;
+            let mut wait = AHEAD_POLL;
+            while let Some(handed) = parts.take(wait) {
+                match handed {
+                    Handed::Part(part) => waiting.push(part),
+                    Handed::Ended(result) => {
+                        ended = Some(result.is_ok());
+                        break;
                     }
                 }
-                Some(Handed::Ended(Ok(_))) => return Some(underway),
-                Some(Handed::Ended(Err(_))) => return None,
+                wait = Duration::ZERO;
+            }
+            if !waiting.is_empty() && !underway.take_all(waiting) {
+                return None;
+            }
+            match ended {
+                Some(true) => return Some(underway),
+                Some(false) => return None,
                 None => {}
             }
             if looked.is_none_or(|looked| looked.elapsed() >= GLIMPSE_EVERY)

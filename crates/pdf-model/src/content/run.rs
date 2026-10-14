@@ -310,6 +310,7 @@ impl Interpreter<'_> {
         let Composed {
             mut state,
             mut stack,
+            marked: opened,
         } = from;
         // §8.4.2's stack, carrying §9.4.2's two text matrices beside the graphics state.
         //
@@ -341,7 +342,7 @@ impl Interpreter<'_> {
         // five bytes of `/ BMC` in it, and Table 31's `Limits::max_stream_len` bounds those —
         // the same bound the token loop below has. What a closed section leaves behind is a
         // span, and the spans are charged to `MAX_LIST_BYTES` (ADR 1810).
-        let mut marked: Vec<Marked> = Vec::new();
+        let mut marked: Vec<Marked> = opened;
         // §7.8.2's compatibility section, `BX` … `EX`, which is nesting depth rather than a
         // flag because the clause says the pair "may be nested".
         //
@@ -1285,7 +1286,11 @@ impl Interpreter<'_> {
         }
 
         Some(Leftover {
-            composed: Composed { state, stack },
+            composed: Composed {
+                state,
+                stack,
+                marked: Vec::new(),
+            },
             in_text,
             text_object,
             pending_clip,
@@ -1378,6 +1383,10 @@ pub(super) struct Composed {
     pub(super) state: GraphicsState,
     /// The states `q` saved, innermost last.
     pub(super) stack: Vec<(GraphicsState, Transform, Transform)>,
+    /// The marked-content sections open, outermost first — only ever sections that record
+    /// nothing but whether they hide (§8.11.3.2), where a piece of a divided stream begins
+    /// inside them (ADR 1894).
+    pub(super) marked: Vec<Marked>,
 }
 
 impl Composed {
@@ -1386,7 +1395,14 @@ impl Composed {
         Self {
             state: initial.clone(),
             stack: Vec::new(),
+            marked: Vec::new(),
         }
+    }
+
+    /// How many of the open sections hide what they enclose — the interpreter's `hidden` count
+    /// a run beginning in this state begins with.
+    pub(super) fn hiding(&self) -> usize {
+        self.marked.iter().filter(|section| section.hides).count()
     }
 }
 
@@ -1410,16 +1426,27 @@ pub(super) struct Leftover {
 }
 
 impl Leftover {
-    /// Whether nothing but the graphics state is open — the only point at which a page's stream
-    /// may be divided (ADR 1880): no text object (§9.4.1), no path or pending clip (§8.5.2.1),
-    /// no marked-content sequence (§8.11.3.2) and no compatibility section (§7.8.2).
-    pub(super) fn nothing_open(&self) -> bool {
+    /// Whether nothing but the graphics state, and marked-content sections that record nothing
+    /// but whether they hide, is open — the only point at which a page's stream may be divided
+    /// (ADRs 1880, 1894): no text object (§9.4.1), no path or pending clip (§8.5.2.1), no
+    /// compatibility section (§7.8.2), and no section a join would have to carry (§8.11.3.2's
+    /// optional content is decided again for the next piece, from the sections its spine opens).
+    pub(super) fn only_plain_sections_open(&self) -> bool {
         !self.in_text
             && self.pending_clip.is_none()
-            && self.marked.is_empty()
+            && self.marked.iter().all(Marked::records_nothing)
             && self.compatibility == 0
             && !self.path_open
             && self.text_object.enclosing_reading.is_none()
+    }
+
+    /// The state the run ended in, with the sections it left open — what the next piece of a
+    /// divided stream begins in.
+    pub(super) fn into_composed(self) -> Composed {
+        Composed {
+            marked: self.marked,
+            ..self.composed
+        }
     }
 }
 

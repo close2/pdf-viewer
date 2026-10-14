@@ -974,6 +974,11 @@ section_gates_cost() {
 # and is marked so where it is printed; one whose round no batch on the log holds is counted for
 # none and said once. The last batch is the last branch of that shape on the log (ADR 1675).
 #
+# **A suspend is taken off the line it was inside** (trap 164, ADR 1903). `wait=` and `hold=` are wall
+# clocks, and the wrapper says where the machine slept through either — `slept_queued=` and `slept=`,
+# from `CLOCK_BOOTTIME` less `CLOCK_MONOTONIC` — so each is subtracted where it is read, the line is
+# marked, and the batch's sum of them is printed once.
+#
 # A line names the lane it held, `1`, `2` or `1+2` for a clock run's both; a line written before the
 # lock had two lanes names none and held the only one, the first (ADR 1684). `lane=-` is a run that
 # stopped while it queued — a `timeout`, a round that gave up — and held nothing; its queue is a
@@ -1062,6 +1067,13 @@ lock_cost() {
             cmd = $0; sub(/.* cmd=/, "", cmd)
             lane = "1"; if (match($0, / lane=[^ ]+/)) lane = substr($0, RSTART + 6, RLENGTH - 6)
             mark = (by_round == "") ? "" : "[" $2 ", by its round] "
+            # A suspend belongs to the machine and to no run: off the wait and the hold it was inside.
+            slept = 0; if (match($0, / slept=[0-9.]+s/)) slept = substr($0, RSTART + 7, RLENGTH - 8) + 0
+            slept_queued = 0; if (match($0, / slept_queued=[0-9.]+s/)) slept_queued = substr($0, RSTART + 14, RLENGTH - 15) + 0
+            if (slept + slept_queued > 0) {
+                mark = mark sprintf("[slept %.1fs, taken off] ", slept + slept_queued)
+                hold -= slept; wait -= slept_queued; asleep += slept + slept_queued; asleep_lines++
+            }
             if (lane == "-") {
                 mark = mark "[stopped before a grant] "
                 gave_up[++stopped] = sprintf("  stopped before a grant: %s  round %-5s wait %8.1fs  exit %-3s %s", $1, round, wait, code, substr(cmd, 1, 60))
@@ -1089,6 +1101,7 @@ lock_cost() {
                 printf "  round %-5s %3d run(s)  queued %8.1fs  held %8.1fs\n", r, runs[r], waited[r], held[r]
             }
             if (relabelled) printf "%d of those line(s) name no batch branch and are counted by their round, %.1fs of queue\n", relabelled, relabelled_wait
+            if (asleep_lines) printf "%d of those line(s) say the machine was suspended inside them, %.1fs taken off their waits and holds (trap 164)\n", asleep_lines, asleep
             if (unplaced) printf "%d line(s) of the log name no batch branch and a round no batch on the log holds, counted for none\n", unplaced
             for (i = 1; i <= unwalked; i++) print not_walks[i]
             printf "%d run(s) of batch %s took the lock for a dev-profile test asking no --ignored, which the rule line says is not a walk: %.1fs of queue\n", unwalked, last, unwalked_wait

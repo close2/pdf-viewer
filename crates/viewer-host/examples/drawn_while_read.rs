@@ -15,8 +15,9 @@
 //! the window's size foretells, and the drawing thread finishes it. Printed per run, in seconds
 //! from the thread's start: when the read ended, when the page was first seen (the first look:
 //! the drawing thread's first glimpse before, the first part drawn ahead after), and when the first
-//! frame landed. The two arms' frames are compared byte for byte with the page drawn whole as one
-//! strip, which is the oracle's own drawing of it.
+//! frame landed. The frame drawn ahead is compared byte for byte with the page drawn whole at the
+//! cuts it was drawn at (`render_cpu::Underway::in_strips`, ADR 1896), which is its definition;
+//! the frame drawn after the read is the planner's and is compared with nothing.
 
 use std::time::{Duration, Instant};
 
@@ -148,13 +149,18 @@ fn main() {
     for round in 0..rounds {
         for ahead in [false, true] {
             let launched = launch(&path, window, ahead);
+            let cuts =
+                render_cpu::Underway::in_strips(&render_cpu::CpuRasterizer::new(), launched.target)
+                    .expect("a target the window drew")
+                    .cuts()
+                    .to_vec();
             let whole = render_cpu::CpuRasterizer::new()
-                .with_strips(1)
+                .with_cuts(&cuts)
                 .rasterize(&launched.list, launched.target)
                 .expect("the page draws whole");
             println!(
                 "round {round} {:6}: read {:6.3} s, first seen {}, first frame {:6.3} s \
-                 ({}x{}, {} commands; the frame {} the page drawn whole as one strip)",
+                 ({}x{}, {} commands; the frame {} the page drawn whole at {} strips' cuts)",
                 if ahead { "after" } else { "before" },
                 seconds(launched.read),
                 launched
@@ -169,6 +175,7 @@ fn main() {
                 } else {
                     "is NOT"
                 },
+                cuts.len().saturating_sub(1),
             );
         }
     }

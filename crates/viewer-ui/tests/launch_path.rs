@@ -25,7 +25,7 @@
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **the script stage** | after page one's frame, `Command::Presented` to a viewer that was handed a runner before it opened the document (`Command::Scripts`, a window at `on`): RFC 0008 section 6.5's open sequence, which starts `pdf-script-worker` at its first trigger — `OpenCost::line()`'s `script_open spawn_ms=<f> first_run_ms=<f>`, the worker's start through its greeting and the first run's exchange with the realm constructed inside it (ADR 1620) | time to first page, which every row's child measures with the same runner supplied and whose clock has stopped before the stage begins; a worker started before the frame is a failure of its own |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
-//! | **memory high-water** | `VmHWM` of the process that did all of the above for one document, less the resident pages of the files it has mapped — what the allocator asked the kernel for | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
+//! | **memory high-water** | `VmHWM` of a process that drew page one with its transparent huge pages off, less the resident pages of the files it has mapped — what the program touched of what the allocator asked the kernel for ([`SMALL_PAGES`], ADR 1902) | every shared object the Vulkan loader brought in, which is nine tenths of the process's own `VmHWM` and is the kernel's decision rather than this program's (ADR 0910) |
 //! | **bytes read** | `rchar` from `/proc/self/io` across the open, which is what principle 2's "reads the trailer and the objects page one needs — not the whole file" is a claim about | the binary's own loading, which is `mmap` rather than `read` |
 //! | **instructions an open executes** | the whole of a process that opens the document and stops, counted under callgrind — what principle 2's "cold open" asks about, with no clock in it (see [`open_kinstructions`]) | the disk, and how fast this machine happens to be executing today |
 //!
@@ -217,6 +217,24 @@ const WARM_CORES: &str = "PDFVIEWER_LAUNCH_WARM_CORES";
 /// which is what ADRs 1519 and 1556 measured with.
 const WARM_SPIN: Duration = Duration::from_millis(30);
 
+/// What a phase's name ends with when its child is to run with transparent huge pages off.
+///
+/// **Every row's `peak_anon_mib` is taken in such a child, one beside the row's first-page
+/// children, and it is the state of the machine pinned rather than sensed** (ADR 1902, trap 34).
+/// Where `/sys/kernel/mm/transparent_hugepage/enabled` is `always`, the first fault in an aligned
+/// two-mebibyte range of a large anonymous mapping maps the whole range, however little of it is
+/// touched — but only where the buddy allocator has a free two-mebibyte block at that moment, and
+/// only for the ranges a mapping's placement happens to align. Both are the machine's: the same
+/// binary's `PDF20_AN001-BPC.pdf` first page reached two huge pages in some children and three in
+/// others with every block free, 19.4 to 20.9 MiB, and none when a neighbour's build had spent
+/// the blocks, 17.5 to 18.3 — the figure fell under its floor on a tree that had not moved it.
+/// No reading can decline the first of the two, because no fault fell back, so a decline-shaped
+/// guard would have judged the 19.4. With the pages off, the child reads what it touched.
+///
+/// The first-page children keep the machine's huge pages, because every clock figure is what a
+/// person's launch meets, and they print their own allocation beside this one, unbanded.
+const SMALL_PAGES: &str = "+small-pages";
+
 /// The identity a host gives the one document it opens — `quorra.rs`'s own.
 const DOCUMENT: DocumentId = DocumentId(0);
 
@@ -348,6 +366,35 @@ fn mapped_resident_kib() -> Option<u64> {
             .ok()
     };
     Some(field("Rss:")?.saturating_sub(field("Anonymous:")?))
+}
+
+/// Turns this process's transparent huge pages off for every fault after this one, which is the
+/// state [`SMALL_PAGES`] asks for: `prctl(PR_SET_THP_DISABLE)`, which the kernel keeps on the
+/// process's address space, so it reaches the mappings made before it as well as after.
+#[cfg(target_os = "linux")]
+fn small_pages() -> Result<(), String> {
+    rustix::thread::disable_transparent_huge_pages(true).map_err(|error| error.to_string())
+}
+
+/// A platform with no transparent huge pages is already in the state [`SMALL_PAGES`] asks for.
+#[cfg(not(target_os = "linux"))]
+fn small_pages() -> Result<(), String> {
+    Ok(())
+}
+
+/// Whether this process's huge pages are off, as the child prints it: `1`, `0`, or `-` where the
+/// kernel will not say. The parent refuses a small-pages figure that does not read `1`, so that
+/// a child which ran with the machine's pages cannot pass for one that did not (trap 13).
+#[cfg(target_os = "linux")]
+fn small_pages_are_on() -> String {
+    rustix::thread::transparent_huge_pages_are_disabled()
+        .map_or_else(|_| "-".to_owned(), |off| u8::from(off).to_string())
+}
+
+/// No transparent huge pages off Linux, so every page is a small one.
+#[cfg(not(target_os = "linux"))]
+fn small_pages_are_on() -> String {
+    "1".to_owned()
 }
 
 /// How long this thread has been on a processor and how long it has waited for one, in
@@ -824,6 +871,7 @@ fn document_of_the_child() -> PathBuf {
 /// that produced it arrive on one line and cannot be paired wrongly by the parent.
 fn measured_beside_the_machine(fields: &[(&str, String)]) {
     let mut all: Vec<(&str, String)> = fields.to_vec();
+    all.push(("small_pages", small_pages_are_on()));
     all.extend(calibration_fields());
     measured(&all);
 }
@@ -1386,6 +1434,16 @@ fn launch_probe() {
     let Ok(phase) = std::env::var(PHASE) else {
         return;
     };
+    let phase = match phase.strip_suffix(SMALL_PAGES) {
+        Some(base) => {
+            if let Err(complaint) = small_pages() {
+                println!("failed transparent huge pages could not be turned off: {complaint}");
+                std::process::exit(1);
+            }
+            base.to_owned()
+        }
+        None => phase,
+    };
     match phase.as_str() {
         "calibrate" => {
             let (quickest, first, commands) = calibration_pass();
@@ -1395,6 +1453,8 @@ fn launch_probe() {
                 ("commands", commands.to_string()),
             ]);
         }
+        // Nothing but the state, for the test that reads it back both ways.
+        "pages" => measured(&[("small_pages", small_pages_are_on())]),
         "open" => phase_open(false),
         "warm-open" => phase_open(true),
         "count-open" => phase_count_open(),
@@ -1484,11 +1544,13 @@ struct Row {
     /// (`OpenCost::first_run`, ADR 1620).
     script_first_run_ms: Pin,
     /// The band on how much *this program* had allocated at its high-water, in mebibytes, in
-    /// the process that drew page one.
+    /// a process that drew page one with its transparent huge pages off.
     ///
     /// **Not the process's high-water mark, which is mostly somebody else's**: see
     /// [`anonymous_high_water_mib`] for the arithmetic and [`mapped_resident_kib`] for what was
-    /// measured. The whole-process figure is printed beside it and banded nowhere.
+    /// measured. The whole-process figure is printed beside it and banded nowhere. **And not the
+    /// first-page children's own allocation**, which carries the machine's huge pages: see
+    /// [`SMALL_PAGES`]. Both are printed.
     peak_anon_mib: Pin,
     /// The band on the peak resident size of the process that only *opened* it, in mebibytes.
     ///
@@ -3223,6 +3285,9 @@ fn the_launch_path_stays_inside_its_bands() {
             samples,
             &mut || Ok(Vec::new()),
         );
+        // The memory high-water's own child, one beside them, with its huge pages off: see
+        // [`SMALL_PAGES`]. One, because the figure has no clock in it.
+        let allocation = run_phase(&format!("first-page{SMALL_PAGES}"), Some(cold_source));
         // A one-page document has no page to turn to, and asking for one is not a defect to
         // report. Its row states `turn_ms = none` and this is the other half of that.
         let turn = if row.pages > 1 && clocks {
@@ -3394,7 +3459,8 @@ fn the_launch_path_stays_inside_its_bands() {
                 let allocated = anonymous_high_water_mib(&fields);
                 println!(
                     "launch-path:   first page {value:.1} ms{} ({commands:.0} commands, frame \
-                     {frame}), {peak:.0} MiB resident, {allocated:.1} MiB of it allocated",
+                     {frame}), {peak:.0} MiB resident, {allocated:.1} MiB of it allocated with \
+                     the machine's huge pages",
                     waiting(&fields, "first_page_runq_ms")
                 );
                 print_carve_out(&fields);
@@ -3416,11 +3482,21 @@ fn the_launch_path_stays_inside_its_bands() {
                         waited: Some(("first_page_wall_ms", "first_page_runq_ms")),
                     },
                 );
+            }
+            Err(complaint) => complaints.push(format!("{}: first page: {complaint}", row.path)),
+        }
+        match allocation {
+            Ok(fields) if field(&fields, "small_pages") == Some(1.0) => {
+                let touched = anonymous_high_water_mib(&fields);
+                println!(
+                    "launch-path:   {touched:.1} MiB allocated by the same first page in a child \
+                     with transparent huge pages off, the figure banded (ADR 1902)"
+                );
                 band_it(
                     &mut judged,
                     format!("{}: the memory high-water it allocates", row.path),
                     "peak_anon_mib",
-                    allocated,
+                    touched,
                     row.peak_anon_mib,
                     true,
                     Sample {
@@ -3429,7 +3505,18 @@ fn the_launch_path_stays_inside_its_bands() {
                     },
                 );
             }
-            Err(complaint) => complaints.push(format!("{}: first page: {complaint}", row.path)),
+            Ok(fields) => complaints.push(format!(
+                "{}: the memory high-water's child says its huge pages were {}, not off, so its \
+                 figure is not the one the band was taken from",
+                row.path,
+                fields
+                    .iter()
+                    .find(|(key, _)| key == "small_pages")
+                    .map_or("not reported", |(_, value)| value.as_str())
+            )),
+            Err(complaint) => {
+                complaints.push(format!("{}: the memory high-water: {complaint}", row.path));
+            }
         }
         match turn.unwrap_or_else(|| Err("not asked for".to_owned())) {
             Ok((value, fields)) => {
@@ -3675,6 +3762,38 @@ fn the_launch_path_stays_inside_its_bands() {
         "the launch path moved:\n  {}",
         complaints.join("\n  ")
     );
+}
+
+/// **A child asked for small pages runs with its huge pages off, and one not asked keeps the
+/// machine's** (ADR 1902). Read back from the kernel in both directions, so that the state the
+/// memory band rests on is seen to be set by the suffix and by nothing else (trap 13): a child
+/// that read `1` either way would pass the gate's refusal while measuring the machine's pages.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_small_pages_child_has_its_huge_pages_off_and_no_other_child_does() {
+    let state = |phase: &str| -> String {
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(error) => panic!("no current exe: {error}"),
+        };
+        let output = match Child::new(exe)
+            .args(["--exact", "launch_probe", "--nocapture", "--test-threads=1"])
+            .env(PHASE, phase)
+            .output()
+        {
+            Ok(output) => output,
+            Err(error) => panic!("the {phase} child did not run: {error}"),
+        };
+        let said = String::from_utf8_lossy(&output.stdout).into_owned();
+        said.lines()
+            .find_map(|line| line.split("small_pages=").nth(1))
+            .map_or_else(
+                || panic!("the {phase} child printed no state: {said}"),
+                |value| value.split_whitespace().next().unwrap_or("").to_owned(),
+            )
+    };
+    assert_eq!(state(&format!("pages{SMALL_PAGES}")), "1");
+    assert_eq!(state("pages"), "0");
 }
 
 /// **The carve-out's reading is the kernel's words, and the rule declines ADR 1872's run** (ADR

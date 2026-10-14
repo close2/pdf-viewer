@@ -102,6 +102,9 @@ fn opening_commands(
         // first interpretation is, so a preference applied after the page had been drawn would
         // have drawn the other picture first (ADR 1228).
         Command::Separations(separations),
+        // A page past the whole-page bound is drawn as much as the window shows of it, as `quorra`
+        // draws every page, rather than refused at the notch that crosses it (ADR 1892).
+        Command::Oversize(viewer_core::Oversize::Listed),
         Command::Open {
             id: DOCUMENT,
             bytes,
@@ -374,6 +377,9 @@ pub struct Host {
     /// no frame until its own lands — `viewer_host::stand_in::Retained`, shared with `viewer-gtk`
     /// (ADR 1866).
     retained: viewer_host::stand_in::Retained,
+    /// The pages past the whole-page bound, drawn as the window shows them (ADR 1892) — shared
+    /// with `viewer-gtk`.
+    oversized: viewer_host::oversize::Oversized,
     /// Which page this window has told the person is taking a long time to draw.
     ///
     /// **The state Escape's third row depends on** (`viewer_host::Waiting`), held rather than
@@ -703,6 +709,7 @@ impl Host {
             // nothing page one does not need happens before page one.
             drawing: viewer_host::Drawing::new(),
             retained: viewer_host::stand_in::Retained::default(),
+            oversized: viewer_host::oversize::Oversized::default(),
             warned: None,
             trace,
             widget_appearances,
@@ -3041,17 +3048,23 @@ impl Host {
         {
             return vec![look.placed()];
         }
-        // And a page with no frame at all shown from its retained picture (ADR 1866).
-        self.retained.fill(
-            viewer_host::stand_in::placed(
-                viewer_host::drawing::over_frames(
-                    frames,
-                    self.drawing.partial(),
-                    focused,
+        // And a page with no frame at all shown from its retained picture (ADR 1866), with a page
+        // past the whole-page bound shown over it from what its window drew (ADR 1892).
+        self.oversized.place(
+            self.retained.fill(
+                viewer_host::stand_in::placed(
+                    viewer_host::drawing::over_frames(
+                        frames,
+                        self.drawing.partial(),
+                        focused,
+                        geometry,
+                    ),
                     geometry,
                 ),
+                focused,
                 geometry,
             ),
+            self.drawing.partial(),
             focused,
             geometry,
         )
@@ -4166,6 +4179,7 @@ impl Host {
                 }
                 self.run(command, &mut queue);
             }
+            self.ask_for_windows();
             self.take_the_thread_back();
             self.take_the_drawn(&mut queue);
             // A tab opened behind is in front for the first time once `Command::Focus` has run,
@@ -4215,8 +4229,7 @@ impl Host {
         let described = self
             .trace
             .on(Topic::Events)
-            .then(|| format!("{command:?}"))
-            .map(|text| text.chars().take(120).collect::<String>());
+            .then(|| viewer_host::trace::described(&command, 120));
         // **A command that changes the document changes what §14.7's tree says**, and
         // `Showing` cannot see it: an edit and a click move neither the page nor the
         // viewport. Which commands those are is one statement for all three windows
@@ -4358,7 +4371,72 @@ impl Host {
             // because taking the face costs a whole-viewport rasterisation.
             self.face_arrived(&finished.request);
         }
+        self.take_the_windows(queue);
         self.mind_a_long_draw();
+    }
+
+    /// Asks the drawing for the part of each page past the whole-page bound that the viewport
+    /// shows and nothing drawn holds — after a zoom to such a page, and after a scroll out of the
+    /// window drawn of it (ADR 1892).
+    fn ask_for_windows(&mut self) {
+        let viewer = &self.viewer;
+        let due = self.oversized.due(
+            self.documents.focused(),
+            |page| match viewer.query(Query::PageGeometry(page)) {
+                Answer::Geometry(geometry) => Some(geometry),
+                _ => None,
+            },
+            self.viewport,
+        );
+        for (request, window) in due {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} asked as the window shows it, {}x{} at {},{} of {}x{}",
+                    request.page.saturating_add(1),
+                    window.width,
+                    window.height,
+                    window.x,
+                    window.y,
+                    request.target.width,
+                    request.target.height
+                ),
+            );
+            self.drawing.ask_window(request, window);
+        }
+    }
+
+    /// Takes the windows the drawing has finished, and answers the viewer for the first of each
+    /// request — the host took its list (ADR 1892).
+    fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
+        for (finished, window) in self.drawing.windows() {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    window.width,
+                    window.height,
+                    window.x,
+                    window.y,
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned"
+                    },
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            self.update.frame = true;
+            if finished.outcome.is_none() {
+                self.oversized.abandoned(&finished.request, window);
+                continue;
+            }
+            if let Some((token, rendered)) = self.oversized.landed(finished, window) {
+                queue.push_back(Command::RenderReady { token, rendered });
+            }
+        }
     }
 
     /// Tells the person about a draw that has outlasted `viewer_host::drawing::WARN`, and takes
@@ -4598,10 +4676,14 @@ impl Host {
             // window with it — no repaint, no key, and no thread from which `pdf_render::Interrupt`
             // could be raised. What comes back arrives in `take_the_drawn`.
             // The rows the window shows are drawn first, and the rest of the page after (ADR 1868).
+            // A page past the whole-page bound is held, and drawn as the window shows it once the
+            // commands are run (ADR 1892).
             Event::NeedsRender(request) => {
                 self.retained.asked(&request);
-                let seen = self.seen_of(&request);
-                self.drawing.ask_showing(request, seen);
+                if !self.oversized.asked(&request) {
+                    let seen = self.seen_of(&request);
+                    self.drawing.ask_showing(request, seen);
+                }
             }
             // §12.6.4.8: resolved against this document's own location where the action left it
             // partial, then opened, declined or put to the person by the one policy three windows

@@ -1447,6 +1447,24 @@ its budget: the machine had slept about 9 800 s. The log's `hold=` and `wait=` a
 include a suspend, so a huge hold may be the machine sleeping and not a walk. Read
 `CLOCK_BOOTTIME − CLOCK_MONOTONIC` over the interval before blaming a run or a neighbour.
 
+### 169. A hold checks its binaries exist, and a directory for the owner's loop is the owner's group
+
+The clock turn outranks a build's ticket, so a clock hold queued after its own lane-1 build can be
+granted first: round 1529's first hold measured binaries that did not exist yet and spent one of the
+owner's-loop runs on nothing. A hold script asserts its binaries before it measures or queues the
+loop. Round 1531 made `tmp/r1531` with group AI instead of `coders`, so the owner's loop could not
+write its exit file and the hold waited 900 s holding both lanes; a wait on the loop watches
+`run-on-gpu.exit` as well as its own done line, and the directory is made `chgrp coders; chmod g+ws`.
+
+### 171. A figure moved by a per-mapping kernel policy is fixed in the child, not guarded by a counter
+
+`peak_anon_mib` fell under its floors on HEAD while nothing in the tree moved it. The cause was
+transparent huge pages: which of a child's mappings got a 2 MiB page depended on where each landed,
+which no machine-wide counter reports — with every block free and `thp_fault_fallback` still, two
+children read 19.45 and 19.63 against a floor of 19.5 (round 1533, ADR 1902). A guard that declines
+on a counter would have judged them. The instrument turns the policy off in the measuring child
+(`prctl`, through `rustix`) and reads back that it did; the ordinary children keep the machine's pages.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

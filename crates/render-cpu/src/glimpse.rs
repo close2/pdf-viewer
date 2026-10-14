@@ -49,6 +49,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use rayon::iter::{
+    IndexedParallelIterator as _, IntoParallelRefMutIterator as _, ParallelIterator as _,
+};
+use rayon::slice::ParallelSliceMut as _;
+
 use pdf_render::{DisplayList, MarkBounds, Raster, RasterFormat, TargetSpec};
 
 /// A flag another thread raises to ask a draw in progress for the picture so far.
@@ -222,13 +227,16 @@ impl crate::CpuRasterizer {
     /// recursion, and every strip of the owner's witness replayed it for each of 4.4 M commands,
     /// 9.9 % of the processor's drawing (ADR 1841).
     ///
+    /// The commands drawn are the list's from `from` on, which is how a page drawn ahead from its
+    /// parts is finished from the list once the read has ended ([`Underway::finish`]).
+    ///
     /// # Errors
     ///
     /// As `encode`.
     pub(crate) fn encode_page(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
-        (list, bounds): (&DisplayList, &MarkBounds),
+        (list, bounds, from): (&DisplayList, &MarkBounds, usize),
         surface: crate::Surface,
         masks: &mut crate::MaskCache,
         showing: Option<&Showing>,
@@ -244,7 +252,7 @@ impl crate::CpuRasterizer {
         );
         let mut watch = showing
             .map(|showing| Watch::new(showing, list, surface.page, surface.rows.top, self.medium));
-        for (index, command) in commands.iter().enumerate() {
+        for (index, command) in commands.iter().enumerate().skip(from) {
             if let Some(watch) = watch.as_mut()
                 && watch.due()
             {
@@ -280,7 +288,7 @@ impl crate::CpuRasterizer {
 }
 
 /// A page drawn from a display list handed over in parts while it is still being read
-/// (ADR 1855): each part painted into one target as it arrives, the picture so far shown on
+/// (ADR 1855): each part painted into the target as it arrives, the picture so far shown on
 /// request, and the page finished from the list once the read has ended.
 ///
 /// # Why its pixels are the page's
@@ -296,15 +304,26 @@ impl crate::CpuRasterizer {
 /// (`pdf_model::progress`). [`Underway::finish`] answers `Err` for each of those, and the caller
 /// draws the finished list whole, as it would have without any of this.
 ///
-/// **One surface, not strips.** The whole draw cuts a page into strips only at rows where a cut
-/// draws the same bytes (ADR 0139), so the page drawn as one surface is the page drawn in strips;
-/// a part is too small a unit of work to divide, and one thread keeps up with the reader on the
-/// witness (ADR 1845 §4).
+/// # One surface, or strips on the pool
+///
+/// [`Underway::new`] paints one surface on the calling thread, and its page is the page drawn
+/// whole as one strip. [`Underway::in_strips`] cuts the target into strips as wide as the pool,
+/// draws each part into every strip on the pool and finishes the rest of the list there too, and
+/// its page is the page drawn whole at those cuts ([`crate::CpuRasterizer::with_cuts`]) — the
+/// strips of one draw, where the whole draw would choose its own. A cut is a row no mark of the
+/// page forbids, asked of every part as the planner asks it of the whole list (ADRs 0139, 1819,
+/// 1837): a part that forbids one ends the drawing ahead, because a strip cut across such a mark
+/// draws another picture, and the page is then drawn whole. The cuts are even rather than balanced
+/// by the marks' costs, because the cost of a part not yet read is not known; the whole list is
+/// balanced by the planner when nothing was drawn ahead. ADR 1896 is the measurement: finishing
+/// the owner's drawing on one thread took longer than drawing it whole on the pool after the read.
 pub struct Underway {
     rasterizer: crate::CpuRasterizer,
     target: TargetSpec,
-    pixmap: tiny_skia::Pixmap,
-    masks: crate::MaskCache,
+    /// The rows the target is cut at: the first `0`, the last its height.
+    cuts: Vec<u32>,
+    /// One per pair of cuts, top to bottom.
+    strips: Vec<Strip>,
     /// The clips and soft masks of the list so far, and none of its commands: what the parts'
     /// identifiers name.
     tables: Option<DisplayList>,
@@ -316,12 +335,20 @@ pub struct Underway {
     stopped: Option<&'static str>,
 }
 
+/// One strip of a page drawn ahead: its rows, their pixels and the masks built for them.
+struct Strip {
+    rows: crate::Band,
+    pixmap: tiny_skia::Pixmap,
+    masks: crate::MaskCache,
+}
+
 /// Written by hand because the mask cache is built pixels and has nothing worth printing.
 impl std::fmt::Debug for Underway {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Underway")
             .field("target", &self.target)
+            .field("cuts", &self.cuts)
             .field("drawn", &self.drawn)
             .field("stopped", &self.stopped)
             .finish_non_exhaustive()
@@ -329,19 +356,78 @@ impl std::fmt::Debug for Underway {
 }
 
 impl Underway {
-    /// A target nothing has been drawn into yet, drawn with `rasterizer`'s settings — `None`
-    /// where the target is larger than this backend draws or cannot be allocated.
+    /// A target nothing has been drawn into yet, drawn with `rasterizer`'s settings as one
+    /// surface on the calling thread — `None` where the target is larger than this backend draws
+    /// or cannot be allocated.
     #[must_use]
     pub fn new(rasterizer: &crate::CpuRasterizer, target: TargetSpec) -> Option<Self> {
+        Self::cut_at(rasterizer, target, vec![0, target.height])
+    }
+
+    /// [`Self::new`], cut into as many even strips as the pool this is called on is wide — or as
+    /// `rasterizer` states with `with_strips` — within [`crate::MAX_STRIPS`] and the fewest rows
+    /// a strip may have, each part drawn into them on the pool.
+    ///
+    /// For a window's first frame of a page that reads for seconds, which a thread of its own
+    /// would finish later than the pool draws the page whole after the read (ADR 1896).
+    #[must_use]
+    pub fn in_strips(rasterizer: &crate::CpuRasterizer, target: TargetSpec) -> Option<Self> {
+        let asked = rasterizer.strips.unwrap_or_else(|| {
+            rayon::current_num_threads()
+                .try_into()
+                .unwrap_or(crate::MAX_STRIPS)
+        });
+        let count = asked
+            .min(crate::MAX_STRIPS)
+            .min(target.height / crate::MIN_STRIP_ROWS)
+            .max(1);
+        let cuts = (0..=count)
+            .map(|strip| {
+                let row = u64::from(target.height)
+                    .saturating_mul(u64::from(strip))
+                    .checked_div(u64::from(count))
+                    .unwrap_or(0);
+                u32::try_from(row).unwrap_or(target.height)
+            })
+            .collect();
+        Self::cut_at(rasterizer, target, cuts)
+    }
+
+    /// A target cut at `cuts`, which are a division of its height.
+    fn cut_at(
+        rasterizer: &crate::CpuRasterizer,
+        target: TargetSpec,
+        cuts: Vec<u32>,
+    ) -> Option<Self> {
         if target.width > crate::MAX_EXTENT || target.height > crate::MAX_EXTENT {
             return None;
         }
-        let surface = crate::Surface::whole(target);
+        let pairs = cuts.len().saturating_sub(1).max(1);
+        // Divided as the whole draw divides it: a strip's masks are a strip tall.
+        let budget = crate::MASK_BUDGET
+            .checked_div(pairs)
+            .unwrap_or(crate::MASK_BUDGET);
+        let strips = cuts
+            .windows(2)
+            .map(|pair| {
+                let (top, bottom) = (pair.first().copied()?, pair.get(1).copied()?);
+                let rows = crate::Band {
+                    top,
+                    height: bottom.checked_sub(top)?,
+                };
+                let surface = crate::Surface { page: target, rows };
+                Some(Strip {
+                    rows,
+                    pixmap: tiny_skia::Pixmap::new(target.width, rows.height)?,
+                    masks: crate::MaskCache::new(surface, rasterizer.anti_alias, budget),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some(Self {
             rasterizer: rasterizer.clone(),
             target,
-            pixmap: tiny_skia::Pixmap::new(target.width, target.height)?,
-            masks: crate::MaskCache::new(surface, rasterizer.anti_alias, crate::MASK_BUDGET),
+            cuts,
+            strips,
             tables: None,
             drawn: pdf_render::Stated::default(),
             blitted: 0,
@@ -353,6 +439,14 @@ impl Underway {
     #[must_use]
     pub fn target(&self) -> TargetSpec {
         self.target
+    }
+
+    /// The rows the target is cut at: the first `0`, the last its height, and a single pair
+    /// where it is drawn as one surface — what [`crate::CpuRasterizer::with_cuts`] is handed to
+    /// draw the same page whole.
+    #[must_use]
+    pub fn cuts(&self) -> &[u32] {
+        &self.cuts
     }
 
     /// How much of the list has been drawn.
@@ -368,49 +462,139 @@ impl Underway {
     }
 
     /// Draws the next part of the list, and answers whether this can still become the page.
-    pub fn take(&mut self, mut part: pdf_render::ListPart) -> bool {
+    pub fn take(&mut self, part: pdf_render::ListPart) -> bool {
+        self.take_all(vec![part])
+    }
+
+    /// Draws the next parts of the list, in their order, as one — and answers whether this can
+    /// still become the page.
+    ///
+    /// **One pass over the strips for every part that is waiting**, because the strips of a part
+    /// are not its marks' strips: a page's marks come in the order they are painted, so a part
+    /// holds the marks of a few rows and a pass for it alone keeps one strip busy while the others
+    /// wait. Several parts reach more of the page, and the drawing is the same commands in the
+    /// same order either way.
+    pub fn take_all(&mut self, parts: Vec<pdf_render::ListPart>) -> bool {
         if self.stopped.is_some() {
             return false;
         }
-        if part.from != self.drawn {
-            return self.stop("a part arrived out of its order");
+        let mut commands = Vec::new();
+        let mut until = self.drawn;
+        for mut part in parts {
+            if part.from != until {
+                return self.stop("a part arrived out of its order");
+            }
+            if part.soft_mask_count() > 0 {
+                return self
+                    .stop("the page states a soft mask, which is built against the whole list");
+            }
+            let tables = self
+                .tables
+                .get_or_insert_with(|| DisplayList::new(part.page_size));
+            if !tables.extend_tables(&part) {
+                return self.stop("a part's clips do not line up with the ones drawn before it");
+            }
+            // What the finished list's own pass restates, restated here command by command, so
+            // that a part is drawn as the finished list states it (`pdf_render::ListPart`).
+            part.restate_collapsed_marks();
+            self.blitted = self
+                .blitted
+                .saturating_add(pdf_render::commands_blit_demand(
+                    tables,
+                    &part.commands,
+                    self.target,
+                ));
+            if self.blitted > pdf_render::MAX_GROUP_BLIT_PIXELS {
+                return self.stop("the page's groups blit more than a page may");
+            }
+            until = part.until();
+            if commands.is_empty() {
+                commands = part.commands;
+            } else {
+                commands.append(&mut part.commands);
+            }
         }
-        if part.soft_mask_count() > 0 {
-            return self.stop("the page states a soft mask, which is built against the whole list");
+        let Some(tables) = self.tables.as_ref() else {
+            return true;
+        };
+        // The parts' commands in a list of the tables so far, so that their bounds are measured
+        // once for every strip, as the whole draw measures the page's (ADR 1841).
+        let list = tables.shape_list(commands);
+        if let Err(reason) = self.draw_from(&list, 0) {
+            return self.stop(reason);
         }
-        let tables = self
-            .tables
-            .get_or_insert_with(|| DisplayList::new(part.page_size));
-        if !tables.extend_tables(&part) {
-            return self.stop("a part's clips do not line up with the ones drawn before it");
-        }
-        // What the finished list's own pass restates, restated here command by command, so that
-        // a part is drawn as the finished list states it (`pdf_render::ListPart`).
-        part.restate_collapsed_marks();
-        self.blitted = self
-            .blitted
-            .saturating_add(pdf_render::commands_blit_demand(
-                tables,
-                &part.commands,
-                self.target,
-            ));
-        if self.blitted > pdf_render::MAX_GROUP_BLIT_PIXELS {
-            return self.stop("the page's groups blit more than a page may");
-        }
-        let drawn = self.rasterizer.encode(
-            &mut self.pixmap.as_mut(),
-            tables,
-            &part.commands,
-            crate::Surface::whole(self.target),
-            &mut self.masks,
-            0,
-            crate::Compose::Over,
-        );
-        if drawn.is_err() {
-            return self.stop("a part did not draw");
-        }
-        self.drawn = part.until();
+        self.drawn = until;
         true
+    }
+
+    /// Draws `list`'s commands from `from` on into every strip, on the pool where there are
+    /// several — or says why they cannot become the page.
+    fn draw_from(&mut self, list: &DisplayList, from: usize) -> Result<(), &'static str> {
+        let target = self.target;
+        let bounds = list.mark_bounds(target.transform);
+        if self.strips.len() > 1 {
+            let anti_alias = self.rasterizer.anti_alias;
+            let inputs = pdf_render::strip_inputs(list, target, &bounds, &|mark| {
+                crate::drawn_row_by_row(mark, anti_alias, target)
+            });
+            let forbidden = inputs.unsplittable();
+            let inner = self.cuts.get(1..self.cuts.len().saturating_sub(1));
+            if inner.unwrap_or_default().iter().any(|row| {
+                usize::try_from(*row)
+                    .ok()
+                    .and_then(|row| forbidden.get(row))
+                    .copied()
+                    .unwrap_or(true)
+            }) {
+                return Err(
+                    "a mark crosses a row the page was cut at, where only one strip draws it exactly",
+                );
+            }
+            // As the whole draw reduces them, on this thread before any strip is queued (ADR 0731).
+            let commands = list.commands().get(from..).unwrap_or_default();
+            self.rasterizer.reduced_images.warm(
+                commands,
+                target.transform,
+                crate::whole_target(target),
+            );
+        }
+        let rasterizer = &self.rasterizer;
+        let draw = |strip: &mut Strip| {
+            let surface = crate::Surface {
+                page: target,
+                rows: strip.rows,
+            };
+            rasterizer.encode_page(
+                &mut strip.pixmap.as_mut(),
+                (list, &bounds, from),
+                surface,
+                &mut strip.masks,
+                None,
+            )
+        };
+        let drawn = if self.strips.len() > 1 {
+            self.strips.par_iter_mut().try_for_each(draw)
+        } else {
+            self.strips.iter_mut().try_for_each(draw)
+        };
+        drawn.map_err(|_| "the list did not draw")
+    }
+
+    /// The strips put together, premultiplied, as one target.
+    fn joined(&self) -> Option<tiny_skia::Pixmap> {
+        if let [strip] = self.strips.as_slice() {
+            return Some(strip.pixmap.clone());
+        }
+        let mut whole = tiny_skia::Pixmap::new(self.target.width, self.target.height)?;
+        let stride = (self.target.width as usize).saturating_mul(4);
+        let mut rest = whole.data_mut();
+        for strip in &self.strips {
+            let length = (strip.rows.height as usize).saturating_mul(stride);
+            let (rows, tail) = rest.split_at_mut(length.min(rest.len()));
+            rows.copy_from_slice(strip.pixmap.data().get(..rows.len())?);
+            rest = tail;
+        }
+        Some(whole)
     }
 
     /// The page as it stands, finished as the page will be finished — or `None` before anything
@@ -418,7 +602,7 @@ impl Underway {
     #[must_use]
     pub fn look(&self) -> Option<Raster> {
         let tables = self.tables.as_ref().filter(|_| self.stopped.is_none())?;
-        let mut copy = self.pixmap.clone();
+        let mut copy = self.joined()?;
         finish_rows(copy.data_mut(), tables, self.target, self.rasterizer.medium);
         Some(raster_of(copy, self.target))
     }
@@ -446,28 +630,15 @@ impl Underway {
         if pdf_render::check_group_blit(list, self.target).is_err() {
             return Err("the page's groups blit more than a page may");
         }
-        let rest = list
-            .commands()
-            .get(self.drawn.commands..)
-            .unwrap_or_default();
-        self.rasterizer
-            .encode(
-                &mut self.pixmap.as_mut(),
-                list,
-                rest,
-                crate::Surface::whole(self.target),
-                &mut self.masks,
-                0,
-                crate::Compose::Over,
-            )
-            .map_err(|_| "the rest of the list did not draw")?;
-        finish_rows(
-            self.pixmap.data_mut(),
-            list,
-            self.target,
-            self.rasterizer.medium,
-        );
-        Ok(raster_of(self.pixmap, self.target))
+        let from = self.drawn.commands;
+        self.draw_from(list, from)?;
+        let mut whole = match self.strips.len() {
+            1 => self.strips.pop().map(|strip| strip.pixmap),
+            _ => self.joined(),
+        }
+        .ok_or("the finished target could not be allocated")?;
+        finish_rows(whole.data_mut(), list, self.target, self.rasterizer.medium);
+        Ok(raster_of(whole, self.target))
     }
 
     fn stop(&mut self, reason: &'static str) -> bool {
@@ -479,19 +650,28 @@ impl Underway {
 /// The per-pixel passes `CpuRasterizer::rasterize` ends a page with on a list this module
 /// admits — §14.11.2.1's crop, then §11.4.7's medium under the marks — over the whole target.
 ///
-/// Serial where the whole draw splits them by rows; a per-pixel pass is the same bytes either
-/// way, which is the rule that lets the whole draw split it.
+/// Split by rows on the pool as the whole draw splits them; a per-pixel pass is the same bytes
+/// either way, which is the rule that lets the whole draw split it.
 fn finish_rows(
     premultiplied: &mut [u8],
     list: &DisplayList,
     target: TargetSpec,
     medium: pdf_render::Medium,
 ) {
-    if let Some(crop) = pdf_render::crop_area(list, target) {
-        pdf_render::crop_to_page(premultiplied, target.width, 0, crop);
-    }
+    let crop = pdf_render::crop_area(list, target);
     let area = pdf_render::page_area(list, target);
-    pdf_render::impose_within(premultiplied, target.width, 0, area, medium);
+    let stride = (target.width as usize).saturating_mul(4).max(4);
+    premultiplied
+        .par_chunks_mut(stride.saturating_mul(crate::PIXEL_PASS_ROWS))
+        .enumerate()
+        .for_each(|(chunk, rows)| {
+            let first =
+                u32::try_from(chunk.saturating_mul(crate::PIXEL_PASS_ROWS)).unwrap_or(u32::MAX);
+            if let Some(crop) = crop {
+                pdf_render::crop_to_page(rows, target.width, first, crop);
+            }
+            pdf_render::impose_within(rows, target.width, first, area, medium);
+        });
 }
 
 /// A finished pixmap as the [`Raster`] every backend hands over: straight alpha, by

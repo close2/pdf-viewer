@@ -937,6 +937,103 @@ fn a_host_that_draws_its_own_frames_may_zoom_past_the_raster_budget() {
 }
 
 #[test]
+fn a_refusal_past_the_raster_budget_is_said_once_for_the_view_it_is_about() {
+    // Every command settles, and a pointer moving over a window is a command a hundred times a
+    // second: the refusal was said again at each of them, which on the owner's display was a
+    // status bar rewritten and a frame recopied at every move (ADR 1892). Said once for the
+    // magnification it is about, and again when the magnification changes.
+    let (mut viewer, _) = opened(800, 1000);
+    let refusals = |events: &[Event]| {
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::Reported { .. }))
+            .count()
+    };
+    let zoomed: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(40.0),
+            at: None,
+        })
+        .collect();
+    assert_eq!(refusals(&zoomed), 1, "{zoomed:?}");
+    for step in 0..5u8 {
+        let moved: Vec<_> = viewer
+            .handle(Command::Pointer {
+                at: (100.0 + f32::from(step), 100.0),
+                action: PointerAction::Moved,
+            })
+            .collect();
+        assert_eq!(
+            refusals(&moved),
+            0,
+            "a pointer move asks nothing new: {moved:?}"
+        );
+    }
+    let deeper: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(48.0),
+            at: None,
+        })
+        .collect();
+    assert_eq!(
+        refusals(&deeper),
+        1,
+        "a new magnification is a new question: {deeper:?}"
+    );
+}
+
+#[test]
+fn a_host_that_draws_an_oversized_page_from_its_list_is_asked_for_it() {
+    // `Oversize::Listed` (ADR 1892): the toolkit windows draw a page past `MAX_PIXELS` as the
+    // window shows it, so the request goes out at the page's whole target and is answered
+    // `Listed`; a page under the bound is asked for as before and answered with pixels.
+    let (mut viewer, events) = opened(800, 1000);
+    let first = request(&events).clone();
+    viewer
+        .handle(Command::Oversize(viewer_core::Oversize::Listed))
+        .for_each(drop);
+    serve(&mut viewer, &first);
+    let zoomed: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(40.0),
+            at: None,
+        })
+        .collect();
+    let asked = request(&zoomed).clone();
+    assert!(
+        u64::from(asked.target.width) * u64::from(asked.target.height) > 1 << 28,
+        "the case has to be over the budget to be the case"
+    );
+    assert!(
+        !zoomed
+            .iter()
+            .any(|event| matches!(event, Event::Reported { .. })),
+        "{zoomed:?}"
+    );
+    let after: Vec<_> = viewer
+        .handle(Command::RenderReady {
+            token: asked.token,
+            rendered: Rendered::Listed,
+        })
+        .collect();
+    assert!(
+        !after
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "the page holds its place, so it is not asked for again: {after:?}"
+    );
+    // The bound is the host's now and only past it: the fit is a raster as before.
+    let back: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::FitPage,
+            at: None,
+        })
+        .collect();
+    let fit = request(&back);
+    assert!(u64::from(fit.target.width) * u64::from(fit.target.height) <= 1 << 28);
+}
+
+#[test]
 fn taking_one_pages_list_does_not_lift_the_raster_budget() {
     // **The discriminating half of `Rendered::Listed`.** The test above is this one with
     // `Rendered::Presented` in its place, and the two must not agree. A host that presented has

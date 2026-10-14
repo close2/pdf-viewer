@@ -459,6 +459,15 @@ impl Parts {
         self.shared.arrived.notify_all();
     }
 
+    /// [`Self::spoil`], where any part has been handed over: a reader that gave a reading up
+    /// before handing anything leaves the drawer nothing to distrust, and the list it reads
+    /// again is handed over from its first command (ADR 1894).
+    pub(crate) fn spoil_if_handed(&self, reason: &'static str) {
+        if self.lock().handed.commands > 0 {
+            self.spoil(reason);
+        }
+    }
+
     /// The reading thread's side, once the run's list is finished: the last chance to find a
     /// command handed over and then taken back.
     pub(crate) fn conclude(&self, list: &mut DisplayList) {

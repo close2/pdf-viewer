@@ -1658,6 +1658,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::Scripts(viewer_core::Scripting::Off) => {
             writer.u8(k::SCRIPTS_OFF);
         }
+        Command::Oversize(_) => {
+            return Err(Uncarried {
+                message: "Command::Oversize",
+                reason: "the confined worker draws every page it answers with pixels under an \
+                         address-space ceiling, so a page past MAX_PIXELS is refused there; the \
+                         host's statement about its own drawing has nothing to say to it (ADR 1892)",
+            });
+        }
         Command::Scripts(viewer_core::Scripting::Ask(_) | viewer_core::Scripting::Run(_)) => {
             return Err(Uncarried {
                 message: "Command::Scripts",

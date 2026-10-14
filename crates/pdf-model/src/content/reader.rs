@@ -472,6 +472,27 @@ impl<'a> ContentReader<'a> {
         }
     }
 
+    /// Appends the stream's next bytes to `out` until it holds `upto` bytes or the stream ends,
+    /// and answers whether more may follow — the inflate writing in place, with no window between
+    /// it and the buffer a piece of a divided read is lexed from (ADR 1888, ADR 1894).
+    ///
+    /// The bytes are the ones [`Self::read_to_end`] would hand over, in the same order and with
+    /// Table 31's separators: the window's own refill writes them, into `out` instead of into the
+    /// window, and the window is left empty, so a later read through it goes on from here.
+    pub(super) fn extend_within(&mut self, out: &mut Vec<u8>, upto: usize) -> bool {
+        match &mut self.held {
+            Held::Whole { bytes, at, .. } => {
+                let room = upto.saturating_sub(out.len());
+                let rest = bytes.get(*at..).unwrap_or_default();
+                let take = rest.len().min(room);
+                out.extend_from_slice(rest.get(..take).unwrap_or_default());
+                *at = at.saturating_add(take);
+                *at < bytes.len()
+            }
+            Held::Window(window) => window.extend_within(out, upto),
+        }
+    }
+
     /// A reader over a page's `/Contents`, ISO 32000-2 §7.7.3.3 Table 31.
     ///
     /// Each part is kept beside the object *as written*, because a `/Contents` the file does
@@ -658,6 +679,9 @@ impl<'a> ContentReader<'a> {
         }
     }
 }
+
+/// How much room [`Window::extend_within`] gives the decoder at a time, in bytes.
+const STEP_IN_PLACE: usize = 256 << 10;
 
 /// A page's `/Contents`, pumped into a fixed buffer.
 #[derive(Debug)]
@@ -1273,6 +1297,45 @@ impl Window {
                 return out;
             }
         }
+    }
+
+    /// See [`ContentReader::extend_within`].
+    ///
+    /// The window's buffer and `out` change places for the refill, so the decoder writes straight
+    /// into `out`'s tail; what the window held before is moved across first.
+    fn extend_within(&mut self, out: &mut Vec<u8>, upto: usize) -> bool {
+        let held = self.buffer.get(self.at..self.filled).unwrap_or_default();
+        let take = held.len().min(upto.saturating_sub(out.len()));
+        out.extend_from_slice(held.get(..take).unwrap_or_default());
+        self.at += take;
+        if self.at < self.filled {
+            return true;
+        }
+        self.at = 0;
+        self.filled = 0;
+        if out.len() >= upto {
+            return !self.exhausted;
+        }
+        std::mem::swap(&mut self.buffer, out);
+        self.filled = self.buffer.len();
+        // The room is zeroed a step at a time rather than all at once, so the decoder writes over
+        // bytes that are still in the cache: the zeroing is what safe code pays for handing a
+        // decoder room, and a step keeps it from being a second pass over memory.
+        while self.filled < upto && !self.exhausted {
+            let step = upto.min(self.filled.saturating_add(STEP_IN_PLACE));
+            self.buffer.resize(step, 0);
+            let before = self.filled;
+            self.refill();
+            // A refill returns short only where the stream has ended or reached its bound.
+            if self.filled == before {
+                break;
+            }
+        }
+        self.buffer.truncate(self.filled);
+        std::mem::swap(&mut self.buffer, out);
+        self.filled = 0;
+        self.at = 0;
+        !self.exhausted
     }
 
     /// See [`ContentReader::progress`].

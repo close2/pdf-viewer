@@ -550,6 +550,10 @@ pub(crate) struct OnScreen {
     pub(crate) frame: Option<Raster>,
     /// The render that is outstanding for this page, if one is.
     pub(crate) pending: Option<Pending>,
+    /// The magnification, as its bits, and the interpretation this page was last refused at —
+    /// so that a refusal is said once for the view it is about, and again only when the view or
+    /// the page changes rather than at every command that settles (ADR 1892).
+    pub(crate) refused: Option<(u32, u64)>,
 }
 
 /// §7.11.4's file Annex O's `ef` parameter named, and the fragment that belongs to it.

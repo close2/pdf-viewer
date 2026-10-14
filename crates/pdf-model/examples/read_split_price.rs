@@ -30,7 +30,7 @@
 //!
 //! ```sh
 //! taskset -c <cores> cargo run --release -p pdf-model --example read_split_price -- \
-//!     /tmp/demo_heavy_engineering_A1.pdf [rounds] [piece counts, e.g. 4,8]
+//!     /tmp/demo_heavy_engineering_A1.pdf [rounds] [piece counts, e.g. 4,8, or "" for the build alone]
 //! ```
 #![expect(
     clippy::expect_used,
@@ -61,7 +61,9 @@ fn main() {
     let counts: Vec<usize> = arguments.next().map_or_else(
         || vec![4, 8],
         |list| {
+            // An empty list prices the build alone.
             list.split(',')
+                .filter(|n| !n.is_empty())
                 .map(|n| n.parse().expect("a piece count"))
                 .collect()
         },
@@ -135,35 +137,51 @@ fn main() {
     }
 }
 
-/// The build (ADR 1880): the page read as `pdf_model::interpret` reads it, divided where the plan
-/// finds cuts, against the same page read whole — interleaved, and the lists compared.
+/// The build (ADRs 1880, 1894): the page read as `pdf_model::interpret` reads it — divided with
+/// the inflate pipelined into the pieces — against the same page divided once the whole stream is
+/// inflated (ADR 1880's read) and read whole, interleaved, and each list compared with the whole.
 fn built(
     document: &Document,
     page: &pdf_model::Page,
     whole_list: &pdf_model::Interpretation,
     rounds: usize,
 ) {
-    use pdf_model::content::divide::{Division, Reading, last_reading};
-    let mut divided = Vec::new();
+    use pdf_model::content::divide::{Division, Reading, last_pipeline_decline, last_reading};
+    let mut pipelined = Vec::new();
+    let mut after = Vec::new();
     let mut undivided = Vec::new();
     let mut same = true;
     let mut how = None;
+    let mut fell_back = None;
+    let same_as_whole = |interpretation: &pdf_model::Interpretation| {
+        interpretation.display_list == whole_list.display_list
+            && interpretation.unsupported == whole_list.unsupported
+            && interpretation.operators == whole_list.operators
+    };
     for _ in 0..rounds {
         let started = Instant::now();
         let interpretation = pdf_model::interpret(document, page);
-        divided.push(started.elapsed());
+        pipelined.push(started.elapsed());
         how = last_reading();
-        same &= interpretation.display_list == whole_list.display_list
-            && interpretation.unsupported == whole_list.unsupported
-            && interpretation.operators == whole_list.operators;
+        fell_back = last_pipeline_decline();
+        same &= same_as_whole(&interpretation);
+        drop(interpretation);
+        let started = Instant::now();
+        let interpretation =
+            Division::AFTER_THE_INFLATE.during(|| pdf_model::interpret(document, page));
+        after.push(started.elapsed());
+        same &= same_as_whole(&interpretation);
+        drop(interpretation);
         let started = Instant::now();
         let interpretation = Division::NEVER.during(|| pdf_model::interpret(document, page));
         undivided.push(started.elapsed());
         std::hint::black_box(interpretation);
     }
     println!(
-        "built: read divided {} against whole {} on {} threads ({}); its list {} the page's",
-        spread(&divided),
+        "built: read pipelined {} against divided after the inflate {} and whole {} on {} threads \
+         ({}{}); its lists {} the page's",
+        spread(&pipelined),
+        spread(&after),
         spread(&undivided),
         rayon::current_num_threads(),
         match how {
@@ -171,7 +189,11 @@ fn built(
             Some(Reading::Whole(reason)) => format!("not divided: {}", reason.0),
             None => "no reading".to_owned(),
         },
-        if same { "is" } else { "IS NOT" },
+        fell_back.map_or_else(String::new, |reason| format!(
+            "; not pipelined: {}",
+            reason.0
+        )),
+        if same { "are" } else { "ARE NOT" },
     );
 }
 

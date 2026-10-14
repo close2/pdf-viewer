@@ -122,6 +122,8 @@ use pdf_render::{
 use render_cpu::{CpuRasterError, CpuRasterizer, Glance, Glimpse};
 use viewer_core::{FrameView, PageGeometry, RenderRequest, Rendered};
 
+use crate::oversize::Window;
+
 /// What one drawing needs to know about the page it was asked for.
 ///
 /// [`viewer_core::RenderRequest`] is the request every tier-1 host holds, and for as long as
@@ -191,6 +193,9 @@ struct Job<R> {
     /// The rows of the target the window shows, where the host said ([`Drawing::ask_showing`]):
     /// drawn first, as a band of their own, and the rest of the page after (ADR 1868).
     seen: Option<Range<u32>>,
+    /// The part of the target to draw instead of all of it, for a page past the whole-page bound
+    /// ([`Drawing::ask_window`], ADR 1892).
+    window: Option<Window>,
 }
 
 /// One page's rasterisation, on its way back.
@@ -200,6 +205,8 @@ struct Done<R> {
     /// `None` where the interrupt came back instead of a picture — see [`Finished::outcome`].
     outcome: Option<Rendered>,
     cost: Duration,
+    /// [`Job::window`], where the job drew one.
+    window: Option<Window>,
 }
 
 /// The job the toolkit's thread is waiting on, as it remembers it.
@@ -224,6 +231,8 @@ struct InFlight {
     /// The rows of it the window shows, where the host said ([`Drawing::ask_showing`]), until
     /// the glimpses have shown every one of them finished.
     seen: Option<Range<u32>>,
+    /// [`Job::window`], which a glimpse's rows are then rows of.
+    window: Option<Window>,
 }
 
 /// The page being drawn, as it stood at the last glimpse of it.
@@ -238,9 +247,19 @@ pub struct Partial {
     /// Per run of rows answered for: its first row, its height, and how far through the page's
     /// commands it had got.
     bands: Vec<(u32, u32, usize, usize)>,
+    /// The part of the page's target these pixels are, where the draw is of a window
+    /// ([`Drawing::ask_window`]); `None` for the whole target.
+    window: Option<Window>,
 }
 
 impl Partial {
+    /// The part of the page's target this is a picture of, where the draw is of a window (ADR
+    /// 1892) — which [`over_frames`] leaves to [`crate::oversize::Oversized`] to place.
+    #[must_use]
+    pub fn window(&self) -> Option<Window> {
+        self.window
+    }
+
     /// Which page this is a picture of.
     #[must_use]
     pub fn page(&self) -> usize {
@@ -400,9 +419,11 @@ pub struct Drawing<R: DrawRequest = RenderRequest> {
     ///
     /// Each with the rows of its target the window shows, where the host said
     /// ([`Drawing::ask_showing`]).
-    queued: VecDeque<(R, Option<Range<u32>>)>,
+    queued: VecDeque<(R, Option<Range<u32>>, Option<Window>)>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
     landed: Vec<Finished<R>>,
+    /// Windows of pages past the whole-page bound that have finished — see [`Drawing::windows`].
+    windows: Vec<(Finished<R>, Window)>,
     /// The page in flight as it stood at its last glimpse — see [`Drawing::partial`].
     partial: Option<Partial>,
     /// Whether a glimpse has arrived since a host last asked [`Drawing::glimpsed`].
@@ -511,6 +532,7 @@ impl<R: DrawRequest> Default for Drawing<R> {
             in_flight: None,
             queued: VecDeque::new(),
             landed: Vec::new(),
+            windows: Vec::new(),
             partial: None,
             fresh: false,
             seen_drawn: None,
@@ -563,11 +585,40 @@ impl<R: DrawRequest> Drawing<R> {
         }
         // A queued request for the same page is dead for the same reason and has not cost anything
         // yet; it is replaced rather than drawn and thrown away.
-        self.queued.retain(|(queued, _)| {
+        self.queued.retain(|(queued, _, _)| {
             queued.page() != request.page() || queued.document() != request.document()
         });
-        self.queued.push_back((request, seen));
+        self.queued.push_back((request, seen, None));
         self.dispatch();
+    }
+
+    /// [`Self::ask`], for the part `window` of a request's target: a page whose whole raster would
+    /// be past `viewer_core::MAX_PIXELS`, drawn as much as the window shows of it (ADR 1892).
+    ///
+    /// **The same arrangement as every other request**: one job in flight, a newer request for the
+    /// page taking the thread back from it, glimpses of it as it is drawn. What comes back is
+    /// [`Self::windows`]'s and not [`Self::collect`]'s, because it is not the viewer's answer: a
+    /// host told the viewer it took this page's list (`viewer_core::Rendered::Listed`), and the
+    /// pixels are the host's own to place.
+    pub fn ask_window(&mut self, request: R, window: Window) {
+        if let Some(in_flight) = self.in_flight.as_ref()
+            && in_flight.page == request.page()
+            && in_flight.document == request.document()
+        {
+            in_flight.interrupt.raise();
+        }
+        self.queued.retain(|(queued, _, _)| {
+            queued.page() != request.page() || queued.document() != request.document()
+        });
+        self.queued.push_back((request, None, Some(window)));
+        self.dispatch();
+    }
+
+    /// The windows ([`Self::ask_window`]) that have finished or been abandoned since this was last
+    /// asked, each with the part of the target it is — a `None` outcome is abandoned, as in
+    /// [`Finished::outcome`].
+    pub fn windows(&mut self) -> Vec<(Finished<R>, Window)> {
+        std::mem::take(&mut self.windows)
     }
 
     /// Which page the drawing thread is inside, where it is inside one.
@@ -703,10 +754,21 @@ impl<R: DrawRequest> Drawing<R> {
         for done in arrived {
             let asked = self.in_flight.take().map(|in_flight| in_flight.asked);
             self.partial = None;
-            finished.push(landed(done, asked));
+            self.land(done, asked, &mut finished);
         }
         self.dispatch();
         finished
+    }
+
+    /// Puts one finished job where it is owed: a window to [`Self::windows`], every other draw to
+    /// `finished`.
+    fn land(&mut self, done: Done<R>, asked: Option<Instant>, finished: &mut Vec<Finished<R>>) {
+        let window = done.window;
+        let finished_job = landed(done, asked);
+        match window {
+            Some(window) => self.windows.push((finished_job, window)),
+            None => finished.push(finished_job),
+        }
     }
 
     /// Takes in what the draw in flight has shown, and asks it again when a look is due.
@@ -745,6 +807,7 @@ impl<R: DrawRequest> Drawing<R> {
                         ],
                     },
                     bands: Vec::new(),
+                    window: in_flight.window,
                 });
                 partial.take(&glimpse);
                 self.fresh = true;
@@ -828,7 +891,9 @@ impl<R: DrawRequest> Drawing<R> {
         if let Some(done) = arrived {
             let asked = self.in_flight.take().map(|in_flight| in_flight.asked);
             self.partial = None;
-            self.landed.push(landed(done, asked));
+            let mut landed_here = Vec::new();
+            self.land(done, asked, &mut landed_here);
+            self.landed.extend(landed_here);
         }
         self.collect()
     }
@@ -841,8 +906,10 @@ impl<R: DrawRequest> Drawing<R> {
     /// this exactly never.
     #[must_use]
     pub fn interval(&self) -> Option<Duration> {
-        let waiting =
-            self.in_flight.is_some() || !self.queued.is_empty() || !self.landed.is_empty();
+        let waiting = self.in_flight.is_some()
+            || !self.queued.is_empty()
+            || !self.landed.is_empty()
+            || !self.windows.is_empty();
         waiting.then_some(POLL)
     }
 
@@ -856,7 +923,7 @@ impl<R: DrawRequest> Drawing<R> {
     /// this module replaced, reached only where the arrangement is unavailable.
     fn dispatch(&mut self) {
         while self.in_flight.is_none() {
-            let Some((request, seen)) = self.queued.pop_front() else {
+            let Some((request, seen, window)) = self.queued.pop_front() else {
                 return;
             };
             let watched = seen.clone();
@@ -868,7 +935,10 @@ impl<R: DrawRequest> Drawing<R> {
             let asked = Instant::now();
             let page = request.page();
             let document = request.document();
-            let target = request.target();
+            // A window's glimpses are rows of the window, so it is the target they are sized by.
+            let target = window.map_or(request.target(), |window| {
+                window.target_of(request.target())
+            });
             let serial = self.serial;
             self.serial = self.serial.wrapping_add(1);
             // A new draw is a new picture; the last one's glimpses are of something else.
@@ -876,6 +946,7 @@ impl<R: DrawRequest> Drawing<R> {
             let ahead = self
                 .ahead
                 .as_ref()
+                .filter(|_| window.is_none())
                 .and_then(|ahead| ahead.take_for(request.list(), target));
             let job = Job {
                 request,
@@ -884,6 +955,7 @@ impl<R: DrawRequest> Drawing<R> {
                 serial,
                 ahead,
                 seen,
+                window,
             };
             let returned = match self.link.as_ref() {
                 Some(link) => link.jobs.send(job).err().map(|refused| refused.0),
@@ -900,12 +972,15 @@ impl<R: DrawRequest> Drawing<R> {
                     serial,
                     target,
                     seen: watched,
+                    window,
                 });
                 return;
             };
             self.link = None;
             let done = draw(job, None);
-            self.landed.push(landed(done, Some(asked)));
+            let mut landed_here = Vec::new();
+            self.land(done, Some(asked), &mut landed_here);
+            self.landed.extend(landed_here);
         }
     }
 }
@@ -983,8 +1058,13 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
         serial,
         ahead,
         seen,
+        window,
     } = job;
     let began = Instant::now();
+    if let Some(window) = window {
+        return draw_window(&request, window, interrupt, (shown, glance, serial))
+            .into_done(request, began, window);
+    }
     // Page one drawn while it was read is finished here, from the list it was read into; a page
     // whose drawing ahead cannot be its picture is drawn whole below, as every page is (ADR 1855).
     if let Some(Ok(raster)) = ahead.map(|ahead| ahead.finish(request.list())) {
@@ -992,6 +1072,7 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
             request,
             outcome: Some(Rendered::Raster(raster)),
             cost: began.elapsed(),
+            window: None,
         };
     }
     // The rows the window shows first, as a look of their own, where it shows less than half the
@@ -1031,7 +1112,50 @@ fn draw<R: DrawRequest>(job: Job<R>, shown: Option<&Sender<(u64, Glimpse)>>) -> 
         request,
         outcome,
         cost: began.elapsed(),
+        window: None,
     }
+}
+
+/// What drawing a window came to, before it is a [`Done`].
+struct WindowDrawn(Option<Rendered>);
+
+impl WindowDrawn {
+    fn into_done<R>(self, request: R, began: Instant, window: Window) -> Done<R> {
+        Done {
+            request,
+            outcome: self.0,
+            cost: began.elapsed(),
+            window: Some(window),
+        }
+    }
+}
+
+/// The part `window` of a request's target, drawn as a target of its own (ADR 1892).
+///
+/// `CpuRasterizer` draws every target from the marks that reach it (ADR 1841), so a window deep
+/// inside a page costs the marks it shows and not the page. Glimpsed like any draw, its rows the
+/// window's. An interrupt is `None`, as everywhere in this module, and a failure is said.
+fn draw_window<R: DrawRequest>(
+    request: &R,
+    window: Window,
+    interrupt: Interrupt,
+    (shown, glance, serial): (Option<&Sender<(u64, Glimpse)>>, Glance, u64),
+) -> WindowDrawn {
+    let mut rasteriser = CpuRasterizer::new().interruptible(interrupt);
+    if let Some(shown) = shown {
+        let shown = shown.clone();
+        rasteriser = rasteriser.showing(glance, move |glimpse| {
+            // A host that has gone has nobody to show.
+            let _ = shown.send((serial, glimpse));
+        });
+    }
+    WindowDrawn(
+        match rasteriser.rasterize(request.list(), window.target_of(request.target())) {
+            Ok(raster) => Some(Rendered::Raster(raster)),
+            Err(problem) if was_interrupted(&problem) => None,
+            Err(problem) => Some(Rendered::Failed(problem.to_string())),
+        },
+    )
 }
 
 /// The rows of `target` a viewport `viewport_height` device pixels tall shows, where the
@@ -1170,8 +1294,10 @@ pub fn over_frames<'a>(
     focused: viewer_core::DocumentId,
     geometry: impl FnOnce(usize) -> Option<PageGeometry>,
 ) -> Vec<FrameView<'a>> {
-    let Some(partial) = partial.filter(|partial| partial.document.is_none_or(|of| of == focused))
-    else {
+    // A window's picture is placed by `crate::oversize`, at the part of the page it is of.
+    let Some(partial) = partial.filter(|partial| {
+        partial.window.is_none() && partial.document.is_none_or(|of| of == focused)
+    }) else {
         return frames;
     };
     let Some(placed) = geometry(partial.page).filter(|placed| {
@@ -1769,6 +1895,7 @@ mod tests {
                 data: vec![7; 48],
             },
             bands: vec![(0, 3, 5, 10)],
+            window: None,
         };
         let placed = |width, height| {
             move |page: usize| {
@@ -1811,6 +1938,7 @@ mod tests {
             document: Some(DocumentId(1)),
             raster: raster(8, 6),
             bands: vec![(2, 2, 10, 10)],
+            window: None,
         };
         let placed = |page: usize| {
             (page == 0).then_some(viewer_core::PageGeometry {
@@ -1862,6 +1990,7 @@ mod tests {
                 data: vec![0; 400],
             },
             bands: Vec::new(),
+            window: None,
         };
         partial.take(&rows(40, 10, 10));
         partial.take(&rows(50, 10, 4));

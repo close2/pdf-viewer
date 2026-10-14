@@ -146,6 +146,9 @@
 # when the wrapper ends — `<asked> batch=<branch> round=<N> wait=<s> hold=<s> exit=<status>
 # cmd=<command>`, the branch being the batch's (that of the tree this script is in) —
 # and `tools/state.sh gates-cost` prints the last batch's lines and each round's sum. ADR 1646.
+# `wait=` and `hold=` are wall clocks, so where the machine was suspended during either the line
+# says how long, `slept_queued=<s>` and `slept=<s>` before `cmd=`, and `gates-cost` takes it off
+# (trap 164, ADR 1903).
 #
 # **The descriptor stays with the wrapper and is not handed to the command.** Handed down, as
 # `flock <lock> <command>` leaves it, the lock was held by anything the walk started for as long as
@@ -436,6 +439,31 @@ declare -A ahead_of_me=()
 
 now_ms() { echo $(( $(date +%s%N) / 1000000 )); }
 
+# `slept_ms` prints how long this machine has been suspended since it booted, in milliseconds:
+# `CLOCK_BOOTTIME` less `CLOCK_MONOTONIC`, which only a suspend moves. A lock line's `wait=` and
+# `hold=` are wall clocks and a suspend is inside them, so a build cargo timed at 350 s has read
+# `hold=10178s` (trap 164); this is read at the ask, the grant and the end, and the line says what
+# of each the machine slept (ADR 1903). Neither clock is in `date`, or readable in `/proc` as
+# this user, so python3 is asked; `-` where there is none, and the line then says nothing of it.
+# `HEAVY_WALK_SLEPT_FILE` exists for the self-test, which cannot suspend the machine: a file whose
+# number stands in for the reading.
+slept_ms() {
+    if [ -n "${HEAVY_WALK_SLEPT_FILE:-}" ]; then
+        cat -- "$HEAVY_WALK_SLEPT_FILE" 2>/dev/null || echo -
+        return
+    fi
+    PYTHONDONTWRITEBYTECODE=1 python3 -I -c 'import time; print(round((time.clock_gettime_ns(time.CLOCK_BOOTTIME) - time.clock_gettime_ns(time.CLOCK_MONOTONIC)) / 1e6))' 2>/dev/null || echo -
+}
+
+# `slept_field NAME FROM TO` prints ` NAME=<s>s` where the machine slept a tenth of a second or more
+# between two readings, and nothing otherwise — a reading that is not a number included.
+slept_field() {
+    [ -n "$2" ] && [ -n "$3" ] || return 0
+    case "$2$3" in *[!0-9-]*|*-|-*) return 0 ;; esac
+    [ $(( $3 - $2 )) -ge 100 ] || return 0
+    printf ' %s=%ss' "$1" "$(seconds $(( $3 - $2 )))"
+}
+
 # `lock_holder FILE` prints the run holding FILE's lock as one word: its command line, blanks made
 # `_`, or `unknown`. Two kinds of holder need two sources. A bare `flock <lock> <command>` keeps the
 # `flock` process alive as the command's parent, and `/proc/locks` names its pid. A `--lock`
@@ -610,7 +638,7 @@ queue_leave() {
 # lane for the length the long run chose, so it is refused too: the outermost run declares `--long`.
 lock_take() {
     local inherited ancestor gate_fd first_fd turn_fd fd lane earlier owed turn_held wanted=
-    asked_ms=$(now_ms)
+    asked_ms=$(now_ms) asked_slept=$(slept_ms)
     behind=-
     inherited=$(lock_open_in $$ "$lock_path") || inherited=
     if [ -z "$inherited" ] && ancestor=$(marked_ancestor_lanes); then
@@ -739,7 +767,7 @@ lock_take() {
         exec {gate_fd}>&- {first_fd}>&- {turn_fd}>&- {queue_fd}>&-
         queue_fd=
     fi
-    held_ms=$(now_ms)
+    held_ms=$(now_ms) held_slept=$(slept_ms)
     for lane in ${lanes//+/ }; do
         printf '%s round=%s %s\n' "$$" "$round" "$command_words" > "$(lane_path "$lane").holder" 2>/dev/null
     done
@@ -772,15 +800,19 @@ lock_record() {
         for holder in "$gate_path.holder" "$first_path.holder" "$clock_turn_path.holder"; do
             [ "$(cut -d' ' -f1 "$holder" 2>/dev/null)" != "$$" ] || rm -f -- "$holder"
         done
-        held_ms=$(now_ms) lanes=-
+        held_ms=$(now_ms) held_slept=$(slept_ms) lanes=-
     fi
     ended_ms=$(now_ms)
+    ended_slept=$(slept_ms)
     small_walk_overran
-    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s peak=%sGiB behind=%s kind=%s lane=%s cmd=%s\n' \
+    # The two sleeps go after `lane=` and before `cmd=`, which is the line's last field and has
+    # blanks in it, so that every reader that takes the first six fields by position still can.
+    printf '%s batch=%s round=%s wait=%ss hold=%ss exit=%s peak=%sGiB behind=%s kind=%s lane=%s%s%s cmd=%s\n' \
         "$(date -d "@$(( asked_ms / 1000 ))" '+%Y-%m-%dT%H:%M:%S')" "$batch" "$round" \
         "$(seconds $(( held_ms - asked_ms )))" "$(seconds $(( ended_ms - held_ms )))" "$1" \
         "$(awk -v k="${peak_kib:-0}" 'BEGIN { printf "%.2f", k / 1048576 }')" "${behind:--}" \
-        "$kind" "$lanes" "$command_words" >> "$lock_log" ||
+        "$kind" "$lanes" "$(slept_field slept_queued "${asked_slept:--}" "${held_slept:--}")" \
+        "$(slept_field slept "${held_slept:--}" "$ended_slept")" "$command_words" >> "$lock_log" ||
         echo "bounded: the lock was held or waited for, and its line could not be appended to $lock_log" >&2
     [ "$lanes" != - ] || return 0
     for lane in ${lanes//+/ }; do
@@ -996,6 +1028,31 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         waited_nothing "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" ||
             fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
     done
+    # And a suspend is on the line rather than inside its clocks (trap 164). The machine cannot be
+    #    suspended here, so the reading stands in a file: a bare `flock` holds the lock while the
+    #    run queues, the reading moves 4 s before the holder lets go, and the run's command moves
+    #    it 9 800 s more — the line says `slept_queued=4.0s slept=9800.0s` before `cmd=`, which stays
+    #    its last field. A run that moved nothing says neither.
+    printf '1000\n' > "$scratch/slept"
+    ( flock "$scratch/lock" sh -c ': > "$0"; '"$hold_until" "$scratch/held78" ) &
+    holder=$!
+    appears "$scratch/held78" "" "slept: the case's own holder never took its lock"
+    HEAVY_WALK_SLEPT_FILE="$scratch/slept" HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/slept.log" \
+        "$self" --lock --round 78 --tree 12 --data 1 --nice 0 -- sh -c 'printf "9805000\n" > "$0"' "$scratch/slept" > /dev/null 2> "$scratch/slept.err" &
+    queued=$!
+    appears "$scratch/slept.err" 'queued for the heavy-walk lock' "slept: the run behind the holder never said it queued"
+    printf '5000\n' > "$scratch/slept"
+    : > "$scratch/held78.go"
+    wait "$queued" || fail "slept: the queued run failed: $(tail -n 1 "$scratch/slept.err")"
+    wait "$holder"
+    HEAVY_WALK_SLEPT_FILE="$scratch/slept" HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/slept.log" \
+        "$self" --lock --round 79 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "slept: a run with no sleep in it failed"
+    grep -q ' round=78 .* lane=1 slept_queued=4\.0s slept=9800\.0s cmd=sh -c ' "$scratch/slept.log" ||
+        fail "slept: the slept run's line: $(grep ' round=78 ' "$scratch/slept.log")"
+    if grep ' round=79 ' "$scratch/slept.log" | grep -q 'slept'; then
+        fail "slept: a run the machine did not sleep through says it did: $(grep ' round=79 ' "$scratch/slept.log")"
+    fi
+    echo "bounded --self-test: a run the machine slept 4 s of its queue and 9800 s of its hold through says so before its command, and one it did not says nothing"
     HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/held.log" \
         "$self" --lock --round 77 --tree 12 --data 1 --nice 0 -- sh -c "$hold_until" "$scratch/held77" > /dev/null 2>&1 &
     holder=$!

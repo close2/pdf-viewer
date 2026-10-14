@@ -166,6 +166,11 @@ struct Job {
     /// picture of the page being read — a job with no frame in it, asked for by
     /// [`Window::show_read`].
     look: Option<Arc<pdf_render::Raster>>,
+    /// What building these pages' scene on the device is predicted to cost, where the processor
+    /// draws this frame and the device would draw the next one of these pages from the scene it
+    /// then holds ([`Costs::build_ahead`]): the render thread builds it once the view has been
+    /// still that long (ADR 1898).
+    build_ahead: Option<Duration>,
 }
 
 /// What the window predicted a frame would cost on each lane, where it predicted the processor
@@ -345,6 +350,45 @@ impl Costs {
             && prediction.device >= viewer_host::drawing::WARN
             && prediction.processor < prediction.device;
         (prediction, processor)
+    }
+
+    /// What building the device's scene of `pages` is predicted to cost, where it is worth building
+    /// while nobody waits — `None` where the device holds it already, or where a frame of these
+    /// pages drawn from it would still go to the processor by [`Self::forecast`]'s rule (ADR 1898).
+    ///
+    /// **The build is what a built frame costs over a kept one**: the scene is walked once and the
+    /// encode and the draw are every view's, so the difference between the device's two prices is
+    /// the part a later frame no longer pays. It is also how long the view has to have been still
+    /// before the build begins, the sharp pass's rent-or-buy bound (ADR 1289): the device's build
+    /// cannot be taken back, so a notch arriving during it waits at most as long as the person had
+    /// already been still.
+    fn build_ahead_for(&self, pages: &[crate::stale::Placed]) -> Option<Duration> {
+        let commands: usize = pages
+            .iter()
+            .map(|placed| placed.list.commands().len())
+            .sum();
+        self.build_ahead(&Self::key(pages), commands)
+    }
+
+    /// [`Self::build_ahead_for`] over the pictures and the count it reads.
+    fn build_ahead(&self, pictures: &[crate::stale::Picture], commands: usize) -> Option<Duration> {
+        if self.holds.as_deref() == Some(pictures) {
+            return None;
+        }
+        let held = self.held.iter().find(|held| held.pictures == *pictures);
+        let built = held
+            .and_then(|held| held.device_built)
+            .unwrap_or(Self::DEVICE_SEED);
+        let kept = held
+            .and_then(|held| held.device_kept)
+            .unwrap_or(Self::DEVICE_KEPT_SEED);
+        let processor = held
+            .and_then(|held| held.processor)
+            .unwrap_or(Self::PROCESSOR_SEED);
+        let kept_frame = Self::cost(kept, commands);
+        let processor_keeps = kept_frame >= viewer_host::drawing::WARN
+            && Self::cost(processor, commands) < kept_frame;
+        (!processor_keeps).then(|| Self::cost((built - kept).max(0.0), commands))
     }
 
     /// `commands` at `nanoseconds` each.
@@ -533,6 +577,17 @@ enum Finished {
     Partial(Box<Partial>),
     /// Page one as it stands while it is read, uploaded (ADR 1855).
     Read(Box<Partial>),
+    /// The device's scene of the pages on hand, built while nothing was asked for (ADR 1898).
+    Scene(Box<Prepared>),
+}
+
+/// The device's scene of an arrangement, built while nobody waited for it (ADR 1898).
+#[derive(Debug)]
+pub(crate) struct Prepared {
+    /// The pages the device now holds the scene of.
+    pages: Vec<crate::stale::Placed>,
+    /// What the build cost, in `render-raster`'s own accounting.
+    cost: FrameCost,
 }
 
 /// The frame the processor is drawing, as it stood at the last look — on its way to the window.
@@ -797,6 +852,8 @@ pub(crate) struct Window {
     sharp: Option<Sharpened>,
     /// What the last adopted sharp pass cost, until the trace takes it.
     sharp_news: Option<Duration>,
+    /// What the last scene built while nobody waited cost, until the trace takes it (ADR 1898).
+    scene_news: Option<FrameCost>,
     /// `--supersample`'s factor: 1 off, 2 on. Carried to the render thread with the spawn.
     supersample: u32,
     /// `--coverage`'s choice, for the idle work this thread's counterpart draws.
@@ -1001,6 +1058,7 @@ impl Window {
             spare: None,
             sharp: None,
             sharp_news: None,
+            scene_news: None,
             supersample,
             coverage,
             waker,
@@ -1166,6 +1224,7 @@ impl Window {
         let mut newest = None;
         let mut arrived = Vec::new();
         let mut sharp = None;
+        let mut scene = None;
         {
             let link = self.thread.as_ref()?;
             // A thread that has gone is a device that has gone, and the window keeps showing
@@ -1198,6 +1257,7 @@ impl Window {
                             self.partial_news = true;
                         }
                     }
+                    Finished::Scene(prepared) => scene = Some(prepared),
                 }
             }
         }
@@ -1207,6 +1267,12 @@ impl Window {
         if let Some(sharpened) = sharp {
             self.sharp_news = Some(sharpened.took);
             self.sharp = Some(*sharpened);
+        }
+        // Read before the frame behind it, in the order the thread sent them: a frame drawn after
+        // the build says what the device holds by then.
+        if let Some(prepared) = scene {
+            self.costs.scene_of(Some(&prepared.pages));
+            self.scene_news = Some(prepared.cost);
         }
         let done = newest?;
         self.pipelines = self.pipelines.or(done.pipelines);
@@ -1357,6 +1423,13 @@ impl Window {
             (Some(ahead), [placed]) => ahead.take_for(&placed.list, placed.target),
             _ => None,
         };
+        // The device's scene of these pages, built while the processor's frame is on the window and
+        // nobody waits, where the device would draw the next frame of them from it (ADR 1898).
+        let build_ahead = if known_refusal.is_none() && (cheaper.is_some() || ahead.is_some()) {
+            self.costs.build_ahead_for(&pages)
+        } else {
+            None
+        };
         let interrupt = Interrupt::new();
         let on_the_processor = Arc::new(AtomicBool::new(
             known_refusal.is_some() || cheaper.is_some() || ahead.is_some(),
@@ -1381,6 +1454,7 @@ impl Window {
             on_the_processor,
             ahead,
             look: None,
+            build_ahead,
         };
         // A send that fails is a render thread that has ended, which is a device that has gone;
         // the frame is not in flight, so the window keeps presenting what it has and asks again.
@@ -1433,6 +1507,7 @@ impl Window {
             on_the_processor: Arc::new(AtomicBool::new(false)),
             ahead: None,
             look: Some(look.raster),
+            build_ahead: None,
         };
         if link.jobs.send(job).is_ok() {
             self.read_looked = look.serial;
@@ -1653,6 +1728,12 @@ impl Window {
     pub(crate) fn sharpened(&mut self) -> Option<Duration> {
         self.sharp_news.take()
     }
+
+    /// What the scene the device built while nobody waited cost, once — for the trace: the next
+    /// frame of these pages is priced as kept on the strength of it (ADR 1898).
+    pub(crate) fn built_ahead(&mut self) -> Option<FrameCost> {
+        self.scene_news.take()
+    }
 }
 
 /// What the render thread does between jobs, as the window configured it.
@@ -1752,6 +1833,9 @@ fn draw_until_told_to_stop(
     // it or take as long over it as over the frame, and a device draw cannot be taken back when
     // the next job arrives, where the processor's can.
     let mut on_the_processor: Vec<crate::stale::Picture> = Vec::new();
+    // What building the device's scene of the pages on hand is predicted to cost, where the last
+    // frame was the processor's and the window asked for the build ([`Job::build_ahead`]).
+    let mut build_ahead: Option<Duration> = None;
     let mut waiting: Option<Job> = None;
     loop {
         let job = match waiting.take() {
@@ -1776,7 +1860,16 @@ fn draw_until_told_to_stop(
             }
             showing.clone_from(&job.pages);
             shown_size = (job.width, job.height);
+            let asked_ahead = job.build_ahead.take();
             let finished = draw(&mut renderer, job, done, waker);
+            // Only after a frame the processor drew and the device was not asked: a refusal is the
+            // device's answer for these pages, and a frame taken back is of a view nobody wants.
+            build_ahead = asked_ahead.filter(|_| {
+                finished.on_the_processor()
+                    && finished.fell_back.is_none()
+                    && !finished.abandoned
+                    && finished.refused.is_none()
+            });
             // Where the frame was sent, not whether it began: a frame taken back before the
             // processor started was still the processor's, and its page's picture is too.
             let drawn_there = finished.on_the_processor();
@@ -1855,6 +1948,32 @@ fn draw_until_told_to_stop(
                 }
                 continue;
             }
+        }
+        // **The device's scene of the pages on hand, built while nobody waits** (ADR 1898), before
+        // the retained pages: it is what the person's next view of these pages is drawn from,
+        // where a retained page stands in for a view nobody has asked for. It cannot be taken back
+        // once begun, so it waits out its own predicted length first — the sharp pass's
+        // rent-or-buy bound (ADR 1289) — and a job arriving in that time is drawn instead.
+        if let Some(stillness) = build_ahead.take() {
+            match jobs.recv_timeout(stillness) {
+                Ok(job) => {
+                    waiting = Some(job);
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+            if let Some(prepared) = prepare(&mut renderer, &showing, shown_size) {
+                if done.send(Finished::Scene(Box::new(prepared))).is_err() {
+                    return;
+                }
+                // Woken so that the window's record of what the device holds is true before the
+                // next view is priced, rather than at whatever input comes next.
+                if let Some(waker) = waker {
+                    let _ = waker.send_event(());
+                }
+            }
+            continue;
         }
         match retain_one(
             &mut renderer,
@@ -2059,6 +2178,37 @@ fn draw_sharp(
         height: size.1,
         texture,
         took: began.elapsed(),
+    })
+}
+
+/// The device's scene of the pages on hand at the view they were shown at, built and not drawn
+/// (ADR 1898) — `None` where the device refused, and silent for [`draw_whole_page`]'s reason:
+/// nobody asked for it, and the next frame of these pages asks the device itself and hears the
+/// refusal then, where [`Refusals`] keeps it.
+fn prepare(
+    renderer: &mut QuorraWindowRenderer,
+    showing: &[crate::stale::Placed],
+    (width, height): (u32, u32),
+) -> Option<Prepared> {
+    if showing.is_empty() {
+        return None;
+    }
+    let placed: Vec<(&Arc<DisplayList>, TargetSpec)> = showing
+        .iter()
+        .map(|placed| (&placed.list, placed.target))
+        .collect();
+    let cost = renderer
+        .prepare(PresentFrame {
+            width,
+            height,
+            pages: &placed,
+            raster: None,
+            overlays: &[],
+        })
+        .ok()?;
+    Some(Prepared {
+        pages: showing.to_vec(),
+        cost,
     })
 }
 
@@ -2272,6 +2422,7 @@ fn draw(
         on_the_processor,
         ahead,
         look: _,
+        build_ahead: _,
     } = job;
     let drawn_ahead = ahead.is_some();
     let textures = reuse
@@ -2809,6 +2960,42 @@ mod tests {
             height: 1,
         }));
     }
+
+    /// **The build ahead is asked where the device would draw the next frame from it, and only
+    /// then** (ADR 1898): at the seeds it is what a built frame costs over a kept one; not where
+    /// the device holds the scene already; not where a kept frame would still be the processor's.
+    #[test]
+    fn a_scene_is_built_ahead_only_where_the_device_would_draw_from_it() {
+        let at_fit = placed(0, 1.0, 0.0);
+        let pictures = Costs::key(&at_fit);
+        let mut costs = Costs::default();
+        let witness = 4_408_405;
+        let ahead = costs
+            .build_ahead(&pictures, witness)
+            .expect("the seeds keep a kept frame of the owner's drawing on the device");
+        let seeds = Costs::cost(Costs::DEVICE_SEED - Costs::DEVICE_KEPT_SEED, witness);
+        assert_eq!(ahead, seeds);
+        costs.scene_of(Some(&at_fit));
+        assert_eq!(costs.build_ahead(&pictures, witness), None, "held already");
+        costs.scene_of(None);
+        costs.measured(
+            pictures.clone(),
+            HEAVY,
+            Lane::Device { scene_kept: true },
+            Duration::from_secs(2),
+        );
+        costs.measured(
+            pictures.clone(),
+            HEAVY,
+            Lane::Processor,
+            Duration::from_millis(900),
+        );
+        assert_eq!(
+            costs.build_ahead(&pictures, HEAVY),
+            None,
+            "a kept frame of 2 s past WARN against the processor's 0.9 s is the processor's"
+        );
+    }
 }
 
 /// What a zoom gesture's frames are, measured on the real render thread and the real adapter.
@@ -2932,6 +3119,7 @@ mod gesture {
             on_the_processor: Arc::new(AtomicBool::new(false)),
             ahead: None,
             look: None,
+            build_ahead: None,
         }
     }
 
@@ -2997,6 +3185,7 @@ mod gesture {
             Finished::Partial(_) | Finished::Read(_) => {
                 panic!("a device frame is not drawn on the processor")
             }
+            Finished::Scene(_) => panic!("no scene was asked to be built ahead"),
         }
         let Finished::Sharp(sharp) = next() else {
             panic!("a still view is sharpened");
@@ -3044,6 +3233,55 @@ mod gesture {
             Ok(Finished::Sharp(_)) => panic!("a view the device refused was sharpened by it"),
             Ok(_) => panic!("nothing else was asked for"),
         }
+    }
+
+    /// **A frame the processor drew is followed by the device's scene of it, built while nobody
+    /// waits, and the device's next frame of the page keeps it** (ADR 1898): the window asked for
+    /// the build with the frame, the thread sent the frame and then the scene, and the frame after
+    /// it, on the device, drew the scene it held rather than building one.
+    #[test]
+    fn a_scene_built_ahead_after_a_processor_frame_is_kept_by_the_device_s_next_frame() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            println!("skipped: no adapter on this machine");
+            return;
+        };
+        let size = (400_u32, 500_u32);
+        let (viewer, mut requests) = opened(size);
+        let pages = arrangement(&viewer, &mut requests, size);
+        assert!(!pages.is_empty(), "the document shows a page");
+        let link = spawn(renderer, idle(0, 2), None);
+        let commands = pages[0].list.commands().len();
+        let mut asked = job(&pages, size);
+        asked.cheaper = Some(Prediction {
+            commands,
+            device: Duration::from_secs(2),
+            device_measured: false,
+            scene_kept: false,
+            processor: Duration::from_secs(1),
+            processor_measured: false,
+        });
+        asked.build_ahead = Some(Duration::ZERO);
+        link.jobs.send(asked).expect("the thread is running");
+        let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
+            panic!("the first answer is the frame asked for");
+        };
+        assert!(done.processor_drew.is_some(), "the processor drew it");
+        let Ok(Finished::Scene(prepared)) = link.done.recv_timeout(Duration::from_mins(2)) else {
+            panic!("the device's scene of the page follows the processor's frame");
+        };
+        assert!(same_pages(&prepared.pages, &pages), "of the pages on hand");
+        assert!(!prepared.cost.scene_kept, "and it was built");
+        link.jobs
+            .send(job(&pages, size))
+            .expect("the thread is running");
+        let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
+            panic!("the next answer is the frame asked for");
+        };
+        assert!(done.device_drew.is_some() && done.fell_back.is_none());
+        assert!(
+            done.cost.scene_kept,
+            "the device drew the scene built ahead"
+        );
     }
 
     /// **An interrupt raised before the processor starts abandons the frame**, and nothing is drawn
@@ -3220,7 +3458,7 @@ mod gesture {
                     }
                     // A look at a frame the processor is drawing changes nothing this test
                     // counts: what it reads is when each true frame landed.
-                    Finished::Partial(_) | Finished::Read(_) => {}
+                    Finished::Partial(_) | Finished::Read(_) | Finished::Scene(_) => {}
                 }
             }
             // The gesture: a notch every `every` refreshes, after a still start that lets the
@@ -3271,6 +3509,7 @@ mod gesture {
                     on_the_processor: Arc::new(AtomicBool::new(false)),
                     ahead: None,
                     look: None,
+                    build_ahead: None,
                 };
                 if link.jobs.send(job).is_ok() {
                     in_flight = Some(now);

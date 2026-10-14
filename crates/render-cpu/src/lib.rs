@@ -80,6 +80,8 @@ pub struct CpuRasterizer {
     medium: Medium,
     anti_alias: bool,
     strips: Option<u32>,
+    /// The rows a caller stated the target is cut at, in place of the planner's — [`Self::with_cuts`].
+    cuts: Option<Arc<[u32]>>,
     interrupt: Option<Interrupt>,
     /// Where the page as it is being built goes when somebody asks for a look — [`Self::showing`].
     showing: Option<glimpse::Showing>,
@@ -113,6 +115,7 @@ impl CpuRasterizer {
             medium: Medium::PAGE_ONLY,
             anti_alias: true,
             strips: None,
+            cuts: None,
             interrupt: None,
             showing: None,
             reduced_images: Arc::default(),
@@ -189,7 +192,35 @@ impl CpuRasterizer {
     /// strips that were never made says nothing (ADR 1819).
     #[must_use]
     pub fn strip_plan(&self, list: &DisplayList, target: TargetSpec) -> Vec<u32> {
-        plan_strips(list, target, self.strips, self.anti_alias)
+        match self.stated_cuts(target) {
+            Some(cuts) => cuts.to_vec(),
+            None => plan_strips(list, target, self.strips, self.anti_alias),
+        }
+    }
+
+    /// Cuts every target of `cuts`'s height at exactly these rows instead of the rows the planner
+    /// would choose: the first `0`, the last the target's height, each above the one before.
+    ///
+    /// **For a drawing that has to be compared with one made at the same rows**: a page drawn
+    /// ahead in strips while it is read ([`Underway::in_strips`]) is the page drawn whole at its
+    /// cuts byte for byte, and this is how the whole page is drawn at them. The rows are taken as
+    /// stated, whether or not a mark forbids one — the planner's question is the caller's to have
+    /// asked. A target of another height, or rows that are not such a list, are cut by the
+    /// planner as though nothing had been stated.
+    #[must_use]
+    pub fn with_cuts(mut self, cuts: &[u32]) -> Self {
+        self.cuts = Some(cuts.into());
+        self
+    }
+
+    /// The rows [`Self::with_cuts`] stated, where they are a division of `target`.
+    fn stated_cuts(&self, target: TargetSpec) -> Option<&[u32]> {
+        self.cuts.as_deref().filter(|cuts| {
+            cuts.first() == Some(&0)
+                && cuts.last() == Some(&target.height)
+                && cuts.len() >= 2
+                && cuts.windows(2).all(|pair| pair.first() < pair.get(1))
+        })
     }
 
     /// Whether this rasteriser draws `mark` a row at a time on `target`, so that it forbids no
@@ -608,7 +639,7 @@ impl CpuRasterizer {
         target: TargetSpec,
         showing: Option<&glimpse::Showing>,
     ) -> Result<(), CpuRasterError> {
-        let boundaries = plan_strips(list, target, self.strips, self.anti_alias);
+        let boundaries = self.strip_plan(list, target);
         let strips = boundaries.len().saturating_sub(1);
         // Computed once per rasterisation, before any mask is built, so that every build —
         // serial, in a strip, or nested inside another mask's — restricts against the same
@@ -628,7 +659,7 @@ impl CpuRasterizer {
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
             return self.encode_page(
                 &mut pixmap.as_mut(),
-                (list, &bounds),
+                (list, &bounds, 0),
                 surface,
                 &mut masks,
                 showing,
@@ -677,7 +708,7 @@ impl CpuRasterizer {
                 )?;
                 let mut masks =
                     MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
-                self.encode_page(&mut piece, (list, &bounds), surface, &mut masks, showing)
+                self.encode_page(&mut piece, (list, &bounds, 0), surface, &mut masks, showing)
             })
     }
 

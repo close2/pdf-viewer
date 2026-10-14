@@ -388,6 +388,13 @@ ADRs 1809, 1810). Before a bound is removed or raised, every comment that says "
 found, and each thing it was bounding is charged to a budget that remains; the hostile fixture
 that reached the old bound is re-pointed at the budget that now ends it.
 
+### 172. A reading given up empties its memos as well as restoring its state
+
+A piece run eagerly and then given up left its font memo behind, and the memo had cached a failure:
+the re-read of the whole stream found the memo, loaded nothing, and reported nothing — the corpus
+sweep showed the silence (round 1529, ADR 1894). `forget_memos` now empties the memos on give-up in
+both paths. A reading that is abandoned restores its state and forgets what it learned, because what
+it learned may be a failure the next reading must report.
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

@@ -71,5 +71,12 @@ sha2.workspace = true
 # without its `engine` feature, as a window takes it (ADR 1620).
 pdf-script-worker.workspace = true
 
+# `tests/launch_path.rs` takes each row's memory high-water in a child whose transparent huge
+# pages are off, so that the figure is what the program touched and not which of its buffers the
+# kernel happened to back with two-mebibyte pages (ADR 1902). `prctl(PR_SET_THP_DISABLE)` is a
+# safe function of `rustix`'s `thread` module; the crate is already the sandbox's.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { workspace = true, features = ["thread"] }
+
 [lints]
 workspace = true

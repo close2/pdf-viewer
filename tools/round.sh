@@ -22,6 +22,7 @@
 #   tools/round.sh pixels          # ... and what a round that changes what gets drawn opens
 #   tools/round.sh --list          # the kinds of round it knows
 #   tools/round.sh --lines [kind]  # how many lines each list is, which is what a review measures
+#   ROUND_SESSION=1533 tools/round.sh instruments  # a batch round: the number its brief assigned
 #
 # Exit status is 0 when every check passed and 1 when one did not, so a round may trust a zero.
 
@@ -220,8 +221,40 @@ case "$branch" in
         ;;
 esac
 
+# **A batch's rounds are numbered by its brief, and neither source above can know which slot this
+# is.** A batch branch, `batch-1528-1533`, holds six sessions that run at once, so `doc/history/`
+# says the first unwritten one to every one of them, and the branch names a range rather than a
+# round. So the prompt's number is taken from `ROUND_SESSION` where the caller sets it, and checked
+# against the batch's range; where it is not set on a batch branch, both are printed and the round
+# is told how to say its own (ADR 1903).
+assigned_by=
+case "$branch" in
+    batch-[0-9]*-[0-9]*)
+        batch_first=${branch#batch-}; batch_first=${batch_first%%-*}
+        batch_last=${branch##*-}
+        assigned_by="the branch $branch holds sessions $batch_first to $batch_last"
+        ;;
+esac
+if [ -n "${ROUND_SESSION:-}" ]; then
+    case "$ROUND_SESSION" in
+        *[!0-9]*) printf 'ROUND_SESSION=%s is not a session number\n' "$ROUND_SESSION" >&2; exit 1 ;;
+    esac
+    by_history=$session
+    session=$ROUND_SESSION
+    last=$((session - 1))
+    from="ROUND_SESSION, the number the batch's prompt gave; doc/history/ alone would say $by_history"
+    if [ -n "$assigned_by" ] && { [ "$session" -lt "$batch_first" ] || [ "$session" -gt "$batch_last" ]; }; then
+        printf 'ROUND_SESSION=%s is outside this batch: %s\n' "$session" "$assigned_by" >&2
+        exit 1
+    fi
+fi
+
 heading "the round"
 printf '  session %s, after %s (from %s)\n' "$session" "$last" "$from"
+if [ -z "${ROUND_SESSION:-}" ] && [ -n "$assigned_by" ]; then
+    printf '  but %s, each numbered by its brief:\n' "$assigned_by"
+    printf '  the one above is the first unwritten, and ROUND_SESSION=<yours> tools/round.sh %s prints yours\n' "${kind:-<kind>}"
+fi
 printf '  tier 1 every round, tier 2 by doc/todo/02 section 2'"'"'s map, tier 3 at the merge (ADR 1036);\n'
 printf '  the merge runs all three tiers once per batch, so no round of a batch owes the whole sequence (ADR 1638)\n'
 
