@@ -21,7 +21,7 @@ env:
 jobs:
   # Fast feedback: formatting and lints before anything expensive runs.
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A ceiling, because the runner's own apt mirrors stalled for six hours on 2026-08-19 and
     # GitHub's default is to let a job run until its six-hour maximum. Nothing here takes more
     # than a small fraction of these numbers on a healthy runner, so a job that reaches one has
@@ -58,7 +58,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45  # see `check` above
     steps:
       - uses: actions/checkout@v5
@@ -171,7 +171,7 @@ jobs:
   # Supply chain. Separated so that an advisory published upstream does not mask a
   # genuine test failure, and vice versa.
   deny:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15  # see `check` above
     steps:
       - uses: actions/checkout@v5
@@ -180,7 +180,7 @@ jobs:
   # Miri and the fuzz build need nightly, which is why rust-toolchain.toml pins
   # stable and these ask for nightly explicitly.
   raster-examples:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -216,7 +216,7 @@ jobs:
 
 
   nightly:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true # advisory until the parser exists and this earns its keep
     timeout-minutes: 60  # see `check` above
     steps:
@@ -330,7 +330,7 @@ jobs:
           # `doc/todo/02-every-round.md` §5's — what a person runs — minus what the target cannot
           # build, and each omission below was found by `cargo check --target <t> -p <crate>
           # --bins` rather than assumed (ADR 1152).
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             exe: ''
             archive: tar.gz
@@ -570,7 +570,7 @@ jobs:
   publish-snapshot:
     needs: snapshot
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       # `gh release` writes to the repository, and the default token is read-only.
       contents: write
