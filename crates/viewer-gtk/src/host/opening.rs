@@ -6,6 +6,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Command, Event};
 
+use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
@@ -37,7 +38,7 @@ impl Host {
         let scale = scale as f32;
         // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
         // so the size the core is told is also the size a frame is shaped for.
-        self.viewport = (width, height);
+        self.state.viewport = (width, height);
         let resize = Command::Resize {
             width,
             height,
@@ -52,13 +53,13 @@ impl Host {
             inset: 0,
             scale,
         };
-        self.extent = Some(window);
-        if let Some(ahead) = self.ahead.as_ref() {
+        self.state.extent = Some(window);
+        if let Some(ahead) = self.state.ahead.as_ref() {
             ahead.window_is(window);
         }
         if !self.opened {
             self.opened = true;
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Launch,
                 format_args!("first allocation {width}x{height} device px, scale {scale}"),
             );
@@ -93,7 +94,7 @@ impl Host {
     fn join_the_opening(&mut self, resize: Command) {
         // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
         // from which its looks are what the window shows (ADR 1855).
-        let drawing_ahead = self.ahead.is_some();
+        let drawing_ahead = self.state.ahead.is_some();
         if self.anticipated.as_ref().is_some_and(|opening| {
             !if drawing_ahead {
                 opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
@@ -101,7 +102,8 @@ impl Host {
                 opening.wait()
             }
         }) {
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Launch, format_args!("document still opening"));
             self.awaiting = Some(resize);
             self.show_the_opening();
@@ -175,42 +177,12 @@ impl Host {
         self.ui.loading.set_visible(true);
     }
 
-    /// Puts page one up as it stands while it is read, where a newer look at it has been drawn
-    /// (ADRs 1855, 1867). Nothing is answered to the core, which has no document yet; the frame
-    /// that answers is the first, and [`Self::placements`] shows the look until it lands.
-    fn show_the_read(&mut self) {
-        let Some(look) = self.ahead.as_ref().and_then(viewer_host::Ahead::look) else {
-            return;
-        };
-        if self
-            .read_look
-            .as_ref()
-            .is_some_and(|shown| shown.serial == look.serial)
-        {
-            return;
-        }
-        let commands = look.commands;
-        let first = self.read_look.is_none();
-        self.read_look = Some(look);
-        self.refresh();
-        self.trace.say(
-            Topic::Frames,
-            format_args!("page 1 shown as it is read, {commands} commands drawn"),
-        );
-        if first {
-            self.trace.say(
-                Topic::Launch,
-                format_args!("page shown as it is read at {:?}", self.trace.since_start()),
-            );
-        }
-    }
-
     /// Takes in the document the opening thread opened, and tells it its viewport.
     fn take_the_opening(&mut self, resize: Command) {
         // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
         // is finished from that drawing rather than drawn (ADR 1855).
-        if let Some(ahead) = self.ahead.take() {
-            self.drawing.draw_ahead(ahead);
+        if let Some(ahead) = self.state.ahead.take() {
+            self.state.drawing.draw_ahead(ahead);
         }
         let joined = self.anticipated.take().map(viewer_host::Loading::join);
         let Some(Ok((viewer, opened))) = joined else {
@@ -221,15 +193,15 @@ impl Host {
             self.open_document(None);
             return;
         };
-        self.viewer = viewer;
-        self.trace.say(
+        self.state.viewer = viewer;
+        self.state.trace.say(
             Topic::Launch,
             format_args!("document joined, {} event(s)", opened.len()),
         );
         // Asked before the open's events are answered, so that the panel built from them does not
         // read the outline on this thread first (ADR 1553).
         self.prepare();
-        let resized: Vec<Event> = self.viewer.handle(resize).collect();
+        let resized: Vec<Event> = self.state.viewer.handle(resize).collect();
         let mut queue = VecDeque::new();
         for event in opened.into_iter().chain(resized) {
             self.react(event, &mut queue);
@@ -244,7 +216,7 @@ impl Host {
     /// loop looks for its answer at [`viewer_host::drawing::POLL`] — the interval chosen for a
     /// page's own latency, here for the caption's — and stops looking once it has one.
     fn prepare(&mut self) {
-        let Some(preparation) = self.viewer.preparation() else {
+        let Some(preparation) = self.state.viewer.preparation() else {
             return;
         };
         let (send, answer) = std::sync::mpsc::channel();
@@ -290,15 +262,16 @@ impl Host {
             }
         };
         self.preparing = None;
-        self.trace
+        self.state
+            .trace
             .say(Topic::Launch, format_args!("outline and page tree read"));
-        let events: Vec<Event> = self.viewer.prepared(prepared).collect();
+        let events: Vec<Event> = self.state.viewer.prepared(prepared).collect();
         let mut queue = VecDeque::new();
         for event in events {
             self.react(event, &mut queue);
         }
         self.pump(queue);
-        if self.documents.focused() == DOCUMENT {
+        if self.state.documents.focused() == DOCUMENT {
             self.rebuild_panel(Tab::Contents);
         }
     }
@@ -309,9 +282,9 @@ impl Host {
             self.restrictions.window(),
             self.widget_appearances,
             self.separations,
-            self.showing.bytes.clone(),
+            self.state.showing.bytes.clone(),
             password,
-            self.showing.fragment.clone(),
+            self.state.showing.fragment.clone(),
         ));
     }
 }

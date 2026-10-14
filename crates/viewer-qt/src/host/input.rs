@@ -3,6 +3,7 @@
 
 use viewer_core::{Answer, Command, Edit, PageTarget, PointerAction, Printing, Query, Zoom};
 use viewer_host::arrangement::next_layout;
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use crate::bridge::ffi::QtQuad;
@@ -35,7 +36,7 @@ impl Host {
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since
         // no toolkit button stands over one to take them (ADR 1357). A key a placed control had
         // the keyboard for never arrives: `MainWindow::keyPressEvent` keeps Enter from one.
-        if let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held) {
+        if let Some(pressed) = viewer_host::pressed(&self.state.viewer, stated, held) {
             self.press(&pressed);
             return;
         }
@@ -85,7 +86,7 @@ impl Host {
             // message. One document is its own next, so the key is harmless before anything has
             // opened a second (ADR 1264).
             viewer_host::WindowAct::NextDocument => {
-                let next = self.documents.next_id();
+                let next = self.state.documents.next_id();
                 self.show_document(next);
             }
             viewer_host::WindowAct::CloseDocument => self.close_document(),
@@ -103,7 +104,7 @@ impl Host {
             // §12.9's measuring. No pixel of the page is different: what the mode changes is
             // that a press is a point rather than the start of §12.4.2's selection.
             viewer_host::WindowAct::Measure => {
-                let on = self.showing.measuring.toggle();
+                let on = self.state.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
             }
             // §10.8.3: the state is this window's, because it is a preference a person toggles
@@ -121,9 +122,12 @@ impl Host {
             // Table 29's six arrangements are cycled, so what to send depends on which one is in
             // force — a fact about this host's state rather than about the key.
             viewer_host::WindowAct::NextLayout => {
-                self.showing.layout = next_layout(self.showing.layout);
-                self.dispatch(Command::Layout(self.showing.layout));
-                self.say(&format!("page layout: {:?} (§7.7.2)", self.showing.layout));
+                self.state.showing.layout = next_layout(self.state.showing.layout);
+                self.dispatch(Command::Layout(self.state.showing.layout));
+                self.say(&format!(
+                    "page layout: {:?} (§7.7.2)",
+                    self.state.showing.layout
+                ));
                 // A new arrangement is a new set of pages on the screen, and therefore a new set
                 // of things they could not draw.
                 self.restate();
@@ -164,27 +168,6 @@ impl Host {
             }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
-    }
-
-    /// One more point of §12.9's measurement, and what the path comes to now.
-    ///
-    /// The points are this window's — a rubber band is chrome — and the arithmetic is the
-    /// document's, which is the split `viewer_core::Query::Measure` exists for: Table 267's
-    /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
-    fn measure(&mut self, at: (f32, f32)) {
-        if !self.showing.measuring.point(at) {
-            return;
-        }
-        let points = self.showing.measuring.points().to_vec();
-        let (traced, located) = match self.viewer.query(Query::Measure(&points)) {
-            Answer::Measured { traced, located } => (Some(traced), located),
-            _ => (None, None),
-        };
-        self.say(&viewer_host::measuring::said(
-            points.len(),
-            traced.as_ref(),
-            located.as_ref(),
-        ));
     }
 
     /// The wheel turned, already in the device pixels the boundary speaks.
@@ -250,7 +233,7 @@ impl Host {
         // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing
         // it takes away: the two gestures are the same gesture and a window cannot tell them
         // apart from the pointer alone (ADR 1191).
-        if self.showing.measuring.is_on() {
+        if self.state.showing.measuring.is_on() {
             if matches!(action, PointerAction::Pressed) {
                 self.measure((x, y));
             }
@@ -261,12 +244,12 @@ impl Host {
         // `Query::LinkAt` a query rather than a command. The clause states no cursor at all, so
         // what a reader sees over a link is a convention; this is the one all three hosts now
         // keep, and the flag is how it reaches a Qt object without Rust calling one.
-        if let Answer::Link(over) = self.viewer.query(Query::LinkAt((x, y)))
+        if let Answer::Link(over) = self.state.viewer.query(Query::LinkAt((x, y)))
             && over != self.over_link
         {
             self.over_link = over;
             self.update.cursor = true;
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Pointer,
                 format_args!(
                     "the pointer is {} §12.5.6.5's activation region",
@@ -308,10 +291,10 @@ impl Host {
     /// display's own factor comes back out. The same arithmetic `viewer-gtk` does, and it has to
     /// be the same: a doubled display would otherwise put one host's answer out by two.
     pub(super) fn showing_at(&self) -> Option<f32> {
-        let Answer::Page { index, .. } = self.viewer.query(Query::CurrentPage) else {
+        let Answer::Page { index, .. } = self.state.viewer.query(Query::CurrentPage) else {
             return None;
         };
-        let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(index)) else {
+        let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(index)) else {
             return None;
         };
         let display = if self.scale.is_finite() && self.scale >= 1.0 {
@@ -323,26 +306,6 @@ impl Host {
         (logical.is_finite() && logical > 0.0).then_some(logical)
     }
 
-    /// Puts what is selected on the page where the C++ side will hand it to `QClipboard`.
-    ///
-    /// **The platform end of `doc/todo/30`'s first item** (ADR 0519), and it goes *out* through
-    /// the update flag rather than by Rust calling Qt, which is the one property `crate::bridge`'s
-    /// documentation states about this crate's direction of travel. The two questions and the
-    /// choice between §14.8.2.5's orders are this side's; the clipboard is `window.cpp`'s.
-    ///
-    /// Which order the text is in is [`viewer_host::copied`] and not this host's, because it is
-    /// the same decision in all three windowed hosts.
-    fn copy_selection(&mut self) {
-        // **A command rather than two questions**: §7.6.4.2's bit 5 restricts taking text out of
-        // the document, and a readback cannot be refused, asked about or warned of. The two answers
-        // compose the text and arrive together on `Event::Copied` (ADR 1144).
-        if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
-            self.say("nothing on the page is selected to copy");
-            return;
-        }
-        self.dispatch(Command::Copy);
-    }
-
     /// The text a copy is putting on the clipboard, which this also clears.
     ///
     /// Taken rather than borrowed, for the reason every other `take_` on this bridge is: a
@@ -352,19 +315,9 @@ impl Host {
         std::mem::take(&mut self.clipboard)
     }
 
-    /// Whether anything on the page is selected.
-    ///
-    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
-    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
-    /// has been told nothing at all.
-    fn has_selection(&self) -> bool {
-        matches!(self.viewer.query(Query::Selection),
-            Answer::Selected(selection) if !selection.quads.is_empty())
-    }
-
     /// What is selected on the page.
     pub(crate) fn selection(&self) -> Vec<QtQuad> {
-        match self.viewer.query(Query::Selection) {
+        match self.state.viewer.query(Query::Selection) {
             Answer::Selected(selected) => selected.quads.iter().copied().map(quad).collect(),
             _ => Vec::new(),
         }
@@ -377,7 +330,8 @@ impl Host {
     /// is this platform's; `viewer_core::Query::Measure` answers what they *mean* and never sees a
     /// pixel of this (ADR 1264).
     pub(crate) fn measuring(&self) -> Vec<f32> {
-        self.showing
+        self.state
+            .showing
             .measuring
             .points()
             .iter()

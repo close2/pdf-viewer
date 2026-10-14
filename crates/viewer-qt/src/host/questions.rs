@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use viewer_core::{Command, DocumentId, Event, Purpose};
+use viewer_host::native_window::NativeWindow;
 
 use crate::bridge::ffi::QtScriptEntry;
 
@@ -90,7 +91,7 @@ impl Host {
             // The document the prompt was about, from its own bytes: one on its way to a tab —
             // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
             // or the first, which is the only other document a prompt is put about (ADR 1332).
-            viewer_host::Supplied::Open(secret) if self.arrivals.is(document) => {
+            viewer_host::Supplied::Open(secret) if self.state.arrivals.is(document) => {
                 self.open_arriving(Some(secret));
             }
             viewer_host::Supplied::Open(secret) if document == DOCUMENT => {
@@ -371,7 +372,7 @@ impl Host {
     /// reference's five was asked for (ADR 1702).
     pub(super) fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound) {
         self.update.beep = true;
-        let name = self.documents.label_of(document);
+        let name = self.state.documents.label_of(document);
         self.say(&viewer_host::script_timers::played(&name, sound, "Qt"));
     }
 
@@ -385,7 +386,7 @@ impl Host {
         {
             self.script_question = None;
         }
-        let name = self.documents.label_of(document);
+        let name = self.state.documents.label_of(document);
         self.say(&viewer_host::script_asks::withdrawn(&name));
     }
 

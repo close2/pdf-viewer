@@ -26,10 +26,12 @@ impl Host {
         match tab {
             // Not while the launch document's outline is being read off this thread: asking here
             // would read it on GTK's, in front of page one. Its arrival builds this panel again.
-            Tab::Contents if self.preparing.is_some() && self.documents.focused() == DOCUMENT => {
+            Tab::Contents
+                if self.preparing.is_some() && self.state.documents.focused() == DOCUMENT =>
+            {
                 Panel::Rows(vec![panel::PanelRow::saying(READING_THE_OUTLINE)])
             }
-            Tab::Contents => Panel::Rows(match self.viewer.query(Query::Outline) {
+            Tab::Contents => Panel::Rows(match self.state.viewer.query(Query::Outline) {
                 Answer::Outline(outline) if !outline.items.is_empty() => {
                     panel::outline_rows(&outline)
                 }
@@ -37,24 +39,24 @@ impl Host {
             }),
             // §12.3.4 is a page count and a picture per row rather than a tree — see `crate::pages`
             // for why the count is all that crosses here.
-            Tab::Pages => Panel::Pages(match self.viewer.query(Query::PageCount) {
+            Tab::Pages => Panel::Pages(match self.state.viewer.query(Query::PageCount) {
                 Answer::Count(count) => count,
                 _ => 0,
             }),
-            Tab::Layers => Panel::Rows(match self.viewer.query(Query::Layers) {
+            Tab::Layers => Panel::Rows(match self.state.viewer.query(Query::Layers) {
                 Answer::Layers(layers) if !layers.is_empty() => panel::layer_rows(&layers),
                 _ => vec![panel::PanelRow::saying(
                     "This document states no optional content.",
                 )],
             }),
             Tab::Files => Panel::Rows(self.file_rows()),
-            Tab::Articles => Panel::Rows(match self.viewer.query(Query::Articles) {
+            Tab::Articles => Panel::Rows(match self.state.viewer.query(Query::Articles) {
                 Answer::Articles(threads) => panel::article_rows(&threads),
                 _ => panel::article_rows(&[]),
             }),
             // The one moment this window reads Table 349, so the tab's name is taken from the same
             // answer rather than from a second decode of §14.3.2's stream (ADR 1275).
-            Tab::Document => Panel::Rows(match self.viewer.query(Query::Properties) {
+            Tab::Document => Panel::Rows(match self.state.viewer.query(Query::Properties) {
                 Answer::Properties {
                     information,
                     metadata,
@@ -78,7 +80,7 @@ impl Host {
     /// document gets the `/EmbeddedFiles` tree's own order. Both mappings are
     /// `viewer_host::panel`'s, so this window and `viewer-qt` present a collection identically.
     fn file_rows(&self) -> Vec<panel::PanelRow> {
-        let files = match self.viewer.query(Query::Attachments) {
+        let files = match self.state.viewer.query(Query::Attachments) {
             Answer::Attachments(files) => files,
             _ => Vec::new(),
         };
@@ -86,7 +88,7 @@ impl Host {
             collection,
             initial,
             order,
-        } = self.viewer.query(Query::Collection)
+        } = self.state.viewer.query(Query::Collection)
         {
             return panel::collection_rows(&collection, &initial, &order, &files);
         }
@@ -123,7 +125,7 @@ impl Host {
         }
         match &filled {
             Panel::Rows(rows) => {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Panel,
                     format_args!("{}: {} row(s)", tab.label(), rows.len()),
                 );
@@ -138,7 +140,7 @@ impl Host {
                 }
             }
             Panel::Pages(count) => {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Panel,
                     format_args!("{}: {count} page(s), miniatures on demand", tab.label()),
                 );
@@ -176,7 +178,7 @@ impl Host {
     fn page_sink(&self) -> Rc<dyn Fn(usize) -> Option<pages::Row>> {
         let me = self.me.clone();
         let held = Rc::clone(&self.miniatures);
-        let trace = self.trace;
+        let trace = self.state.trace;
         Rc::new(move |index| {
             let host = me.upgrade()?;
             // A row bound while the host is held — a tab arriving moves the view between notebook
@@ -197,7 +199,7 @@ impl Host {
                 })
                 .ok()?;
             Some(held.borrow_mut().row(index, || {
-                let entry = viewer_host::page_entry(&host.viewer, index);
+                let entry = viewer_host::page_entry(&host.state.viewer, index);
                 viewer_host::Held {
                     label: entry.label,
                     picture: entry.thumbnail.as_ref().and_then(|image| {
@@ -240,7 +242,7 @@ impl Host {
     /// file. The panel is opened and the files tab selected, because a window dedicated to a view
     /// a person cannot see would be obeying the letter of the sentence and none of it (ADR 1252).
     fn dedicate_to_the_collection(&mut self) {
-        let whole = match self.viewer.query(Query::Collection) {
+        let whole = match self.state.viewer.query(Query::Collection) {
             Answer::Collection { collection, .. } => panel::whole_window(&collection),
             _ => false,
         };
@@ -266,7 +268,7 @@ impl Host {
     /// widgets and only one of them is built: "thumbnails … displayed at a random location on the
     /// view" is not a `GtkListView` (ADR 1251).
     fn scatters_the_files(&self) -> bool {
-        match self.viewer.query(Query::Collection) {
+        match self.state.viewer.query(Query::Collection) {
             Answer::Collection { collection, .. } => {
                 panel::presentation(&collection) == panel::Mode::FreeForm
             }
@@ -296,7 +298,7 @@ impl Host {
                 .ok()?;
             held.borrow_mut()
                 .picture(name, || {
-                    panel::attachment_preview(&host.viewer, name).and_then(|image| {
+                    panel::attachment_preview(&host.state.viewer, name).and_then(|image| {
                         page::thumbnail(&image)
                             .inspect_err(|error| {
                                 eprintln!("note: cannot show {name:?}'s preview: {error}");

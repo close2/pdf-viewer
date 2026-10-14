@@ -149,6 +149,11 @@ frame's largest term.
   planner grants 12 and 16 and the page drawn whole is 6–10 % quicker, but the new cuts move pixels
   by ADR 0219's residual past ADR 1758's bound, so it was taken back. **Next**: the residual itself,
   which a mark converted row by row does not have (ADR 1819); a smaller floor costs what is left.
+- **The read's memory — built (ADR 1924)**: a segment is let go once its piece has read it, a spine
+  states copies of its statements, and the join copies each piece once. The read's peak is gone;
+  the witness's heap now peaks in the draw at 1 379.5 MiB, over ADR 1915's 1 238 MiB plateau.
+  **Next**: `pdf-render`'s two 84.1 MiB bound vectors held at once, `mark_bounds`'s and the strip
+  planner's.
 - **Not taken**: dividing the inflate itself. The witness's one stream has no restart point
   (`00 00 FF FF` count 0), so dividing it means rapidgzip's speculative decoder in-tree, for at most
   42–45 ms of the read.

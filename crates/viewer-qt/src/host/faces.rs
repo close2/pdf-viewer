@@ -62,7 +62,7 @@ impl Host {
         self.faces_taken = self.faces_taken.saturating_add(1);
         // Trap 70's instrument: whether a machine face reaches the window before or after the
         // first frame is the question `--trace=launch` answers, and the launch gate cannot.
-        self.trace.say(
+        self.state.trace.say(
             Topic::Launch,
             format_args!(
                 "machine face {} handed to Qt, {} bytes",

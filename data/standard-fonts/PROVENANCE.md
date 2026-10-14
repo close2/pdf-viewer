@@ -59,6 +59,34 @@ They are copied rather than read out of the submodule at build time, deliberatel
 optional (`doc/pdf.js` is 974 test documents and a clone of this repository is useful without it),
 and a font a page needs in order to render is not an optional dependency.
 
+## Adobe's Core 14 AFM files, for the pairs
+
+`afm/` holds Adobe's metrics files for the fourteen and the notice that ships with them, as Adobe
+publishes them, byte for byte (CRLF line ends included, `MustRead.html`'s CR ones too):
+
+| files | what they are |
+|---|---|
+| `afm/Courier*.afm` (4), `afm/Helvetica*.afm` (4), `afm/Times-*.afm` (4), `afm/Symbol.afm`, `afm/ZapfDingbats.afm` | Adobe Font Metrics, version 4.1, one per face (`StartFontMetrics 4.1`, dated 1997) |
+| `afm/MustRead.html` | Adobe's notice: use, copying and distribution for any purpose, on four conditions |
+| `afm/SHA256SUMS` | a digest of each of the fifteen, as committed |
+
+They came from Adobe's own server, `https://download.macromedia.com/pub/developer/opentype/tech-notes/Core14_AFMs.zip`
+(127 150 bytes, SHA-256 `8c892c3c49553cfd2d2a27c4495b4bb12e2875115be7fd127ed3876df19d8654`, served
+2026-10-14 with `Last-Modified: Thu, 02 Nov 2017`), unzipped unchanged. The archive's earlier home,
+`partners.adobe.com/public/developer/en/pdf/Core14_AFMs.zip`, now answers 404; the Internet
+Archive's copy of it from 2009 has the same digest. Apache PDFBox carries the same files under
+`pdfbox/src/main/resources/org/apache/pdfbox/resources/afm/` (the `doc/corpora/pdfbox` submodule),
+with their line ends normalised by its repository, which is why these are Adobe's and not those.
+
+**Only their pair kerning is read**, and only by `crates/pdf-font/build.rs`, which writes each
+file's `KPX` lines as numbers into the table `pdf_font::pairs` kerns §9.6.2.2's fourteen by
+(`doc/questions/A308`, ADR 1916). That table is a **modified form of the files** — the
+glyph names numbered, the pairs sorted, a face whose pairs repeat another's sharing them — and its
+head says so and carries each file's notice, as `MustRead.html`'s third condition requires;
+`/NOTICE` section 1c carries the paragraph unmodified, as its fourth does. The files themselves
+are not modified. Helvetica states 2 705 pairs, Times-Roman 2 073; the Couriers, Symbol and
+ZapfDingbats state none.
+
 ## Checking them
 
 `SHA256SUMS` is a digest of each file as committed. `cd data/standard-fonts && sha256sum --check
@@ -72,8 +100,9 @@ has an answer.
 A standard-14 font may omit `/Widths` entirely on the grounds that the reader knows them, which is
 Table 109's permission. The advances now come from these programs themselves, which is exact for
 the ten Foxit faces — they are Courier-, Times-, Symbol- and Dingbats-metric by construction — and
-metric-compatible rather than identical for Liberation Sans against Helvetica. Carrying Adobe's own
-AFM tables would close that last gap and is a separate decision with a separate licence to read.
+metric-compatible rather than identical for Liberation Sans against Helvetica. Adobe's own AFM
+files are held now (`afm/`, above) and are read for their pairs alone; their widths would close
+that last gap, and taking them is a separate decision from the one that brought them here.
 
 ## What the sans faces are, measured
 

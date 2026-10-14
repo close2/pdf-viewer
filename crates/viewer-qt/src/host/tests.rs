@@ -219,7 +219,7 @@ fn table_147s_window_entries_reach_the_window() {
     );
 
     let viewer_core::Answer::Geometry(geometry) =
-        host.viewer.query(viewer_core::Query::PageGeometry(0))
+        host.state.viewer.query(viewer_core::Query::PageGeometry(0))
     else {
         panic!("page one has a geometry");
     };
@@ -548,7 +548,7 @@ fn a_restricted_document_refuses_and_the_reader_can_turn_that_off() {
         "the reader said not to obey it, so nothing is refused: {said}"
     );
     assert!(
-        host.showing.dirty,
+        host.state.showing.dirty,
         "and the annotation is in the edit log: {said}"
     );
 }
@@ -573,12 +573,12 @@ fn a_control_this_program_does_not_bind_leaves_the_document_alone() {
     host.key(0x41, false, false);
     host.key(0x48, false, true);
     assert!(
-        !host.showing.dirty,
+        !host.state.showing.dirty,
         "Ctrl and `h` is not a binding this program has, so nothing was annotated"
     );
     host.key(0x48, false, false);
     assert!(
-        host.showing.dirty,
+        host.state.showing.dirty,
         "and the unmodified key still means §12.5.6.10's highlight"
     );
 }
@@ -613,7 +613,10 @@ fn several_items_of_a_list_box_are_chosen_and_read_back() {
         vec![0_u32, 2],
         "both, which is what a single value could not have said"
     );
-    assert!(host.showing.dirty, "and the document knows it was edited");
+    assert!(
+        host.state.showing.dirty,
+        "and the document knows it was edited"
+    );
 }
 
 /// A frame the viewer is holding crosses as its own dimensions and a borrowed slice.

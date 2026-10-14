@@ -5,32 +5,15 @@
 use std::collections::VecDeque;
 
 use viewer_core::{Answer, Command, Query};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use super::Host;
 
 impl Host {
-    /// The rows of a request's target this window shows, for the drawing to draw first — `None`
-    /// for a page of a document behind the one in front, which the arrangement does not place
-    /// (ADR 1868).
-    pub(super) fn seen_of(
-        &self,
-        request: &viewer_core::RenderRequest,
-    ) -> Option<std::ops::Range<u32>> {
-        if request.document != self.documents.focused() {
-            return None;
-        }
-        match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => {
-                viewer_host::drawing::seen(request.target, geometry, self.viewport.1)
-            }
-            _ => None,
-        }
-    }
-
     /// The C++ side finished putting a frame on the screen, with what the copy cost.
     pub(crate) fn painted(&mut self, bytes: usize, nanos: u64) {
-        self.trace.say(
+        self.state.trace.say(
             Topic::Frames,
             format_args!(
                 "{bytes} bytes into a QImage in {:?}",
@@ -39,13 +22,13 @@ impl Host {
         );
         // A page still being drawn, shown as it stands, is said as that and is not the first
         // frame: `first frame on the screen` is a finished page in every window (ADR 1825).
-        if let Some(partial) = self.drawing.partial()
+        if let Some(partial) = self.state.drawing.partial()
             && self
                 .frames()
                 .iter()
                 .any(|placed| std::ptr::eq(placed.frame.raster, partial.raster()))
         {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} shown as it stands, {:.0} % drawn",
@@ -56,19 +39,21 @@ impl Host {
         }
         if self.playing.is_none() {
             for placed in self.frames().iter().filter(|placed| placed.stands_in()) {
-                self.trace.say(Topic::Frames, format_args!("{placed}"));
+                self.state
+                    .trace
+                    .say(Topic::Frames, format_args!("{placed}"));
             }
         }
         let held = self.playing.is_some()
-            || matches!(self.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
+            || matches!(self.state.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
         if !self.presented && held {
             self.presented = true;
-            self.read_look = None;
-            self.trace.say(
+            self.state.read_look = None;
+            self.state.trace.say(
                 Topic::Launch,
                 format_args!(
                     "first frame on the screen at {:?}",
-                    self.trace.since_start()
+                    self.state.trace.since_start()
                 ),
             );
             // The command line's later documents, and not one moment sooner: nothing page one
@@ -79,41 +64,6 @@ impl Host {
         // tree on AT-SPI. This is the one moment in this host that is on the far side of a paint,
         // which is exactly what `CLAUDE.md`'s startup rule asks of it (ADR 0623).
         self.attend();
-    }
-
-    /// ADR 0668's second half: takes the drawing thread back from a page the arrangement has
-    /// stopped showing.
-    ///
-    /// The *rule* is `viewer_host::Drawing`'s and the same in both native windows; what this
-    /// supplies is the one fact that crate cannot ask for itself, because it holds no viewer: a
-    /// page the arrangement does not show has no place on the screen, so `Query::PageGeometry`
-    /// answers `Answer::None` for it.
-    pub(super) fn take_the_thread_back(&mut self) {
-        let Some(page) = self.drawing.inside() else {
-            return;
-        };
-        // A draw for a tab behind this one is still wanted, and the geometry below is the front's.
-        if self
-            .drawing
-            .inside_document()
-            .is_some_and(|document| document != self.documents.focused())
-        {
-            return;
-        }
-        let shown = matches!(
-            self.viewer.query(Query::PageGeometry(page)),
-            Answer::Geometry(_)
-        );
-        if self.drawing.superseded(shown) {
-            self.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} left the arrangement while it was being drawn, so the draw was \
-                     abandoned",
-                    page.saturating_add(1)
-                ),
-            );
-        }
     }
 
     /// Takes whatever the drawing thread has finished and answers the viewer for it.
@@ -132,12 +82,12 @@ impl Host {
     /// toolkit is inside its own first frame.
     pub(super) fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
         let drawn = if self.presented {
-            self.drawing.collect()
+            self.state.drawing.collect()
         } else {
-            self.drawing.settle(viewer_host::drawing::SETTLE)
+            self.state.drawing.settle(viewer_host::drawing::SETTLE)
         };
         for finished in drawn {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} {} {}x{} in {:?}, waited {:?}",
@@ -158,13 +108,13 @@ impl Host {
             };
             if let viewer_core::Rendered::Raster(raster) = &rendered {
                 let began = std::time::Instant::now();
-                if self.retained.landed(&finished.request, raster) {
-                    self.trace.say(
+                if self.state.retained.landed(&finished.request, raster) {
+                    self.state.trace.say(
                         Topic::Frames,
                         format_args!(
                             "page {} retained, {} held, in {:?}",
                             finished.request.page.saturating_add(1),
-                            self.retained.len(),
+                            self.state.retained.len(),
                             began.elapsed()
                         ),
                     );
@@ -177,7 +127,7 @@ impl Host {
             // The reader has their page, so the document may now be asked what it says about
             // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
             // rule both follow. ADR 1044.
-            if self.showing.report_due.after_a_frame() {
+            if self.state.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
                 // And its open sequence, after the first present and never in front of it (ADR
                 // 1602).
@@ -198,42 +148,11 @@ impl Host {
         self.mind_a_long_draw();
     }
 
-    /// Asks the drawing for the part of each page past the whole-page bound that the viewport
-    /// shows and nothing drawn holds — after a zoom to such a page, and after a scroll out of the
-    /// window drawn of it (ADR 1892).
-    pub(super) fn ask_for_windows(&mut self) {
-        let viewer = &self.viewer;
-        let due = self.oversized.due(
-            self.documents.focused(),
-            |page| match viewer.query(Query::PageGeometry(page)) {
-                Answer::Geometry(geometry) => Some(geometry),
-                _ => None,
-            },
-            self.viewport,
-        );
-        for (request, window) in due {
-            self.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} asked as the window shows it, {}x{} at {},{} of {}x{}",
-                    request.page.saturating_add(1),
-                    window.width,
-                    window.height,
-                    window.x,
-                    window.y,
-                    request.target.width,
-                    request.target.height
-                ),
-            );
-            self.drawing.ask_window(request, window);
-        }
-    }
-
     /// Takes the windows the drawing has finished, and answers the viewer for the first of each
     /// request — the host took its list (ADR 1892).
     fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
-        for (finished, window) in self.drawing.windows() {
-            self.trace.say(
+        for (finished, window) in self.state.drawing.windows() {
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
@@ -253,62 +172,12 @@ impl Host {
             );
             self.update.frame = true;
             if finished.outcome.is_none() {
-                self.oversized.abandoned(&finished.request, window);
+                self.state.oversized.abandoned(&finished.request, window);
                 continue;
             }
-            if let Some((token, rendered)) = self.oversized.landed(finished, window) {
+            if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
                 queue.push_back(Command::RenderReady { token, rendered });
             }
-        }
-    }
-
-    /// Tells the person about a draw that has outlasted `viewer_host::drawing::WARN`, and takes
-    /// the sentence back when it ends.
-    ///
-    /// **The *warn* half of the owner's "warn the user and allow the user to abort, however don't
-    /// block"**, on the poll this window already runs while something is being drawn — so nothing
-    /// new wakes for it. The decision, the duration and the wording are `viewer-host`'s and the
-    /// three lines are `viewer-gtk`'s; what is Qt's is the status bar.
-    ///
-    /// It says something only when the answer *changes*: the poll runs every millisecond, and a
-    /// status bar rewritten a thousand times a second is one nobody can read.
-    fn mind_a_long_draw(&mut self) {
-        let overlong = self.drawing.overlong();
-        if overlong == self.warned {
-            return;
-        }
-        let was = self.warned.take();
-        self.warned = overlong;
-        match (was, overlong) {
-            (_, Some(page)) => self.say(&viewer_host::still_drawing(Some(page))),
-            // A page that finished on its own: the sentence offered a key it no longer has a job
-            // for, so it is withdrawn rather than left standing.
-            (Some(page), None) => self.say(&viewer_host::drew_after_all(Some(page))),
-            (None, None) => {}
-        }
-    }
-
-    /// Whether this window has offered the key that stops a draw — `viewer_host::Waiting`.
-    ///
-    /// Read off [`Host::warned`] rather than asked of the drawing again: what decides Escape's
-    /// meaning is whether the window has *said* something, not whether a clock has passed.
-    pub(super) fn waiting(&self) -> viewer_host::Waiting {
-        if self.warned.is_some() {
-            viewer_host::Waiting::Warned
-        } else {
-            viewer_host::Waiting::Nothing
-        }
-    }
-
-    /// Stops the draw the sentence above offered to stop — `viewer_host::WindowAct::AbortDrawing`.
-    ///
-    /// Nothing is reported to the viewer for it (trap 20), so the page keeps whatever it was
-    /// showing and is drawn again the next time the view changes, which is what the sentence says.
-    pub(super) fn stop_the_long_draw(&mut self) {
-        let stopped = self.drawing.abandon();
-        self.warned = None;
-        if let Some(page) = stopped {
-            self.say(&viewer_host::stopped_drawing(Some(page)));
         }
     }
 
@@ -323,7 +192,10 @@ impl Host {
     /// and a bridge function for it: the look is one channel drain, and the shorter of the two
     /// intervals is the one that stands (ADR 1291).
     pub(crate) fn drawing_wait(&self) -> i32 {
-        let interval = match (self.drawing.interval(), self.submitter.interval()) {
+        let interval = match (
+            self.state.drawing.interval(),
+            self.state.submitter.interval(),
+        ) {
             (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
             (drawing, submitting) => drawing.or(submitting),
         };
@@ -360,8 +232,8 @@ impl Host {
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         // The rows the window shows are on it, finished, before the page lands (ADR 1868).
-        if let Some((page, after)) = self.drawing.seen_drawn() {
-            self.trace.say(
+        if let Some((page, after)) = self.state.drawing.seen_drawn() {
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} shown finished where the window shows it, {after:?} after it was asked",
@@ -372,7 +244,7 @@ impl Host {
         if queue.is_empty() {
             // A page still being drawn has shown how it stands: a picture worth the copy, where a
             // look that found nothing is not (ADR 1825). The bar follows it.
-            if self.drawing.glimpsed() {
+            if self.state.drawing.glimpsed() {
                 self.update.frame = true;
                 self.update.status = true;
             }

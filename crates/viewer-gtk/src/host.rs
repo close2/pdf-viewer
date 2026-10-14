@@ -46,6 +46,7 @@ use gtk4::glib;
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Command, DocumentId, Event, Viewer};
+use viewer_host::native_window::{DOCUMENT, NativeWindow, Showing, WindowState};
 
 use crate::controls::Placed;
 use viewer_host::panel::{self, Miniatures};
@@ -74,9 +75,6 @@ mod window;
 
 use notes::{NoteEditor, PlacedPopup};
 use window::build_window;
-
-/// The identity this host gives the one document it opens.
-const DOCUMENT: DocumentId = DocumentId(1);
 
 /// What a window does with the word a person pressed on one of `Host::put_a_question`'s two
 /// buttons.
@@ -376,96 +374,6 @@ struct Ui {
     find_entry: gtk4::SearchEntry,
 }
 
-/// Everything this window holds about the document **in front**, and nothing about the others.
-///
-/// A struct rather than a row of fields on [`Host`] because this window now holds more than one
-/// document: `viewer_host::Documents` parks one of these beside every tab that is not in front and
-/// swaps the whole of it in one move when the person changes tabs. A field that must not leak
-/// between two documents therefore cannot be left behind by forgetting it at a call site — either
-/// all of it travels or none of it does, and the compiler names a field added here and forgotten
-/// there (ADR 1264).
-///
-/// What is **not** here is as deliberate: the window's restriction levels, `--links=`,
-/// `--remote-documents=`, §10.8.3's simulation, §6.3.2.2's delegation, Table 29's full screen and
-/// this window's wish for a panel are all facts about the *window* and apply to every document it
-/// shows, which is `viewer_core::Command::Restrict`'s own rule for a host-supplied value. Nor are
-/// the controls, the popup windows, the placed pictures or the magnification every control fits
-/// at: each is rebuilt from a query on the repaint that follows a switch, so parking one would be
-/// keeping a second answer to a question the core answers.
-#[derive(Debug)]
-struct Showing {
-    /// Where the bytes came from, which is what rule 2 makes a host's business and not the core's.
-    path: PathBuf,
-    /// The directory §12.7.6.4's policy resolves against.
-    directory: Option<PathBuf>,
-    /// The file, kept because §7.6.4.1's second attempt opens it again with a password.
-    bytes: pdf_syntax::FileBytes,
-    /// Annex O's fragment, where the host was given one.
-    fragment: Option<String>,
-    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
-    asking: viewer_host::Asking,
-    /// Whether the open document still owes what it says about *itself*.
-    ///
-    /// Asked for once the first frame is on the screen rather than as part of opening, because
-    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
-    /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
-    report_due: viewer_host::report::Due,
-    /// Whether anything is unsaved.
-    dirty: bool,
-    /// What the title bar says about the page.
-    caption: String,
-    /// What the title bar calls the document where §12.2's `/DisplayDocTitle` asks for its own
-    /// title and it states one ([`viewer_host::documents::document_title`]); `None` for the file's
-    /// name.
-    titled: Option<String>,
-    /// §12.9's measuring: whether a press on the page is a point, and the points so far.
-    ///
-    /// What is shared with the other two windows is `viewer_host::Measuring` — when a press is a
-    /// point, and what the answer says — and what is GTK's is the press and the status label
-    /// (ADR 1191).
-    measuring: viewer_host::Measuring,
-    /// Table 29's arrangement, as this window last asked for it.
-    ///
-    /// Kept because `l` *cycles*: the value in force is the viewer's, and a host that wanted to
-    /// know it without remembering would have to ask a question this vocabulary does not have —
-    /// which is the right answer, because `Query::Opening` says what the *document* asked for and
-    /// that is a different sentence.
-    layout: pdf_model::viewer_preferences::PageLayout,
-    /// What this document departs from the window's restriction levels in.
-    ///
-    /// The one half of `viewer_host::Restrictions` that belongs to a file rather than to the
-    /// window: `viewer_core` already keeps the departures beside the document they are about
-    /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
-    departures: viewer_core::RestrictionOverride,
-    /// Whether Table 29's `/PageMode` is still to be obeyed, the first time this tab is in front.
-    ///
-    /// A document opened behind the one showing is not displayed, and `/PageMode` is "how the
-    /// document shall be displayed when opened" — so its full screen and its panel wait for the
-    /// pump that first brings it to the front (ADR 1303).
-    catalog_due: bool,
-}
-
-impl Showing {
-    /// A document this window has just been handed, before anything has been read from it.
-    fn new(path: PathBuf, bytes: pdf_syntax::FileBytes, fragment: Option<String>) -> Self {
-        Self {
-            directory: path.parent().map(Path::to_owned),
-            path,
-            bytes,
-            fragment,
-            asking: viewer_host::Asking::new(),
-            report_due: viewer_host::report::Due::default(),
-            dirty: false,
-            caption: String::new(),
-            titled: None,
-            measuring: viewer_host::Measuring::default(),
-            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
-            departures: viewer_core::RestrictionOverride::NONE,
-            catalog_due: false,
-        }
-    }
-}
-
 /// One document, one window, and the loop between them.
 ///
 /// `struct_excessive_bools` is asking for a state machine, and there is no state here to make one
@@ -479,26 +387,9 @@ impl Showing {
     reason = "independent facts about one window, each read in one place and none a state"
 )]
 pub struct Host {
-    /// The state machine every host on this boundary drives.
-    pub(crate) viewer: Viewer,
-    /// Everything this window holds about the document in front.
-    showing: Showing,
-    /// Which page this window has told the person is taking a long time to draw.
-    ///
-    /// **The state Escape's third row depends on** (`viewer_host::Waiting`), held rather than
-    /// asked for twice because it decides two different things: what the status bar is saying, and
-    /// what the key means while it says it. `viewer_host::Drawing::overlong` is where it comes
-    /// from and the drawing poll is the only thing that reads it, so a window at rest never asks.
-    warned: Option<usize>,
-    /// What the find bar is looking for, kept because the *page's* highlights are asked for on
-    /// every repaint while the document-wide search is a plan inside `viewer-core`.
-    needle: String,
-    /// How many pages a search still has to read, which is what puts a `Find::Continue` on the
-    /// idle queue after each repaint. Zero when nothing is being searched for.
-    ///
-    /// A count rather than a flag because it is also what the status line says: a person watching
-    /// a thousand-page document wants to see it come down.
-    pages_left: usize,
+    /// The toolkit-free half of this window's state, shared with the other toolkit host
+    /// (`viewer_host::native_window`, ADR 1920).
+    pub(crate) state: WindowState,
     /// Where the pointer last was over the page, in logical pixels of the page area.
     ///
     /// GTK puts no position in a scroll event, so the point a Control + wheel zoom keeps still is
@@ -506,15 +397,6 @@ pub struct Host {
     pointer_at: Option<(f64, f64)>,
     /// The travel a Control + wheel gesture has made and not yet spent on a zoom step.
     zoom_wheel: viewer_host::ZoomWheel,
-    /// The documents this window has open, in the order the strip shows them.
-    ///
-    /// One of these until something opens a second — a `/NewWindow true` on a remote go-to, or a
-    /// second file named on the command line — and the notebook hides its own tabs until then, so
-    /// a window showing one document looks exactly as it did (ADR 1264).
-    documents: viewer_host::Documents<Showing>,
-    /// The documents a reader named that are still to open beside this one — the command line's
-    /// later paths and the files chosen with Ctrl + O — one at a time (`viewer_host::Arrivals`).
-    arrivals: viewer_host::Arrivals,
     /// Whether the panels are to be built again when the pump now running has finished.
     ///
     /// A tab brought to the front sends `Command::Focus` on the pump's queue, and every panel is an
@@ -525,24 +407,12 @@ pub struct Host {
     /// §12.4.4.1's two transition faces.
     ///
     /// **The page is no longer drawn here**, which is ADR 0668: a display list this program did not
-    /// write is drawn on [`Host::drawing`]'s thread, so that a page written to be expensive cannot
-    /// take the window with it. What is left on this thread is bounded by *this host's* own asking
-    /// — a miniature is a `/Thumb` at panel size and a face is one whole-viewport draw per page
-    /// turn while a presentation is running — rather than by what a document chose to state.
+    /// write is drawn on [`WindowState::drawing`]'s thread, so that a page written to be expensive
+    /// cannot take the window with it. What is left on this thread is bounded by *this host's* own
+    /// asking — a miniature is a `/Thumb` at panel size and a face is one whole-viewport draw per
+    /// page turn while a presentation is running — rather than by what a document chose to state.
     rasterizer: CpuRasterizer,
-    /// The page rasteriser, on a thread of its own.
-    ///
-    /// `viewer_host::Drawing` is the whole arrangement, shared with `viewer-qt`: what is GTK's is
-    /// the one-shot below that asks it whether anything has landed.
-    drawing: viewer_host::Drawing,
-    /// A small picture of each page drawn lately, shown where a page arrives on the screen with
-    /// no frame until its own lands — `viewer_host::stand_in::Retained`, shared with `viewer-qt`
-    /// (ADR 1866).
-    retained: viewer_host::stand_in::Retained,
-    /// The pages past the whole-page bound, drawn as the window shows them (ADR 1892) — shared
-    /// with `viewer-qt`.
-    oversized: viewer_host::oversize::Oversized,
-    /// The one-shot waiting to ask [`Host::drawing`] whether a page has finished.
+    /// The one-shot waiting to ask [`WindowState::drawing`] whether a page has finished.
     ///
     /// **`None` is a window that wakes for this exactly never**, which is the same shape
     /// [`Host::armed`] has one clause over: `pump_drawing` re-arms only while `Drawing::interval`
@@ -552,8 +422,6 @@ pub struct Host {
     /// window, and whether it has been answered — what [`Event::ScriptQuestionWithdrawn`] takes
     /// down, marked answered first so that closing it does not answer the script twice (ADR 1643).
     script_dialogue: Option<(DocumentId, gtk4::Window, Rc<Cell<bool>>)>,
-    /// The launch timeline.
-    pub(crate) trace: Trace,
     /// The widgets.
     ui: Ui,
     /// What the chrome layer draws.
@@ -660,9 +528,6 @@ pub struct Host {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
-    /// §12.7.6.2's submissions on the wire, each on a `submit-form` thread of its own, and the
-    /// answers that have come back — looked at on GTK's main loop while one is out (ADR 1291).
-    submitter: viewer_host::submit::Submitter,
     /// §10.8.3: whether this window has asked for the separation simulation.
     ///
     /// Held here rather than asked of the core, because it is a preference a person toggles and
@@ -692,14 +557,6 @@ pub struct Host {
     /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is GTK's is
     /// `GtkWindow::fullscreen` and which widget each of Table 147's three flags names.
     presenting: viewer_host::Presenting,
-    /// §12.4.4.1's clock, while a presentation is running.
-    ///
-    /// **`None` is a window with no timer armed at all**, rather than a timer that wakes to find
-    /// nothing to do: `pump_presentation` re-arms a one-shot only while this is `Some`, so a
-    /// reader who is not presenting pays nothing. The decision inside it — how often, what a tick
-    /// carries, when Table 164's `/D` has run out — is `viewer_host::Clock`, shared with the other
-    /// two hosts.
-    clock: Option<viewer_host::Clock>,
     /// The one-shot waiting to turn the clock, so that it can be moved when the interval changes.
     ///
     /// One source at a time, removed and re-armed rather than repeating: a transition wants a
@@ -709,26 +566,6 @@ pub struct Host {
     /// When this window last told the core that time passed for a document's script timers, which
     /// [`Self::armed`] also wakes for while no presentation does (ADR 1702).
     script_ticker: viewer_host::script_timers::Ticker,
-    /// A transition named by the core, waiting for the page it moves *to* to be rendered.
-    ///
-    /// §12.4.4.1's transition is one *to* a page, and the core settles after the command that
-    /// turned it: the events arrive as page change, transition, render request. Beginning the
-    /// effect here would animate the page being left against itself.
-    arming: Option<pdf_model::navigation::Transition>,
-    /// The page on the screen, as the list that drew it, the target the core asked for and the
-    /// whole pixel the window shows it at — the face a transition would move *from*
-    /// (`viewer_host::clock::face_as_shown`).
-    ///
-    /// Kept only while a presentation is running, because it costs a `Query::PageGeometry` per
-    /// page render and nothing outside §12.4.4 asks for it. The list is shared rather than
-    /// copied: `RenderRequest::list` is an `Arc` precisely so that a host may keep one.
-    shown: Option<(
-        std::sync::Arc<pdf_render::DisplayList>,
-        pdf_render::TargetSpec,
-        (f32, f32),
-    )>,
-    /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
-    pub(crate) viewport: (u32, u32),
     /// The document opening on [`Opening`]'s thread, until the first allocation joins it — or,
     /// where it is not ready inside `viewer_host::drawing::WARN`, until the tick that finds it
     /// ready (ADR 1811).
@@ -736,14 +573,6 @@ pub struct Host {
     /// The latest viewport the window was given while the document was still opening, which the
     /// join tells the core rather than the first one.
     awaiting: Option<Command>,
-    /// Page one being drawn while it is read on the opening thread, until the join hands it to
-    /// [`Self::drawing`] (ADRs 1855, 1867).
-    ahead: Option<viewer_host::Ahead>,
-    /// The window as the core was last told it, which a page turn's drawing ahead draws into
-    /// (ADR 1871); `None` before the first allocation.
-    extent: Option<viewer_host::loading::Window>,
-    /// The last look at page one as it was read, shown until the page has a frame of its own.
-    read_look: Option<viewer_host::loading::Look>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -773,9 +602,9 @@ impl std::fmt::Debug for Host {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Host")
-            .field("path", &self.showing.path)
+            .field("path", &self.state.showing.path)
             .field("opened", &self.opened)
-            .field("dirty", &self.showing.dirty)
+            .field("dirty", &self.state.showing.dirty)
             .field("placed", &self.placed.len())
             .finish_non_exhaustive()
     }
@@ -815,31 +644,13 @@ impl Host {
             let ui = build_window(app, path, me, &chrome);
             trace.say(Topic::Launch, format_args!("window built"));
             RefCell::new(Self {
-                viewer: Viewer::new(1, 1, 1.0),
-                showing: Showing::new(path.to_owned(), bytes, fragment),
-                // One document, and the strip hides its own tabs for it — the launch path opens
-                // exactly the one document it always has, under exactly the name it always had
-                // (ADR 1264).
-                documents: viewer_host::Documents::new(
-                    DOCUMENT,
-                    viewer_host::documents::label(path),
-                ),
-                warned: None,
-                needle: String::new(),
-                pages_left: 0,
+                state: WindowState::new(path, bytes, fragment, trace, ahead),
                 pointer_at: None,
                 zoom_wheel: viewer_host::ZoomWheel::default(),
-                arrivals: viewer_host::Arrivals::new(),
                 panels_due: false,
                 rasterizer: CpuRasterizer::new(),
-                // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule
-                // that nothing page one does not need happens before page one.
-                drawing: viewer_host::Drawing::new(),
-                retained: viewer_host::stand_in::Retained::default(),
-                oversized: viewer_host::oversize::Oversized::default(),
                 drawing_armed: None,
                 script_dialogue: None,
-                trace,
                 ui,
                 chrome,
                 suppress: Rc::new(Cell::new(false)),
@@ -867,7 +678,6 @@ impl Host {
                 restrictions: standing(settings),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
-                submitter: viewer_host::submit::Submitter::new(),
                 separations: settings.separations,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
@@ -875,17 +685,10 @@ impl Host {
                 // Table 147's and Table 29's own defaults, replaced by what the catalog states
                 // the moment the document opens.
                 presenting: viewer_host::Presenting::default(),
-                clock: None,
                 armed: None,
                 script_ticker: viewer_host::script_timers::Ticker::default(),
-                arming: None,
-                shown: None,
-                viewport: (1, 1),
                 anticipated: Some(thread),
                 awaiting: None,
-                ahead: Some(ahead),
-                extent: None,
-                read_look: None,
                 preparing: None,
             })
         })
@@ -894,6 +697,37 @@ impl Host {
     /// This host, weakly, for a callback that has to reach it after the borrow that armed it ends.
     pub(crate) fn me(&self) -> Weak<RefCell<Self>> {
         self.me.clone()
+    }
+}
+
+/// What GTK does inside the methods the two toolkit hosts share: the status label, the pump, the
+/// repaint, and an idle callback for the next open (ADR 1920).
+///
+/// Each forwards to this host's own method of the same name, which a path through the type
+/// reaches before the trait's: inherent methods are looked up first.
+impl NativeWindow for Host {
+    fn state(&self) -> &WindowState {
+        &self.state
+    }
+
+    fn state_mut(&mut self) -> &mut WindowState {
+        &mut self.state
+    }
+
+    fn say(&mut self, what: &str) {
+        Self::say(self, what);
+    }
+
+    fn dispatch(&mut self, command: Command) {
+        Self::dispatch(self, command);
+    }
+
+    fn later_open_the_next(&mut self) {
+        Self::later_open_the_next(self);
+    }
+
+    fn repaint(&mut self) {
+        self.refresh();
     }
 }
 

@@ -76,7 +76,7 @@
 
 use pdf_syntax::{Dictionary, Document, Object};
 
-use crate::geospatial::{AffineRegistration, GeographicPosition, ReferenceSystem, Refusal};
+use crate::geospatial::{GeographicPosition, ReferenceSystem, Refusal};
 
 /// Most viewports read from one page.
 ///
@@ -180,7 +180,8 @@ impl Viewport {
     /// this is that reading run backwards (ADR 1672): through `/PCSM` where Table 269 gives the
     /// matrix priority — the forward projection into the projected plane, then the matrix solved
     /// for the object's position — and otherwise through the affine map the registration
-    /// determines, inverted, then this viewport's `/BBox`. A position the map places outside
+    /// determines (`Geospatial::registration_map`, in a projected system's plane by way of its
+    /// forward projection, ADR 1918), inverted, then this viewport's `/BBox`. A position the map places outside
     /// `/Bounds` is refused: the table makes that polygon "the bounds of an area for which
     /// geospatial transformations are valid", and that is so in both directions.
     ///
@@ -218,10 +219,10 @@ impl Viewport {
                 .ok_or(Refusal::NotStated)??;
             (point, self.unit_square_at(point).ok_or_else(no_square)?)
         } else {
-            let pairs = geospatial.registration_geographic()?;
-            let local = AffineRegistration::fit(&pairs)
-                .and_then(|fit| fit.local(position))
-                .ok_or(Refusal::NoMap(pairs.len()))?;
+            let local = geospatial
+                .registration_map()?
+                .local(position)?
+                .ok_or_else(|| Refusal::NoMap(geospatial.registration().len()))?;
             if self.unit_square_at([0.0, 0.0]).is_none() {
                 return Err(no_square());
             }
@@ -445,7 +446,7 @@ impl Traced {
 /// register it, and whether the path lies inside the document's own neatline. A latitude is not
 /// here, because §12.10 states no function between the registration points and the one this
 /// program reads there is a choice (ADR 1593): `viewer_core` reads it through
-/// `crate::geospatial::AffineRegistration`, and [`Viewport::page_position`] runs it backwards.
+/// `Geospatial::registration_map`, and [`Viewport::page_position`] runs it backwards.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Geographic {
     /// `/GCS`, the system the map's coordinates are in. Table 269 requires it.

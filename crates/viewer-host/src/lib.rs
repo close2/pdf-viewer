@@ -113,6 +113,10 @@
 //!   to the extent the page has now until the new frame lands, in both toolkit windows (ADR 1843);
 //!   a page's own pixels at a whole device pixel (ADR 1865); and a page with no frame shown from a
 //!   small picture kept from its last one (ADR 1866).
+//! - [`native_window`] — the half of a toolkit window's state no toolkit owns, and the methods
+//!   both toolkit hosts answer alike over it, provided by one trait whose required methods are what
+//!   a toolkit does differently inside them: the sentence said, the command dispatched, the next
+//!   open deferred (ADR 1920).
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -140,6 +144,7 @@ pub mod loading;
 pub mod machine_faces;
 pub mod measuring;
 pub mod modification;
+pub mod native_window;
 pub mod oversize;
 pub mod panel;
 pub mod password;

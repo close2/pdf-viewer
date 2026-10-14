@@ -44,7 +44,7 @@
 //! dictionary, all of them Adobe's `/ADBE` prefix at extension level 3 or 8 over a base version
 //! of 1.7.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Object};
 
@@ -493,6 +493,81 @@ pub fn penalty_total(document: &Document) -> u32 {
         .sum()
 }
 
+/// The names of the document-level scripts §12.11.5 disables: every `/Script` of a `JS`
+/// alternative requirement handler, under a requirement whose `/S` this processor can check.
+///
+/// §12.11.1's Table 273 states the condition under `/RH`, and what follows from it:
+///
+/// > Each dictionary identifies a requirement handler that shall be disabled (not invoked) if the
+/// > interactive PDF processor can check the requirement specified in the S entry (whether or not
+/// > it can satisfy that requirement).
+///
+/// and §12.11.5's Table 276 the handler, under `/Script`:
+///
+/// > If the PDF processor understands the parent document requirements dictionary and can verify
+/// > the requirement specified in that dictionary, it shall disable execution of the requirement
+/// > handler identified in this dictionary.
+///
+/// **This processor checks every type Table 275 names**: [`Kind::unmet`] answers each of the
+/// twenty-five, met or not, so a handler under any of them is disabled. A type outside the table,
+/// [`Kind::Other`], is one this reader cannot check, and its handler stays the document's to run —
+/// it is the case the handler exists for. A handler dictionary of `/S /NoOp` names no script, and
+/// one of any other type is passed over, as the clause's last sentence has it:
+///
+/// > If an alternative requirement handler dictionary has an S entry with an unrecognised type, it
+/// > shall be ignored.
+///
+/// The name is the text string §7.9.2.2 decodes, the same decoding a name tree's key gets where
+/// the scripts are run, so that a handler is matched by what both say rather than by their bytes.
+/// ADR 1923.
+#[must_use]
+pub fn disabled_handlers(document: &Document) -> BTreeSet<String> {
+    let Ok(catalog) = document.catalog() else {
+        return BTreeSet::new();
+    };
+    let array = document.get_key(&catalog, "Requirements");
+    let Some(items) = array.as_array() else {
+        return BTreeSet::new();
+    };
+    let mut disabled = BTreeSet::new();
+    for item in items.iter().take(MAX_REQUIREMENTS) {
+        let resolved = document.resolve(item);
+        let Some(requirement) = resolved.as_dict() else {
+            continue;
+        };
+        let checked = document
+            .get_key(requirement, "S")
+            .as_name()
+            .is_some_and(|name| !matches!(Kind::read(name.as_bytes()), Kind::Other(_)));
+        if !checked {
+            continue;
+        }
+        let handlers = document.get_key(requirement, "RH");
+        let listed: Vec<Object> = match &handlers {
+            Object::Array(items) => items.iter().take(MAX_REQUIREMENTS).cloned().collect(),
+            Object::Dictionary(_) => vec![handlers.clone()],
+            _ => Vec::new(),
+        };
+        for handler in &listed {
+            let resolved = document.resolve(handler);
+            let Some(handler) = resolved.as_dict() else {
+                continue;
+            };
+            let is_script = document
+                .get_key(handler, "S")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"JS");
+            if !is_script {
+                continue;
+            }
+            if let Some(name) = document.get_key(handler, "Script").as_string() {
+                disabled.insert(pdf_syntax::text_string(name));
+            }
+        }
+    }
+    disabled
+}
+
 /// The number §12.11.3's threshold is stated against: "if the penalty value exceeds 100".
 pub const PENALTY_LIMIT: u32 = 100;
 
@@ -640,7 +715,7 @@ impl DeveloperExtension {
 
 #[cfg(test)]
 mod tests {
-    use super::{Extensions, Kind, penalty_total, read, unmet};
+    use super::{Extensions, Kind, disabled_handlers, penalty_total, read, unmet};
     use pdf_syntax::Document;
 
     fn document(catalog: &str) -> Document {
@@ -943,5 +1018,25 @@ mod tests {
             "<< /Type /Catalog /Pages 2 0 R /Extensions << /ADBE << /BaseVersion /1.7 >> >> >>",
         );
         assert!(Extensions::read(&doc).is_empty());
+    }
+
+    /// Table 273's `/RH` and Table 276: a `JS` handler under a type this processor checks is
+    /// disabled, as one dictionary or in an array; under a type outside Table 275 it is not, and a
+    /// `NoOp` handler or one of an unrecognised type names nothing to disable.
+    #[test]
+    fn a_handler_is_disabled_where_its_requirement_is_one_this_processor_checks() {
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /EnableJavaScripts /RH << /Type /ReqHandler /S /JS /Script (checkScripts) >> >> \
+             << /S /U3D /RH [ << /S /NoOp >> << /S /JS /Script <FEFF003300640043006800650063006B> >> \
+                             << /S /Shell /Script (unrecognised) >> ] >> \
+             << /S /Reticulation /RH << /S /JS /Script (vendorCheck) >> >> ] >>",
+        );
+        let disabled: Vec<String> = disabled_handlers(&doc).into_iter().collect();
+        assert_eq!(
+            disabled,
+            ["3dCheck", "checkScripts"],
+            "a UTF-16 name decodes as a name tree's key does, and the vendor type's handler is kept"
+        );
     }
 }

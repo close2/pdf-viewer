@@ -569,6 +569,17 @@ fn composite_substitute(
     (request, found)
 }
 
+/// The pairs Adobe published for the face a simple font's `/BaseFont` names, where it is one of
+/// §9.6.2.2's fourteen spelled as the clause spells it (ADR 1916).
+///
+/// Asked only of a font whose program the document did not embed: an embedded program is the
+/// document's face, kerned by what it states.
+fn published_pairs(document: &Document, dict: &Dictionary) -> Option<crate::pairs::Pairs> {
+    let base_font = document.get_key(dict, "BaseFont");
+    let name = std::str::from_utf8(base_font.as_name()?.as_bytes()).ok()?;
+    crate::pairs::Pairs::published(name)
+}
+
 /// ISO 32000-2 §9.8.3.3's `/FD`, resolved to a decision and a face per class.
 ///
 /// Answers for a `CIDFont` whose program the document did not embed and for no other font, which
@@ -722,6 +733,9 @@ pub struct LoadedFont {
     stretch: f32,
     /// Whether the glyphs are a stand-in rather than the font the document named.
     substituted: bool,
+    /// The pairs Adobe published for the face, where the document names one of §9.6.2.2's
+    /// fourteen by the clause's own spelling and embeds no program for it (ADR 1916).
+    published_pairs: Option<crate::pairs::Pairs>,
     /// What the producer said each code means, when the font says so.
     to_unicode: tounicode::ToUnicode,
     /// §9.10.2's third method, for a composite font whose descendant names a registered
@@ -1070,6 +1084,7 @@ impl LoadedFont {
             units_per_em,
             stretch,
             substituted: requested.is_some(),
+            published_pairs: requested.and_then(|_| published_pairs(document, dict)),
             to_unicode: to_unicode(document, dict),
             collection: None,
             symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
@@ -1289,6 +1304,8 @@ impl LoadedFont {
             type1,
             mapping,
             substituted,
+            // §9.6.2.2's fourteen are simple Type 1 fonts.
+            published_pairs: None,
             to_unicode,
             collection,
             // §9.6.5.1 gives the two symbolic standard-14 fonts *simple* built-in encodings, and
@@ -1384,6 +1401,7 @@ impl LoadedFont {
             // §9.7.4.2's substitution is a *face* standing in for the glyphs, which is exactly
             // what did not happen: this font draws nothing rather than the wrong thing.
             substituted: false,
+            published_pairs: None,
             to_unicode: tounicode::ToUnicode::default(),
             collection: None,
             symbolic_set: None,
@@ -2648,11 +2666,16 @@ impl LoadedFont {
     /// # Errors
     ///
     /// [`crate::pairs::NoPairs::NotTheDocuments`] for a substituted font, whose pairs would be
-    /// the stand-in's; [`crate::pairs::NoPairs::NoPairData`] for a bare CFF or Type 1 program,
-    /// which carries neither table; and the reader's own refusals otherwise.
+    /// the stand-in's, unless it is one of §9.6.2.2's fourteen by name, which is kerned by the
+    /// pairs Adobe published for the face (ADR 1916); [`crate::pairs::NoPairs::NoPairData`] for a
+    /// bare CFF or Type 1 program, which carries neither table; and the reader's own refusals
+    /// otherwise.
     pub fn pairs(&self) -> Result<crate::pairs::Pairs, crate::pairs::NoPairs> {
         if self.substituted {
-            return Err(crate::pairs::NoPairs::NotTheDocuments);
+            return self
+                .published_pairs
+                .clone()
+                .ok_or(crate::pairs::NoPairs::NotTheDocuments);
         }
         if self.program != Program::Sfnt {
             return Err(crate::pairs::NoPairs::NoPairData);
@@ -2665,7 +2688,9 @@ impl LoadedFont {
     /// ([`crate::pairs::scripts`]), which selects the program's script table, `language` the
     /// run's natural language, which selects the table's language system
     /// ([`crate::pairs::Language`]), and `right_to_left` whether each code reads right to left. A
-    /// code reaching no glyph of the program, or its `.notdef`, pairs with nothing.
+    /// code reaching no glyph of the program, or its `.notdef`, pairs with nothing; for one of
+    /// the fourteen, a code is asked about by the glyph name it selects (§9.6.5), which is what a
+    /// published pair names.
     #[must_use]
     pub fn pair_adjustments(
         &self,
@@ -2675,7 +2700,17 @@ impl LoadedFont {
         language: crate::pairs::Language,
         right_to_left: &[bool],
     ) -> crate::pairs::Adjusted {
-        let glyphs: Vec<Option<u16>> = codes.iter().map(|code| self.pair_glyph(*code)).collect();
+        let glyphs: Vec<Option<u16>> = if pairs.by_glyph_name() {
+            codes
+                .iter()
+                .map(|code| {
+                    self.selected_glyph_name(*code)
+                        .and_then(crate::pairs::Pairs::published_glyph)
+                })
+                .collect()
+        } else {
+            codes.iter().map(|code| self.pair_glyph(*code)).collect()
+        };
         pairs.adjust(&glyphs, scripts, language, right_to_left)
     }
 

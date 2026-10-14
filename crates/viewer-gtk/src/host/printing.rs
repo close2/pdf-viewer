@@ -51,7 +51,7 @@ impl Host {
         };
         // §12.2's half of Table 147, as the dialogue's opening state. Read here rather than
         // inside the operation because the answer borrows this host and the operation must not.
-        let defaults = match self.viewer.query(Query::Preferences) {
+        let defaults = match self.state.viewer.query(Query::Preferences) {
             Answer::Preferences(preferences) => viewer_host::PrintDefaults::of(&preferences),
             _ => viewer_host::PrintDefaults::of(
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
@@ -138,7 +138,7 @@ impl Host {
         let Ok(index) = usize::try_from(page) else {
             return;
         };
-        let Answer::PrintPage(printed) = self.viewer.query(Query::PrintPage(index)) else {
+        let Answer::PrintPage(printed) = self.state.viewer.query(Query::PrintPage(index)) else {
             self.say(&format!(
                 "page {} is not this document's to print",
                 index.saturating_add(1)

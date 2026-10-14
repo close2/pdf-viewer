@@ -18,6 +18,7 @@ use gtk4::prelude::*;
 use gtk4::{gio, glib};
 use viewer_core::{RestrictionLevel, RestrictionPolicy};
 use viewer_gtk::{Host, Opening};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 
 /// What the command line asked for.

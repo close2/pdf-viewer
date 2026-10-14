@@ -9,6 +9,7 @@ use gtk4::prelude::*;
 use viewer_core::{Answer, Command, Edit, PointerAction, Query, Zoom};
 
 use viewer_host::arrangement::next_layout;
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use crate::controls;
@@ -16,40 +17,6 @@ use crate::controls;
 use super::{Host, with};
 
 impl Host {
-    /// Whether anything on the page is selected.
-    ///
-    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
-    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
-    /// has been told nothing at all.
-    fn has_selection(&self) -> bool {
-        matches!(self.viewer.query(Query::Selection),
-            Answer::Selected(selection) if !selection.quads.is_empty())
-    }
-
-    /// Puts what is selected on the page onto the session's clipboard.
-    ///
-    /// **The platform end of `doc/todo/30`'s first item, and it is one call** (ADR 0519). This
-    /// host draws a selection in the platform's own colour and could not give it to another
-    /// application; `gdk::Clipboard` is what a GTK program has for that, reached from any widget
-    /// through the display it is on, so there is nothing to keep and nothing to bring up — which
-    /// is also why `CLAUDE.md`'s second principle's launch path is untouched by this.
-    ///
-    /// Which of §14.8.2.5's two orders the text is in is *not* this host's decision and is
-    /// [`viewer_host::copied`]: the same question in all three windowed hosts, and the third copy
-    /// of it is where two of them would stop agreeing. What is this host's is the two questions
-    /// and the toolkit.
-    fn copy_selection(&mut self) {
-        // **A command rather than two questions**: §7.6.4.2's bit 5 restricts taking text out of
-        // the document, and a readback can be neither refused, asked about nor warned of. The two
-        // answers arrive together on `Event::Copied` and the choice between them is unchanged
-        // (ADR 1144).
-        if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
-            self.say("nothing on the page is selected to copy");
-            return;
-        }
-        self.dispatch(Command::Copy);
-    }
-
     /// What a key press means, which is [`viewer_host::keys`]'s answer and not this host's.
     ///
     /// **Only the translation is GTK's** (ADR 0526). This host used to carry a table of its own
@@ -75,7 +42,7 @@ impl Host {
         // toolkit button stands over one to take them (ADR 1357) — unless one of this host's own
         // controls has the keyboard, which has had the key first and whose Enter GTK may pass on.
         if !self.a_control_has_the_keyboard()
-            && let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held)
+            && let Some(pressed) = viewer_host::pressed(&self.state.viewer, stated, held)
         {
             self.press(pressed);
             return true;
@@ -117,7 +84,7 @@ impl Host {
     /// that the next Space or Enter reaches [`viewer_host::pressed`]. Done from an idle because
     /// GTK's own focus move for the same key runs after this controller has returned.
     fn follow_focus(&mut self) {
-        let control = match self.viewer.query(Query::Focus) {
+        let control = match self.state.viewer.query(Query::Focus) {
             Answer::Focus { object, .. } => self
                 .placed
                 .iter()
@@ -154,12 +121,13 @@ impl Host {
             // A widget the frame placed no control over — off the arrangement, or a kind this
             // host draws — has nothing to aim at, and says so (trap 5).
             let said = format!("the field {} has no control placed over it", name.shown());
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
             return;
         };
-        self.trace.say(
+        self.state.trace.say(
             Topic::Access,
             format_args!("the keyboard goes to the field {}", name.shown()),
         );
@@ -244,7 +212,7 @@ impl Host {
         }
         match pressed {
             viewer_host::Pressed::Activates { name, annotation } => {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Pointer,
                     format_args!("pressing the push-button {}", name.shown()),
                 );
@@ -280,7 +248,7 @@ impl Host {
             // message. One document is its own next, so the key is harmless before anything has
             // opened a second (ADR 1264).
             viewer_host::WindowAct::NextDocument => {
-                let next = self.documents.next_id();
+                let next = self.state.documents.next_id();
                 let mut queue = VecDeque::new();
                 self.show_document(next, &mut queue);
                 if !queue.is_empty() {
@@ -303,7 +271,7 @@ impl Host {
             // §12.9's measuring. Nothing is drawn differently: what the mode changes is that a
             // press on the page is a point rather than the start of §12.4.2's selection.
             viewer_host::WindowAct::Measure => {
-                let on = self.showing.measuring.toggle();
+                let on = self.state.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
             }
             // §10.8.3: the state is this window's, because it is a preference a person toggles
@@ -328,9 +296,12 @@ impl Host {
             // than a menu because this host has no menu bar; what matters for `doc/todo/30` is
             // that the *message* is exercised by a person driving a real window.
             viewer_host::WindowAct::NextLayout => {
-                self.showing.layout = next_layout(self.showing.layout);
-                self.dispatch(Command::Layout(self.showing.layout));
-                self.say(&format!("page layout: {:?} (§7.7.2)", self.showing.layout));
+                self.state.showing.layout = next_layout(self.state.showing.layout);
+                self.dispatch(Command::Layout(self.state.showing.layout));
+                self.say(&format!(
+                    "page layout: {:?} (§7.7.2)",
+                    self.state.showing.layout
+                ));
                 // A new arrangement is a new set of pages on the screen, and therefore a new set
                 // of things they could not draw.
                 self.restate();
@@ -414,7 +385,7 @@ impl Host {
         // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing it
         // takes away: the two gestures are the same gesture and a window cannot tell them apart
         // from the pointer alone (ADR 1191).
-        if self.showing.measuring.is_on() {
+        if self.state.showing.measuring.is_on() {
             if matches!(action, PointerAction::Pressed) {
                 self.measure(at);
             }
@@ -451,27 +422,6 @@ impl Host {
         self.show_whether_it_is_a_link(at);
     }
 
-    /// One more point of §12.9's measurement, and what the path comes to now.
-    ///
-    /// The points are this window's — a rubber band is chrome — and the arithmetic is the
-    /// document's, which is the split `viewer_core::Query::Measure` exists for: Table 267's
-    /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
-    fn measure(&mut self, at: (f32, f32)) {
-        if !self.showing.measuring.point(at) {
-            return;
-        }
-        let points = self.showing.measuring.points().to_vec();
-        let (traced, located) = match self.viewer.query(Query::Measure(&points)) {
-            Answer::Measured { traced, located } => (Some(traced), located),
-            _ => (None, None),
-        };
-        self.say(&viewer_host::measuring::said(
-            points.len(),
-            traced.as_ref(),
-            located.as_ref(),
-        ));
-    }
-
     /// §12.5.6.5's activation region under the pointer, as this platform's cursor.
     ///
     /// The clause makes a link annotation "either a hypertext link to a destination elsewhere in
@@ -485,14 +435,14 @@ impl Host {
     /// and set only when the answer *changes*, because `gdk_surface_set_cursor` reaches the
     /// display server and a pointer sweeping a page of links would reach it on every motion event.
     fn show_whether_it_is_a_link(&mut self, at: (f32, f32)) {
-        let Answer::Link(over) = self.viewer.query(Query::LinkAt(at)) else {
+        let Answer::Link(over) = self.state.viewer.query(Query::LinkAt(at)) else {
             return;
         };
         if over == self.over_link {
             return;
         }
         self.over_link = over;
-        self.trace.say(
+        self.state.trace.say(
             Topic::Pointer,
             format_args!(
                 "the pointer is {} §12.5.6.5's activation region",

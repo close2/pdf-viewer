@@ -1936,14 +1936,44 @@ fn pair_kerning_takes_the_language_system_the_text_s_language_selects() {
     }
 }
 
+/// One of §9.6.2.2's fourteen, named and not embedded, is kerned by the pairs Adobe published for
+/// the face (ADR 1916): `Helvetica.afm` states `KPX A V -70` and `KPX V A -80`, so `AVAV` in
+/// `/Helv` is written with §9.4.3's `TJ` numbers 70, 80 and 70 thousandths, the last glyph keeping
+/// none, and nothing is said because the property is carried out.
+#[test]
+fn pair_kerning_in_one_of_the_fourteen_takes_its_published_pairs() {
+    let kerned = rich("AVAV", "<span style=\"kerning-mode:pair\">AVAV</span>");
+    let (content, _) = appearance(kerned.clone());
+    assert!(
+        content.contains("[(A) 70 (V) 80 (A) 70 (V)] TJ"),
+        "{content}"
+    );
+    let (reports, raster) = draw(kerned);
+    assert!(reports.is_empty(), "{reports:?}");
+    let (_, plain) = draw(rich("AVAV", "AVAV"));
+    // Three pairs at 12 points take 12 × (70 + 80 + 70) / 1000 = 2.64 points out of the ink.
+    let narrower = ink_width(&plain).saturating_sub(ink_width(&raster));
+    assert!((2..=3).contains(&narrower), "{narrower} px");
+}
+
 /// A face that states no pairs is not kerned by numbers that are not its own, and the run says
-/// so: §9.6.2.2's fourteen carry none in this tree until `doc/questions/Q308` is answered.
+/// so: `/Arial`, named and not embedded, is drawn by a stand-in whose pairs would be another
+/// typeface's, and it is not one of the fourteen whose published pairs this tree holds.
 #[test]
 fn pair_kerning_in_a_face_without_pairs_is_said() {
-    let (reports, raster) = draw(rich(
-        "AVAV",
-        "<span style=\"kerning-mode:pair\">AVAV</span>",
-    ));
+    let bytes = pdf_with_fonts(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 290 190] /F 4 /FT /Tx \
+             /Ff {RICH_MULTILINE} /T (f) /V (AVAV) \
+             /RV (<body><p><span style=\"kerning-mode:pair\">AVAV</span></p></body>) \
+             /DA (/Ar 12 Tf 0 g) >>"
+        ),
+        "",
+        "8 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /Arial \
+         /Encoding /WinAnsiEncoding >>\nendobj\n",
+        "/Ar 8 0 R",
+    );
+    let (reports, raster) = draw(bytes);
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(
         reports[0].contains("kerning-mode:pair, in a face"),

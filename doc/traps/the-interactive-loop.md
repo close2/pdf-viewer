@@ -488,3 +488,20 @@ that finds the session locked says "locked" and takes no figure — the hold is 
 resource (ADR 1863). The owner's word of 2026-10-14: the loop may unlock the session, with
 `loginctl unlock-session <id>` and no other command — not a typed password, not `xdotool` on the lock
 screen, not a killed locker — and the script says it did.
+
+### 176. A missing Wayland socket does not give X11; unsetting both variables does
+
+`tmp/r1531/owner.sh` set `WAYLAND_DISPLAY` to a socket that does not exist to make winit take X11.
+winit 0.30 does not fall back: it panics with `NoCompositor`, and the script measured nothing on the
+owner's display (round 1545). winit chooses X11 only when both `WAYLAND_DISPLAY` and `WAYLAND_SOCKET`
+are absent (`platform_impl/linux/mod.rs`), so a loop script writes `env -u WAYLAND_DISPLAY -u
+WAYLAND_SOCKET …` and names nothing.
+
+### 178. A drive counts the window's own sentence, never the trace's echo of it
+
+Under `--trace=events` every `Event::Reported` appears twice in a window's log: once as the window's
+sentence (`page 1: this page cannot be drawn at this size`) and once as the trace's `<- Reported`
+line. Step 82 counted both and read ten refusals where the confined window had said five — once a
+size, as ADR 1892 §2.4 asks of a window that keeps the bound — and the step read `wrong` from round
+1528 until round 1542 found the doubling (ADR 1921). A count of a sentence filters the trace
+(`grep -v '^trace:'`), and a step is calibrated on HEAD's log before it judges a tree.

@@ -1046,9 +1046,10 @@ fn encode_items(
     atoms
 }
 
-/// Kerns one run's glyphs by the pairs their face's own program states: XFA 3.3 chapter 27's
+/// Kerns one run's glyphs by the pairs their face states: XFA 3.3 chapter 27's
 /// `kerning-mode:pair` (*Kerning*, pages 1203 and 1204), kerning "based purely on the two
-/// adjacent glyphs" (ADR 1682).
+/// adjacent glyphs" (ADR 1682) — the face's own program's, or for §9.6.2.2's fourteen the pairs
+/// Adobe published for the face (ADR 1916).
 ///
 /// A pair is two glyphs of the run set in one face, adjacent in logical order — the order
 /// OpenType's pairs are stated in — and the face is the one each glyph is drawn in, so a
@@ -1056,7 +1057,8 @@ fn encode_items(
 /// face's script table is the one the characters' script selects (ADR 1696), and its language
 /// system the one the string's natural language selects (ADR 1708). A
 /// face that states no pairs is said, with the reason, rather than kerned by numbers that are
-/// not its own: §9.6.2.2's fourteen among them until `doc/questions/Q308` is answered.
+/// not its own: a stand-in for a font the document names and does not embed, other than the
+/// fourteen, among them.
 fn kern(
     atoms: &mut [Atom],
     faces: &Faces,

@@ -32,14 +32,14 @@ impl Host {
     /// retained picture — `viewer_host::stand_in::Retained` (ADR 1866), the rules `viewer-gtk`
     /// paints by too.
     pub(super) fn frames(&self) -> Vec<viewer_host::stand_in::Placed<'_>> {
-        let geometry = |page| match self.viewer.query(Query::PageGeometry(page)) {
+        let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
         };
-        let focused = self.documents.focused();
+        let focused = self.state.documents.focused();
         // A viewer with no document yet — the window's own, before the opening thread's is taken
         // in — answers no frames at all, which is the moment a look is shown.
-        let frames = match self.viewer.query(Query::Frame) {
+        let frames = match self.state.viewer.query(Query::Frame) {
             Answer::Frame(frames) => frames,
             _ => Vec::new(),
         };
@@ -48,20 +48,20 @@ impl Host {
         // placed where that frame will be — and only while that frame is still coming, so a page
         // whose read failed is not left showing part of itself (trap 5).
         if frames.is_empty()
-            && self.drawing.partial().is_none()
-            && (self.anticipated.is_some() || self.drawing.interval().is_some())
-            && let Some(look) = self.read_look.as_ref()
+            && self.state.drawing.partial().is_none()
+            && (self.anticipated.is_some() || self.state.drawing.interval().is_some())
+            && let Some(look) = self.state.read_look.as_ref()
         {
             return vec![look.placed()];
         }
         // And a page with no frame at all shown from its retained picture (ADR 1866), with a page
         // past the whole-page bound shown over it from what its window drew (ADR 1892).
-        self.oversized.place(
-            self.retained.fill(
+        self.state.oversized.place(
+            self.state.retained.fill(
                 viewer_host::stand_in::placed(
                     viewer_host::drawing::over_frames(
                         frames,
-                        self.drawing.partial(),
+                        self.state.drawing.partial(),
                         focused,
                         geometry,
                     ),
@@ -70,7 +70,7 @@ impl Host {
                 focused,
                 geometry,
             ),
-            self.drawing.partial(),
+            self.state.drawing.partial(),
             focused,
             geometry,
         )

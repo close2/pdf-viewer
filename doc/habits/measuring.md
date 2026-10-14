@@ -975,3 +975,18 @@ Batch eighty-five's first slot was briefed to rewrite the 245 lines `grep -rE "h
 finds; `tools/comment-history.py` sorted them in a minute into 0 history, 21 names, 109 legitimate uses
 and 115 in code, and three gates had held the history at zero since ADR 1767 (round 1534). A grep is a
 reading list, not a debt; the brief that names a count from it names the sorter's figure instead.
+
+## 96. A split that keeps the old file as the root re-points the ledger rows that name it
+
+ADRs 1912 and 1914 split `image.rs` and `render-cpu/src/lib.rs` into module trees and kept each old
+file as the tree's root, so every ledger row naming the file went on passing the path-exists check
+while 87 of them pointed at code that had moved (round 1543 re-pointed 108). A split ADR lists the
+rows naming the file it splits and moves each `code` path to the module that holds the row's item,
+read item by item, in the same round — the checker cannot see a path that still exists.
+
+## 97. A figure quoted from a question is a population, not this tree's gain
+
+Q271 counted 158 projected maps with degree-shaped registration points, and the brief priced A271's
+departure at 158 gained. Re-run through the program's own reading at HEAD, 151 were refused by their
+point shape and 7 by their projection method or WKT first — 151 is the gain (round 1541, ADR 1918). A
+departure is priced by the census the program runs, not the census the question ran.

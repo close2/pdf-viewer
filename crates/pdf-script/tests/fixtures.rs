@@ -455,6 +455,7 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
             let reached = match row.holder {
                 pdf_script::surface::Holder::Field => format!("event.target.{member}"),
                 pdf_script::surface::Holder::Layer => format!("this.getOCGs()[0].{member}"),
+                pdf_script::surface::Holder::Bookmark => format!("this.bookmarkRoot.{member}"),
                 _ => spelled.clone(),
             };
             let mut asked = request(
@@ -499,6 +500,52 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
             assert_eq!(kind, Some(expected), "{spelled}'s reason");
         }
     }
+}
+
+#[test]
+fn the_bookmark_root_answers_its_parent_and_doc_and_refuses_the_outline_by_name() {
+    // The reference's "Bookmark properties": the root's parent is null and its doc is the Doc it
+    // resides in. The walk its "children" example makes reads the outline, which the realm is not
+    // handed, so the first step throws by name rather than meeting undefined (ADR 1922).
+    let ran = outcome(&request(
+        Trigger::Format,
+        "var root = this.bookmarkRoot; \
+         console.println(String(root.parent === null && root.doc === this)); \
+         try { root.children[0].name; } catch (e) { console.println(e.name); } \
+         root.createChild('Next Page', 'this.pageNum++');",
+        "1",
+        "",
+        false,
+    ));
+    assert_eq!(
+        ran.log,
+        vec!["true".to_owned(), "NotAllowedError".to_owned()],
+        "{ran:?}"
+    );
+    assert!(matches!(ran.ending, Ending::Threw(_)), "{:?}", ran.ending);
+    let named: Vec<&str> = ran
+        .refusals
+        .iter()
+        .map(|refusal| refusal.member.as_str())
+        .collect();
+    assert_eq!(
+        named,
+        ["Bookmark.children", "Bookmark.createChild"],
+        "{:?}",
+        ran.refusals
+    );
+    assert!(
+        ran.refusals[0]
+            .sentence()
+            .contains("is not handed the outline"),
+        "{}",
+        ran.refusals[0].sentence()
+    );
+    assert!(
+        ran.refusals[1].sentence().contains("Tier 2"),
+        "{}",
+        ran.refusals[1].sentence()
+    );
 }
 
 #[test]

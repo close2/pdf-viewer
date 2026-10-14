@@ -86,7 +86,7 @@ impl Host {
             .iter()
             .filter_map(|index| usize::try_from(*index).ok())
             .collect();
-        self.trace.say(
+        self.state.trace.say(
             Topic::Panel,
             format_args!("{field}: option(s) {chosen:?} of Table 234's /Opt selected"),
         );
@@ -143,7 +143,7 @@ impl Host {
 
     /// Which placed control §12.5.1's focus is on, as its index in `placed`, or -1 for none.
     pub(crate) fn focused_control(&self) -> i32 {
-        let Answer::Focus { object, .. } = self.viewer.query(Query::Focus) else {
+        let Answer::Focus { object, .. } = self.state.viewer.query(Query::Focus) else {
             return -1;
         };
         self.placed
@@ -170,7 +170,8 @@ impl Host {
             .and_then(|index| i32::try_from(index).ok());
         if found.is_none() {
             let said = format!("the field {} has no control placed over it", name.shown());
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
         }
@@ -214,7 +215,7 @@ impl Host {
         self.fit_magnification = self
             .showing_at()
             .and_then(|showing| fit.magnification(showing));
-        self.trace.say(
+        self.state.trace.say(
             Topic::Panel,
             format_args!(
                 "{wider} of {placed} control(s) wider than their /Rect (worst +{} on {} px), \
@@ -294,7 +295,7 @@ impl Host {
 
     /// §12.5.1's focus ring: one quadrilateral, or none.
     pub(crate) fn focus(&self) -> Vec<QtQuad> {
-        match self.viewer.query(Query::Focus) {
+        match self.state.viewer.query(Query::Focus) {
             Answer::Focus { quad: ring, .. } => vec![quad(ring)],
             _ => Vec::new(),
         }

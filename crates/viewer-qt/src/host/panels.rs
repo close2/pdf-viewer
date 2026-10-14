@@ -116,7 +116,7 @@ impl Host {
 
     /// How many rows §12.3.4's panel has, which is how many pages the document has.
     pub(crate) fn page_count(&self) -> usize {
-        match self.viewer.query(Query::PageCount) {
+        match self.state.viewer.query(Query::PageCount) {
             Answer::Count(count) => count,
             _ => 0,
         }
@@ -133,7 +133,7 @@ impl Host {
     /// present, and the C++ side keeps a `QPixmap` of it afterwards — so a borrow would buy one
     /// avoided copy at the price of a second cache on this side of the bridge.
     pub(crate) fn page_row(&self, index: usize) -> QtPage {
-        let entry = viewer_host::page_entry(&self.viewer, index);
+        let entry = viewer_host::page_entry(&self.state.viewer, index);
         self.ask_machine(&entry.label);
         match entry.thumbnail {
             Some(image) => QtPage {
@@ -172,7 +172,7 @@ impl Host {
     /// that states no §12.3.4 `/Thumb` on its first page — which is most files, and is a document
     /// being quiet rather than a failure (ADR 1251).
     pub(crate) fn attachment_preview(&self, name: &str) -> QtPage {
-        match viewer_host::panel::attachment_preview(&self.viewer, name) {
+        match viewer_host::panel::attachment_preview(&self.state.viewer, name) {
             Some(image) => QtPage {
                 label: String::new(),
                 width: image.width,
@@ -201,7 +201,7 @@ impl Host {
 
     /// Whether the files panel is drawing §12.3.6's `FreeForm` scatter rather than a list of rows.
     pub(crate) fn collection_scatters(&self) -> bool {
-        match self.viewer.query(Query::Collection) {
+        match self.state.viewer.query(Query::Collection) {
             Answer::Collection { collection, .. } => {
                 viewer_host::panel::presentation(&collection) == viewer_host::panel::Mode::FreeForm
             }
@@ -211,7 +211,7 @@ impl Host {
 
     /// Table 158's `/Direction` `N`: whether the whole window region is the file navigation view's.
     pub(crate) fn collection_takes_the_window(&self) -> bool {
-        match self.viewer.query(Query::Collection) {
+        match self.state.viewer.query(Query::Collection) {
             Answer::Collection { collection, .. } => viewer_host::panel::whole_window(&collection),
             _ => false,
         }
@@ -237,17 +237,19 @@ impl Host {
         match tab {
             // Not while the launch document's outline is being read off this thread: asking here
             // would read it on Qt's, in front of page one. Its arrival builds this panel again.
-            Tab::Contents if self.preparing.is_some() && self.documents.focused() == DOCUMENT => {
+            Tab::Contents
+                if self.preparing.is_some() && self.state.documents.focused() == DOCUMENT =>
+            {
                 vec![PanelRow::saying(READING_THE_OUTLINE)]
             }
-            Tab::Contents => match self.viewer.query(Query::Outline) {
+            Tab::Contents => match self.state.viewer.query(Query::Outline) {
                 Answer::Outline(outline) if !outline.items.is_empty() => outline_rows(&outline),
                 _ => vec![PanelRow::saying("This document states no outline.")],
             },
             // §12.3.4 is a page count and a picture per row rather than a tree; the C++ side asks
             // `page_count` and `page_row` for it, one row at a time.
             Tab::Pages => Vec::new(),
-            Tab::Layers => match self.viewer.query(Query::Layers) {
+            Tab::Layers => match self.state.viewer.query(Query::Layers) {
                 Answer::Layers(layers) if !layers.is_empty() => layer_rows(&layers),
                 _ => vec![PanelRow::saying(
                     "This document states no optional content.",
@@ -260,11 +262,11 @@ impl Host {
             // tree's own order where it does not. Both mappings are `viewer_host::panel`'s, so
             // this window and `viewer-gtk` present a collection identically.
             Tab::Files => {
-                let files = match self.viewer.query(Query::Attachments) {
+                let files = match self.state.viewer.query(Query::Attachments) {
                     Answer::Attachments(files) => files,
                     _ => Vec::new(),
                 };
-                match self.viewer.query(Query::Collection) {
+                match self.state.viewer.query(Query::Collection) {
                     Answer::Collection {
                         collection,
                         initial,
@@ -276,19 +278,22 @@ impl Host {
                     _ => attachment_rows(&files),
                 }
             }
-            Tab::Articles => match self.viewer.query(Query::Articles) {
+            Tab::Articles => match self.state.viewer.query(Query::Articles) {
                 Answer::Articles(threads) => article_rows(&threads),
                 _ => article_rows(&[]),
             },
             // The one moment this window reads Table 349, so the tab's name is taken from the same
             // answer rather than from a second decode of §14.3.2's stream (ADR 1275).
-            Tab::Document => match self.viewer.query(Query::Properties) {
+            Tab::Document => match self.state.viewer.query(Query::Properties) {
                 Answer::Properties {
                     information,
                     metadata,
                 } => {
-                    let label = viewer_host::documents::titled(&information, &self.showing.path);
-                    self.documents.relabel(self.documents.focused(), label);
+                    let label =
+                        viewer_host::documents::titled(&information, &self.state.showing.path);
+                    self.state
+                        .documents
+                        .relabel(self.state.documents.focused(), label);
                     self.documents_moved = true;
                     property_rows(&information, metadata.as_ref())
                 }
@@ -306,7 +311,7 @@ impl Host {
         });
         self.trees = trees;
         for (tab, rows) in Tab::ALL.iter().zip(&self.trees) {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Panel,
                 format_args!("{}: {} row(s)", tab.label(), rows.len()),
             );

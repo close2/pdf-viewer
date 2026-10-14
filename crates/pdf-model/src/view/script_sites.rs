@@ -99,7 +99,9 @@ impl ViewState {
     ///
     /// Answers how many scripts were handed to the runner. **What a host calls once page one has
     /// been presented**, with the page it presented; calling it again runs the sequence again.
-    /// §12.11.1's requirements are a host's to evaluate first, as it does today. Every script is
+    /// §12.11.1's requirements are a host's to evaluate first, as it does today, and an entry that
+    /// §12.11.5 makes a requirement handler this processor disables is reported and not run
+    /// ([`crate::requirements::disabled_handlers`], ADR 1923). Every script is
     /// held to its runner's budget and the sequence as a whole to [`MAX_SEQUENCE_TIME`] — RFC
     /// 0008 section 6.8's open-sequence deadline — after which the rest are reported as not run
     /// (ADR 1602).
@@ -122,6 +124,7 @@ impl ViewState {
         let mut handed = 0_usize;
         let mut changed = false;
         let mut calculate = false;
+        let disabled = crate::requirements::disabled_handlers(document);
         for (index, (label, script)) in library.iter().enumerate() {
             if started.elapsed() > MAX_SEQUENCE_TIME {
                 self.report(format!(
@@ -132,6 +135,14 @@ impl ViewState {
                     MAX_SEQUENCE_TIME.as_millis()
                 ));
                 return handed;
+            }
+            if disabled.contains(label) {
+                self.report(format!(
+                    "the document-level script {label:?} was not run: a requirement this \
+                     processor checks names it as its alternative handler, which §12.11.5 \
+                     disables (ADR 1923)"
+                ));
+                continue;
             }
             let event = ScriptEvent {
                 label,

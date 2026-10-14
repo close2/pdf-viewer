@@ -4,9 +4,8 @@ use std::collections::VecDeque;
 
 use gtk4::glib;
 use pdf_render::Rasterizer;
-use viewer_core::{Answer, Command, Event, PresentationMode, Query};
-
-use viewer_host::trace::Topic;
+use viewer_core::{Command, Event, PresentationMode};
+use viewer_host::native_window::NativeWindow;
 
 use crate::page;
 
@@ -43,13 +42,6 @@ impl Host {
         self.apply_chrome();
     }
 
-    /// Starts §12.4.4.1's clock, which is what makes this a presentation rather than a big page.
-    pub(super) fn start_the_clock(&mut self) {
-        if self.clock.is_none() {
-            self.clock = Some(viewer_host::Clock::started(std::time::Instant::now()));
-        }
-    }
-
     /// Takes down the pending timer, if there still is one.
     ///
     /// **`SourceId::remove` panics on a source that is already gone** — it unwraps a `Result` — so
@@ -71,9 +63,9 @@ impl Host {
     /// presenting has nothing to advance, and `CLAUDE.md`'s principle 2 makes a wakeup with
     /// nothing behind it a defect rather than a rounding error.
     fn stop_the_clock(&mut self) {
-        self.clock = None;
-        self.arming = None;
-        self.shown = None;
+        self.state.clock = None;
+        self.state.arming = None;
+        self.state.shown = None;
         self.disarm();
     }
 
@@ -89,11 +81,17 @@ impl Host {
         // armed at all (ADR 1216).
         // Armed and not yet begun is not spent: the effect is drawn when the page it moves *to*
         // arrives, which is one render request away.
-        if self.arming.is_none() && self.clock.as_ref().is_some_and(viewer_host::Clock::spent) {
-            self.clock = None;
-            self.shown = None;
+        if self.state.arming.is_none()
+            && self
+                .state
+                .clock
+                .as_ref()
+                .is_some_and(viewer_host::Clock::spent)
+        {
+            self.state.clock = None;
+            self.state.shown = None;
         }
-        let Some(interval) = self.clock.as_ref().map(viewer_host::Clock::interval) else {
+        let Some(interval) = self.state.clock.as_ref().map(viewer_host::Clock::interval) else {
             self.arm_script_timers();
             return;
         };
@@ -113,7 +111,7 @@ impl Host {
     fn arm_script_timers(&mut self) {
         let Some(wait) = self
             .script_ticker
-            .wake(&self.viewer, std::time::Instant::now())
+            .wake(&self.state.viewer, std::time::Instant::now())
         else {
             return;
         };
@@ -146,10 +144,11 @@ impl Host {
     fn turn_the_clock(&mut self) {
         let now = std::time::Instant::now();
         let animating = self
+            .state
             .clock
             .as_ref()
             .is_some_and(viewer_host::Clock::animating);
-        let Some(millis) = self.clock.as_mut().and_then(|clock| clock.tick(now)) else {
+        let Some(millis) = self.state.clock.as_mut().and_then(|clock| clock.tick(now)) else {
             // Held: a transition is being drawn, and §12.4.4.1's EXAMPLE puts that before the
             // page is displayed. What is due is a frame.
             if animating {
@@ -158,7 +157,7 @@ impl Host {
             self.pump_presentation();
             return;
         };
-        let events: Vec<Event> = self.viewer.handle(Command::Tick { millis }).collect();
+        let events: Vec<Event> = self.state.viewer.handle(Command::Tick { millis }).collect();
         if events.is_empty() {
             self.pump_presentation();
             return;
@@ -170,103 +169,6 @@ impl Host {
         self.pump(queue);
     }
 
-    /// The viewport a transition's frames are shaped in, in this window's own device pixels.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "window dimensions are far below f32's exact integer range"
-    )]
-    fn viewport_rect(&self) -> pdf_render::Rect {
-        pdf_render::Rect::from_corners(
-            pdf_render::Point::new(0.0, 0.0),
-            pdf_render::Point::new(self.viewport.0 as f32, self.viewport.1 as f32),
-        )
-    }
-
-    /// Takes `transition` to be drawn when the page it moves *to* arrives, or says why it is not.
-    ///
-    /// Armed rather than begun: `Viewer::handle` settles after the command that turned the page,
-    /// so the events arrive as page change, transition, render request, and the arriving page's
-    /// list is in the last of the three. §12.4.4.1's transition is one *to* a page, so waiting for
-    /// that page's own request is the clause's order as well as this host's.
-    pub(super) fn arm_transition(&mut self, transition: pdf_model::navigation::Transition) {
-        if !viewer_host::Clock::shapes(&transition, self.viewport_rect()) {
-            // The core has already said *why* through `Event::Reported`; a second sentence here
-            // would say it twice.
-            return;
-        }
-        // §12.6.4.15 states no mode: a processor "shall render the state of the page viewing area
-        // as it exists after completion of the previous action and display it using a transition
-        // specified in the action dictionary". So a window that is not presenting gets a clock of
-        // its own for the one effect and drops it when it ends (ADR 1216).
-        if self.clock.is_none() {
-            self.clock = Some(viewer_host::Clock::for_one_transition(
-                std::time::Instant::now(),
-            ));
-        }
-        self.arming = Some(transition);
-    }
-
-    /// Keeps the page just rendered as a transition's face, and begins one that was armed.
-    ///
-    /// Two page rasterisations happen here and none per frame: the page being left and the page
-    /// arriving, each at its own size and put where the window shows it. A transition that
-    /// re-rasterised per frame would pay a page's interpretation sixty times a second for the
-    /// length of it.
-    ///
-    /// Only the page of the document in front is a face: a document opening behind it draws its
-    /// first page too, and that page is not the one a presented page turn leaves (ADR 1303).
-    pub(super) fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
-        if request.document != self.documents.focused() {
-            return;
-        }
-        // At the whole pixel `place` shows the page at, so that a face is the settled page pixel
-        // for pixel and the transition's last frame meets it without a seam (ADR 1865).
-        let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => viewer_host::stand_in::whole_pixel(geometry.origin),
-            _ => (0.0, 0.0),
-        };
-        let arriving = (std::sync::Arc::clone(&request.list), request.target, origin);
-        let Some(transition) = self.arming.take() else {
-            self.shown = Some(arriving);
-            return;
-        };
-        let leaving = self.shown.replace(arriving.clone());
-        let Some((list, target, at)) = leaving else {
-            self.say(&format!(
-                "transition: {:?} was named with no page to move from, so the page is shown at \
-                 once",
-                transition.style
-            ));
-            return;
-        };
-        let began = std::time::Instant::now();
-        let (Some(outgoing), Some(incoming)) = (
-            viewer_host::clock::face_as_shown(&list, target, at, self.viewport),
-            viewer_host::clock::face_as_shown(&arriving.0, arriving.1, arriving.2, self.viewport),
-        ) else {
-            self.say(&format!(
-                "transition: {:?} was named but the pages behind it would not rasterise, so the \
-                 page is shown at once",
-                transition.style
-            ));
-            return;
-        };
-        self.trace.say(
-            Topic::Frames,
-            format_args!(
-                "TRANSITION {:?} over {} s: two {}x{} pages rasterised in {:?}",
-                transition.style,
-                transition.duration,
-                self.viewport.0,
-                self.viewport.1,
-                began.elapsed()
-            ),
-        );
-        if let Some(clock) = self.clock.as_mut() {
-            clock.begin(transition, outgoing, incoming, std::time::Instant::now());
-        }
-    }
-
     /// The frame of a transition in flight, as one texture filling the viewport.
     ///
     /// `None` where there is nothing being drawn, and then the window shows the page — which is
@@ -274,7 +176,11 @@ impl Host {
     pub(super) fn transition_placement(&mut self) -> Option<Picture> {
         let viewport = self.viewport_rect();
         let now = std::time::Instant::now();
-        let shaped = self.clock.as_mut().map(|clock| clock.frame(viewport, now));
+        let shaped = self
+            .state
+            .clock
+            .as_mut()
+            .map(|clock| clock.frame(viewport, now));
         let list = match shaped {
             Some(Ok(Some(list))) => list,
             Some(Err(problem)) => {
@@ -286,8 +192,8 @@ impl Host {
             None | Some(Ok(None)) => return None,
         };
         let target = pdf_render::TargetSpec {
-            width: self.viewport.0,
-            height: self.viewport.1,
+            width: self.state.viewport.0,
+            height: self.state.viewport.1,
             transform: pdf_render::Transform::IDENTITY,
         };
         let raster = match self.rasterizer.rasterize(&list, target) {

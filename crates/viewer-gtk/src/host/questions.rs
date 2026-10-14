@@ -6,6 +6,7 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Command, DocumentId};
+use viewer_host::native_window::NativeWindow;
 
 use super::window::named;
 use super::{Answered, DOCUMENT, Host, with};
@@ -57,7 +58,7 @@ impl Host {
     ) {
         use viewer_core::{ScriptAnswer, ScriptQuestion};
         use viewer_host::script_asks;
-        let name = self.documents.label_of(document);
+        let name = self.state.documents.label_of(document);
         self.say(&script_asks::put(&name, question));
         let dialog = gtk4::Window::new();
         dialog.set_title(Some(&script_asks::title(&name, question)));
@@ -140,7 +141,7 @@ impl Host {
     /// reference's five was asked for — or, with no display, the line that says none was played
     /// (ADR 1702).
     pub(super) fn beep(&self, document: DocumentId, sound: pdf_model::view::Sound) {
-        let name = self.documents.label_of(document);
+        let name = self.state.documents.label_of(document);
         if let Some(display) = gtk4::gdk::Display::default() {
             display.beep();
             self.say(&viewer_host::script_timers::played(&name, sound, "GDK"));
@@ -164,7 +165,7 @@ impl Host {
                 self.script_dialogue = Some((asked, dialogue, answered));
             }
         }
-        let name = self.documents.label_of(document);
+        let name = self.state.documents.label_of(document);
         self.say(&viewer_host::script_asks::withdrawn(&name));
     }
 
@@ -307,9 +308,9 @@ impl Host {
         column.set_margin_bottom(12);
         column.set_margin_start(12);
         column.set_margin_end(12);
-        let asked_about = match self.arrivals.named_mut(document) {
+        let asked_about = match self.state.arrivals.named_mut(document) {
             Some(arriving) => viewer_host::documents::label(&arriving.named.path),
-            None => named(&self.showing.path),
+            None => named(&self.state.showing.path),
         };
         let words = viewer_host::password::prompt(&asked_about, attempt, of);
         let label = gtk4::Label::new(Some(&words.question));
@@ -396,7 +397,7 @@ impl Host {
             // The document the prompt was about, from its own bytes: one on its way to a tab —
             // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
             // or the first, which is the only other document a prompt is put about (ADR 1332).
-            viewer_host::Supplied::Open(secret) if self.arrivals.is(document) => {
+            viewer_host::Supplied::Open(secret) if self.state.arrivals.is(document) => {
                 self.open_arriving(Some(secret));
             }
             viewer_host::Supplied::Open(secret) if document == DOCUMENT => {

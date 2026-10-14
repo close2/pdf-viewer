@@ -197,24 +197,9 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-**One build, the rows below it: rich text formatting** (ADRs 1623, 1634, 1635, 1648, 1649, 1660, 1661, 1682). A rich text
-string is laid out in the formatting it states: `pdf_model::rich_text` reads the XHTML subset and the
-CSS2 and XFA properties XFA 3.3's chapter 27 names, beneath a `/DS`, and sets each run in its own face,
-size, width, colour, alignment and spacing, list tags and tab stops included, in comb cells and in
-UAX #9's order, with a host's caret, point and range answered from the runs; a changed rich value
-regenerates the whole appearance, a save writes `/RV` beside `/V`, and an import carries Table 249's
-`/RV` and XFDF's `<value-richtext>`, which a save writes (ADR 1661). XFA 3.3 is held at `/home/AI/specs/XFA-3_3.pdf`
-(`doc/third-party-data.md`), cited by section, never quoted. What is left, row by row:
-
-- §12.7.4.3 — `kerning-mode:pair` in §9.6.2.2's fourteen, reported as `Owed::RichTextUnapplied`,
-  which needs pair data no file of this tree holds (`doc/questions/Q308`); a face the document
-  embeds is kerned by its own `GPOS` or `kern` pairs (ADR 1682), `GPOS`'s from the script table the run's
-  characters select and the language system the widget's or the document's `/Lang` selects (ADR 1708),
-  and a contextual lookup is not pair kerning (ADR 1696). Leaders, right-to-left tabs, every list type,
-  the nearest width and a machine face per character are built, and following a link and resolving
-  `xfa:embed` are choices the clause's delegation of formatting leaves (ADR 1660).
-- §12.7.5.3 — Table 231 bit 26, the same residue seen from the field's own table.
-- §12.5.6.6 — Table 177's `/RC` and `/DS`, drawn; §12.7.4.3's residue is this note's too.
+No row is in it: the rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out
+from Adobe's published pairs (`doc/questions/A308`, ADR 1916), and a row a later reading opens of this
+kind is placed here.
 
 - **Beside this bucket and not in it** — §12.5.6.23 is `departed` on two refusals with their cost
   recorded, a calculator function serving region-only colours (ADR 1363) and a `JPXDecode` component
@@ -275,11 +260,10 @@ row is in this bucket when its note names none of those three.
   `doc/questions/A171`: no EPSG registry, because the census found no system named by code alone; the
   older WKT form the files carry and ISO 19162's own; eight methods to Guidance Note 7-2's worked
   examples in both directions (ADRs 1586, 1587, 1672), so a projected `/DCS` on the file's datum is
-  displayed and a position given to a viewport answers its page point. What is left: every one of
-  the census's 158 projected maps writes its `/GPTS` as degrees where Table 269 says eastings and
-  northings, refused by name until `doc/questions/Q271` is answered — the forward leg those maps
-  would be fitted through is built and waits on that answer alone. A `/DCS` on another datum stays
-  outside A171's scope.
+  displayed and a position given to a viewport answers its page point. The census's 158 projected
+  maps write their `/GPTS` as the base system's degrees where Table 269 says eastings and northings,
+  and are read so, fitted in the system's plane — a departure on `doc/questions/A271` (ADR 1918).
+  What is left: a `/DCS` on another datum, a datum transformation outside A171's scope.
 
 §7.4.9 is not here: its buildable case, a CIE Lab image under an illuminant other than D50, is drawn
 under that illuminant's white point (ADR 1713), and the row stays in bucket 2 for e-sRGB, e-sYCC and
@@ -309,7 +293,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

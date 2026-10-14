@@ -305,10 +305,39 @@ fn reading(gcs: &System, points: Vec<[f64; 2]>) -> String {
     }
 }
 
+/// Whether Table 269's `/DCS` is reached from `/GCS` at the map's first registration point, by this
+/// tree's own `Geospatial::display`, or the refusal — a display system on another datum is the
+/// datum transformation `doc/questions/A171` leaves out, and this is what that costs.
+fn displayed(gcs: &System, dcs: &System, points: &[[f64; 2]]) -> String {
+    use pdf_model::measurement::{CoordinateSystem, Geospatial};
+    let system = |of: &System| CoordinateSystem {
+        projected: of.projected,
+        epsg: of.epsg,
+        wkt: of.wkt.clone(),
+    };
+    let geospatial = Geospatial {
+        coordinate_system: Some(system(gcs)),
+        display_system: Some(system(dcs)),
+        local_points: points.to_vec(),
+        geographic_points: points.to_vec(),
+        ..Geospatial::default()
+    };
+    let first = match geospatial.registration_geographic() {
+        Ok(pairs) => pairs.first().map(|(position, _)| *position),
+        Err(refusal) => return format!("/DCS not asked: the registration is refused: {refusal}"),
+    };
+    let Some(first) = first else {
+        return "/DCS not asked: no registration point".to_owned();
+    };
+    match geospatial.display(first) {
+        Ok(_) => "/DCS reached from /GCS".to_owned(),
+        Err(refusal) => format!("/DCS refused: {refusal}"),
+    }
+}
+
 /// The forward projection and the inverse run in turn at every registration point of a projected
 /// `/GCS` whose points are shaped as degrees, each read as the base system's latitude and longitude
-/// — the census's own reading, not the program's, which refuses those points until
-/// `doc/questions/Q271` is answered. What it measures is the projection at the places the world's
+/// as ADR 1918 reads them. What it measures is the projection at the places the world's
 /// maps are, which no worked example covers: the largest closure in seconds of arc against ADR
 /// 1587's budget of 0.0005″, or the refusal (ADR 1672).
 fn round_trip(gcs: &System, points: &[[f64; 2]]) -> Option<String> {
@@ -633,9 +662,13 @@ fn measure(path: &Path) -> Counts {
                     ));
                 }
                 readings.extend(round_trip(&gcs, &points));
+                let dcs = system(&document, &dict, "DCS");
+                if let Some(dcs) = &dcs {
+                    readings.insert(displayed(&gcs, dcs, &points));
+                }
                 readings.insert(reading(&gcs, points));
                 systems.push(("GCS", gcs));
-                if let Some(dcs) = system(&document, &dict, "DCS") {
+                if let Some(dcs) = dcs {
                     systems.push(("DCS", dcs));
                 }
             }

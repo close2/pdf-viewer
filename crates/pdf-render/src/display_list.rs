@@ -1395,12 +1395,20 @@ impl DisplayList {
     ///
     /// A mark past the end returns nothing rather than panicking, since it can only mean
     /// the commands were already taken.
+    ///
+    /// Every command taken from the start is the vector itself, handed over rather than copied:
+    /// `Vec::split_off(0)` copies each element into a new buffer and keeps the old one, which for
+    /// a piece of a divided read is the piece's whole list copied once before the join copies it
+    /// again (ADR 1924).
     pub fn split_off_commands(&mut self, at: usize) -> Vec<Command> {
         if at >= self.commands.len() {
             return Vec::new();
         }
         self.bounds.forget();
         self.taken_back = TakenBack(Some(self.taken_back.0.map_or(at, |lowest| lowest.min(at))));
+        if at == 0 {
+            return std::mem::take(&mut self.commands);
+        }
         self.commands.split_off(at)
     }
 

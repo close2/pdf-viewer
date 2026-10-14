@@ -300,6 +300,48 @@ mod engine {
     }
 
     #[test]
+    fn a_requirement_handler_this_processor_checks_is_not_run_and_the_rest_of_the_library_is() {
+        // Table 273's /RH: the handler "shall be disabled (not invoked) if the interactive PDF
+        // processor can check the requirement specified in the S entry", and every Table 275
+        // type is one this processor checks; the vendor type's handler is the document's to run
+        // (ADR 1923).
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] >> \
+             /Requirements [ << /S /EnableJavaScripts /RH << /S /JS /Script (checkScripts) >> >> \
+                             << /S /Reticulation /RH << /S /JS /Script (vendorCheck) >> >> ] \
+             /Names << /JavaScript << /Names [(checkScripts) 5 0 R (setUp) 6 0 R \
+                                              (vendorCheck) 7 0 R] >> >>",
+            "",
+            &[4],
+            &[
+                text_field("Log", "", "/V ()"),
+                "<< /S /JavaScript /JS (this.getField\\('Log'\\).value += 'handler;';) >>"
+                    .to_owned(),
+                "<< /S /JavaScript /JS (this.getField\\('Log'\\).value += 'setUp;';) >>".to_owned(),
+                "<< /S /JavaScript /JS (this.getField\\('Log'\\).value += 'vendor;';) >>"
+                    .to_owned(),
+            ],
+        );
+        let mut view = engine_view(&document);
+        let handed = view.run_open_scripts(&document, 0);
+        assert_eq!(handed, 2, "{:?}", view.script_reports());
+        assert_eq!(
+            value(&view, &document, "Log"),
+            "setUp;vendor;",
+            "{:?}",
+            view.script_reports()
+        );
+        assert!(
+            view.script_reports()
+                .iter()
+                .any(|report| report.contains("\"checkScripts\" was not run")
+                    && report.contains("§12.11.5")),
+            "the disabled handler is said: {:?}",
+            view.script_reports()
+        );
+    }
+
+    #[test]
     fn an_outline_items_script_runs_at_the_bookmark_event_and_calls_the_library() {
         // §12.3.3: activating an item triggers its action, and §12.6.4.17 executes an ECMAScript
         // one. The event is the reference's Bookmark/Mouse Up, the item's /Title its targetName,

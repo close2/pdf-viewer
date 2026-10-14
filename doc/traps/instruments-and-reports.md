@@ -1474,6 +1474,27 @@ GLib's; the drive's private bus and AT-SPI's bus on its display hid it entirely 
 under test for a race runs with the lock's variables taken out of its environment, the way trap 122
 takes the drive's bus out, and the drive step that pins it (step 84) does so.
 
+### 175. An ignored test or a moved file is settled in the round that adds it, not at the merge
+
+`tools/conformance`'s sequence check reads git's tracked files: an `#[ignore]`d test in a file nobody
+tracks yet only *warns*, and a file `git mv`'d then unstaged is still tracked and gone. Both pass every
+round's own gate and fail the merge's tier 1, where the staged population is read for the first time:
+batch eighty-four's `viewer-host/tests/drawn_ahead_in_strips.rs` had no gate line, and batch
+eighty-five's `image/cut.rs` and `images.rs` were tracked and absent. A round that adds an ignored test
+writes its `doc/todo/02` §2 line, its `tools/batch.sh gates` entry and its `tools/state.sh` section in
+the same round, requires the sandbox as every corpus gate does, and runs
+`git add -A <its files>; cargo test -p conformance --test state_sections --test sandbox_gates` to
+see what the merge will see.
+
+### 177. A threaded census under massif runs with `--fair-sched=yes`, and a peak is `os.wait4`'s
+
+massif's default scheduler runs one thread at a time and let the pipelined read's calling thread
+starve: nothing was released until the read ended, and the cut that lets each segment go read a
+*higher* peak than HEAD (1 590.2 against 1 581.8 MiB) while a native run released 91 segments during
+the read (round 1544, ADR 1924). A census of a threaded pipeline runs under `--fair-sched=yes` and
+its order is confirmed natively; and this machine has no `/usr/bin/time`, so a process's peak is
+read with `os.wait4` in a Python wrapper (round 1544's `py/`).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

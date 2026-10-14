@@ -40,6 +40,7 @@ use std::sync::atomic::Ordering;
 use gtk4::glib;
 use viewer_accessibility::{Act, Bridge, Reading, Showing};
 use viewer_core::{Command, PointerAction};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use crate::host::{Host, with};
@@ -65,11 +66,11 @@ impl Host {
                      and published to nothing"
                 }
             };
-            self.trace.say(Topic::Access, format_args!("{said}"));
+            self.state.trace.say(Topic::Access, format_args!("{said}"));
             // The half of AT-SPI's geometry this toolkit has no answer for. Said once, at the
             // moment the claim starts being made, rather than per page.
             if Bridge::wants_window_bounds() {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Access,
                     format_args!(
                         "accessibility: this window cannot report its own position — GTK4 \
@@ -83,8 +84,8 @@ impl Host {
             let active = self.window_active();
             self.window_focused(active);
         }
-        let (width, height) = self.viewport;
-        let Some(showing) = Showing::of(&self.viewer, width, height) else {
+        let (width, height) = self.state.viewport;
+        let Some(showing) = Showing::of(&self.state.viewer, width, height) else {
             return;
         };
         let origin = self.viewport_origin();
@@ -105,7 +106,7 @@ impl Host {
     pub(crate) fn window_focused(&mut self, active: bool) {
         if let Some(bridge) = self.accessibility.as_mut() {
             bridge.focused(active);
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Access,
                 format_args!(
                     "accessibility: the window is {}",
@@ -128,9 +129,9 @@ impl Host {
             clippy::cast_precision_loss,
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
-        let viewport = (self.viewport.0 as f32, self.viewport.1 as f32);
-        let reading = Reading::of(&self.viewer, &window, &document, viewport).at(origin);
-        self.trace.say(
+        let viewport = (self.state.viewport.0 as f32, self.state.viewport.1 as f32);
+        let reading = Reading::of(&self.state.viewer, &window, &document, viewport).at(origin);
+        self.state.trace.say(
             Topic::Access,
             format_args!(
                 "accessibility: {} page(s) on screen, {} element(s), {} widget(s), {} report(s), \
@@ -163,7 +164,7 @@ impl Host {
             return;
         }
         self.disarm_the_drain();
-        self.trace.say(
+        self.state.trace.say(
             Topic::Access,
             format_args!("accessibility: draining a client's requests every {wait} ms"),
         );
@@ -257,7 +258,8 @@ impl Host {
                     });
                 }
             }
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("carried out {:?}", one.action));
         }
     }
@@ -277,15 +279,16 @@ impl Host {
     /// **The match is exhaustive in all three windows**, which is what makes a case added to
     /// [`viewer_host::Clicked`] a compile error in three places rather than a silent no-op in two.
     fn click_page(&mut self, at: (f32, f32)) {
-        let clicked = viewer_host::clicked(&self.viewer, at);
+        let clicked = viewer_host::clicked(&self.state.viewer, at);
         if let Some(said) = clicked.note() {
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
         }
         match clicked {
             viewer_host::Clicked::Toggles { name, value } => {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Access,
                     format_args!("setting the field {} to {value}", name.shown()),
                 );
@@ -316,7 +319,10 @@ impl Host {
             clippy::cast_precision_loss,
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
-        let viewport = (self.viewport.0.max(1) as f32, self.viewport.1.max(1) as f32);
+        let viewport = (
+            self.state.viewport.0.max(1) as f32,
+            self.state.viewport.1.max(1) as f32,
+        );
         let dx = delta(at[0], at[2], viewport.0);
         let dy = delta(at[1], at[3], viewport.1);
         if dx == 0.0 && dy == 0.0 {

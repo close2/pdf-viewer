@@ -158,8 +158,9 @@ These are the places where a native host's shape differs from the tier-2 host's,
   than half of it has those rows drawn first**, as a look of their own over the stand-in, and the
   page whole after as the frame (`Drawing::ask_showing`, ADR 1868); the protocol still asks for and
   answers whole pages. **A page zoomed past `viewer_core::MAX_PIXELS` is drawn as the window shows
-  it** (`viewer_host::oversize`, `Command::Oversize`, ADR 1892) rather than refused. What is still
-  owed: a page never drawn before that a notch out brings on screen has no picture of any kind until
+  it** (`viewer_host::oversize`, `Command::Oversize`, ADR 1892) rather than refused; the confined
+  window keeps the bound and says its refusal once a size (ADR 1921). What is still owed: the same
+  drawing in the confined window (ADR 1921 §3); a page never drawn before that a notch out brings on screen has no picture of any kind until
   it is drawn; and a page under the bound is still drawn whole and copied whole into the toolkit at
   every update, where drawing every zoomed page as a window would bound both (ADR 1892 §4).
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy

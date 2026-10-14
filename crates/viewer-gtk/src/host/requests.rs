@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use gtk4::glib;
 use viewer_core::{Command, DocumentId, Purpose};
+use viewer_host::native_window::NativeWindow;
 
 use super::{Host, with};
 
@@ -36,8 +37,10 @@ impl Host {
             self.fetch_import(document, name, queue);
             return;
         }
-        let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), &name)
-        {
+        let bytes = match viewer_host::policy::read_import(
+            self.state.showing.directory.as_deref(),
+            &name,
+        ) {
             Ok(bytes) => Some(bytes),
             Err(refusal) => {
                 self.say(&viewer_host::policy::supply_note(purpose, &refusal));
@@ -60,7 +63,7 @@ impl Host {
         queue: &mut VecDeque<Command>,
     ) {
         match viewer_host::remote(
-            self.showing.directory.as_deref(),
+            self.state.showing.directory.as_deref(),
             name,
             self.remote_documents,
             purpose,
@@ -257,8 +260,12 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::policy_fetch_note(&policy));
-        let first = self.submitter.interval().is_none();
-        if let Err(sentence) = self.submitter.fetch_policy(document, policy, warned, None) {
+        let first = self.state.submitter.interval().is_none();
+        if let Err(sentence) = self
+            .state
+            .submitter
+            .fetch_policy(document, policy, warned, None)
+        {
             self.say(&sentence);
             return;
         }
@@ -270,8 +277,8 @@ impl Host {
     /// Puts the GET on a `fetch-import` thread of its own, looked for as a submission's answer is.
     fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
         self.say(&viewer_host::fetch_note(&url, None));
-        let first = self.submitter.interval().is_none();
-        if let Err(sentence) = self.submitter.fetch(document, url, warned, None) {
+        let first = self.state.submitter.interval().is_none();
+        if let Err(sentence) = self.state.submitter.fetch(document, url, warned, None) {
             self.say(&sentence);
             return;
         }
@@ -289,8 +296,12 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::submission_note(&submission, None));
-        let first = self.submitter.interval().is_none();
-        if let Err(sentence) = self.submitter.send(document, submission, warned, None) {
+        let first = self.state.submitter.interval().is_none();
+        if let Err(sentence) = self
+            .state
+            .submitter
+            .send(document, submission, warned, None)
+        {
             self.say(&sentence);
             return;
         }
@@ -306,7 +317,7 @@ impl Host {
             let mut more = false;
             with(&me, |host| {
                 host.take_the_answers();
-                more = host.submitter.interval().is_some();
+                more = host.state.submitter.interval().is_some();
             });
             if more {
                 glib::ControlFlow::Continue
@@ -314,40 +325,5 @@ impl Host {
                 glib::ControlFlow::Break
             }
         });
-    }
-
-    /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
-    fn take_the_answers(&mut self) {
-        for returned in self.submitter.collect() {
-            let (document, url) = (returned.document, returned.url.clone());
-            match returned.reply() {
-                viewer_host::submit::Reply::Import {
-                    answers,
-                    format,
-                    bytes,
-                    note,
-                } => {
-                    self.say(&note);
-                    self.dispatch(Command::Respond {
-                        document,
-                        answers,
-                        source: url,
-                        format,
-                        bytes,
-                    });
-                }
-                viewer_host::submit::Reply::Document { bytes, note } => {
-                    match viewer_host::submit::keep_answer(&bytes) {
-                        Ok(path) => {
-                            self.say(&format!("{note}; kept at {}", path.display()));
-                            self.arrivals.wait(viewer_host::Named::file(path), false);
-                            self.open_the_next();
-                        }
-                        Err(sentence) => self.say(&format!("{note}; {sentence}")),
-                    }
-                }
-                viewer_host::submit::Reply::Say(note) => self.say(&note),
-            }
-        }
     }
 }

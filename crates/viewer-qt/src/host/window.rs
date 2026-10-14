@@ -5,12 +5,13 @@
 use std::collections::VecDeque;
 
 use viewer_core::{Answer, Command, Query};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
 use crate::bridge::ffi::{QtChrome, QtWindowExtents};
 
-use super::{Host, WINDOW, level, named};
+use super::{Host, WINDOW, level};
 
 impl Host {
     /// The viewport changed size, in device pixels.
@@ -21,7 +22,7 @@ impl Host {
         self.scale = scale;
         // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
         // so the size the core is told is also the size a frame is shaped for.
-        self.viewport = (width, height);
+        self.state.viewport = (width, height);
         let resize = Command::Resize {
             width,
             height,
@@ -36,13 +37,13 @@ impl Host {
             inset: 0,
             scale,
         };
-        self.extent = Some(window);
-        if let Some(ahead) = self.ahead.as_ref() {
+        self.state.extent = Some(window);
+        if let Some(ahead) = self.state.ahead.as_ref() {
             ahead.window_is(window);
         }
         if !self.opened {
             self.opened = true;
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Launch,
                 format_args!("first resize {width}x{height} device px, scale {scale}"),
             );
@@ -76,10 +77,10 @@ impl Host {
     /// document's, so a presentation running when a second document arrives keeps its full screen
     /// (ADR 1303).
     pub(super) fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
-        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+        let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
             return;
         };
-        self.showing.layout = opening.layout;
+        self.state.showing.layout = opening.layout;
         if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
             self.say(&format!(
                 "this document opens in the {:?} page layout (§7.7.2)",
@@ -89,7 +90,7 @@ impl Host {
         if !in_front {
             return;
         }
-        if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
+        if let Answer::Preferences(preferences) = self.state.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
             // Trap 5: a document asking for something and getting silence. Two of Table 147's
             // three flags name widgets this window hides on request, and the third names one it
@@ -101,8 +102,8 @@ impl Host {
             // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
             // the other two windows take too. The metadata stream is read only for a document
             // that asks, so a document that does not costs its opening nothing here.
-            self.showing.titled = if preferences.display_doc_title {
-                match self.viewer.query(Query::Properties) {
+            self.state.showing.titled = if preferences.display_doc_title {
+                match self.state.viewer.query(Query::Properties) {
                     Answer::Properties {
                         information,
                         metadata,
@@ -150,7 +151,7 @@ impl Host {
         } else if let Some(mode) = self.presenting.on_exit() {
             mode
         } else {
-            let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+            let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
                 return -1;
             };
             opening.mode
@@ -182,11 +183,11 @@ impl Host {
 
     /// What the title bar should say.
     pub(crate) fn title(&self) -> String {
-        let mark = if self.showing.dirty { "• " } else { "" };
-        if self.showing.caption.is_empty() {
+        let mark = if self.state.showing.dirty { "• " } else { "" };
+        if self.state.showing.caption.is_empty() {
             return format!("{mark}{}", self.named());
         }
-        format!("{mark}{} — {}", self.named(), self.showing.caption)
+        format!("{mark}{} — {}", self.named(), self.state.showing.caption)
     }
 
     /// Where the window goes and how large it is, for Table 147's `/FitWindow` and
@@ -212,7 +213,7 @@ impl Host {
             screen_width,
             screen_height,
         } = extents;
-        let page = match self.viewer.query(Query::View) {
+        let page = match self.state.viewer.query(Query::View) {
             Answer::View(viewing) => viewing.page,
             _ => 0,
         };
@@ -233,14 +234,14 @@ impl Host {
         ));
         let inner = (f64::from(window_width), f64::from(window_height));
         if placing.fit
-            && let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(page))
+            && let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(page))
         {
             let scale = f64::from(self.scale);
             let wanted = viewer_host::fitted(
                 inner,
                 (
-                    f64::from(self.viewport.0) / scale,
-                    f64::from(self.viewport.1) / scale,
+                    f64::from(self.state.viewport.0) / scale,
+                    f64::from(self.state.viewport.1) / scale,
                 ),
                 (
                     f64::from(geometry.width) / scale,
@@ -311,22 +312,9 @@ impl Host {
         vec![level(colour.r), level(colour.g), level(colour.b)]
     }
 
-    /// What to call the document, which is the file's own name.
-    pub(crate) fn named(&self) -> String {
-        self.showing
-            .titled
-            .clone()
-            .unwrap_or_else(|| named(&self.showing.path))
-    }
-
-    /// What the title bar says about the page, after the document's name.
-    pub(crate) fn caption(&self) -> &str {
-        &self.showing.caption
-    }
-
     /// One sentence from the C++ side.
     pub(crate) fn note(&self, what: &str) {
-        self.trace.say(Topic::Panel, format_args!("{what}"));
+        self.state.trace.say(Topic::Panel, format_args!("{what}"));
     }
 
     /// One sentence for a person, in the status bar and on standard output.
@@ -357,26 +345,12 @@ impl Host {
             Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
             None => format!("page {} of {of}", index.saturating_add(1)),
         };
-        self.showing.caption = match section {
+        self.state.showing.caption = match section {
             Some(section) if !section.is_empty() => format!("{page} — {section}"),
             _ => page,
         };
         self.update.title = true;
         self.restate();
-    }
-
-    /// One page's refusals, in the status bar, with the page named.
-    ///
-    /// **The page is named because under a column it has to be**: `Event::Reported` has always
-    /// carried which page it is about, and a host that dropped it was attributing one page's
-    /// refusals to whichever page a person happened to be looking at. `None` is what the
-    /// *document* says about itself before any page is drawn, and belongs to no page.
-    pub(super) fn reported(&mut self, page: Option<usize>, notes: &[String]) {
-        let notes = notes.join("; ");
-        match page {
-            Some(page) => self.say(&format!("page {}: {notes}", page.saturating_add(1))),
-            None => self.say(&notes),
-        }
     }
 
     /// Says again what the pages now on the screen could not draw.
@@ -386,7 +360,7 @@ impl Host {
     /// page as each was interpreted, and a scroll that brings a page back does not interpret it
     /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
     pub(super) fn restate(&mut self) {
-        let said = match self.viewer.query(Query::Reports) {
+        let said = match self.state.viewer.query(Query::Reports) {
             Answer::Reports(pages) => viewer_host::status::on_screen(&pages),
             _ => return,
         };

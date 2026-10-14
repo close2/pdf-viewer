@@ -42,6 +42,7 @@ fn main() {
     unicode_tables();
     script_table();
     language_table();
+    published_pairs();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/cmaps");
     println!("cargo::rerun-if-changed={}", root.display());
 
@@ -694,4 +695,267 @@ fn two_letter_codes(text: &str, out: &mut String) {
         let _ = writeln!(out, "    (*b\"{alpha2}\", *b\"{three}\"),");
     }
     out.push_str("];\n");
+}
+
+/// The fourteen faces' published pair kerning, in the order `pairs::published` reads it, from
+/// Adobe's Core 14 AFM files in `data/standard-fonts/afm/` (ADR 1916).
+const AFM_FACES: [&str; 14] = [
+    "Courier",
+    "Courier-Bold",
+    "Courier-Oblique",
+    "Courier-BoldOblique",
+    "Helvetica",
+    "Helvetica-Bold",
+    "Helvetica-Oblique",
+    "Helvetica-BoldOblique",
+    "Times-Roman",
+    "Times-Bold",
+    "Times-Italic",
+    "Times-BoldItalic",
+    "Symbol",
+    "ZapfDingbats",
+];
+
+/// One AFM file, as far as its pair kerning: its copyright lines, which travel with what is made
+/// of it, and its `KPX` lines.
+struct Afm {
+    copyright: Vec<String>,
+    pairs: Vec<(String, String, i16)>,
+}
+
+/// Reads one of `data/standard-fonts/afm/`'s files: the `FontName` it states must be the file's
+/// own, every `KPX` line's two names must be characters its `StartCharMetrics` section names,
+/// and their number must be what `StartKernPairs` says (Adobe Technical Note #5004, *Adobe Font
+/// Metrics File Format Specification*, version 4.1, section 9.2).
+fn read_afm(root: &std::path::Path, face: &str) -> Afm {
+    let path = root.join(format!("{face}.afm"));
+    println!("cargo::rerun-if-changed={}", path.display());
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{face}.afm is readable: {error}"));
+    let mut copyright = Vec::new();
+    let mut characters = std::collections::BTreeSet::new();
+    let mut stated = None;
+    let mut pairs = Vec::new();
+    let mut named = None;
+    for line in text.lines() {
+        let (key, rest) = line.split_once(' ').unwrap_or((line, ""));
+        match key {
+            "FontName" => named = Some(rest.trim().to_owned()),
+            "Notice" => copyright.push(rest.trim().to_owned()),
+            "Comment" if rest.starts_with("Copyright") => copyright.push(rest.trim().to_owned()),
+            "C" => {
+                let name = rest
+                    .split(';')
+                    .map(str::trim)
+                    .find_map(|field| field.strip_prefix("N "))
+                    .unwrap_or_else(|| panic!("{face}.afm: {line:?} names no character"));
+                characters.insert(name.trim().to_owned());
+            }
+            "StartKernPairs" | "StartKernPairs0" => {
+                stated = Some(
+                    rest.trim()
+                        .parse::<usize>()
+                        .unwrap_or_else(|error| panic!("{face}.afm: {line:?}: {error}")),
+                );
+            }
+            // Writing direction 1 and vertical amounts would be pairs this table does not hold;
+            // none of the fourteen states either, and a file that did would be refused here.
+            "StartKernPairs1" | "KP" | "KPH" | "KPY" => {
+                panic!("{face}.afm: {line:?} is kerning this table does not carry")
+            }
+            "KPX" => {
+                let fields: Vec<&str> = rest.split_whitespace().collect();
+                let [first, second, amount] = fields[..] else {
+                    panic!("{face}.afm: {line:?} is not KPX name1 name2 numberx");
+                };
+                let amount = amount
+                    .parse::<i16>()
+                    .unwrap_or_else(|error| panic!("{face}.afm: {line:?}: {error}"));
+                pairs.push((first.to_owned(), second.to_owned(), amount));
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        named.as_deref(),
+        Some(face),
+        "{face}.afm names another font"
+    );
+    assert!(
+        !copyright.is_empty(),
+        "{face}.afm carries no copyright line"
+    );
+    assert_eq!(
+        stated.unwrap_or(0),
+        pairs.len(),
+        "{face}.afm: StartKernPairs and its KPX lines disagree"
+    );
+    for (first, second, _) in &pairs {
+        assert!(
+            characters.contains(first) && characters.contains(second),
+            "{face}.afm: KPX {first} {second} names a character the file does not"
+        );
+    }
+    Afm { copyright, pairs }
+}
+
+/// The glyph names one after another, and where each starts and its length.
+fn name_text(names: &[&str]) -> (String, Vec<(u16, u8)>) {
+    let mut text = String::new();
+    let mut index = Vec::new();
+    for name in names {
+        // Written into a byte-string literal below, so nothing that literal would read as an
+        // escape or an end may be in it; PostScript glyph names never hold one.
+        assert!(
+            name.bytes()
+                .all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\'),
+            "{name:?} is no glyph name this table can write"
+        );
+        let start = u16::try_from(text.len()).expect("the names are under 64 KiB");
+        let length = u8::try_from(name.len()).expect("a glyph name is under 256 bytes");
+        index.push((start, length));
+        text.push_str(name);
+    }
+    (text, index)
+}
+
+/// One pair as the table holds it: the first glyph's number, the second's, and the amount.
+type Numbered = (u16, u16, i16);
+
+/// Every face's pairs by glyph number, one after another, and each face's range of them, start and
+/// count; a face whose pairs repeat an earlier face's is given that face's range.
+fn numbered_pairs(
+    read: &[(&str, Afm)],
+    number: impl Fn(&str) -> u16,
+) -> (Vec<Numbered>, Vec<(u16, u16)>) {
+    let mut pairs: Vec<Numbered> = Vec::new();
+    let mut ranges: Vec<(u16, u16)> = Vec::new();
+    let mut seen: Vec<(Vec<Numbered>, (u16, u16))> = Vec::new();
+    for (_, afm) in read {
+        let mut own: Vec<Numbered> = afm
+            .pairs
+            .iter()
+            .map(|(first, second, amount)| (number(first), number(second), *amount))
+            .collect();
+        own.sort_unstable();
+        let unique = own
+            .windows(2)
+            .all(|two| (two[0].0, two[0].1) != (two[1].0, two[1].1));
+        assert!(unique, "an AFM states one pair twice");
+        let range = if let Some((_, range)) = seen.iter().find(|(earlier, _)| *earlier == own) {
+            *range
+        } else {
+            let start = u16::try_from(pairs.len()).expect("fewer than 65 536 pairs");
+            let count = u16::try_from(own.len()).expect("fewer than 65 536 pairs");
+            pairs.extend_from_slice(&own);
+            seen.push((own, (start, count)));
+            (start, count)
+        };
+        ranges.push(range);
+    }
+    (pairs, ranges)
+}
+
+/// Writes `published_pairs.rs` into `OUT_DIR`: the `KPX` lines of Adobe's Core 14 AFM files as
+/// plain numbers, the table `pairs::published` kerns §9.6.2.2's fourteen by (ADR 1916).
+///
+/// **It is a modified form of those files, and says so where it is written**, which is one of
+/// the four conditions `data/standard-fonts/afm/MustRead.html` sets; the files themselves are
+/// held as Adobe published them. What is kept is each pair and its amount and nothing else;
+/// glyph names are numbered, and a face whose pairs repeat another's — each oblique its upright —
+/// shares its range.
+///
+/// **No reference anywhere in it**, for the reason `language_table` gives: a pointer in a
+/// `static` is a relocation the loader applies at every launch. The names are one byte string
+/// and the index into it plain numbers.
+fn published_pairs() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/standard-fonts/afm");
+    let read: Vec<(&str, Afm)> = AFM_FACES
+        .iter()
+        .map(|face| (*face, read_afm(&root, face)))
+        .collect();
+    let names: std::collections::BTreeSet<&str> = read
+        .iter()
+        .flat_map(|(_, afm)| afm.pairs.iter())
+        .flat_map(|(first, second, _)| [first.as_str(), second.as_str()])
+        .collect();
+    let names: Vec<&str> = names.into_iter().collect();
+    let number = |name: &str| {
+        let at = names
+            .binary_search(&name)
+            .unwrap_or_else(|_| panic!("{name} was collected above"));
+        u16::try_from(at).expect("fewer than 65 536 glyph names")
+    };
+
+    let (text, index) = name_text(&names);
+    let (pairs, ranges) = numbered_pairs(&read, number);
+
+    let mut out = String::new();
+    out.push_str(
+        "// MODIFIED from Adobe's Core 14 AFM files (data/standard-fonts/afm/, as Adobe published\n\
+         // them, with MustRead.html beside them). Generated by crates/pdf-font/build.rs, which\n\
+         // keeps each file's KPX lines and nothing else: the two glyph names of a pair are\n\
+         // numbered, the pairs are sorted, and a face whose pairs repeat another's shares its\n\
+         // range. The files' copyright notices, retained:\n",
+    );
+    for (face, afm) in &read {
+        for line in &afm.copyright {
+            let _ = writeln!(out, "//   {face}.afm: {line}");
+        }
+    }
+    out.push('\n');
+    let _ = writeln!(
+        out,
+        "/// Every glyph name a pair of the fourteen states, one after another, sorted.\n\
+         pub(super) static NAME_TEXT: [u8; {}] = *b\"{text}\";",
+        text.len()
+    );
+    let _ = writeln!(
+        out,
+        "/// Where each name starts in [`NAME_TEXT`] and its length; a name's number is its place \
+         here.\npub(super) static NAMES: [(u16, u8); {}] = [",
+        index.len()
+    );
+    for (start, length) in &index {
+        let _ = writeln!(out, "    ({}, {length}),", grouped(usize::from(*start)));
+    }
+    out.push_str("];\n");
+    let _ = writeln!(
+        out,
+        "/// Every pair: the first glyph's number, the second's, and the `KPX` amount in \
+         thousandths of an em; each face's range sorted.\npub(super) static PAIRS: [(u16, u16, i16); {}] = [",
+        pairs.len()
+    );
+    for (first, second, amount) in &pairs {
+        let _ = writeln!(out, "    ({first}, {second}, {amount}),");
+    }
+    out.push_str("];\n");
+    let _ = writeln!(
+        out,
+        "/// Each face's range of [`PAIRS`], start and count, in the order [`face_number`] numbers them.\n\
+         pub(super) static RANGES: [(u16, u16); {}] = [",
+        ranges.len()
+    );
+    for (start, count) in &ranges {
+        let _ = writeln!(
+            out,
+            "    ({}, {}),",
+            grouped(usize::from(*start)),
+            grouped(usize::from(*count))
+        );
+    }
+    out.push_str("];\n");
+    out.push_str(
+        "/// The place in [`RANGES`] of the face an AFM file's `FontName` names.\n\
+         pub(super) fn face_number(name: &str) -> Option<usize> {\n    match name {\n",
+    );
+    for (at, face) in AFM_FACES.iter().enumerate() {
+        let _ = writeln!(out, "        {face:?} => Some({at}),");
+    }
+    out.push_str("        _ => None,\n    }\n}\n");
+    let target = std::path::PathBuf::from(
+        std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR for a build script"),
+    );
+    std::fs::write(target.join("published_pairs.rs"), out).expect("the table is writable");
 }

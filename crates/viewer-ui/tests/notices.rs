@@ -62,6 +62,70 @@ fn every_vendored_font_is_named_in_the_notice() {
     assert_eq!(checked, 14, "§9.6.2.2's fourteen are what is vendored");
 }
 
+/// Adobe's Core 14 AFM files travel with `MustRead.html`, and its paragraph is in `NOTICE` as the
+/// file states it: "that the AFM files are not distributed without this file" and "that this
+/// paragraph is not modified" are two of its four conditions (ADR 1916). The paragraph is checked
+/// against the file itself, so a `NOTICE` that drifted from it fails here; every `.afm` is named by
+/// file name, and the bytes are the ones `afm/SHA256SUMS` records.
+#[test]
+fn the_afm_files_travel_with_their_notice_paragraph_unmodified() {
+    const PARAGRAPH: &str = "This file and the 14 PostScript(R) AFM files it accompanies may be \
+        used, copied, and distributed for any purpose and without charge, with or without \
+        modification, provided that all copyright notices are retained; that the AFM files are \
+        not distributed without this file; that all modifications to this file or any of the AFM \
+        files are prominently noted in the modified file(s); and that this paragraph is not \
+        modified. Adobe Systems has no responsibility or obligation to support the use of the AFM \
+        files.";
+    let dir = root().join("data/standard-fonts/afm");
+    let must_read =
+        std::fs::read_to_string(dir.join("MustRead.html")).expect("MustRead.html is beside them");
+    assert!(
+        must_read.contains(PARAGRAPH),
+        "MustRead.html is not Adobe's"
+    );
+    let notice = notice();
+    assert!(
+        notice.contains(PARAGRAPH),
+        "NOTICE does not carry MustRead.html's paragraph"
+    );
+
+    let mut named = 0;
+    for entry in std::fs::read_dir(&dir).expect("data/standard-fonts/afm exists") {
+        let path = entry.expect("a readable directory entry").path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.extension().is_some_and(|extension| extension == "afm") {
+            assert!(
+                notice.contains(name),
+                "{name} is held and NOTICE does not name it"
+            );
+            named += 1;
+        }
+    }
+    assert_eq!(named, 14, "the Core 14 are fourteen files");
+
+    let sums =
+        std::fs::read_to_string(dir.join("SHA256SUMS")).expect("afm/SHA256SUMS is committed");
+    let mut checked = 0;
+    for line in sums.lines() {
+        let Some((expected, name)) = line.split_once("  ") else {
+            continue;
+        };
+        let bytes = std::fs::read(dir.join(name))
+            .unwrap_or_else(|error| panic!("{name} is committed: {error}"));
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(&bytes);
+        let actual = digest.iter().fold(String::new(), |mut text, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+            text
+        });
+        assert_eq!(actual, expected, "{name}");
+        checked += 1;
+    }
+    assert_eq!(checked, 15, "the fourteen files and MustRead.html");
+}
+
 /// The `CMap`s are named as a set rather than one by one, and the set's size is the assertion.
 ///
 /// 239 file names in `NOTICE` would be a page of noise nobody reads, and BSD-3-Clause asks for

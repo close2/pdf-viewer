@@ -11,24 +11,6 @@ use super::Host;
 use super::window::logical;
 
 impl Host {
-    /// The rows of a request's target this window shows, for the drawing to draw first — `None`
-    /// for a page of a document behind the one in front, which the arrangement does not place
-    /// (ADR 1868).
-    pub(super) fn seen_of(
-        &self,
-        request: &viewer_core::RenderRequest,
-    ) -> Option<std::ops::Range<u32>> {
-        if request.document != self.documents.focused() {
-            return None;
-        }
-        match self.viewer.query(Query::PageGeometry(request.page)) {
-            Answer::Geometry(geometry) => {
-                viewer_host::drawing::seen(request.target, geometry, self.viewport.1)
-            }
-            _ => None,
-        }
-    }
-
     /// The textures to put on the screen, and where.
     ///
     /// **One texture per page of Table 29's arrangement**, since `/PageLayout` was obeyed; under
@@ -47,21 +29,21 @@ impl Host {
                 glimpsed: None,
             };
         }
-        let frames = match self.viewer.query(Query::Frame) {
+        let frames = match self.state.viewer.query(Query::Frame) {
             Answer::Frame(frames) => frames,
             _ => Vec::new(),
         };
         let held = frames.len();
-        let partial = self.drawing.partial();
-        let geometry = |page| match self.viewer.query(Query::PageGeometry(page)) {
+        let partial = self.state.drawing.partial();
+        let geometry = |page| match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) => Some(geometry),
             _ => None,
         };
         // A page drawn part-way where it belongs (ADR 1825), a frame from before a zoom scaled to
         // the extent the page has now until its own lands (ADR 1843), and a page with no frame
         // at all shown from its retained picture (ADR 1866).
-        let focused = self.documents.focused();
-        let frames = match self.read_look.as_ref() {
+        let focused = self.state.documents.focused();
+        let frames = match self.state.read_look.as_ref() {
             // Page one as it stood at its last look while it was read, until the page has pixels
             // of its own (ADR 1867): the page's own picture at the target its first frame is drawn
             // at, placed where that frame will be — and only while that frame is still coming, so
@@ -69,13 +51,13 @@ impl Host {
             Some(look)
                 if held == 0
                     && partial.is_none()
-                    && (self.anticipated.is_some() || self.drawing.interval().is_some()) =>
+                    && (self.anticipated.is_some() || self.state.drawing.interval().is_some()) =>
             {
                 vec![look.placed()]
             }
             // A page past the whole-page bound shown over them from what its window drew (ADR 1892).
-            _ => self.oversized.place(
-                self.retained.fill(
+            _ => self.state.oversized.place(
+                self.state.retained.fill(
                     viewer_host::stand_in::placed(
                         viewer_host::drawing::over_frames(frames, partial, focused, geometry),
                         geometry,
@@ -96,7 +78,9 @@ impl Host {
             })
             .map(|partial| (partial.page(), partial.fraction()));
         for placed in frames.iter().filter(|placed| placed.stands_in()) {
-            self.trace.say(Topic::Frames, format_args!("{placed}"));
+            self.state
+                .trace
+                .say(Topic::Frames, format_args!("{placed}"));
         }
         let placements = frames
             .into_iter()

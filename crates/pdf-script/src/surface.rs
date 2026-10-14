@@ -29,6 +29,8 @@ pub enum Holder {
     Store,
     /// An `OCG`, what `this.getOCGs` answers.
     Layer,
+    /// A `Bookmark`, what `this.bookmarkRoot` answers.
+    Bookmark,
 }
 
 impl Holder {
@@ -46,6 +48,7 @@ impl Holder {
             Self::Global => "",
             Self::Store => "global.",
             Self::Layer => "OCG.",
+            Self::Bookmark => "Bookmark.",
         }
     }
 }
@@ -243,6 +246,12 @@ pub const EXCLUDED: &[Excluded] = &[
                  immutable",
     },
     Excluded {
+        holder: Holder::Bookmark,
+        members: &["createChild", "insertChild", "remove", "setAction"],
+        reason: "changes the document's structure or invents marks, and the document is \
+                 immutable",
+    },
+    Excluded {
         holder: Holder::Doc,
         members: &["media"],
         reason: "is multimedia, which clause 13's exclusion keeps out",
@@ -264,8 +273,9 @@ pub const EXCLUDED: &[Excluded] = &[
     },
 ];
 
-/// What RFC 0008 section 4.2 admits to Tier 1 and this program refuses by name, each row with the
-/// reason, as the clause after "because it" (ADRs 1724, 1725).
+/// What RFC 0008 section 4.2 admits to Tier 1, or `A193`'s rule brings into it, and this program
+/// refuses by name, each row with the reason, as the clause after "because it" (ADRs 1724, 1725,
+/// 1922).
 ///
 /// Not Tier 2 — the RFC admits each — and not a member waiting to be bridged: each reaches
 /// something this program keeps out of a document's realm, or that no reader's edit reaches, and
@@ -284,6 +294,13 @@ pub const REFUSED: &[Excluded] = &[
         reason: "walks the window's history of views, and this viewer keeps none: a person has no \
                  previous view to go back to either, so there is nothing a script's request could \
                  reach",
+    },
+    Excluded {
+        holder: Holder::Bookmark,
+        members: &["children", "color", "execute", "name", "open", "style"],
+        reason: "reads or performs an item of the document's outline, and the realm is not handed \
+                 the outline; a write to one would change the document's structure, which is \
+                 immutable",
     },
 ];
 

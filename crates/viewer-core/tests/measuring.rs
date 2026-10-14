@@ -251,13 +251,17 @@ fn the_middle_of_a_geographic_map_is_the_middle_of_its_degrees() {
 }
 
 /// A projected map whose `/GPTS` are degrees — the shape every projected map of the crawl takes
-/// — is refused by name until the owner answers `doc/questions/Q271`, and the refusal is the
-/// position's sentence.
+/// — is located through its base system's degrees, fitted in the system's plane (ADR 1918).
+///
+/// The map is UTM zone 32N registered by a rectangle of degrees from 47° N to 48° N and 8° E to
+/// 10° E, symmetric about the zone's central meridian, so the middle of the viewport is on that
+/// meridian; its latitude is the plane's middle, near 47.5° N and not at it, and the corners lie on
+/// no affine map of the plane, so the departure is said.
 ///
 /// Written here because no curated document carries that shape with a method this tree
 /// evaluates: the one projected map among them is refused by its method first, below.
 #[test]
-fn a_projected_map_with_degrees_for_eastings_gives_no_position() {
+fn a_projected_map_with_degrees_for_eastings_is_located_through_its_base_system() {
     let wkt = "PROJCS[\"ETRS89_UTM_zone_32N\",GEOGCS[\"GCS_ETRS_1989\",DATUM[\"D_ETRS_1989\",\
                SPHEROID[\"GRS_1980\",6378137,298.257222101]],PRIMEM[\"Greenwich\",0],\
                UNIT[\"Degree\",0.017453292519943295]],PROJECTION[\"Transverse_Mercator\"],\
@@ -270,13 +274,22 @@ fn a_projected_map_with_degrees_for_eastings_gives_no_position() {
     );
     let (viewer, point) = shown_at(one_map(&measure), 0, (200.0, 200.0));
     let Answer::Measured {
-        located: Some(viewer_core::Located::Refused(why)),
+        located:
+            Some(viewer_core::Located::At {
+                latitude,
+                longitude,
+                display,
+                departure,
+            }),
         ..
     } = viewer.query(Query::Measure(&[point]))
     else {
-        panic!("a projected map with degree-shaped points is refused");
+        panic!("a projected map with degree-shaped points is located");
     };
-    assert!(why.contains("shaped as degrees"), "{why}");
+    assert!((longitude - 9.0).abs() < 1e-6, "{longitude}");
+    assert!((latitude - 47.5).abs() < 0.01, "{latitude}");
+    assert_eq!(display, None, "the file names no /DCS");
+    assert!(departure > 0.0 && departure < 0.01, "{departure}");
 }
 
 /// A document of one 400 by 400 page whose one viewport covers it and states `measure`.

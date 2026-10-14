@@ -25,6 +25,12 @@
 //! the stream exactly, so it divides the page wherever ADR 1880's plan does. A text object ends
 //! the cuts, as there (every text object is the last piece's): the last piece then runs from the
 //! segment that holds the first `BT` to the end of the stream.
+//!
+//! **A segment is let go once its piece has read it and its effect is composed** (ADR 1924), so
+//! the stream is never held whole: a spine states its statements from copies the composer took
+//! when it composed them. Nothing is let go before the first piece has been read, which is where
+//! most refusals fall; a fallback that finds a segment let go reads the stream again from the
+//! file ([`Outcome::Released`]), which only a page given up after its first piece pays.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -56,14 +62,19 @@ pub(super) enum Outcome {
     /// The stream is whole in memory and the pipeline did not settle it, for the reason given; the
     /// page is divided after the inflate instead.
     Inflated(Vec<u8>, Declined),
+    /// As [`Outcome::Inflated`], but a segment was let go after its piece read it, so the stream
+    /// is read again before it is divided after the inflate.
+    Released(Declined),
 }
 
 /// A run of the stream's bytes as the producer handed it on.
 struct Segment {
     /// Where it begins in the stream.
     from: usize,
-    /// Its bytes, shared between the lex, the piece and the fallback.
-    bytes: Arc<Vec<u8>>,
+    /// Its bytes, shared between the lex, the piece and the fallback — `None` once let go.
+    bytes: Option<Arc<Vec<u8>>>,
+    /// Whether its piece has been read from it.
+    read: bool,
 }
 
 /// What the calling thread hears from the pool.
@@ -110,6 +121,10 @@ struct Composer {
     waiting: BTreeMap<usize, Result<Chunk, Refusal>>,
     /// The state stack after every segment composed so far.
     stack: Stack,
+    /// The bytes of every statement `stack` keeps, by the offset of its first byte in the stream,
+    /// copied out of its segment when that segment was composed — so that a spine is stated
+    /// after the segment has been let go.
+    statements: BTreeMap<usize, Vec<u8>>,
     /// How many segments have been composed.
     folded: usize,
     /// The spine each piece begins from, for every piece up to the first text object.
@@ -120,6 +135,10 @@ struct Composer {
     started: usize,
     /// Set once a composition fails, after which nothing more is composed or started.
     broken: bool,
+    /// Segments let go under the lock, to be dropped by whoever holds it once it is released.
+    let_go: Vec<Arc<Vec<u8>>>,
+    /// Whether segments are let go yet: not before the first piece has been read.
+    letting_go: bool,
 }
 
 /// A piece ready to start.
@@ -138,31 +157,87 @@ impl Composer {
             last: None,
             waiting: BTreeMap::new(),
             stack: Stack::fresh(),
+            statements: BTreeMap::new(),
             folded: 0,
             spines: vec![Arc::new(Vec::new())],
             text_at: None,
             started: 1,
             broken: false,
+            let_go: Vec::new(),
+            letting_go: false,
         }
     }
 
-    /// The bytes of `range`, from the segment that holds them.
+    /// Keeps the bytes of every statement the stack keeps after segment `index` was composed onto
+    /// it: an earlier segment's from the copies already held, this segment's copied out of it, and
+    /// none of what the stack no longer keeps.
     ///
     /// A kept statement never spans two segments: it ends at an operator, and every segment
     /// whose effect is composed ends on a confirmed `Q`.
-    fn statement(&self, range: Range<usize>) -> &[u8] {
-        let index = self
-            .segments
-            .partition_point(|segment| segment.from <= range.start)
-            .saturating_sub(1);
-        self.segments
-            .get(index)
-            .and_then(|segment| {
+    fn keep_statements(&mut self, index: usize) -> Result<(), Refusal> {
+        let segment = self.segments.get(index);
+        let mut kept = BTreeMap::new();
+        let ranges = self
+            .stack
+            .levels
+            .iter()
+            .flat_map(|level| level.kept.iter().map(|kept| &kept.bytes))
+            .chain(&self.stack.sections);
+        for range in ranges {
+            let held = self.statements.remove(&range.start).or_else(|| {
+                let segment = segment.filter(|segment| segment.from <= range.start)?;
                 let start = range.start.checked_sub(segment.from)?;
                 let end = range.end.checked_sub(segment.from)?;
-                segment.bytes.get(start..end)
-            })
+                Some(segment.bytes.as_ref()?.get(start..end)?.to_vec())
+            });
+            let bytes = held.ok_or(Refusal::Joining(Declined(
+                "a statement the spine keeps was not held when its segment was composed",
+            )))?;
+            kept.insert(range.start, bytes);
+        }
+        self.statements = kept;
+        Ok(())
+    }
+
+    /// The bytes of `range`, a statement the stack keeps.
+    fn statement(&self, range: &Range<usize>) -> &[u8] {
+        self.statements
+            .get(&range.start)
+            .map(Vec::as_slice)
             .unwrap_or_default()
+    }
+
+    /// Marks segment `index` read by its piece. The first segment's is the first piece, after
+    /// which every segment read and composed so far is let go too.
+    fn mark_read(&mut self, index: usize) {
+        if let Some(segment) = self.segments.get_mut(index) {
+            segment.read = true;
+        }
+        if index == 0 {
+            self.letting_go = true;
+            for earlier in 0..self.folded {
+                self.let_go_of(earlier);
+            }
+        } else {
+            self.let_go_of(index);
+        }
+    }
+
+    /// Lets segment `index` go where nothing still needs it: its piece has read it and its effect
+    /// is composed, and it is not a segment the tail read from the first text object needs.
+    fn let_go_of(&mut self, index: usize) {
+        let in_the_tail = self.text_at.is_some_and(|text| index >= text);
+        if !self.letting_go || index >= self.folded || in_the_tail {
+            return;
+        }
+        if let Some(bytes) = self
+            .segments
+            .get_mut(index)
+            .filter(|segment| segment.read)
+            .and_then(|segment| segment.bytes.take())
+        {
+            self.let_go.push(bytes);
+        }
     }
 
     /// Composes every lexed segment whose predecessors are composed, telling `events` what each
@@ -225,9 +300,11 @@ impl Composer {
             self.text_at = Some(index);
         }
         if self.text_at.is_none() && !last {
-            let spine = spine_of(&self.stack, |range| self.statement(range));
+            self.keep_statements(index)?;
+            let spine = spine_of(&self.stack, |range| self.statement(&range));
             self.spines.push(Arc::new(spine));
         }
+        self.let_go_of(index);
         Ok(fold)
     }
 
@@ -240,11 +317,14 @@ impl Composer {
                 self.segments.get(self.started),
                 self.spines.get(self.started),
             )
+            // A segment is let go only once its piece has read it, so one not yet started holds
+            // its bytes.
+            && let Some(bytes) = &segment.bytes
         {
             ready.push(Ready {
                 index: self.started,
                 from: segment.from,
-                bytes: Arc::clone(&segment.bytes),
+                bytes: Arc::clone(bytes),
                 spine: Arc::clone(spine),
                 last: self.last == Some(self.started),
             });
@@ -285,20 +365,39 @@ impl Shared<'_, '_> {
     }
 
     /// Lexes a segment just out, and composes whatever it completes.
-    fn lex<'scope>(&'scope self, scope: &rayon::Scope<'scope>, index: usize, segment: &Segment) {
+    fn lex<'scope>(
+        &'scope self,
+        scope: &rayon::Scope<'scope>,
+        index: usize,
+        from: usize,
+        bytes: &[u8],
+    ) {
         if self.abandoned.load(Ordering::Relaxed) {
             return;
         }
-        let lexed = lex_chunk(&segment.bytes, 0, segment.bytes.len(), &[]).map(|mut chunk| {
-            chunk.effect.shift(segment.from);
+        let lexed = lex_chunk(bytes, 0, bytes.len(), &[]).map(|mut chunk| {
+            chunk.effect.shift(from);
             chunk
         });
-        let ready = {
+        let (ready, let_go) = {
             let mut composer = self.composer();
             composer.waiting.insert(index, lexed);
-            composer.advance(&self.events)
+            let ready = composer.advance(&self.events);
+            (ready, std::mem::take(&mut composer.let_go))
         };
+        drop(let_go);
         self.start(scope, ready);
+    }
+
+    /// Marks segment `index` read by its piece, and drops it where that lets it go — outside the
+    /// lock, which the lexes and the pieces share.
+    fn read_from(&self, index: usize) {
+        let let_go = {
+            let mut composer = self.composer();
+            composer.mark_read(index);
+            std::mem::take(&mut composer.let_go)
+        };
+        drop(let_go);
     }
 
     /// Reads one later piece.
@@ -317,6 +416,7 @@ impl Shared<'_, '_> {
             planned,
             piece.last,
         );
+        self.read_from(piece.index);
         self.send(Event::Ran {
             index: piece.index,
             run: run.map(Box::new),
@@ -328,23 +428,27 @@ impl Shared<'_, '_> {
         &'scope self,
         scope: &rayon::Scope<'scope>,
         index: usize,
-        segment: Segment,
+        from: usize,
+        bytes: Arc<Vec<u8>>,
         last: bool,
     ) {
-        let lexed = Segment {
-            from: segment.from,
-            bytes: Arc::clone(&segment.bytes),
+        let segment = Segment {
+            from,
+            bytes: Some(Arc::clone(&bytes)),
+            read: false,
         };
-        let ready = {
+        let (ready, let_go) = {
             let mut composer = self.composer();
             composer.segments.push(segment);
             if last {
                 composer.last = Some(index);
             }
-            composer.advance(&self.events)
+            let ready = composer.advance(&self.events);
+            (ready, std::mem::take(&mut composer.let_go))
         };
+        drop(let_go);
         self.start(scope, ready);
-        scope.spawn(move |scope| self.lex(scope, index, &lexed));
+        scope.spawn(move |scope| self.lex(scope, index, from, &bytes));
     }
 }
 
@@ -490,7 +594,7 @@ fn hand_on<'scope>(
             last,
         });
     }
-    shared.arrive(scope, index, Segment { from, bytes }, last);
+    shared.arrive(scope, index, from, bytes, last);
 }
 
 /// The offset just after the first `Q` at or after `from` that stands between delimiters —
@@ -652,17 +756,22 @@ pub(super) fn read<'r>(
             interpreter.give_up(seam);
             match refusal {
                 Refusal::Lexing(reason) => Outcome::Windowed(reason),
-                Refusal::Joining(reason) => {
-                    let length = segments.iter().map(|segment| segment.bytes.len()).sum();
-                    let mut bytes = Vec::with_capacity(length);
-                    for segment in &segments {
-                        bytes.extend_from_slice(&segment.bytes);
-                    }
-                    Outcome::Inflated(bytes, reason)
-                }
+                Refusal::Joining(reason) => match whole_from(&segments) {
+                    Some(bytes) => Outcome::Inflated(bytes, reason),
+                    None => Outcome::Released(reason),
+                },
             }
         }
     }
+}
+
+/// The segments' bytes as one stream, or `None` where one of them has been let go.
+fn whole_from(segments: &[Segment]) -> Option<Vec<u8>> {
+    let held: Vec<&[u8]> = segments
+        .iter()
+        .map(|segment| segment.bytes.as_deref().map(Vec::as_slice))
+        .collect::<Option<_>>()?;
+    Some(held.concat())
 }
 
 /// How the calling thread's half of the pipeline ended.
@@ -717,6 +826,8 @@ impl Interpreter<'_> {
         {
             return joining.give(shared, heard, reason);
         }
+        drop(first);
+        shared.read_from(0);
 
         let mut next = 1;
         loop {
@@ -822,11 +933,8 @@ fn run_tail(shared: &Shared<'_, '_>, text: usize, planned: usize) -> Result<Piec
             .get(text)
             .map(|segment| segment.from)
             .ok_or(Declined("a text object in a segment that never arrived"))?;
-        let tail = composer.segments.get(text..).unwrap_or_default();
-        let mut bytes = Vec::with_capacity(tail.iter().map(|s| s.bytes.len()).sum());
-        for segment in tail {
-            bytes.extend_from_slice(&segment.bytes);
-        }
+        let bytes = whole_from(composer.segments.get(text..).unwrap_or_default())
+            .ok_or(Declined("a segment the tail reads was let go"))?;
         let spine = composer
             .spines
             .get(text)

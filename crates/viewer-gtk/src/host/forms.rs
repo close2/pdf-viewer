@@ -42,7 +42,7 @@ impl Host {
                     }
                 }
             }
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Panel,
                 format_args!(
                     "{} field(s) on the page, {} control(s) placed",
@@ -102,7 +102,7 @@ impl Host {
         self.fit_magnification = self
             .showing_at()
             .and_then(|showing| fit.magnification(showing));
-        self.trace.say(
+        self.state.trace.say(
             Topic::Panel,
             format_args!(
                 "{wider} of {placed} control(s) wider than their /Rect (worst +{} on {} px), \
@@ -126,10 +126,10 @@ impl Host {
     /// display's own factor comes back out. Getting that wrong on a doubled display would put the
     /// answer out by two, which is exactly the class of arithmetic ADR 0118 keeps in one place.
     fn showing_at(&self) -> Option<f32> {
-        let Answer::Page { index, .. } = self.viewer.query(Query::CurrentPage) else {
+        let Answer::Page { index, .. } = self.state.viewer.query(Query::CurrentPage) else {
             return None;
         };
-        let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(index)) else {
+        let Answer::Geometry(geometry) = self.state.viewer.query(Query::PageGeometry(index)) else {
             return None;
         };
         let display = self.scale.max(1);
@@ -148,7 +148,7 @@ impl Host {
             with(&me, |host| match change {
                 FieldChange::Set { field, value } => {
                     if let Entered::Chosen(chosen) = &value {
-                        host.trace.say(
+                        host.state.trace.say(
                             Topic::Panel,
                             format_args!(
                                 "{field}: option(s) {chosen:?} of Table 234's /Opt selected"
@@ -183,7 +183,7 @@ impl Host {
                 }
                 FieldChange::Arrows { held } => {
                     if held {
-                        host.trace.say(
+                        host.state.trace.say(
                             Topic::Panel,
                             format_args!("the selection is an arrow key's"),
                         );
@@ -191,7 +191,7 @@ impl Host {
                     host.tell_keys_with(held);
                 }
                 FieldChange::Holds { .. } => {
-                    let fields = match host.viewer.query(Query::Fields) {
+                    let fields = match host.state.viewer.query(Query::Fields) {
                         Answer::Fields(fields) => fields,
                         _ => Vec::new(),
                     };

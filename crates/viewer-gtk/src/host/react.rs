@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use gtk4::prelude::*;
 use viewer_core::{Answer, Command, DocumentId, Event, Query};
 
+use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
@@ -41,7 +42,7 @@ impl Host {
             self.take_the_drawn(&mut queue);
             // A tab opened behind is in front for the first time once `Command::Focus` has run,
             // which is when the core answers `Query::Opening` for it (ADR 1303).
-            if queue.is_empty() && std::mem::take(&mut self.showing.catalog_due) {
+            if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
             }
             if queue.is_empty() {
@@ -57,29 +58,6 @@ impl Host {
         self.pump_drawing();
     }
 
-    /// A page turn, with the page it brings on drawn while it is read (ADRs 1871, 1886).
-    ///
-    /// `quorra`'s `App::turn`, in this window: the turn is handled with the read left to this
-    /// window ([`Viewer::handle_unread`](viewer_core::Viewer::handle_unread)); the page is read here, on the toolkit thread, where a
-    /// turn's read has always been, because the read is the turn's critical path (trap 154); it is
-    /// drawn beside the read on a thread [`viewer_host::Ahead`] spawns; and the frame of it is
-    /// finished by [`Self::drawing`] from that drawing where the request is for that list at that
-    /// target. Nothing is drawn ahead until the read has run `GLIMPSE_AFTER`, so a page that reads
-    /// quickly is a turn as before and a thread. Before the first allocation there is no target to
-    /// draw into, and the turn is handled whole.
-    fn turn(&mut self, command: Command) -> Vec<Event> {
-        let Some(window) = self.extent else {
-            return self.viewer.handle(command).collect();
-        };
-        let mut events: Vec<Event> = self.viewer.handle_unread(command).collect();
-        let ahead = viewer_host::Ahead::page_sized();
-        ahead.window_is(window);
-        events.extend(ahead.anticipate(&mut self.viewer));
-        events.extend(self.viewer.read_the_rest());
-        self.drawing.draw_ahead(ahead);
-        events
-    }
-
     /// One command through the viewer, with what it produced put back on the queue.
     ///
     /// The body of [`Self::pump`]'s inner loop, named so that a command run *ahead* of another —
@@ -87,6 +65,7 @@ impl Host {
     /// one a person sent.
     fn run(&mut self, command: Command, queue: &mut VecDeque<Command>) {
         let described = self
+            .state
             .trace
             .on(Topic::Events)
             .then(|| viewer_host::trace::described(&command, 120));
@@ -101,10 +80,10 @@ impl Host {
         let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
             self.turn(command)
         } else {
-            self.viewer.handle(command).collect()
+            self.state.viewer.handle(command).collect()
         };
         if let Some(described) = described {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Events,
                 format_args!("{described} -> {} event(s)", events.len()),
             );
@@ -114,13 +93,14 @@ impl Host {
         }
         // Every event the supply caused has been seen, so an offer nothing took is spent.
         if supplied {
-            self.arrivals.supplied();
+            self.state.arrivals.supplied();
         }
     }
 
     /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
     fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
-        self.trace
+        self.state
+            .trace
             .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
         // A document that arrived under the name this window held out for
         // `/NewWindow true` is a *second* document rather than this one reopened, so it
@@ -130,16 +110,16 @@ impl Host {
         // and a blank window is what a broken file looks like too. Said in all three hosts
         // (ADR 0564).
         if pages == 0 {
-            self.say(&viewer_host::no_pages(&named(&self.showing.path)));
+            self.say(&viewer_host::no_pages(&named(&self.state.showing.path)));
         }
-        self.showing.asking.opened();
+        self.state.showing.asking.opened();
         // A document opens at the window's levels, so the menu's ticks go back to them
         // too — the core's `Open` forgets the departures and a menu that did not would
         // tick the last document's (ADR 1145).
         self.restrictions.opened();
-        self.showing.report_due.opened();
+        self.state.showing.report_due.opened();
         self.obey_the_catalog(queue, behind.is_none());
-        self.showing.catalog_due = behind.is_some();
+        self.state.showing.catalog_due = behind.is_some();
         // The core has already focused this document, so its panels are built now rather than
         // after the pump — unless a front given back below asks for them again.
         self.build_panels();
@@ -161,13 +141,13 @@ impl Host {
     /// window's fields is the one in front's; `viewer_host::documents::may_ask_about` says which
     /// documents a prompt may be put about at all (ADR 1332).
     fn password_required(&mut self, document: DocumentId) {
-        if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, DOCUMENT) {
+        if !viewer_host::documents::may_ask_about(&mut self.state.arrivals, document, DOCUMENT) {
             self.say(&viewer_host::documents::not_asked(document));
             return;
         }
-        let asked = match self.arrivals.named_mut(document) {
+        let asked = match self.state.arrivals.named_mut(document) {
             Some(arriving) => arriving.asking.required(),
-            None => self.showing.asking.required(),
+            None => self.state.showing.asking.required(),
         };
         match asked {
             viewer_host::Ask::Prompt { attempt, of } => {
@@ -178,23 +158,6 @@ impl Host {
                 self.cancelled(document);
             }
         }
-    }
-
-    /// A document that could not be opened, said by the name it arrived under — a tab on its way
-    /// in, or the one in front — and the next one waiting started.
-    fn open_failed(&mut self, document: DocumentId, reason: &str) {
-        if let Some(arriving) = self.arrivals.settle(document) {
-            self.say(&viewer_host::cannot_open(
-                &viewer_host::documents::label(&arriving.named.path),
-                reason,
-            ));
-        } else {
-            self.say(&viewer_host::cannot_open(
-                &named(&self.showing.path),
-                reason,
-            ));
-        }
-        self.later_open_the_next();
     }
 
     /// Does what one event asks.
@@ -218,7 +181,7 @@ impl Host {
             // arrives.
             // A file held for a §12.7.8 named page's password is read and put down again, and the
             // name it was asked under is closed so this window stops holding it (ADR 1335).
-            Event::Closed(document) if self.arrivals.is(document) => self.given_up(document),
+            Event::Closed(document) if self.state.arrivals.is(document) => self.given_up(document),
             Event::Closed(_) | Event::Damage(_) => {}
             Event::PageChanged {
                 index,
@@ -235,10 +198,10 @@ impl Host {
             // A page past the whole-page bound is held, and drawn as the window shows it once the
             // commands are run (ADR 1892).
             Event::NeedsRender(request) => {
-                self.retained.asked(&request);
-                if !self.oversized.asked(&request) {
+                self.state.retained.asked(&request);
+                if !self.state.oversized.asked(&request) {
                     let seen = self.seen_of(&request);
-                    self.drawing.ask_showing(request, seen);
+                    self.state.drawing.ask_showing(request, seen);
                 }
             }
             // §12.6.4.8: resolved against this document's own location where the action left it
@@ -246,7 +209,7 @@ impl Host {
             // share — `CLAUDE.md`'s four levels over the act of starting another program on a
             // string the *document* chose (ADRs 1079, 1155). What this arm owns is the dialogue.
             Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::resolve_uri(Some(&self.showing.path), &uri);
+                let uri = viewer_host::resolve_uri(Some(&self.state.showing.path), &uri);
                 match viewer_host::link(&uri, self.links) {
                     viewer_host::Link::Say(note) => self.say(&note),
                     viewer_host::Link::Ask(words) => self.ask_whether_to_open(uri, &words),
@@ -283,7 +246,7 @@ impl Host {
             } => self.extracted(document, asked, &name, bytes, fragment),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             Event::Dirty { dirty, .. } => {
-                self.showing.dirty = dirty;
+                self.state.showing.dirty = dirty;
                 self.retitle();
             }
             Event::Searched {
@@ -342,7 +305,7 @@ impl Host {
             Event::Beep { document, sound } => self.beep(document, sound),
             // This window's console is its log, so the request is said (ADR 1771).
             Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
-                &self.documents.label_of(document),
+                &self.state.documents.label_of(document),
                 request,
             )),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
@@ -369,7 +332,7 @@ impl Host {
             // tier at "one copy per frame" and this is that copy, timed rather than assumed
             // (ADR 0244).
             let bytes: usize = placements.iter().map(|picture| picture.bytes).sum();
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "{bytes} bytes into {} texture(s) in {:?}",
@@ -396,7 +359,7 @@ impl Host {
             }
             self.ui.fixed.set_visible(true);
             if let Some((page, fraction)) = glimpsed {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Frames,
                     format_args!(
                         "page {} shown as it stands, {:.0} % drawn",
@@ -407,12 +370,12 @@ impl Host {
             }
             if !self.presented && held > 0 {
                 self.presented = true;
-                self.read_look = None;
-                self.trace.say(
+                self.state.read_look = None;
+                self.state.trace.say(
                     Topic::Launch,
                     format_args!(
                         "first frame on the screen at {:?}",
-                        self.trace.since_start()
+                        self.state.trace.since_start()
                     ),
                 );
                 // The command line's later documents, and not one moment sooner: nothing page one
@@ -420,14 +383,14 @@ impl Host {
                 self.later_open_the_next();
             }
         }
-        let fields = match self.viewer.query(Query::Fields) {
+        let fields = match self.state.viewer.query(Query::Fields) {
             Answer::Fields(fields) => fields,
             _ => Vec::new(),
         };
         self.place_fields(&fields);
         // §12.5.6.14's windows, which have no appearance stream and are therefore nowhere in the
         // pixels above: they are furniture, and this host places real GTK widgets for them.
-        let popups = match self.viewer.query(Query::Popups) {
+        let popups = match self.state.viewer.query(Query::Popups) {
             Answer::Popups(windows) => windows,
             _ => Vec::new(),
         };
@@ -454,26 +417,12 @@ impl Host {
             Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
             None => format!("page {} of {of}", index.saturating_add(1)),
         };
-        self.showing.caption = match section {
+        self.state.showing.caption = match section {
             Some(section) if !section.is_empty() => format!("{page} — {section}"),
             _ => page,
         };
         self.retitle();
         self.restate();
-    }
-
-    /// One page's refusals, in the status bar, with the page named.
-    ///
-    /// **The page is named because under a column it has to be**: `Event::Reported` has always
-    /// carried which page it is about, and a host that dropped it was attributing one page's
-    /// refusals to whichever page a person happened to be looking at. `None` is what the
-    /// *document* says about itself before any page is drawn, and belongs to no page.
-    fn reported(&self, page: Option<usize>, notes: &[String]) {
-        let notes = notes.join("; ");
-        match page {
-            Some(page) => self.say(&format!("page {}: {notes}", page.saturating_add(1))),
-            None => self.say(&notes),
-        }
     }
 
     /// Says again what the pages now on the screen could not draw.
@@ -483,7 +432,7 @@ impl Host {
     /// page as each was interpreted, and a scroll that brings a page back does not interpret it
     /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
     pub(super) fn restate(&self) {
-        let Answer::Reports(pages) = self.viewer.query(Query::Reports) else {
+        let Answer::Reports(pages) = self.state.viewer.query(Query::Reports) else {
             return;
         };
         self.say(&viewer_host::status::on_screen(&pages));

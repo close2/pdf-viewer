@@ -1,4 +1,5 @@
-//! The pair kerning an embedded font program states, read out of the program itself.
+//! The pair kerning a face states: an embedded font program's, read out of the program itself,
+//! and §9.6.2.2's fourteen's, as Adobe published them (the `published` module, ADR 1916).
 //!
 //! XFA 3.3 chapter 27's `kerning-mode:pair` (*Kerning*, pages 1203 and 1204) asks for kerning by
 //! the two adjacent glyphs and nothing else (the version 2.8 change list), and the numbers are
@@ -52,6 +53,8 @@ use skrifa::raw::types::GlyphId;
 use skrifa::raw::{FontRef, TableProvider as _};
 use skrifa::{GlyphId16, Tag};
 
+mod published;
+
 /// The most pair subtables one program may bring to a run: far above any face's kerning, which
 /// states tens, and low enough that a run of [`crate::Code`]s at the field layout's own limit
 /// stays a bounded walk.
@@ -61,7 +64,8 @@ pub const MAX_SUBTABLES: usize = 512;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoPairs {
     /// The glyphs are a stand-in's — this machine's face or one this crate carries — so its
-    /// pairs would be another typeface's numbers rather than the document's.
+    /// pairs would be another typeface's numbers rather than the document's, and the font is not
+    /// one of §9.6.2.2's fourteen by name, whose published pairs [`Pairs`] holds (ADR 1916).
     NotTheDocuments,
     /// The program holds no `GPOS` `kern` feature and no `kern` table this reader applies: a
     /// bare CFF or Type 1 program, which carries neither, among them.
@@ -87,9 +91,26 @@ impl NoPairs {
     }
 }
 
-/// Where a program's pairs come from.
+/// Whose pairs a run is kerned by.
 #[derive(Debug, Clone)]
 enum Source {
+    /// The program the document embeds.
+    Program(Program),
+    /// §9.6.2.2's fourteen, by the pairs Adobe published for the face (ADR 1916).
+    Published(published::Published),
+}
+
+/// An embedded sfnt program, and the table its pairs are read from.
+#[derive(Debug, Clone)]
+struct Program {
+    data: Arc<[u8]>,
+    units_per_em: f32,
+    tables: Tables,
+}
+
+/// Where a program's pairs come from.
+#[derive(Debug, Clone)]
+enum Tables {
     /// `GPOS`'s `kern` feature, as each script table's language systems reach it.
     Positioning(Scripted),
     /// The legacy `kern` table.
@@ -322,9 +343,7 @@ mod tables {
 /// One program's pair kerning, ready to be asked about runs of glyphs.
 #[derive(Debug, Clone)]
 pub struct Pairs {
-    data: Arc<[u8]>,
     source: Source,
-    units_per_em: f32,
     /// What the program states and this reader does not apply, said where the pairs are used.
     unread: Option<&'static str>,
 }
@@ -359,19 +378,44 @@ impl Pairs {
         if units_per_em <= 0.0 {
             return Err(NoPairs::Unreadable);
         }
-        let (source, unread) = {
+        let (tables, unread) = {
             let font = FontRef::new(&data).map_err(|_| NoPairs::Unreadable)?;
             match kern_feature_lookups(&font)? {
-                Some(scripted) => (Source::Positioning(scripted), None),
-                None => (Source::Kerning, kern_table_shape(&font)?),
+                Some(scripted) => (Tables::Positioning(scripted), None),
+                None => (Tables::Kerning, kern_table_shape(&font)?),
             }
         };
         Ok(Self {
-            data,
-            source,
-            units_per_em,
+            source: Source::Program(Program {
+                data,
+                units_per_em,
+                tables,
+            }),
             unread,
         })
+    }
+
+    /// The pairs Adobe's Core 14 AFM files publish for the face `base_font` names, where it is one
+    /// of §9.6.2.2's fourteen by the clause's own spelling (ADR 1916); `None` for every other name.
+    pub(crate) fn published(base_font: &str) -> Option<Self> {
+        Some(Self {
+            source: Source::Published(published::published(base_font)?),
+            unread: None,
+        })
+    }
+
+    /// Whether a glyph is asked about by its number in the published table
+    /// ([`Self::published_glyph`]) rather than by its index in a program.
+    #[must_use]
+    pub(crate) fn by_glyph_name(&self) -> bool {
+        matches!(self.source, Source::Published(_))
+    }
+
+    /// The number a glyph name has in the published table, for a run [`Self::by_glyph_name`]
+    /// kerns; `None` for a name no published pair states, which pairs with nothing.
+    #[must_use]
+    pub(crate) fn published_glyph(name: &str) -> Option<u16> {
+        published::glyph(name)
     }
 
     /// What this program states about kerning and this reader does not apply, as a phrase.
@@ -397,9 +441,6 @@ impl Pairs {
             glyphs: vec![Adjustment::default(); glyphs.len()],
             vertical: false,
         };
-        let Ok(font) = FontRef::new(&self.data) else {
-            return out;
-        };
         let script = |at: usize| scripts.get(at).copied().unwrap_or_default();
         let pair = |at: usize| {
             let next = at.checked_add(1)?;
@@ -410,18 +451,54 @@ impl Pairs {
             (direction == other && script(at).run() == script(next).run())
                 .then_some((first, second, direction))
         };
-        match &self.source {
-            Source::Positioning(scripted) => {
+        let program = match &self.source {
+            Source::Program(program) => program,
+            Source::Published(face) => {
+                kerned_as_published(*face, glyphs.len(), &pair, &mut out);
+                return out;
+            }
+        };
+        let Ok(font) = FontRef::new(&program.data) else {
+            return out;
+        };
+        match &program.tables {
+            Tables::Positioning(scripted) => {
                 let chosen: Vec<&[u16]> = (0..glyphs.len())
                     .map(|at| scripted.lookups(script(at), language))
                     .collect();
-                self.positioned(&font, &chosen, &pair, &mut out);
+                program.positioned(&font, &chosen, &pair, &mut out);
             }
-            Source::Kerning => self.kerned(&font, glyphs.len(), &pair, &mut out),
+            Tables::Kerning => program.kerned(&font, glyphs.len(), &pair, &mut out),
         }
         out
     }
+}
 
+/// A run's pairs by the published `KPX` lines of one of the fourteen: a left-hand and a
+/// right-hand glyph, the amount added to the left-hand one's advance — which, read right to left,
+/// is the second of the logical pair, as in [`Program::kerned`].
+fn kerned_as_published(
+    face: published::Published,
+    count: usize,
+    pair: &dyn Fn(usize) -> Option<(u16, u16, bool)>,
+    out: &mut Adjusted,
+) {
+    for at in 0..count {
+        let Some((first, second, right_to_left)) = pair(at) else {
+            continue;
+        };
+        let (left, right) = if right_to_left {
+            (second, first)
+        } else {
+            (first, second)
+        };
+        if let (Some(amount), Some(glyph)) = (face.amount(left, right), out.glyphs.get_mut(at)) {
+            glyph.advance += amount;
+        }
+    }
+}
+
+impl Program {
     /// OpenType's pair adjustment, one lookup at a time over the whole run; `chosen` is, per
     /// glyph, the lookups its script selects, so a lookup passes over a pair its script's table
     /// does not reach.

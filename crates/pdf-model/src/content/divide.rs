@@ -265,6 +265,14 @@ fn read<'r>(
                 let _ = LAST_PIPELINE.try_with(|slot| slot.set(Some(reason)));
                 Some(bytes)
             }
+            pipeline::Outcome::Released(reason) => {
+                let _ = LAST_PIPELINE.try_with(|slot| slot.set(Some(reason)));
+                *reader = ContentReader::for_page(inputs.document, inputs.page);
+                // The page's own issues were noted from the first window before the run, and the
+                // pump's are met again as this one reads the stream.
+                let _ = reader.take_issues();
+                reader.read_to_end_within(most)
+            }
         }
     } else {
         reader.read_to_end_within(most)

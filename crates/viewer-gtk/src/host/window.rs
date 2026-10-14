@@ -9,6 +9,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Answer, Command, PageTarget, Query, Zoom};
 
+use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 
 use super::find::find_bar;
@@ -18,40 +19,27 @@ use super::restrictions::menu_button;
 use super::{Chrome, Host, PANEL_WIDTH, Ui, with};
 
 impl Host {
-    /// What to call the document, which is the file's own name.
-    pub(crate) fn named(&self) -> String {
-        self.showing
-            .titled
-            .clone()
-            .unwrap_or_else(|| named(&self.showing.path))
-    }
-
-    /// What the title bar says about the page, which is what the window is called after the name.
-    pub(crate) fn caption(&self) -> &str {
-        &self.showing.caption
-    }
-
     /// The shapes the chrome layer draws, gathered from the four questions that answer them.
     ///
     /// Its own method rather than the tail of [`Host::refresh`] because all four are asked on
     /// every repaint and none of them touches a widget: what comes back is written into the one
     /// piece of state the draw function reads, and the layer is asked to redraw itself.
     pub(super) fn refresh_chrome(&mut self) {
-        let selection = match self.viewer.query(Query::Selection) {
+        let selection = match self.state.viewer.query(Query::Selection) {
             Answer::Selected(selected) => selected.quads.clone(),
             _ => Vec::new(),
         };
-        let focus = match self.viewer.query(Query::Focus) {
+        let focus = match self.state.viewer.query(Query::Focus) {
             Answer::Focus { quad, .. } => Some(quad),
             _ => None,
         };
         // Every occurrence on the page being shown. Asked on every repaint because it is a query
         // over a readback that already exists — `Query::Find` is this page and `Command::Find` is
         // the document, and only the second one costs anything.
-        let matches = if self.needle.is_empty() {
+        let matches = if self.state.needle.is_empty() {
             Vec::new()
         } else {
-            match self.viewer.query(Query::Find(&self.needle)) {
+            match self.state.viewer.query(Query::Find(&self.state.needle)) {
                 Answer::Found(occurrences) => occurrences.into_iter().flatten().collect(),
                 _ => Vec::new(),
             }
@@ -59,7 +47,7 @@ impl Host {
         // Annex O's highlighted rectangle, if the URI this document was opened from named one.
         // Answered from a list the fragment filled when the document opened, so it costs a filter
         // over that list and nothing else.
-        let highlights = match self.viewer.query(Query::Highlight) {
+        let highlights = match self.state.viewer.query(Query::Highlight) {
             Answer::Highlighted(quads) => quads,
             _ => Vec::new(),
         };
@@ -69,7 +57,7 @@ impl Host {
             chrome.matches = matches;
             chrome.highlights = highlights;
             chrome.focus = focus;
-            chrome.measuring = self.showing.measuring.points().to_vec();
+            chrome.measuring = self.state.showing.measuring.points().to_vec();
             chrome.scale = f64::from(self.scale);
         }
         self.ui.chrome.queue_draw();
@@ -95,11 +83,11 @@ impl Host {
 
     /// Puts the caption in the title bar.
     pub(super) fn retitle(&self) {
-        let mark = if self.showing.dirty { "• " } else { "" };
+        let mark = if self.state.showing.dirty { "• " } else { "" };
         self.ui.window.set_title(Some(&format!(
             "{mark}{} — {}",
             self.named(),
-            self.showing.caption
+            self.state.showing.caption
         )));
     }
 
@@ -117,10 +105,10 @@ impl Host {
     /// document's, so a presentation running when a second document arrives keeps its full screen
     /// (ADR 1303).
     pub(super) fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
-        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+        let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
             return;
         };
-        self.showing.layout = opening.layout;
+        self.state.showing.layout = opening.layout;
         if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
             self.say(&format!(
                 "this document opens in the {:?} page layout (§7.7.2)",
@@ -130,7 +118,7 @@ impl Host {
         if !in_front {
             return;
         }
-        if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
+        if let Answer::Preferences(preferences) = self.state.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
             // Trap 5: a document asking for something and getting silence. Two of Table 147's
             // three flags name widgets this window hides on request, and the third names one it
@@ -147,8 +135,8 @@ impl Host {
             // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
             // the other two windows take too. The metadata stream is read only for a document
             // that asks, so a document that does not costs its opening nothing here.
-            self.showing.titled = if preferences.display_doc_title {
-                match self.viewer.query(Query::Properties) {
+            self.state.showing.titled = if preferences.display_doc_title {
+                match self.state.viewer.query(Query::Properties) {
                     Answer::Properties {
                         information,
                         metadata,

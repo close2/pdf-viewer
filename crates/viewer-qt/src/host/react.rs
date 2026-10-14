@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 
 use viewer_core::{Answer, Command, DocumentId, Event, Purpose, Query};
 use viewer_host::form::control_kind;
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use crate::bridge::ffi::QtUpdate;
@@ -56,7 +57,7 @@ impl Host {
             self.take_the_drawn(&mut queue);
             // A tab opened behind is in front for the first time once `Command::Focus` has run,
             // which is when the core answers `Query::Opening` for it (ADR 1303).
-            if queue.is_empty() && std::mem::take(&mut self.showing.catalog_due) {
+            if queue.is_empty() && std::mem::take(&mut self.state.showing.catalog_due) {
                 self.obey_the_catalog(&mut queue, true);
             }
             if queue.is_empty() {
@@ -69,31 +70,6 @@ impl Host {
         self.refresh();
     }
 
-    /// A page turn, with the page it brings on drawn while it is read (ADRs 1871, 1886).
-    ///
-    /// `quorra`'s `App::turn`, in this window: the turn is handled with the read left to this
-    /// window ([`Viewer::handle_unread`]); the page is read here, on the toolkit thread, where a
-    /// turn's read has always been, because the read is the turn's critical path (trap 154); it is
-    /// drawn beside the read on a thread [`viewer_host::Ahead`] spawns; and the frame of it is
-    /// finished by [`Self::drawing`] from that drawing where the request is for that list at that
-    /// target. Nothing is drawn ahead until the read has run `GLIMPSE_AFTER`, so a page that reads
-    /// quickly is a turn as before and a thread. Before the first resize there is no target to
-    /// draw into, and the turn is handled whole.
-    ///
-    /// [`Viewer::handle_unread`]: viewer_core::Viewer::handle_unread
-    fn turn(&mut self, command: Command) -> Vec<Event> {
-        let Some(window) = self.extent else {
-            return self.viewer.handle(command).collect();
-        };
-        let mut events: Vec<Event> = self.viewer.handle_unread(command).collect();
-        let ahead = viewer_host::Ahead::page_sized();
-        ahead.window_is(window);
-        events.extend(ahead.anticipate(&mut self.viewer));
-        events.extend(self.viewer.read_the_rest());
-        self.drawing.draw_ahead(ahead);
-        events
-    }
-
     /// One command through the viewer, with what it produced put back on the queue.
     ///
     /// The body of [`Host::pump`]'s inner loop, named so that a command run *ahead* of another —
@@ -101,6 +77,7 @@ impl Host {
     /// one a person sent.
     fn run(&mut self, command: Command, queue: &mut VecDeque<Command>) {
         let described = self
+            .state
             .trace
             .on(Topic::Events)
             .then(|| viewer_host::trace::described(&command, 120));
@@ -115,10 +92,10 @@ impl Host {
         let events: Vec<Event> = if matches!(command, Command::GoTo(_)) {
             self.turn(command)
         } else {
-            self.viewer.handle(command).collect()
+            self.state.viewer.handle(command).collect()
         };
         if let Some(described) = described {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Events,
                 format_args!("{described} -> {} event(s)", events.len()),
             );
@@ -128,13 +105,14 @@ impl Host {
         }
         // Every event the supply caused has been seen, so an offer nothing took is spent.
         if supplied {
-            self.arrivals.supplied();
+            self.state.arrivals.supplied();
         }
     }
 
     /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
     fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
-        self.trace
+        self.state
+            .trace
             .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
         // A document that arrived under the name this window held out for
         // `/NewWindow true` is a *second* document rather than this one reopened, so it
@@ -142,15 +120,15 @@ impl Host {
         let behind = self.opened_beside(document);
         // Trap 5, and the same sentence the other two hosts say — see `viewer-gtk`.
         if pages == 0 {
-            self.say(&viewer_host::no_pages(&named(&self.showing.path)));
+            self.say(&viewer_host::no_pages(&named(&self.state.showing.path)));
         }
-        self.showing.asking.opened();
+        self.state.showing.asking.opened();
         // A document opens at the window's levels, so the menu's ticks go back to them
         // too — the core's `Open` forgets the departures (ADR 1145).
         self.restrictions.opened();
-        self.showing.report_due.opened();
+        self.state.showing.report_due.opened();
         self.obey_the_catalog(queue, behind.is_none());
-        self.showing.catalog_due = behind.is_some();
+        self.state.showing.catalog_due = behind.is_some();
         self.build_panels();
         // A document named behind the first gives the front back once it has its tab —
         // this window's swap here and the core's focus on the queue, because this runs
@@ -169,16 +147,19 @@ impl Host {
 
     /// §7.6.4.1's prompt, for the document in front or for one on its way to a tab.
     fn password_required(&mut self, document: DocumentId) {
-        if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, DOCUMENT) {
+        if !viewer_host::documents::may_ask_about(&mut self.state.arrivals, document, DOCUMENT) {
             self.say(&viewer_host::documents::not_asked(document));
             return;
         }
-        let (asked, about) = match self.arrivals.named_mut(document) {
+        let (asked, about) = match self.state.arrivals.named_mut(document) {
             Some(arriving) => (
                 arriving.asking.required(),
                 viewer_host::documents::label(&arriving.named.path),
             ),
-            None => (self.showing.asking.required(), named(&self.showing.path)),
+            None => (
+                self.state.showing.asking.required(),
+                named(&self.state.showing.path),
+            ),
         };
         match asked {
             viewer_host::Ask::Prompt { attempt, of } => {
@@ -195,23 +176,6 @@ impl Host {
                 self.cancelled(document);
             }
         }
-    }
-
-    /// A document that could not be opened, said by the name it arrived under — a tab on its way
-    /// in, or the one in front — and the next one waiting started.
-    fn open_failed(&mut self, document: DocumentId, reason: &str) {
-        if let Some(arriving) = self.arrivals.settle(document) {
-            self.say(&viewer_host::cannot_open(
-                &viewer_host::documents::label(&arriving.named.path),
-                reason,
-            ));
-        } else {
-            self.say(&viewer_host::cannot_open(
-                &named(&self.showing.path),
-                reason,
-            ));
-        }
-        self.later_open_the_next();
     }
 
     /// Does what one event asks.
@@ -236,7 +200,7 @@ impl Host {
             // arrives.
             // A file held for a §12.7.8 named page's password is read and put down again, and the
             // name it was asked under is closed so this window stops holding it (ADR 1335).
-            Event::Closed(document) if self.arrivals.is(document) => self.given_up(document),
+            Event::Closed(document) if self.state.arrivals.is(document) => self.given_up(document),
             Event::Closed(_) | Event::Damage(_) => {}
             Event::PageChanged {
                 index,
@@ -253,10 +217,10 @@ impl Host {
             // A page past the whole-page bound is held, and drawn as the window shows it once the
             // commands are run (ADR 1892).
             Event::NeedsRender(request) => {
-                self.retained.asked(&request);
-                if !self.oversized.asked(&request) {
+                self.state.retained.asked(&request);
+                if !self.state.oversized.asked(&request) {
                     let seen = self.seen_of(&request);
-                    self.drawing.ask_showing(request, seen);
+                    self.state.drawing.ask_showing(request, seen);
                 }
             }
             // §12.6.4.8: resolved against this document's own location where the action left it
@@ -310,7 +274,7 @@ impl Host {
             } => self.extracted(document, asked, &name, bytes, fragment),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             Event::Dirty { dirty, .. } => {
-                self.showing.dirty = dirty;
+                self.state.showing.dirty = dirty;
                 self.update.title = true;
             }
             Event::Searched {
@@ -353,7 +317,7 @@ impl Host {
             // RFC 0008 section 4.2's `app.alert` and `app.response`: a dialogue of its own, since
             // its buttons are the script's and an entry may stand under its text (ADR 1628).
             Event::ScriptAsking { document, question } => {
-                let name = self.documents.label_of(document);
+                let name = self.state.documents.label_of(document);
                 self.say(&viewer_host::script_asks::put(&name, &question));
                 self.script_question = Some((document, name, question));
                 self.update.script_question = true;
@@ -367,7 +331,7 @@ impl Host {
             Event::Beep { document, sound } => self.beep(document, sound),
             // This window's console is its log, so the request is said (ADR 1771).
             Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
-                &self.documents.label_of(document),
+                &self.state.documents.label_of(document),
                 request,
             )),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
@@ -387,7 +351,7 @@ impl Host {
     fn refresh(&mut self) {
         self.update.frame = true;
         self.update.chrome = true;
-        let fields = match self.viewer.query(Query::Fields) {
+        let fields = match self.state.viewer.query(Query::Fields) {
             Answer::Fields(fields) => fields,
             _ => Vec::new(),
         };
@@ -406,7 +370,7 @@ impl Host {
             self.placed.iter().map(Placement::key).collect();
         if keys != was {
             self.update.controls = true;
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Panel,
                 format_args!(
                     "{} field(s) on the page, {} control(s) placed",
@@ -421,14 +385,14 @@ impl Host {
         // one of them moves, and left alone otherwise. Reported on what the *answer* held rather
         // than on what could be placed, so that a window with no area is a line rather than a
         // silence.
-        let popups = match self.viewer.query(Query::Popups) {
+        let popups = match self.state.viewer.query(Query::Popups) {
             Answer::Popups(windows) => windows,
             _ => Vec::new(),
         };
         if popups != self.popups_shown {
             self.update.popups = true;
             if !popups.is_empty() || !self.popups_shown.is_empty() {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Panel,
                     format_args!(
                         "{} of {} §12.5.6.14 popup window(s) placed",

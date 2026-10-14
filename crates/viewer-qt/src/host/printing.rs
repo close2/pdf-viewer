@@ -41,11 +41,11 @@ impl Host {
         fidelity: viewer_core::Fidelity,
     ) {
         self.printing = true;
-        let page = match self.viewer.query(Query::PageGeometry(0)) {
+        let page = match self.state.viewer.query(Query::PageGeometry(0)) {
             Answer::Geometry(geometry) => (geometry.page.width, geometry.page.height),
             _ => (0.0, 0.0),
         };
-        let defaults = match self.viewer.query(Query::Preferences) {
+        let defaults = match self.state.viewer.query(Query::Preferences) {
             Answer::Preferences(preferences) => viewer_host::PrintDefaults::of(&preferences),
             _ => viewer_host::PrintDefaults::of(
                 &pdf_model::viewer_preferences::ViewerPreferences::default(),
@@ -174,7 +174,7 @@ impl Host {
     /// sentence in [`Self::print_reports`] rather than a blank sheet (trap 5).
     pub(crate) fn print_page(&mut self, page: usize) -> Vec<u32> {
         self.printed = None;
-        let Answer::PrintPage(printed) = self.viewer.query(Query::PrintPage(page)) else {
+        let Answer::PrintPage(printed) = self.state.viewer.query(Query::PrintPage(page)) else {
             return vec![0, 0];
         };
         let (target, list, mut reports) = (printed.target, printed.list, printed.reports);

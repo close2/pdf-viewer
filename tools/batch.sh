@@ -517,9 +517,13 @@ check_batch() {
     # The CIE's illuminant and observer tables are admitted the same way as a profile, by path:
     # `data/cie/` holds them as the CSV the CIE publishes, `NOTICE` section 6 and
     # `data/cie/PROVENANCE.md` are what they owe, and a `.csv` anywhere else is somebody's export (ADR 1713).
+    # Adobe's Core 14 AFM files and the notice that must travel with them are admitted by path too:
+    # `data/standard-fonts/afm/` holds them as Adobe publishes them, and `NOTICE` section 1c and
+    # `data/standard-fonts/PROVENANCE.md` are what they owe (ADR 1916).
     found=$(untracked_paths |
         grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2|sh|jpg|patch|wgsl)$' |
         grep -vE '^data/icc/[^/]+\.icc$' | grep -vE '^data/cie/[^/]+\.csv$' |
+        grep -vE '^data/standard-fonts/afm/([^/]+\.afm|MustRead\.html|SHA256SUMS)$' |
         grep -vE '(^|/)Cargo\.lock$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }

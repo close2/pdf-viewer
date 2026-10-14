@@ -72,6 +72,37 @@ licence texts are data/standard-fonts/LICENSE_FOXIT and data/standard-fonts/LICE
     modified while keeping the name Liberation. Nothing here modifies them: they are compiled in
     byte for byte, and data/standard-fonts/SHA256SUMS records what those bytes are.
 
+1c. Adobe's Core 14 AFM files, for the fourteen faces' pair kerning:
+
+      Courier.afm               Helvetica.afm               Times-Roman.afm
+      Courier-Bold.afm          Helvetica-Bold.afm          Times-Bold.afm
+      Courier-Oblique.afm       Helvetica-Oblique.afm       Times-Italic.afm
+      Courier-BoldOblique.afm   Helvetica-BoldOblique.afm   Times-BoldItalic.afm
+      Symbol.afm                ZapfDingbats.afm            MustRead.html
+
+    They are held in data/standard-fonts/afm/ as Adobe published them, MustRead.html beside
+    them, and data/standard-fonts/afm/SHA256SUMS records those bytes. What this binary carries is
+    a MODIFIED form of them: crates/pdf-font/build.rs keeps each file's KPX lines and nothing
+    else, numbers the glyph names they state and sorts the pairs, and the table it writes says so
+    at its head. The Notice line each file carries, retained as it is written there:
+
+    Courier.afm, Courier-Oblique.afm:
+      Copyright (c) 1989, 1990, 1991, 1992, 1993, 1997 Adobe Systems Incorporated.  All Rights Reserved.
+    Courier-Bold.afm, Courier-BoldOblique.afm:
+      Copyright (c) 1989, 1990, 1991, 1993, 1997 Adobe Systems Incorporated.  All Rights Reserved.
+    Helvetica.afm, Helvetica-Bold.afm, Helvetica-Oblique.afm, Helvetica-BoldOblique.afm:
+      Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated.  All Rights Reserved.Helvetica is a trademark of Linotype-Hell AG and/or its subsidiaries.
+    Times-Roman.afm, Times-Bold.afm, Times-Italic.afm, Times-BoldItalic.afm:
+      Copyright (c) 1985, 1987, 1989, 1990, 1993, 1997 Adobe Systems Incorporated.  All Rights Reserved.Times is a trademark of Linotype-Hell AG and/or its subsidiaries.
+    Symbol.afm:
+      Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All rights reserved.
+    ZapfDingbats.afm:
+      Copyright (c) 1985, 1987, 1988, 1989, 1997 Adobe Systems Incorporated. All Rights Reserved.ITC Zapf Dingbats is a registered trademark of International Typeface Corporation.
+
+    MustRead.html's paragraph, unmodified:
+
+    This file and the 14 PostScript(R) AFM files it accompanies may be used, copied, and distributed for any purpose and without charge, with or without modification, provided that all copyright notices are retained; that the AFM files are not distributed without this file; that all modifications to this file or any of the AFM files are prominently noted in the modified file(s); and that this paragraph is not modified. Adobe Systems has no responsibility or obligation to support the use of the AFM files.
+
 
 -------------------------------------------------------------------------------
 2. The predefined CMaps

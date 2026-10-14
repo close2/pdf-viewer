@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use viewer_core::{Command, DocumentId, Purpose};
+use viewer_host::native_window::NativeWindow;
 
 use super::Host;
 use super::questions::Pending;
@@ -44,7 +45,11 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::submission_note(&submission, None));
-        if let Err(sentence) = self.submitter.send(document, submission, warned, None) {
+        if let Err(sentence) = self
+            .state
+            .submitter
+            .send(document, submission, warned, None)
+        {
             self.say(&sentence);
         }
     }
@@ -134,7 +139,11 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::policy_fetch_note(&policy));
-        if let Err(sentence) = self.submitter.fetch_policy(document, policy, warned, None) {
+        if let Err(sentence) = self
+            .state
+            .submitter
+            .fetch_policy(document, policy, warned, None)
+        {
             self.say(&sentence);
         }
     }
@@ -148,50 +157,15 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::fetch_note(&url, None));
-        if let Err(sentence) = self.submitter.fetch(document, url, warned, None) {
+        if let Err(sentence) = self.state.submitter.fetch(document, url, warned, None) {
             self.say(&sentence);
-        }
-    }
-
-    /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
-    pub(super) fn take_the_answers(&mut self) {
-        for returned in self.submitter.collect() {
-            let (document, url) = (returned.document, returned.url.clone());
-            match returned.reply() {
-                viewer_host::submit::Reply::Import {
-                    answers,
-                    format,
-                    bytes,
-                    note,
-                } => {
-                    self.say(&note);
-                    self.dispatch(Command::Respond {
-                        document,
-                        answers,
-                        source: url,
-                        format,
-                        bytes,
-                    });
-                }
-                viewer_host::submit::Reply::Document { bytes, note } => {
-                    match viewer_host::submit::keep_answer(&bytes) {
-                        Ok(path) => {
-                            self.say(&format!("{note}; kept at {}", path.display()));
-                            self.arrivals.wait(viewer_host::Named::file(path), false);
-                            self.open_the_next();
-                        }
-                        Err(sentence) => self.say(&format!("{note}; {sentence}")),
-                    }
-                }
-                viewer_host::submit::Reply::Say(note) => self.say(&note),
-            }
         }
     }
 
     /// §12.6.4.8's URI, resolved against this document's location and then opened, declined or put
     /// to the person at the level `--links=` set.
     pub(super) fn follow_the_link(&mut self, uri: &str) {
-        let uri = viewer_host::resolve_uri(Some(&self.showing.path), uri);
+        let uri = viewer_host::resolve_uri(Some(&self.state.showing.path), uri);
         match viewer_host::link(&uri, self.links) {
             viewer_host::Link::Say(note) => self.say(&note),
             viewer_host::Link::Ask(words) => self.put_the_question(Pending::Link { uri }, &words),
@@ -204,14 +178,14 @@ impl Host {
     /// rule `viewer_host::resolve_import` states — a relative path to a file in or below the open
     /// document's directory. A refusal is said rather than swallowed (trap 5).
     pub(super) fn import(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
-        let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), name)
-        {
-            Ok(bytes) => Some(bytes),
-            Err(refusal) => {
-                self.say(&viewer_host::policy::supply_note(purpose, &refusal));
-                None
-            }
-        };
+        let bytes =
+            match viewer_host::policy::read_import(self.state.showing.directory.as_deref(), name) {
+                Ok(bytes) => Some(bytes),
+                Err(refusal) => {
+                    self.say(&viewer_host::policy::supply_note(purpose, &refusal));
+                    None
+                }
+            };
         queue.push_back(Command::Supply { purpose, bytes });
     }
 
@@ -228,7 +202,7 @@ impl Host {
         queue: &mut VecDeque<Command>,
     ) {
         match viewer_host::remote(
-            self.showing.directory.as_deref(),
+            self.state.showing.directory.as_deref(),
             name,
             self.remote_documents,
             purpose,

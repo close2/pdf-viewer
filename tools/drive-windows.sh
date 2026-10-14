@@ -33,7 +33,8 @@
 #
 # And in all four windows, §12.7.4.3's commit — a tab out of a field and Enter in one, a character a
 # field's keystroke script refuses and a value its commit refuses, each said (ADR 1592) — and §12.10's
-# position on a geographic map, with a projected map's refusal beside it (ADR 1593). In the two
+# position on a geographic map, with a projected map registered in its base system's degrees beside
+# it (ADRs 1593, 1918). In the two
 # toolkit windows the committed values are then read off each control's own text as the fields
 # display them, and the field's characters once its control holds the keyboard (ADR 1604).
 #
@@ -807,7 +808,7 @@ pdf.Root.OpenAction = Dictionary(S=Name.JavaScript,
 pdf.save(f"{out}/drive-painted.pdf")
 
 # drive-projected.pdf: a projected map whose /GPTS are degrees, the shape every projected map of the
-# crawl takes; refused by name until doc/questions/Q271 is answered (ADRs 1586, 1593).
+# crawl takes; read as its base system's degrees and fitted in the system's plane (ADR 1918).
 wkt = ('PROJCS["ETRS89_UTM_zone_32N",GEOGCS["GCS_ETRS_1989",DATUM["D_ETRS_1989",'
        'SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],'
        'UNIT["Degree",0.017453292519943295]],PROJECTION["Transverse_Mercator"],'
@@ -3233,22 +3234,24 @@ reply_threaded() {
 
 # §12.10's position, in all four windows (ADR 1593): measuring on, one press on the geographic map,
 # and the window's sentence carries a latitude and a longitude inside the map's own rectangle of
-# degrees, six places each; a press on a projected map whose /GPTS are degrees says why it gives no
-# position, which is Q271's refusal by its name.
+# degrees, six places each; and a press on a projected map whose /GPTS are its base system's degrees
+# carries a latitude and a longitude inside that rectangle, 47° N to 48° N and 8° E to 10° E, read
+# through the system's plane (ADR 1918).
 located() {
     [ -f "$FIXTURES/drive-geographic.pdf" ] || {
         verdict 38-located "not offered" "doc/pdf.js is not checked out"; return; }
-    local mark seen refused
+    local mark seen projected
     launch "$FIXTURES/drive-geographic.pdf"; mark=$(lines)
     mode_on m "$MEASURING_ON" "$MEASURING_OFF"; click 700 550; shot 38-located
     seen=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'geospatial.*' | head -1)
     launch "$FIXTURES/drive-projected.pdf"; mark=$(lines)
     mode_on m "$MEASURING_ON" "$MEASURING_OFF"; click 700 550; shot 38-located-projected
-    refused=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'no position: the projected system.s registration points are shaped as degrees' | head -1)
-    if [[ "$seen" =~ —\ (9|1[0-7])\.[0-9]{6}°\ S,\ 1(6[5-9]|7[0-6])\.[0-9]{6}°\ E ]] && [ -n "$refused" ]; then
-        verdict 38-located works "$seen; and the projected map: $refused"
+    projected=$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'geospatial.*' | head -1)
+    if [[ "$seen" =~ —\ (9|1[0-7])\.[0-9]{6}°\ S,\ 1(6[5-9]|7[0-6])\.[0-9]{6}°\ E ]] &&
+        [[ "$projected" =~ —\ 4[78]\.[0-9]{6}°\ N,\ ([89]|10)\.[0-9]{6}°\ E ]]; then
+        verdict 38-located works "$seen; and the projected map: $projected"
     else
-        verdict 38-located wrong "geographic: ${seen:-nothing}; projected: ${refused:-nothing}"
+        verdict 38-located wrong "geographic: ${seen:-nothing}; projected: ${projected:-nothing}"
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
@@ -3693,12 +3696,15 @@ PY2
 # the window, which is what the owner's endless refusals followed. A toolkit window must say
 # `window … rasterised` and, photographed then, show the bar sharp — tens of pixels wide, where the
 # retained picture standing in for a refused page shows it a pixel wide or not at all — and say no
-# refusal. Every window, `quorra` and the confined one included, may say a refusal at most once.
+# refusal. A window that keeps the bound, the confined one, says a refusal once for each view it is
+# about (ADR 1892 §2.4) — once a notch past the bound, never twice at one size, and never at a
+# pointer move. What is counted is the window's own sentence, never the events trace's echo of the
+# event it said it from (ADR 1921).
 # `zoom_past_the_bound_heavy` is the same zoom on `HEAVY_FILE`, with the picture not judged.
 zoom_past_the_bound() { zoom_past "$FIXTURES/drive-a1.pdf" 82-zoom-past-the-bound judged; }
 zoom_past_the_bound_heavy() { zoom_past "$HEAVY_FILE" 82-zoom-past-the-bound-heavy counted; }
 zoom_past() { # file step judged|counted
-    local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark refusals black X Y WIDTH HEIGHT
+    local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark moved said refusals sizes after black X Y WIDTH HEIGHT
     [ -s "$file" ] || [ "$how" = counted ] || python3 - "$file" <<'PY2'
 import sys, pikepdf
 from pikepdf import Name, Dictionary
@@ -3731,17 +3737,21 @@ PY2
         wait_for 60 said_since "$mark" "rasterised\\|first frame\\|frame on the device\\|frame drawn"
     fi
     sleep 1
+    moved=$(lines)
     for step_x in $(seq 20); do
         xdotool mousemove $((X + WIDTH / 4 + step_x * WIDTH / 40)) $((Y + HEIGHT / 2)); sleep 0.05
     done
     sleep 1
     xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.5
     shot "$step"
-    refusals=$(tail -n "+$((mark + 1))" "$LOG" | grep -c "cannot be drawn at this size")
-    if [ "$refusals" -gt 1 ]; then
-        verdict "$step" wrong "the refusal was said $refusals times over eighteen notches and twenty pointer moves"
+    said=$(tail -n "+$((mark + 1))" "$LOG" | grep -v '^trace:' | grep "cannot be drawn at this size")
+    refusals=$(printf '%s' "$said" | grep -c .)
+    sizes=$(printf '%s' "$said" | grep -o 'target of [0-9]* pixels' | sort -u | grep -c .)
+    after=$(tail -n "+$((moved + 1))" "$LOG" | grep -v '^trace:' | grep -c "cannot be drawn at this size")
+    if [ "$refusals" -gt "$sizes" ] || [ "$after" -gt 0 ]; then
+        verdict "$step" wrong "the refusal was said $refusals times at $sizes size(s) over eighteen notches, $after of them at twenty pointer moves"
     elif [ "$how" = counted ] || { [ "$WINDOW" != quorra-gtk ] && [ "$WINDOW" != quorra-qt ]; }; then
-        verdict "$step" works "$refusals refusal(s) said over eighteen notches and twenty pointer moves$(tail -n "+$((mark + 1))" "$LOG" | grep -c 'window [0-9]*x[0-9]* at' | sed 's/^/, windows drawn: /')"
+        verdict "$step" works "$refusals refusal(s) said over eighteen notches, one a size, none at twenty pointer moves$(tail -n "+$((mark + 1))" "$LOG" | grep -c 'window [0-9]*x[0-9]* at' | sed 's/^/, windows drawn: /')"
     elif [ "$refusals" -ne 0 ]; then
         verdict "$step" wrong "a toolkit window was refused a page it draws as it shows it"
     else

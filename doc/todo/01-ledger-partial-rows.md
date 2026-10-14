@@ -23,9 +23,8 @@ Each row's note states one current reason and what would move it (ADR 1574); thi
 reading in one line per row, and the note is where it is argued. The membership is
 `grep -B3 'status = "partial"\|status = "reported"' doc/conformance/ledger.toml`, never this list.
 
-- **§7.4, §7.6, §7.6.5, §12.5, §12.5.6, §12.7, §12.7.4, §12.7.5, §12.7.8, §12.7.8.3, §12.8,
-  §12.8.3, §12.8.3.4, §12.10** — headings whose status their leaves derive (ADR 1599); each moves
-  when the last row below it that owes does.
+- **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10** — headings whose status their leaves
+  derive (ADR 1599); each moves when the last row below it that owes does.
 - **§7.4.7** — the pinned `hayro-jbig2` ignores EXTTEMPLATE, so such a region is refused by segment;
   moves when the owner's fork takes `doc/patches/hayro-jbig2-extended-template.patch` (ADR 1459).
 - **§7.4.9** — e-sRGB, e-sYCC, CIE Jab and non-D50 CIE Lab take the device fallback because their
@@ -34,10 +33,6 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§12.5.6.2, §12.5.6.6, §12.7.4.3, §12.7.5.3, §12.7.8.3.2** — a rich text string's formatting is
-  laid out run by run (ADRs 1634, 1635); what the runs do not reach yet — the one-style cases, the
-  properties reported as unapplied, the import's `/RV` and the popup window's formatting — is
-  `doc/todo/65` bucket 4's, row by row.
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).

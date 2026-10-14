@@ -108,7 +108,8 @@ page's stream of a mebibyte or more is read on many threads**, divided after the
 and the pieces joined into the list the page read whole states, and a stream holding anything the
 join does not carry is read whole and says why (ADR 1880); the pieces start as the inflate passes
 them, cut after a `Q` a byte scan guessed and the lex before confirmed, and a `gs` or an optional-content
-section open across a cut is composed into the next piece (ADR 1894); text shown before any `Tf`, which §9.3.1
+section open across a cut is composed into the next piece (ADR 1894); each segment is let go once its piece
+has read it, and a piece's commands are copied into the page's list once (ADR 1924); text shown before any `Tf`, which §9.3.1
 says shall come first, reads none of its strings, each stepped over by §7.3.4's own
 grammar, and a report a page repeats is one lookup rather than a sentence built again (ADR 1521);
 and a font
@@ -248,14 +249,14 @@ worker program alone and runs in every window **at the reader's `Scripts` level*
 off|ask|warn|on` on every command line and a third act in every menu, `off` by default and
 `quorra-confined` pinned there and saying so, *ask* putting one question per document at its first
 script with that script's first line and a `yes` running what was withheld (ADR 1616), and `CLAUDE.md`'s exclusion beginning only where a script would reach beyond this document and this viewer (`doc/questions/A286`, ADR 1904); where it runs a document's scripts share one realm — Table 32's
-name tree runs into it once the first page is presented, Table 198's `/O` of page one and its
+name tree runs into it once the first page is presented, less an entry a checked requirement's `/RH` names as its handler, which §12.11.5 disables and the open sequence says (ADR 1923), Table 198's `/O` of page one and its
 annotations' Table 197 `/PO` and `/PV` run in the open sequence, and every later Table 197 and
 Table 198 script is a request the view state exposes for a host to raise at its event — a widget's
 pointer and focus through `run_annotation_scripts`, the page shown changing through
 `run_page_scripts` with Table 197's four page events beside it, nothing before the open sequence
 (ADR 1750), raised in all three windows, a press a toolkit's own control took included (ADR
 1752), and an outline item's `/A` handed over as the item is activated, at Adobe's `Bookmark`
-event (ADR 1904) — a commit runs `/V` and every `/CO` entry's `/C` with
+event (ADR 1904), with `this.bookmarkRoot` answering its `parent` and `doc` and refusing the rest of the reference's `Bookmark` by name (ADR 1922) — a commit runs `/V` and every `/CO` entry's `/C` with
 `event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),
@@ -288,7 +289,7 @@ architecture `CLAUDE.md` excludes: XFA 3.3's Rich Text Reference is held and eac
 face, size, width, colour, alignment, spacing, tab stops and leaders it states — and, where it asks
 for pair kerning, kerned by the pairs a face the document embeds states, under the script its
 characters select and the language system its annotation's language names (ADRs 1682, 1696,
-1708) — with every list
+1708), or for §9.6.2.2's fourteen by the pairs Adobe's Core 14 AFM files publish (ADR 1916) — with every list
 type chapter 27 requires — in a comb's cells, in UAX #9's order, a tab moving to the stop on the
 left where its paragraph reads that way, a character no run's face draws set in a machine's face
 beside the runs, with a host's caret, point and range answered from the runs — a changed rich value
@@ -334,9 +335,10 @@ degree with its hemispheres — read through the affine map its registration poi
 how far they depart from it, which is a choice because §12.10 defines no function between them
 (ADRs 1191, 1593) — and `pdf_model::geospatial` evaluates each method the census found in both
 directions, so a projected position comes back as a latitude, a projected `/DCS` is displayed as an
-easting and a northing, and a position given to a viewport answers its page point, refusing by name
-the projected maps whose registration points are already degrees (ADRs 1586, 1587, 1672,
-`doc/questions/Q271`); a person can **add an annotation** — §12.5.6.10's four markups over what is
+easting and a northing, and a position given to a viewport answers its page point; a projected map
+whose registration points are its base system's degrees, as every one the census found is, is
+fitted in the system's plane through the forward projection, a departure from Table 269's sentence
+(ADRs 1586, 1587, 1672, 1918); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation

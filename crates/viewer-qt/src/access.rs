@@ -37,6 +37,7 @@ use std::sync::atomic::Ordering;
 
 use viewer_accessibility::{Act, Bridge, Reading, Showing};
 use viewer_core::{Command, PointerAction};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use crate::bridge::ffi::QtPlace;
@@ -67,7 +68,7 @@ impl Host {
                      and published to nothing"
                 }
             };
-            self.trace.say(Topic::Access, format_args!("{said}"));
+            self.state.trace.say(Topic::Access, format_args!("{said}"));
             // Whatever the window last told this side about its own place, which it may have done
             // before there was an adapter to hand it to.
             self.tell_the_adapter_where_the_window_is();
@@ -75,8 +76,8 @@ impl Host {
             let active = self.window_active;
             self.window_activated(active);
         }
-        let (width, height) = self.viewport;
-        let Some(showing) = Showing::of(&self.viewer, width, height) else {
+        let (width, height) = self.state.viewport;
+        let Some(showing) = Showing::of(&self.state.viewer, width, height) else {
             return;
         };
         if self.spoken == Some(showing) {
@@ -103,9 +104,10 @@ impl Host {
             clippy::cast_precision_loss,
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
-        let viewport = (self.viewport.0 as f32, self.viewport.1 as f32);
-        let reading = Reading::of(&self.viewer, &window, &document, viewport).at(self.page_at);
-        self.trace.say(
+        let viewport = (self.state.viewport.0 as f32, self.state.viewport.1 as f32);
+        let reading =
+            Reading::of(&self.state.viewer, &window, &document, viewport).at(self.page_at);
+        self.state.trace.say(
             Topic::Access,
             format_args!(
                 "accessibility: {} page(s) on screen, {} element(s), {} widget(s), {} report(s), \
@@ -157,7 +159,7 @@ impl Host {
         self.window_active = active;
         if let Some(bridge) = self.accessibility.as_mut() {
             bridge.focused(active);
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Access,
                 format_args!(
                     "accessibility: the window is {}",
@@ -253,7 +255,8 @@ impl Host {
                     });
                 }
             }
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("carried out {:?}", one.action));
         }
     }
@@ -273,15 +276,16 @@ impl Host {
     /// **The match is exhaustive in all three windows**, which is what makes a case added to
     /// [`viewer_host::Clicked`] a compile error in three places rather than a silent no-op in two.
     fn click_page(&mut self, at: (f32, f32)) {
-        let clicked = viewer_host::clicked(&self.viewer, at);
+        let clicked = viewer_host::clicked(&self.state.viewer, at);
         if let Some(said) = clicked.note() {
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Access, format_args!("refused: {said}"));
             eprintln!("note: {said}");
         }
         match clicked {
             viewer_host::Clicked::Toggles { name, value } => {
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Access,
                     format_args!("setting the field {} to {value}", name.shown()),
                 );
@@ -294,7 +298,7 @@ impl Host {
                 // §12.7.5.3's text field or §12.7.5.4's choice: the keyboard goes to the control
                 // placed over the widget, which C++ gives it once this pump has returned, because
                 // Rust never calls a Qt object (ADR 1566).
-                self.trace.say(
+                self.state.trace.say(
                     Topic::Access,
                     format_args!("the keyboard goes to the field {}", name.shown()),
                 );
@@ -321,7 +325,10 @@ impl Host {
             clippy::cast_precision_loss,
             reason = "a viewport in device pixels; f32 is exact to 2^24 and no display is"
         )]
-        let viewport = (self.viewport.0.max(1) as f32, self.viewport.1.max(1) as f32);
+        let viewport = (
+            self.state.viewport.0.max(1) as f32,
+            self.state.viewport.1.max(1) as f32,
+        );
         let dx = delta(at[0], at[2], viewport.0);
         let dy = delta(at[1], at[3], viewport.1);
         if dx == 0.0 && dy == 0.0 {

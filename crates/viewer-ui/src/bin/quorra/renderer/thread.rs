@@ -177,6 +177,11 @@ fn draw_until_told_to_stop(
             if done.send(Finished::Frame(Box::new(finished))).is_err() {
                 return;
             }
+            // Woken, as for the sharp pass, a look and a scene, so that the window takes the frame
+            // when it lands rather than at whatever wakes the loop next (ADR 1926).
+            if let Some(waker) = waker {
+                let _ = waker.send_event(());
+            }
             continue;
         }
         // The sharp pass goes before the proxies: it is what the person is looking at now,

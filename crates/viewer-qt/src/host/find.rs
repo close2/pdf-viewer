@@ -1,7 +1,8 @@
 //! The find bar: Annex O's document-wide search, a page at a time on Qt's timer, and the matches
 //! and highlights drawn over the page (ADR 0250; filed here by ADR 1908).
 
-use viewer_core::{Answer, Command, Find, FindDirection, Query};
+use viewer_core::{Answer, Command, Find, Query};
+use viewer_host::native_window::NativeWindow;
 
 use crate::bridge::ffi::QtQuad;
 
@@ -13,10 +14,10 @@ impl Host {
     /// Asked on every repaint, because `Query::Find` reads a readback that is already there.
     /// `Command::Find` is the other question and the expensive one — see `find`.
     pub(crate) fn matches(&self) -> Vec<QtQuad> {
-        if self.needle.is_empty() {
+        if self.state.needle.is_empty() {
             return Vec::new();
         }
-        match self.viewer.query(Query::Find(&self.needle)) {
+        match self.state.viewer.query(Query::Find(&self.state.needle)) {
             Answer::Found(occurrences) => occurrences.iter().flatten().copied().map(quad).collect(),
             _ => Vec::new(),
         }
@@ -29,34 +30,9 @@ impl Host {
     /// Qt's, which is the whole argument for chrome crossing as geometry. Empty for every document
     /// opened without a fragment naming one.
     pub(crate) fn highlights(&self) -> Vec<QtQuad> {
-        match self.viewer.query(Query::Highlight) {
+        match self.state.viewer.query(Query::Highlight) {
             Answer::Highlighted(quads) => quads.iter().copied().map(quad).collect(),
             _ => Vec::new(),
-        }
-    }
-
-    /// A step of the search reported. Says what it found, and how much is left to read.
-    pub(super) fn searched(
-        &mut self,
-        found: Option<viewer_core::Found>,
-        remaining: usize,
-        wrapped: bool,
-    ) {
-        self.pages_left = remaining;
-        match found {
-            Some(found) => self.say(&format!(
-                "found {:?} on page {}{}",
-                self.needle,
-                found.page.saturating_add(1),
-                if wrapped { " (wrapped)" } else { "" }
-            )),
-            None if remaining == 0 => {
-                self.say(&format!("{:?} is not in this document", self.needle));
-            }
-            None => self.say(&format!(
-                "searching for {:?}: {remaining} page(s) left",
-                self.needle
-            )),
         }
     }
 
@@ -66,24 +42,14 @@ impl Host {
     /// choice for the same reason and is the agreement between the two hosts that
     /// `doc/ui-boundary.md` is about.
     pub(crate) fn retype(&mut self, needle: &str) {
-        needle.clone_into(&mut self.needle);
+        needle.clone_into(&mut self.state.needle);
         self.update.chrome = true;
     }
 
-    /// The next occurrence anywhere in the document, or the previous one.
+    /// The next occurrence anywhere in the document, or the previous one: the bridge's name for
+    /// [`NativeWindow::find`], which `cxx` calls as a method of `Host` itself (ADR 1920).
     pub(crate) fn find(&mut self, backward: bool) {
-        if self.needle.is_empty() {
-            return;
-        }
-        let needle = self.needle.clone();
-        self.dispatch(Command::Find(Find::Start {
-            needle,
-            direction: if backward {
-                FindDirection::Backward
-            } else {
-                FindDirection::Forward
-            },
-        }));
+        NativeWindow::find(self, backward);
     }
 
     /// One more page of the search in progress. The C++ calls this from a zero-delay timer.
@@ -93,14 +59,14 @@ impl Host {
 
     /// The find bar was closed: forget the plan and the highlights.
     pub(crate) fn find_stop(&mut self) {
-        self.needle.clear();
-        self.pages_left = 0;
+        self.state.needle.clear();
+        self.state.pages_left = 0;
         self.dispatch(Command::Find(Find::Stop));
         self.update.chrome = true;
     }
 
     /// Whether a search still has pages to read, which is what the C++ pumps on.
     pub(crate) fn searching(&self) -> bool {
-        self.pages_left > 0
+        self.state.pages_left > 0
     }
 }

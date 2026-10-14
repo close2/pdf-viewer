@@ -15,6 +15,7 @@ use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
 use viewer_core::{RestrictionLevel, RestrictionPolicy};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 use viewer_qt::Host;
 

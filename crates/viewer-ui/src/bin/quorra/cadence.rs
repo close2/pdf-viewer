@@ -70,11 +70,17 @@ pub(crate) struct Cadence {
     period: Duration,
     /// Where [`Self::period`] came from. See [`Source`].
     source: Source,
-    /// The earliest moment the next frame may be presented.
+    /// The next tick: when a window that owes a frame next looks for one.
     ///
     /// In the past for a window that has been still, which is what makes the first present after
     /// an idle period immediate.
     due: Instant,
+    /// The earliest moment the next present may be made: the first tick after the last present.
+    ///
+    /// **Moved by a present and by nothing else**, where [`Self::due`] is also moved by a tick that
+    /// owed a frame and put up nothing. Such a tick has not spent the refresh, so a frame landing
+    /// after it goes up when it lands rather than at the tick after (ADR 1926).
+    presentable: Instant,
     /// Whether a frame was asked for before the surface had refreshed, and so is still owed.
     ///
     /// **Without this the clock would only pace the frames that follow a reprojection**, which is
@@ -115,6 +121,7 @@ impl Default for Cadence {
             period: FLOOR,
             source: Source::Floor,
             due: Instant::now(),
+            presentable: Instant::now(),
             owing: false,
         }
     }
@@ -211,7 +218,7 @@ impl Cadence {
         }
     }
 
-    /// Whether a frame may be presented now.
+    /// Whether the tick has come: what `about_to_wait` asks before it asks for a frame.
     ///
     /// True for a window that has been still longer than one refresh, which is every window
     /// answering its first input: the cadence spaces frames out and never holds one back.
@@ -219,7 +226,16 @@ impl Cadence {
         now >= self.due
     }
 
-    /// When the next frame may be presented, for `ControlFlow::WaitUntil`.
+    /// Whether a frame may be presented now: no present has been made in this refresh.
+    ///
+    /// What a redraw asks, where [`Self::due`] is what a tick asks. The two differ after a tick
+    /// that owed a frame and put up nothing — page one not yet drawn, a turn whose stand-in was
+    /// refused — which moved the tick on and left the refresh unspent (ADR 1926).
+    pub(crate) fn may_present(&self, now: Instant) -> bool {
+        now >= self.presentable
+    }
+
+    /// When the next tick is, for `ControlFlow::WaitUntil`.
     pub(crate) fn next(&self) -> Instant {
         self.due
     }
@@ -231,6 +247,12 @@ impl Cadence {
     /// refreshes late. A clock that had set `now + period` would drift by exactly the cost of
     /// every frame it timed, which on this program's own witness is most of a second.
     pub(crate) fn presented(&mut self, now: Instant) {
+        self.tick_past(now);
+        self.presentable = self.due;
+    }
+
+    /// Moves the tick on to the first one after `now`, keeping its phase.
+    fn tick_past(&mut self, now: Instant) {
         // A present that arrived early keeps the phase; one that arrived late resynchronises to
         // the first tick that has not happened yet, which is `now` rounded up by whole periods.
         while self.due <= now {
@@ -254,11 +276,13 @@ impl Cadence {
     /// An idle window never reaches this, which is `doc/todo/36`'s fourth rule: the clock is
     /// armed by an obligation and by nothing else, so a window nobody is touching owes nothing,
     /// waits for an event and presents nothing.
+    ///
+    /// **It moves the tick and not the present**: the loop needs a moment ahead to wait until, and
+    /// a tick that put nothing up has not used the refresh, so [`Self::may_present`] stays true
+    /// for a frame that lands before the tick (ADR 1926).
     pub(crate) fn owed(&mut self, now: Instant) {
         self.owing = true;
-        if self.due <= now {
-            self.presented(now);
-        }
+        self.tick_past(now);
     }
 
     /// Whether a frame asked for earlier has still not been drawn.
@@ -291,6 +315,7 @@ mod tests {
             period,
             source: Source::Window,
             due: now,
+            presentable: now,
             owing: false,
         }
     }
@@ -395,5 +420,29 @@ mod tests {
         // wait until rather than a moment in the past.
         cadence.owed(now + period * 2);
         assert!(cadence.next() > now + period * 2);
+    }
+
+    /// A tick that owed a frame and put nothing up moves the tick on and leaves the refresh open,
+    /// so the frame that lands before the next tick goes up as it lands; its present closes the
+    /// refresh until that tick (ADR 1926).
+    #[test]
+    fn a_tick_that_put_nothing_up_leaves_the_refresh_open() {
+        let now = Instant::now();
+        let period = Duration::from_millis(8);
+        let mut cadence = at(period, now);
+        cadence.owed(now);
+        assert!(!cadence.due(now), "the loop waits for the next tick");
+        let landed = now + period / 2;
+        assert!(
+            cadence.may_present(landed),
+            "nothing was presented in this refresh, so the frame that lands goes up"
+        );
+        cadence.presented(landed);
+        assert!(
+            !cadence.may_present(landed),
+            "two presents in one refresh is a stutter"
+        );
+        assert_eq!(cadence.next(), now + period, "the tick keeps its phase");
+        assert!(cadence.may_present(now + period));
     }
 }

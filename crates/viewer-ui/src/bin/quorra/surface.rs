@@ -542,6 +542,8 @@ impl App {
         }
         self.cadence.owed(now);
         self.put_up_as_built(pages);
+        // A look put up is a present, though no frame line counts it, so it spends the refresh.
+        self.cadence.presented(now);
         true
     }
 
@@ -1183,6 +1185,8 @@ impl App {
         if stand_in && self.composer()?.shows_as_built(pages) {
             self.cadence.owed(now);
             self.put_up_composed_as_built(pages, &overlays);
+            // A look put up is a present, though no frame line counts it, so it spends the refresh.
+            self.cadence.presented(now);
             return None;
         }
         if !stand_in || !self.stale.has_rendering() {
@@ -1823,9 +1827,11 @@ impl App {
         // instead — which is what stops the window running at whatever rate the *input* device
         // happens to deliver. Nothing is lost: `about_to_wait` sees the obligation and asks
         // again, and a window that has been still is due at once, so the first frame after an
-        // input is not held back by so much as one refresh.
+        // input is not held back by so much as one refresh. The question is whether this refresh
+        // has had its present, not whether its tick has come: a tick that put nothing up leaves
+        // it open for the frame the render thread wakes this loop with (ADR 1926).
         let now = std::time::Instant::now();
-        if !self.cadence.due(now) {
+        if !self.cadence.may_present(now) {
             self.cadence.owed(now);
             return;
         }

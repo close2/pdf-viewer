@@ -67,7 +67,7 @@ impl Host {
         // states and this host could not put anywhere is a line rather than a silence — which is
         // trap 5 applied to the one report that would otherwise say nothing about a refusal.
         if !popups.is_empty() || !self.popups_shown.is_empty() {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Panel,
                 format_args!(
                     "{} of {} §12.5.6.14 popup window(s) placed",
@@ -179,7 +179,7 @@ impl Host {
         });
         // The window under the editor is taken away by the next placement.
         self.popups_shown.clear();
-        let popups = match self.viewer.query(Query::Popups) {
+        let popups = match self.state.viewer.query(Query::Popups) {
             Answer::Popups(windows) => windows,
             _ => Vec::new(),
         };
@@ -301,7 +301,7 @@ impl Host {
         self.ui.fixed.remove(&editor.frame);
         self.say("the keyboard is back on the page");
         self.popups_shown.clear();
-        let popups = match self.viewer.query(Query::Popups) {
+        let popups = match self.state.viewer.query(Query::Popups) {
             Answer::Popups(windows) => windows,
             _ => Vec::new(),
         };

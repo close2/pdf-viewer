@@ -6,46 +6,12 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Answer, Command, Query};
 
+use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use super::{Host, with};
 
 impl Host {
-    /// ADR 0668's second half: takes the drawing thread back from a page the arrangement has
-    /// stopped showing.
-    ///
-    /// The *rule* is `viewer_host::Drawing`'s and the same in both native windows; what this
-    /// supplies is the one fact that crate cannot ask for itself, because it holds no viewer: a
-    /// page Table 29's arrangement does not show has no place on the screen, so
-    /// `Query::PageGeometry` answers `Answer::None` for it.
-    pub(super) fn take_the_thread_back(&mut self) {
-        let Some(page) = self.drawing.inside() else {
-            return;
-        };
-        // A draw for a tab behind this one is still wanted, and the geometry below is the front's.
-        if self
-            .drawing
-            .inside_document()
-            .is_some_and(|document| document != self.documents.focused())
-        {
-            return;
-        }
-        let shown = matches!(
-            self.viewer.query(Query::PageGeometry(page)),
-            Answer::Geometry(_)
-        );
-        if self.drawing.superseded(shown) {
-            self.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} left the arrangement while it was being drawn, so the draw was \
-                     abandoned",
-                    page.saturating_add(1)
-                ),
-            );
-        }
-    }
-
     /// Takes whatever the drawing thread has finished and answers the viewer for it.
     ///
     /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why
@@ -60,16 +26,16 @@ impl Host {
     /// no input to lose, and `viewer_host::drawing::SETTLE` bounds the whole of what it may spend.
     pub(super) fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
         let drawn = if self.presented {
-            self.drawing.collect()
+            self.state.drawing.collect()
         } else {
-            self.drawing.settle(viewer_host::drawing::SETTLE)
+            self.state.drawing.settle(viewer_host::drawing::SETTLE)
         };
         // A draw that ended takes the bar it was showing with it.
         if !drawn.is_empty() {
             self.show_the_drawing();
         }
         for finished in drawn {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} {} {}x{} in {:?}, waited {:?}",
@@ -90,13 +56,13 @@ impl Host {
             };
             if let viewer_core::Rendered::Raster(raster) = &rendered {
                 let began = std::time::Instant::now();
-                if self.retained.landed(&finished.request, raster) {
-                    self.trace.say(
+                if self.state.retained.landed(&finished.request, raster) {
+                    self.state.trace.say(
                         Topic::Frames,
                         format_args!(
                             "page {} retained, {} held, in {:?}",
                             finished.request.page.saturating_add(1),
-                            self.retained.len(),
+                            self.state.retained.len(),
                             began.elapsed()
                         ),
                     );
@@ -109,7 +75,7 @@ impl Host {
             // The reader has their page, so the document may now be asked what it says about
             // itself — §12.8's signatures above all, whose answer digests the signed part of the
             // file. Once per opened document; `viewer_host::report::Due` is the rule. ADR 1044.
-            if self.showing.report_due.after_a_frame() {
+            if self.state.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
                 // And its open sequence, at the same moment and for the same reason: after the
                 // first present, never in front of it (ADR 1602).
@@ -130,48 +96,17 @@ impl Host {
         self.mind_a_long_draw();
     }
 
-    /// Asks the drawing for the part of each page past the whole-page bound that the viewport
-    /// shows and nothing drawn holds — after a zoom to such a page, and after a scroll out of the
-    /// window drawn of it (ADR 1892).
-    pub(super) fn ask_for_windows(&mut self) {
-        let viewer = &self.viewer;
-        let due = self.oversized.due(
-            self.documents.focused(),
-            |page| match viewer.query(Query::PageGeometry(page)) {
-                Answer::Geometry(geometry) => Some(geometry),
-                _ => None,
-            },
-            self.viewport,
-        );
-        for (request, window) in due {
-            self.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} asked as the window shows it, {}x{} at {},{} of {}x{}",
-                    request.page.saturating_add(1),
-                    window.width,
-                    window.height,
-                    window.x,
-                    window.y,
-                    request.target.width,
-                    request.target.height
-                ),
-            );
-            self.drawing.ask_window(request, window);
-        }
-    }
-
     /// Takes the windows the drawing has finished, and answers the viewer for the first of each
     /// request — the host took its list (ADR 1892).
     fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
-        let windows = self.drawing.windows();
+        let windows = self.state.drawing.windows();
         // A window that lands after its request was answered is a scroll's, and nothing else
         // repaints for it: the look that found it does, as a glimpse is repainted for.
         let repaint = windows
             .iter()
             .any(|(finished, _)| finished.outcome.is_some());
         for (finished, window) in windows {
-            self.trace.say(
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
@@ -190,10 +125,10 @@ impl Host {
                 ),
             );
             if finished.outcome.is_none() {
-                self.oversized.abandoned(&finished.request, window);
+                self.state.oversized.abandoned(&finished.request, window);
                 continue;
             }
-            if let Some((token, rendered)) = self.oversized.landed(finished, window) {
+            if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
                 queue.push_back(Command::RenderReady { token, rendered });
             }
         }
@@ -213,14 +148,14 @@ impl Host {
     /// ([`NO_POSITION_TO_SET`](super::window::NO_POSITION_TO_SET)). The size is `set_default_size`, which is GTK 4's one way to ask
     /// for a window's size, and a request the platform may refuse.
     pub(super) fn fit_the_window(&mut self) {
-        let page = match self.viewer.query(Query::View) {
+        let page = match self.state.viewer.query(Query::View) {
             Answer::View(viewing) => viewing.page,
             _ => 0,
         };
         let Some(placing) = self.presenting.place(page) else {
             return;
         };
-        let geometry = match self.viewer.query(Query::PageGeometry(page)) {
+        let geometry = match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) if placing.fit => geometry,
             _ => {
                 self.presenting.placed();
@@ -233,8 +168,8 @@ impl Host {
             f64::from(self.ui.window.height()),
         );
         let viewport = (
-            f64::from(self.viewport.0) / scale,
-            f64::from(self.viewport.1) / scale,
+            f64::from(self.state.viewport.0) / scale,
+            f64::from(self.state.viewport.1) / scale,
         );
         let drawn = (
             f64::from(geometry.width) / scale,
@@ -269,59 +204,6 @@ impl Host {
         );
     }
 
-    /// Tells the person about a draw that has outlasted `viewer_host::drawing::WARN`, and takes
-    /// the sentence back when it ends.
-    ///
-    /// **The *warn* half of the owner's "warn the user and allow the user to abort, however don't
-    /// block"**, on the poll this window already runs while something is being drawn — so nothing
-    /// new wakes for it and a window at rest asks nothing. The decision, the duration and the
-    /// wording are all `viewer-host`'s; what is GTK's is the label.
-    ///
-    /// It says something only when the answer *changes*, which is not tidiness: the poll runs
-    /// every millisecond, and a status bar rewritten a thousand times a second is a status bar
-    /// nobody can read.
-    fn mind_a_long_draw(&mut self) {
-        let overlong = self.drawing.overlong();
-        if overlong == self.warned {
-            return;
-        }
-        let was = self.warned.take();
-        self.warned = overlong;
-        match (was, overlong) {
-            (_, Some(page)) => self.say(&viewer_host::still_drawing(Some(page))),
-            // A page that finished on its own: the sentence offered a key it no longer has a job
-            // for, so it is withdrawn rather than left standing.
-            (Some(page), None) => self.say(&viewer_host::drew_after_all(Some(page))),
-            (None, None) => {}
-        }
-    }
-
-    /// Whether this window has offered the key that stops a draw — `viewer_host::Waiting`.
-    ///
-    /// Read off [`Host::warned`] rather than asked of the drawing again, and the difference is the
-    /// point: what decides Escape's meaning is whether the window has *said* something, not
-    /// whether a clock has passed. A key that changed meaning a millisecond before the sentence
-    /// appeared would be the guess the sentence exists to remove.
-    pub(super) fn waiting(&self) -> viewer_host::Waiting {
-        if self.warned.is_some() {
-            viewer_host::Waiting::Warned
-        } else {
-            viewer_host::Waiting::Nothing
-        }
-    }
-
-    /// Stops the draw the sentence above offered to stop — `viewer_host::WindowAct::AbortDrawing`.
-    ///
-    /// Nothing is reported to the viewer for it (trap 20), so the page keeps whatever it was
-    /// showing and is drawn again the next time the view changes, which is what the sentence says.
-    pub(super) fn stop_the_long_draw(&mut self) {
-        let stopped = self.drawing.abandon();
-        self.warned = None;
-        if let Some(page) = stopped {
-            self.say(&viewer_host::stopped_drawing(Some(page)));
-        }
-    }
-
     /// Takes down the pending drawing poll, if there still is one.
     ///
     /// [`Host::disarm`]'s reason one clause over: `SourceId::remove` panics on a source that has
@@ -341,7 +223,7 @@ impl Host {
     /// is `None` the moment nothing is being drawn, and a repeating source cannot stop.
     pub(super) fn pump_drawing(&mut self) {
         self.disarm_drawing();
-        let Some(interval) = self.drawing.interval() else {
+        let Some(interval) = self.state.drawing.interval() else {
             return;
         };
         let me = self.me.clone();
@@ -363,8 +245,8 @@ impl Host {
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         // The rows the window shows are on it, finished, before the page lands (ADR 1868).
-        if let Some((page, after)) = self.drawing.seen_drawn() {
-            self.trace.say(
+        if let Some((page, after)) = self.state.drawing.seen_drawn() {
+            self.state.trace.say(
                 Topic::Frames,
                 format_args!(
                     "page {} shown finished where the window shows it, {after:?} after it was asked",
@@ -375,7 +257,7 @@ impl Host {
         if queue.is_empty() {
             // A page still being drawn has shown how it stands: that is a picture worth the
             // copy, where a look that found nothing is not (ADR 1825).
-            if self.drawing.glimpsed() {
+            if self.state.drawing.glimpsed() {
                 self.refresh();
                 self.show_the_drawing();
             }
@@ -389,7 +271,7 @@ impl Host {
     /// while a draw is shown as it stands the bar carries how much of the page's drawing there is,
     /// and it goes when the page lands. The bar of a document still opening is that opening's.
     fn show_the_drawing(&mut self) {
-        match self.drawing.partial() {
+        match self.state.drawing.partial() {
             Some(partial) => {
                 self.ui.loading.set_fraction(partial.fraction());
                 self.ui.loading.set_visible(true);

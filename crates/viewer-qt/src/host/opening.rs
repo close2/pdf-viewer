@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 
 use viewer_core::{Command, Event};
+use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
@@ -27,7 +28,7 @@ impl Host {
     pub(super) fn join_the_opening(&mut self, resize: Command) {
         // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
         // from which its looks are what the window shows (ADR 1855).
-        let drawing_ahead = self.ahead.is_some();
+        let drawing_ahead = self.state.ahead.is_some();
         if self.anticipated.as_ref().is_some_and(|opening| {
             !if drawing_ahead {
                 opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
@@ -35,7 +36,8 @@ impl Host {
                 opening.wait()
             }
         }) {
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Launch, format_args!("document still opening"));
             self.awaiting = Some(resize);
             self.show_the_opening();
@@ -63,36 +65,6 @@ impl Host {
         }
         if let Some(resize) = self.awaiting.take() {
             self.take_the_opening(resize);
-        }
-    }
-
-    /// Takes the newest look at page one as it is read, where one has been drawn since the last
-    /// (ADRs 1855, 1867), for [`Self::frames`] to show until the page has a frame of its own.
-    /// Nothing is answered to the core, which has no document yet.
-    fn show_the_read(&mut self) {
-        let Some(look) = self.ahead.as_ref().and_then(viewer_host::Ahead::look) else {
-            return;
-        };
-        if self
-            .read_look
-            .as_ref()
-            .is_some_and(|shown| shown.serial == look.serial)
-        {
-            return;
-        }
-        let commands = look.commands;
-        let first = self.read_look.is_none();
-        self.read_look = Some(look);
-        self.update.frame = true;
-        self.trace.say(
-            Topic::Frames,
-            format_args!("page 1 shown as it is read, {commands} commands drawn"),
-        );
-        if first {
-            self.trace.say(
-                Topic::Launch,
-                format_args!("page shown as it is read at {:?}", self.trace.since_start()),
-            );
         }
     }
 
@@ -126,7 +98,7 @@ impl Host {
     /// (ADR 1825).
     pub(crate) fn loading_permille(&self) -> i32 {
         if self.awaiting.is_none() {
-            return self.drawing.partial().map_or(-1, |partial| {
+            return self.state.drawing.partial().map_or(-1, |partial| {
                 #[expect(
                     clippy::cast_possible_truncation,
                     reason = "a share in [0, 1], times a thousand"
@@ -154,8 +126,8 @@ impl Host {
     fn take_the_opening(&mut self, resize: Command) {
         // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
         // is finished from that drawing rather than drawn (ADR 1855).
-        if let Some(ahead) = self.ahead.take() {
-            self.drawing.draw_ahead(ahead);
+        if let Some(ahead) = self.state.ahead.take() {
+            self.state.drawing.draw_ahead(ahead);
         }
         let joined = self.anticipated.take().map(viewer_host::Loading::join);
         let Some(Ok((viewer, opened))) = joined else {
@@ -166,15 +138,15 @@ impl Host {
             self.open_document(None);
             return;
         };
-        self.viewer = viewer;
-        self.trace.say(
+        self.state.viewer = viewer;
+        self.state.trace.say(
             Topic::Launch,
             format_args!("document joined, {} event(s)", opened.len()),
         );
         // Asked before the open's events are answered, so that the panels built from them do not
         // read the outline on this thread first (ADR 1553).
         self.prepare();
-        let resized: Vec<Event> = self.viewer.handle(resize).collect();
+        let resized: Vec<Event> = self.state.viewer.handle(resize).collect();
         let mut queue = VecDeque::new();
         for event in opened.into_iter().chain(resized) {
             self.react(event, &mut queue);
@@ -188,7 +160,7 @@ impl Host {
     /// The thread holds a handle to the immutable file and nothing of the core's. Its answer is
     /// looked for on the drawing timer, which [`Host::drawing_wait`] keeps running until it lands.
     fn prepare(&mut self) {
-        self.preparing = self.viewer.preparation().map(|preparation| {
+        self.preparing = self.state.viewer.preparation().map(|preparation| {
             let (send, answer) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
                 // A window that has closed has nobody to give the answer to.
@@ -215,14 +187,15 @@ impl Host {
         self.preparing = None;
         let mut queue = VecDeque::new();
         if let Some(prepared) = prepared {
-            self.trace
+            self.state
+                .trace
                 .say(Topic::Launch, format_args!("outline and page tree read"));
-            let events: Vec<Event> = self.viewer.prepared(prepared).collect();
+            let events: Vec<Event> = self.state.viewer.prepared(prepared).collect();
             for event in events {
                 self.react(event, &mut queue);
             }
         }
-        if self.documents.focused() == DOCUMENT {
+        if self.state.documents.focused() == DOCUMENT {
             let rows = flatten(&self.panel_of(Tab::Contents));
             if let Some(tree) = self.trees.get_mut(Tab::Contents.index()) {
                 *tree = rows;
@@ -238,9 +211,9 @@ impl Host {
             self.restrictions.window(),
             self.widget_appearances,
             self.separations,
-            self.showing.bytes.clone(),
+            self.state.showing.bytes.clone(),
             password,
-            self.showing.fragment.clone(),
+            self.state.showing.fragment.clone(),
         ));
     }
 }

@@ -39,8 +39,14 @@
 //! **Between registration points the function is a choice, and it is named**: §12.10 states the
 //! points and no function between them, so [`Geospatial::registration_geographic`] converts the
 //! points the file states, [`Geospatial::geographic_position`] converts through `/PCSM`, the one
-//! function the table does state, and [`registration::AffineRegistration`] is ADR 1593's reading
-//! between the points, which `crate::measurement::Viewport::page_position` runs backwards.
+//! function the table does state, and [`Geospatial::registration_map`] is ADR 1593's reading
+//! between the points — fitted in a projected system's plane (ADR 1918) — which
+//! `crate::measurement::Viewport::page_position` runs backwards.
+//!
+//! **One sentence of Table 269 is departed from**, on the owner's answer `doc/questions/A271`: a
+//! projected system's `/GPTS` whose every pair is shaped as degrees are read as its base system's
+//! degrees rather than as the "eastings and northings" the table states, because every projected
+//! map the census found writes them so (ADR 1918).
 
 pub mod ellipsoid;
 pub mod projection;
@@ -132,13 +138,6 @@ pub enum Refusal {
         /// The datum `/DCS` names.
         to: String,
     },
-    /// A projected `/GCS` whose every `/GPTS` pair lies within ±90 by ±180 — the shape of
-    /// degrees, where Table 269 states eastings and northings (ADR 1586, `doc/questions/Q271`).
-    #[error(
-        "the projected system's registration points are shaped as degrees, and Table 269 states \
-         eastings and northings"
-    )]
-    RegistrationShapedAsDegrees,
     /// A point the method's formulas do not reach.
     #[error("the point is outside the domain of {method}")]
     OutsideDomain {
@@ -202,6 +201,16 @@ pub struct GeographicPosition {
     pub longitude: f64,
 }
 
+/// The projected system a `PROJCS` dictionary's `/WKT` states.
+fn projected_system(system: &CoordinateSystem) -> Result<ProjectedSystem, Refusal> {
+    match system.reference_system()? {
+        ReferenceSystem::Projected(projected) => Ok(projected),
+        ReferenceSystem::Geographic(_) => Err(Refusal::NotASystem(
+            "a PROJCS dictionary whose WKT states a geographic system".to_owned(),
+        )),
+    }
+}
+
 impl CoordinateSystem {
     /// The system this dictionary states, read from its `/WKT`.
     ///
@@ -260,14 +269,8 @@ impl Geospatial {
     /// Where `/GCS` is geographic, Table 269 states the points as "degrees of latitude and
     /// longitude, respectively", and they are returned as the file states them. Where it is
     /// projected, the points are "eastings and northings", and each is carried through the
-    /// system's inverse projection.
-    ///
-    /// **A projected system's points shaped as degrees are refused, not converted.** The census
-    /// found 158 documents with a projected `/GCS`, and every one of them states its `/GPTS`
-    /// within ±90 by ±180 and none states `/PCSM`: the producers write the base system's degrees
-    /// where the table writes eastings and northings. Converting them as eastings would put
-    /// every such map near its grid's origin; reading them as degrees would be this reader
-    /// deciding against the table's sentence. Which is the owner's (`doc/questions/Q271`).
+    /// system's inverse projection — except where every pair is shaped as degrees, and then they
+    /// are the base system's degrees and are returned as the file states them (ADR 1918).
     ///
     /// # Errors
     ///
@@ -275,40 +278,88 @@ impl Geospatial {
     /// or the projection refuses.
     pub fn registration_geographic(&self) -> Result<Vec<(GeographicPosition, [f64; 2])>, Refusal> {
         let system = self.coordinate_system.as_ref().ok_or(Refusal::NotStated)?;
-        let pairs = self.registration();
         if !system.projected {
-            return Ok(pairs
-                .into_iter()
-                .map(|([latitude, longitude], local)| {
-                    (
-                        GeographicPosition {
-                            latitude,
-                            longitude,
-                        },
-                        local,
-                    )
-                })
-                .collect());
+            return Ok(self.registration_as_degrees());
         }
-        let ReferenceSystem::Projected(projected) = system.reference_system()? else {
-            return Err(Refusal::NotASystem(
-                "a PROJCS dictionary whose WKT states a geographic system".to_owned(),
-            ));
-        };
-        if !pairs.is_empty()
+        Ok(self
+            .registration_in_plane(&projected_system(system)?)?
+            .into_iter()
+            .map(|(position, _, local)| (position, local))
+            .collect())
+    }
+
+    /// The affine map the registration determines between the object's unit square and the
+    /// earth, with its departure from the file's points: in degrees where `/GCS` is geographic
+    /// (ADR 1593), and in the projected system's plane where it is projected, a position between
+    /// the points carried to the earth by the system's inverse projection (ADR 1918).
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::NoMap`] where the pairs determine no map of the plane, and what
+    /// [`Self::registration_geographic`] or the projection refuses.
+    pub fn registration_map(&self) -> Result<AffineRegistration, Refusal> {
+        let system = self.coordinate_system.as_ref().ok_or(Refusal::NotStated)?;
+        let count = self.registration().len();
+        if !system.projected {
+            return AffineRegistration::fit(&self.registration_as_degrees())
+                .ok_or(Refusal::NoMap(count));
+        }
+        let projected = projected_system(system)?;
+        let pairs = self.registration_in_plane(&projected)?;
+        AffineRegistration::fit_in_plane(projected, &pairs)?.ok_or(Refusal::NoMap(count))
+    }
+
+    /// The registration pairs with `/GPTS` read as latitudes and longitudes, as Table 269 states
+    /// them for a geographic system.
+    fn registration_as_degrees(&self) -> Vec<(GeographicPosition, [f64; 2])> {
+        self.registration()
+            .into_iter()
+            .map(|([latitude, longitude], local)| {
+                (
+                    GeographicPosition {
+                        latitude,
+                        longitude,
+                    },
+                    local,
+                )
+            })
+            .collect()
+    }
+
+    /// A projected system's registration pairs, each with its position on the earth and in the
+    /// system's plane.
+    ///
+    /// Table 269 states a projected system's `/GPTS` as "eastings and northings", and they are
+    /// carried to the earth by the inverse projection. **A set whose every pair lies within ±90
+    /// by ±180 is read as the base system's degrees instead**, and carried into the plane by the
+    /// forward projection: the census found 158 documents stating a projected `/GCS`, every one
+    /// of them writes its points that way and none states `/PCSM`, and read as eastings each map
+    /// would lie within a few hundred metres of its grid's origin. That is a departure from the
+    /// table's sentence, on the owner's answer `doc/questions/A271`, and its cost is a conforming
+    /// file whose every easting and northing falls within 90 by 180 units of its grid's origin,
+    /// read as degrees. What the reading rests on is NOTE 2 beside the sentence, that every
+    /// projected system includes an underlying geographic one (ADR 1918).
+    fn registration_in_plane(
+        &self,
+        projected: &ProjectedSystem,
+    ) -> Result<Vec<registration::PlanePair>, Refusal> {
+        let pairs = self.registration();
+        let shaped_as_degrees = !pairs.is_empty()
             && pairs
                 .iter()
-                .all(|([a, b], _)| a.abs() <= 90.0 && b.abs() <= 180.0)
-        {
-            // Every census document with a projected `/GCS` writes its points this way, and
-            // none writes the eastings and northings the table states; which of the two a file
-            // meant is the owner's question Q271, and until it is answered neither is assumed.
-            return Err(Refusal::RegistrationShapedAsDegrees);
-        }
+                .all(|([a, b], _)| a.abs() <= 90.0 && b.abs() <= 180.0);
         pairs
             .into_iter()
-            .map(|([easting, northing], local)| {
-                Ok((projected.geographic(easting, northing)?, local))
+            .map(|([first, second], local)| {
+                if shaped_as_degrees {
+                    let position = GeographicPosition {
+                        latitude: first,
+                        longitude: second,
+                    };
+                    Ok((position, projected.grid(position)?, local))
+                } else {
+                    Ok((projected.geographic(first, second)?, [first, second], local))
+                }
             })
             .collect()
     }
@@ -479,9 +530,10 @@ mod tests {
     }
 
     #[test]
-    fn projected_registration_points_shaped_as_degrees_are_refused() {
+    fn projected_registration_points_shaped_as_degrees_are_the_base_systems_degrees() {
         // A census document's shape: a UTM /GCS whose /GPTS are its corners' latitudes and
-        // longitudes (`poppler-101379-0.pdf` in the Tika corpus).
+        // longitudes (`poppler-101379-0.pdf` in the Tika corpus), read as the base system's
+        // degrees (ADR 1918) rather than as eastings a few metres from the grid's origin.
         let geospatial = Geospatial {
             coordinate_system: Some(utm_32n()),
             geographic_points: vec![[43.042_427, 2.742_364], [43.036_308, 2.742_389]],
@@ -490,8 +542,100 @@ mod tests {
         };
         assert_eq!(
             geospatial.registration_geographic(),
-            Err(Refusal::RegistrationShapedAsDegrees)
+            Ok(vec![
+                (
+                    GeographicPosition {
+                        latitude: 43.042_427,
+                        longitude: 2.742_364
+                    },
+                    [0.0, 1.0]
+                ),
+                (
+                    GeographicPosition {
+                        latitude: 43.036_308,
+                        longitude: 2.742_389
+                    },
+                    [0.0, 0.0]
+                ),
+            ])
         );
+        // One point inside the shape and one outside it is not the shape: both are eastings
+        // and northings, as the table states them, so the first is 2.7 m north of the equator
+        // and not at 43° N.
+        let mixed = Geospatial {
+            geographic_points: vec![[43.0, 2.7], [500_000.0, 4_000_000.0]],
+            ..geospatial
+        };
+        let points = mixed.registration_geographic().expect("degrees");
+        assert!(points[0].0.latitude.abs() < 0.001, "{points:?}");
+        assert!((points[1].0.longitude - 9.0).abs() < 1e-9, "{points:?}");
+    }
+
+    #[test]
+    fn a_projected_registration_is_fitted_in_the_plane_and_run_backwards() {
+        // The drive's map: a UTM zone 32N system registered by a rectangle of the base system's
+        // degrees, 47° N to 48° N and 8° E to 10° E, which is no rectangle in the plane.
+        let geospatial = Geospatial {
+            coordinate_system: Some(utm_32n()),
+            geographic_points: vec![[47.0, 8.0], [48.0, 8.0], [48.0, 10.0], [47.0, 10.0]],
+            local_points: vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+            ..Geospatial::default()
+        };
+        let map = geospatial.registration_map().expect("a map in the plane");
+        let Ok(ReferenceSystem::Projected(projected)) = utm_32n().reference_system() else {
+            panic!("a projected system");
+        };
+        // A least-squares fit passes through the mean of its points at the mean of their
+        // positions in the square, so the middle of the square is the mean of the four corners'
+        // eastings and northings, carried back through the inverse.
+        let mut mean = [0.0, 0.0];
+        for [latitude, longitude] in &geospatial.geographic_points {
+            let [easting, northing] = projected
+                .grid(GeographicPosition {
+                    latitude: *latitude,
+                    longitude: *longitude,
+                })
+                .expect("a grid point");
+            mean[0] += easting / 4.0;
+            mean[1] += northing / 4.0;
+        }
+        let expected = projected.geographic(mean[0], mean[1]).expect("a position");
+        let middle = map.position([0.5, 0.5]).expect("a position");
+        assert!(
+            (middle.latitude - expected.latitude).abs() < 1e-12,
+            "{middle:?}"
+        );
+        assert!(
+            (middle.longitude - expected.longitude).abs() < 1e-12,
+            "{middle:?}"
+        );
+        // Symmetric about the central meridian, so the middle is on it; and the plane's middle is
+        // not the degrees' — the parallels of a transverse Mercator curve.
+        assert!((middle.longitude - 9.0).abs() < 1e-9, "{middle:?}");
+        assert!((middle.latitude - 47.5).abs() > 1e-4, "{middle:?}");
+        // The corners are no affine map's in the plane, and the departure says how far, in
+        // degrees: well under a hundredth of a degree for a map one degree tall.
+        assert!(
+            map.departure() > 0.0 && map.departure() < 0.01,
+            "{}",
+            map.departure()
+        );
+        // Run backwards, a position read comes back to the point that read it.
+        for local in [[0.25, 0.75], [0.5, 0.5], [0.9, 0.1]] {
+            let position = map.position(local).expect("a position");
+            let back = map
+                .local(position)
+                .expect("a grid point")
+                .expect("an invertible map");
+            assert!((back[0] - local[0]).abs() < 1e-9 && (back[1] - local[1]).abs() < 1e-9);
+        }
+        // Too few points determine no map, by the same refusal as a geographic system's.
+        let two = Geospatial {
+            geographic_points: vec![[47.0, 8.0], [48.0, 8.0]],
+            local_points: vec![[0.0, 0.0], [0.0, 1.0]],
+            ..geospatial
+        };
+        assert_eq!(two.registration_map(), Err(Refusal::NoMap(2)));
     }
 
     #[test]
@@ -643,8 +787,8 @@ mod tests {
         // ADR 1672: one map per method the census's round trip found, its `/GCS` string as the
         // crawl document states it (a literal string's `\` before an ordinary character resolved
         // as §7.3.4.2 says, by dropping it) and its first `/GPTS` pair read as the base system's
-        // degrees — the census's reading, which the program refuses until Q271 is answered. The
-        // forward projection and the inverse return to the point within ADR 1587's 0.0005″.
+        // degrees, as ADR 1918 reads them. The forward projection and the inverse return to the
+        // point within ADR 1587's 0.0005″.
         let cases: [(&str, &str, Method, [f64; 2]); 7] = [
             (
                 "0100299.pdf",
