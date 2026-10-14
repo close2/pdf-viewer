@@ -95,18 +95,20 @@ pub(super) fn begin(context: &mut Context, request: &Request) -> JsResult<JsObje
         !request.field.is_empty() && matches!(request.site, ScriptSite::Annotation(_)),
     );
     // The reference's "Event type/name combinations" page makes the document the target of every
-    // `Doc` event — the open and Table 200's five (ADR 1614).
-    let target = if matches!(
-        request.site,
-        ScriptSite::Library | ScriptSite::OpenAction | ScriptSite::Document(_) | ScriptSite::Timer
-    ) {
-        JsValue::from(context.global_object())
-    } else {
-        field_object(context, &request.field).map_or_else(JsValue::null, JsValue::from)
+    // `Doc` event — the open and Table 200's five (ADR 1614). A `Bookmark` event's target is the
+    // reference's bookmark object, which this realm does not carry, so it is null and the item is
+    // named by `targetName` (ADR 1904).
+    let target = match request.site {
+        ScriptSite::Library
+        | ScriptSite::OpenAction
+        | ScriptSite::Document(_)
+        | ScriptSite::Timer => JsValue::from(context.global_object()),
+        ScriptSite::Outline => JsValue::null(),
+        _ => field_object(context, &request.field).map_or_else(JsValue::null, JsValue::from),
     };
     let source =
         field_object(context, &request.event.source).map_or_else(JsValue::null, JsValue::from);
-    let target_name = if request.site == ScriptSite::Library {
+    let target_name = if matches!(request.site, ScriptSite::Library | ScriptSite::Outline) {
         request.label.as_str()
     } else {
         request.field.as_str()

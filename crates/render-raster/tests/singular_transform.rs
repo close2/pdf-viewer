@@ -45,7 +45,7 @@
 //! (`pdf-model/examples/singular_transform_census`).
 //!
 //! Run against the defect before believing it: restore the `?` on `page_to_path` in
-//! `render-cpu/src/lib.rs`, on `Spaces::new` in `render-gpu/src/scene.rs`, or take the
+//! `render-cpu/src/fill.rs` or `stroke.rs`, on `Spaces::new` in `render-gpu/src/scene.rs`, or take the
 //! `paint_space` guard out of `render-raster/src/stroke.rs`, and the `expect`s below fail on the
 //! first scene that reaches the one you restored.
 

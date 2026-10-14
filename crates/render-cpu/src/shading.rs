@@ -431,9 +431,9 @@ fn fill_with_raster(
     {
         let alpha = source[3];
         *target = tiny_skia::PremultipliedColorU8::from_rgba(
-            crate::premultiply(source[0], alpha),
-            crate::premultiply(source[1], alpha),
-            crate::premultiply(source[2], alpha),
+            crate::compose::premultiply(source[0], alpha),
+            crate::compose::premultiply(source[1], alpha),
+            crate::compose::premultiply(source[2], alpha),
             alpha,
         )
         .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);

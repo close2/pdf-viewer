@@ -1644,7 +1644,7 @@ impl App {
             // What grounding cost, said on its own line because it is a *number to keep small*
             // rather than a step to take on trust: it is the swapchain's creation and the
             // window's first acquire, moved off page one's present onto a moment where the
-            // configure cannot race a submission (`crate::renderer::Ungrounded`).
+            // configure cannot race a submission (`crate::renderer::window::Ungrounded`).
             self.trace.say(
                 Topic::Launch,
                 format_args!(

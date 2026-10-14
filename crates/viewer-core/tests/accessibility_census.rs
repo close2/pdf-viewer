@@ -1410,29 +1410,34 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
     if absent.is_empty() {
         // Every floor below counts the whole population, `RATCHETED_SPECIFICATIONS` included, so
         // a tagged text that joins `doc/` raises it the way every `doc/*.pdf` does (ADR 1075: the
-        // bound sits beside the population it admits; trap 43). The two header floors count a
+        // bound sits beside the population it admits; trap 43). Ten of the floors below moved on
+        // 2026-10-14, when `doc/PDF20_AN001-BPC.edited.pdf` — an edited copy of the tagged
+        // technical note, five pages — joined the owner's `doc/`; each is the population that run read. The two header floors count a
         // cell once rather than once per page it is reached from (ADR 1151).
+        // 114 since `doc/PDF20_AN001-BPC.edited.pdf` joined the owner's `doc/` on 2026-10-14 — an
+        // edited copy of the tagged technical note, so one more document with structure (trap 43).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            113,
+            114,
         );
+        // 2659 since `doc/PDF20_AN001-BPC.edited.pdf` (five pages) joined the owner's `doc/` on 2026-10-14.
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2654,
+            2659,
         );
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 248_085);
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 248_172);
         gate_ratchet::floor(
             "§14.9.3's /Alt carried, whole population",
             census.substituted,
-            670,
+            673,
         );
-        gate_ratchet::floor("elements placed, whole population", census.placed, 14_026);
+        gate_ratchet::floor("elements placed, whole population", census.placed, 14_035);
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            211_328,
+            211_414,
         );
         gate_ratchet::floor(
             "cells with headers, whole population",
@@ -1448,7 +1453,7 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            13_031,
+            13_037,
         );
         // ADR 1490: the readback's word gaps measured in text space, A/B on one build, gave 269
         // more elements a line of their own text, 260 more lines and 5 more characters. ADR 1515:
@@ -1458,10 +1463,10 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            135_428,
+            135_497,
         );
-        gate_ratchet::floor("lines, whole population", census.lines, 223_382);
-        gate_ratchet::floor("characters, whole population", census.characters, 5_695_133);
+        gate_ratchet::floor("lines, whole population", census.lines, 223_491);
+        gate_ratchet::floor("characters, whole population", census.characters, 5_700_611);
         // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
         // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
         // this population as it is in the tracked one.

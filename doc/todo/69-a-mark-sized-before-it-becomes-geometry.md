@@ -12,7 +12,7 @@ of its shape — cubicle grids, hatching, labels — is `crates/render-raster/ex
 Instrument: `crates/render-raster/examples/tile_price.rs` — its census, its fit row, its floor row;
 `examples/pipeline_price.rs` for the read against the draw (section 4).
 Clauses: §8.4.3.3 (Table 53's caps), §8.5.3.2 (a stroke's shape), §10.7.4 (the area a shape paints).
-Code: `crates/render-cpu/src/lib.rs` (`draw_stroke`, the place the classification goes before
+Code: `crates/render-cpu/src/stroke.rs` (`draw_stroke`, the place the classification goes before
 `convert::path`), `crates/pdf-render/` (the classification itself, one copy for every backend —
 trap 2), `raster/crates/raster-gpu/src/` (the device primitive and its per-mark price).
 
@@ -144,11 +144,11 @@ frame's largest term.
   failed guess moves the cut and never the list.
 - **The drawer — built (ADR 1896)**: `render_cpu::Underway::in_strips` draws the waiting parts in
   even strips on the pool and finishes the rest there, and the join hands each piece over as it is
-  joined. What does not divide in the draw whole is the strip count: the planner cuts the witness's
-  1 000 rows into 10 strips on 12 threads and on 24 (`MIN_STRIP_ROWS` under `MAX_STRIPS`, then the
-  halving search), with the slowest strip about three times the quickest; even cuts at the pool's
-  width draw it faster (ADR 1896 §3). **Next**: the planner asked for the pool's width at a
-  1 000-row target, which moves the processor arms' digests and owes them.
+  joined. **The strip count** (ADR 1915): what holds the witness's 1 000 rows to 10 strips on 12
+  threads and on 24 is the balanced cut's 64-row floor, not the count asked. Under 32 rows the
+  planner grants 12 and 16 and the page drawn whole is 6–10 % quicker, but the new cuts move pixels
+  by ADR 0219's residual past ADR 1758's bound, so it was taken back. **Next**: the residual itself,
+  which a mark converted row by row does not have (ADR 1819); a smaller floor costs what is left.
 - **Not taken**: dividing the inflate itself. The witness's one stream has no restart point
   (`00 00 FF FF` count 0), so dividing it means rapidgzip's speculative decoder in-tree, for at most
   42–45 ms of the read.

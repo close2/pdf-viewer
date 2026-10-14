@@ -348,6 +348,15 @@ section_ahead() {
         walk small -- cargo test --profile gates -p pdf-model --test drawn_while_read -- --ignored --nocapture
 }
 
+# A page drawn ahead is finished in strips on the pool (ADR 1896): over the tracked corpus, every first
+# page finished from its parts in strips is the page drawn whole at those cuts, and a page drawn whole
+# instead says why. The filter keeps the one line that counts and the reasons' census.
+section_ahead_strips() {
+    run "page one drawn ahead in strips, over the tracked corpus (ADR 1896)" \
+        '^[0-9]+ (first pages|documents)' \
+        walk small -- cargo test --profile gates -p viewer-host --test drawn_ahead_in_strips -- --ignored --nocapture
+}
+
 # `pdfref-hayro` is the oracle's fourth reading (`Reference::Hayro`) and another package's binary, so
 # the walk builds it beside the sandbox worker (trap 10's second program, ADR 0222). The filter keeps
 # the census of which bound keeps the references apart on the dense-text groups, because those groups'
@@ -1780,7 +1789,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1827,6 +1836,7 @@ for section in $sections; do
     corpus) section_corpus ;;
     golden) section_golden ;;
     ahead) section_ahead ;;
+    ahead-strips) section_ahead_strips ;;
     oracle) section_oracle ;;
     oracle-held) section_oracle_held ;;
     text) section_text ;;

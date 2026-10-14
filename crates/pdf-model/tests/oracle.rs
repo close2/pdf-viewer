@@ -2163,7 +2163,7 @@ const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 0] = [];
 ///
 /// `mupdf`'s own log names its choice ("padding truncated image") and the arithmetic confirms it:
 /// the visible corner is source rows 75 to 99, so the one real sample — row 0, column 0 — falls
-/// outside it and every visible sample is pad. This tree's choice is `image::contradicted_frame`'s,
+/// outside it and every visible sample is pad. This tree's choice is `image::mask::contradicted_frame`'s,
 /// which draws the codestream's samples **and reports the contradiction beside them**, so the page
 /// is on `corpus.rs`'s list saying in words what the picture cannot: that a 200 × 100 picture was
 /// described and one red sample was supplied.
@@ -10301,7 +10301,33 @@ const AMBIGUOUS_ICC_MATRIX_PROFILE: [&str; 2] = ["issue19971.pdf page 5", "issue
 ///
 /// The verdict is `ambiguous` for trap 12's arithmetic reason: one reference far enough out drags
 /// the consensus apart, and the four that agree do so to **0.21 of 255**.
-const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pdf page 1"];
+///
+/// # `multiple-filters-length-zero.pdf` page 1: a reference read less of the stream than is there
+///
+/// The page is one 2550 × 3300 `DeviceRGB` scan, `/Filter [/FlateDecode /DCTDecode]`, drawn over
+/// the whole `/MediaBox`, and the six letters *pdf.js*. Its dictionary states `/Length 0` while
+/// 17 082 bytes stand between `stream` and `endstream`. §7.3.8.1 makes the data what is
+/// "bracketed between the keywords stream (followed by newline) and endstream", and ADR 0266
+/// decision 4 is why a stated zero does not empty an image: its `/Width`, `/Height` and
+/// `/BitsPerComponent` infer a length that contradicts it. The bytes are whole — the zlib stream
+/// reaches its own end with one byte, the end-of-line before `endstream`, left over, and the
+/// codestream inside ends on its EOI marker — so every one of the 3300 rows is decoded.
+///
+/// ```text
+/// ours 254.89 │ hayro 254.90 │ ghostscript 254.90 │ poppler 254.60 │ mupdf 241.45
+/// ```
+///
+/// **The departure is `mupdf` 1.28.5's, and the evidence is an A/B with nothing else moved.** The
+/// page agreed until the machine's `mutool` went from 1.28.4 to 1.28.5 (2026-10-13); this tree's
+/// raster did not change. On the same file, the same zlib and the same day, 1.28.4 draws the page
+/// as the other four do and `mutool show -b` delivers the scan whole, where 1.28.5 warns "premature
+/// end of data in flate filter" and fills rows 2960 to 3299 with grey 128 — rows 711 to 791 of
+/// the page at 72 dpi. Its recovery of a stream whose stated length is wrong now stops short of the
+/// data, and `foreign_corpus.rs`'s held list carries the same change on a second document.
+const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 2] = [
+    "issue19326.pdf page 1",
+    "multiple-filters-length-zero.pdf page 1",
+];
 
 /// Ambiguous, and §10.7.4's own last sentence is the answer.
 ///

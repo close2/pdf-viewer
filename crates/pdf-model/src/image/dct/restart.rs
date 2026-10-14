@@ -130,7 +130,7 @@ pub(super) struct Geometry {
 /// channels` bytes, top row first.
 /// `scan` is the caller's walk of `data`'s first scan, which this reads instead of walking it
 /// again.
-pub(super) fn decode(
+pub(in crate::image) fn decode(
     data: &[u8],
     scan: &super::FirstScan,
     options: zune_jpeg::zune_core::options::DecoderOptions,
@@ -570,24 +570,27 @@ mod tests {
     /// rows, so a band may begin only on every second row), and the first of them with its
     /// closing `EOI` removed. Generated rather than crawled, so each exercises one thing.
     const FIXTURES: [(&str, &[u8]); 7] = [
-        ("hv_row", include_bytes!("../../tests/restart/hv_row.jpg")),
-        ("h_row", include_bytes!("../../tests/restart/h_row.jpg")),
-        ("v_row", include_bytes!("../../tests/restart/v_row.jpg")),
+        (
+            "hv_row",
+            include_bytes!("../../../tests/restart/hv_row.jpg"),
+        ),
+        ("h_row", include_bytes!("../../../tests/restart/h_row.jpg")),
+        ("v_row", include_bytes!("../../../tests/restart/v_row.jpg")),
         (
             "none_row",
-            include_bytes!("../../tests/restart/none_row.jpg"),
+            include_bytes!("../../../tests/restart/none_row.jpg"),
         ),
         (
             "grey_row",
-            include_bytes!("../../tests/restart/grey_row.jpg"),
+            include_bytes!("../../../tests/restart/grey_row.jpg"),
         ),
         (
             "hv_across",
-            include_bytes!("../../tests/restart/hv_across.jpg"),
+            include_bytes!("../../../tests/restart/hv_across.jpg"),
         ),
         (
             "hv_truncated",
-            include_bytes!("../../tests/restart/hv_truncated.jpg"),
+            include_bytes!("../../../tests/restart/hv_truncated.jpg"),
         ),
     ];
 

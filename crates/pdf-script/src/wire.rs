@@ -496,6 +496,7 @@ fn put_site(out: &mut Vec<u8>, site: ScriptSite) {
             put_u8(out, tag_of(&DOCUMENT_TRIGGERS, &trigger));
         }
         ScriptSite::Timer => put_u8(out, 6),
+        ScriptSite::Outline => put_u8(out, 7),
     }
 }
 
@@ -1156,6 +1157,7 @@ impl<'a> Reader<'a> {
             4 => ScriptSite::Library,
             5 => ScriptSite::Document(self.tagged(&DOCUMENT_TRIGGERS, "trigger")?),
             6 => ScriptSite::Timer,
+            7 => ScriptSite::Outline,
             _ => return Err(WireError::Invalid("site")),
         })
     }

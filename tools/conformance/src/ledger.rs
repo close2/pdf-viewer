@@ -271,7 +271,10 @@ pub enum Exclusion {
     /// Annex K is normative and *inside* the standard (ADR 0206), so the exclusion rests on the
     /// permission the annex grants rather than on where it was printed (ADR 0345).
     Xfa,
-    /// JavaScript and script-driven form behaviour. Field *appearance* is not excluded.
+    /// JavaScript and script-driven form behaviour beyond this document and this viewer: every
+    /// call that leaves the process, and any effect that would mutate `pdf_syntax::Document`. A
+    /// script that reaches only this document's fields and this viewer's state is in scope, at the
+    /// reader's level (`doc/questions/A286`, ADR 1904).
     Script,
     /// Writer-side requirements: they address whoever generated the content, or a construct
     /// this program's writers do not emit (see [`Status::WriterSide`]). No row carries it today:

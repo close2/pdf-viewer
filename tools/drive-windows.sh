@@ -70,6 +70,10 @@
 # and under `--cpu` — where every picture between two settled pages is one of them or a sweep across
 # both, and nothing else (ADR 1853).
 #
+# And in all four windows, a start where no session bus is: eight launches with the bus taken out
+# of the environment, on a page whose image the sandboxed worker decodes, each saying its first
+# frame (ADR 1907).
+#
 # And one step outside the list, run by `--step heavy_open` alone: a heavy document's window path
 # timed in all four windows — the first frame, each process's peak memory, what the page crossed as,
 # and how long a key waited while it loaded (ADR 1815); `tools/state.sh heavy` is its clock walk.
@@ -4074,6 +4078,60 @@ heavy_waits() {
         }' | tee -a "$OUT/heavy.tsv"
 }
 
+# --- step 84: a window started where no session bus is (ADR 1907) ----------------------------------
+# bare_session_start: the window started eight times on this display with no session bus to find —
+# `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR` taken out of its environment, as a bare X server
+# has them — on a page whose image is decoded in `pdf-sandbox-worker` (`bug1815476.pdf`'s CCITT
+# image), each start given ten seconds to say its first frame. On an X server of its own, because
+# the drive's display carries AT-SPI's bus, which spares GTK one of its requests for a session bus,
+# and with the window's own rayon pool rather than the lock's four threads (trap 122), which made
+# the race a twelfth as likely when it was measured. Where no bus is, GLib asks
+# `dbus-launch` for one on GTK's thread while the page is read on another, and the pipes it captures
+# that answer through are made without `O_CLOEXEC`; a worker started inside that window holds their
+# write ends for as long as it lives, and GLib's wait for their end of file never returns. A start
+# that does not come up is reported with the descriptors its children hold beyond the three
+# standard ones, which is the mechanism's own trace. The drive's private bus is the reason no other
+# step can see this.
+BARE_STARTS=${BARE_STARTS:-8}
+display_up() { xdotool getdisplaygeometry >/dev/null 2>&1; }
+bare_session_start() {
+    local step=84-bare-session-start file="$ROOT/doc/pdf.js/test/pdfs/bug1815476.pdf" start hung=0 held=""
+    local child extra
+    [ -f "$file" ] || { verdict "$step" "not offered" "doc/pdf.js is not checked out"; return; }
+    [ -n "$APP" ] && { kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""; }
+    local -x DISPLAY=":$(( ${DISPLAY_NUMBER#:} + 50 ))"
+    Xvfb "$DISPLAY" -screen 0 1400x1100x24 -nolisten tcp >/dev/null 2>&1 &
+    local server=$!
+    wait_for 10 display_up ||
+        { kill "$server" 2>/dev/null; verdict "$step" wrong "no X server came up on $DISPLAY"; return; }
+    for start in $(seq 1 "$BARE_STARTS"); do
+        LOG="$OUT/$WINDOW.bare-$start.log"
+        if [ "$WINDOW" = quorra-qt ]; then
+            env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR -u RAYON_NUM_THREADS QT_XCB_NO_XI2=1 \
+                "$BIN/$WINDOW" --trace="$LAUNCH_TRACE" "$file" > "$LOG" 2>&1 &
+        else
+            env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR -u RAYON_NUM_THREADS \
+                "$BIN/$WINDOW" --trace="$LAUNCH_TRACE" "$file" > "$LOG" 2>&1 &
+        fi
+        APP=$!
+        if ! wait_for 10 first_frame; then
+            hung=$((hung + 1))
+            for child in $(pgrep -P "$APP"); do
+                extra=$(find "/proc/$child/fd" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null |
+                    awk '$1 > 2' | sort -n | paste -sd, -)
+                [ -n "$extra" ] && held="$held $(cat "/proc/$child/comm" 2>/dev/null) holds $extra;"
+            done
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    done
+    kill "$server" 2>/dev/null; wait "$server" 2>/dev/null
+    if [ "$hung" -eq 0 ]; then
+        verdict "$step" works "$BARE_STARTS of $BARE_STARTS starts with no session bus said their first frame"
+    else
+        verdict "$step" wrong "$hung of $BARE_STARTS starts with no session bus said no first frame in 10 s:${held:- no child held a descriptor beyond the standard three}"
+    fi
+}
+
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
     # `--step FUNCTION` runs the named step functions alone, in each window asked for.
@@ -4099,6 +4157,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         signature_policy
         loading_bar
         zoom_past_the_bound
+        bare_session_start
         continue
     fi
     drive
@@ -4142,6 +4201,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     band_first
     zoom_past_the_bound
     transition_frames
+    bare_session_start
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

@@ -1,0 +1,395 @@
+//! The window itself: what the title bar and the status line say, where Table 147 puts the window
+//! and how large, which chrome Table 29 and §12.2 let it show, and the viewport's size (filed here
+//! by ADR 1908).
+
+use std::collections::VecDeque;
+
+use viewer_core::{Answer, Command, Query};
+use viewer_host::panel::Tab;
+use viewer_host::trace::Topic;
+
+use crate::bridge::ffi::{QtChrome, QtWindowExtents};
+
+use super::{Host, WINDOW, level, named};
+
+impl Host {
+    /// The viewport changed size, in device pixels.
+    pub(crate) fn resized(&mut self, width: u32, height: u32, scale: f32) {
+        if width == 0 || height == 0 || !scale.is_finite() || scale <= 0.0 {
+            return;
+        }
+        self.scale = scale;
+        // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
+        // so the size the core is told is also the size a frame is shaped for.
+        self.viewport = (width, height);
+        let resize = Command::Resize {
+            width,
+            height,
+            scale,
+        };
+        // Page one's drawing ahead draws into the target the first frame will be asked at, which is
+        // this viewport's; a size that changes while the page is read is told again, and a frame
+        // asked at another target than the one drawn is drawn whole (ADR 1855).
+        let window = viewer_host::loading::Window {
+            width,
+            height,
+            inset: 0,
+            scale,
+        };
+        self.extent = Some(window);
+        if let Some(ahead) = self.ahead.as_ref() {
+            ahead.window_is(window);
+        }
+        if !self.opened {
+            self.opened = true;
+            self.trace.say(
+                Topic::Launch,
+                format_args!("first resize {width}x{height} device px, scale {scale}"),
+            );
+            self.join_the_opening(resize);
+            return;
+        }
+        // A document still opening past `WARN` is told the window's size when it is taken in.
+        if self.awaiting.is_some() {
+            self.awaiting = Some(resize);
+            return;
+        }
+        self.dispatch(resize);
+        // A window asked to fit the first displayed page is measured again once it has taken
+        // the size it was asked for, because a frame is not always drawn for a viewport the page
+        // already fits the width of (ADR 1429).
+        if self.presenting.owes_placing() {
+            self.update.placement = true;
+        }
+    }
+
+    /// Table 29's two display entries, and ISO 32000-2 §12.2's chrome flags with them.
+    ///
+    /// `/PageLayout` is the viewer's to apply, and what this host needs from it is the value `l`
+    /// cycles from — see `viewer-gtk`, which does the same. `/PageMode` is "how the document shall
+    /// be displayed when opened", which since ADR 0470 includes a full-screen window for the one
+    /// name that used to get a note saying this program had no such thing.
+    ///
+    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
+    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
+    /// is not displayed: the window's full screen, presentation and panel stay the front
+    /// document's, so a presentation running when a second document arrives keeps its full screen
+    /// (ADR 1303).
+    pub(super) fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
+        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+            return;
+        };
+        self.showing.layout = opening.layout;
+        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+            self.say(&format!(
+                "this document opens in the {:?} page layout (§7.7.2)",
+                opening.layout
+            ));
+        }
+        if !in_front {
+            return;
+        }
+        if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
+            self.presenting = viewer_host::Presenting::opening(opening, &preferences);
+            // Trap 5: a document asking for something and getting silence. Two of Table 147's
+            // three flags name widgets this window hides on request, and the third names one it
+            // keeps on purpose — the menu holding this reader's own restriction levels
+            // (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
+            if preferences.hide_menubar {
+                self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
+            }
+            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
+            // the other two windows take too. The metadata stream is read only for a document
+            // that asks, so a document that does not costs its opening nothing here.
+            self.showing.titled = if preferences.display_doc_title {
+                match self.viewer.query(Query::Properties) {
+                    Answer::Properties {
+                        information,
+                        metadata,
+                    } => viewer_host::documents::document_title(&information, metadata.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            self.update.title = true;
+        }
+        if self.presenting.full_screen() {
+            self.start_the_clock();
+            // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start
+            // a second `pump` under the first.
+            queue.push_back(Command::Present(self.presenting.mode()));
+            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+        }
+        self.update.window = true;
+    }
+
+    /// Which pieces of chrome this window may show, and whether it is full screen.
+    pub(crate) fn chrome(&self) -> QtChrome {
+        let chrome = self.presenting.chrome();
+        QtChrome {
+            full_screen: self.presenting.full_screen(),
+            menu_bar: chrome.menu_bar,
+            tool_bar: chrome.tool_bar,
+            window_ui: chrome.window_ui,
+            // **Two conditions rather than one since ADR 0526**: Table 29's permission, and the
+            // reader's own wish, which `o` moves. Composed here so that leaving full screen puts
+            // back what the reader had rather than what the document last permitted.
+            other_windows: chrome.other_windows && self.panel_shown,
+        }
+    }
+
+    /// Which of Table 29's six panels the document asks to be showing, as a tab index.
+    ///
+    /// The page mode in force: `/NonFullScreenPageMode` while full screen is ending and
+    /// nothing while it is not, because §12.2 states no page mode for a window that never left.
+    /// `-1` where this host has no panel for the name.
+    pub(crate) fn panel_wanted(&self) -> i32 {
+        let mode = if self.presenting.full_screen() {
+            return -1;
+        } else if let Some(mode) = self.presenting.on_exit() {
+            mode
+        } else {
+            let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+                return -1;
+            };
+            opening.mode
+        };
+        // Which panel a page mode opens is `viewer_host::Tab`'s, shared with the other two hosts,
+        // and **`UseThumbs` is no longer among the names that reach none**: this host reported it
+        // as a mode it had no panel for until §12.3.4's list was built. `UseNone` asks for nothing
+        // and `FullScreen` is the window rather than a panel, so those two still answer -1.
+        Tab::of_page_mode(mode)
+            .and_then(|tab| i32::try_from(tab.index()).ok())
+            .unwrap_or(-1)
+    }
+
+    /// The third-party notices this binary is obliged to carry, for the window `?` opens.
+    ///
+    /// **A licence obligation with a surface, and this host had neither half of it until ADR
+    /// 0526**: `pdf-font` compiles the standard 14 font programs (§9.6.2.2) into every binary in
+    /// this tree, both of their licences require a binary distribution to reproduce their notices,
+    /// and `quorra-qt` reproduced them nowhere at all. The text is `viewer_host::NOTICE`,
+    /// shared with the other two hosts.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method — an associated function would need a second declaration"
+    )]
+    pub(crate) fn notices(&self) -> String {
+        viewer_host::NOTICE.to_owned()
+    }
+
+    /// What the title bar should say.
+    pub(crate) fn title(&self) -> String {
+        let mark = if self.showing.dirty { "• " } else { "" };
+        if self.showing.caption.is_empty() {
+            return format!("{mark}{}", self.named());
+        }
+        format!("{mark}{} — {}", self.named(), self.showing.caption)
+    }
+
+    /// Where the window goes and how large it is, for Table 147's `/FitWindow` and
+    /// `/CenterWindow` — asked by the window when `placement` is set, with its own extents in
+    /// logical pixels ([`QtWindowExtents`]).
+    ///
+    /// Answers `[resize, width, height, move, x, y]`, a flag before each pair, or nothing where no
+    /// placement is owed. A window that does not fit the first displayed page yet is asked to
+    /// resize and nothing else, and the next frame measures again — which it needs, because the
+    /// first frame is drawn before the tool bar and status line this document hid have left the
+    /// viewport; a window that fits is moved to the centre where that was asked, and nothing more
+    /// is owed ([`viewer_host::Presenting::place`]). The arithmetic is [`viewer_host::fitted`]'s
+    /// and [`viewer_host::centred`]'s, shared with the other two windows; what is Qt's is the
+    /// `resize` and the `move`, both requests the platform may refuse (ADR 1429).
+    pub(crate) fn place_window(&mut self, extents: QtWindowExtents) -> Vec<i32> {
+        let QtWindowExtents {
+            window_width,
+            window_height,
+            frame_width,
+            frame_height,
+            screen_left,
+            screen_top,
+            screen_width,
+            screen_height,
+        } = extents;
+        let page = match self.viewer.query(Query::View) {
+            Answer::View(viewing) => viewing.page,
+            _ => 0,
+        };
+        let Some(placing) = self.presenting.place(page) else {
+            return Vec::new();
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a window's extent and position in logical pixels, held to its screen"
+        )]
+        let whole = |value: f64| value.round() as i32;
+        // A window Qt could not put on a screen has no screen to fit to or to centre on.
+        let screen = (screen_width > 0 && screen_height > 0).then_some((
+            f64::from(screen_left),
+            f64::from(screen_top),
+            f64::from(screen_width),
+            f64::from(screen_height),
+        ));
+        let inner = (f64::from(window_width), f64::from(window_height));
+        if placing.fit
+            && let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(page))
+        {
+            let scale = f64::from(self.scale);
+            let wanted = viewer_host::fitted(
+                inner,
+                (
+                    f64::from(self.viewport.0) / scale,
+                    f64::from(self.viewport.1) / scale,
+                ),
+                (
+                    f64::from(geometry.width) / scale,
+                    f64::from(geometry.height) / scale,
+                ),
+                screen.map(|(_, _, width, height)| {
+                    (
+                        width - f64::from(frame_width),
+                        height - f64::from(frame_height),
+                    )
+                }),
+            );
+            if (wanted.0 - inner.0).abs() > 1.0 || (wanted.1 - inner.1).abs() > 1.0 {
+                return vec![1, whole(wanted.0), whole(wanted.1), 0, 0, 0];
+            }
+        }
+        self.presenting.placed();
+        match screen {
+            Some(screen) if placing.centre => {
+                let (x, y) = viewer_host::centred(
+                    (
+                        inner.0 + f64::from(frame_width),
+                        inner.1 + f64::from(frame_height),
+                    ),
+                    screen,
+                );
+                vec![0, 0, 0, 1, whole(x), whole(y)]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The most recent sentence for a person.
+    pub(crate) fn status(&self) -> String {
+        self.message.clone()
+    }
+
+    /// The window's initial size in logical pixels.
+    ///
+    /// A method on the host rather than a constant in the C++, because the two hosts asking for
+    /// the same window is the thing that makes their launch numbers comparable, and a number
+    /// written down twice is a number that stops agreeing.
+    #[expect(
+        clippy::unused_self,
+        reason = "`cxx` carries methods on the opaque type; a free function would need a second \
+                  entry in the bridge for a value that belongs to this host"
+    )]
+    pub(crate) fn window_size(&self) -> Vec<i32> {
+        vec![WINDOW.0, WINDOW.1]
+    }
+
+    /// What the page area shows where no page lies: `pdf_render::SURROUND`, as three bytes.
+    ///
+    /// **Not §11.4.7's 𝑊.** The page's own colour is the standard's, is white, and is composited
+    /// by the rasteriser inside §14.11.2.1's crop box; this is the ground a window lays the pages
+    /// on, which no clause of ISO 32000-2 discusses — `pdf_render::medium` has the search that
+    /// establishes the silence and the argument for the value. Read from there rather than
+    /// restated here, for the same reason `window_size` is a method: a number written down twice
+    /// is a number that stops agreeing, and this one has to agree with `viewer-gtk`, with
+    /// `viewer-ui` and with all three rasterisers.
+    #[expect(
+        clippy::unused_self,
+        reason = "`cxx` carries methods on the opaque type; a free function would need a second \
+                  entry in the bridge for a value that belongs to this host"
+    )]
+    pub(crate) fn surround(&self) -> Vec<u8> {
+        let colour = pdf_render::SURROUND;
+        vec![level(colour.r), level(colour.g), level(colour.b)]
+    }
+
+    /// What to call the document, which is the file's own name.
+    pub(crate) fn named(&self) -> String {
+        self.showing
+            .titled
+            .clone()
+            .unwrap_or_else(|| named(&self.showing.path))
+    }
+
+    /// What the title bar says about the page, after the document's name.
+    pub(crate) fn caption(&self) -> &str {
+        &self.showing.caption
+    }
+
+    /// One sentence from the C++ side.
+    pub(crate) fn note(&self, what: &str) {
+        self.trace.say(Topic::Panel, format_args!("{what}"));
+    }
+
+    /// One sentence for a person, in the status bar and on standard output.
+    ///
+    /// Both, because the status bar is what a person sees and the terminal is what a test reads —
+    /// and the `Xvfb` runs this project checks a window with read the terminal.
+    pub(super) fn say(&mut self, what: &str) {
+        if what.is_empty() {
+            return;
+        }
+        println!("note: {what}");
+        what.clone_into(&mut self.message);
+        self.update.status = true;
+    }
+
+    /// A page turn: the title bar, and what the pages now on the screen could not draw.
+    ///
+    /// §12.4.2: "[p]age labels and page indices need not coincide". Both are shown, because a
+    /// label alone cannot say "of 320".
+    pub(super) fn turned(
+        &mut self,
+        index: usize,
+        label: Option<&str>,
+        of: usize,
+        section: Option<&str>,
+    ) {
+        let page = match label {
+            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
+            None => format!("page {} of {of}", index.saturating_add(1)),
+        };
+        self.showing.caption = match section {
+            Some(section) if !section.is_empty() => format!("{page} — {section}"),
+            _ => page,
+        };
+        self.update.title = true;
+        self.restate();
+    }
+
+    /// One page's refusals, in the status bar, with the page named.
+    ///
+    /// **The page is named because under a column it has to be**: `Event::Reported` has always
+    /// carried which page it is about, and a host that dropped it was attributing one page's
+    /// refusals to whichever page a person happened to be looking at. `None` is what the
+    /// *document* says about itself before any page is drawn, and belongs to no page.
+    pub(super) fn reported(&mut self, page: Option<usize>, notes: &[String]) {
+        let notes = notes.join("; ");
+        match page {
+            Some(page) => self.say(&format!("page {}: {notes}", page.saturating_add(1))),
+            None => self.say(&notes),
+        }
+    }
+
+    /// Says again what the pages now on the screen could not draw.
+    ///
+    /// **`Query::Reports` is where a host that cleared its status bar finds it again**, and under
+    /// Table 29's continuous arrangements it is the only way to be right: the events came page by
+    /// page as each was interpreted, and a scroll that brings a page back does not interpret it
+    /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
+    pub(super) fn restate(&mut self) {
+        let said = match self.viewer.query(Query::Reports) {
+            Answer::Reports(pages) => viewer_host::status::on_screen(&pages),
+            _ => return,
+        };
+        self.say(&said);
+    }
+}

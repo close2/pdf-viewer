@@ -129,8 +129,8 @@ the whole decoder would, an image is reduced to the page's scale across the devi
 a soft mask is decoded beside its image (ADRs 1433, 1457, 1469, 1481, 1493, 1513, 1519, 1557). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
-performing every one of Table 201's actions that is neither clause 13's media nor the excluded
-`JavaScript` — a launch of an application being the one half principle 3's sandbox withholds, and
+performing every one of Table 201's actions that is not clause 13's media — `JavaScript` at the
+reader's `Scripts` level, as the scripts below say, and a launch of an application the one half principle 3's sandbox withholds, with
 `pdf_model::action`'s table the list — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
 four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,
@@ -247,14 +247,15 @@ ECMAScript is parsed (ADR 1579) — RFC 0008's Tier 1 engine, `pdf-script`, is l
 worker program alone and runs in every window **at the reader's `Scripts` level**: `--scripts
 off|ask|warn|on` on every command line and a third act in every menu, `off` by default and
 `quorra-confined` pinned there and saying so, *ask* putting one question per document at its first
-script with that script's first line and a `yes` running what was withheld (ADR 1616); where it runs a document's scripts share one realm — Table 32's
+script with that script's first line and a `yes` running what was withheld (ADR 1616), and `CLAUDE.md`'s exclusion beginning only where a script would reach beyond this document and this viewer (`doc/questions/A286`, ADR 1904); where it runs a document's scripts share one realm — Table 32's
 name tree runs into it once the first page is presented, Table 198's `/O` of page one and its
 annotations' Table 197 `/PO` and `/PV` run in the open sequence, and every later Table 197 and
 Table 198 script is a request the view state exposes for a host to raise at its event — a widget's
 pointer and focus through `run_annotation_scripts`, the page shown changing through
 `run_page_scripts` with Table 197's four page events beside it, nothing before the open sequence
 (ADR 1750), raised in all three windows, a press a toolkit's own control took included (ADR
-1752) — a commit runs `/V` and every `/CO` entry's `/C` with
+1752), and an outline item's `/A` handed over as the item is activated, at Adobe's `Bookmark`
+event (ADR 1904) — a commit runs `/V` and every `/CO` entry's `/C` with
 `event.rc` honoured and draws the runner's `/F`, a script's writes land in the edit log and the
 colours, border style, alignment and limit it sets on a field are drawn into the widget's
 appearance and saved as `/MK`, `/BS`, `/DA`, `/Q`, `/MaxLen` and `/Ff` (ADRs 1602, 1603, 1617),

@@ -1465,6 +1465,15 @@ children read 19.45 and 19.63 against a floor of 19.5 (round 1533, ADR 1902). A 
 on a counter would have judged them. The instrument turns the policy off in the measuring child
 (`prctl`, through `rustix`) and reads back that it did; the ordinary children keep the machine's pages.
 
+### 173. A race measured under the lock is measured with the lock's environment
+
+Round 1535's hang — `quorra-gtk` starting without a session bus, the decoder worker inheriting GLib's
+`dbus-launch` pipes — came up in 1 of 12 starts under the lock and 7 of 16 outside it, because the
+wrapper's `RAYON_NUM_THREADS=4` narrows the window in which the worker's `posix_spawn` lands inside
+GLib's; the drive's private bus and AT-SPI's bus on its display hid it entirely (ADR 1907). A window
+under test for a race runs with the lock's variables taken out of its environment, the way trap 122
+takes the drive's bus out, and the drive step that pins it (step 84) does so.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

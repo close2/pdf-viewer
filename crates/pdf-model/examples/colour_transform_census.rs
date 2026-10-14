@@ -33,7 +33,7 @@
 //! here asks another renderer what it does.
 //!
 //! The second column of the deciding case is what this tree would draw, and it is not a reading
-//! of the clause but a statement about `image::decode_jpeg`: the codestream is handed to
+//! of the clause but a statement about `image::dct::decode_jpeg`: the codestream is handed to
 //! `zune-jpeg`, which takes a three-component frame as `YCbCr` unless its component identifiers
 //! spell the ASCII letters `R`, `G`, `B`, and a four-component frame with no marker as `CMYK`.
 //! Where that answer and the entry's differ, the departure changes a pixel.
@@ -90,8 +90,8 @@ impl Codestream {
     }
 
     /// Whether the codestream alone asks for a transform out of a luminance-chrominance space —
-    /// the clause's third case, no marker and no entry, which is what `image::decode_jpeg` falls
-    /// back to (ADR 1183) for a frame carrying no APP14 marker.
+    /// the clause's third case, no marker and no entry, which is what `image::dct::decode_jpeg`
+    /// falls back to (ADR 1183) for a frame carrying no APP14 marker.
     ///
     /// Three components are `YCbCr` unless the identifiers spell `RGB`; four are `CMYK`, which
     /// is no transform at all. A count of one or two never reaches here — Table 13's own

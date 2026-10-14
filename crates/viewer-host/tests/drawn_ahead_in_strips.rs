@@ -8,6 +8,7 @@
 //! in parts of a few commands so that nearly every page is handed over in many.
 
 #![expect(
+    clippy::panic,
     clippy::expect_used,
     clippy::print_stdout,
     reason = "a corpus gate: it stops loudly where the sandbox is missing and prints its tally"
@@ -116,12 +117,26 @@ fn drawn_ahead(document: &Document) -> Option<Outcome> {
     })
 }
 
+/// Refuses to measure without the sandboxed decoder — trap 10, ADR 0557 — for the reason every
+/// corpus gate does: a page whose JBIG2, JPX or CCITT image the worker did not decode holds no
+/// command for it on either side of this comparison, so a pass taken without the worker is a pass
+/// of the build and not of the tree.
+fn require_the_sandbox() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
+        panic!(
+            "the sandboxed image decoder is not available, so the comparison below would be of the \
+             build rather than of the tree: {error}"
+        );
+    }
+}
+
 /// Every tracked first page drawn ahead in strips is the page drawn whole at its cuts, or says
 /// why it was drawn whole instead.
 #[test]
 #[ignore = "the whole tracked corpus interpreted once and drawn twice; run explicitly, under the \
             gates profile"]
 fn every_tracked_first_page_drawn_ahead_in_strips_is_the_page_drawn_whole_at_its_cuts() {
+    require_the_sandbox();
     if let Err(error) = pdf_model::image::sandboxed_decoder() {
         panic!(
             "the sandboxed image decoder is not available, so the comparison below would be of \

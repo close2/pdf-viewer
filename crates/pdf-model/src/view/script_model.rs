@@ -37,6 +37,9 @@ pub enum ScriptSite {
     /// The expression an earlier script handed `app.setInterval` or `app.setTimeOut`, run when
     /// its period has elapsed on the host's ticks (ADR 1702).
     Timer,
+    /// §12.3.3's outline item, activated: the ECMAScript actions of its Table 151 `/A` chain
+    /// (ADR 1904).
+    Outline,
 }
 
 /// One of Table 200's five events of the document as a whole, each an entry of the catalog's
@@ -499,6 +502,9 @@ impl ScriptSite {
             // application raises, and a name the list does not hold, so that a script branching on
             // a listed event takes no branch (ADR 1702).
             Self::Timer => ("App", "Timer"),
+            // The reference's "Event type/name combinations" page raises `Bookmark`'s `Mouse Up`
+            // when a person clicks an outline item that executes a script (ADR 1904).
+            Self::Outline => ("Bookmark", "Mouse Up"),
         }
     }
 }

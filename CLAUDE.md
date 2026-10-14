@@ -247,9 +247,17 @@ The exclusions, closed, each with its reason:
   what makes declining it safe, which is worth knowing rather than assuming: in a conforming
   hybrid file "[t]he other entries in the interactive form dictionary shall be consistent with
   the information in the XFA resource", so the AcroForm this tree reads *is* the form.
-- **JavaScript and script-driven form behaviour** — a sandboxed script engine is a separate
-  project with its own security argument. Field *appearance* is not excluded; field
-  *behaviour* is.
+- **JavaScript and script-driven form behaviour beyond this document and this viewer** — a script
+  runs in scope as far as it reaches *this document's* field values and appearance properties and
+  *this viewer's* state, evaluated in a confined worker of its own under a memory and a wall-clock
+  budget, and only at the level the reader sets under *A document's restrictions are the reader's
+  to set* — `off` by default, and pinned `off` in a window that cannot supply a runner. Acrobat's
+  `AF*` form library is in scope as a documented choice with no engine. **Excluded still**: every
+  call that leaves the process — the network, the filesystem, mail, printing, other documents, the
+  application's chrome, persistence across documents, privileged functions — each refused by a
+  named exception the script can see; any effect that would mutate `pdf_syntax::Document`; ISO
+  21757-1's 3D API under clause 13; XFA under Annex K. Ratified on 2026-10-08, when the owner
+  answered `doc/questions/Q286`; ADR 1904 names what is built under each half.
 - **Authoring content from nothing** — we do not compose pages: no layout engine, no
   text-setting, no chart drawing, no "HTML to PDF". No clause whose subject is deciding what
   marks a page should contain falls on this project.
@@ -440,8 +448,10 @@ is*. The reason is principle 4's, and it is the one measurement that decides bet
 appended and a correction applied: when the correction is appended, the first sentence a reader
 meets is the retired one, and **the reading cost of a function becomes the history of that
 function**. A student should learn from `run_reader` how a content stream is interpreted, not which
-session moved a classification into a table; `grep -rE "hundred-and-|session" --include=*.rs crates
-tools` is how much of that cost is still owed. What this does **not** bind: `doc/adr/`,
+session moved a classification into a table; `tools/comment-history.py` sorts what `grep -rE
+"hundred-and-|session" --include=*.rs crates tools` finds into history, names and legitimate uses,
+and three gates (`spelled_ordinals`, `round_numbers`, `ledger_notes` in `tools/conformance/tests/`)
+hold the history at zero; the grep alone is a reading list. What this does **not** bind: `doc/adr/`,
 `doc/history/` and `doc/reviews/` are *records*, they keep their chronology, and rewriting one for
 tidiness is the single thing a record may not have done to it. Nor does it bind a trap or a habit,
 each of which **is** an incident with a rule attached — there the history is the lesson, and

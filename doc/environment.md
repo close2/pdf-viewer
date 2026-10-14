@@ -420,6 +420,11 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   it is thin. A round that wants a file the agent user cannot read must say so in its report and
   leave it to the owner.
 
+  **One thing the loop may do beyond measuring, by the owner's word of 2026-10-14:** unlock the
+  owner's session when `loginctl` reads `LockedHint=yes`, with `loginctl unlock-session <id>` and no
+  other command — never a typed password, never `xdotool` on the lock screen, never a killed locker
+  (trap 174). The script says it did, and a session that stays locked gets no figure.
+
   What a queued script must do: terminate itself (`timeout N …`, and exit the viewer with
   `Escape` — `SIGTERM` skips the summary), never wait for input, use `./target/…` paths
   (`/home/AI` is unreadable by `cl`), and write only under `tmp/`. `xdotool` cannot reach a

@@ -255,11 +255,13 @@ A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `imp
 the host checked first (ADR 1327), and A131 read F.4.1 as padding each item's run of a hint table
 (ADR 1328); neither moves a row. Of the owner's answers of 2026-10-05, A171 is §12.10's build (the
 bullet in bucket 6), A192 closes the Ed448 search (bucket 2's curve paragraph), A193 makes
-JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts while §12.6.4.17 stays
-`out-of-scope` (ADRs 1578, 1579) and whose Tier 1 engine runs in every window at the reader's
-`Scripts` level, `off` by default, with the row's move waiting on the owner's amendment that
-`doc/questions/Q286` proposes (ADRs 1590, 1591, 1616), A227's `zune-jpeg` fork is the one the manifest pins, carrying
+JavaScript a build stream whose Tier 0 runs the one-call `AF*` scripts (ADRs 1578, 1579) and whose
+Tier 1 engine runs in every window at the reader's `Scripts` level, `off` by default (ADRs 1590,
+1591, 1616), A227's `zune-jpeg` fork is the one the manifest pins, carrying
 both patches (ADRs 1589, 1730), and A209 owes nothing; none of the last four moves a row this map holds.
+Of the answers of 2026-10-08, A286 amended `CLAUDE.md`'s script exclusion with `doc/questions/Q286`'s
+sentence and moved §12.6.4.17 to `implemented`, an outline item's `/A` the site its build added
+(ADR 1904); the row was never this map's.
 
 ### 6. Genuinely buildable now — the campaign's next targets
 

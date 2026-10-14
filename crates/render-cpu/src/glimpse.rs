@@ -237,8 +237,8 @@ impl crate::CpuRasterizer {
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
         (list, bounds, from): (&DisplayList, &MarkBounds, usize),
-        surface: crate::Surface,
-        masks: &mut crate::MaskCache,
+        surface: crate::surface::Surface,
+        masks: &mut crate::mask_cache::MaskCache,
         showing: Option<&Showing>,
     ) -> Result<(), crate::CpuRasterError> {
         let commands = list.commands();
@@ -273,7 +273,7 @@ impl crate::CpuRasterizer {
                 surface,
                 masks,
                 0,
-                crate::Compose::Over,
+                crate::compose::Compose::Over,
             )?;
         }
         // The strip has landed; somebody looking at the page is shown its final rows now rather
@@ -337,9 +337,9 @@ pub struct Underway {
 
 /// One strip of a page drawn ahead: its rows, their pixels and the masks built for them.
 struct Strip {
-    rows: crate::Band,
+    rows: crate::surface::Band,
     pixmap: tiny_skia::Pixmap,
-    masks: crate::MaskCache,
+    masks: crate::mask_cache::MaskCache,
 }
 
 /// Written by hand because the mask cache is built pixels and has nothing worth printing.
@@ -365,8 +365,8 @@ impl Underway {
     }
 
     /// [`Self::new`], cut into as many even strips as the pool this is called on is wide — or as
-    /// `rasterizer` states with `with_strips` — within [`crate::MAX_STRIPS`] and the fewest rows
-    /// a strip may have, each part drawn into them on the pool.
+    /// `rasterizer` states with `with_strips` — within [`crate::strips::MAX_STRIPS`] and the fewest
+    /// rows a strip may have, each part drawn into them on the pool.
     ///
     /// For a window's first frame of a page that reads for seconds, which a thread of its own
     /// would finish later than the pool draws the page whole after the read (ADR 1896).
@@ -375,11 +375,11 @@ impl Underway {
         let asked = rasterizer.strips.unwrap_or_else(|| {
             rayon::current_num_threads()
                 .try_into()
-                .unwrap_or(crate::MAX_STRIPS)
+                .unwrap_or(crate::strips::MAX_STRIPS)
         });
         let count = asked
-            .min(crate::MAX_STRIPS)
-            .min(target.height / crate::MIN_STRIP_ROWS)
+            .min(crate::strips::MAX_STRIPS)
+            .min(target.height / crate::strips::MIN_STRIP_ROWS)
             .max(1);
         let cuts = (0..=count)
             .map(|strip| {
@@ -399,27 +399,31 @@ impl Underway {
         target: TargetSpec,
         cuts: Vec<u32>,
     ) -> Option<Self> {
-        if target.width > crate::MAX_EXTENT || target.height > crate::MAX_EXTENT {
+        if target.width > pdf_render::MAX_EXTENT || target.height > pdf_render::MAX_EXTENT {
             return None;
         }
         let pairs = cuts.len().saturating_sub(1).max(1);
         // Divided as the whole draw divides it: a strip's masks are a strip tall.
-        let budget = crate::MASK_BUDGET
+        let budget = crate::mask_cache::MASK_BUDGET
             .checked_div(pairs)
-            .unwrap_or(crate::MASK_BUDGET);
+            .unwrap_or(crate::mask_cache::MASK_BUDGET);
         let strips = cuts
             .windows(2)
             .map(|pair| {
                 let (top, bottom) = (pair.first().copied()?, pair.get(1).copied()?);
-                let rows = crate::Band {
+                let rows = crate::surface::Band {
                     top,
                     height: bottom.checked_sub(top)?,
                 };
-                let surface = crate::Surface { page: target, rows };
+                let surface = crate::surface::Surface { page: target, rows };
                 Some(Strip {
                     rows,
                     pixmap: tiny_skia::Pixmap::new(target.width, rows.height)?,
-                    masks: crate::MaskCache::new(surface, rasterizer.anti_alias, budget),
+                    masks: crate::mask_cache::MaskCache::new(
+                        surface,
+                        rasterizer.anti_alias,
+                        budget,
+                    ),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
@@ -535,7 +539,7 @@ impl Underway {
         if self.strips.len() > 1 {
             let anti_alias = self.rasterizer.anti_alias;
             let inputs = pdf_render::strip_inputs(list, target, &bounds, &|mark| {
-                crate::drawn_row_by_row(mark, anti_alias, target)
+                crate::strips::drawn_row_by_row(mark, anti_alias, target)
             });
             let forbidden = inputs.unsplittable();
             let inner = self.cuts.get(1..self.cuts.len().saturating_sub(1));
@@ -555,12 +559,12 @@ impl Underway {
             self.rasterizer.reduced_images.warm(
                 commands,
                 target.transform,
-                crate::whole_target(target),
+                crate::strips::whole_target(target),
             );
         }
         let rasterizer = &self.rasterizer;
         let draw = |strip: &mut Strip| {
-            let surface = crate::Surface {
+            let surface = crate::surface::Surface {
                 page: target,
                 rows: strip.rows,
             };
@@ -662,11 +666,11 @@ fn finish_rows(
     let area = pdf_render::page_area(list, target);
     let stride = (target.width as usize).saturating_mul(4).max(4);
     premultiplied
-        .par_chunks_mut(stride.saturating_mul(crate::PIXEL_PASS_ROWS))
+        .par_chunks_mut(stride.saturating_mul(crate::strips::PIXEL_PASS_ROWS))
         .enumerate()
         .for_each(|(chunk, rows)| {
-            let first =
-                u32::try_from(chunk.saturating_mul(crate::PIXEL_PASS_ROWS)).unwrap_or(u32::MAX);
+            let first = u32::try_from(chunk.saturating_mul(crate::strips::PIXEL_PASS_ROWS))
+                .unwrap_or(u32::MAX);
             if let Some(crop) = crop {
                 pdf_render::crop_to_page(rows, target.width, first, crop);
             }

@@ -645,7 +645,9 @@ Two figures are still behind, and neither is visible in a window:
   instructions are page 1's 350 × 350 `ICCBased` photograph, converted sample by sample in
   `pdf_model::image::convert_three`. PdfCraft builds one 8-bit transform instead.
 - **The witness costs `quorra-transform` 1.84–1.86 GiB and 11.5 CPU-seconds**, against `mutool`'s
-  278 MiB in 4.7 s.
+  278 MiB in 4.7 s. The heap peaks at the join that ends the read, and 79 % of it is the display
+  list — 4.4 M commands and their paths, the pieces' and the joined list's at once — with 18 % the inflated
+  content stream still held; the frame is under one percent (ADR 1915 §3).
 
 What is left on the witness's first frame is the drawer. The page is interpreted at 0.77–0.95 s,
 and one thread then draws it for 1.24–1.27 s more. ADR 1888 measured the pooled draw at 0.49–0.52 s.

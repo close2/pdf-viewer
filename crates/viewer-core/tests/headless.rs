@@ -3468,9 +3468,9 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
 
 /// §12.7.5.4's list box, several items at once, saved and read back (Table 233 bit 22).
 ///
-/// **The one message-shaped gap three hosts found**, and the round that closed it. Sessions 408,
-/// 410 and 411 each built a list box over [`Query::Fields`] and each asked its toolkit for single
-/// selection, because `Edit::SetField` carried one string while the bit permits several:
+/// **A message shape every host's list box rests on**: [`Query::Fields`] answers a list box's
+/// selection as several items and `Edit::SetField` carries several back, because the bit permits
+/// several and a host given one string can only ask its toolkit for single selection:
 ///
 /// > (PDF 1.4) If set, more than one of the field's option items may be selected simultaneously;
 /// > if clear, at most one item shall be selected.

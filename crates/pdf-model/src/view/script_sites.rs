@@ -1,16 +1,18 @@
 //! The scripts a document runs outside a field's own four triggers: Table 32's name tree and the
 //! catalog's `/OpenAction` when the document is opened, Table 198's page events, Table 197's
-//! annotation events (RFC 0008 sections 6.5 and 6.6, ADR 1602), and Table 200's events of the
-//! document as a whole, which a host marks around a close, a save and a print (ADR 1614).
+//! annotation events (RFC 0008 sections 6.5 and 6.6, ADR 1602), Table 200's events of the
+//! document as a whole, which a host marks around a close, a save and a print (ADR 1614), and an
+//! outline item's `/A` when a person activates the item (ADR 1904).
 //!
 //! **Only the ECMAScript actions are run here.** A host already performs every other action of the
 //! same chains — `crate::action::for_annotation` and `crate::action::for_page` read them and
-//! [`ViewState::perform_all`] performs them, `JavaScript` among them a refusal, since §12.6.4.17's
-//! row is the owner's to move (`doc/questions/Q286`) — so each method here walks the same chain for
-//! its scripts alone and hands them to the runner, and a host calls both at the event it raises:
-//! [`ViewState::run_annotation_scripts`] at a widget's pointer and focus events, and
-//! [`ViewState::run_page_scripts`] as the page shown changes (ADR 1750). Where no runner is
-//! supplied nothing runs and the open says, once, how many document-level scripts went unrun.
+//! [`ViewState::perform_all`] performs them, `JavaScript` among them a refusal that a host drops
+//! where the runner was handed the chain's scripts (ADR 1752) — so each method here walks the same
+//! chain for its scripts alone and hands them to the runner, and a host calls both at the event it
+//! raises: [`ViewState::run_annotation_scripts`] at a widget's pointer and focus events,
+//! [`ViewState::run_page_scripts`] as the page shown changes (ADR 1750), and
+//! [`ViewState::run_outline_scripts`] at an outline item's activation. Where no runner is supplied
+//! nothing runs and the open says, once, how many document-level scripts went unrun.
 //!
 //! **The open sequence runs after the first present.** §12.6.4.17 says of the name tree: "When the
 //! document is opened, all of the actions in this name tree shall be executed, defining ECMAScript
@@ -265,6 +267,65 @@ impl ViewState {
         let table = super::widgets_by_field_name(document);
         let page = page_of(document, annotation, &dictionary);
         let ran = self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+        self.finish(document, &table, ran)
+    }
+
+    /// Runs the ECMAScript actions of outline item `item`'s Table 151 `/A` chain, in §12.6.2's
+    /// order, and answers how many scripts were handed over and whether what a page draws may have
+    /// changed ([`ScriptsRan`]).
+    ///
+    /// §12.3.3: "[c]licking the text of any visible item activates the item, causing the
+    /// interactive PDF processor to jump to a destination or trigger an action associated with the
+    /// item", and §12.6.4.17 makes the trigger of an ECMAScript action an execution. **What a host
+    /// calls as it performs the item's other actions**, so that the action path's refusal of the
+    /// same scripts is said only where none was handed over (ADR 1752). The script's event is
+    /// Adobe's `Bookmark` `Mouse Up`, with the item's `/Title` as `event.targetName`; `page` is the
+    /// zero-based page the host shows, `this.pageNum` (ADR 1904). Before
+    /// [`Self::run_open_scripts`] has run nothing is run, as at every other site
+    /// ([`Self::before_open`]).
+    pub fn run_outline_scripts(
+        &mut self,
+        document: &Document,
+        item: ObjectId,
+        page: usize,
+    ) -> ScriptsRan {
+        if self.runner.0.is_none() {
+            return ScriptsRan::default();
+        }
+        let Some(dictionary) = document.get(item).as_dict().cloned() else {
+            return ScriptsRan::default();
+        };
+        let scripts = dictionary
+            .get("A")
+            .map(|entry| scripts_in(document, entry))
+            .unwrap_or_default();
+        if scripts.is_empty() {
+            return ScriptsRan::default();
+        }
+        // Table 151's `/Title` is the text a person clicked, so it is what names the script.
+        let title = match document.get_key(&dictionary, "Title") {
+            Object::String(bytes) => pdf_syntax::text_string(&bytes),
+            _ => String::new(),
+        };
+        let subject = format!("the outline item {title:?}");
+        if !self.scripting.opened {
+            self.before_open(scripts.len(), &subject);
+            return ScriptsRan::default();
+        }
+        let table = super::widgets_by_field_name(document);
+        let mut ran = Ran::default();
+        for script in &scripts {
+            let event = ScriptEvent {
+                label: &title,
+                script,
+                page,
+                ..ScriptEvent::at(ScriptSite::Outline, "")
+            };
+            if let Some((result, applied)) = self.run_event(document, &table, event) {
+                ran.count(applied);
+                self.report_each(&format!("{subject}'s script"), result.report);
+            }
+        }
         self.finish(document, &table, ran)
     }
 

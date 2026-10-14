@@ -41,7 +41,7 @@ Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.
 §11.3.7.3 for item 5 and §8.3.4 for item 8 — see `_scan-conversion.md`
 Code: `crates/pdf-render/src/paint.rs`'s `paint_space` (item 8's condition, for all three
 backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
-`crates/render-cpu/src/lib.rs` (item 4's `draw_stroked_outline`),
+`crates/render-cpu/src/stroke.rs` (item 4's `draw_stroked_outline`),
 `crates/render-cpu/src/scan.rs` (item 4's composition),
 `crates/render-cpu/tests/clip_intersection.rs` (item 4's identity, for a fill and for a stroke) and
 `crates/pdf-model/examples/coincident_edge_probe.rs` (item 4's instrument: one rectangle stated
@@ -59,7 +59,7 @@ with a mark, and what a page's own marks are),
 `crates/render-raster/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
 (item 5's gate and its instrument — the gate's fourth scene is §11.6.2's discriminator),
 `crates/pdf-render/src/edge.rs`'s `device_rectangles` and `DeviceRectangles::share_a_device_pixel`,
-`crates/render-cpu/src/lib.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact`,
+`crates/render-cpu/src/fill.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact`,
 `fill_rectangles`, `intersected` and `mask_shared_rectangles`,
 `crates/render-cpu/tests/edge_coverage.rs` and
 `crates/pdf-model/examples/rectangular_path_census.rs` (item 7's remainder, its gate and its

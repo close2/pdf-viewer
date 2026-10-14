@@ -223,6 +223,15 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
             "this article thread",
         );
     }
+    // The item's `/A` scripts go to the runner as a link's do at its click, and the action path's
+    // refusal of them is dropped once they have (ADRs 1752, 1904).
+    let ran = open
+        .view
+        .run_outline_scripts(&open.document, id, open.page_index);
+    if ran.changed {
+        open.stale();
+    }
+    let actions = handed_over(actions, ran.handed > 0);
     // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.

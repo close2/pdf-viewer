@@ -7,7 +7,7 @@ page this item is about than the sharing half's departure would be.
 Priority: 40
 Corpus: 1 document (the worst page in the corpus, by a wide margin); 50 of 958 first pages carry
 any covering step at all and the rest of them carry 147 between them
-Code: `crates/render-cpu/src/lib.rs`, `MaskCache::build`; `crates/render-cpu/src/scan.rs`,
+Code: `crates/render-cpu/src/mask_cache.rs`, `MaskCache::build`; `crates/render-cpu/src/scan.rs`,
 `admits_every_pixel`
 Instrument: `cargo run --release -p pdf-model --example clip_chain_census -- <file.pdf> [page]`,
 which prints all three arms, the covering-step count, and — since ADR 0783 — the soft-mask lists

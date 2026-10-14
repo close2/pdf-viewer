@@ -300,6 +300,40 @@ mod engine {
     }
 
     #[test]
+    fn an_outline_items_script_runs_at_the_bookmark_event_and_calls_the_library() {
+        // §12.3.3: activating an item triggers its action, and §12.6.4.17 executes an ECMAScript
+        // one. The event is the reference's Bookmark/Mouse Up, the item's /Title its targetName,
+        // its target null, and the function Table 32's tree defined at the open is the one it
+        // calls (ADR 1904).
+        let document = document(
+            "/AcroForm << /Fields [4 0 R] >> \
+             /Names << /JavaScript << /Names [(lib) 5 0 R] >> >> /Outlines 6 0 R",
+            "",
+            &[4],
+            &[
+                text_field("Log", "", "/V ()"),
+                "<< /S /JavaScript /JS (function mark\\(s\\) { this.getField\\('Log'\\).value = s; }) >>"
+                    .to_owned(),
+                "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>".to_owned(),
+                "<< /Title (Totals) /Parent 6 0 R /A << /S /JavaScript /JS (mark\\(event.type + '/' + \
+                 event.name + '/' + event.targetName + '/' + \\(event.target === null\\)\\);) >> >>"
+                    .to_owned(),
+            ],
+        );
+        let mut view = engine_view(&document);
+        view.run_open_scripts(&document, 0);
+        let ran = view.run_outline_scripts(&document, ObjectId::new(7, 0), 0);
+        assert_eq!(ran.handed, 1, "{:?}", view.script_reports());
+        assert!(ran.changed, "the script wrote a field a page draws");
+        assert_eq!(
+            value(&view, &document, "Log"),
+            "Bookmark/Mouse Up/Totals/true",
+            "{:?}",
+            view.script_reports()
+        );
+    }
+
+    #[test]
     fn a_page_closing_runs_its_annotations_first_and_then_its_own_script() {
         // Table 197's /PC "shall be executed before the C action".
         let document = document(

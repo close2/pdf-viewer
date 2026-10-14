@@ -29,7 +29,7 @@
 //! otherwise idle, and a loss where the page's other images are already decoding beside this one
 //! (ADR 1321): built and measured without a signal, it took 2–3 ms off a page of one photograph and
 //! added 8–10 ms to one of eight (ADR 1457 section 3). So it is asked only where the caller says
-//! the frame is decoded alone ([`super::InFlight::Alone`]).
+//! the frame is decoded alone ([`super::super::InFlight::Alone`]).
 //!
 //! # What is admitted, and what is declined
 //!
@@ -773,14 +773,14 @@ mod tests {
     /// shape the module admits, and one with `-optimize`, whose tables hold only the codes the
     /// image uses — so a re-coded first DC value can find its category missing.
     const FIXTURES: [(&str, &[u8]); 6] = [
-        ("hv", include_bytes!("../../tests/cut/hv.jpg")),
-        ("h", include_bytes!("../../tests/cut/h.jpg")),
-        ("v", include_bytes!("../../tests/cut/v.jpg")),
-        ("none", include_bytes!("../../tests/cut/none.jpg")),
-        ("grey", include_bytes!("../../tests/cut/grey.jpg")),
+        ("hv", include_bytes!("../../../tests/cut/hv.jpg")),
+        ("h", include_bytes!("../../../tests/cut/h.jpg")),
+        ("v", include_bytes!("../../../tests/cut/v.jpg")),
+        ("none", include_bytes!("../../../tests/cut/none.jpg")),
+        ("grey", include_bytes!("../../../tests/cut/grey.jpg")),
         (
             "hv_optimised",
-            include_bytes!("../../tests/cut/hv_optimised.jpg"),
+            include_bytes!("../../../tests/cut/hv_optimised.jpg"),
         ),
     ];
 

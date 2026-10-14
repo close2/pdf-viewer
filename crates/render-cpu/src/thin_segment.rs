@@ -37,7 +37,8 @@
 
 use pdf_render::{BlendMode, Paint, Path, Stroke, Transform};
 
-use crate::{ToDevice, scan};
+use crate::scan;
+use crate::surface::ToDevice;
 
 /// One level of an eight-bit coverage, as a share of a pixel.
 const ONE_LEVEL: f64 = 1.0 / 255.0;

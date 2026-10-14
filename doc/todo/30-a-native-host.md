@@ -234,6 +234,10 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `\n`, and the toolkits' editors hand back their own line feeds with `Edit::SetNoteText`. The fix
   touches all three windows' editors and their offset arithmetic (ADR 1798 section 3).
 
+- **`quorra-gtk` can hang before it maps where no session bus is** (ADR 1907): GLib's
+  `dbus-launch` pipes reach a sandbox worker started inside GLib's spawn, and GLib waits for their
+  end of file for ever. Closing them takes one `unsafe` call, which is `doc/questions/Q430`;
+  the drive's step 84 says `wrong` until it is answered.
 - **`quorra` shows what would print and has no printer of its own** (ADR 1180 section 6), where
   `quorra-gtk` prints through `GtkPrintOperation` and `quorra-qt` through a `QPrinter`.
 - **§12.5.6.6's free-text drag is refused by name in the two native windows**, because authoring

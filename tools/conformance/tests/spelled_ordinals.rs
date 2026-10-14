@@ -21,7 +21,7 @@
 //!
 //! # The second form
 //!
-//! The capitalised digit form (`Session 944`) is held at zero beside it. `CLAUDE.md`'s grep cannot
+//! The capitalised digit form (`Session 944`, `Sessions 408`) is held at zero beside it. `CLAUDE.md`'s grep cannot
 //! see it, because the grep is case-sensitive, and a viewer's, an FFI's and a desktop bus's
 //! `Session` are nouns of their own — so the form held is the word followed by a digit, which none
 //! of those nouns is. The tree's commonest spelling, `round` and a number in a comment, is
@@ -52,8 +52,8 @@ use std::path::{Path, PathBuf};
 /// as `CONDITION_UNQUOTED_CEILING` is (ADR 1535), so that a fall is written down rather than banked.
 const CEILING: usize = 0;
 
-/// The most lines under `crates` and `tools` that may name a round as `Session <number>`, held
-/// with `==` for the same reason.
+/// The most lines under `crates` and `tools` that may name a round as `Session <number>` or
+/// `Sessions <number>`, held with `==` for the same reason.
 const NUMBERED_CEILING: usize = 0;
 
 /// The string `CLAUDE.md`'s sweep searches for, assembled so that this file's own text does not
@@ -90,12 +90,14 @@ fn rust_sources(directory: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// Whether `line` names a round by a capitalised number, `Session 944`.
+/// Whether `line` names a round by a capitalised number, `Session 944` or `Sessions 408`.
 fn names_a_round_in_digits(line: &str) -> bool {
-    line.match_indices("Session ").any(|(index, word)| {
-        line.get(index.saturating_add(word.len())..)
-            .and_then(|after| after.chars().next())
-            .is_some_and(|first| first.is_ascii_digit())
+    ["Session ", "Sessions "].iter().any(|noun| {
+        line.match_indices(noun).any(|(index, word)| {
+            line.get(index.saturating_add(word.len())..)
+                .and_then(|after| after.chars().next())
+                .is_some_and(|first| first.is_ascii_digit())
+        })
     })
 }
 
@@ -134,7 +136,7 @@ fn no_source_spells_a_round_by_ordinal() {
     }
     println!(
         "{} line(s) spell a round by ordinal (ceiling {CEILING}); {} name one as \
-         `Session <number>` (ceiling {NUMBERED_CEILING})",
+         `Session <number>` or `Sessions <number>` (ceiling {NUMBERED_CEILING})",
         spelled.len(),
         numbered.len()
     );
@@ -157,6 +159,9 @@ fn no_source_spells_a_round_by_ordinal() {
 #[test]
 fn a_round_in_digits_is_told_from_the_noun() {
     assert!(names_a_round_in_digits("Session 944 measured it"));
+    assert!(names_a_round_in_digits(
+        "Sessions 408, 410 and 411 each built it"
+    ));
     assert!(!names_a_round_in_digits("the Session bus answers"));
 }
 

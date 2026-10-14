@@ -1,6 +1,7 @@
-//! Table 197's six pointer and focus events of a widget and Table 198's page open and close, each
-//! handed to the document's runner at the event that raises it, and the refusal of the same
-//! ECMAScript actions said only where no runner was supplied (ADR 1752).
+//! Table 197's six pointer and focus events of a widget, Table 198's page open and close and
+//! §12.3.3's outline item activated, each handed to the document's runner at the event that raises
+//! it, and the refusal of the same ECMAScript actions said only where no runner was supplied (ADRs
+//! 1752, 1904).
 //!
 //! The runner here is the test's own and records the site of every script it is handed, so what is
 //! judged is the viewer's half — which event reaches the runner, in which order — and never what a
@@ -36,8 +37,8 @@ fn script(name: &str) -> String {
 }
 
 /// Two pages, the first carrying a text field whose `/AA` states all six of Table 197's pointer and
-/// focus events and a link whose `/A` is a script, and both pages stating Table 198's `/O` and
-/// `/C`.
+/// focus events and a link whose `/A` is a script, both pages stating Table 198's `/O` and `/C`,
+/// and an outline whose one item's `/A` is a script.
 fn two_pages() -> Vec<u8> {
     let widget = format!(
         "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /F 4 /P 3 0 R \
@@ -50,7 +51,8 @@ fn two_pages() -> Vec<u8> {
         script("Bl"),
     );
     let bodies = [
-        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>".to_owned(),
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> /Outlines 7 0 R >>"
+            .to_owned(),
         "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
         format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [5 0 R 6 0 R] \
@@ -68,6 +70,8 @@ fn two_pages() -> Vec<u8> {
             "<< /Type /Annot /Subtype /Link /Rect [100 300 300 350] /A {} >>",
             script("L")
         ),
+        "<< /Type /Outlines /First 8 0 R /Last 8 0 R /Count 1 >>".to_owned(),
+        format!("<< /Title (Totals) /Parent 7 0 R /A {} >>", script("B")),
     ];
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
@@ -305,6 +309,49 @@ fn a_links_click_hands_its_script_to_the_runner() {
     );
     assert!(
         !said(&events).iter().any(|note| note.contains("JavaScript")),
+        "{events:?}"
+    );
+}
+
+/// The outline's one item, whose `/A` is a script.
+const OUTLINE_ITEM: pdf_syntax::ObjectId = pdf_syntax::ObjectId::new(8, 0);
+
+/// Activating an outline item whose Table 151 `/A` is a script hands the runner that script at the
+/// item's own site, and says no refusal of it (ADR 1904).
+#[test]
+fn an_outline_items_activation_hands_its_script_to_the_runner() {
+    let handed = Handed::default();
+    let mut viewer = opened(Some(&handed));
+    handed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
+    let events: Vec<Event> = viewer.handle(Command::Activate(OUTLINE_ITEM)).collect();
+    let sites: Vec<(ScriptSite, String)> = handed
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    assert_eq!(
+        sites,
+        vec![(ScriptSite::Outline, "B".to_owned())],
+        "{events:?}"
+    );
+    assert!(
+        !said(&events).iter().any(|note| note.contains("JavaScript")),
+        "{events:?}"
+    );
+}
+
+/// The control: with no runner the item's script is handed to nothing and the activation says it
+/// declined the script.
+#[test]
+fn with_no_runner_an_outline_items_script_is_refused_out_loud() {
+    let mut viewer = opened(None);
+    let events: Vec<Event> = viewer.handle(Command::Activate(OUTLINE_ITEM)).collect();
+    assert!(
+        said(&events)
+            .iter()
+            .any(|note| note.contains("this item declines — JavaScript")),
         "{events:?}"
     );
 }

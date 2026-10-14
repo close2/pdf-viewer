@@ -2,8 +2,9 @@
 //!
 //! `ViewState::run_open_scripts` runs Table 32's `/JavaScript` name tree, the `/OpenAction` script,
 //! page one's `/O` and its annotations' `/PO` (ADR 1602); `Command::Presented` is how a window says
-//! the moment has come, once a document. With no runner supplied — which is every window today —
-//! the sequence runs nothing and says so, once, which is the sentence these tests read.
+//! the moment has come, once a document. With no runner supplied — the reader's level `off`, the
+//! default (ADR 1616) — the sequence runs nothing and says so, once, which is the sentence these
+//! tests read.
 
 use std::fmt::Write as _;
 

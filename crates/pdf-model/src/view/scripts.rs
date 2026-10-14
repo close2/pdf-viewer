@@ -84,8 +84,9 @@ pub struct ScriptEvent<'a> {
     /// §12.7.4.2's fully qualified name of the event's field — `event.target` — or empty where the
     /// event has none.
     pub field: &'a str,
-    /// The name a document-level script carries in Table 32's tree, Adobe's `event.targetName` at
-    /// `Doc/Open`; empty for every other site.
+    /// Adobe's `event.targetName` where the target is not a field: the name a document-level
+    /// script carries in Table 32's tree at `Doc/Open`, and an outline item's Table 151 `/Title`
+    /// at `Bookmark/Mouse Up` (ADR 1904); empty for every other site.
     pub label: &'a str,
     /// Table 221's `/JS`, as text.
     pub script: &'a str,

@@ -476,3 +476,15 @@ for is longer than the longest stage in which the program shows nothing new, and
 end is looked at before the figure is written. And after a session change a window started through
 the owner's loop may draw and be found by nothing — `xdotool` by pid, title or class — so a run that
 pressed no key says "not pressed" and reports no figure (seven of eight toolkit runs on 2026-10-14).
+
+### 174. A locked session photographs nothing, and the owner's loop does not say so
+
+On 2026-10-14 rounds 1531 and 1537 spent five and one holds placing instruments on the owner's
+display: every window opened and presented in its trace, `xdotool` found none by pid, title or class,
+and seven of eight toolkit runs that morning read "not pressed". A probe read `LockedHint=yes` from
+`loginctl`: the session was locked, so no window was visible to anything. Before a clock hold places
+an instrument through the loop, a probe checks `LockedHint` and counts the visible windows, and a run
+that finds the session locked says "locked" and takes no figure — the hold is the batch's scarcest
+resource (ADR 1863). The owner's word of 2026-10-14: the loop may unlock the session, with
+`loginctl unlock-session <id>` and no other command — not a typed password, not `xdotool` on the lock
+screen, not a killed locker — and the script says it did.

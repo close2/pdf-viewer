@@ -27,9 +27,10 @@
 //!
 //! The refusals are not laziness and they are not uniform. A `Launch` whose file is an
 //! application wants a process started, which principle 3's sandbox deliberately withholds (ADR
-//! 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
-//! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list. Each keeps its own name in the refusal so that a caller can say which,
+//! 0014); `JavaScript` is run beside this path, by the runner a host supplies at the reader's
+//! level, and its refusal here is what is said where no runner was handed it (ADRs 1752, 1904);
+//! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by
+//! `CLAUDE.md`'s closed list. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
 //! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**,
@@ -1830,9 +1831,9 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
-        // RFC 0008's Tier 0 runs a field's one-call `AF*` scripts natively and constructs no
-        // ECMAScript engine, so an ECMAScript action is still a script this tier does not run
-        // (ADR 1579).
+        // Said only where no runner was handed the script (ADR 1752): what ran then is RFC 0008's
+        // Tier 0, which runs a field's one-call `AF*` scripts natively and constructs no
+        // ECMAScript engine (ADR 1579).
         b"JavaScript" => {
             "JavaScript: a script this tier does not run — Tier 0 runs a field's one-call AF \
              library scripts and no ECMAScript"

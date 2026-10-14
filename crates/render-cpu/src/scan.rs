@@ -299,9 +299,11 @@ impl<'a> Clip<'a> {
 /// are cleared, which is why the reuse is cheaper than the allocator's own zeroing rather than
 /// merely equal to it.
 ///
-/// One lives in each [`MaskCache`](crate::MaskCache) — one per strip of a parallel render, which
+/// One lives in each [`MaskCache`] — one per strip of a parallel render, which
 /// is what keeps it out of any shared state — and the cell is borrowed for the length of a single
 /// fill, which cannot nest.
+///
+/// [`MaskCache`]: crate::mask_cache::MaskCache
 #[derive(Debug, Default)]
 pub(crate) struct Scratch {
     coverage: std::cell::RefCell<Vec<tiny_skia::Mask>>,
@@ -458,8 +460,9 @@ fn fill_as(
 /// - **Nothing else.** Every blend mode and every shader is safe, because `fill_rect_aa` and
 ///   `fill_path` hand their coverage to the *same* `RasterPipelineBlitter` — as alpha runs and as
 ///   one-pixel masks — so the composition each pixel receives is the same function of its
-///   coverage. That is why this does not carry [`crate::carries_coverage_as_alpha`]'s condition,
-///   which is about a construction that delivers coverage some other way.
+///   coverage. That is why this does not carry
+///   [`crate::compose::carries_coverage_as_alpha`]'s condition, which is about a construction that
+///   delivers coverage some other way.
 pub(crate) fn fill_rectangles(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (path, exact): (&tiny_skia::Path, &Exact),
@@ -562,9 +565,9 @@ pub(crate) fn fill_rectangles(
 ///   holds under `½` for every `M`. Half a level of 255 is below what an eight-bit raster can
 ///   hold, so declining costs the page nothing it could show.
 /// - **A mark that is not anti-aliased**, whose coverage is 0 or 255 for the same reason.
-/// - **`tiny_skia::BlendMode::Source`**, which is [`crate::carries_coverage_as_alpha`]'s exclusion and is
-///   excluded here for its own half of that reason: this construction delivers the composed
-///   coverage as the *mask* of a fully covered run, and `tiny-skia` applies a mask by scaling
+/// - **`tiny_skia::BlendMode::Source`**, which is [`crate::compose::carries_coverage_as_alpha`]'s
+///   exclusion and is excluded here for its own half of that reason: this construction delivers
+///   the composed coverage as the *mask* of a fully covered run, and `tiny-skia` applies a mask by scaling
 ///   the source where it applies a path's coverage by interpolating towards the destination.
 ///   The two agree for every mode whose result has Porter-Duff's form — scaling a premultiplied
 ///   source by `c` and interpolating the blend by `c` are the same function there, which is
@@ -579,7 +582,7 @@ fn intersected(
     (at, exact): (tiny_skia::Transform, &Exact),
     clip: Clip<'_>,
 ) -> bool {
-    if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
+    if !crate::compose::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
         return false;
     }
     let portions = exact.portions_share_a_pixel();
@@ -1010,7 +1013,7 @@ pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
 /// (`render_cpu::draw_stroked_outline`) and composes through [`fill`], and §10.7.4's substitutions
 /// on a rule too thin for the raster to state are fills already. That outline is now taken for
 /// every width down to `pdf_render::unmeasurable_width` (ADR 1102), so what still arrives here is
-/// a stroke for which every one of those declined: `crate::carries_coverage_as_alpha` answering
+/// a stroke for which every one of those declined: `crate::compose::carries_coverage_as_alpha` answering
 /// `false`, which is [`intersected`]'s own first decline as well and so loses no composition; a
 /// transform with no thinnest line; or a path the stroker or the dasher refused, which draws
 /// nothing here either. `doc/todo/11` item 4 carries what is left of the item.

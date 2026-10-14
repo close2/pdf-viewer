@@ -158,12 +158,22 @@ const READERS: [Reference; 2] = [Reference::Poppler, Reference::MuPdf];
 /// with the reading of why the difference is not a defect — the document's own, or a decision
 /// this suite has already recorded.
 ///
-/// An undiagnosed difference fails the run. All three entries are one reading: ADR 0821 section 2 drops
-/// §12.8.1's `/V` from a signature field that crosses into a merged document, because a
-/// signature is over bytes the new file does not have, and mupdf draws an *unsigned* signature
-/// widget as a placeholder rather than from its `/AP /N`. poppler draws all three identically,
-/// which is what says the difference is in one reader's treatment of an unsigned field and not
-/// in the marks the page carries.
+/// An undiagnosed difference fails the run. The entries are two readings.
+///
+/// **The first three are one**: ADR 0821 section 2 drops §12.8.1's `/V` from a signature field
+/// that crosses into a merged document, because a signature is over bytes the new file does not
+/// have, and mupdf draws an *unsigned* signature widget as a placeholder rather than from its
+/// `/AP /N`. poppler draws all three identically, which is what says the difference is in one
+/// reader's treatment of an unsigned field and not in the marks the page carries.
+///
+/// **The last two are mupdf 1.28.5's recovery of a stream whose `/Length` cannot be used**, and
+/// the evidence is an A/B of 1.28.4 against 1.28.5 on the same files with nothing else moved:
+/// 1.28.4 draws each source page and each derived page identically, 1.28.5 warns "premature end
+/// of data in flate filter" and draws less than the stream holds. §7.3.8.1 makes a stream's data
+/// what lies between `stream` and `endstream`, and on both documents those bytes are whole — the
+/// zlib stream reaches its own end inside them. Where the derived file states the length, or
+/// mupdf repairs the whole file, it reads all of them, which is why the source and the derived
+/// page differ only to this one reader.
 const HELD: &[(&str, &str)] = &[
     (
         "bug854315.pdf",
@@ -177,6 +187,20 @@ const HELD: &[(&str, &str)] = &[
     (
         "issue17069.pdf",
         "§12.8.1: the same — two /FT /Sig fields, unsigned after the merge",
+    ),
+    (
+        "multiple-filters-length-zero.pdf",
+        "§7.3.8.1: the source's scan states /Length 0 over 17 082 bytes before endstream; mupdf \
+         1.28.5 stops short of them and fills rows 2960 to 3299 with grey, and draws the copy \
+         `split`, `merge` and `optimize` write, which states its length, whole, as 1.28.4 draws \
+         both",
+    ),
+    (
+        "issue1045.pdf",
+        "§7.3.8.2: the font program's /Length is 56 0 R, and object 56 is the token 20184endobj, \
+         which no reader can take as an integer; `attach` carries those bytes under §7.5.6, the \
+         unrepaired file sends mupdf 1.28.5 to its short recovery and the font to a substitute \
+         (11 pixels, at most 3 of 255), and 1.28.4 draws both identically",
     ),
 ];
 

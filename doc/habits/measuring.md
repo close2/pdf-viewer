@@ -948,3 +948,30 @@ Round 1524 cut its first clock hold's output through `tail` and had to take a se
 figures the cut removed. A hold is the batch's scarcest resource (every waiting clock run stops the
 siblings' grants, ADR 1863): its whole output goes to a file under `scratchpad/r<n>/`, and the
 report reads from the file.
+
+## 93. A mechanical split is proved by the multiset of its lines and by removing every widening
+
+Three rounds of batch eighty-five split a file of six to nine thousand lines into a module tree and
+proved each the same way (ADRs 1906, 1908, 1910, 1912, 1914): the before and after files compared as
+multisets of non-blank lines, where the only differences allowed are the added `impl` headers and
+braces, imports, visibility and rustfmt's re-wrapping — a lost or duplicated line shows there and
+nowhere else, because the compiler does not report it; and every `pub(super)` the split added
+removed one at a time with a compile after each, so that a widening nothing reads is found (round
+1536 found one). The drive, the golden set and the arms then prove the behaviour; the two checks
+prove the text.
+
+## 94. A reference renderer's upgrade is A/B'd from the package cache before a gate move is read as ours
+
+mupdf 1.28.4 → 1.28.5 turned one oracle page ambiguous and two foreign-reader pages different on
+2026-10-13, with this tree's raster unchanged. Round 1538 extracted 1.28.4 from `/var/cache/pacman/pkg`
+and ran both against the same files and the same zlib: the new version fills the rows of a
+`/Length 0` stream grey after a "premature end" it alone reports, and reads a font stream short at a
+token no reader can take as a number (ADR 1913). Two runs settled what a day of reading our code
+would not have. When `pacman.log` shows a reference upgraded, the A/B comes first.
+
+## 95. A sweep over a count from a grep is planned after the sorter has read the lines
+
+Batch eighty-five's first slot was briefed to rewrite the 245 lines `grep -rE "hundred-and-|session"`
+finds; `tools/comment-history.py` sorted them in a minute into 0 history, 21 names, 109 legitimate uses
+and 115 in code, and three gates had held the history at zero since ADR 1767 (round 1534). A grep is a
+reading list, not a debt; the brief that names a count from it names the sorter's figure instead.

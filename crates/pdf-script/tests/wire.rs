@@ -356,6 +356,8 @@ fn a_request_and_an_outcome_come_back_as_they_went() {
         ScriptSite::Page(pdf_model::action::PageTrigger::Close),
         ScriptSite::OpenAction,
         ScriptSite::Library,
+        ScriptSite::Timer,
+        ScriptSite::Outline,
     ]
     .into_iter()
     .chain(DocumentTrigger::ALL.map(ScriptSite::Document))

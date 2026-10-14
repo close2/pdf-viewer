@@ -373,6 +373,9 @@ gates() {
     run build-hayro    cargo build --profile gates -p hayro-compare --bin pdfref-hayro
     for t in corpus raster_golden drawn_while_read script_corpus dates xmp; do
         run "t2-$t" cargo test --profile gates -p pdf-model --test "$t" -- --ignored --nocapture; done
+    # ADR 1896's walk lives in `viewer-host`, the crate that draws a page ahead; the corpus gate's
+    # population, its binary built by this test's own build.
+    run t2-drawn_ahead_in_strips cargo test --profile gates -p viewer-host --test drawn_ahead_in_strips -- --ignored --nocapture
     # The Tier 1 column of RFC 0008 section 6.7: every script Tier 0 does not run, run in its
     # document's realm with the `engine` feature built for this test binary alone, held to its
     # column's own constants. Bounded as a walk is, because a script's heap is the engine's to bound
