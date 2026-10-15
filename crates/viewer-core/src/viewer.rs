@@ -3177,7 +3177,10 @@ impl Viewer {
         events.push(damage(viewport));
     }
 
-    /// The selection in §14.8.2.5's logical content order, where the page states one.
+    /// The selection in §14.8.2.5's logical content order, where the page states one: the
+    /// structure's pieces of each page's range, joined by [`crate::select::logical_copy`] with the
+    /// paragraph and cell breaks the structure states and the artifacts it declares left out
+    /// (ADR 1948).
     ///
     /// Walks the structure tree, so it is deliberately not on the path a drag takes — see
     /// [`Query::LogicalSelection`]. The page's object is needed because §14.7's tree is the
@@ -3199,13 +3202,14 @@ impl Viewer {
             // same way a range the tree half-reaches always has: a copy that silently dropped one
             // page of a selection crossing a boundary would be worse than one handing back
             // content order for all of it.
-            ordered.push(tree.logical_range(
+            let pieces = tree.logical_range(
                 &open.document,
                 page,
-                &interpreted.text,
                 &interpreted.marked,
+                &interpreted.artifacts,
                 range.0..range.1,
-            )?);
+            )?;
+            ordered.push(crate::select::logical_copy(&interpreted.text, &pieces));
         }
         Some(ordered.join("\n"))
     }
@@ -4049,6 +4053,7 @@ impl Viewer {
                 text: interpretation.text,
                 placed: interpretation.text_layer,
                 marked: interpretation.marked,
+                artifacts: interpretation.artifacts,
                 described: interpretation.described,
                 language: interpretation.language,
                 view_dependent: interpretation.view_dependent,

@@ -3762,6 +3762,7 @@ name = "pdf-script-worker"
 version = "0.1.0"
 dependencies = [
  "confined-transport",
+ "libc",
  "pdf-model",
  "pdf-sandbox",
  "pdf-script",

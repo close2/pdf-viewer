@@ -183,7 +183,7 @@ struct Answers {
     /// §11.6.5.2's soft-mask image behind one of §7.4's image codecs.
     codec_mask: Option<String>,
     /// The half of that claim the residue is actually about: a codec-carrying mask on a pair
-    /// `image.rs::worth_combining` sends to the device-scale route, which is the only place the
+    /// `image/mask.rs::worth_combining` sends to the device-scale route, which is the only place the
     /// codec is asked about at all.
     codec_mask_deferred: Option<String>,
     /// §12.3.2.2's destination whose first element is an integer rather than a page reference.
@@ -432,7 +432,7 @@ struct Sightings {
     groups: Vec<String>,
     /// §11.6.5.2: which of §7.4's codecs each soft-mask image is behind.
     codec_masks: Vec<String>,
-    /// §11.6.5.2: the same, for a pair `worth_combining` refuses.
+    /// §11.6.5.2: the same, for a pair `image/mask.rs::worth_combining` refuses.
     deferred_codec_masks: Vec<String>,
     /// §12.3.2.2: where each integer-first destination was stated.
     numbered_destinations: Vec<String>,
@@ -773,7 +773,7 @@ fn dict_of(object: &Object) -> Option<&Dictionary> {
     }
 }
 
-/// `image.rs::worth_combining`, asked of an image dictionary and its mask's.
+/// `image/mask.rs::worth_combining`, asked of an image dictionary and its mask's.
 ///
 /// The two constants are that function's own — `PREFER_DEVICE_SCALE_ABOVE` is 2^24 and the
 /// comparison is against the base image's own sample count, so a mask on the image's grid is

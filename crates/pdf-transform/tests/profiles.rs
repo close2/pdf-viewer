@@ -29,9 +29,11 @@ const TARGETS: [Target; 6] = [
     Target::Four(Flavour::E),
 ];
 
-const PROFILES: [&str; 5] = [
+const PROFILES: [&str; 6] = [
     "refuse-any-loss",
     "as-if-printed",
+    // The owner's proposal beside it: the same yardstick asked of the window (ADR 1942).
+    "as-shown",
     "only-metadata-loss",
     "keep-everything",
     // `doc/rfc/0007` section 3's own example, made real by the round that built `derive` and
@@ -159,4 +161,47 @@ fn keep_everything_offers_an_attachment_only_where_the_target_holds_one() {
             .any(|row| row.site == "graphics/no-transfer-function-in-a-graphics-state"),
         "the 4f row still asks for the attachment"
     );
+}
+
+/// The shipped profiles, read off `doc/profiles/` rather than off [`PROFILES`]: every `.toml` there
+/// that is a profile, which is every one but a file that says it is a departure instead.
+fn profiles_on_disk() -> Vec<String> {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/profiles");
+    let mut names: Vec<String> = std::fs::read_dir(&directory)
+        .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let name = path.file_stem()?.to_str()?.to_owned();
+            let text = std::fs::read_to_string(&path).ok()?;
+            (path.extension()? == "toml" && !text.contains("THIS IS NOT A PROFILE")).then_some(name)
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn every_profile_on_disk_is_held_here_and_named_by_the_command_line() {
+    // ADR 1942: `--profile <name>` compiles the profiles in, so a profile added to `doc/profiles/`
+    // and not to the program's list would be one an operator can read about and not choose.
+    let mut held: Vec<String> = PROFILES.iter().map(|name| (*name).to_owned()).collect();
+    held.sort();
+    assert_eq!(
+        profiles_on_disk(),
+        held,
+        "doc/profiles/ and this file's list agree"
+    );
+    for name in PROFILES {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
+            .args(["archive", "--remedy-sites", "--to", "2b", "--profile", name])
+            .output()
+            .expect("the program runs");
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && printed.contains(&format!("for {name} at PDF/A-2b")),
+            "--profile {name}: {}{}",
+            printed,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

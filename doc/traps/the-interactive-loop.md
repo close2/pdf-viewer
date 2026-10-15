@@ -511,3 +511,12 @@ size, as ADR 1892 §2.4 asks of a window that keeps the bound — and the step r
 (`grep -v '^trace:'`), and a step is calibrated on HEAD's log before it judges a tree. The filter is
 for a *sentence*: the `frames` topic prints its own lines under the `trace:` prefix, so a step that
 reads frames must keep them (round 1547's first drive run filtered them away and read `wrong`).
+
+### 181. An Xvfb display is yours only when its lock file was absent and your own pid holds it
+
+Round 1556's drive script started `Xvfb :157` without looking at `/tmp/.X157-lock`. A neighbour's
+server had held that display for forty minutes, so the new Xvfb died at once and silently, and the
+Qt window with its `a` and `c` keys went to the neighbour's display for about ten seconds — into the
+middle of that round's measurements. Before any window is launched on a display: the lock file is
+absent, the server is started, and `/tmp/.X<n>-lock` holds *your* pid. A display that fails either
+test is somebody else's; pick another number.

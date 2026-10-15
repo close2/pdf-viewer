@@ -1987,8 +1987,10 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
     // to give a person pressing copy on a page whose producer wrote its columns out of order.
     //
     // The assertion is the invariant rather than a string: what comes back is a rearrangement of
-    // exactly the characters `Query::Selection` gave, and on this document — whose two orders
-    // coincide, which §14.8.2.5.1 says they *should* — it is the same string in the same order.
+    // exactly the characters `Query::Selection` gave, apart from whitespace — the copy's breaks
+    // between the structure's blocks and cells are its own, and it neither starts nor ends on the
+    // readback's separators (ADR 1948) — and on this document, whose two orders coincide, which
+    // §14.8.2.5.1 says they *should*, it is the same characters in the same order.
     // A page where it is not is `pdf-model`'s `the_logical_order_reorders_what_the_stream_showed`,
     // because five corpus pages disagree about order and none of them on purpose.
     //
@@ -1999,8 +2001,12 @@ fn a_drag_across_a_line_selects_what_it_crossed() {
     let Answer::LogicalSelection(logical) = viewer.query(Query::LogicalSelection) else {
         panic!("this document is tagged and the tree reaches the whole drag");
     };
-    let mut ours: Vec<char> = logical.chars().collect();
-    let mut theirs: Vec<char> = selection.text.chars().collect();
+    let mut ours: Vec<char> = logical.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut theirs: Vec<char> = selection
+        .text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     ours.sort_unstable();
     theirs.sort_unstable();
     assert_eq!(ours, theirs, "the same characters, whatever the order");

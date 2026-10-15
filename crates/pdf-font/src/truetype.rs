@@ -25,6 +25,7 @@ use crate::glyph_names::{GlyphNames, encoding_names, no_names};
 use crate::loading::{CodeSet, CodeTable, FontError};
 use crate::name_keyed::NameKeyed;
 use crate::post::PostNames;
+use crate::tounicode::ToUnicode;
 
 /// The three `cmap` subtables ISO 32000-2 §9.6.5.4 distinguishes.
 ///
@@ -147,13 +148,24 @@ pub(crate) fn cmap_subtables(data: &[u8]) -> Option<Vec<(u16, u16)>> {
 ///   This is what reaches a subsetter's `/gid2436`, which no encoding and no character set
 ///   knows but the font itself may name.
 ///
-/// # The two tiers below the specification's own, and why they are last
+/// # The three tiers below the specification's own, and why they are last
 ///
 /// §9.6.5.4 closes with "if a character cannot be mapped in any of the ways described
-/// previously, a PDF processor may supply a mapping of its choosing". Two are supplied, and
+/// previously, a PDF processor may supply a mapping of its choosing". Three are supplied, and
 /// each is narrower than the code it replaced.
 ///
-/// The first offers the code to every subtable the font has, in the font's own order,
+/// The first is for a font whose codes select glyph *names* — non-symbolic, with an
+/// `/Encoding` — and it asks the (3, 1) subtable for the character the file's own `/ToUnicode`
+/// states the code stands for (§9.10.3). The code is a position in the named encoding there, so
+/// offering it to a subtable as a character of that subtable's own would be reading one
+/// encoding through another; the `/ToUnicode` is the producer's statement of which character
+/// the code is, and the (3, 1) subtable the program's statement of which glyph draws that
+/// character. The witness is a `WinAnsiEncoding` font naming code 240 (octal) `space`, §D.2's
+/// duplicate that Code Page 1252 makes a no-break space, in a subset carrying no glyph for U+0020:
+/// its `/ToUnicode` says U+00A0 and its (3, 1) subtable has a glyph for that, where the code offered
+/// to the (1, 0) subtable as a Mac OS Roman code reached a superscript two (ADR 1943).
+///
+/// The second offers the code to every subtable the font has, in the font's own order,
 /// which is what this crate did for every font before the algorithm above existed. It still
 /// earns its place twice over: a symbolic font carrying only a (3, 1) subtable — common,
 /// and contrary to the guidelines — reaches no rule above and its codes really are ASCII;
@@ -161,7 +173,7 @@ pub(crate) fn cmap_subtables(data: &[u8]) -> Option<Vec<(u16, u16)>> {
 /// §9.6.5.4 does not mention at all and which is nonetheless the only correct answer for
 /// that font.
 ///
-/// The second treats the code as a glyph index, and applies **only to a font with no
+/// The third treats the code as a glyph index, and applies **only to a font with no
 /// readable `cmap` at all**. That restriction is the point: the old code fell through to it
 /// per *code*, so a font with a perfectly good `cmap` that simply did not cover a code drew
 /// glyph number `code` instead — a wrong glyph, confidently, in place of nothing. A
@@ -172,6 +184,7 @@ pub(crate) fn truetype_code_table(
     dict: &Dictionary,
     descriptor: Option<&Dictionary>,
     data: &[u8],
+    stated: &ToUnicode,
     name: &str,
 ) -> Result<(CodeTable, GlyphNames, CodeSet), FontError> {
     let font = FontRef::new(data).map_err(|e| FontError::Malformed {
@@ -238,6 +251,20 @@ pub(crate) fn truetype_code_table(
     // Section 6.2.10.6 forbid a conforming file from needing them, and the fact is knowable here
     // and nowhere afterwards — the table that comes out cannot say how a slot was filled.
     let mut reader_chosen = CodeSet::default();
+    if !symbolic && !unencoded {
+        for (code, slot) in table.iter_mut().enumerate() {
+            if slot.is_some() {
+                continue;
+            }
+            let Ok(code) = u32::try_from(code) else {
+                continue;
+            };
+            *slot = stated_character(&subtables, stated, code);
+            if slot.is_some() {
+                reader_chosen.insert(code);
+            }
+        }
+    }
     for (code, slot) in table.iter_mut().enumerate() {
         if slot.is_some() {
             continue;
@@ -365,6 +392,21 @@ fn named_glyph(
         })
 }
 
+/// A code's glyph through the character the font's `/ToUnicode` states for it, in the (3, 1)
+/// subtable.
+///
+/// The first mapping of this processor's choosing for a font whose codes select glyph names; see
+/// [`truetype_code_table`]. Only a code the `CMap` maps to exactly one character is answered,
+/// because a subtable is keyed by one character and a ligature's text names no single glyph.
+fn stated_character(subtables: &Subtables<'_>, stated: &ToUnicode, code: u32) -> Option<u16> {
+    let character = stated.char_for(code)?;
+    subtables
+        .unicode
+        .as_ref()?
+        .map_codepoint(character)
+        .and_then(narrow_glyph)
+}
+
 /// A code's glyph by treating the code itself as a character, in any subtable the font has.
 ///
 /// The mapping of this processor's choosing, for a font that reaches none of §9.6.5.4's
@@ -402,7 +444,8 @@ fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
 #[cfg(test)]
 mod truetype_encoding_tests {
     use super::{
-        PostNames, Subtables, as_character, named_glyph, symbol_glyph, truetype_code_table,
+        PostNames, Subtables, ToUnicode, as_character, named_glyph, symbol_glyph,
+        truetype_code_table,
     };
     use crate::fixture::font_dictionary;
     use crate::sfnt::{
@@ -1008,7 +1051,8 @@ mod truetype_encoding_tests {
         let (document, dict) = font_dictionary("/Encoding /WinAnsiEncoding");
 
         let (table, _, chosen) =
-            truetype_code_table(&document, &dict, None, &data, "F0").expect("the fixture loads");
+            truetype_code_table(&document, &dict, None, &data, &ToUnicode::default(), "F0")
+                .expect("the fixture loads");
 
         assert_eq!(table[0x41], Some(GLYPH));
         assert!(
@@ -1021,6 +1065,81 @@ mod truetype_encoding_tests {
             chosen.contains(0x00),
             "WinAnsiEncoding names no glyph for code 0, so only the last resort reached one"
         );
+    }
+
+    /// A `cmap` table of several format 6 subtables, each `(platform, encoding, first code,
+    /// glyphs)`, listed in the order given.
+    fn cmap_of(subtables: &[(u16, u16, u16, &[u16])]) -> Vec<u8> {
+        let bodies: Vec<Vec<u8>> = subtables
+            .iter()
+            .map(|&(platform, encoding, first, glyphs)| {
+                cmap(platform, encoding, first, glyphs)
+                    .get(12..)
+                    .expect("one record")
+                    .to_vec()
+            })
+            .collect();
+        let mut table = Vec::new();
+        table.extend_from_slice(&0_u16.to_be_bytes());
+        table.extend_from_slice(&u16::try_from(subtables.len()).expect("few").to_be_bytes());
+        let mut offset = 4_usize.saturating_add(8_usize.saturating_mul(subtables.len()));
+        for (&(platform, encoding, _, _), body) in subtables.iter().zip(&bodies) {
+            table.extend_from_slice(&platform.to_be_bytes());
+            table.extend_from_slice(&encoding.to_be_bytes());
+            table.extend_from_slice(&u32::try_from(offset).expect("small").to_be_bytes());
+            offset = offset.saturating_add(body.len());
+        }
+        for body in bodies {
+            table.extend_from_slice(&body);
+        }
+        table
+    }
+
+    /// A named-route code no step of §9.6.5.4 reaches is drawn through the character its
+    /// `/ToUnicode` states, and not as a code of a subtable listed earlier.
+    ///
+    /// The shape of the witness in ADR 1943: `WinAnsiEncoding` names code 0xA0 `space`, the
+    /// subset holds no glyph for U+0020, and its (1, 0) subtable — listed first, as the table's
+    /// order requires — maps byte 0xA0 to a visible glyph. The `/ToUnicode` says U+00A0 and the
+    /// (3, 1) subtable has the glyph for that, which is the one drawn; the code is still recorded
+    /// as reached by a mapping of this processor's choosing, because it is one.
+    #[test]
+    fn a_named_code_is_drawn_through_the_character_its_to_unicode_states() {
+        /// The visible glyph the (1, 0) subtable maps byte 0xA0 to.
+        const SUPERSCRIPT: u16 = 9;
+        let mac = [SUPERSCRIPT];
+        let unicode = [GLYPH];
+        let data = sfnt(&[(
+            *b"cmap",
+            cmap_of(&[(1, 0, 0xA0, &mac), (3, 1, 0xA0, &unicode)]),
+        )]);
+        let (document, dict) = font_dictionary("/Encoding /WinAnsiEncoding");
+        let stated = ToUnicode::parse(
+            b"1 begincodespacerange <00> <ff> endcodespacerange \
+              1 beginbfchar <a0> <00a0> endbfchar",
+        );
+
+        let (table, _, chosen) = truetype_code_table(&document, &dict, None, &data, &stated, "F0")
+            .expect("the fixture loads");
+        assert_eq!(
+            table[0xA0],
+            Some(GLYPH),
+            "the character the file states, not byte 0xA0"
+        );
+        assert!(
+            chosen.contains(0xA0),
+            "still a mapping of this processor's choosing"
+        );
+
+        let (table, _, chosen) =
+            truetype_code_table(&document, &dict, None, &data, &ToUnicode::default(), "F0")
+                .expect("the fixture loads");
+        assert_eq!(
+            table[0xA0],
+            Some(SUPERSCRIPT),
+            "without a statement the code is offered to every subtable, as before"
+        );
+        assert!(chosen.contains(0xA0));
     }
 
     /// A font with no `cmap` at all is the only one whose codes may be glyph indices.

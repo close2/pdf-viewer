@@ -21,6 +21,11 @@ pdf-sandbox.workspace = true
 pdf-script.workspace = true
 thiserror.workspace = true
 
+# `pdf-script-worker`'s first statement closes the descriptors it inherited, by number, which only
+# `libc::close_range` can say (ADR 1945).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 pdf-syntax.workspace = true
 # The Tier 1 column through the worker walks the census population four documents at a time, as
@@ -41,6 +46,10 @@ required-features = ["engine"]
 
 [[example]]
 name = "script_peak"
+required-features = ["engine"]
+
+[[example]]
+name = "script_cost"
 required-features = ["engine"]
 
 [lints]

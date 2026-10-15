@@ -1250,9 +1250,18 @@ fn truetype_codes_reach_glyphs_by_the_standard_route(
 /// A code that reaches *no* glyph is not reported here. That answer means `pdf-font`'s selection
 /// route ended nowhere rather than at glyph 0 — a shortfall of this reader is possible there, and
 /// a rule that named the file for it would be reporting our gap as the producer's fault.
+///
+/// **A Type 3 font is asked by name**, because it has no program and no glyph 0: §9.6.4's
+/// `/CharProcs` keys its glyph descriptions by glyph name and the encoding's `/Differences`
+/// selects them, so a code the encoding names `.notdef` references the glyph of that name
+/// whatever its procedure draws (ADR 1942).
 fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for used in exam.survey().fonts() {
+        if subtype(document, &used.dict).as_deref() == Some("Type3") {
+            type3_notdef_shown(document, used, findings);
+            continue;
+        }
         let Some(font) = font_with_its_own_program(document, used) else {
             continue;
         };
@@ -1274,6 +1283,38 @@ fn no_notdef_glyph_shown(exam: &Examination<'_>, findings: &mut Findings) {
                     ),
                 );
             }
+        }
+    }
+}
+
+/// [`no_notdef_glyph_shown`] for one Type 3 font: every shown code its encoding names `.notdef`.
+///
+/// A Type 3 font is a simple font, so each byte a string shows is one code (§9.6.4); the names are
+/// [`type3_encoding`]'s, the same reading the width rule takes.
+fn type3_notdef_shown(document: &Document, used: &SelectedFont, findings: &mut Findings) {
+    let notdef: BTreeSet<i64> = type3_encoding(document, &used.dict)
+        .into_iter()
+        .filter(|(_, name)| name == ".notdef")
+        .map(|(code, _)| code)
+        .collect();
+    if notdef.is_empty() {
+        return;
+    }
+    let mut reported = BTreeSet::new();
+    for text in used.shown.keys() {
+        for &byte in text {
+            let code = i64::from(byte);
+            if !notdef.contains(&code) || !reported.insert(code) {
+                continue;
+            }
+            findings.record(
+                font_place(used).named(used.name.clone()),
+                format!(
+                    "a text-showing operator draws code {code} in the Type 3 font {}, whose \
+                     encoding names the .notdef glyph for it",
+                    used.name
+                ),
+            );
         }
     }
 }
@@ -2569,7 +2610,7 @@ mod tests {
         Findings, actual_text_covers_private_use_characters, actual_text_states_no_private_use,
         charset_names, cid_system_info_agrees_with_the_cmap, cid_to_gid_map_present,
         cmap_embedded_or_predefined, embedded_cmap_states_its_own_write_mode,
-        font_programs_embedded, glyph_procedure_width, is_private_use,
+        font_programs_embedded, glyph_procedure_width, is_private_use, no_notdef_glyph_shown,
         non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         symbolic_truetype_states_no_encoding, to_unicode_present, to_unicode_values_are_usable,
@@ -2932,6 +2973,11 @@ mod tests {
 
     /// A one-page document drawing `a` and `b` in a Type 3 font whose glyphs are `wide` wide.
     fn type3_page(widths: &str, wide: u32) -> Document {
+        type3_page_naming(widths, wide, "/square /triangle")
+    }
+
+    /// [`type3_page`] with the encoding naming codes 97 and 98 by `names`.
+    fn type3_page_naming(widths: &str, wide: u32, names: &str) -> Document {
         let procedure = format!("{wide} 0 0 0 750 750 d1\n0 0 750 750 re\nf");
         let length = procedure.len();
         let content = "BT /F1 12 Tf (ab) Tj ET";
@@ -2946,9 +2992,25 @@ mod tests {
              /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 6 0 R /Encoding 7 0 R \
              /FirstChar 97 /LastChar 98 /Widths {widths} >>\nendobj\n\
              6 0 obj\n<< /square 8 0 R /triangle 8 0 R >>\nendobj\n\
-             7 0 obj\n<< /Type /Encoding /Differences [97 /square /triangle] >>\nendobj\n\
+             7 0 obj\n<< /Type /Encoding /Differences [97 {names}] >>\nendobj\n\
              8 0 obj\n<< /Length {length} >>\nstream\n{procedure}\nendstream\nendobj\n"
         ))
+    }
+
+    #[test]
+    fn a_type3_code_its_encoding_names_notdef_is_a_notdef_reference() {
+        // ISO 19005-2 section 6.2.11.8 forbids a text-showing operator referencing the .notdef
+        // glyph. A Type 3 font reaches its glyphs by name (ISO 32000-2 §9.6.4), so the page's
+        // `b` — named `/triangle` above — is one once the encoding names it `/.notdef` instead.
+        assert!(
+            findings(&type3_page("[1000 1000]", 1000), no_notdef_glyph_shown).is_empty(),
+            "the control: neither code is named .notdef"
+        );
+        let found = findings(
+            &type3_page_naming("[1000 1000]", 1000, "/square /.notdef"),
+            no_notdef_glyph_shown,
+        );
+        assert_eq!(found.len(), 1, "code 98 alone: {found:?}");
     }
 
     #[test]

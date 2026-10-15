@@ -160,11 +160,13 @@ These are the places where a native host's shape differs from the tier-2 host's,
   1930): what is drawn and copied into the toolkit is the window, answered `Rendered::Listed`. **A
   page drawn whole of which the window shows less than half the rows has those rows drawn first**,
   as a look of their own over the stand-in, and the page whole after as the frame
-  (`Drawing::ask_showing`, ADR 1868); the confined window keeps the bound and says its refusal once
-  a size (ADR 1921). What is still owed: the same drawing in the confined window (ADR 1921 §3); a
-  page never drawn before that a notch out brings on screen has no picture of any kind until it is
+  (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**: its
+  worker sends the marks, the device draws them at the window's size and the processor (`--cpu`, a
+  refused frame) draws the window and its margin (ADR 1944). What is still owed: a page never
+  drawn before that a notch out brings on screen has no picture of any kind until it is
   drawn; and a window that is most of its page costs more than the page, which is why the half
-  stands (ADR 1930 §4).
+  stands: a list culled to it is a copy of the commands it keeps, and draws as long as the page
+  where it keeps most of them (ADRs 1930 §4, 1941 §4).
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

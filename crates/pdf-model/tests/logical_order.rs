@@ -81,6 +81,9 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
     let mut annotations_in_the_order = 0usize;
     let mut inferred_on_tagged = 0usize;
     let mut tagged_pages_needing_none = 0usize;
+    let mut copied_in_order = 0usize;
+    let mut copied_past_artifacts = 0usize;
+    let mut with_declared_artifacts = 0usize;
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -114,6 +117,29 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
                 .filter(|item| matches!(item, pdf_model::structure::Child::Object { .. }))
                 .count(),
         );
+
+        // A select-all and a copy, in the structure's order: where every byte is reached, and
+        // where it is reached or declared an artifact (ADR 1948).
+        let whole = 0..interpretation.text.len();
+        let declared = interpretation
+            .artifacts
+            .iter()
+            .any(|span| span.found == pdf_model::content::ArtifactSource::Declared);
+        with_declared_artifacts = with_declared_artifacts.saturating_add(usize::from(declared));
+        let reached_only = tree
+            .logical_range(&document, id, &interpretation.marked, &[], whole.clone())
+            .is_some();
+        let past_artifacts = tree
+            .logical_range(
+                &document,
+                id,
+                &interpretation.marked,
+                &interpretation.artifacts,
+                whole,
+            )
+            .is_some();
+        copied_in_order = copied_in_order.saturating_add(usize::from(reached_only));
+        copied_past_artifacts = copied_past_artifacts.saturating_add(usize::from(past_artifacts));
 
         // Sequences the tree never reaches are text the logical order does not contain at all,
         // which is a fact about the *document* rather than a disagreement about order.
@@ -183,6 +209,11 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
     println!("  {unreached} marked-content sequences the tree does not reach");
     println!("  {annotations_in_the_order} annotations placed in the logical order");
     println!(
+        "  {copied_in_order} pages copy whole in logical order counting only what the tree \
+         reaches; {copied_past_artifacts} counting what the producer declared an artifact too; \
+         {with_declared_artifacts} pages declare one"
+    );
+    println!(
         "  {inferred_on_tagged} separators inferred from position on tagged pages; \
          {tagged_pages_needing_none} of {with_items} pages needed none"
     );
@@ -210,6 +241,17 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
     assert_eq!(
         annotations_in_the_order, 295,
         "§14.8.2.5.2's annotations, placed by the structure rather than by the stream"
+    );
+    // The control is the same question with the declared artifacts withheld: the nine pages
+    // between the two counts are pages whose running heads and folios used to send the whole copy
+    // back to page order. The twenty that copy in page order either way hold text nothing claims,
+    // which is §14.8.2.2.2's artifact by absence and this reader's inference rather than the
+    // producer's statement (ADR 1948).
+    assert_eq!(with_declared_artifacts, 21, "pages declaring an /Artifact");
+    assert_eq!(copied_in_order, 49, "whole pages the tree alone reaches");
+    assert_eq!(
+        copied_past_artifacts, 58,
+        "whole pages the tree reaches or the producer declared an artifact"
     );
 }
 
@@ -268,6 +310,30 @@ fn reversed_fixture() -> (Document, pdf_model::Interpretation, Tree, ObjectId) {
     (document, interpretation, tree, id)
 }
 
+/// [`Tree::logical_range`]'s pieces of `range`, each piece's own bytes and nothing between them:
+/// the form in which they are a rearrangement of the range.
+fn logical_bytes(
+    tree: &Tree,
+    document: &Document,
+    page: ObjectId,
+    interpretation: &pdf_model::Interpretation,
+    range: std::ops::Range<usize>,
+) -> Option<String> {
+    let pieces = tree.logical_range(
+        document,
+        page,
+        &interpretation.marked,
+        &interpretation.artifacts,
+        range,
+    )?;
+    Some(
+        pieces
+            .iter()
+            .filter_map(|piece| interpretation.text.get(piece.range.clone()))
+            .collect(),
+    )
+}
+
 /// The two orders of the fixture above, whole.
 #[test]
 fn the_logical_order_reorders_what_the_stream_showed() {
@@ -316,28 +382,15 @@ fn a_range_of_the_readback_reorders_or_refuses() {
     // that word alone — the logical order of one item is that item.
     let whole = 0..interpretation.text.len();
     assert_eq!(
-        tree.logical_range(
-            &document,
-            id,
-            &interpretation.text,
-            &interpretation.marked,
-            whole.clone(),
-        )
-        .expect("the tree reaches every byte of this page")
-        .replace(['\n', ' '], ""),
+        logical_bytes(&tree, &document, id, &interpretation, whole.clone())
+            .expect("the tree reaches every byte of this page")
+            .replace(['\n', ' '], ""),
         "firstsecond"
     );
 
-    // Every span the tree reaches, so `logical_range` over the whole page is a rearrangement of
+    // Every span the tree reaches, so the pieces of the whole page are a rearrangement of
     // exactly the same characters — the invariant its `None` arm exists to protect.
-    let mut ours: Vec<char> = tree
-        .logical_range(
-            &document,
-            id,
-            &interpretation.text,
-            &interpretation.marked,
-            whole,
-        )
+    let mut ours: Vec<char> = logical_bytes(&tree, &document, id, &interpretation, whole)
         .expect("covered")
         .chars()
         .collect();
@@ -352,11 +405,11 @@ fn a_range_of_the_readback_reorders_or_refuses() {
         .find("second")
         .expect("the stream showed it");
     assert_eq!(
-        tree.logical_range(
+        logical_bytes(
+            &tree,
             &document,
             id,
-            &interpretation.text,
-            &interpretation.marked,
+            &interpretation,
             at..at + "second".len(),
         )
         .as_deref(),
@@ -366,22 +419,16 @@ fn a_range_of_the_readback_reorders_or_refuses() {
     // An empty selection is not a rearrangement of anything, and a range beyond every span is
     // the case the `None` arm exists for: a copy must not silently lose what the tree missed.
     assert_eq!(
-        tree.logical_range(
-            &document,
-            id,
-            &interpretation.text,
-            &interpretation.marked,
-            0..0
-        ),
+        logical_bytes(&tree, &document, id, &interpretation, 0..0),
         None
     );
     let past = interpretation.text.len();
     assert_eq!(
-        tree.logical_range(
+        logical_bytes(
+            &tree,
             &document,
             id,
-            &interpretation.text,
-            &interpretation.marked,
+            &interpretation,
             past..past.saturating_add(1),
         ),
         None

@@ -1515,3 +1515,28 @@ a `##` heading that is not about them; it is at the end now because nothing in t
   seconds in release and minutes in debug. Run timing assertions in release and say so. (This line
   said *2 s* for a long run of rounds; `tools/state.sh` prints what it is, and ADR 0428 §6 took the
   same figure out of `doc/todo/02` for the same reason.)
+
+### 183. A sweep for a lint lift that matches the attribute's exact text is blind to the multi-line form
+
+`viewer-qt`'s sweep for `unsafe_code` lifts would have passed with three new lifts in the tree,
+because each was written as `#[expect(unsafe_code, reason = "…")]` over several lines and the sweep
+matched one spelling on one line. Round 1554 made the sweep strip white space and match up to the
+lint's name, and planted a lift back to see it fail (ADR 1945). The general rule: an attribute's
+text is not its identity; a sweep that matches text is calibrated by planting the thing it hunts.
+
+### 184. A still clock reads as a slow engine
+
+Round 1557 ran Doom's start-up for 600 s and then 3 600 s without it ending, and concluded the
+engine was a thousand times too slow. It was waiting on `Date`: the worker's clock gives one moment
+for the whole run, and the program spun until that moment moved. With a clock stepping 29 ms per
+read, start-up ended in 0.87 s and a tick measured 191 ms against the 28.6 ms needed (ADR 1950).
+Before an engine is priced from a run that did not finish, the clock is given a step; a run that
+then ends was never slow.
+
+### 185. A re-export replaces the tree under a build queued in it
+
+Round 1557 re-exported its session while a build it had queued under the lock was still waiting
+for its lane. When the lane came, the build's working directory had been replaced, and `cargo`
+failed with `Could not locate working directory` — one thirty-minute queue lost. An export's tree
+belongs to every command queued against it until that command has run; a second export of the same
+session is a new name (`--as`), or it waits.

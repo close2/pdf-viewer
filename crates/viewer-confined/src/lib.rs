@@ -15,8 +15,9 @@
 //! **And a page on the marks arm is not drawn here at all**, since ADR 0640: the worker answers
 //! [`viewer_core::Rendered::Listed`], which says *the host took this request's own list* about
 //! one page rather than about the viewer, so `viewer_core::MAX_PIXELS` goes on bounding every
-//! request this process makes and `Query::Frame` goes on answering for the pages that must still
-//! cross as pixels. One consequence is worth stating rather than discovering: **the cancel is
+//! raster this process draws and `Query::Frame` goes on answering for the pages that must still
+//! cross as pixels. A page past the bound is asked for only where the host said it draws one from
+//! its marks (`Command::Oversize`), and then it crosses as marks or is refused (ADR 1944). One consequence is worth stating rather than discovering: **the cancel is
 //! about the work this process does**, so on the marks arm it covers the interpretation and there
 //! is no rasterisation of ours for it to stop. Drawing the marks is the host's, as it always was
 //! — the worker was drawing a second copy and throwing it away.
@@ -845,6 +846,7 @@ impl Confined {
     /// [`viewer_core::Command::RenderReady`], which the confined process answers itself.
     pub fn handle(&mut self, command: &Command) -> Result<Vec<Event>, ConfinedError> {
         let payload = protocol::encode_command(command)?;
+        self.held.told(command);
         let (kind, payload) = self.host.exchange(
             protocol::FRAME_COMMAND,
             &payload,

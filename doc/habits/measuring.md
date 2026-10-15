@@ -1006,3 +1006,26 @@ ADR 1561 on 2026-10-06, two days before the answer was given, and round 1548 fou
 reading the §13.4 row's history before building. Before a slot builds an item an answer owes, the
 row's status and the ADRs it cites are read at HEAD; an item already built is a sentence in the
 record, not a day's work.
+
+## 100. A narrowed exclusion is re-read into every row that rested on it, in the same round
+
+When `CLAUDE.md`'s clause 13 entry was narrowed to the player alone (A254, ADR 1946), the one row the
+slot named moved and six more had to: three `out-of-scope` rows became owed, two became
+`implemented` for the appearance they already drew, and the headings above them cascaded to
+`partial`. An exclusion's wording is what every `out-of-scope` note cites, so changing it changes
+their status whether or not anybody reads them. The round that narrows an entry greps the ledger for
+the exclusion's name and re-reads each row it finds against the new wording before it reports.
+
+## 101. A sub-millisecond clock figure outside its band is judged by the instruction count beside it
+
+Batch eighty-eight's merge chain had one red gate: a tiny document's cold open — 0.511 ms against a
+band of 0.320 to 0.500 — and two reruns put a different tiny document outside each time while the
+large documents sat at the fast edge of theirs. The same gate prints, for every document, how many
+instructions the open executes under callgrind, and that figure is deterministic: the batch and
+HEAD differed by two thousand instructions in a million, the batch lower, and read the same bytes
+in the same calls. The clock had measured the disk's round trips on a sub-millisecond open, not the
+program. Before a sub-millisecond clock figure is bisected, the instruction count and the read calls
+printed beside it are compared against HEAD; where they are equal the figure is the machine's, and
+the record says so with both numbers. HEAD is measured in a tree of its own
+(`git worktree add --detach`, every submodule and untracked document linked in, the workers built
+beside the test) rather than read from a log, because the machine on the day is the variable.

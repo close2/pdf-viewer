@@ -955,6 +955,20 @@ const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedd
      embedded and whether the face's own advances were used or restated. Supply the real font \
      with --font, or ask for --no-substitute and the font is refused by name instead";
 
+/// What naming a TrueType code's glyph in the encoding asserts (`doc/adr/1942`).
+///
+/// The glyph is unchanged — the preparation proves that — but the route to it was this reader's
+/// choice and is now the file's statement: a reader that chose differently drew something else
+/// before and draws this afterwards. ISO 32000-2 §9.6.5.4 licenses each reader's choice, and an
+/// archival format exists to remove exactly that latitude.
+const STANDARD_ROUTE_REINTERPRETS: &str = "a TrueType font's encoding now names the glyph \
+     each code it shows is drawn with, where the file left the code to a mapping each reader \
+     chooses for itself: the character the font's own ToUnicode states for the code, through \
+     the font program's own Unicode cmap subtable, which is the glyph this renderer drew. A \
+     reader that chose another mapping drew another glyph before and draws this one now; no \
+     glyph changes for this renderer, the program is untouched, and the code's text is what \
+     the ToUnicode already said";
+
 /// What restating a rendering intent asserts, which is `doc/adr/0948`'s condition on it.
 ///
 /// Nothing is lost and something is all the same different: the file used to state a name whose
@@ -1725,6 +1739,26 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/non-symbolic-truetype-uses-a-standard-encoding",
         answer: Answer::Mechanical(Rewrite::StandardTrueTypeEncoding),
     },
+    // ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9, for a Type 3 font: the glyph is
+    // the producer's own procedure under the name `.notdef`, and renaming it moves nothing
+    // (`doc/adr/1942`). A font with a program keeps ADR 0816's fence, which `super::sites` returns
+    // where any font the requirement names is not a Type 3 one.
+    Remedy {
+        requirement: "fonts/no-notdef-glyph-shown",
+        answer: Answer::Mechanical(Rewrite::Type3NotdefRenamed),
+    },
+    // The same subclause's last paragraph: every code reaches its glyph by §9.6.5.4's own route.
+    // Stated rather than mechanical, because the glyph is this reader's choice made the file's
+    // statement; refused by `super::sites` wherever the file does not itself say which character
+    // the code is, or the names cannot be proved to leave every shown code on its glyph.
+    Remedy {
+        requirement: "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
+        answer: Answer::Stated(
+            None,
+            Rewrite::StandardRouteNames,
+            STANDARD_ROUTE_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.1.13's last limit: every page boundary between 3 and 14 400 units.
     // Nine of that subclause's ten limits are `IMPLEMENTATION_LIMITS` refusals and this one is
     // not, because §7.7.3.3's Table 31 makes four of §14.11.2's five boxes **optional** and
@@ -2228,10 +2262,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "fonts/embedded-programs-define-every-glyph-shown",
         Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
     ),
-    (
-        "fonts/no-notdef-glyph-shown",
-        Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
-    ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
     // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask** and no
     // interface exists to ask.
@@ -2355,10 +2385,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     (
         "fonts/symbolic-truetype-program-has-a-usable-cmap",
-        Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
-    ),
-    (
-        "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
         Because::TheFence(THE_FONT_PROGRAM_IS_THE_PRODUCERS),
     ),
     // ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
@@ -2567,7 +2593,7 @@ pub(super) const CONTAINER_DESCRIBES_SHAPE: &str = "an extension schema this fil
 /// content stream to stop showing the code or editing the font program to give it a glyph — the
 /// first takes a mark off the page and the second invents one. ADR 0816's fence is where both
 /// stop, and `CLAUDE.md`'s "authoring content from nothing" is what the second would be.
-const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a character code whose glyph its \
+pub(super) const THE_GLYPH_IS_NOT_IN_THE_PROGRAM: &str = "this file shows a character code whose glyph its \
      own embedded font program does not define, so the code reaches the .notdef glyph — which \
      ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing \
      operator to reference in any rendering mode. The file carries the program, so the mapping \

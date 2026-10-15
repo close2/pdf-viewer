@@ -150,10 +150,12 @@ frame's largest term.
   by ADR 0219's residual past ADR 1758's bound, so it was taken back. **Next**: the residual itself,
   which a mark converted row by row does not have (ADR 1819); a smaller floor costs what is left.
 - **The read's memory — built (ADR 1924)**: a segment is let go once its piece has read it, a spine
-  states copies of its statements, and the join copies each piece once. The read's peak is gone;
-  the witness's heap now peaks in the draw at 1 379.5 MiB, over ADR 1915's 1 238 MiB plateau.
-  **Next**: `pdf-render`'s two 84.1 MiB bound vectors held at once, `mark_bounds`'s and the strip
-  planner's.
+  states copies of its statements, and the join copies each piece once. The read's peak is gone,
+  and the witness's heap peaks in the draw.
+- **The planner's memory — built (ADR 1940)**: the strip planner borrows the bounds the list keeps
+  and states only the extents that are not their command's bound, and a band's keys are 32 bits;
+  the peak is 1 266.5 MiB, the list's own commands, paths and bounds. **Next**: the list itself —
+  a command is 120 bytes and its path an `Arc` of its own.
 - **Not taken**: dividing the inflate itself. The witness's one stream has no restart point
   (`00 00 FF FF` count 0), so dividing it means rapidgzip's speculative decoder in-tree, for at most
   42–45 ms of the read.

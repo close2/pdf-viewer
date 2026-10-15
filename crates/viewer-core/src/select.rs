@@ -199,6 +199,48 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
     same_line && gap >= -0.01 && gap < line
 }
 
+/// A copy of a selection in §14.8.2.5's logical content order: the structure's pieces of the
+/// readback, joined by what the structure says lies between them.
+///
+/// The pieces are `pdf_model::structure::Tree::logical_range`'s, which has already left out what
+/// the producer declared an artifact. What stands for each boundary is this function's choice and
+/// is written down here, because no clause states what a clipboard holds (ADR 1948):
+///
+/// - **a block's end is one line break**, which is what §14.8.3.3's stacking of block-level
+///   elements "in block-progression order" looks like as plain text;
+/// - **a table cell's end is a tab**, and the row's end a line break, which is the form every
+///   spreadsheet and word processor pastes as a table;
+/// - **inside a block, the readback's own separators stand**, so a `Span` or an `/ActualText`
+///   divides no word the page's spacing did not divide.
+///
+/// Whitespace either side of a boundary is the readback's separator for a neighbour the logical
+/// order no longer puts there — inferred from where the glyphs landed in the order they were
+/// drawn — so it gives way to the boundary's own, and the copy neither starts nor ends on it.
+pub(crate) fn logical_copy(text: &str, pieces: &[pdf_model::structure::LogicalPiece]) -> String {
+    use pdf_model::structure::Boundary;
+
+    let mut out = String::new();
+    for piece in pieces {
+        let mut own = text.get(piece.range.clone()).unwrap_or_default();
+        let between = match piece.after {
+            _ if out.is_empty() => None,
+            Boundary::Flow => None,
+            Boundary::Cell => Some('\t'),
+            Boundary::Block => Some('\n'),
+        };
+        if out.is_empty() || between.is_some() {
+            own = own.trim_start();
+        }
+        if let Some(between) = between {
+            out.truncate(out.trim_end().len());
+            out.push(between);
+        }
+        out.push_str(own);
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
 /// Where a string occurs in the page's readback, as ranges of it.
 ///
 /// **Case-insensitively, and with presentation forms read as their letters.** A person searching

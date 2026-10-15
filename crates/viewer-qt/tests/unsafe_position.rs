@@ -158,9 +158,9 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// And no crate the workspace does not name gained the permission alongside it.
 ///
 /// `doc/todo/30`'s rule is about the tree rather than about one crate, so the check that matters is
-/// the one that would notice another exemption appearing somewhere else. The list has **three**
-/// names on it — this crate, `viewer-ffi` (ADR 0247) and `pdf-vfs-ffi` (ADR 0868) — each with a
-/// test of its own on where its `unsafe` sits — this file,
+/// the one that would notice another exemption appearing somewhere else. The list has **six**
+/// names on it — this crate, `viewer-ffi` (ADR 0247), `pdf-vfs-ffi` (ADR 0868) and the three
+/// workers' crates (ADR 1945) — each with a test of its own on where its `unsafe` sits — this file,
 /// `crates/viewer-ffi/tests/unsafe_position.rs`, which additionally asserts that every crate
 /// touching PDF bytes still *forbids* the permission, and
 /// `crates/pdf-vfs-ffi/tests/unsafe_position.rs`.
@@ -173,10 +173,17 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// `crates/pdf-vfs-ffi/tests/unsafe_position.rs` is that test, and ADR 0868 is the record.
 ///
 /// The rule this list enforces is unchanged and is worth restating rather than assuming: **no
-/// crate that touches PDF bytes lifts the denial**, and none of these three does — `pdf-vfs-ffi`
-/// parses nothing at all, because RFC 0003 section 6 puts every byte of parsing in a confined
-/// process. A fourth name appearing here is a change to a rule the project owner stated, and it
-/// belongs in an ADR rather than in a commit that widens this list.
+/// crate that touches PDF bytes lifts the denial in the code that reads them**, and none of these
+/// three does — `pdf-vfs-ffi` parses nothing at all, because RFC 0003 section 6 puts every byte of
+/// parsing in a confined process.
+///
+/// **The other three names are the workers' programs, and the owner's answer is why**
+/// (`doc/questions/A430`, ADR 1945): `pdf-sandbox-worker`, `pdf-view-worker` and
+/// `pdf-script-worker` each close the descriptors they inherited as `main`'s first statement,
+/// before a byte of input, in one `close_range` that only an `unsafe` call can make; each library
+/// still forbids the permission, and `pdf-sandbox`'s `tests/inherited_descriptors.rs` pins where
+/// the three lifts are. A seventh name appearing here is a change to a rule the project owner
+/// stated, and it belongs in an ADR rather than in a commit that widens this list.
 #[test]
 fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -203,10 +210,13 @@ fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
                 // Both spellings, because the property is *who lifts the denial* rather than
                 // which attribute spells it: `clippy::allow_attributes` (ADR 1042) makes the
                 // `allow` form a build failure, and a sweep that reads only the form in use
-                // today would go quiet the day the other one came back.
-                if ["#[expect(unsafe_code)]", "#![expect(unsafe_code)]"]
+                // today would go quiet the day the other one came back. Read with the white
+                // space taken out and up to the lint's name, so that a lift with a `reason`
+                // across several lines is a lift too (ADR 1945).
+                let text: String = text.split_whitespace().collect();
+                if ["#[expect(unsafe_code", "#![expect(unsafe_code"]
                     .iter()
-                    .chain(["#[allow(unsafe_code)]", "#![allow(unsafe_code)]"].iter())
+                    .chain(["#[allow(unsafe_code", "#![allow(unsafe_code"].iter())
                     .any(|form| text.contains(form))
                 {
                     lifting.push(name.clone());
@@ -220,10 +230,13 @@ fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
     assert_eq!(
         lifting,
         vec![
+            "pdf-sandbox".to_owned(),
+            "pdf-script-worker".to_owned(),
             "pdf-vfs-ffi".to_owned(),
+            "viewer-confined".to_owned(),
             "viewer-ffi".to_owned(),
             "viewer-qt".to_owned(),
         ],
-        "only the two C ABIs and the crate with the C++ bridge lift it"
+        "only the two C ABIs, the crate with the C++ bridge and the three workers' close lift it"
     );
 }

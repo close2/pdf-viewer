@@ -1152,15 +1152,16 @@ impl Interpreter<'_> {
                         if let Some(replacement) = section.actual_text
                             && section.starts_at <= self.text.len()
                         {
-                            self.truncate_readback(section.starts_at);
+                            self.cut_replaced(section.starts_at, &replacement);
                             // "If each of two (or more) consecutive structure or marked-content
                             // sequences has an ActualText entry, they shall be treated as if no
-                            // word break is present between them." The space between them is not
-                            // in either sequence — it is what the *placement* pass inferred from
-                            // the gap the glyphs left — so the clause is asking for it to go.
-                            // Only whitespace is removed, and only where the previous section's
-                            // replacement ended where this one's text began: a real character
-                            // between the two means they are not consecutive.
+                            // word break is present between them." The space between them is no
+                            // content of either sequence — it is what the *placement* pass
+                            // inferred from the gap the glyphs left, which the cut above kept at
+                            // this section's start (ADR 1948) — so the clause is asking for it to
+                            // go. Only whitespace is removed, and only where the previous
+                            // section's replacement ended where this one's text began: a real
+                            // character between the two means they are not consecutive.
                             if let Some(end) = replaced_ends_at
                                 && self.text.get(end..).is_some_and(|between| {
                                     !between.is_empty() && between.chars().all(char::is_whitespace)

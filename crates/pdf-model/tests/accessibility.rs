@@ -776,3 +776,66 @@ fn an_af_tagged_section_reads_the_property_lists_mcaf_key() {
     };
     assert_eq!(file.name, "equation.xml");
 }
+
+/// §14.9.4 replaces *the content*, and the gap before it is not content:
+///
+/// > The ActualText value shall be used as a replacement, not a description, for the content,
+/// > providing text that is equivalent to what a person would see when viewing the content.
+///
+/// The separator this reader infers from the gap before a section's first glyph is written when
+/// that glyph is shown, inside the section's range, and it used to be cut away with the glyphs —
+/// so `the` ran into a replaced `first`, ordinary text into the replacement after it, and a page's
+/// last line into its replaced folio. Each of the three keeps its break (ADR 1948); the consecutive
+/// rule above still removes the one between two replacements.
+#[test]
+fn a_replacement_keeps_the_break_before_it() {
+    for (content, expected) in [
+        (
+            "BT /F1 12 Tf 10 50 Td (the) Tj 30 0 Td /Span << /ActualText (first) >> BDC (f) Tj EMC ET",
+            "the first",
+        ),
+        (
+            "BT /F1 12 Tf 10 50 Td /Span << /ActualText (one) >> BDC (a) Tj EMC \
+             40 0 Td (X) Tj 40 0 Td /Span << /ActualText (two) >> BDC (b) Tj EMC ET",
+            "one X two",
+        ),
+        (
+            "BT /F1 12 Tf 10 80 Td (Real content.) Tj \
+             0 -30 Td /Artifact << /Type /Pagination /Subtype /Footer /ActualText (7) >> BDC \
+             (vii) Tj EMC ET",
+            "Real content.\n7",
+        ),
+    ] {
+        let drawn = interpret(content, "", "", "");
+        assert_eq!(drawn.text.trim_end(), expected, "{content}");
+    }
+}
+
+/// §14.9.4's EXAMPLE, run as the clause writes it — with the `TL` its `'` needs, which the clause
+/// does not show.
+///
+/// > This example shows the use of replacement text to indicate the correct character content in
+/// > a case where hyphenation changes the spelling of a word
+///
+/// and the word is "Drucker". The line break before `ker` is this reader's inference from where
+/// the glyphs landed; the producer's replacement of the line-end hyphen is the statement that the
+/// word goes on, so the break is withheld. A replacement that keeps its hyphen keeps the break, as a
+/// hard hyphen at a line's end does anywhere else (ADR 1948).
+#[test]
+fn the_clauses_hyphenation_example_reads_back_as_one_word() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 14 TL 10 80 Td (Dru) Tj /Span <</ActualText (c)>> BDC (k-) Tj EMC (ker) ' ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(drawn.text.trim_end(), "Drucker");
+
+    let kept = interpret(
+        "BT /F1 12 Tf 14 TL 10 80 Td (Dru) Tj /Span <</ActualText (k-)>> BDC (k-) Tj EMC (ker) ' ET",
+        "",
+        "",
+        "",
+    );
+    assert_eq!(kept.text.trim_end(), "Druk-\nker");
+}

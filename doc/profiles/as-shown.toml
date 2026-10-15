@@ -1,0 +1,230 @@
+# as-shown — archive what this viewer's window showed of each page.
+#
+# The project owner's proposal of 2026-10-15, weighed beside as-if-printed: "maybe we should have
+# a profile: 'like shown' for pdf/a conversion?" Both are lower bounds on what a conversion may
+# lose, never instructions to lose it (the owner, the same day: the profiles "specify what
+# information we would accept to lose without declining"). The yardstick here is asked once per
+# class of thing, as as-if-printed's is: would a page drawn at rest in the window have lost this?
+#
+# The two profiles differ exactly where ISO 32000-2 lets the screen and paper differ, and nowhere
+# else (ADR 1942):
+#
+#   - Table 167's Print bit and NoView bit. An annotation that is visible but does not print is
+#     what paper lost and the window showed, so as-if-printed may remove it and this profile may
+#     not. A hidden or NoView annotation is what both lost.
+#   - An annotation of a subtype ISO 19005 does not admit draws its normal appearance in the
+#     window; this profile keeps those marks (preserve, ADR 1123) where as-if-printed discards.
+#
+# Attachments, actions, scripts, metadata and the rollover and down appearances are not drawn on
+# a page at rest, so the two profiles answer them alike.
+#
+# The site where the two genuinely need a per-annotation answer is
+# annotations/printable-and-visible: one remedy covers both a hidden annotation (discarding it is
+# inside this bound) and a visible, non-printing one (discarding it is not). The split is not
+# built, so this profile stops there rather than lose a mark the window showed (doc/todo/72).
+
+[profile]
+name = "as-shown"
+sentence = "Discard what this viewer's window would not have shown of a page; touch nothing it would."
+catalogue = "doc/pdf-a-mitigations.md"
+default = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Attachments. Paper carries none. Note that the answer is still `preserve` wherever preserving is
+# free: a PDF attachment that converts costs nothing to keep, and this profile is about not being
+# stopped, not about throwing things away.
+# ---------------------------------------------------------------------------------------------
+
+[site."embedded-files/embedded-file-is-itself-pdfa"]
+remedy = "discard"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"]
+remedy = "discard"
+
+[site."embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile".target."4f"]
+remedy = "preserve"
+placement = "attach"        # 4f holds the original unchanged; nothing is lost, so nothing is
+                           # discarded, and the yardstick never comes into it
+
+[site."embedded-files/associated-file-media-type"]
+remedy = "discard"         # an associated file with no declared type; paper had no attachments
+
+# ---------------------------------------------------------------------------------------------
+# Annotations. Table 167 is the anchor, read for the screen: Hidden and NoView are what the window
+# did not show; Print is about paper and says nothing about the window.
+# ---------------------------------------------------------------------------------------------
+
+[site."annotations/subtype-defined-in-iso-32000-1"]
+remedy = "preserve"
+placement = "append"       # the window drew its normal appearance; keep those marks (ADR 1123)
+on-failure = "stop"
+
+[site."annotations/subtype-defined-in-iso-32000-2"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
+[site."annotations/three-dimensional-only-in-engineering-files"]
+remedy = "discard"
+
+[site."annotations/file-attachment-only-in-embedded-file-files"]
+remedy = "discard"
+keep-attachment = true     # the paperclip goes; a conforming attachment stays in the name tree
+
+[site."annotations/printable-and-visible"]
+remedy = "stop"
+# Where the two profiles part. A visible annotation that does not print was shown; one that is
+# hidden or NoView was not. One answer cannot keep the first and remove the second, so this
+# profile stops until the per-annotation split exists (doc/todo/72).
+
+[site."annotations/flags-entry-present"]
+remedy = "preserve"
+# An annotation that states no F at all is shown (Hidden and NoView clear), so removing it is
+# outside this profile's bound; it is kept and given the Print bit ISO 19005 section 6.3.2
+# requires, and nothing on the screen changes (ADR 1942).
+
+[site."annotations/appearance-dictionary-holds-only-normal"]
+remedy = "discard"
+# Rollover and pressed appearances never reached paper and never will reach an archive reader.
+
+# ---------------------------------------------------------------------------------------------
+# Behaviour. None of it is drawn on a page at rest.
+# ---------------------------------------------------------------------------------------------
+
+[site."forms/no-action-on-widget-or-field"]
+remedy = "discard"
+
+[site."forms/need-appearances-absent-or-false"]
+remedy = "discard"
+construct = true           # build the field appearances first, so the file shows what it shows;
+                           # a printed form showed the reader's generated appearances
+
+[site."forms/no-xfa-key"]
+remedy = "discard"
+dynamic = "stop"           # a dynamic form's pages are generated; paper had pages, and we do not
+
+[site."forms/no-needs-rendering"]
+remedy = "discard"
+
+[site."actions/no-launch-multimedia-or-form-actions"]
+remedy = "discard"
+
+[site."actions/no-deprecated-set-state-or-no-op-actions"]
+remedy = "discard"
+
+[site."actions/no-javascript-action"]
+remedy = "discard"
+
+[site."actions/no-optional-content-or-view-action"]
+remedy = "discard"
+
+[site."actions/optional-content-or-view-action-only-in-engineering-files"]
+remedy = "discard"
+
+[site."actions/named-action-is-page-navigation"]
+remedy = "discard"
+
+[site."actions/no-additional-actions-dictionary"]
+remedy = "discard"
+
+[site."actions/additional-actions-outside-widgets-hold-only-annotation-triggers"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# The document's own restrictions. A page drawn in the window shows neither its encryption nor
+# its permissions. The password is not expressible here (doc/pdf-a-mitigations.md section 14, point
+# 8): this site needs a per-document input, so it stops when one is not supplied.
+# ---------------------------------------------------------------------------------------------
+
+[site."file-structure/no-encryption"]
+remedy = "discard"
+on-missing-password = "stop"
+
+[site."file-structure/crypt-filter-is-identity"]
+remedy = "discard"
+
+# One ink defined two ways. On the device this profile is named for the choice is immaterial:
+# ISO 32000-2 8.6.6.4. On a screen the alternate space and tint transform are what draw the ink,
+# so `first` keeps the producer's own first statement of it, which is the one this viewer drew
+# (ADR 1188).
+[site."graphics/separations-of-one-name-agree"]
+remedy = "supply"
+winner = "first"
+
+[site."file-structure/permissions-dictionary-keys"]
+remedy = "discard"
+
+[site."file-structure/document-signature-states-no-digest"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# Metadata. A page drawn in the window shows none of it. `preserve` is still chosen where it is free.
+# ---------------------------------------------------------------------------------------------
+
+# **Built**: ISO 19005-2 clause 6.6.2.3.1's property comes out of the packet, which is
+# `--authorise metadata-property` under another name. A page in the window shows no XMP, and an
+# archive that would rather keep the property should read `only-metadata-loss`.
+[site."metadata/properties-use-known-schemas"]
+remedy = "discard"
+
+[site."metadata/xmp-packets-well-formed"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/xmp-packets-state-one-rdf-element"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model"]
+remedy = "preserve"
+original = "page"
+fresh-packet = true
+
+[site."metadata/extension-schemas-embedded"]
+remedy = "preserve"
+undeterminable = "discard"
+
+[site."metadata/extension-schema-container-fields"]
+remedy = "discard"
+
+[site."metadata/identification-amendment-form"]
+remedy = "discard"
+
+[site."metadata/xmp-packet-header-attributes"]
+remedy = "discard"
+
+[site."file-structure/document-information-dictionary-holds-only-a-modification-date"]
+remedy = "preserve"
+unmapped = "discard"
+
+[site."file-structure/document-information-dictionary-needs-piece-info"]
+remedy = "preserve"
+unmapped = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# Optional content. The window drew the default configuration's view state, which both parts
+# require a reader to render anyway.
+# ---------------------------------------------------------------------------------------------
+
+[site."optional-content/no-automatic-states"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# What this profile deliberately leaves at `stop`, because the window WOULD have shown it:
+#
+#   graphics/no-transfer-function-in-a-graphics-state  ISO 32000-2 10.5's transfer functions
+#                                  decide what a screen shows (CLAUDE.md, clause 10)
+#   graphics/rendering-intent-*    decides the colour shown
+#   graphics/destination-profile-* the output intent states what the colours mean
+#   fonts/*                        the window drew glyphs; every font refusal stays. A TrueType
+#                                  code reached only by a mapping of the reader's choosing needs no
+#                                  answer here: the converter names its glyph in the encoding where
+#                                  the file says which it is (ADR 1942)
+#   graphics/jpeg2000-*            the image shown
+#   annotations/normal-appearance-shape   with no /AS, nothing says which state was shown
+#   annotations/printable-and-visible     above
+#
+# And the entries that need no answer at all, because their right answer loses nothing and is
+# owed code rather than a choice: doc/pdf-a-mitigations.md section 13.3.

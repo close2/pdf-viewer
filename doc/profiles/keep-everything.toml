@@ -83,6 +83,9 @@ on-failure = "preserve"    # attach the original 3D stream, which Annex B admits
 remedy = "preserve"
 keep-attachment = true     # the file stays in the name tree; only the on-page marker goes
 
+[site."annotations/flags-entry-present"]
+remedy = "preserve"        # kept in place and given Print, which ISO 19005 section 6.3.2 requires (ADR 1942)
+
 [site."annotations/printable-and-visible"]
 remedy = "preserve"        # built: un-hide rather than remove; this profile keeps marks, even hidden
                            # ones. The F entry gets Print set and the four forbidden bits cleared,

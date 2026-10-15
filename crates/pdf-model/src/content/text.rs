@@ -43,6 +43,10 @@ const WORD_GAP_SHARE: f32 = 0.5;
 /// trough between kerning and word gaps that such fonts' own steps show (ADR 1502).
 const NOMINAL_SPACE_EM: f32 = 0.25;
 
+/// The characters a line may end on to divide a word: U+002D, §14.8.2.3's soft hyphen U+00AD,
+/// and Unicode's own U+2010 HYPHEN.
+const HYPHENS: [char; 3] = ['-', '\u{00ad}', '\u{2010}'];
+
 /// The least share of a space a font's own threshold may take, and so the shortest gap
 /// [`Interpreter::separate_text`] keeps a provisional space for.
 ///
@@ -76,6 +80,12 @@ pub(super) struct WordGaps {
     fonts: Vec<Font>,
     /// Every step along a line, in the order the walk measured them.
     steps: Vec<Step>,
+    /// The byte of the readback the last inferred separator — a space or a line break — was
+    /// written at, for [`Interpreter::cut_replaced`] to tell it from what a section read back.
+    last_separator: Option<usize>,
+    /// Whether the next line break [`Interpreter::separate_text`] would infer is withheld, because
+    /// the replacement just written removed the hyphen that ended its line (ADR 1948).
+    joins_next_line: bool,
 }
 
 /// One step [`Interpreter::separate_text`] measured along a line, in text space.
@@ -129,6 +139,9 @@ impl WordGaps {
     /// Each one is still a step the page showed, so it stays in its font's steps; only its place
     /// in the text is gone.
     pub(super) fn discard_from(&mut self, len: usize) {
+        if self.last_separator.is_some_and(|at| at >= len) {
+            self.last_separator = None;
+        }
         for step in self.steps.iter_mut().rev() {
             match step.provisional {
                 Provisional::At(at) if at >= len => step.provisional = Provisional::Discarded,
@@ -144,8 +157,14 @@ impl WordGaps {
     }
 
     /// Takes back every step measured after the first `len`.
+    ///
+    /// The last separator and a withheld line break are forgotten with them: a rewind cuts the
+    /// readback back to a mark this does not know, and a separator remembered past it would name
+    /// a byte something else is written to next.
     pub(super) fn truncate(&mut self, len: usize) {
         self.steps.truncate(len);
+        self.last_separator = None;
+        self.joins_next_line = false;
     }
 
     /// Each font's threshold, as a share of the space its steps were measured against.
@@ -1224,6 +1243,9 @@ impl Interpreter<'_> {
         run: usize,
     ) {
         let vertical = font.is_vertical();
+        // Taken whatever this step turns out to be: the replacement that asked for it ended a
+        // line only if the very next show operation starts another.
+        let joins_line = std::mem::take(&mut self.word_gaps.joins_next_line);
         // The text-space origin under the matrix is simply its translation.
         let here = (matrix.e, matrix.f);
         let Some((last_x, last_y)) = self.text_cursor else {
@@ -1241,11 +1263,16 @@ impl Interpreter<'_> {
             (x * forward, y)
         };
         if across.abs() > size.abs() * 0.5 {
+            if joins_line {
+                return;
+            }
+            self.word_gaps.last_separator = Some(self.text.len());
             self.text.push('\n');
             self.inferred_separators = self.inferred_separators.saturating_add(1);
         } else if along > 0.0 {
             let provisional = if along > space * LEAST_WORD_GAP_SHARE {
                 let at = self.text.len();
+                self.word_gaps.last_separator = Some(at);
                 self.text.push(' ');
                 self.inferred_separators = self.inferred_separators.saturating_add(1);
                 Provisional::At(at)
@@ -1270,6 +1297,39 @@ impl Interpreter<'_> {
     pub(super) fn truncate_readback(&mut self, len: usize) {
         self.text.truncate(len);
         self.word_gaps.discard_from(len);
+    }
+
+    /// Cuts away what a section with §14.9.4's `/ActualText` read back, before its replacement is
+    /// written.
+    ///
+    /// > The ActualText value shall be used as a replacement, not a description, for the content,
+    /// > providing text that is equivalent to what a person would see when viewing the content.
+    ///
+    /// What is replaced is **the content**, and two things this reader writes beside the content are
+    /// not part of it (ADR 1948):
+    ///
+    /// - **The separator inferred before the section's first glyph stays.** It stands for the gap
+    ///   between what came before and the section — [`Self::separate_text`] writes it when that
+    ///   glyph is shown, so it lands inside the section's range — and cutting it with the glyphs
+    ///   ran `the` into a replaced `first` and a page's last line into its replaced folio. Where
+    ///   the section follows another replacement, §14.9.4's "treated as if no word break is present
+    ///   between them" still removes it, because that rule is applied to the readback as it stands
+    ///   after this cut.
+    /// - **A replacement that takes away the hyphen its content ended on joins its line to the
+    ///   next.** The clause's own EXAMPLE is that case — `(Dru) Tj /Span <</ActualText (c)>> BDC
+    ///   (k-) Tj EMC (ker) '` shows "the correct character content in a case where hyphenation
+    ///   changes the spelling of a word", and the word is "Drucker". The line break before `ker` is
+    ///   this reader's inference from position, and the producer's replacement of the line-end
+    ///   hyphen is the statement that the word goes on; so the next line break inferred is
+    ///   withheld. A replacement that keeps a hyphen keeps the break, as a hard hyphen at a line's
+    ///   end does everywhere else in the readback.
+    pub(super) fn cut_replaced(&mut self, starts_at: usize, replacement: &str) {
+        let cut = self.text.get(starts_at..).unwrap_or_default();
+        let separator =
+            self.word_gaps.last_separator == Some(starts_at) && cut.starts_with([' ', '\n']);
+        let hyphen = |text: &str| text.trim_end().ends_with(HYPHENS);
+        self.word_gaps.joins_next_line = hyphen(cut) && !hyphen(replacement);
+        self.truncate_readback(starts_at.saturating_add(usize::from(separator)));
     }
 
     /// Writes §14.9.4's replacement where the enclosed operators' readback was cut away, and gives

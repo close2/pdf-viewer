@@ -121,6 +121,12 @@ use crate::screen::{Draw, Screen};
 /// The one document this window opens; the identity is the host's to choose.
 const DOCUMENT: DocumentId = DocumentId(0);
 
+/// What this window does with a page whose whole raster would be past `viewer_core::MAX_PIXELS`:
+/// it draws the page from its marks at the size of the window, on the device or, on the processor,
+/// as the window shows it (`screen`'s windows), so the worker sends the marks rather than refusing
+/// the page (ADR 1944).
+const OVERSIZE: Command = Command::Oversize(viewer_core::Oversize::Listed);
+
 /// How far one wheel notch moves the page, in device pixels.
 ///
 /// No clause states a wheel distance and neither toolkit host chooses one — each takes what GTK
@@ -490,7 +496,7 @@ impl Host {
             for refusal in &supply.refused {
                 eprintln!("note: {refusal}");
             }
-            for command in &supply.commands {
+            for command in supply.commands.iter().chain([&OVERSIZE]) {
                 events.extend(confined.handle(command).map_err(|e| e.to_string())?);
             }
             events.extend(
@@ -628,7 +634,13 @@ impl Host {
                 });
             }
             // The new worker is a new viewer, so it is told again what the first one was told.
-            for command in host.reader.commands().commands {
+            for command in host
+                .reader
+                .commands()
+                .commands
+                .into_iter()
+                .chain([OVERSIZE])
+            {
                 host.dispatch(command);
             }
             host.dispatch(Command::Open {
@@ -1772,6 +1784,29 @@ impl ApplicationHandler for Host {
         let mut changed = false;
         for finished in self.drawing.collect() {
             changed |= self.screen.landed(finished);
+        }
+        // A page past the bound drawn on the processor lands as a window of it (ADR 1944), said
+        // in the toolkit windows' words.
+        for (finished, window) in self.drawing.windows() {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    window.width,
+                    window.height,
+                    window.x,
+                    window.y,
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned"
+                    },
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            changed |= self.screen.landed_window(finished, window);
         }
         if changed {
             // Fallback pixels landed: behind a device they reach the window inside the next

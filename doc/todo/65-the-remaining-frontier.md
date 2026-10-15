@@ -38,14 +38,18 @@ an exclusion, a deprecation, or a case the standard leaves undefined.
 
 `CLAUDE.md` principle 3 gives a document's restrictions four levels (`off`/`on`/ask/warn) whose
 interface is in scope to build; the same surface covers printing and a collection's alternate
-presentations. No row is here at present: what the bucket held was a gap in the surface rather than
-in the reading, each row's core already in place and waiting only on the operation it drives, and
+presentations. One row is here, the first the clause 13 entry's amendment brought; what the bucket
+held before it was a gap in the surface rather than in the reading, each row's core already in place and waiting only on the operation it drives, and
 each row left as its surface was built. **What builds a row that arrives here:** the host work of
 `doc/todo/30`–`38` and RFC 0004's print path. Table 147's print half is no longer among them: it is
 read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` over the
 reader's own menu and for `/CenterWindow` in the one window whose toolkit cannot place it
 (ADRs 1203, 1204, 1227, 1145, 1429).
 
+- §13.2.4.2 — a media clip's data, owed since `doc/questions/A254` amended the clause 13 entry:
+  §13.2.2's viability reads its /MH, /BE and /P, and the hand-off saves or opens its /D at a `Media`
+  level of its own, `ask` by default, in each window's menu, with Table 286's /TF answered by that
+  level — RFC 0009 section 12's item 3 (ADR 1946).
 - **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `implemented`, and §12.3 with them:
   every name Table 160 defines is drawn, `/View` is obeyed for each of its four values, `/Sort`
   orders the panel and Table 158's `Direction N` gives the window to the file list. Unused, as a choice
@@ -246,7 +250,9 @@ Tier 1 engine runs in every window at the reader's `Scripts` level, `off` by def
 both patches (ADRs 1589, 1730), and A209 owes nothing; none of the last four moves a row this map holds.
 Of the answers of 2026-10-08, A286 amended `CLAUDE.md`'s script exclusion with `doc/questions/Q286`'s
 sentence and moved §12.6.4.17 to `implemented`, an outline item's `/A` the site its build added
-(ADR 1904); the row was never this map's.
+(ADR 1904); the row was never this map's. A254 amended the clause 13 entry with RFC 0009 section 11's
+question 2 sentence, which moved §13.4, §13.6.2, §13.7.2.1 and §12.5.6.25 to `implemented` and
+brought §13.2.2, §13.2.4.2 and §14.9.2.4 into this map as owed (ADR 1946).
 
 ### 6. Genuinely buildable now — the campaign's next targets
 
@@ -264,6 +270,12 @@ row is in this bucket when its note names none of those three.
   maps write their `/GPTS` as the base system's degrees where Table 269 says eastings and northings,
   and are read so, fitted in the system's plane — a departure on `doc/questions/A271` (ADR 1918).
   What is left: a `/DCS` on another datum, a datum transformation outside A171's scope.
+- §13.2.2 — viability, owed since `doc/questions/A254` amended the clause 13 entry: `pdf_model::media`
+  reads the rendition tree's /MH and /BE and judges each rendition by the clause's rules with the
+  players this program knows, which are none, so the report says in the clause's terms what the
+  rendition action's refusal now says only as an exclusion — RFC 0009 section 12's item 3 (ADR 1946).
+- §14.9.2.4 — a media clip's multi-language alternate text, read for that report and chosen for the
+  reader's language by this clause's rule; it moves with §13.2.2 (ADR 1946).
 
 §7.4.9 is not here: its buildable case, a CIE Lab image under an illuminant other than D50, is drawn
 under that illuminant's white point (ADR 1713), and the row stays in bucket 2 for e-sRGB, e-sYCC and
@@ -272,9 +284,9 @@ CIE Jab, whose texts are not held.
 §7.10.2 is `implemented`: Table 39's `/Order 3` is the not-a-knot cubic spline, the choice ADR 1636
 writes down against the clause's own four-sample threshold, and §7.10 settles with it.
 
-§13.4 was here, and is `departed`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
-this program chose, and the playing — the boolean form with it — is the one withholding, on the
-clause 13 exclusion `doc/questions/A33` bounded (ADR 1561).
+§13.4 was here, and is `implemented`: Table 306's stream `/Poster` is drawn in `/Rect` at a placement
+this program chose, and the playing — the boolean form with it — rests on the amended clause 13
+entry rather than on a withholding of the row's own (ADRs 1561, 1946).
 
 §12.6.4.6 was here, and is `departed`: a launch whose Table 207 `/F` is a
 PDF opens under the reader's remote-documents level, and one that names an application is the one
@@ -293,7 +305,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10.
+§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10, §13.2, §13.2.4, §14.9, §14.9.2.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

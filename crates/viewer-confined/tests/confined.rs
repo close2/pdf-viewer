@@ -1430,6 +1430,51 @@ fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
     );
 }
 
+/// A page zoomed until its whole raster would be past `MAX_PIXELS` crosses as its marks to a host
+/// that said it draws such a page from them (`Command::Oversize`, ADR 1944), and is refused by name
+/// to one that did not — the worker allocates no raster past the bound either way.
+#[test]
+fn a_page_past_the_bound_crosses_as_marks_to_a_host_that_draws_them() {
+    // 612 × 792 points at 32 pixels a point is 19 584 × 25 344, 496 million pixels.
+    let zoom = Command::Zoom {
+        zoom: Zoom::Scale(32.0),
+        at: None,
+    };
+    let said_cannot = |events: &[Event]| {
+        events.iter().any(|event| {
+            matches!(event, Event::Reported { notes, .. }
+                if notes.iter().any(|note| note.contains("cannot be drawn at this size")))
+        })
+    };
+
+    let (mut refusing, _) = opened();
+    let events = refusing.handle(&zoom).expect("a zoom crosses");
+    assert!(
+        said_cannot(&events),
+        "a host that holds whole rasters is refused the page: {events:?}"
+    );
+
+    let (mut listing, _) = opened();
+    listing
+        .handle(&Command::Oversize(viewer_core::Oversize::Listed))
+        .expect("what a page past the bound is crosses");
+    let events = listing.handle(&zoom).expect("a zoom crosses");
+    assert!(!said_cannot(&events), "nothing is refused: {events:?}");
+    let Reply::Frame(frames) = listing.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds a frame for the page on the screen");
+    };
+    let [shown] = frames.as_slice() else {
+        panic!("a single-page arrangement crosses as one frame: {frames:?}")
+    };
+    let viewer_confined::Payload::List { target, .. } = &shown.payload else {
+        panic!("the page crosses as its marks: {shown:?}");
+    };
+    assert!(
+        u64::from(target.width) * u64::from(target.height) > viewer_core::MAX_PIXELS,
+        "at its whole target, which the host draws a window of: {target:?}"
+    );
+}
+
 /// How long the drawing thread may take to reach [`HeldOpen`], the mark the test holds.
 ///
 /// Bounded against unbounded, for [`AFTER_CANCEL`]'s reason: before the mark there is the planning

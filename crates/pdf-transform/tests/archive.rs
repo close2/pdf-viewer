@@ -3607,6 +3607,210 @@ fn a_non_symbolic_truetype_font_whose_shown_code_would_move_is_refused() {
     assert!(output.is_none(), "and no file claims a conformance");
 }
 
+#[test]
+fn a_preserve_at_the_absent_flags_site_keeps_the_annotation_and_gives_it_print() {
+    // ISO 19005-2 section 6.3.2's first sentence leaves an annotation stating no /F two futures,
+    // being given Print or leaving the page. `preserve` is the word for the one that takes nothing
+    // out (ADR 1942), and it needs no `--authorise`: the configuration is the operator's answer.
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec!["<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] >>".to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let plan = plan_from(
+        "[site.\"annotations/flags-entry-present\"]\nremedy = \"preserve\"\n",
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(
+        matches!(
+            decision(&report, "annotations/flags-entry-present"),
+            Decision::Configured {
+                kind: pdf_transform::archive::RemedyKind::Preserve,
+                rewrite: Rewrite::AnnotationFlags,
+                ..
+            }
+        ),
+        "the operator's answer is what the conversion does"
+    );
+    let output = output.expect("the preservation converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        String::from_utf8_lossy(&output).contains("/F 4"),
+        "the annotation is still there, with Print and nothing else"
+    );
+}
+
+#[test]
+fn a_type3_glyph_named_notdef_is_renamed_and_draws_the_same_procedure() {
+    // ISO 19005-2 section 6.2.11.8: no text-showing operator references .notdef. A Type 3 font
+    // reaches its glyphs by name (ISO 32000-2 §9.6.4), so the procedure the encoding names
+    // `.notdef` is renamed in the encoding and in CharProcs alike and draws the same marks
+    // (ADR 1942).
+    let procedure: &[u8] = b"1000 0 0 0 750 750 d1\n0 0 750 750 re\nf";
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (ab) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+             /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /square 8 0 R /.notdef 8 0 R >> \
+             /Encoding 7 0 R /FirstChar 97 /LastChar 98 /Widths [1000 1000] >>"
+                .to_owned(),
+            "<< /Type /Encoding /Differences [97 /square /.notdef] >>".to_owned(),
+        ],
+        binary_objects: vec![stream(&format!("/Length {}", procedure.len()), procedure)],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(&report, "fonts/no-notdef-glyph-shown"),
+        Decision::Mechanical(Rewrite::Type3NotdefRenamed)
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("/.notdef"),
+        "no name in the file is .notdef any more"
+    );
+    assert!(
+        written.contains("/notdef"),
+        "the procedure is there under its new name"
+    );
+}
+
+/// [`a_truetype_font`]'s non-symbolic `WinAnsiEncoding` font drawing code 0, which that encoding
+/// names nothing, with a `/ToUnicode` stating U+0041 for the code where `to_unicode` is set.
+///
+/// No step of ISO 32000-2 §9.6.5.4 reaches a glyph for the code, so only a mapping of the reader's
+/// choosing draws it — the shape ISO 19005-2 section 6.2.11.6's last paragraph forbids.
+fn a_truetype_code_no_step_reaches(to_unicode: bool) -> Vec<u8> {
+    let cmap: &[u8] = b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+        1 begincodespacerange <00> <ff> endcodespacerange \
+        1 beginbfchar <00> <0041> endbfchar endcmap CMapName currentdict /CMap defineresource pop \
+        end end";
+    let stated = if to_unicode { " /ToUnicode 9 0 R" } else { "" };
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (\\000) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 0 \
+                 /LastChar 255 /Widths [{}] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding\
+                 {stated} >>",
+                vec!["667"; 256].join(" ")
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+            stream(&format!("/Length {}", cmap.len()), cmap),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_truetype_code_reached_by_the_readers_choice_is_named_in_the_encoding() {
+    // ISO 19005-2 section 6.2.11.6's last paragraph: a rendered TrueType font's codes reach their
+    // glyphs by ISO 32000-2 §9.6.5.4's route, without a mapping the reader chooses. The file says
+    // code 0 is U+0041 and the program's (3, 1) subtable maps U+0041, so naming the code `A` in the
+    // encoding puts the glyph this reader drew on the route — and the program is not touched
+    // (ADR 1942).
+    let source = a_truetype_code_no_step_reaches(true);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(
+        &report,
+        "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
+    );
+    assert!(
+        matches!(
+            decided,
+            Decision::Stated {
+                rewrite: Rewrite::StandardRouteNames,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let written = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let font = written
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    let encoding = written
+        .resolve(font.get("Encoding").expect("an encoding"))
+        .as_dict()
+        .cloned()
+        .expect("a dictionary now");
+    assert_eq!(
+        written
+            .resolve(encoding.get("BaseEncoding").expect("the base kept"))
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"WinAnsiEncoding".to_vec())
+    );
+    let differences = written
+        .resolve(encoding.get("Differences").expect("a Differences array"))
+        .as_array()
+        .map(<[pdf_syntax::Object]>::to_vec)
+        .expect("an array");
+    assert_eq!(differences.len(), 2, "one code, one name: {differences:?}");
+    assert_eq!(
+        differences.first().and_then(pdf_syntax::Object::as_integer),
+        Some(0)
+    );
+    assert_eq!(
+        differences
+            .get(1)
+            .and_then(pdf_syntax::Object::as_name)
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"A".to_vec())
+    );
+}
+
+#[test]
+fn a_truetype_code_the_file_names_no_character_for_stays_refused() {
+    // The control for the row above: with no `/ToUnicode` the file does not say which character
+    // code 0 is, so whatever this reader drew it with is its own choice and nothing is written.
+    let source = a_truetype_code_no_step_reaches(false);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(
+        &report,
+        "fonts/truetype-codes-reach-glyphs-by-the-standard-route",
+    );
+    assert!(
+        matches!(decided, Decision::Refused(Because::NotBuiltYet(_))),
+        "{decided:?}"
+    );
+    assert!(output.is_none(), "and no file claims a conformance");
+}
+
 // --------------------------------------------------------------------------------------------
 // ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3: one destination profile per array.
 //

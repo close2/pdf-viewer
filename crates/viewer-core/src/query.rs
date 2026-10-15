@@ -359,10 +359,15 @@ pub enum Query<'a> {
     /// measurement in [`Query::Selection`]'s own note: a drag asks that one sixty times a second
     /// and this one walks the structure tree. A host asks this when a person presses copy.
     ///
-    /// [`Answer::None`] where the document has no structure tree, where nothing is selected, or
-    /// where the tree does not reach every byte of the selection — the last deliberately, because
-    /// a copy that silently dropped the part of a drag the tree missed would be worse than one
-    /// that hands back the order it already had. See `pdf_model::structure::Tree::logical_range`.
+    /// What the structure states beyond the order is in the answer too: a block's end is a line
+    /// break, a table cell's a tab, and what the producer declared an artifact — a running head,
+    /// a folio — is left out (ADR 1948).
+    ///
+    /// [`Answer::None`] where the document has no structure tree, where nothing is selected, where
+    /// the selection is artifacts and nothing else, or where some byte of it is neither reached by
+    /// the tree nor declared an artifact — the last deliberately, because a copy that silently
+    /// dropped the part of a drag the tree missed would be worse than one that hands back the order
+    /// it already had. See `pdf_model::structure::Tree::logical_range`.
     LogicalSelection,
     /// Which annotation holds the input focus, and where it is on the screen.
     ///

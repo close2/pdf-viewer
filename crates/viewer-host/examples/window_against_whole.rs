@@ -13,15 +13,16 @@
 //! **whole**, `Drawing::ask`, as a page under the window's extent is drawn; **window**,
 //! `Drawing::ask_window` with the window [`viewer_host::oversize::Oversized::due`] asks for.
 //! Printed per run: milliseconds from the ask to the landing of each, the bytes each copies into
-//! the toolkit at an update, and how many pixels of the window differ from the whole page's same
-//! rectangle, and by how much.
+//! the toolkit at an update, how many pixels of the window differ from the whole page's same
+//! rectangle, and by how much, and a digest of each drawing's pixels — which is what says that two
+//! builds drew the same window and the same page (ADR 1941).
 
 use std::time::{Duration, Instant};
 
 use pdf_render::{Raster, TargetSpec, Transform};
 use viewer_core::{Command, DocumentId, Event, PageGeometry, RenderRequest, Rendered, Viewer};
 use viewer_host::drawing::{Drawing, POLL};
-use viewer_host::oversize::{Oversized, Window, oversized};
+use viewer_host::oversize::{Oversized, Window, largest_window, oversized};
 
 #[expect(
     clippy::expect_used,
@@ -152,6 +153,52 @@ fn dump(raster: &Raster, [x0, y0, x1, y1]: [usize; 4], path: &std::path::Path) {
     }
 }
 
+/// Where the page is not drawn as its window, the window it would be drawn as were the bound
+/// lower — the largest window, centred and clamped to the page — so that the price of a window
+/// that is most of its page is measured too (ADR 1941).
+fn largest_centred(target: TargetSpec, viewport: (u32, u32)) -> Window {
+    let (most_x, most_y) = largest_window(viewport);
+    let (across, down) = (most_x.min(target.width), most_y.min(target.height));
+    Window {
+        x: target.width.saturating_sub(across) / 2,
+        y: target.height.saturating_sub(down) / 2,
+        width: across,
+        height: down,
+    }
+}
+
+/// A digest of a drawing's pixels, to compare two builds' drawings by.
+fn digest(raster: &Raster) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    raster.data.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Where the two drawings differ, both of them of that rectangle, for a person to look at — where
+/// `WINDOW_AGAINST_WHOLE_DUMP` names a directory to write them into.
+fn dump_both(whole: &Raster, window: Window, drawn: &Raster, extent: [usize; 4], zoom: f32) {
+    let Some(directory) = std::env::var_os("WINDOW_AGAINST_WHOLE_DUMP") else {
+        return;
+    };
+    let [x0, y0, x1, y1] = extent;
+    let x = usize::try_from(window.x).unwrap_or(usize::MAX);
+    let y = usize::try_from(window.y).unwrap_or(usize::MAX);
+    let directory = std::path::Path::new(&directory);
+    dump(
+        whole,
+        [
+            x0.saturating_add(x),
+            y0.saturating_add(y),
+            x1.saturating_add(x),
+            y1.saturating_add(y),
+        ],
+        &directory.join(format!("{zoom}-whole.ppm")),
+    );
+    dump(drawn, extent, &directory.join(format!("{zoom}-window.ppm")));
+    println!("  differing within the window's {extent:?}");
+}
+
 fn millis(duration: Duration) -> String {
     format!("{:.0}", duration.as_secs_f64() * 1000.0)
 }
@@ -214,52 +261,36 @@ fn main() {
         let mut held = Oversized::default();
         let windowed = held.asked(&request, (width, height));
         let due = held.due(request.document, |_| Some(geometry), (width, height));
-        let window = due.first().map(|(_, window)| *window);
+        let window = due.first().map_or_else(
+            || largest_centred(target, (width, height)),
+            |(_, window)| *window,
+        );
+        let share = (f64::from(window.width) * f64::from(window.height))
+            / (f64::from(target.width) * f64::from(target.height));
         println!(
-            "zoom {zoom}: {}x{}, oversized {}, window {window:?}",
+            "zoom {zoom}: {}x{}, oversized {}, window {window:?}, {:.0} % of the page",
             target.width,
             target.height,
-            oversized(&request, (width, height)) && windowed
+            oversized(&request, (width, height)) && windowed,
+            share * 100.0
         );
-        let Some(window) = window else {
-            continue;
-        };
         for round in 0..rounds {
             let (whole, whole_page) = drawn(&request, None);
             let (windowed, window_page) = drawn(&request, Some(window));
             let (differing, worst, extent) = compared(&whole_page, window, &window_page);
-            // Where they differ, both drawings of that rectangle, for a person to look at.
-            if let (Some(directory), Some(extent)) =
-                (std::env::var_os("WINDOW_AGAINST_WHOLE_DUMP"), extent)
-            {
-                let [x0, y0, x1, y1] = extent;
-                let x = usize::try_from(window.x).unwrap_or(usize::MAX);
-                let y = usize::try_from(window.y).unwrap_or(usize::MAX);
-                let directory = std::path::Path::new(&directory);
-                dump(
-                    &whole_page,
-                    [
-                        x0.saturating_add(x),
-                        y0.saturating_add(y),
-                        x1.saturating_add(x),
-                        y1.saturating_add(y),
-                    ],
-                    &directory.join(format!("{zoom}-whole.ppm")),
-                );
-                dump(
-                    &window_page,
-                    extent,
-                    &directory.join(format!("{zoom}-window.ppm")),
-                );
-                println!("  differing within the window's {extent:?}");
+            if let Some(extent) = extent {
+                dump_both(&whole_page, window, &window_page, extent, zoom);
             }
             println!(
                 "  round {round}: whole landed {} ms, {} bytes; window landed {} ms, {} bytes; \
-                 {differing} of the window's pixels differ from the page's, by at most {worst}",
+                 {differing} of the window's pixels differ from the page's, by at most {worst}; \
+                 digests {:016x} {:016x}",
                 millis(whole),
                 whole_page.data.len(),
                 millis(windowed),
-                window_page.data.len()
+                window_page.data.len(),
+                digest(&whole_page),
+                digest(&window_page)
             );
         }
     }

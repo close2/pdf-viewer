@@ -773,3 +773,13 @@ static census before it is called unused.
   it — and they fill the whole positive head down to +2.6 (session 613). Read a positive gap as a
   question about *which* reference is light before reading it as ink of ours; the panel sizes are
   printed beside the number for the same reason.
+
+### 182. What this reader already draws is a claim to render before it is written down
+
+Round 1553's brief hypothesised a TrueType remedy that would state in the font's `/Differences`
+the glyph this reader already selected for each code. Rendering page 8 of Pol.pdf (trap 1) showed
+"50²%": the code named `space` had no glyph in the subset, and the reader's fallback offered it to
+the Macintosh subtable as a Macintosh code, reaching `twosuperior`. Built as hypothesised, the
+remedy would have written that glyph into a PDF/A file as the document's meaning. A sentence of the
+form "what this program already draws" is a claim about pixels, and it is checked by drawing them
+(ADR 1943 is what the drawing changed).

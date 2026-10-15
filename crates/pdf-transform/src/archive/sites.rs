@@ -993,6 +993,256 @@ fn standard_encoding_value(document: &Document, font: &Dictionary, base: &[u8]) 
     }
 }
 
+/// Why a Type 3 font's `.notdef` glyph is not renamed.
+const TYPE3_NOTDEF_NOT_RENAMED: &str = "a Type 3 font in this file shows a code its encoding \
+     names .notdef, which ISO 19005 section 6.2.11.8 forbids a text-showing operator to \
+     reference. Its glyph is the producer's own procedure, so this conversion gives that \
+     procedure another name and changes no mark; here the font's encoding or glyph procedures \
+     could not be read as ISO 32000-2 \u{a7}9.6.4 states them, or the finding names no font \
+     object";
+
+/// The `/Encoding` and `/CharProcs` each Type 3 font is to state with its `.notdef` renamed.
+#[derive(Debug, Default)]
+pub(super) struct Type3Renames {
+    /// Per font object, in the source's numbering, the two values to write.
+    pub(super) at: BTreeMap<ObjectId, (Object, Object)>,
+}
+
+/// Every Type 3 font whose `.notdef` glyph is to be given another name.
+///
+/// ISO 19005-2 section 6.2.11.8, ISO 19005-4 section 6.2.10.9: no text-showing operator references
+/// the `.notdef` glyph. ISO 32000-2 §9.6.4 keys a Type 3 font's glyph descriptions by name in
+/// `/CharProcs` and selects them through the encoding's `/Differences`, so the glyph a code draws
+/// is the procedure of the name the encoding gives it — and giving that procedure another name, in
+/// both places, draws the same marks while referencing no `.notdef`. ADR 0816's fence is about a
+/// *program*, whose `.notdef` is glyph 0 by position and cannot be renamed; a Type 3 font has no
+/// program, and a font the requirement names that is not one keeps the fence's refusal.
+///
+/// The new name is the first of `notdef`, `notdef.1`, `notdef.2`, … that neither dictionary
+/// already uses. No glyph name in a Type 3 font is read by any rule but its own encoding's, and
+/// §9.10.2's text methods find nothing for either name in the Adobe Glyph List, so what the code
+/// extracts to is unchanged.
+pub(super) fn type3_notdef_renames(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Type3Renames, Because> {
+    let refused = Because::NotBuiltYet(TYPE3_NOTDEF_NOT_RENAMED);
+    let (named, elsewhere) = objects_named(input, &["fonts/no-notdef-glyph-shown"]);
+    if elsewhere {
+        return Err(refused);
+    }
+    let mut found = Type3Renames::default();
+    for id in named {
+        let resolved = document.get(id);
+        let dict = dictionary_of(&resolved).ok_or(refused)?;
+        if document
+            .get_key(dict, "Subtype")
+            .as_name()
+            .map(Name::as_bytes)
+            != Some(&b"Type3"[..])
+        {
+            return Err(Because::TheFence(
+                super::decision::THE_GLYPH_IS_NOT_IN_THE_PROGRAM,
+            ));
+        }
+        let Object::Dictionary(mut encoding) = document.get_key(dict, "Encoding") else {
+            return Err(refused);
+        };
+        let Object::Array(differences) = document.get_key(&encoding, "Differences") else {
+            return Err(refused);
+        };
+        let procedures = document.get_key(dict, "CharProcs");
+        let mut procedures = procedures.as_dict().cloned().ok_or(refused)?;
+        let differences: Vec<Object> = differences
+            .iter()
+            .map(|item| document.resolve(item))
+            .collect();
+        let taken = |candidate: &str| {
+            procedures.get(candidate).is_some()
+                || differences.iter().any(|item| {
+                    item.as_name()
+                        .is_some_and(|name| name.as_bytes() == candidate.as_bytes())
+                })
+        };
+        // One more candidate than there are names in the two places, so one of them is free.
+        let bound = procedures.len().saturating_add(differences.len());
+        let fresh = std::iter::once("notdef".to_owned())
+            .chain((1..=bound).map(|n| format!("notdef.{n}")))
+            .find(|candidate| !taken(candidate))
+            .ok_or(refused)?;
+        let renamed: Vec<Object> = differences
+            .into_iter()
+            .map(|item| match item.as_name() {
+                Some(name) if name.as_bytes() == b".notdef" => {
+                    Object::Name(Name::new(fresh.as_bytes()))
+                }
+                _ => item,
+            })
+            .collect();
+        encoding.insert(Name::new(&b"Differences"[..]), Object::Array(renamed));
+        if let Some(procedure) = procedures.remove(".notdef") {
+            procedures.insert(Name::new(fresh.as_bytes()), procedure);
+        }
+        found.at.insert(
+            id,
+            (Object::Dictionary(encoding), Object::Dictionary(procedures)),
+        );
+    }
+    Ok(found)
+}
+
+/// Why a code that reaches its glyph by a mapping of this reader's choosing is left so.
+///
+/// The half of ISO 19005-2 section 6.2.11.6 this conversion does not reach.
+/// [`standard_route_names`] says where it does.
+const STANDARD_ROUTE_NOT_PROVEN: &str = "a TrueType font in this file shows a character code \
+     that reaches its glyph only through a mapping ISO 32000-2 \u{a7}9.6.5.4 leaves to the \
+     processor, and ISO 19005 requires the subclause's own route. This conversion names such a \
+     code's glyph in the encoding's Differences array where the file itself says which glyph it \
+     is \u{2014} a non-symbolic font, a ToUnicode stating the code's one character, and a (3, 1) \
+     subtable in the program mapping that character to the glyph this reader drew \u{2014} and \
+     then proves it: the font is loaded again with the names written, and every code its \
+     content streams showed has to reach the glyph it reached before, by the subclause's own \
+     steps. This font did not meet one of those conditions, failed the proof, also states a base \
+     encoding ISO 19005 does not admit, or showed more text than the survey kept. Changing the \
+     font program's cmap instead is ADR 0816's fence";
+
+/// The `/Encoding` value each non-symbolic TrueType font is to state so that every code it shows
+/// reaches its glyph by §9.6.5.4's own steps.
+#[derive(Debug, Default)]
+pub(super) struct StandardRouteNames {
+    /// The value to write, per font object, in the source's numbering.
+    pub(super) at: BTreeMap<ObjectId, Object>,
+}
+
+/// Every TrueType font whose shown codes are to be named in a `/Differences` array.
+///
+/// ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6: a rendered TrueType font's codes
+/// reach glyphs by ISO 32000-2 §9.6.5.4's route, never by a mapping the reader chose. For a
+/// non-symbolic font that route runs code, glyph name, Adobe Glyph List, (3, 1) subtable — so a
+/// code whose glyph the program's (3, 1) subtable maps from some character is reached by the
+/// route once the encoding names that character's glyph. Which character is the file's own
+/// statement, the `/ToUnicode` (§9.10.3), and it is the one `pdf_font` drew the code through
+/// (ADR 1943); ISO 32000-2 Annex D.2's note on the duplicate space code is the standard's own
+/// example of a `/Differences` entry doing exactly this.
+///
+/// **The program is not touched**, which keeps ADR 0816's fence: §9.6.5.1 makes the encoding a
+/// font dictionary entry, and writing a name there changes which glyph a code selects only where
+/// the proof below would fail. The names written are the Adobe Glyph List's, and the program
+/// carries the (3, 1) subtable by construction, which is the subclause's third paragraph met.
+///
+/// # The proof
+///
+/// [`SymbolicTrueTypeEncodingRemoved`](super::rewrite::Rewrite)'s, made stricter: the font is
+/// loaded with the names written, and every code a content stream showed must select the glyph it
+/// selected before **and** must no longer need a mapping of the reader's choosing. A font failing
+/// either is refused with [`STANDARD_ROUTE_NOT_PROVEN`] rather than written.
+pub(super) fn standard_route_names(
+    document: &Document,
+    input: &pdf_archive::Report,
+    survey: &Survey,
+) -> Result<StandardRouteNames, Because> {
+    let refused = Because::NotBuiltYet(STANDARD_ROUTE_NOT_PROVEN);
+    let (named, elsewhere) = objects_named(
+        input,
+        &["fonts/truetype-codes-reach-glyphs-by-the-standard-route"],
+    );
+    // A font whose base encoding is also being restated would have two values written into one
+    // entry; the two proofs are each made against the font as the file states it.
+    let (restated, _) = objects_named(
+        input,
+        &["fonts/non-symbolic-truetype-uses-a-standard-encoding"],
+    );
+    if elsewhere || !named.is_disjoint(&restated) {
+        return Err(refused);
+    }
+    let mut found = StandardRouteNames::default();
+    for id in named {
+        let resolved = document.get(id);
+        let dict = dictionary_of(&resolved).ok_or(refused)?;
+        let before = loaded_as_stated(document, dict).ok_or(refused)?;
+        let (shown, complete) = shown_by(survey, id);
+        if !complete {
+            return Err(refused);
+        }
+        let mut differences: BTreeMap<u32, String> = BTreeMap::new();
+        for text in &shown {
+            for code in before.decode(text) {
+                if !before.glyph_needed_a_reader_chosen_mapping(code) {
+                    continue;
+                }
+                let character = before.stated_character(code).ok_or(refused)?;
+                let name = pdf_font::encoding::glyph_name(character).ok_or(refused)?;
+                differences.insert(code.value(), name);
+            }
+        }
+        let value = with_differences(document, dict, &differences).ok_or(refused)?;
+        let mut candidate = dict.clone();
+        candidate.insert(Name::new(&b"Encoding"[..]), value.clone());
+        let after = LoadedFont::load(document, &candidate, "").map_err(|_| refused)?;
+        let by_the_route = shown.iter().all(|text| {
+            before.decode(text).into_iter().all(|code| {
+                before.glyph_index(code) == after.glyph_index(code)
+                    && !after.glyph_needed_a_reader_chosen_mapping(code)
+            })
+        });
+        if !by_the_route {
+            return Err(refused);
+        }
+        found.at.insert(id, value);
+    }
+    Ok(found)
+}
+
+/// The font's `/Encoding` with these codes' names stated in its `/Differences` array.
+///
+/// A name becomes a dictionary whose `/BaseEncoding` is that name; a dictionary keeps every entry
+/// its producer wrote, and its array is rewritten from the codes it already named with these laid
+/// over them. Each code is written as its own run, `[code /name]`, which §9.6.5.1's array grammar
+/// reads the same as any longer run. `None` for a font stating no encoding, or one this does not
+/// read as a name or a dictionary: such a font takes §9.6.5.4's symbolic route, which a
+/// `/Differences` array does not reach.
+fn with_differences(
+    document: &Document,
+    font: &Dictionary,
+    named: &BTreeMap<u32, String>,
+) -> Option<Object> {
+    let mut encoding = match document.get_key(font, "Encoding") {
+        Object::Name(base) => {
+            let mut fresh = Dictionary::new();
+            fresh.insert(Name::new(&b"BaseEncoding"[..]), Object::Name(base));
+            fresh
+        }
+        Object::Dictionary(stated) => stated,
+        _ => return None,
+    };
+    let mut codes: BTreeMap<u32, Object> = BTreeMap::new();
+    if let Object::Array(stated) = document.get_key(&encoding, "Differences") {
+        let mut next: Option<u32> = None;
+        for item in stated {
+            match document.resolve(&item) {
+                Object::Integer(start) => next = u32::try_from(start).ok(),
+                Object::Name(name) => {
+                    let code = next?;
+                    codes.insert(code, Object::Name(name));
+                    next = code.checked_add(1);
+                }
+                _ => return None,
+            }
+        }
+    }
+    for (code, name) in named {
+        codes.insert(*code, Object::Name(Name::new(name.as_bytes())));
+    }
+    let mut array = Vec::new();
+    for (code, name) in codes {
+        array.push(Object::Integer(i64::from(code)));
+        array.push(name);
+    }
+    encoding.insert(Name::new(&b"Differences"[..]), Object::Array(array));
+    Some(Object::Dictionary(encoding))
+}
+
 /// Why an `OutputIntents` array whose entries name genuinely different profiles is not collapsed.
 ///
 /// The half of ISO 19005-2 section 6.2.3's sentence this rewrite does not reach, and the reason

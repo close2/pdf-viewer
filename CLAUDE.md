@@ -236,7 +236,18 @@ In scope, without exclusions:
 
 The exclusions, closed, each with its reason:
 
-- **Clause 13, multimedia and 3D** — a media engine, not a rendering question.
+- **Clause 13, the playing of multimedia and the rendering of 3D artwork** — a media engine,
+  not a rendering question. **In scope**: what a still page shows of a media object — a
+  movie's stream-form poster, every producer-supplied appearance, §13.2.2's viability computed
+  and reported in the clause's own terms — and the media file saved or handed to this machine's
+  own player under *A document's restrictions are the reader's to set*, `ask` by default.
+  **Excluded still**, each with the trigger that reopens it: decoding or presenting audio and
+  video (an H.264 and AAC decoder admissible under `deny.toml`, or C in a confined media worker
+  accepted in writing under ADR 0014), and rendering U3D or PRC artwork (a U3D reader in Rust).
+  Ratified on 2026-10-08, when the owner answered `doc/questions/Q254` — "For everything else I
+  agree with your suggestions" — and so adopted RFC 0009 section 11's question 2 as written;
+  `A254` keeps the owner's words and the round's reading apart, RFC 0009 section 3 is the
+  argument, and ADR 1946 reads the ledger's clause 13 rows against the line as amended.
 - **XFA** — the standard hands this one over itself: "[t]he implementation of such a schema
   driven page generation involves considerable effort beyond that for a simple PDF viewer and
   therefore **a PDF processor may choose to not implement this feature**" (§K.1). **This entry

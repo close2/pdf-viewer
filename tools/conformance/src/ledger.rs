@@ -263,7 +263,10 @@ impl FromStr for Status {
 /// nobody can count, and "decided once, each with a reason" is not a property a string has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Exclusion {
-    /// Clause 13, multimedia and 3D: a media engine, not a rendering question.
+    /// Clause 13, the playing of multimedia and the rendering of 3D artwork: a media engine, not
+    /// a rendering question. What a still page shows of a media object — a poster, a producer's
+    /// appearance, viability reported in §13.2.2's terms — is in scope, and so is handing the
+    /// media file to this machine's own player at the reader's level (`doc/questions/A254`).
     Multimedia,
     /// XFA, on Annex K's own permission: "a PDF processor may choose to not implement this
     /// feature" (§K.1).

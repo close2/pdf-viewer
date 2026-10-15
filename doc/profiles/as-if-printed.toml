@@ -73,6 +73,13 @@ keep-attachment = true     # the paperclip goes; a conforming attachment stays i
 remedy = "discard"
 # The profile's clearest case. A hidden or non-printing annotation is exactly what paper lost.
 
+[site."annotations/flags-entry-present"]
+remedy = "preserve"
+# An annotation that states no F at all is kept and given the Print bit ISO 19005 section 6.3.2
+# requires. Paper would have lost it (Table 167, Print clear), so discarding it is inside this
+# profile's bound — but a profile is a lower bound on what may be lost, never an instruction to
+# lose it, and keeping it is the closer copy: nothing on the screen changes (ADR 1942).
+
 [site."annotations/appearance-dictionary-holds-only-normal"]
 remedy = "discard"
 # Rollover and pressed appearances never reached paper and never will reach an archive reader.
@@ -209,7 +216,10 @@ remedy = "discard"
 #   halftone-*                     a press applies these; an archived print master is kept for it
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
-#   fonts/*                        a printed page carried glyphs; every font refusal stays
+#   fonts/*                        a printed page carried glyphs; every font refusal stays.
+#                                  A TrueType code reached only by a mapping of the reader's
+#                                  choosing needs no answer here: the converter names its glyph in
+#                                  the encoding where the file says which it is (ADR 1942)
 #   graphics/jpeg2000-*            the image printed
 #   annotations/normal-appearance-shape   with no /AS, nothing says which state printed
 #

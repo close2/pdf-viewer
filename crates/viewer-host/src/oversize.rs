@@ -69,7 +69,8 @@ impl Window {
     }
 
     /// Whether `other` lies inside this.
-    fn holds(self, other: Self) -> bool {
+    #[must_use]
+    pub fn holds(self, other: Self) -> bool {
         let end = |first: u32, length: u32| u64::from(first).saturating_add(u64::from(length));
         other.x >= self.x
             && other.y >= self.y
@@ -115,8 +116,17 @@ pub fn shown(target: TargetSpec, geometry: PageGeometry, viewport: (u32, u32)) -
     if (geometry.width, geometry.height) != (target.width, target.height) {
         return None;
     }
-    let (x, width) = span(geometry.origin.0, target.width, viewport.0)?;
-    let (y, height) = span(geometry.origin.1, target.height, viewport.1)?;
+    shown_at(target, geometry.origin, viewport)
+}
+
+/// The part of `target` a viewport `viewport` device pixels across shows where the page's top-left
+/// corner sits at `origin` — [`shown`] for a host that is told where a page is and not the
+/// arrangement's geometry, the confined window, whose viewer is across the pipe (ADR 1944). `None`
+/// where none of it is on the screen.
+#[must_use]
+pub fn shown_at(target: TargetSpec, origin: (f32, f32), viewport: (u32, u32)) -> Option<Window> {
+    let (x, width) = span(origin.0, target.width, viewport.0)?;
+    let (y, height) = span(origin.1, target.height, viewport.1)?;
     Some(Window {
         x,
         y,
@@ -152,7 +162,8 @@ fn span(origin: f32, extent: u32, viewport: u32) -> Option<(u32, u32)> {
 /// window is drawn once and a scroll inside the margin repaints from it with nothing drawn; the
 /// margin costs its area on each draw, and a quarter all round is two and a quarter times the
 /// viewport — a wheel notch's scroll, several times over, for about twice the marks.
-fn with_margin(shown: Window, target: TargetSpec, viewport: (u32, u32)) -> Window {
+#[must_use]
+pub fn with_margin(shown: Window, target: TargetSpec, viewport: (u32, u32)) -> Window {
     let grow = |first: u32, length: u32, extent: u32, by: u32| {
         let start = first.saturating_sub(by);
         let end = first.saturating_add(length).saturating_add(by).min(extent);

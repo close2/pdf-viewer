@@ -1017,6 +1017,9 @@ impl LoadedFont {
         // Empty unless the route below is a simple sfnt one, which is the only route §9.6.5.4
         // governs.
         let mut reader_chosen = CodeSet::default();
+        // Read once: the TrueType route below asks it which character a code stands for, and
+        // text extraction keeps it.
+        let stated = to_unicode(document, dict);
         let mapping = match (program, substituted) {
             // A substitute shares no glyph order with the font the document meant, so its
             // glyphs are reached by what each code *means* rather than by index.
@@ -1028,7 +1031,7 @@ impl LoadedFont {
             }
             (Program::Sfnt, None) => {
                 let (table, resolved, chosen) =
-                    truetype_code_table(document, dict, descriptor, &data, name)?;
+                    truetype_code_table(document, dict, descriptor, &data, &stated, name)?;
                 names = Some(resolved);
                 reader_chosen = chosen;
                 CodeMapping::Named(Box::new(table))
@@ -1085,7 +1088,7 @@ impl LoadedFont {
             stretch,
             substituted: requested.is_some(),
             published_pairs: requested.and_then(|_| published_pairs(document, dict)),
-            to_unicode: to_unicode(document, dict),
+            to_unicode: stated,
             collection: None,
             symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
             glyph_names: names,
@@ -2630,6 +2633,17 @@ impl LoadedFont {
         };
         let font = FontRef::new(data).ok()?;
         font.charmap().map(character).is_none().then_some(character)
+    }
+
+    /// The one character the font's own `/ToUnicode` states this code stands for (§9.10.3).
+    ///
+    /// `None` for a font carrying no `/ToUnicode`, for a code it does not map, and for one it
+    /// maps to more than one character. Only the producer's statement answers here, never
+    /// [`Self::text`]'s later methods: a caller asking which character the *file* says a code is
+    /// must not be handed this reader's inference (ADR 1942).
+    #[must_use]
+    pub fn stated_character(&self, code: Code) -> Option<char> {
+        self.to_unicode.char_for(code.value())
     }
 
     /// Whether this code reached its glyph only by a mapping ISO 32000-2 §9.6.5.4 leaves open.

@@ -797,6 +797,9 @@ pub(crate) struct Interpreted {
     /// from a `/MCID` to the text it produced is only knowable during interpretation. Empty for
     /// the 885 of 974 corpus documents that tag nothing.
     pub(crate) marked: Vec<pdf_model::content::MarkedSpan>,
+    /// §14.8.2.2's artifact spans over that readback, which a copy in logical order leaves out
+    /// (ADR 1948). Empty on every page that marks none, which is nearly all of them.
+    pub(crate) artifacts: Vec<pdf_model::content::ArtifactSpan>,
     /// §14.9's `/Alt`, `/E` and `/Lang` spans, kept beside them for the same reason.
     pub(crate) described: Vec<pdf_model::accessibility::Described>,
     /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.

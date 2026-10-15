@@ -34,7 +34,7 @@ use super::rewrite::Rewrite;
 use super::signatures::{self, ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
-    SharedProfile, Sites, StandardEncodings,
+    SharedProfile, Sites, StandardEncodings, StandardRouteNames, Type3Renames,
 };
 use super::tagged;
 use super::to_unicode::{self, DerivedMaps};
@@ -1313,6 +1313,8 @@ impl Prepared {
             Rewrite::StandardTrueTypeEncoding => {
                 self.owed.standard_encodings.as_ref().err().copied()
             }
+            Rewrite::StandardRouteNames => self.owed.standard_route.as_ref().err().copied(),
+            Rewrite::Type3NotdefRenamed => self.owed.type3_notdef.as_ref().err().copied(),
             Rewrite::SharedDestinationProfile => self.owed.shared_profile.as_ref().err().copied(),
             Rewrite::SpotColorantEntry => self.owed.colorants.as_ref().err().copied(),
             Rewrite::Jpeg2000ColourSpecifications => {
@@ -1464,6 +1466,11 @@ pub(super) struct Owed {
     pub(super) symbolic_encodings: Result<Sites, Because>,
     /// The non-symbolic TrueType fonts given one of the two admitted names, or why none are.
     pub(super) standard_encodings: Result<StandardEncodings, Because>,
+    /// The TrueType fonts whose shown codes are named so §9.6.5.4's own route reaches their
+    /// glyphs, or why none are.
+    pub(super) standard_route: Result<StandardRouteNames, Because>,
+    /// The Type 3 fonts whose `.notdef` glyph is renamed, or why none are.
+    pub(super) type3_notdef: Result<Type3Renames, Because>,
     /// The output intents pointed at one shared destination profile, or why none are.
     pub(super) shared_profile: Result<SharedProfile, Because>,
     /// The `/Colorants` entries each `DeviceN` colour space gains, or why none are written.
@@ -1519,6 +1526,13 @@ impl Owed {
             standard_encodings: asked(wanted(Rewrite::StandardTrueTypeEncoding), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
                 sites::standard_truetype_encodings(document, input, survey)
+            }),
+            type3_notdef: asked(wanted(Rewrite::Type3NotdefRenamed), || {
+                sites::type3_notdef_renames(document, input)
+            }),
+            standard_route: asked(wanted(Rewrite::StandardRouteNames), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                sites::standard_route_names(document, input, survey)
             }),
             shared_profile: asked(wanted(Rewrite::SharedDestinationProfile), || {
                 let catalog = document
@@ -1587,12 +1601,13 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 5] = [
+const SURVEYED: [Rewrite; 6] = [
     Rewrite::SubstituteFontProgram,
     Rewrite::RestateFontMetrics,
     Rewrite::RestateVerticalFontMetrics,
     Rewrite::SymbolicTrueTypeEncodingRemoved,
     Rewrite::StandardTrueTypeEncoding,
+    Rewrite::StandardRouteNames,
 ];
 
 /// Which of the two metric restatements a document's failures ask for.

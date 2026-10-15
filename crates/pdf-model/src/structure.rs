@@ -2143,81 +2143,155 @@ impl Tree {
         Some(out)
     }
 
-    /// A *range* of a page's readback, put into §14.8.2.5's logical content order.
+    /// A *range* of a page's readback, put into §14.8.2.5's logical content order, in the pieces
+    /// the structure divides it into.
     ///
     /// [`Self::logical_text`] answers this question for the whole page; this answers it for the
     /// part of the page a person selected, which is the form a host needs when that person
     /// presses copy. A page whose producer wrote its columns out of order gives its text in that
-    /// order, and §14.8.2.5 is where the other one is defined — a depth-first traversal of the
-    /// structure hierarchy, which is the order the document's author stated rather than the order
-    /// its producer emitted.
+    /// order, and §14.8.2.5.1 is where the other one is defined:
+    ///
+    /// > Logical content order -the ordering for semantic purposes -shall be defined by a
+    /// > depth-first traversal of the document's logical structure hierarch y.
+    ///
+    /// Each piece is one marked-content sequence's share of the range, in the traversal's order,
+    /// with the [`Boundary`] the structure puts between it and the piece before — so a consumer
+    /// joining them knows where a paragraph ended and where a table cell did, which the readback's
+    /// own separators cannot say (they are inferred from where glyphs landed, in the order they
+    /// were *drawn*). What character stands for each boundary is the consumer's choice.
+    ///
+    /// # What is real content, and what is left out
+    ///
+    /// §14.8.2.2.1: "[w]here artifacts are to be included in the structure tree, they shall be
+    /// included through the Artifact structure element type, and shall not be considered real
+    /// content." So a sequence under an `Artifact` element gives no piece, and neither does a
+    /// range of `artifacts` that §14.8.2.2.2's marked-content method declared — the running head
+    /// and the folio a producer tagged `/Artifact`. Both are *accounted for*: they are what the
+    /// producer said they are, not a part of the selection the tree failed to reach (ADR 1948).
     ///
     /// # Why it may answer `None`, which is the whole design
     ///
-    /// A marked-content sequence the structure tree does not reach is **not part of the logical
-    /// content order** — §14.8.2.5.1's own position, and what [`Self::logical_text`] acts on by
-    /// leaving such sequences out. Leaving text out of a *page's* logical reading is right;
-    /// leaving it out of what a person dragged over is not, because the result would be a copy
-    /// that silently lost a paragraph.
+    /// A byte that is neither reached by the traversal nor declared an artifact is content the
+    /// structure says nothing about. §14.8.2.2.2's other sentence calls it an artifact too — "[a]ny
+    /// content that is not included in the structure tree is an artifact" — but that is this
+    /// reader's inference from an absence, and it cannot tell a decoration a producer left untagged
+    /// from a paragraph its tree forgot. Leaving it out of what a person dragged over would make a
+    /// copy that silently lost a paragraph, so this answers `Some` only where every byte is
+    /// reached or declared, and the caller keeps the content order it already has otherwise —
+    /// a worse reading and a complete one.
     ///
-    /// So this answers `Some` only where the tree reaches **every byte** of the range, which
-    /// makes what comes back a rearrangement of exactly the same characters and nothing else — an
-    /// invariant a caller can rely on and a test can assert. Where it does not, the caller keeps
-    /// the content order it already has, which is a worse reading and a complete one.
+    /// `None` also for an empty range, for a page with no structure, for a truncated traversal
+    /// (where "every byte reached" would mean "every byte the prefix reached"), and where the range
+    /// is artifacts and nothing else: a person who dragged across a page number and pressed copy
+    /// asked for the page number.
     ///
-    /// `None` also for a range no sequence covers at all, and for a page with no structure.
-    ///
-    /// Takes the readback and the spans rather than a whole [`crate::Interpretation`], because
-    /// the one caller that has a selection keeps those two and not the interpretation — the same
+    /// Takes the readback and its spans rather than a whole [`crate::Interpretation`], because
+    /// the one caller that has a selection keeps those and not the interpretation — the same
     /// shape [`crate::accessibility::nodes`] takes and for the same reason.
     #[must_use]
     pub fn logical_range(
         &self,
         document: &Document,
         page: ObjectId,
-        text: &str,
         marked: &[crate::content::MarkedSpan],
+        artifacts: &[crate::content::ArtifactSpan],
         range: std::ops::Range<usize>,
-    ) -> Option<String> {
+    ) -> Option<Vec<LogicalPiece>> {
+        /// One element the traversal is inside.
+        struct Open {
+            depth: usize,
+            ends_with: Boundary,
+            category: Option<Category>,
+            artifact: bool,
+        }
         if range.is_empty() {
             return None;
         }
-        let order = self.logical_order(document, page);
-        // A truncated walk cannot establish the coverage this answer's whole design rests on:
-        // "every byte reached" would then mean "every byte the prefix reached".
-        if order.truncated {
+        let walk = self.walk(document);
+        if walk.truncated {
             return None;
         }
-        // Which bytes of the range some sequence in the logical order covers. A `BDC` inside a
-        // `BDC` gives two spans over one byte, so this is a set rather than a running total:
-        // counting would report full coverage for a range half of which was covered twice.
+        // Which bytes of the range are accounted for. A `BDC` inside a `BDC` gives two spans over
+        // one byte, so this is a set rather than a running total: counting would report full
+        // coverage for a range half of which was covered twice.
         let mut covered = vec![false; range.len()];
-        let mut out = String::new();
-        for item in order.items {
-            let Child::MarkedContent { mcid, stream, .. } = item else {
-                continue;
-            };
-            // §14.7.5.2's identifier and the stream it is unique within; see
-            // [`Self::logical_text`].
-            for span in crate::content::named_sequences(marked, mcid, stream) {
-                let from = span.range.start.max(range.start);
-                let to = span.range.end.min(range.end);
-                if from >= to {
-                    continue;
-                }
-                let Some(covered_text) = text.get(from..to) else {
-                    continue;
-                };
-                out.push_str(covered_text);
-                for byte in covered
-                    .get_mut(from.saturating_sub(range.start)..to.saturating_sub(range.start))
-                    .unwrap_or_default()
-                {
-                    *byte = true;
-                }
+        let mut cover = |from: usize, to: usize| {
+            for byte in covered
+                .get_mut(from.saturating_sub(range.start)..to.saturating_sub(range.start))
+                .unwrap_or_default()
+            {
+                *byte = true;
+            }
+        };
+        for artifact in artifacts
+            .iter()
+            .filter(|artifact| artifact.found == crate::content::ArtifactSource::Declared)
+        {
+            let (from, to) = (
+                artifact.range.start.max(range.start),
+                artifact.range.end.min(range.end),
+            );
+            if from < to {
+                cover(from, to);
             }
         }
-        covered.iter().all(|seen| *seen).then_some(out)
+        let mut pieces: Vec<LogicalPiece> = Vec::new();
+        let mut open: Vec<Open> = Vec::new();
+        let mut between = Boundary::Flow;
+        for (depth, child) in walk.items {
+            // The walk is depth-first and states depths, so an element has ended when an item no
+            // deeper than it arrives; what it ends with is owed to the next piece.
+            while let Some(top) = open.pop_if(|top| top.depth >= depth) {
+                between = between.max(top.ends_with);
+            }
+            match child {
+                Child::Element(element) => {
+                    let parent = open.last();
+                    let kind = self.standard_role(document, &element);
+                    let (ends_with, category) =
+                        Boundary::ending(kind.as_ref(), parent.and_then(|parent| parent.category));
+                    open.push(Open {
+                        depth,
+                        ends_with,
+                        category,
+                        artifact: kind == Some(StandardType::Artifact)
+                            || parent.is_some_and(|parent| parent.artifact),
+                    });
+                }
+                Child::MarkedContent {
+                    mcid,
+                    stream,
+                    page: at,
+                    ..
+                } if at.is_none_or(|at| at == page) => {
+                    let artifact = open.last().is_some_and(|parent| parent.artifact);
+                    // §14.7.5.2's identifier and the stream it is unique within; see
+                    // [`Self::logical_text`].
+                    for span in crate::content::named_sequences(marked, mcid, stream) {
+                        let from = span.range.start.max(range.start);
+                        let to = span.range.end.min(range.end);
+                        if from >= to {
+                            continue;
+                        }
+                        cover(from, to);
+                        if artifact {
+                            continue;
+                        }
+                        pieces.push(LogicalPiece {
+                            range: from..to,
+                            after: if pieces.is_empty() {
+                                Boundary::Flow
+                            } else {
+                                between
+                            },
+                        });
+                        between = Boundary::Flow;
+                    }
+                }
+                Child::MarkedContent { .. } | Child::Object { .. } => {}
+            }
+        }
+        (covered.iter().all(|seen| *seen) && !pieces.is_empty()).then_some(pieces)
     }
 
     /// One level of [`Self::walk`].
@@ -2337,6 +2411,70 @@ pub struct Reading<T> {
 
 /// [`Tree::walk`]'s answer: every element and content item, with the depth it was found at.
 pub type Walk = Reading<(usize, Child)>;
+
+/// One marked-content sequence's share of a range of a page's readback, in §14.8.2.5.1's logical
+/// content order: [`Tree::logical_range`]'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogicalPiece {
+    /// The bytes of [`crate::Interpretation::text`] this piece is.
+    pub range: std::ops::Range<usize>,
+    /// What the structure puts between this piece and the one before it; [`Boundary::Flow`] for
+    /// the first.
+    pub after: Boundary,
+}
+
+/// What the structure tree says lies between two pieces of logical content.
+///
+/// Ordered by strength, so that where several elements end between two pieces — a cell, its row
+/// and the table — the strongest is the one that stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Boundary {
+    /// Nothing: the two are in one run of text, whatever inline elements open or close between
+    /// them. §14.8.4.7.1 makes an inline element a part of its block's content — "[i]nline
+    /// structure elements and portions of actual content inside a parent structure element may
+    /// occur in any combination and in any order" — so a `Span` or an `/ActualText` boundary
+    /// divides no word.
+    Flow,
+    /// One table cell ended and the next one in its row begins: Table 371's `TH` or `TD`.
+    Cell,
+    /// A block ended. §14.8.3.3: "BLSEs shall be stacked within a reference area in
+    /// block-progression order", so what follows one begins on a line of its own.
+    Block,
+}
+
+impl Boundary {
+    /// What an element ends with, and the category it is in, given its parent's category.
+    ///
+    /// §14.8.4.1's categories decide it, with [`Category::of`]'s rule for a type that may be
+    /// either. Three exceptions, each a choice (ADR 1948):
+    ///
+    /// - **`Link`, `Annot` and `Form` end with nothing.** Table 368 makes each one about an
+    ///   annotation — a `Link` is "[a]n association between content enclosed by the Link structure
+    ///   element and a corresponding link annotation" — so the content it encloses is the
+    ///   surrounding text's, and a link inside a list item's body, which §14.8.4.1's rule makes
+    ///   block level because `LBody` is not a block, would otherwise break its sentence where the
+    ///   link ends.
+    /// - **`Sub` ends a line**, though Table 367 calls it inline: it "[e]ncloses content typically
+    ///   perceived as a sub-division inside a block level structure element", and every example
+    ///   the table gives is a line — of a verse, of source code, of a postal address.
+    /// - **An element whose type is not standard ends with nothing** and takes its parent's
+    ///   category: §14.8.4.1 requires a role map to a standard type, and a reader that invented a
+    ///   boundary for a name it cannot read would be dividing text on a guess.
+    fn ending(kind: Option<&StandardType>, parent: Option<Category>) -> (Self, Option<Category>) {
+        let Some(kind) = kind else {
+            return (Self::Flow, parent);
+        };
+        let category = kind.category().of(parent);
+        let ends_with = match kind {
+            StandardType::TableHeader | StandardType::TableData => Self::Cell,
+            StandardType::Link | StandardType::Annotation | StandardType::Form => Self::Flow,
+            StandardType::SubBlock => Self::Block,
+            _ if category == Category::Inline => Self::Flow,
+            _ => Self::Block,
+        };
+        (ends_with, Some(category))
+    }
+}
 
 /// §14.8.5.5's statement that one `L` element carries on from another. Table 382.
 ///

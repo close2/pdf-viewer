@@ -479,6 +479,18 @@ fn perform(
                         // page's own display list, so pixels of it would be drawn, held and
                         // thrown away.
                         protocol::Carries::Marks => Rendered::Listed,
+                        // A page past the bound whose marks do not fit what a page may claim here
+                        // is refused in the viewer's own words, where its raster would have been
+                        // the allocation the ceiling kills (ADR 1944).
+                        protocol::Carries::Pixels if past_the_bound(request.target) => {
+                            Rendered::Failed(format!(
+                                "this page cannot be drawn at this size: {}",
+                                pdf_render::BackendError::TargetTooLarge {
+                                    requested: pixels(request.target),
+                                    limit: viewer_core::MAX_PIXELS,
+                                }
+                            ))
+                        }
                         protocol::Carries::Pixels => {
                             // The page drawn while it was read, finished from where its read
                             // ended; a drawing that cannot become the page is drawn whole.
@@ -581,9 +593,12 @@ impl Turning {
         let mut events: Vec<Event> = viewer.handle_unread(command).collect();
         let read_and_drawn = viewer.anticipating().map(|anticipating| {
             let parts = pdf_model::progress::Parts::new();
+            // A page past the bound is not drawn here at all, while it is read or after: its marks
+            // cross or it is refused (ADR 1944).
             let target = anticipating
                 .foresee(viewport, scale)
-                .map(|foreseen| foreseen.target);
+                .map(|foreseen| foreseen.target)
+                .filter(|target| !past_the_bound(*target));
             let (read, drawn) = std::thread::scope(|scope| {
                 let handing = &parts;
                 // The pool's own stack: the drawer draws what a strip draws. Unnamed, because
@@ -731,6 +746,17 @@ fn placement(viewer: &Viewer, page: usize) -> Option<(f32, f32)> {
         viewer_core::Answer::Geometry(geometry) => Some(geometry.origin),
         _ => None,
     }
+}
+
+/// How many pixels a target holds.
+fn pixels(target: pdf_render::TargetSpec) -> u64 {
+    u64::from(target.width).saturating_mul(u64::from(target.height))
+}
+
+/// Whether a target's whole raster would be past [`viewer_core::MAX_PIXELS`]: a page the viewer
+/// asks this process for only because the window draws it from its marks (ADR 1944).
+fn past_the_bound(target: pdf_render::TargetSpec) -> bool {
+    pixels(target) > viewer_core::MAX_PIXELS
 }
 
 /// A refusal frame carrying one sentence.

@@ -21,11 +21,11 @@
 //! pixel the target holds. What does change is what a strip planner is told: a mark that reaches
 //! no pixel of the target no longer forbids a cut across rows it never touches.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use rayon::prelude::*;
 
-use crate::{DisplayList, Point, Rect, TargetSpec, Transform};
+use crate::{Command, DisplayList, Point, Rect, TargetSpec, Transform};
 
 /// The margin, in device pixels, a bound is grown by before it is said to miss a region.
 ///
@@ -57,6 +57,77 @@ pub struct MarkBounds {
     at: Transform,
     /// Each top-level command's bound under [`Self::at`], in painting order.
     bounds: Vec<Option<Rect>>,
+    /// What [`Self::bounds`] say together, taken on the first cull that asks.
+    extremes: OnceLock<Extremes>,
+}
+
+/// The innermost edges of a list's bounds, which answer for every command at once whether a
+/// target cuts any of them away ([`MarkBounds::every_command_reaches`]).
+#[derive(Debug, Clone, Copy)]
+enum Extremes {
+    /// No command has a bound, so every one can mark anywhere.
+    Unbounded,
+    /// The bounded commands' leftmost right edge, rightmost left edge, highest bottom edge and
+    /// lowest top edge, every one a number and every bound's corners in order.
+    Inner {
+        /// The smallest `max.x`.
+        right: f32,
+        /// The largest `min.x`.
+        left: f32,
+        /// The smallest `max.y`.
+        bottom: f32,
+        /// The largest `min.y`.
+        top: f32,
+    },
+    /// A bound with a coordinate that is not a number, or with its corners out of order, which
+    /// [`MarkBounds::every_command_reaches`]' argument does not cover: each command is asked.
+    Unknown,
+}
+
+impl Extremes {
+    /// One bound's edges.
+    fn of(bound: Rect) -> Self {
+        let edges = [bound.min.x, bound.min.y, bound.max.x, bound.max.y];
+        if edges.iter().any(|edge| edge.is_nan())
+            || bound.min.x > bound.max.x
+            || bound.min.y > bound.max.y
+        {
+            return Self::Unknown;
+        }
+        Self::Inner {
+            right: bound.max.x,
+            left: bound.min.x,
+            bottom: bound.max.y,
+            top: bound.min.y,
+        }
+    }
+
+    /// The edges of two sets of bounds together.
+    fn joined(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::Unbounded, one) | (one, Self::Unbounded) => one,
+            (
+                Self::Inner {
+                    right,
+                    left,
+                    bottom,
+                    top,
+                },
+                Self::Inner {
+                    right: other_right,
+                    left: other_left,
+                    bottom: other_bottom,
+                    top: other_top,
+                },
+            ) => Self::Inner {
+                right: right.min(other_right),
+                left: left.max(other_left),
+                bottom: bottom.min(other_bottom),
+                top: top.max(other_top),
+            },
+        }
+    }
 }
 
 impl MarkBounds {
@@ -75,6 +146,7 @@ impl MarkBounds {
                 .par_iter()
                 .map(|command| command.device_bounds(at))
                 .collect(),
+            extremes: OnceLock::new(),
         }
     }
 
@@ -160,6 +232,56 @@ impl MarkBounds {
             .is_some_and(|reach| reach.max.y < top || reach.min.y > bottom)
     }
 
+    /// Whether no command [`Self::misses_target`] — every one either reaches `target` or cannot be
+    /// bounded — where the bounds' innermost edges say so for all of them at once, and `false`
+    /// where they do not, in which case each command is to be asked.
+    ///
+    /// **Never `true` where one command misses**, because each of the four tests [`Self::reach`]
+    /// is put to is monotone in the edge it reads. Take the right edge: a bound is moved by a sum
+    /// and grown by a sum of something not negative, and an `f32` sum rounds monotonically, so a
+    /// bound whose right edge is at least the smallest one, moved, is at least that one moved; and
+    /// that is not below zero, so neither is its reach. The same holds of the other three edges
+    /// against the target's width and height. A NaN or a bound whose corners are out of order is
+    /// outside that argument — [`Rect::grown`] puts corners in order, which can swap an edge for
+    /// another — and is answered by asking each command (`Extremes::Unknown`).
+    ///
+    /// A cull of a whole page asked this way costs nothing after the first time, where it walked
+    /// every command: 9 to 24 ms of the owner's witness's frame on four threads (ADR 1941).
+    #[must_use]
+    fn every_command_reaches(&self, target: TargetSpec) -> bool {
+        if !self.serves(target.transform) {
+            return true;
+        }
+        let extremes = *self.extremes.get_or_init(|| {
+            self.bounds
+                .par_iter()
+                .flatten()
+                .map(|bound| Extremes::of(*bound))
+                .reduce(|| Extremes::Unbounded, Extremes::joined)
+        });
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a target's extent is below MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let (width, height) = (target.width as f32, target.height as f32);
+        let (dx, dy) = (
+            target.transform.e - self.at.e,
+            target.transform.f - self.at.f,
+        );
+        match extremes {
+            Extremes::Unbounded => true,
+            Extremes::Inner {
+                right,
+                left,
+                bottom,
+                top,
+            } => {
+                right + dx >= 0.0 && left + dx <= width && bottom + dy >= 0.0 && top + dy <= height
+            }
+            Extremes::Unknown => false,
+        }
+    }
+
     /// Whether command `index` can mark no pixel of `target`.
     ///
     /// Comparisons that are false on a NaN, so a bound that is not a number misses nothing.
@@ -177,13 +299,13 @@ impl MarkBounds {
 
     /// The bounds of the commands `kept` names, in the order it names them, under the same
     /// transform: what a list of those commands alone would measure.
-    fn kept(&self, kept: &[usize]) -> Self {
+    fn kept(&self, kept: impl IndexedParallelIterator<Item = usize>) -> Self {
         Self {
             at: self.at,
             bounds: kept
-                .iter()
-                .map(|index| self.bounds.get(*index).copied().flatten())
+                .map(|index| self.bounds.get(index).copied().flatten())
                 .collect(),
+            extremes: OnceLock::new(),
         }
     }
 }
@@ -274,19 +396,31 @@ impl DisplayList {
             return None;
         }
         let bounds = self.mark_bounds(target.transform);
-        let kept: Vec<usize> = (0..self.commands().len())
-            .into_par_iter()
-            .filter(|index| !bounds.misses_target(*index, target))
+        if bounds.every_command_reaches(target) {
+            return None;
+        }
+        let kept: Vec<(usize, &Command)> = self
+            .commands()
+            .par_iter()
+            .enumerate()
+            .filter(|(index, _)| !bounds.misses_target(*index, target))
             .collect();
         if kept.len() == self.commands().len() {
             return None;
         }
+        // Copied on every core, each copy written where it belongs: an indexed iterator collects
+        // into the list in place, where the filtered one it replaced gathered pieces and joined
+        // them on one thread — a second copy of every command. A window of 83 % of the owner's
+        // witness keeps 4 333 950 of its commands, and their copy took 77 to 158 ms of its frame
+        // on one thread and 81 to 98 ms filtered on the pool, and takes 43 to 49 ms (ADR 1941).
         let commands = kept
-            .iter()
-            .filter_map(|index| self.commands().get(*index).cloned())
+            .par_iter()
+            .map(|(_, command)| (*command).clone())
             .collect();
         let culled = self.with_commands(commands);
-        culled.kept_bounds().keep(Arc::new(bounds.kept(&kept)));
+        culled.kept_bounds().keep(Arc::new(
+            bounds.kept(kept.par_iter().map(|(index, _)| *index)),
+        ));
         Some(culled)
     }
 }
@@ -430,6 +564,47 @@ mod tests {
         );
         assert!(!bounds.misses_target(0, elsewhere));
         assert!(!bounds.misses_target(7, target(1, 1, Transform::IDENTITY)));
+    }
+
+    /// Whether any command of `bounds` misses `target`, asked of each.
+    fn any_misses(bounds: &MarkBounds, target: TargetSpec) -> bool {
+        (0..bounds.len()).any(|index| bounds.misses_target(index, target))
+    }
+
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
+    #[test]
+    fn the_edges_say_every_command_reaches_only_where_none_misses() {
+        let list = row_of(10);
+        let at = Transform::scale(2.0, 2.0);
+        let bounds = MarkBounds::measure(&list, at);
+        let mut answered = 0;
+        // Windows sliding across the row and the page by fractions of a pixel, through the
+        // translations where the outermost square is first cut away.
+        for step in -40..=40 {
+            #[expect(clippy::cast_precision_loss, reason = "a small step count")]
+            let shift = step as f32 * 0.37;
+            for (width, height) in [(200, 20), (199, 20), (40, 20), (200, 4)] {
+                let window = target(width, height, at.then(Transform::translate(shift, shift)));
+                let reaches = bounds.every_command_reaches(window);
+                assert!(
+                    !(reaches && any_misses(&bounds, window)),
+                    "{width} x {height} at {shift}"
+                );
+                answered += usize::from(reaches);
+            }
+        }
+        assert!(answered > 0, "the edges answer for some window");
+        // The page itself, under the transform the bounds were measured at and under a scroll.
+        assert!(bounds.every_command_reaches(target(200, 20, at)));
+        // A bound that is not a number is answered by asking each command.
+        let mut odd = row_of(2);
+        odd.push(square(f32::NAN, 4.0));
+        let odd = MarkBounds::measure(&odd, at);
+        assert!(!odd.every_command_reaches(target(40, 20, at)));
     }
 
     #[cfg_attr(

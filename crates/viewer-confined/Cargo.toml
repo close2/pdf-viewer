@@ -43,6 +43,11 @@ corpus-classes.workspace = true
 # a confined process drew rather than at a count of its dark pixels.
 png.workspace = true
 
+# `pdf-view-worker`'s first statement closes the descriptors it inherited, by number, which only
+# `libc::close_range` can say (ADR 1945).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
 [lints]
 workspace = true
 

@@ -648,10 +648,18 @@ const PIECE_ROWS_BUDGET: usize = 64 << 20;
 /// A top-level command's own device bound is read from the list's [`MarkBounds`] where those were
 /// measured under this very transform, because a backend measures them anyway before it draws
 /// (ADR 1841) and the planner measuring them again was most of its work.
+///
+/// **And the extents are not copied out of them.** A top-level command's extent is its own bound
+/// met with its clip chain's extent, which is the bound itself, every bit of it, for a command with
+/// no clip and for one whose clip holds its bound; only a clip that narrows the bound, a degenerate
+/// bound under a clip, or a group, whose extents are its elements', makes another. So a run read
+/// from bounds measured where the target is keeps only those exceptions, beside the bounds it
+/// borrows: the owner's witness has none among its 4 408 405 commands, and the 84.1 MiB copy of its
+/// bounds the planner held beside the list's own is not made (ADR 1940).
 #[derive(Debug)]
-pub struct StripInputs {
+pub struct StripInputs<'a> {
     /// The runs of commands, in the list's order.
-    pieces: Vec<Piece>,
+    pieces: Vec<Piece<'a>>,
     /// The target's rows.
     rows: usize,
     /// How many rows a band of [`Self::costs`] is, the last band perhaps fewer.
@@ -662,16 +670,174 @@ pub struct StripInputs {
 
 /// One run of a list's top-level commands, read by [`strip_inputs`].
 #[derive(Debug)]
-struct Piece {
+struct Piece<'a> {
     /// [`command_extents`] of these commands, in their order.
-    extents: Vec<Option<Rect>>,
+    extents: Extents<'a>,
     /// The rows these commands forbid, as [`unsplittable_rows_where`] marks them.
     forbidden: Vec<bool>,
     /// The rows the fills these commands free would have forbidden.
     freed: Vec<bool>,
-    /// For each band of [`StripInputs::costs`], the indices into [`Self::extents`] of the extents
-    /// that add to a row of it, in order: what lets a band sum only what reaches it.
-    reaching: Vec<Vec<usize>>,
+    /// For each band of [`StripInputs::costs`], the keys ([`Extents::each`]) of the extents that
+    /// add to a row of it, in order and each once: what lets a band sum only what reaches it.
+    ///
+    /// Thirty-two bits a key, because there are as many as there are extents and bands they reach:
+    /// at eight bytes a key they were 59.7 MiB of the owner's witness's heap at its peak, and are
+    /// 28.6 (ADR 1940). Empty where a key is past them, and every band then reads every extent of
+    /// the piece.
+    reaching: Vec<Vec<u32>>,
+}
+
+/// One run's [`command_extents`], in the list's order, held as the bounds it was read from allow.
+#[derive(Debug)]
+enum Extents<'a> {
+    /// Every extent, one after another — a command one, a group its elements' — each keyed by
+    /// its position.
+    Stated(Vec<Option<Rect>>),
+    /// Every command's extent is its own bound, borrowed from the list's [`MarkBounds`], but for
+    /// the commands `exceptions` names; each extent is keyed by its command.
+    Borrowed {
+        /// The run's own bounds, one a command, measured under the target's own transform.
+        own: &'a [Option<Rect>],
+        /// The commands whose extents are not their own bound, in order, each with the index into
+        /// `stated` its extents begin at; they end where the next one's begin.
+        exceptions: Vec<(usize, usize)>,
+        /// The excepted commands' extents, in order.
+        stated: Vec<Option<Rect>>,
+    },
+}
+
+/// How many of a run's commands may be exceptions to its borrowed bounds before its extents are
+/// held in full, as a share of the run: one in four.
+///
+/// An exception costs its two indices, 16 bytes, beside its extents' 20 bytes each, so it is past
+/// about one in two that the borrowed form holds more than the copy would; at one in four it still
+/// holds under half of it, and the search [`Extents::of`] makes of the exceptions stays short. A
+/// choice of memory against the search, made here, which no number the planner reads depends on:
+/// the two forms state the same extents.
+const MOST_EXCEPTIONS: usize = 4;
+
+impl<'a> Extents<'a> {
+    /// Extents to be read from `own` where the run has them, and stated where it has not.
+    fn new(own: Option<&'a [Option<Rect>]>, commands: usize) -> Self {
+        match own {
+            Some(own) => Self::Borrowed {
+                own,
+                exceptions: Vec::new(),
+                stated: Vec::new(),
+            },
+            None => Self::Stated(Vec::with_capacity(commands)),
+        }
+    }
+
+    /// Adds `command`'s extents, as [`gather_one`] states them.
+    fn push(&mut self, command: usize, extents: &[Option<Rect>]) {
+        match self {
+            Self::Stated(all) => all.extend_from_slice(extents),
+            Self::Borrowed {
+                own,
+                exceptions,
+                stated,
+            } => {
+                if let ([extent], Some(bound)) = (extents, own.get(command))
+                    && same_bits(*extent, *bound)
+                {
+                    return;
+                }
+                exceptions.push((command, stated.len()));
+                stated.extend_from_slice(extents);
+            }
+        }
+    }
+
+    /// These extents, stated in full where the exceptions are too many to keep beside the bounds
+    /// ([`MOST_EXCEPTIONS`]).
+    fn settled(self) -> Self {
+        if let Self::Borrowed {
+            own, exceptions, ..
+        } = &self
+            && exceptions.len() > own.len() / MOST_EXCEPTIONS
+        {
+            let mut all = Vec::with_capacity(own.len());
+            self.each(|_, extent| all.push(extent));
+            return Self::Stated(all);
+        }
+        self
+    }
+
+    /// Calls `each` with every extent, in the list's order, and the key that names it to
+    /// [`Self::of`].
+    fn each(&self, mut each: impl FnMut(usize, Option<Rect>)) {
+        match self {
+            Self::Stated(all) => {
+                for (position, extent) in all.iter().enumerate() {
+                    each(position, *extent);
+                }
+            }
+            Self::Borrowed {
+                own,
+                exceptions,
+                stated,
+            } => {
+                let mut ahead = exceptions.iter().enumerate().peekable();
+                for (command, bound) in own.iter().enumerate() {
+                    match ahead.next_if(|(_, (excepted, _))| *excepted == command) {
+                        Some((at, _)) => {
+                            for extent in excepted(exceptions, stated, at) {
+                                each(command, *extent);
+                            }
+                        }
+                        None => each(command, *bound),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Calls `each` with the extents `key` names, in order.
+    fn of(&self, key: usize, mut each: impl FnMut(Option<Rect>)) {
+        match self {
+            Self::Stated(all) => {
+                if let Some(extent) = all.get(key) {
+                    each(*extent);
+                }
+            }
+            Self::Borrowed {
+                own,
+                exceptions,
+                stated,
+            } => match exceptions.binary_search_by_key(&key, |(command, _)| *command) {
+                Ok(at) => {
+                    for extent in excepted(exceptions, stated, at) {
+                        each(*extent);
+                    }
+                }
+                Err(_) => {
+                    if let Some(bound) = own.get(key) {
+                        each(*bound);
+                    }
+                }
+            },
+        }
+    }
+}
+
+/// The extents of exception `at`, from where its own begin to where the next one's do.
+fn excepted<'s>(
+    exceptions: &[(usize, usize)],
+    stated: &'s [Option<Rect>],
+    at: usize,
+) -> &'s [Option<Rect>] {
+    let begins = |at: usize| exceptions.get(at).map_or(stated.len(), |(_, start)| *start);
+    stated
+        .get(begins(at)..begins(at.saturating_add(1)))
+        .unwrap_or_default()
+}
+
+/// Whether two extents are the same, every bit of every coordinate: an exception is any extent that
+/// is not its bound exactly, `-0.0` against `0.0` and a NaN against itself included.
+fn same_bits(left: Option<Rect>, right: Option<Rect>) -> bool {
+    let bits = |rect: Rect| [rect.min.x, rect.min.y, rect.max.x, rect.max.y].map(f32::to_bits);
+    left.map(bits) == right.map(bits)
 }
 
 /// Reads `list` for a strip planner on the pool: [`StripInputs`].
@@ -681,12 +847,12 @@ struct Piece {
 /// the same, and measured again here otherwise. `row_local` is [`unsplittable_rows_where`]'s
 /// question to the backend, asked from every thread of the pool.
 #[must_use]
-pub fn strip_inputs(
+pub fn strip_inputs<'a>(
     list: &DisplayList,
     target: TargetSpec,
-    bounds: &MarkBounds,
+    bounds: &'a MarkBounds,
     row_local: &(dyn Fn(PlannedMark<'_>) -> bool + Sync),
-) -> StripInputs {
+) -> StripInputs<'a> {
     let commands = list.commands();
     let rows = target.height as usize;
     let shares = rayon::current_num_threads().saturating_mul(SHARES_PER_THREAD);
@@ -709,7 +875,8 @@ pub fn strip_inputs(
         .par_chunks(size)
         .enumerate()
         .map(|(index, run)| {
-            let own = measured.and_then(|all| all.get(index.saturating_mul(size)..));
+            let first = index.saturating_mul(size);
+            let own = measured.and_then(|all| all.get(first..first.saturating_add(run.len())));
             Piece::read(list, target, run, own, row_local, band)
         })
         .collect();
@@ -721,19 +888,20 @@ pub fn strip_inputs(
     }
 }
 
-impl Piece {
+impl<'a> Piece<'a> {
     /// Reads one run of top-level commands, `measured` holding their own bounds where known.
     fn read(
         list: &DisplayList,
         target: TargetSpec,
         run: &[Command],
-        measured: Option<&[Option<Rect>]>,
+        measured: Option<&'a [Option<Rect>]>,
         row_local: &dyn Fn(PlannedMark<'_>) -> bool,
         band: usize,
     ) -> Self {
         let rows = target.height as usize;
         let to_device = target.transform;
-        let mut extents = Vec::with_capacity(run.len());
+        let mut extents = Extents::new(measured, run.len());
+        let mut gathered = Vec::new();
         let mut memo = HashMap::new();
         let mut forbidden = vec![false; rows];
         let mut seen = HashSet::new();
@@ -744,20 +912,44 @@ impl Piece {
             freed: Some(RefCell::new(vec![false; rows])),
         };
         for (index, command) in run.iter().enumerate() {
-            let own = measured
-                .and_then(|all| all.get(index))
-                .map_or(OwnBound::Unknown, |bound| OwnBound::Known(*bound));
-            gather_one(list, command, to_device, None, own, &mut extents, &mut memo);
+            let own = match measured {
+                Some(all) => all
+                    .get(index)
+                    .map_or(OwnBound::Unknown, |bound| OwnBound::Known(*bound)),
+                // Measured once for the two readers below rather than by each of them; a group's
+                // own bound is read by neither, which reads its elements'.
+                None if !matches!(command, Command::Group { .. }) => {
+                    OwnBound::Known(command.device_bounds(to_device))
+                }
+                None => OwnBound::Unknown,
+            };
+            gathered.clear();
+            gather_one(
+                list,
+                command,
+                to_device,
+                None,
+                own,
+                &mut gathered,
+                &mut memo,
+            );
+            extents.push(index, &gathered);
             walk.element(command, false, own, &mut forbidden, &mut seen);
         }
+        let extents = extents.settled();
         let freed = walk.freed.map(RefCell::into_inner).unwrap_or_default();
         let width = f64::from(target.width);
         let mut reaching = vec![Vec::new(); rows.checked_div(band).unwrap_or(0).saturating_add(1)];
-        for (index, extent) in extents.iter().enumerate() {
-            let (from, to, _) = rows_and_span(*extent, rows, width);
+        let mut past_the_keys = false;
+        extents.each(|key, extent| {
+            let Ok(key) = u32::try_from(key) else {
+                past_the_keys = true;
+                return;
+            };
+            let (from, to, _) = rows_and_span(extent, rows, width);
             let to = to.min(rows);
             if from >= to {
-                continue;
+                return;
             }
             let top_band = from.checked_div(band).unwrap_or(0);
             let bottom_band = to.saturating_sub(1).checked_div(band).unwrap_or(0);
@@ -766,8 +958,14 @@ impl Piece {
                 .into_iter()
                 .flatten()
             {
-                list.push(index);
+                // A group's elements share their command's key, and a band names it once.
+                if list.last() != Some(&key) {
+                    list.push(key);
+                }
             }
+        });
+        if past_the_keys {
+            reaching = Vec::new();
         }
         Self {
             extents,
@@ -778,11 +976,15 @@ impl Piece {
     }
 }
 
-impl StripInputs {
+impl<'a> StripInputs<'a> {
     /// [`command_extents`]' extents, in the list's order.
     #[cfg(test)]
-    fn extents(&self) -> impl Iterator<Item = &Option<Rect>> {
-        self.pieces.iter().flat_map(|piece| &piece.extents)
+    fn extents(&self) -> Vec<Option<Rect>> {
+        let mut all = Vec::new();
+        for piece in &self.pieces {
+            piece.extents.each(|_, extent| all.push(extent));
+        }
+        all
     }
 
     /// [`row_costs`] of the list's extents, row for row the same `f64`.
@@ -802,23 +1004,23 @@ impl StripInputs {
             .for_each(|(index, slice)| {
                 let first = index.saturating_mul(band);
                 let end = first.saturating_add(slice.len());
-                let reaching = self.pieces.iter().flat_map(|piece| {
-                    piece
-                        .reaching
-                        .get(index)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|at| piece.extents.get(*at))
-                });
-                for extent in reaching {
-                    let (from, to, span) = rows_and_span(*extent, self.rows, self.width);
+                let mut add = |extent: Option<Rect>| {
+                    let (from, to, span) = rows_and_span(extent, self.rows, self.width);
                     let (from, to) = (from.max(first), to.min(self.rows).min(end));
                     if from >= to {
-                        continue;
+                        return;
                     }
                     let local = from.saturating_sub(first)..to.saturating_sub(first);
                     for cost in slice.get_mut(local).into_iter().flatten() {
                         *cost += span;
+                    }
+                };
+                for piece in &self.pieces {
+                    if piece.reaching.is_empty() {
+                        piece.extents.each(|_, extent| add(extent));
+                    }
+                    for key in piece.reaching.get(index).into_iter().flatten() {
+                        piece.extents.of(*key as usize, &mut add);
                     }
                 }
             });
@@ -840,7 +1042,7 @@ impl StripInputs {
     }
 
     /// Every piece's forbidden rows, and the rows `also` names of it, joined.
-    fn union(&self, also: impl Fn(&Piece) -> Option<&Vec<bool>>) -> Vec<bool> {
+    fn union(&self, also: impl for<'p> Fn(&'p Piece<'a>) -> Option<&'p Vec<bool>>) -> Vec<bool> {
         let mut rows = vec![false; self.rows];
         for piece in &self.pieces {
             for marked in std::iter::once(&piece.forbidden).chain(also(piece)) {
@@ -858,7 +1060,11 @@ impl StripInputs {
         let (touches, commands) = self
             .pieces
             .par_iter()
-            .map(|piece| replays(&piece.extents, boundaries))
+            .map(|piece| {
+                let mut counted = Replays::under(boundaries);
+                piece.extents.each(|_, extent| counted.add(extent));
+                (counted.touches, counted.commands)
+            })
             .reduce(
                 || (0, 0),
                 |(touches, commands), (more, others)| {
@@ -941,23 +1147,49 @@ pub fn replay_ratio(extents: &[Option<Rect>], boundaries: &[u32]) -> f64 {
 /// extents there are: [`replay_ratio`]'s two counts, which [`StripInputs::replay_ratio`] adds up
 /// over its pieces. Whole numbers, so the sum is the same in any order.
 fn replays(extents: &[Option<Rect>], boundaries: &[u32]) -> (u64, u64) {
-    let strips = boundaries.len().saturating_sub(1);
-    let mut touches = 0_u64;
-    let mut commands = 0_u64;
-    for extent in extents.iter().flatten() {
-        commands = commands.saturating_add(1);
-        for strip in 0..strips {
+    let mut counted = Replays::under(boundaries);
+    for extent in extents {
+        counted.add(*extent);
+    }
+    (counted.touches, counted.commands)
+}
+
+/// [`replays`]' two counts, taken an extent at a time.
+struct Replays<'b> {
+    /// The division the extents are counted against.
+    boundaries: &'b [u32],
+    /// How many strips the bounded extents so far reach, summed.
+    touches: u64,
+    /// How many bounded extents there have been.
+    commands: u64,
+}
+
+impl<'b> Replays<'b> {
+    /// Nothing counted yet, against `boundaries`.
+    fn under(boundaries: &'b [u32]) -> Self {
+        Self {
+            boundaries,
+            touches: 0,
+            commands: 0,
+        }
+    }
+
+    /// Counts one extent; one that cannot be bounded is no command a strip replays.
+    fn add(&mut self, extent: Option<Rect>) {
+        let Some(extent) = extent else { return };
+        let boundaries = self.boundaries;
+        self.commands = self.commands.saturating_add(1);
+        for strip in 0..boundaries.len().saturating_sub(1) {
             let top = boundaries.get(strip).copied().unwrap_or(0);
             let bottom = boundaries
                 .get(strip.saturating_add(1))
                 .copied()
                 .unwrap_or(0);
             if extent.min.y < row_edge(bottom) && extent.max.y > row_edge(top) {
-                touches = touches.saturating_add(1);
+                self.touches = self.touches.saturating_add(1);
             }
         }
     }
-    (touches, commands)
 }
 
 /// [`replay_ratio`]'s answer from its two counts: one where nothing is drawn.
@@ -1099,7 +1331,7 @@ mod tests {
     use std::cell::Cell;
 
     use super::{
-        PlannedMark, command_extents, replay_ratio, row_costs, strip_boundaries,
+        Extents, Piece, PlannedMark, command_extents, replay_ratio, row_costs, strip_boundaries,
         strip_boundaries_avoiding, strip_inputs, unsplittable_rows,
         unsplittable_rows_and_freed_fills, unsplittable_rows_where,
     };
@@ -1446,8 +1678,9 @@ mod tests {
     /// page's, more than an `f64` holds at once, so a row's cost
     /// summed in another order than the list's rounds to another number; and its strokes and its
     /// inner clip keep to the upper half, so the rows a freed fill would forbid are not all
-    /// forbidden already.
-    fn busy_page(count: usize) -> DisplayList {
+    /// forbidden already. Only every `exceptional`-th mark may be clipped or a group, so that a
+    /// page of few exceptions to its own bounds can be asked for as well as one of many.
+    fn busy_page(count: usize, exceptional: usize) -> DisplayList {
         let mut list = DisplayList::new(Size::new(613.0, 409.0));
         let outer = list
             .add_clip(Clip {
@@ -1474,12 +1707,15 @@ mod tests {
         for index in 0..count {
             let (x, y, size) = (next() * 600.0, next() * 400.0, 0.1 + next() * 37.3);
             let high = next() * 190.0;
+            let plain = index.checked_rem(exceptional) != Some(0);
             let clip = match index % 5 {
+                _ if plain => None,
                 0 if index % 4 == 1 => Some(inner),
                 1 => Some(outer),
                 _ => None,
             };
             let command = match index % 4 {
+                3 if plain => wedge(y, y + size, x),
                 0 => {
                     let right = if index % 3 == 0 {
                         1e-6 + next() * 1e-6
@@ -1574,7 +1810,9 @@ mod tests {
     /// the bounds measured where the target is and measured at another translation, on pools of
     /// one, four and seven threads — the property the planner's cuts rest on (ADR 1882). The page
     /// is long enough to be read in several pieces, and its widths are not dyadic, so a cost summed
-    /// in another order than the list's would round to another number.
+    /// in another order than the list's would round to another number. Asked of a page whose clips
+    /// and groups are so many that its runs state their extents in full, and of one whose few are
+    /// held beside the bounds the runs borrow (ADR 1940).
     #[cfg_attr(
         miri,
         ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
@@ -1582,7 +1820,15 @@ mod tests {
     )]
     #[test]
     fn the_inputs_read_on_the_pool_are_the_serial_inputs() {
-        let list = busy_page(40_000);
+        for (exceptional, borrows) in [(1, false), (31, true)] {
+            the_inputs_are_the_serial_inputs(&busy_page(40_000, exceptional), borrows);
+        }
+    }
+
+    /// [`the_inputs_read_on_the_pool_are_the_serial_inputs`] of one page, whose runs read from
+    /// bounds measured where the target is `borrow` them or state their extents in full.
+    fn the_inputs_are_the_serial_inputs(list: &DisplayList, borrow: bool) {
+        let list = list.clone();
         let target = TargetSpec {
             width: 1_226,
             height: 818,
@@ -1610,8 +1856,16 @@ mod tests {
                     .expect("a pool");
                 let inputs = pool.install(|| strip_inputs(&list, target, &bounds, &frees_some));
                 assert!(threads == 1 || inputs.pieces.len() > 1, "read in pieces");
-                let read: Vec<Option<Rect>> = inputs.extents().copied().collect();
-                assert_eq!(read, extents, "extents, {threads} threads");
+                let borrowed = |piece: &Piece<'_>| {
+                    matches!(&piece.extents, Extents::Borrowed { exceptions, .. }
+                        if !exceptions.is_empty())
+                };
+                assert_eq!(
+                    inputs.pieces.iter().all(borrowed),
+                    borrow && at == target.transform,
+                    "borrowed, {threads} threads"
+                );
+                assert_eq!(inputs.extents(), extents, "extents, {threads} threads");
                 let summed = pool.install(|| inputs.costs());
                 let bits =
                     |costs: &[f64]| costs.iter().map(|cost| cost.to_bits()).collect::<Vec<_>>();

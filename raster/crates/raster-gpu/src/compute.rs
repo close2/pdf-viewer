@@ -6,15 +6,17 @@
 //! outline* — and nothing else: no flattening, no edges, no per-frame geometry on the
 //! host. The device keeps every outline's segments in one resident arena
 //! ([`SegmentArena`]), uploaded on the first frame that draws it, and turns the
-//! records into coverage in three passes:
+//! records into coverage in four passes, all in one submission (ADR 0095):
 //!
 //! 1. **count** — one invocation per tile walks its outline's segments under its
 //!    transform, running the flattening arithmetic and counting the edges it would
 //!    emit;
-//! 2. **emit** — after an exact allocation from those counts (one readback, which is
-//!    what "count then allocate" costs when the counter is the device), the same walk
-//!    writes the closed edge lists in tile space;
-//! 3. **deposit** — one invocation per tile row runs the scanline port: exact signed
+//! 2. **scan** — an exclusive prefix over those counts, on the device, into the
+//!    offsets the emit reads, with the total appended;
+//! 3. **emit** — the same walk writes the closed edge lists in tile space at those
+//!    offsets, into an edge buffer of persistent, grow-only capacity, every write
+//!    guarded by that capacity;
+//! 4. **deposit** — one invocation per tile row runs the scanline port: exact signed
 //!    trapezoid areas, the serial prefix sum, the CPU's own rounding, bytes OR'd into
 //!    the zero-seeded sheet image (deterministic: every byte has exactly one writer,
 //!    and OR against zero is assignment). The image travels texture → buffer →
@@ -44,12 +46,16 @@
 //!
 //! # What the readback costs and buys
 //!
-//! The count pass's totals cross back to the host once per frame, so the edge buffer
-//! is allocated *exactly* and checked against the frame budget before it exists —
-//! principle 3 with the device as the counter, and principle 6's refusal with a name
-//! when a magnification makes more edges than the budget holds. The price is one
-//! submit boundary mid-frame; replacing it with a fence and a retry is a measurement
-//! for the round that needs it.
+//! Nothing crosses back to the host mid-frame. Eight bytes — the overflow flag and the
+//! scanned total — are read after the wait the frame already pays at its end, before
+//! anything is presented, so the count stays exact and the host never stalls on it
+//! (ADR 0095). A frame whose emit met the capacity is not presented: the capacity grows to
+//! the total and the frame runs again whole, which is the first frame's ordinary cost and
+//! a rare growth afterwards. A total past the frame budget is refused with both numbers,
+//! one frame later than a count read mid-frame would refuse it and still before any pixel
+//! of it is shown — principle 3 with the device as the counter, and principle 6's refusal
+//! with a name. The persistent buffers are charged at their capacity against that same
+//! budget.
 
 use crate::error::RenderError;
 use crate::keyhash::FastMap;

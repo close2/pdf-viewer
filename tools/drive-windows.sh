@@ -3694,15 +3694,24 @@ PY2
 # wide down the square's middle. Eighteen `=` notches 300 ms apart about the window's middle take it
 # past the bound in Xvfb's window (fifteen cross it); then the pointer is moved twenty times across
 # the window, which is what the owner's endless refusals followed. A toolkit window must say
-# `window … rasterised` and, photographed then, show the bar sharp — tens of pixels wide, where the
-# retained picture standing in for a refused page shows it a pixel wide or not at all — and say no
-# refusal. A window that keeps the bound, the confined one, says a refusal once for each view it is
-# about (ADR 1892 §2.4) — once a notch past the bound, never twice at one size, and never at a
-# pointer move. What is counted is the window's own sentence, never the events trace's echo of the
-# event it said it from (ADR 1921).
+# `window … rasterised`, the confined one must have handed its worker the eighteen notches and drawn
+# a frame after them (its device draws the marks at the window's size, ADR 1944), and each,
+# photographed then, must show the bar sharp — tens of pixels wide, where the retained picture
+# standing in for a refused page shows it a pixel wide or not at all — and say no refusal. A window
+# that refuses says it once for each view it is about (ADR 1892 §2.4) — never twice at one size, and
+# never at a pointer move. What is counted is the window's own sentence, never the events trace's
+# echo of the event it said it from (ADR 1921).
 # `zoom_past_the_bound_heavy` is the same zoom on `HEAVY_FILE`, with the picture not judged.
 zoom_past_the_bound() { zoom_past "$FIXTURES/drive-a1.pdf" 82-zoom-past-the-bound judged; }
 zoom_past_the_bound_heavy() { zoom_past "$HEAVY_FILE" 82-zoom-past-the-bound-heavy counted; }
+# zoomed_eighteen N: whether eighteen zooms have gone to the confined worker since line N and a
+# frame was drawn after the last of them, on the device or as a window on the processor.
+zoomed_eighteen() {
+    local from
+    [ "$(tail -n "+$(($1 + 1))" "$LOG" | grep -c -- '-> Zoom')" -ge 18 ] || return 1
+    from=$(grep -n -- '-> Zoom' "$LOG" | tail -1 | cut -d: -f1)
+    tail -n "+$from" "$LOG" | grep -q "device frame in\\|window [0-9]*x[0-9]* at .* rasterised"
+}
 zoom_past() { # file step judged|counted
     local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark moved said refusals sizes after black X Y WIDTH HEIGHT
     [ -s "$file" ] || [ "$how" = counted ] || python3 - "$file" <<'PY2'
@@ -3733,6 +3742,11 @@ PY2
             kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
             return
         fi
+    elif [ "$WINDOW" = quorra-confined ]; then
+        # The confined window holds a key while its worker is busy and hands it over when it is
+        # free (ADR 1827): the zoom is done when the eighteenth notch has gone to the worker and a
+        # frame has been drawn after it.
+        wait_for 120 zoomed_eighteen "$mark"
     else
         wait_for 60 said_since "$mark" "rasterised\\|first frame\\|frame on the device\\|frame drawn"
     fi
@@ -3750,10 +3764,10 @@ PY2
     after=$(tail -n "+$((moved + 1))" "$LOG" | grep -v '^trace:' | grep -c "cannot be drawn at this size")
     if [ "$refusals" -gt "$sizes" ] || [ "$after" -gt 0 ]; then
         verdict "$step" wrong "the refusal was said $refusals times at $sizes size(s) over eighteen notches, $after of them at twenty pointer moves"
-    elif [ "$how" = counted ] || { [ "$WINDOW" != quorra-gtk ] && [ "$WINDOW" != quorra-qt ]; }; then
+    elif [ "$how" = counted ] || [ "$WINDOW" = quorra ]; then
         verdict "$step" works "$refusals refusal(s) said over eighteen notches, one a size, none at twenty pointer moves$(tail -n "+$((mark + 1))" "$LOG" | grep -c 'window [0-9]*x[0-9]* at' | sed 's/^/, windows drawn: /')"
     elif [ "$refusals" -ne 0 ]; then
-        verdict "$step" wrong "a toolkit window was refused a page it draws as it shows it"
+        verdict "$step" wrong "a window that draws the page as it shows it was refused it"
     else
         black=$(magick "$OUT/shots/$WINDOW/$step.png" -alpha off -gravity center -crop 50%x50%+0+0 -fuzz 10% -fill white +opaque "#000000" -fill black -opaque "#000000" -negate -format '%[fx:int(mean*w*h+0.5)]' info: 2>/dev/null)
         if [ "${black:-0}" -gt 2000 ]; then

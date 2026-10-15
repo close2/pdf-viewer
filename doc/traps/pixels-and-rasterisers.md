@@ -644,3 +644,12 @@ by kind and format so the lane refuses once and the processor draws.
   pins this; if it fails, the assumption has broken, not the code.
 - **`test-scenes` holds the same page twice**, as a display list and as PDF bytes. That pairing let
   the harness work before a parser existed.
+
+### 186. An unindexed parallel collect joins its pieces on one thread
+
+Round 1552 moved the culled display list's copy onto the pool with a parallel `filter_map` and
+measured 81–98 ms against 77–158 ms on one thread — the pool had bought nothing, because a collect
+whose length is unknown gathers each thread's piece and then joins them serially. Collecting the
+kept indices first and copying through an indexed iterator writes every item in place in parallel:
+43–49 ms (ADR 1941). A parallel copy is parallel only when its output positions are known before it
+starts.

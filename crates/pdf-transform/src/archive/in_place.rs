@@ -41,6 +41,9 @@ use super::prepare::RemovedAnnotation;
 /// The requirement whose `preserve` shows an annotation its producer hid.
 pub(super) const PRINTABLE_AND_VISIBLE: &str = "annotations/printable-and-visible";
 
+/// The requirement whose `preserve` keeps an annotation that stated no flags and gives it `Print`.
+pub(super) const FLAGS_ENTRY_PRESENT: &str = "annotations/flags-entry-present";
+
 /// The requirement whose `preserve` keeps a reference `XObject`'s proxy.
 pub(super) const NO_REFERENCE_XOBJECTS: &str = "graphics/no-reference-xobjects";
 
@@ -48,6 +51,16 @@ pub(super) const NO_REFERENCE_XOBJECTS: &str = "graphics/no-reference-xobjects";
 pub(super) const SHOWN: &str = "each annotation whose flags ISO 19005 forbids stays on its page \
      and is shown on screen and on paper, including one its producer hid or kept off one of the \
      two; the report names every annotation shown and the flags it had";
+
+/// What an operator answering the absent-flags site with `preserve` is agreeing to.
+///
+/// `doc/adr/1942`: ISO 19005 section 6.3.2 leaves such an annotation two futures, being given the
+/// `Print` bit or leaving the page, and this is the one that takes nothing out. Nothing on the
+/// screen changes; what changes is paper, where an annotation with an appearance now prints.
+pub(super) const GIVEN_PRINT: &str = "each annotation that stated no F entry stays on its page \
+     and is given one whose only set bit is Print, which ISO 19005 section 6.3.2 requires of it; \
+     nothing is taken out and nothing on the screen changes, and one with an appearance now \
+     prints where ISO 32000-2's Table 167 had it left off paper";
 
 /// What an operator answering the reference `XObject` site with `preserve` is agreeing to.
 pub(super) const PROXIED: &str = "each reference XObject keeps the proxy its producer drew and \

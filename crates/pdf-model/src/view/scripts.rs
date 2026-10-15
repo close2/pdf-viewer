@@ -2509,21 +2509,58 @@ fn supplied_script(document: &Document, widget: &Dictionary, trigger: Trigger) -
 
 /// Table 221's `/JS` of one action dictionary, where it is an ECMAScript action whose text can be
 /// read within [`MAX_SCRIPT_BYTES`].
+pub(super) fn script_text(document: &Document, action: &Dictionary) -> Option<String> {
+    match read_script(document, action) {
+        ScriptText::Read(text) => Some(text),
+        ScriptText::NotScript | ScriptText::Unread(_) => None,
+    }
+}
+
+/// What one action dictionary's Table 221 `/JS` reads as.
+pub(super) enum ScriptText {
+    /// The script's text.
+    Read(String),
+    /// The action is not an ECMAScript action.
+    NotScript,
+    /// An ECMAScript action whose text is not run, with the phrase saying why, for a report.
+    Unread(String),
+}
+
+/// Table 221's `/JS` of one action dictionary: its text, or why an ECMAScript action's text is not
+/// run (ADR 1950).
 ///
 /// "A text string or text stream containing the ECMAScript script to be executed": §7.9.2.2's text
-/// string either way, read through the same decoding a text string always takes.
-pub(super) fn script_text(document: &Document, action: &Dictionary) -> Option<String> {
+/// string either way, read through the same decoding a text string always takes. A script past
+/// [`MAX_SCRIPT_BYTES`] is not decoded, and the phrase gives its length, so that the one sentence
+/// saying it was not run states the bound and not some other reason (trap 5).
+pub(super) fn read_script(document: &Document, action: &Dictionary) -> ScriptText {
     if !matches!(document.get_key(action, "S"), Object::Name(ref name) if name.as_bytes() == b"JavaScript")
     {
-        return None;
+        return ScriptText::NotScript;
     }
-    let bytes = match document.resolve(action.get("JS")?) {
+    let unreadable = || {
+        ScriptText::Unread(String::from(
+            "an ECMAScript action whose /JS is neither a text string nor a text stream this \
+             program can decode",
+        ))
+    };
+    let Some(entry) = action.get("JS") else {
+        return unreadable();
+    };
+    let bytes = match document.resolve(entry) {
         Object::String(bytes) => bytes.to_vec(),
-        Object::Stream(stream) => document.decoded_stream_data(&stream)?.to_vec(),
-        _ => return None,
+        Object::Stream(stream) => match document.decoded_stream_data(&stream) {
+            Some(data) => data.to_vec(),
+            None => return unreadable(),
+        },
+        _ => return unreadable(),
     };
     if bytes.len() > MAX_SCRIPT_BYTES {
-        return None;
+        return ScriptText::Unread(format!(
+            "an ECMAScript action of {} bytes, past the {MAX_SCRIPT_BYTES} a script may be in this \
+             program",
+            bytes.len()
+        ));
     }
-    Some(pdf_syntax::text_string(&bytes))
+    ScriptText::Read(pdf_syntax::text_string(&bytes))
 }

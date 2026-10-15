@@ -645,10 +645,10 @@ Two figures are still behind, and neither is visible in a window:
   instructions are page 1's 350 × 350 `ICCBased` photograph, converted sample by sample in
   `pdf_model::image::convert_three`. PdfCraft builds one 8-bit transform instead.
 - **The witness costs `quorra-transform` 1.84–1.86 GiB and 11.5 CPU-seconds**, against `mutool`'s
-  278 MiB in 4.7 s. The heap peaks in the draw, at 1 379.5 MiB under massif: the joined list's
-  4.4 M commands and their paths, and two 84.1 MiB vectors of their bounds at once; the inflated
-  stream is let go segment by segment as it is read, and the frame is under one percent (ADRs 1915
-  §3, 1924). Taken by `wait4` with the huge pages off on twenty-four threads, the peak is
+  278 MiB in 4.7 s. The heap peaks in the draw's planning, at 1 266.5 MiB under massif: the joined
+  list's 4.4 M commands and their paths, and the one 84.1 MiB vector of their bounds the list keeps,
+  which the strip planner borrows rather than copies (ADR 1940); the inflated stream is let go
+  segment by segment as it is read, and the frame is under one percent (ADRs 1915 §3, 1924). Taken by `wait4` with the huge pages off on twenty-four threads, the peak is
   1 574–1 635 MiB, and on four 1 439–1 442 MiB (ADR 1924).
 
 What is left on the witness's first frame is the drawer. The page is interpreted at 0.77–0.95 s,

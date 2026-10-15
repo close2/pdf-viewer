@@ -1126,7 +1126,13 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
 
 #### `fonts/embedded-programs-define-every-glyph-shown`
 #### `fonts/no-notdef-glyph-shown`
-ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all six · `the-fence`
+ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all six · `the-fence`;
+**a Type 3 font's half built** as `Mechanical` (ADR 1942)
+
+- **A Type 3 font is not a program.** ISO 32000-2 §9.6.4 keys its glyph procedures by name, so a
+  code its encoding names `.notdef` draws the producer's own procedure of that name; the procedure
+  is renamed in `/Differences` and `/CharProcs` alike and draws the same marks. The validator
+  reports the case since ADR 1942; everything below is about a font that carries a program.
 
 - **Mitigation** — **none**, re-read against both clauses in session 1181 and holding (ADR 1200
   sections 2 and 3). This is the RFC's font sentence in its proper place: the file carries the
@@ -1287,9 +1293,16 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `the-fence`
   all, and that is **C**.
 
 #### `fonts/truetype-codes-reach-glyphs-by-the-standard-route`
-ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `the-fence`
+ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · **built** as `Stated` for a non-symbolic
+font (ADR 1942)
 
-- **Mitigation** — **none**, for the reasons above.
+- **What was built.** Where the file's own `/ToUnicode` states the code's one character and the
+  program's (3, 1) subtable maps it to the glyph this reader drew (ADR 1943), the encoding's
+  `/Differences` names that character's Adobe Glyph List name, so the base standard's route
+  reaches the same glyph; the font is reloaded and every shown code proved. The program is not
+  touched, which is why the fence above does not stand in the way. A symbolic font, a code the
+  `/ToUnicode` does not state, or a failed proof keeps the refusal.
+- **Mitigation** — beyond that, **none**, for the reasons above.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **C**, and it is the requirement that states the promise directly: a file whose

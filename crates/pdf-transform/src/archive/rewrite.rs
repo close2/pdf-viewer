@@ -31,7 +31,8 @@ use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
-    RELATIVE_COLORIMETRIC, RENDERING_INTENTS, SharedProfile, StandardEncodings,
+    RELATIVE_COLORIMETRIC, RENDERING_INTENTS, SharedProfile, StandardEncodings, StandardRouteNames,
+    Type3Renames,
 };
 use super::to_unicode::DerivedMaps;
 
@@ -624,6 +625,23 @@ pub enum Rewrite {
     /// base encoding and the differences two entries of one dictionary, and this requirement is
     /// about the first; the rows about the second are their own.
     StandardTrueTypeEncoding,
+    /// Every code a non-symbolic TrueType font shows that reached its glyph by a mapping of the
+    /// reader's choosing is named in the encoding's `/Differences` array, by the Adobe Glyph List
+    /// name of the character its `/ToUnicode` states.
+    ///
+    /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 require §9.6.5.4's own route.
+    /// The entry is the font dictionary's, so ADR 0816's fence over the program does not stand in
+    /// the way, and [`super::sites::standard_route_names`] proves the names first: every code
+    /// shown has to reach the glyph it reached before, by the route (ADR 1942).
+    StandardRouteNames,
+    /// A Type 3 font's glyph named `.notdef` is given another name, in its encoding's
+    /// `/Differences` and its `/CharProcs` alike.
+    ///
+    /// ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing
+    /// operator to reference `.notdef`. A Type 3 font's glyphs are the producer's own procedures
+    /// keyed by name (ISO 32000-2 §9.6.4), so the same procedure under another name draws the same
+    /// marks; [`super::sites::type3_notdef_renames`] is the argument (ADR 1942).
+    Type3NotdefRenamed,
     /// Every entry of the catalog's `OutputIntents` array names one destination profile object.
     ///
     /// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 require every entry that states a
@@ -1135,6 +1153,17 @@ impl Rewrite {
                  whichever leaves every one of the 256 codes it could show on the glyph it \
                  already reached"
             }
+            Self::StandardRouteNames => {
+                "a TrueType font's encoding names, in its Differences array, the glyph each code \
+                 it shows was drawn with where only a mapping of the reader's choosing reached \
+                 it, by the Adobe Glyph List name of the character its ToUnicode states, so the \
+                 route ISO 32000-2 \u{a7}9.6.5.4 sets out reaches the same glyph"
+            }
+            Self::Type3NotdefRenamed => {
+                "a Type 3 font's glyph procedure named .notdef is given another name in its \
+                 encoding and its CharProcs alike, so the codes that drew it draw the same \
+                 procedure and no text-showing operator references .notdef"
+            }
             Self::SharedDestinationProfile => {
                 "an output intent naming a second copy of the destination profile another entry \
                  of the same OutputIntents array names is pointed at that one object, which is \
@@ -1304,6 +1333,8 @@ impl Rewrite {
             Self::EmbeddedFileRemoved => "embedded-file-removed",
             Self::SymbolicTrueTypeEncodingRemoved => "symbolic-truetype-encoding-removed",
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
+            Self::StandardRouteNames => "standard-route-names",
+            Self::Type3NotdefRenamed => "type3-notdef-renamed",
             Self::SharedDestinationProfile => "shared-destination-profile",
             Self::SpotColorantEntry => "spot-colorant-entry",
             Self::Jpeg2000ColourSpecifications => "jpeg2000-colour-specifications",
@@ -1399,6 +1430,8 @@ pub(super) fn convert(
         packet_headers: prepared.owed.packet_headers.as_ref().ok(),
         symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
         standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
+        standard_route: prepared.owed.standard_route.as_ref().ok(),
+        type3_notdef: prepared.owed.type3_notdef.as_ref().ok(),
         shared_profile: prepared.owed.shared_profile.as_ref().ok(),
         colorants: prepared.owed.colorants.as_ref().ok(),
         specifications: prepared.owed.specifications.as_ref().ok(),
@@ -2249,6 +2282,10 @@ struct Rewriter<'a> {
     symbolic_encodings: Option<&'a sites::Sites>,
     /// The `/Encoding` each non-symbolic TrueType font is to state.
     standard_encodings: Option<&'a StandardEncodings>,
+    /// The `/Encoding` each TrueType font whose codes are named for §9.6.5.4's route is to state.
+    standard_route: Option<&'a StandardRouteNames>,
+    /// The `/Encoding` and `/CharProcs` each Type 3 font with a renamed `.notdef` is to state.
+    type3_notdef: Option<&'a Type3Renames>,
     /// The one destination profile every output intent is to name, where they are being shared.
     shared_profile: Option<&'a SharedProfile>,
     /// The `/Colorants` entries each `DeviceN` colour space is to gain, where any are written.
@@ -2632,6 +2669,22 @@ impl Rewriter<'_> {
         {
             out.insert(Name::new(&b"Encoding"[..]), value.clone());
             count(applied, Rewrite::StandardTrueTypeEncoding);
+            changed = true;
+        }
+        if self.wants(Rewrite::StandardRouteNames)
+            && let Some(value) = self.standard_route.and_then(|names| names.at.get(&id))
+        {
+            out.insert(Name::new(&b"Encoding"[..]), value.clone());
+            count(applied, Rewrite::StandardRouteNames);
+            changed = true;
+        }
+        if self.wants(Rewrite::Type3NotdefRenamed)
+            && let Some((encoding, procedures)) =
+                self.type3_notdef.and_then(|renames| renames.at.get(&id))
+        {
+            out.insert(Name::new(&b"Encoding"[..]), encoding.clone());
+            out.insert(Name::new(&b"CharProcs"[..]), procedures.clone());
+            count(applied, Rewrite::Type3NotdefRenamed);
             changed = true;
         }
         changed

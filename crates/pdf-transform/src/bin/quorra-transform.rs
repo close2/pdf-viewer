@@ -222,6 +222,7 @@ const VALUED: &[&str] = &[
     "--authorise",
     "--output-intent-profile",
     "--config",
+    "--profile",
     "--font",
     "--image-samples",
 ];
@@ -277,6 +278,7 @@ const KNOWN: &[&str] = &[
     "--authorise",
     "--output-intent-profile",
     "--config",
+    "--profile",
     "--remedy-sites",
     "--claim-conformance",
     "--depart-from-the-standard",
@@ -946,7 +948,7 @@ fn read_config(
     authorised: &mut Authorisations,
 ) -> Result<FromConfig, Failure> {
     let claim = arguments.switch("--claim-conformance");
-    let Some(path) = arguments.value(&["--config"]) else {
+    let Some((label, text)) = configuration_text(arguments)? else {
         return Ok(FromConfig {
             departures: Vec::new(),
             forms: pdf_transform::archive::FormAnswers::default(),
@@ -957,18 +959,22 @@ fn read_config(
             resolutions: Vec::new(),
         });
     };
-    let path = PathBuf::from(path);
-    let text =
-        std::fs::read_to_string(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
     let config = Configuration::read(&text, target)
-        .map_err(|error| Failure::Usage(format!("--config {}: {error}", path.display())))?;
+        .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
+    // The report's per-site lines say "this configuration answered it"; this is the line that
+    // says which configuration that was, once, where a person reading the run meets it.
+    if let Some(name) = &config.name {
+        eprintln!(
+            "note: the sites below marked as answered by this configuration were answered by \
+             the profile {name:?} ({label})"
+        );
+    }
     let departures = config.built_departures(target);
     if !departures.is_empty() && !arguments.switch("--depart-from-the-standard") {
         return Err(Failure::Usage(format!(
-            "--config {} names a departure from ISO 19005, which produces a file that does not \
+            "{label} names a departure from ISO 19005, which produces a file that does not \
              conform on purpose. Add --depart-from-the-standard to say so at the call site — \
-             doc/rfc/0007 section 4.7.3",
-            path.display()
+             doc/rfc/0007 section 4.7.3"
         )));
     }
     let folded = config.authorisations(target);
@@ -995,8 +1001,7 @@ fn read_config(
     // to start somebody else's program over an untrusted document says so before it does.
     for tool in config.tools() {
         eprintln!(
-            "note: {} declares the tool {:?} as {} — {}",
-            path.display(),
+            "note: {label} declares the tool {:?} as {} — {}",
             tool.name,
             tool.program.display(),
             pdf_transform::archive::UNTRUSTED_INPUT_WARNING
@@ -1130,8 +1135,8 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
     // beside a program's output goes stale the moment the program's words change, and this one is
     // computed from the same walk it summarises.
     println!("\n{not_built} of {} sites not built yet.", sites.len());
-    if let Some(path) = arguments.value(&["--config"]) {
-        print_unbuilt_answers(Path::new(path), target, sites.len())?;
+    if let Some((label, text)) = configuration_text(arguments)? {
+        print_unbuilt_answers(&label, &text, target, sites.len())?;
     }
     Ok(())
 }
@@ -1203,20 +1208,14 @@ fn first_answer(site: &pdf_transform::archive::Site) -> String {
 /// the same notes for every document it is handed. Counting them over a corpus would count the
 /// corpus. `doc/todo/66`.
 fn print_unbuilt_answers(
-    path: &Path,
+    label: &str,
+    text: &str,
     target: pdf_archive::Target,
     bound: usize,
 ) -> Result<(), Failure> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| Failure::Unreadable(path.to_path_buf(), error))?;
-    let config = Configuration::read(&text, target)
-        .map_err(|error| Failure::Usage(format!("--config {}: {error}", path.display())))?;
-    let named = config.name.clone().unwrap_or_else(|| {
-        path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        )
-    });
+    let config = Configuration::read(text, target)
+        .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
+    let named = config.name.clone().unwrap_or_else(|| label.to_owned());
     let unbuilt = config.unbuilt(target);
     println!();
     for answer in &unbuilt {
@@ -1231,6 +1230,74 @@ fn print_unbuilt_answers(
         unbuilt.len()
     );
     Ok(())
+}
+
+/// The remedy configurations this program ships, by the name each states for itself.
+///
+/// `doc/rfc/0007` section 5a's profiles: each is a list of refusal sites with an answer beside
+/// each, a lower bound on what a conversion may lose and never an instruction to lose it (ADR
+/// 1942). Compiled in so that `--profile <name>` works wherever the program is installed;
+/// `tests/profiles.rs` holds every one of them to every target.
+const SHIPPED_PROFILES: [(&str, &str); 6] = [
+    (
+        "refuse-any-loss",
+        include_str!("../../../../doc/profiles/refuse-any-loss.toml"),
+    ),
+    (
+        "as-if-printed",
+        include_str!("../../../../doc/profiles/as-if-printed.toml"),
+    ),
+    (
+        "as-shown",
+        include_str!("../../../../doc/profiles/as-shown.toml"),
+    ),
+    (
+        "only-metadata-loss",
+        include_str!("../../../../doc/profiles/only-metadata-loss.toml"),
+    ),
+    (
+        "keep-everything",
+        include_str!("../../../../doc/profiles/keep-everything.toml"),
+    ),
+    (
+        "derive-attachments",
+        include_str!("../../../../doc/profiles/derive-attachments.toml"),
+    ),
+];
+
+/// `--config <file>` or `--profile <name>`: where the configuration came from, and its text.
+///
+/// The two are one choice, so naming both is a usage error rather than a precedence a reader has
+/// to remember; naming neither is a run with no configuration at all.
+fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>, Failure> {
+    match (
+        arguments.value(&["--config"]),
+        arguments.value(&["--profile"]),
+    ) {
+        (Some(_), Some(_)) => Err(Failure::Usage(
+            "--config and --profile each name the one configuration a run answers its refusals \
+             from; give one of them"
+                .to_owned(),
+        )),
+        (Some(path), None) => {
+            let path = PathBuf::from(path);
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| Failure::Unreadable(path.clone(), error))?;
+            Ok(Some((format!("--config {}", path.display()), text)))
+        }
+        (None, Some(name)) => SHIPPED_PROFILES
+            .iter()
+            .find(|(shipped, _)| *shipped == name)
+            .map(|(shipped, text)| Some((format!("--profile {shipped}"), (*text).to_owned())))
+            .ok_or_else(|| {
+                let names: Vec<&str> = SHIPPED_PROFILES.iter().map(|(name, _)| *name).collect();
+                Failure::Usage(format!(
+                    "--profile {name:?}: the profiles this program ships are {}",
+                    names.join(", ")
+                ))
+            }),
+        (None, None) => Ok(None),
+    }
 }
 
 /// `--output-intent-profile <file>`: the destination profile an added output intent names.
@@ -2151,6 +2218,12 @@ archive:
                            gives which this version does not carry out, with a second total. That
                            second question needs no document: what a profile asks for and what
                            has code behind it are both properties of the profile and the target
+  --profile <name>         one of the remedy configurations this program ships, by name, in place
+                           of --config: as-if-printed (lose only what a printed copy would have
+                           lost), as-shown (lose only what this viewer's window would not have
+                           shown of a page), refuse-any-loss, only-metadata-loss, keep-everything
+                           and derive-attachments. Each is a lower bound on what may be lost,
+                           never an instruction to lose it (doc/profiles/)
   --config <file>          a remedy configuration: a refusal answered in advance, per site, so a
                            queue does not stop for a person (doc/rfc/0007). A site absent from
                            the file behaves exactly as without it, so installing one changes no

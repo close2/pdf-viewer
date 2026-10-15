@@ -13,6 +13,13 @@
 //! is that one and not a copy. The device screen reaches that same thread through
 //! [`Screen::fall_back`], for the frames the device refuses.
 //!
+//! **A page past `viewer_core::MAX_PIXELS` is drawn on the processor as the window shows it**
+//! ([`Content::Windowed`], ADR 1944): the worker sends such a page's marks because this window
+//! said it draws them (`Command::Oversize`), the device draws them at the window's size as it
+//! draws every page, and the processor — `--cpu`, or a frame the device refused — draws the part
+//! of the page the window shows with `viewer_host::oversize`'s margin round it, so no raster of the
+//! whole page is allocated on this side of the pipe either.
+//!
 //! What this module owns is the gap between arrival and pixels: which page is ready, which is
 //! still being drawn, which refused — and the one identity check that keeps a slow draw from
 //! landing on a view that has moved on (trap 12a's neighbour: pixels drawn *for* one target may
@@ -27,6 +34,7 @@ use pdf_render::{
 use viewer_confined::{Framed, Payload};
 use viewer_core::Rendered;
 use viewer_host::drawing::{DrawRequest, Drawing, Finished};
+use viewer_host::oversize::{self, Window};
 
 /// One page's marks on their way to the drawing thread.
 ///
@@ -101,6 +109,9 @@ enum Content {
         /// What the pixels were drawn from, `None` where they crossed as pixels.
         drawn: Option<(Arc<DisplayList>, TargetSpec)>,
     },
+    /// A page past `viewer_core::MAX_PIXELS` that the processor draws, as the window shows it
+    /// (ADR 1944).
+    Windowed(Windowed),
     /// The rasteriser refused the page, in its own words, and what it refused.
     ///
     /// Kept rather than retried **for that drawing and no other**: a rasteriser that refused this
@@ -120,6 +131,53 @@ enum Content {
         /// The list and target that were refused, by the identity [`Self::Drawing`] keeps.
         of: (Arc<DisplayList>, TargetSpec),
     },
+}
+
+/// A page past the bound drawn on the processor as the window shows it, and what is drawn of it.
+#[derive(Debug)]
+struct Windowed {
+    /// The marks and the whole target the window is a part of — the identity every other variant
+    /// keeps.
+    of: (Arc<DisplayList>, TargetSpec),
+    /// The window on the drawing thread, until it lands.
+    asked: Option<Window>,
+    /// The last window that landed, and its pixels.
+    drawn: Option<(Window, WindowPixels)>,
+}
+
+impl Windowed {
+    /// Whether this is a window of that list at that target.
+    fn is_of(&self, list: &Arc<DisplayList>, target: TargetSpec) -> bool {
+        Arc::ptr_eq(&self.of.0, list) && self.of.1 == target
+    }
+}
+
+/// A window's pixels: placed as they are on a processor screen, wrapped as the one-image list the
+/// device places on a device screen whose frame the device refused.
+#[derive(Debug)]
+enum WindowPixels {
+    /// The raster [`Screen::compose`] blits.
+    Raster(Raster),
+    /// [`wrap`] of the raster, for [`Screen::device_pages`].
+    Wrapped(Arc<DisplayList>),
+}
+
+/// Whether a target's whole raster would be past `viewer_core::MAX_PIXELS` — a page the worker
+/// sends as its marks because this window draws it at the window's size (ADR 1944).
+fn past_the_bound(target: TargetSpec) -> bool {
+    u64::from(target.width).saturating_mul(u64::from(target.height)) > viewer_core::MAX_PIXELS
+}
+
+/// Where a window of a page whose top-left corner is at `origin` is placed: the page's corner,
+/// rounded as [`blit`] rounds it, moved by the window's own corner.
+fn window_origin(origin: (f32, f32), window: Window) -> (f32, f32) {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a window's corner is inside a target under pdf_render::MAX_EXTENT (2^24), which \
+                  f32 holds exactly"
+    )]
+    let corner = (window.x as f32, window.y as f32);
+    (origin.0.round() + corner.0, origin.1.round() + corner.1)
 }
 
 /// One page of the arrangement, where it sits, and what it has come to.
@@ -229,43 +287,21 @@ impl Screen {
                     }
                 }
                 Payload::Raster(raster) => Content::Pixels(raster, None),
-                Payload::List { list, target } if self.device => {
-                    match before.map(|slot| slot.content) {
-                        // The same marks at the same target: the device holds a retained scene
-                        // keyed by this `Arc`, and a scroll must reach it as the same page.
-                        Some(Content::Marks(held_list, held_target))
-                            if Arc::ptr_eq(&held_list, &list) && held_target == target =>
-                        {
-                            Content::Marks(held_list, held_target)
-                        }
-                        // The same drawing, still on the fallback thread after a device refusal:
-                        // asking again would interrupt the very draw whose answer is wanted.
-                        Some(Content::Drawing(asked_list, asked_target))
-                            if Arc::ptr_eq(&asked_list, &list) && asked_target == target =>
-                        {
-                            Content::Drawing(asked_list, asked_target)
-                        }
-                        // The same drawing, fallen back and finished: a scroll keeps the pixels
-                        // the thread drew — going back to the device would re-refuse.
-                        Some(Content::Wrapped {
-                            list: wrapper,
-                            drawn: Some((drawn_list, drawn_target)),
-                        }) if Arc::ptr_eq(&drawn_list, &list) && drawn_target == target => {
-                            Content::Wrapped {
-                                list: wrapper,
-                                drawn: Some((drawn_list, drawn_target)),
-                            }
-                        }
-                        // The same drawing, already refused by both: retrying a refusal is a loop.
-                        // A *different* drawing is not that loop and falls through to the device,
-                        // which is what lets a zoom out lift a refusal the zoom in earned.
-                        Some(Content::Refused { words, of })
-                            if Arc::ptr_eq(&of.0, &list) && of.1 == target =>
-                        {
-                            Content::Refused { words, of }
-                        }
-                        _ => Content::Marks(list, target),
-                    }
+                Payload::List { list, target } if self.device => on_the_device(
+                    before.map(|slot| slot.content),
+                    (page, origin, self.extent),
+                    list,
+                    target,
+                    drawing,
+                ),
+                Payload::List { list, target } if past_the_bound(target) && !self.device => {
+                    windowed(
+                        before.map(|slot| slot.content),
+                        (page, origin, self.extent),
+                        list,
+                        target,
+                        drawing,
+                    )
                 }
                 Payload::List { list, target } => {
                     match before.map(|slot| slot.content) {
@@ -360,6 +396,48 @@ impl Screen {
         }
     }
 
+    /// A finished window ([`Content::Windowed`]), placed if this screen still asks for a window of
+    /// that drawing. Answers whether a pixel of the composition changed, as [`Self::landed`] does.
+    pub(crate) fn landed_window(&mut self, finished: Finished<Draw>, window: Window) -> bool {
+        let Finished {
+            request, outcome, ..
+        } = finished;
+        let device = self.device;
+        let Some(slot) = self.slots.iter_mut().find(|slot| slot.page == request.page) else {
+            return false;
+        };
+        let Content::Windowed(held) = &mut slot.content else {
+            return false;
+        };
+        if !held.is_of(&request.list, request.target) {
+            return false;
+        }
+        if held.asked == Some(window) {
+            held.asked = None;
+        }
+        match outcome {
+            Some(Rendered::Raster(raster)) => {
+                let pixels = if device {
+                    WindowPixels::Wrapped(wrap(raster))
+                } else {
+                    WindowPixels::Raster(raster)
+                };
+                held.drawn = Some((window, pixels));
+                true
+            }
+            Some(Rendered::Failed(words)) => {
+                slot.content = Content::Refused {
+                    words,
+                    of: (request.list, request.target),
+                };
+                true
+            }
+            // A window taken back is owed to nobody, as a page's draw is (trap 20); the next frame
+            // asks for the part the window shows again.
+            Some(Rendered::Presented | Rendered::Listed) | None => false,
+        }
+    }
+
     /// Whether every page of the frame has been answered — with pixels or with a refusal.
     ///
     /// What the caller gates presentation on once something is on the screen: a half-drawn
@@ -367,18 +445,14 @@ impl Screen {
     /// every zoom. `doc/todo/37`'s rule — show what it had — with nothing reprojected yet.
     #[must_use]
     pub(crate) fn settled(&self) -> bool {
-        self.slots
-            .iter()
-            .all(|slot| !matches!(slot.content, Content::Drawing(..)))
+        self.slots.iter().all(|slot| !waiting(&slot.content))
     }
 
     /// Whether any page of the arrangement has an answer to show — pixels, marks, or a refusal's
     /// sentence — rather than the surround alone.
     #[must_use]
     pub(crate) fn shows_a_page(&self) -> bool {
-        self.slots
-            .iter()
-            .any(|slot| !matches!(slot.content, Content::Drawing(..)))
+        self.slots.iter().any(|slot| !waiting(&slot.content))
     }
 
     /// The sentences of every page the rasteriser refused, for a status line.
@@ -412,8 +486,13 @@ impl Screen {
             data: surround_pixel().repeat((width as usize).saturating_mul(height as usize)),
         };
         for slot in &self.slots {
-            if let Content::Pixels(raster, _) = &slot.content {
-                blit(&mut window, raster, slot.origin);
+            match &slot.content {
+                Content::Pixels(raster, _) => blit(&mut window, raster, slot.origin),
+                Content::Windowed(Windowed {
+                    drawn: Some((drawn, WindowPixels::Raster(raster))),
+                    ..
+                }) => blit(&mut window, raster, window_origin(slot.origin, *drawn)),
+                _ => {}
             }
         }
         Some(window)
@@ -443,7 +522,22 @@ impl Screen {
                     Arc::clone(list),
                     placed(image_target(list), slot.origin, width, height),
                 )),
-                Content::Drawing(..) | Content::Pixels(..) | Content::Refused { .. } => None,
+                Content::Windowed(Windowed {
+                    drawn: Some((drawn, WindowPixels::Wrapped(list))),
+                    ..
+                }) => Some((
+                    Arc::clone(list),
+                    placed(
+                        image_target(list),
+                        window_origin(slot.origin, *drawn),
+                        width,
+                        height,
+                    ),
+                )),
+                Content::Drawing(..)
+                | Content::Pixels(..)
+                | Content::Windowed(..)
+                | Content::Refused { .. } => None,
             })
             .collect()
     }
@@ -458,8 +552,20 @@ impl Screen {
     /// many pages were handed over, so the caller can say so.
     pub(crate) fn fall_back(&mut self, drawing: &mut Drawing<Draw>) -> usize {
         let mut asked = 0usize;
+        let extent = self.extent;
         for slot in &mut self.slots {
-            if let Content::Marks(list, target) = &slot.content {
+            if let Content::Marks(list, target) = &slot.content
+                && past_the_bound(*target)
+            {
+                slot.content = windowed(
+                    None,
+                    (slot.page, slot.origin, extent),
+                    Arc::clone(list),
+                    *target,
+                    drawing,
+                );
+                asked = asked.saturating_add(1);
+            } else if let Content::Marks(list, target) = &slot.content {
                 drawing.ask(Draw {
                     page: slot.page,
                     list: Arc::clone(list),
@@ -471,6 +577,110 @@ impl Screen {
         }
         asked
     }
+}
+
+/// A list payload on a device screen: what was held of the same drawing kept — the device's
+/// page, a fallback on the thread or landed, the windows of a page past the bound, a refusal —
+/// and any other drawing offered to the device first.
+fn on_the_device(
+    before: Option<Content>,
+    (page, origin, viewport): (usize, (f32, f32), (u32, u32)),
+    list: Arc<DisplayList>,
+    target: TargetSpec,
+    drawing: &mut Drawing<Draw>,
+) -> Content {
+    match before {
+        // The same marks at the same target: the device holds a retained scene
+        // keyed by this `Arc`, and a scroll must reach it as the same page.
+        Some(Content::Marks(held_list, held_target))
+            if Arc::ptr_eq(&held_list, &list) && held_target == target =>
+        {
+            Content::Marks(held_list, held_target)
+        }
+        // The same drawing, still on the fallback thread after a device refusal:
+        // asking again would interrupt the very draw whose answer is wanted.
+        Some(Content::Drawing(asked_list, asked_target))
+            if Arc::ptr_eq(&asked_list, &list) && asked_target == target =>
+        {
+            Content::Drawing(asked_list, asked_target)
+        }
+        // The same drawing, fallen back and finished: a scroll keeps the pixels
+        // the thread drew — going back to the device would re-refuse.
+        Some(Content::Wrapped {
+            list: wrapper,
+            drawn: Some((drawn_list, drawn_target)),
+        }) if Arc::ptr_eq(&drawn_list, &list) && drawn_target == target => Content::Wrapped {
+            list: wrapper,
+            drawn: Some((drawn_list, drawn_target)),
+        },
+        // The same page past the bound, fallen back to the processor's windows:
+        // a scroll asks for the part the window now shows, where it was not drawn.
+        Some(Content::Windowed(held)) if held.is_of(&list, target) => windowed(
+            Some(Content::Windowed(held)),
+            (page, origin, viewport),
+            list,
+            target,
+            drawing,
+        ),
+        // The same drawing, already refused by both: retrying a refusal is a loop.
+        // A *different* drawing is not that loop and falls through to the device,
+        // which is what lets a zoom out lift a refusal the zoom in earned.
+        Some(Content::Refused { words, of }) if Arc::ptr_eq(&of.0, &list) && of.1 == target => {
+            Content::Refused { words, of }
+        }
+        _ => Content::Marks(list, target),
+    }
+}
+
+/// Whether a page's content is still owed by the drawing thread: a draw in flight, or a window
+/// asked for with none of the page drawn yet.
+fn waiting(content: &Content) -> bool {
+    match content {
+        Content::Drawing(..) => true,
+        Content::Windowed(held) => held.asked.is_some() && held.drawn.is_none(),
+        _ => false,
+    }
+}
+
+/// A page past the bound on the processor (ADR 1944): what was held of that drawing kept — a
+/// refusal of it, or the windows of it — and the part the window now shows, with
+/// `viewer_host::oversize`'s margin, asked of the drawing thread where neither the window drawn
+/// nor the one asked for holds it.
+fn windowed(
+    before: Option<Content>,
+    (page, origin, viewport): (usize, (f32, f32), (u32, u32)),
+    list: Arc<DisplayList>,
+    target: TargetSpec,
+    drawing: &mut Drawing<Draw>,
+) -> Content {
+    let mut held = match before {
+        Some(Content::Refused { words, of }) if Arc::ptr_eq(&of.0, &list) && of.1 == target => {
+            return Content::Refused { words, of };
+        }
+        Some(Content::Windowed(held)) if held.is_of(&list, target) => held,
+        _ => Windowed {
+            of: (list, target),
+            asked: None,
+            drawn: None,
+        },
+    };
+    let Some(shown) = oversize::shown_at(target, origin, viewport) else {
+        return Content::Windowed(held);
+    };
+    let covered = |window: Option<Window>| window.is_some_and(|window| window.holds(shown));
+    if !covered(held.asked) && !covered(held.drawn.as_ref().map(|(window, _)| *window)) {
+        let window = oversize::with_margin(shown, target, viewport);
+        drawing.ask_window(
+            Draw {
+                page,
+                list: Arc::clone(&held.of.0),
+                target,
+            },
+            window,
+        );
+        held.asked = Some(window);
+    }
+    Content::Windowed(held)
 }
 
 /// The page's pixels as the one-command list the device draws them by.
@@ -701,12 +911,147 @@ mod tests {
             for finished in drawing.collect() {
                 screen.landed(finished);
             }
+            for (finished, window) in drawing.windows() {
+                screen.landed_window(finished, window);
+            }
             assert!(
                 began.elapsed() < std::time::Duration::from_mins(2),
                 "the drawing thread never answered"
             );
             std::thread::sleep(viewer_host::drawing::POLL);
         }
+    }
+
+    /// A page-covering fill at a magnification whose whole raster is past `MAX_PIXELS`: 8 × 4 096
+    /// pixels on a side, 2³⁰ in all.
+    fn past_the_bound() -> (Arc<DisplayList>, TargetSpec) {
+        let list = a_list(8.0, 8.0);
+        let target = TargetSpec::for_page(&list, 4096.0, u64::MAX).expect("a target");
+        assert!(
+            u64::from(target.width) * u64::from(target.height) > viewer_core::MAX_PIXELS,
+            "the test is about a page past the bound"
+        );
+        (list, target)
+    }
+
+    /// A page past the bound on the processor is drawn as the window shows it: the window and its
+    /// margin, placed at its part of the page, and nothing the size of the page (ADR 1944).
+    #[test]
+    fn a_page_past_the_bound_is_drawn_as_the_window_shows_it() {
+        let mut screen = Screen::new();
+        let mut drawing = Drawing::new();
+        screen.resize(40, 40);
+        let (list, target) = past_the_bound();
+        let framed = |origin| {
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin,
+            }]
+        };
+        // The page's corner 1 000 pixels up and to the left of the window's.
+        screen.take(framed((-1000.0, -1000.0)), &mut drawing);
+        assert!(!screen.settled(), "the window is on the drawing thread");
+        drain(&mut screen, &mut drawing);
+        let Some(Content::Windowed(held)) = screen.slots.first().map(|slot| &slot.content) else {
+            panic!("the page is held as a window");
+        };
+        let Some((window, super::WindowPixels::Raster(raster))) = held.drawn.as_ref() else {
+            panic!("its window landed as pixels");
+        };
+        // The viewport, and a quarter of it on every side.
+        assert_eq!(
+            (window.x, window.y, window.width, window.height),
+            (990, 990, 60, 60)
+        );
+        assert_eq!((raster.width, raster.height), (60, 60), "a window's pixels");
+        let composed = screen.compose().expect("a window with an extent composes");
+        assert_eq!(pixel(&composed, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&composed, 39, 39), [255, 0, 0, 255]);
+
+        // A scroll inside the margin repaints from the window and asks for nothing.
+        screen.take(framed((-1005.0, -1005.0)), &mut drawing);
+        assert!(screen.settled(), "inside the margin nothing is drawn");
+        assert!(drawing.interval().is_none(), "and nothing was asked");
+
+        // One past it asks for the part the window shows now.
+        screen.take(framed((-1500.0, -1000.0)), &mut drawing);
+        let Some(Content::Windowed(held)) = screen.slots.first().map(|slot| &slot.content) else {
+            panic!("the page is still held as a window");
+        };
+        assert_eq!(
+            held.asked.map(|window| (window.x, window.y)),
+            Some((1490, 990)),
+            "the window the view moved to"
+        );
+        assert!(
+            screen.settled(),
+            "the last window stands in while the next is drawn"
+        );
+        drain_windows(&mut screen, &mut drawing);
+        let composed = screen.compose().expect("a window with an extent composes");
+        assert_eq!(pixel(&composed, 20, 20), [255, 0, 0, 255]);
+    }
+
+    /// Waits for every window asked for to land.
+    fn drain_windows(screen: &mut Screen, drawing: &mut Drawing<Draw>) {
+        let began = std::time::Instant::now();
+        while drawing.interval().is_some() {
+            drawing.collect();
+            for (finished, window) in drawing.windows() {
+                screen.landed_window(finished, window);
+            }
+            assert!(
+                began.elapsed() < std::time::Duration::from_mins(2),
+                "the drawing thread never answered"
+            );
+            std::thread::sleep(viewer_host::drawing::POLL);
+        }
+        for (finished, window) in drawing.windows() {
+            screen.landed_window(finished, window);
+        }
+    }
+
+    /// A device screen draws a page past the bound on the device, as every marks page, and a
+    /// frame the device refused falls back to the processor's windows and comes back to the
+    /// device as a window's pixels at its part of the page (ADR 1944).
+    #[test]
+    fn a_refused_page_past_the_bound_falls_back_to_a_window() {
+        let mut screen = Screen::for_device();
+        let mut drawing = Drawing::new();
+        screen.resize(40, 40);
+        let (list, target) = past_the_bound();
+        screen.take(
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin: (-1000.0, -1000.0),
+            }],
+            &mut drawing,
+        );
+        assert_eq!(screen.device_pages(40, 40).len(), 1, "the device draws it");
+        assert_eq!(screen.fall_back(&mut drawing), 1, "the device refused it");
+        drain(&mut screen, &mut drawing);
+        let pages = screen.device_pages(40, 40);
+        let [(wrapper, placed)] = pages.as_slice() else {
+            panic!("the window's pixels are the device's page");
+        };
+        assert_eq!(
+            wrapper.page_size,
+            Size::new(60.0, 60.0),
+            "a window's pixels"
+        );
+        assert_eq!(
+            placed.transform.apply(Point::new(0.0, 60.0)),
+            Point::new(-10.0, -10.0),
+            "placed at the window's corner, a quarter of the viewport up and to the left"
+        );
     }
 
     /// A raster payload is ready the moment it arrives, exactly where its origin says.

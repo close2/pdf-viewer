@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 
+use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+
 use crate::geom::{Path, Point, Rect, Size, Transform};
 use crate::paint::{BlendMode, FillRule, ImageSource, Paint, Stroke};
 use crate::soft_mask::{SoftMask, SoftMaskId};
@@ -867,6 +869,28 @@ impl std::fmt::Debug for DisplayList {
             fields.field("separation", separation);
         }
         fields.finish()
+    }
+}
+
+/// How many commands a list holds before it is let go of on every core rather than on the thread
+/// that drops it.
+const LET_GO_ON_THE_POOL: usize = 1 << 16;
+
+impl Drop for DisplayList {
+    /// A long list's commands let go of on every core, in no order — what dropping one is, a
+    /// reference count given back per path and per paint, each a cache line of its own, has no
+    /// order a reader can see.
+    ///
+    /// A window's list is dropped as its frame is finished, so the drop is on the frame's path: a
+    /// window of 83 % of the owner's witness keeps 4 333 950 of its commands, and letting them go
+    /// took 31 to 34 ms on one thread and takes 18 to 21 on the pool (ADR 1941). A list of fewer
+    /// commands is dropped where it is, because handing it to the pool costs more than it does.
+    fn drop(&mut self) {
+        if self.commands.len() >= LET_GO_ON_THE_POOL {
+            std::mem::take(&mut self.commands)
+                .into_par_iter()
+                .for_each(drop);
+        }
     }
 }
 

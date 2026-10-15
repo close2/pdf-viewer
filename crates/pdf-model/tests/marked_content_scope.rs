@@ -275,13 +275,20 @@ fn a_logical_selection_covers_each_byte_once() {
     for (name, bytes) in [("collide", collide()), ("distinct", distinct())] {
         let (document, interpreted) = read(bytes);
         let tree = Tree::of(&document).expect("the fixture states a structure tree");
-        let whole = tree.logical_range(
-            &document,
-            PAGE,
-            &interpreted.text,
-            &interpreted.marked,
-            0..interpreted.text.len(),
-        );
+        let whole = tree
+            .logical_range(
+                &document,
+                PAGE,
+                &interpreted.marked,
+                &interpreted.artifacts,
+                0..interpreted.text.len(),
+            )
+            .map(|pieces| {
+                pieces
+                    .iter()
+                    .filter_map(|piece| interpreted.text.get(piece.range.clone()))
+                    .collect::<String>()
+            });
         assert_eq!(
             whole.as_deref(),
             Some("PAGE\nFORM"),

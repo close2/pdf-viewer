@@ -14,7 +14,8 @@ hayro-jpeg2000.workspace = true
 thiserror.workspace = true
 
 # The confinement itself. seccomp-BPF and Landlock are Linux interfaces and `libc` is here
-# only for its system-call *numbers*, so all three are Linux-only dependencies rather than
+# for its system-call *numbers* — and for the one call `pdf-sandbox-worker`'s first statement
+# makes, closing the descriptors it inherited (ADR 1945) — so all three are Linux-only rather than
 # dependencies with Linux-only call sites: a `cfg` inside the code would still make every
 # other platform build them, and `seccompiler` is exactly what stopped compiling for Windows.
 # What this crate does where they do not exist is `lockdown.rs`'s subject.

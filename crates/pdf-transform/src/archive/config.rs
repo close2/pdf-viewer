@@ -831,7 +831,10 @@ const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
 /// takes nothing out of the document, and `preserve` is the word for choosing it over the
 /// removal. [`in_place_preservation`] is the sentence `--remedy-sites` prints for each.
 ///
-/// - ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2: the annotation stays and its `/F`
+/// - ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2's first sentence: an annotation
+///   stating no `/F` stays and is given one whose only set bit is `Print` — the word for choosing
+///   the future that takes nothing out, where `discard` reads as removal (`doc/adr/1942`).
+/// - The same subclauses' second sentence: the annotation stays and its `/F`
 ///   is written with the bits both parts require, every other bit its producer's
 ///   (`pdf_archive::flags_permitting`). `doc/pdf-a-conversion-limits.md` section 3.7 names this
 ///   as the second of the two futures and `doc/adr/1285` is the build.
@@ -842,7 +845,8 @@ const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
 ///   states its own colour space keeps its samples in that space under `FlateDecode`, which no
 ///   sentence about JPEG 2000 data binds (`doc/adr/1400`) — and the same subclauses' channel
 ///   count, bit depth and `CIEJab` rows, whose subject is JPEG 2000 data too (`doc/adr/1412`).
-const PRESERVABLE_IN_PLACE: [&str; 6] = [
+const PRESERVABLE_IN_PLACE: [&str; 7] = [
+    "annotations/flags-entry-present",
     "annotations/printable-and-visible",
     "graphics/no-reference-xobjects",
     "graphics/jpeg2000-uses-the-baseline-feature-set",
@@ -861,6 +865,11 @@ const PRESERVABLE_IN_PLACE: [&str; 6] = [
 #[must_use]
 fn in_place_preservation(requirement: &str) -> Option<&'static str> {
     match requirement {
+        "annotations/flags-entry-present" => Some(
+            "preserve — an annotation stating no F entry stays on its page and is given one whose \
+             only set bit is Print; nothing on the screen changes and one with an appearance now \
+             prints (doc/adr/1942)",
+        ),
         "annotations/printable-and-visible" => Some(
             "preserve — the annotation stays on its page and its F entry is written with the Print \
              bit set and Hidden, Invisible, NoView and ToggleNoView clear, every other bit its \

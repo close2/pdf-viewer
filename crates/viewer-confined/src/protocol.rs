@@ -207,8 +207,13 @@ impl Marks {
             self.forget(request.page, request.token);
             return Carries::Pixels;
         };
+        // **What a page may claim in this process is a page's pixels at the bound, whichever form
+        // it crosses in**: a page past `MAX_PIXELS` is asked for only by a window that draws it from
+        // its marks (ADR 1944), and its list crosses where it is no larger than the raster
+        // `message_budget` already sets aside, so the ceiling's arithmetic holds for it unchanged.
         let raster = u64::from(request.target.width)
             .saturating_mul(u64::from(request.target.height))
+            .min(viewer_core::MAX_PIXELS)
             .saturating_mul(4);
         match display_list::crossing(&request.list, raster) {
             display_list::Crossing::List(bytes) => {
@@ -1067,6 +1072,10 @@ mod command_kind {
     // The window's keys, which cross because a script reads them in the worker and the window
     // holds the keyboard (ADR 1771).
     pub(super) const KEYS: u8 = 41;
+    // What the window does with a page whose whole raster would be past `MAX_PIXELS`. It crosses
+    // because the confined worker holds the viewer that asks for such a page, and only the window
+    // knows that it draws one from its marks at the size of its window (ADR 1944).
+    pub(super) const OVERSIZE: u8 = 42;
 }
 
 /// A script's question, on the wire: a kind byte, then its fields in [`viewer_core::ScriptQuestion`]'s
@@ -1658,12 +1667,10 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::Scripts(viewer_core::Scripting::Off) => {
             writer.u8(k::SCRIPTS_OFF);
         }
-        Command::Oversize(_) => {
-            return Err(Uncarried {
-                message: "Command::Oversize",
-                reason: "the confined worker draws every page it answers with pixels under an \
-                         address-space ceiling, so a page past MAX_PIXELS is refused there; the \
-                         host's statement about its own drawing has nothing to say to it (ADR 1892)",
+        Command::Oversize(oversize) => {
+            writer.u8(k::OVERSIZE).u8(match oversize {
+                viewer_core::Oversize::Refused => 0,
+                viewer_core::Oversize::Listed => 1,
             });
         }
         Command::Scripts(viewer_core::Scripting::Ask(_) | viewer_core::Scripting::Run(_)) => {
@@ -2130,6 +2137,16 @@ pub(crate) fn decode_command_holding(
         },
         k::PRESENTED => Command::Presented,
         k::SCRIPTS_OFF => Command::Scripts(viewer_core::Scripting::Off),
+        k::OVERSIZE => Command::Oversize(match reader.u8("what a page past the bound is")? {
+            0 => viewer_core::Oversize::Refused,
+            1 => viewer_core::Oversize::Listed,
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "what a page past the bound is",
+                    value: u32::from(value),
+                });
+            }
+        }),
         k::ANSWER_SCRIPTS => Command::AnswerScripts {
             document: reader.document(what)?,
             proceed: reader.bool("an answer")?,
@@ -4126,9 +4143,21 @@ pub(crate) struct HeldLists {
     /// deliberately not held — a zoom re-encodes the *same* marks under a new target, and the
     /// target's own decode is a few fields where the list's is the page.
     by_page: std::collections::BTreeMap<usize, (Vec<u8>, std::sync::Arc<pdf_render::DisplayList>)>,
+    /// Whether the host this is held for said it draws a page past [`viewer_core::MAX_PIXELS`] from
+    /// its marks, at the size of its window ([`Command::Oversize`]), which is what admits a list
+    /// whose target is past the bound ([`decode_list_payload`], ADR 1944).
+    past_the_bound: bool,
 }
 
 impl HeldLists {
+    /// Takes in what a command the host sends says about the targets it draws: a
+    /// [`Command::Oversize`] decides whether a list's target may be past the bound.
+    pub(crate) fn told(&mut self, command: &Command) {
+        if let Command::Oversize(oversize) = command {
+            self.past_the_bound = matches!(oversize, viewer_core::Oversize::Listed);
+        }
+    }
+
     /// The held list for `page`, if `bytes` are exactly what it decoded from.
     fn same(&self, page: usize, bytes: &[u8]) -> Option<std::sync::Arc<pdf_render::DisplayList>> {
         self.by_page
@@ -4160,7 +4189,10 @@ impl HeldLists {
 ///
 /// [`viewer_core::MAX_PIXELS`] is the bound a tier-1 host's render request is held to, and the
 /// confined worker is one — so an honest worker cannot have produced a larger target, and this
-/// refuses exactly what it cannot have sent. [`pdf_render::MAX_EXTENT`] is the separate `f32`
+/// refuses exactly what it cannot have sent. **Unless the host said it draws such a page from its
+/// marks** ([`Command::Oversize`], ADR 1944): then the worker asks for it at its whole target and
+/// the host allocates a window of it, never the target, so the target's pixels are no allocation
+/// of this side's and only its extent is checked. [`pdf_render::MAX_EXTENT`] is the separate `f32`
 /// precision limit `TargetSpec::for_page` applies to each dimension whatever the tier, and a
 /// dimension of zero is a target that cannot exist.
 ///
@@ -4187,7 +4219,9 @@ fn decode_list_payload(
             why: "a dimension past what an f32 resolves to a fraction of a pixel",
         });
     }
-    if u64::from(width).saturating_mul(u64::from(height)) > viewer_core::MAX_PIXELS {
+    if u64::from(width).saturating_mul(u64::from(height)) > viewer_core::MAX_PIXELS
+        && !held.past_the_bound
+    {
         return Err(ProtocolError::Unbuildable {
             what: "a render target",
             why: "more pixels than a render request is held to, so no worker asked for it",
@@ -4935,6 +4969,9 @@ mod tests {
             // RFC 0008 section 6.3's level at the one value that crosses, and the ask's answer
             // (ADR 1616).
             Command::Scripts(viewer_core::Scripting::Off),
+            // What a page past `MAX_PIXELS` is, both ways (ADR 1944).
+            Command::Oversize(viewer_core::Oversize::Refused),
+            Command::Oversize(viewer_core::Oversize::Listed),
             Command::AnswerScripts {
                 document: DocumentId(4),
                 proceed: true,
@@ -7090,6 +7127,15 @@ mod tests {
                 frame.len()
             );
             let refused = decode_answer(&frame).expect_err("a target this size is refused");
+            // A host that draws a page past the bound from its marks admits the last, whose
+            // pixels it never allocates, and still refuses the three no target can be (ADR 1944).
+            let mut listing = HeldLists::default();
+            listing.told(&Command::Oversize(viewer_core::Oversize::Listed));
+            assert_eq!(
+                decode_answer_reusing(&frame, &mut listing).is_ok(),
+                why == "more pixels than a render request",
+                "{width}x{height} ({why}) to a host that draws it from its marks"
+            );
             assert!(
                 matches!(refused, ProtocolError::Unbuildable { what, .. } if what == "a render target"),
                 "{width}x{height} ({why}) was refused as {refused}"

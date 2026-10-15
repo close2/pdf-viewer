@@ -45,8 +45,9 @@ stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
 §12.5.6.16's two, whose clauses only *recommend* one and whose names name objects, and a `Movie`
-annotation's §13.4 `/Poster` image fitted into its rectangle, the playing itself withheld (ADR
-1561) — and a markup
+annotation's §13.4 `/Poster` image fitted into its rectangle, and a 3D or rich media annotation's
+normal appearance as the inactive state §13.6.2 makes the default, the playing and the artwork outside
+the clause 13 entry as `doc/questions/A254` amended it (ADRs 1561, 1946) — and a markup
 annotation drawn from **the group it belongs to** rather than from itself, which is §12.5.6.2's
 nine shared entries. §12.7.4.3's variable text is constructed in any script: a value in a
 right-to-left, cursive one is joined by the Unicode Character Database's own tables, ordered by UAX
@@ -63,7 +64,7 @@ for a page's font and an interface's label alike (ADR 1441). **Three rasterisers
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -195,8 +196,9 @@ stopped leaving the process when there was no terminal (ADR 0545); the page zoom
 what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`; a drag **selects
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
 that text can leave the program** — every one of the four consumers puts it on the platform's own
-clipboard, in §14.8.2.5's logical content order where the document's structure tree reaches every
-byte of the selection and in page content order otherwise, said out loud either way (ADR 0519) —
+clipboard, in §14.8.2.5's logical content order — a line break at each block's end, a tab between
+table cells, declared artifacts left out (ADR 1948) — where every byte of the selection is reached by
+the structure tree or declared an artifact, and in page content order otherwise, said out loud either way (ADR 0519) —
 with **§14.8.2.2.2 taken at its word, that content the structure tree does not include is an
 artifact even where nothing tagged it one**, so what a reader takes as text can have the page
 furniture subtracted from it and the file's own declaration stays distinguishable from this
@@ -698,7 +700,7 @@ its last frame, eight pages kept and `--proxy-pages` the extent as in `quorra` (
 page's own pixels go up at a whole device pixel, a transition's faces being that same picture, so
 the effect ends on the page without a seam (ADR 1865); a page zoomed until the window shows less
 than half of it has those rows drawn first, a look over the stand-in, and the page whole after as
-the frame (ADR 1868); a page zoomed until its largest window is half of it or less, or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
+the frame (ADR 1868); a page zoomed until its largest window is half of it or less, or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its list culled from bounds kept per magnification and copied in place on the pool, a whole page's cull answered by the bounds' edges (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), and its three workers close every descriptor they inherited before reading a byte (ADR 1945); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
 magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
 `WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADR 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The
@@ -886,12 +888,16 @@ annotation flags and states (ADRs 1233, 1234), an extension schema described fro
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded in the space it states
-(ADRs 1400, 1412), and a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286).
+(ADRs 1400, 1412), a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286),
+and a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
+`.notdef` renamed (ADR 1942).
 [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) is the catalogue of each, with its clause. A
 refusal is a question answered in advance: a configuration names each refusal site and its remedy,
 `--remedy-sites` prints every site a target binds with what this version carries out, and the
-profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012).
-**It is `quorra-transform archive` and a library verb; no window reaches it.**
+profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012) — each a lower
+bound on what may be lost, never an instruction to lose it, `as-if-printed` and `as-shown` among them,
+named with `--profile` (ADR 1942). **It is `quorra-transform archive` and a library verb; no window
+reaches it** (`doc/todo/72`).
 
 **And it applies a redaction.** §12.5.6.23's `/Redact` annotation names a region — `/QuadPoints`
 else `/Rect`, and *within* is bounding-box intersection, a documented choice — and `redact` writes a

@@ -845,6 +845,11 @@ fn kept_where_it_is(plan: &ArchivePlan, id: &'static str, prepared: &Prepared) -
             Rewrite::ShippedCMapEmbedded,
             cmaps::EMBEDDED,
         ),
+        in_place::FLAGS_ENTRY_PRESENT => (
+            prepared.obstacle(Rewrite::AnnotationFlags),
+            Rewrite::AnnotationFlags,
+            in_place::GIVEN_PRINT,
+        ),
         in_place::NO_REFERENCE_XOBJECTS => (
             prepared.reference_xobjects.as_ref().err().copied(),
             Rewrite::ReferenceXObjectProxied,

@@ -29,7 +29,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId, tree};
 
 use super::ViewState;
 use super::script_model::{DocumentTrigger, ScriptSite};
-use super::scripts::{MAX_SEQUENCE_TIME, ScriptEvent, script_text};
+use super::scripts::{MAX_SEQUENCE_TIME, ScriptEvent, ScriptText, read_script};
 use crate::action::{PageTrigger, Trigger as AnnotationTrigger};
 
 /// Most document-level scripts the open sequence runs.
@@ -108,6 +108,7 @@ impl ViewState {
     pub fn run_open_scripts(&mut self, document: &Document, page: usize) -> usize {
         self.scripting.opened = true;
         let library = library(document);
+        let opening = open_action(document);
         if self.runner.0.is_none() {
             if !library.is_empty() {
                 self.report(format!(
@@ -125,7 +126,7 @@ impl ViewState {
         let mut changed = false;
         let mut calculate = false;
         let disabled = crate::requirements::disabled_handlers(document);
-        for (index, (label, script)) in library.iter().enumerate() {
+        for (index, (label, script, unread)) in library.iter().enumerate() {
             if started.elapsed() > MAX_SEQUENCE_TIME {
                 self.report(format!(
                     "the open sequence was stopped at document-level script {} of {}: it ran \
@@ -135,6 +136,10 @@ impl ViewState {
                     MAX_SEQUENCE_TIME.as_millis()
                 ));
                 return handed;
+            }
+            self.report_unread(&format!("the document-level script {label:?}"), unread);
+            if script.is_empty() {
+                continue;
             }
             if disabled.contains(label) {
                 self.report(format!(
@@ -160,9 +165,10 @@ impl ViewState {
                 );
             }
         }
-        for script in open_action_scripts(document) {
+        self.report_unread("the document's open action", &opening.unread);
+        for script in &opening.scripts {
             let event = ScriptEvent {
-                script: &script,
+                script,
                 page,
                 ..ScriptEvent::at(ScriptSite::OpenAction, "")
             };
@@ -258,9 +264,19 @@ impl ViewState {
         let Some(dictionary) = document.get(annotation).as_dict().cloned() else {
             return ScriptsRan::default();
         };
-        let scripts = annotation_chain(document, &dictionary, trigger)
-            .map(|entry| scripts_in(document, &entry))
+        let Walked {
+            scripts, unread, ..
+        } = annotation_chain(document, &dictionary, trigger)
+            .map(|entry| chain(document, &entry))
             .unwrap_or_default();
+        self.report_unread(
+            &format!(
+                "the /{} event of the annotation of object {}",
+                trigger.key(),
+                annotation.number
+            ),
+            &unread,
+        );
         if scripts.is_empty() {
             return ScriptsRan::default();
         }
@@ -307,19 +323,22 @@ impl ViewState {
         let Some(dictionary) = document.get(item).as_dict().cloned() else {
             return ScriptsRan::default();
         };
-        let scripts = dictionary
+        let Walked {
+            scripts, unread, ..
+        } = dictionary
             .get("A")
-            .map(|entry| scripts_in(document, entry))
+            .map(|entry| chain(document, entry))
             .unwrap_or_default();
-        if scripts.is_empty() {
-            return ScriptsRan::default();
-        }
         // Table 151's `/Title` is the text a person clicked, so it is what names the script.
         let title = match document.get_key(&dictionary, "Title") {
             Object::String(bytes) => pdf_syntax::text_string(&bytes),
             _ => String::new(),
         };
         let subject = format!("the outline item {title:?}");
+        self.report_unread(&subject, &unread);
+        if scripts.is_empty() {
+            return ScriptsRan::default();
+        }
         if !self.scripting.opened {
             self.before_open(scripts.len(), &subject);
             return ScriptsRan::default();
@@ -397,7 +416,15 @@ impl ViewState {
         let Some(entry) = document_entry(document, trigger) else {
             return 0;
         };
-        let (scripts, others) = chain(document, &entry);
+        let Walked {
+            scripts,
+            others,
+            unread,
+            ..
+        } = chain(document, &entry);
+        if !unread.is_empty() && self.runner.0.is_some() {
+            self.report_unread(&format!("the catalog's /AA /{key} chain"), &unread);
+        }
         if others > 0 {
             self.report(format!(
                 "the catalog's /AA /{key} chain holds {others} action(s) that are not \
@@ -483,6 +510,18 @@ impl ViewState {
         ));
     }
 
+    /// Says each ECMAScript action of a chain whose text is not run, with why, once per document
+    /// (ADR 1950).
+    ///
+    /// A host drops the action path's refusal of a chain's scripts where the level lets them run
+    /// (ADR 1752), so a script this program will not read would otherwise go unsaid, or be said
+    /// with Tier 0's reason (trap 5).
+    fn report_unread(&mut self, subject: &str, unread: &[String]) {
+        for why in unread {
+            self.report(format!("{subject} holds {why}, and it was not run"));
+        }
+    }
+
     /// The page's scripts and its annotations' for one of Table 198's events.
     fn page_scripts(
         &mut self,
@@ -495,7 +534,19 @@ impl ViewState {
             return Ran::default();
         };
         let annotations = page_annotations(document, &found.dict);
-        let page_scripts = page_entry_scripts(document, &found.dict, trigger);
+        let Walked {
+            scripts: page_scripts,
+            unread,
+            ..
+        } = page_entry_scripts(document, &found.dict, trigger);
+        self.report_unread(
+            &format!(
+                "page {}'s {} chain",
+                page.saturating_add(1),
+                page_noun(trigger)
+            ),
+            &unread,
+        );
         let mut total = Ran::default();
         let run_page = |view: &mut Self| {
             let mut ran = Ran::default();
@@ -530,9 +581,19 @@ impl ViewState {
                 continue;
             };
             for each in annotation_triggers(trigger) {
-                let scripts = annotation_chain(document, &dictionary, each)
-                    .map(|entry| scripts_in(document, &entry))
+                let Walked {
+                    scripts, unread, ..
+                } = annotation_chain(document, &dictionary, each)
+                    .map(|entry| chain(document, &entry))
                     .unwrap_or_default();
+                self.report_unread(
+                    &format!(
+                        "the /{} event of the annotation of object {}",
+                        each.key(),
+                        annotation.number
+                    ),
+                    &unread,
+                );
                 if scripts.is_empty() {
                     continue;
                 }
@@ -646,14 +707,14 @@ fn page_turn_scripts(document: &Document, page: usize, trigger: PageTrigger) -> 
     let Some(found) = crate::page::Pages::new(document).get(page) else {
         return 0;
     };
-    let own = page_entry_scripts(document, &found.dict, trigger).len();
+    let own = page_entry_scripts(document, &found.dict, trigger).held();
     page_annotations(document, &found.dict)
         .into_iter()
         .filter_map(|annotation| document.get(annotation).as_dict().cloned())
         .flat_map(|dictionary| {
             annotation_triggers(trigger).map(|each| {
                 annotation_chain(document, &dictionary, each)
-                    .map_or(0, |entry| scripts_in(document, &entry).len())
+                    .map_or(0, |entry| chain(document, &entry).held())
             })
         })
         .fold(own, usize::saturating_add)
@@ -667,16 +728,16 @@ fn page_annotations(document: &Document, page: &Dictionary) -> Vec<ObjectId> {
     }
 }
 
-/// The scripts of a page's own Table 198 entry for one event.
+/// The chain of a page's own Table 198 entry for one event.
 ///
 /// `/AA` is not one of §7.7.3.4's inheritable entries, so it is read from the page's own
 /// dictionary, as `crate::action::for_page` reads it.
-fn page_entry_scripts(document: &Document, page: &Dictionary, trigger: PageTrigger) -> Vec<String> {
+fn page_entry_scripts(document: &Document, page: &Dictionary, trigger: PageTrigger) -> Walked {
     let additional = document.get_key(page, "AA");
     additional
         .as_dict()
         .and_then(|additional| additional.get(page_key(trigger)).cloned())
-        .map(|entry| scripts_in(document, &entry))
+        .map(|entry| chain(document, &entry))
         .unwrap_or_default()
 }
 
@@ -727,11 +788,11 @@ fn annotation_chain(
 }
 
 /// Every entry of Table 32's `/JavaScript` name tree, in the tree's order, with each entry's
-/// scripts joined in its chain's order.
+/// scripts joined in its chain's order and the phrase for each of its scripts that is not run.
 ///
 /// §7.9.6 orders a name tree's keys, so the walk's order is the tree's; an entry whose action is
-/// not ECMAScript, or whose text cannot be read, contributes nothing.
-fn library(document: &Document) -> Vec<(String, String)> {
+/// not ECMAScript contributes nothing, and one whose text is not run contributes its phrase.
+fn library(document: &Document) -> Vec<(String, String, Vec<String>)> {
     let Ok(catalog) = document.catalog() else {
         return Vec::new();
     };
@@ -747,20 +808,26 @@ fn library(document: &Document) -> Vec<(String, String)> {
         .into_iter()
         .take(MAX_LIBRARY)
         .filter_map(|(name, action)| {
-            let scripts = scripts_in(document, &action);
-            (!scripts.is_empty()).then(|| (pdf_syntax::text_string(&name), scripts.join("\n")))
+            let walked = chain(document, &action);
+            (walked.held() > 0).then(|| {
+                (
+                    pdf_syntax::text_string(&name),
+                    walked.scripts.join("\n"),
+                    walked.unread,
+                )
+            })
         })
         .collect()
 }
 
-/// The catalog's `/OpenAction` chain's scripts, where it is an action rather than a destination.
-fn open_action_scripts(document: &Document) -> Vec<String> {
+/// The catalog's `/OpenAction` chain, where it is an action rather than a destination.
+fn open_action(document: &Document) -> Walked {
     let Ok(catalog) = document.catalog() else {
-        return Vec::new();
+        return Walked::default();
     };
     match catalog.get("OpenAction") {
-        Some(entry) if document.resolve(entry).as_dict().is_some() => scripts_in(document, entry),
-        _ => Vec::new(),
+        Some(entry) if document.resolve(entry).as_dict().is_some() => chain(document, entry),
+        _ => Walked::default(),
     }
 }
 
@@ -776,17 +843,13 @@ fn document_entry(document: &Document, trigger: DocumentTrigger) -> Option<Objec
 }
 
 /// The text of every ECMAScript action in one chain, in §12.6.2's execution order — an action,
-/// then its `/Next` subtree, then the next sibling — each action dictionary visited once.
-fn scripts_in(document: &Document, entry: &Object) -> Vec<String> {
-    chain(document, entry).0
-}
-
-/// [`scripts_in`], with how many actions of the chain are of another type, or are ECMAScript whose
-/// text cannot be read.
-fn chain(document: &Document, entry: &Object) -> (Vec<String>, usize) {
+/// then its `/Next` subtree, then the next sibling — each action dictionary visited once; with
+/// how many actions are of another type, and why each ECMAScript action whose text is not run is
+/// not.
+fn chain(document: &Document, entry: &Object) -> Walked {
     let mut walked = Walked::default();
     walk(document, entry, &mut walked);
-    (walked.scripts, walked.others)
+    walked
 }
 
 /// What one chain's walk has found so far.
@@ -794,12 +857,21 @@ fn chain(document: &Document, entry: &Object) -> (Vec<String>, usize) {
 struct Walked {
     /// Each script's text, in order.
     scripts: Vec<String>,
-    /// How many actions were not a script whose text was read.
+    /// How many actions were not ECMAScript.
     others: usize,
+    /// For each ECMAScript action whose text is not run, the phrase saying why (ADR 1950).
+    unread: Vec<String>,
     /// Every action dictionary visited, by object.
     seen: BTreeSet<ObjectId>,
     /// How many entries the walk has visited, held to [`MAX_CHAIN`].
     visited: usize,
+}
+
+impl Walked {
+    /// How many ECMAScript actions the chain holds, run or not.
+    fn held(&self) -> usize {
+        self.scripts.len().saturating_add(self.unread.len())
+    }
 }
 
 /// Appends one action's script and its `/Next` subtree's.
@@ -817,9 +889,10 @@ fn walk(document: &Document, entry: &Object, walked: &mut Walked) {
     let Some(action) = resolved.as_dict() else {
         return;
     };
-    match script_text(document, action) {
-        Some(script) => walked.scripts.push(script),
-        None => walked.others = walked.others.saturating_add(1),
+    match read_script(document, action) {
+        ScriptText::Read(script) => walked.scripts.push(script),
+        ScriptText::NotScript => walked.others = walked.others.saturating_add(1),
+        ScriptText::Unread(why) => walked.unread.push(why),
     }
     let next = action.get("Next").cloned().unwrap_or(Object::Null);
     match document.resolve(&next) {
