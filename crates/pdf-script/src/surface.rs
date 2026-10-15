@@ -3,9 +3,10 @@
 //! what section 4.2 admits that this bridge does not yet carry.
 //!
 //! Data, so that a test can walk it and a later round can move a member from one list to the
-//! bridge by deleting one line here. Each member becomes a property that throws a
-//! `NotAllowedError` naming it (ADR 1591); a member in neither list and not carried is simply not
-//! there, which is how the reference's surface ends.
+//! bridge by deleting one line here. Each member throws a `NotAllowedError` naming it (ADR 1591),
+//! where a script meets it: a method when it is called, so that `typeof` answers what the reference
+//! has the member be, and a property when it is read ([`Member`], ADR 1957). A member in neither
+//! list and not carried is simply not there, which is how the reference's surface ends.
 
 /// The object a member is a property of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,6 +54,20 @@ impl Holder {
     }
 }
 
+/// What a refused member is in Adobe's reference: a method a script calls, or a property it reads.
+///
+/// **Where the refusal is met follows from it** (ADR 1957). A method is a function whose call
+/// throws, so a script that asks `typeof print` before calling it — Emscripten's runtime does —
+/// is told a function, as the reference's surface would tell it, and is refused only when it
+/// calls; a property throws on read, because reading it *is* the use. Both throw on a write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Member {
+    /// A function the holder has: refused when called.
+    Method,
+    /// A value the holder has, an object among them: refused when read.
+    Property,
+}
+
 /// One row of RFC 0008 section 4.3's table: members excluded for one reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Excluded {
@@ -60,6 +75,8 @@ pub struct Excluded {
     pub holder: Holder,
     /// The members.
     pub members: &'static [&'static str],
+    /// What every member of the row is in the reference.
+    pub kind: Member,
     /// The table's reason, as the clause after "because it".
     pub reason: &'static str,
 }
@@ -69,24 +86,28 @@ pub const EXCLUDED: &[Excluded] = &[
     Excluded {
         holder: Holder::Global,
         members: &["Net", "SOAP"],
+        kind: Member::Property,
         reason: "leaves the process: the confined worker has no network, and the host makes no \
                  transmission a person did not see",
     },
     Excluded {
         holder: Holder::App,
         members: &["launchURL"],
+        kind: Member::Method,
         reason: "leaves the machine: it is a link's question, under the host's level for links, \
                  and a script may raise it only once the host carries a script's request",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["submitForm"],
+        kind: Member::Method,
         reason: "is a submission, under the host's level for submissions, and a script may ask \
                  for one only once the host carries a script's request",
     },
     Excluded {
         holder: Holder::Field,
         members: &["browseForFileToSubmit", "buttonImportIcon"],
+        kind: Member::Method,
         reason: "opens a file chooser, which is a person's act",
     },
     Excluded {
@@ -106,41 +127,49 @@ pub const EXCLUDED: &[Excluded] = &[
             "importXFAData",
             "exportXFAData",
         ],
+        kind: Member::Method,
         reason: "reaches the filesystem, which the confined worker does not have",
     },
     Excluded {
         holder: Holder::App,
         members: &["browseForDoc", "getPath"],
+        kind: Member::Method,
         reason: "reaches the filesystem, which the confined worker does not have",
     },
     Excluded {
         holder: Holder::Util,
         members: &["readFileIntoStream"],
+        kind: Member::Method,
         reason: "reaches the filesystem, which the confined worker does not have",
     },
     Excluded {
         holder: Holder::App,
         members: &["openDoc", "newDoc", "newFDF", "openFDF"],
+        kind: Member::Method,
         reason: "reaches other documents in the window, which one document's script may not",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["closeDoc"],
+        kind: Member::Method,
         reason: "reaches other documents in the window, which one document's script may not",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["print", "getPrintParams"],
+        kind: Member::Method,
         reason: "prints, which RFC 0004 builds under its own policy",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["mailDoc", "mailForm"],
+        kind: Member::Method,
         reason: "starts a mail program, which nothing here starts",
     },
     Excluded {
         holder: Holder::App,
         members: &["mailMsg", "mailGetAddrs"],
+        kind: Member::Method,
         reason: "starts a mail program, which nothing here starts",
     },
     Excluded {
@@ -157,6 +186,7 @@ pub const EXCLUDED: &[Excluded] = &[
             "popUpMenuEx",
             "execDialog",
         ],
+        kind: Member::Method,
         reason: "draws or drives the application's own chrome, which a document does not",
     },
     // Adobe's "FullScreen" page makes `app.fs` the application's full-screen preferences, and RFC
@@ -165,6 +195,7 @@ pub const EXCLUDED: &[Excluded] = &[
     Excluded {
         holder: Holder::App,
         members: &["fs"],
+        kind: Member::Property,
         reason: "sets the application's full-screen preferences, which a document does not; a \
                  document asks for full-screen mode through its catalog's /PageMode",
     },
@@ -176,17 +207,20 @@ pub const EXCLUDED: &[Excluded] = &[
             "beginPriv",
             "endPriv",
         ],
+        kind: Member::Method,
         reason: "enters a privileged context, which a document's events do not have",
     },
     Excluded {
         holder: Holder::Global,
         members: &["Collab", "security", "SecurityHandler", "identity"],
+        kind: Member::Property,
         reason: "reaches collaboration servers, credentials, the reader's identity or \
                  cryptography the document steers",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["encryptUsingPolicy"],
+        kind: Member::Method,
         reason: "reaches collaboration servers, credentials, the reader's identity or \
                  cryptography the document steers",
     },
@@ -202,6 +236,7 @@ pub const EXCLUDED: &[Excluded] = &[
             "setLock",
             "getLock",
         ],
+        kind: Member::Method,
         reason: "reaches collaboration servers, credentials, the reader's identity or \
                  cryptography the document steers",
     },
@@ -225,50 +260,59 @@ pub const EXCLUDED: &[Excluded] = &[
             "setPageAction",
             "setAction",
         ],
+        kind: Member::Method,
         reason: "changes the document's structure or invents marks, and the document is \
                  immutable",
     },
     Excluded {
         holder: Holder::Field,
         members: &["setAction"],
+        kind: Member::Method,
         reason: "changes the document's structure or invents marks, and the document is \
                  immutable",
     },
     Excluded {
         holder: Holder::Store,
         members: &["setPersistent", "subscribe"],
+        kind: Member::Method,
         reason: "carries a value across documents and sessions, which is a channel between files",
     },
     Excluded {
         holder: Holder::Layer,
         members: &["setAction", "setIntent"],
+        kind: Member::Method,
         reason: "changes the document's structure or invents marks, and the document is \
                  immutable",
     },
     Excluded {
         holder: Holder::Bookmark,
         members: &["createChild", "insertChild", "remove", "setAction"],
+        kind: Member::Method,
         reason: "changes the document's structure or invents marks, and the document is \
                  immutable",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["media"],
+        kind: Member::Property,
         reason: "is multimedia, which clause 13's exclusion keeps out",
     },
     Excluded {
         holder: Holder::App,
         members: &["media"],
+        kind: Member::Property,
         reason: "is multimedia, which clause 13's exclusion keeps out",
     },
     Excluded {
         holder: Holder::Global,
         members: &["XFA", "xfa"],
+        kind: Member::Property,
         reason: "is XFA, which Annex K permits a processor not to implement",
     },
     Excluded {
         holder: Holder::Doc,
         members: &["dynamicXFAForm"],
+        kind: Member::Property,
         reason: "is XFA, which Annex K permits a processor not to implement",
     },
 ];
@@ -284,12 +328,14 @@ pub const REFUSED: &[Excluded] = &[
     Excluded {
         holder: Holder::Doc,
         members: &["documentFileName"],
+        kind: Member::Property,
         reason: "is the name of a file on the reader's machine, which the confined worker has no \
                  business knowing; the document's own name for itself is this.info.Title",
     },
     Excluded {
         holder: Holder::App,
         members: &["goBack", "goForward"],
+        kind: Member::Method,
         reason: "walks the window's history of views, and this viewer keeps none: a person has no \
                  previous view to go back to either, so there is nothing a script's request could \
                  reach",

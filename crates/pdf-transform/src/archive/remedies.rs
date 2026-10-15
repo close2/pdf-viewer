@@ -49,7 +49,7 @@ use super::config::{
 use super::external::{ExternalData, external_stream_data};
 use super::report::{Derived, DerivedOutcome, Resolved, SuppliedFact};
 use super::rewrite::Rewrite;
-use super::sites::{SeparationUse, separation_uses};
+use super::sites::{ConfigurationNames, SeparationUse, configuration_names, separation_uses};
 
 /// The sentence `doc/questions/A55` requires a derived document's report to carry.
 ///
@@ -97,6 +97,8 @@ pub(super) struct Remedies {
     /// The whole replacement stream for each embedded `CMap` whose program is to state what its
     /// dictionary does, where the operator said the dictionary's statement stands.
     pub(super) restated_programs: BTreeMap<ObjectId, Object>,
+    /// The `/Name` each optional content configuration stating none is given (`doc/adr/1952`).
+    pub(super) configuration_names: ConfigurationNames,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
@@ -119,6 +121,7 @@ impl Remedies {
             separations: BTreeMap::new(),
             stated_write_modes: BTreeMap::new(),
             restated_programs: BTreeMap::new(),
+            configuration_names: ConfigurationNames::default(),
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
@@ -363,6 +366,10 @@ impl Remedies {
                 self.agree_on_one_write_mode(document, judgement, *source);
                 return;
             }
+            Supplied::ConfigurationNames { template } => {
+                self.name_configurations(document, judgement.id, template);
+                return;
+            }
         };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
@@ -462,6 +469,46 @@ impl Remedies {
 }
 
 impl Remedies {
+    /// `optional-content/configuration-names`, answered by the operator's wording.
+    ///
+    /// ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10. Every configuration stating no
+    /// `/Name` is given one, and the report names each beside the configuration it labels, so the
+    /// archive says which labels are the operator's rather than the producer's. A file that
+    /// states one name twice is not answered here — renaming either would be rewriting text the
+    /// producer did write — and keeps its refusal (`doc/adr/1952`).
+    fn name_configurations(&mut self, document: &Document, site: &'static str, template: &str) {
+        let Some(names) = configuration_names(document, template) else {
+            return;
+        };
+        let default = names.direct.get(&None).or_else(|| {
+            document
+                .catalog()
+                .ok()
+                .and_then(|catalog| {
+                    document
+                        .get_key(&catalog, "OCProperties")
+                        .as_dict()
+                        .cloned()
+                })
+                .and_then(|properties| properties.get("D").and_then(Object::as_reference))
+                .and_then(|at| names.at.get(&at))
+        });
+        for name in names.written() {
+            let subject = if default == Some(name) {
+                "the default optional content configuration, which states no Name".to_owned()
+            } else {
+                "an optional content configuration in Configs, which states no Name".to_owned()
+            };
+            self.supplied_report.push(SuppliedFact {
+                site,
+                subject,
+                value: format!("the name \"{name}\", from the operator's name-template"),
+            });
+        }
+        self.configuration_names = names;
+        self.supply_sites.insert(site, Rewrite::ConfigurationNamed);
+    }
+
     /// `fonts/embedded-cmap-states-its-own-write-mode`, answered by the operator's choice of which
     /// of a `CMap`'s two statements stands.
     ///

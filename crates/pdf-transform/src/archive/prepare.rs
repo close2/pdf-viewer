@@ -1306,6 +1306,10 @@ impl Prepared {
             Rewrite::PageResources => self.owed.page_resources.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
+            Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
+            Rewrite::IdentityTransferFunctionRemoved => {
+                self.owed.identity_transfers.as_ref().err().copied()
+            }
             Rewrite::PacketHeaderAttributes => self.owed.packet_headers.as_ref().err().copied(),
             Rewrite::SymbolicTrueTypeEncodingRemoved => {
                 self.owed.symbolic_encodings.as_ref().err().copied()
@@ -1479,6 +1483,10 @@ pub(super) struct Owed {
     pub(super) specifications: Result<Specifications, Because>,
     /// The permissions dictionary's keys outside Table 263, or why none are removed.
     pub(super) foreign_handlers: Result<ForeignHandlers, Because>,
+    /// Whether every non-standard filter name is an abbreviation spelled out, or why not.
+    pub(super) filter_names: Result<(), Because>,
+    /// The graphics states whose `/TR /Identity` goes, or why none do.
+    pub(super) identity_transfers: Result<Sites, Because>,
 }
 
 impl Owed {
@@ -1517,6 +1525,12 @@ impl Owed {
             }),
             cid_to_gid: asked(wanted(Rewrite::CidToGidIdentity), || {
                 sites::cid_to_gid_maps(document, input, plan.target)
+            }),
+            filter_names: asked(wanted(Rewrite::FilterNamesSpelledOut), || {
+                sites::abbreviated_filters(input)
+            }),
+            identity_transfers: asked(wanted(Rewrite::IdentityTransferFunctionRemoved), || {
+                sites::identity_transfer_functions(document, input)
             }),
             packet_headers,
             symbolic_encodings: asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {

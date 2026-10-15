@@ -923,6 +923,48 @@ impl<'a> Pages<'a> {
         )
     }
 
+    /// Every index's page, in order: what `(0..self.len()).map(|at| self.get(at))` returns, from
+    /// one walk of the tree instead of one walk per page — an index `get` answers `None` for is
+    /// `None` here too, so a caller's page numbers are the ones `get` would have given it.
+    ///
+    /// [`Self::get`] skips a subtree by its `/Count` and walks a `/Kids` array entry by entry, so
+    /// asking it for every page of a tree whose root holds *n* leaves directly costs *n*²/2 node
+    /// reads. The validator enumerates every page of a document several times, and Isartor's
+    /// `6-1-12-t01-fail-a.pdf` — ten thousand pages in one `/Kids` array — held one report for
+    /// minutes doing exactly that (ADR 1953).
+    ///
+    /// **The walk is used only where it is provably the same answer.** `get` reaches a page by
+    /// skipping each subtree whose `/Count` it trusts, so the two agree wherever every such
+    /// `/Count` equals the pages a walk finds beneath it, and wherever the walk stays inside the
+    /// visit bound `get` itself observes (a single lookup visits a subset of this walk's nodes).
+    /// Table 30 makes the first the writer's obligation — the count "shall" be consistent with
+    /// the descendants — and a file that breaks it, or a tree past the bound, is answered by the
+    /// per-page lookups instead, so no page moves to a different index in either case.
+    #[must_use]
+    pub fn every(&self) -> Vec<Option<Page>> {
+        if self.scanned.is_empty()
+            && let Some(root) = self.root.as_ref()
+        {
+            let mut every = Every::default();
+            every_leaf(
+                self.document,
+                Node::Direct(root, self.root_id),
+                &Inherited::default(),
+                &mut every,
+                &mut Walk::default(),
+                0,
+                self.boundaries,
+            );
+            if every.exact {
+                // Past the pages the walk found, `get` walks the whole tree and finds none.
+                let mut pages: Vec<Option<Page>> = every.pages.into_iter().map(Some).collect();
+                pages.resize_with(self.count, || None);
+                return pages;
+            }
+        }
+        (0..self.count).map(|at| self.get(at)).collect()
+    }
+
     /// Builds a page from a dictionary that is **not** in the page tree.
     ///
     /// §12.7.7's template pages are exactly that: a page named by the document's `/Templates`
@@ -1555,6 +1597,110 @@ fn find_leaf(
     }
 
     None
+}
+
+/// What [`every_leaf`] has gathered, and whether it is still [`Pages::get`]'s answer.
+struct Every {
+    /// The pages in the order the walk reached them.
+    pages: Vec<Page>,
+    /// `false` once the walk met something a per-page lookup would read differently.
+    exact: bool,
+}
+
+impl Default for Every {
+    fn default() -> Self {
+        Self {
+            pages: Vec::new(),
+            exact: true,
+        }
+    }
+}
+
+/// [`find_leaf`]'s walk taken to the end, building every leaf it reaches; returns how many.
+///
+/// It reads each node exactly as `find_leaf` does — the same two bounds, the same cycle test, a
+/// `/Kids` entry that is no dictionary stepped over, `/Type /Pages` without `/Kids` no page —
+/// and records the three places a lookup could answer differently: a subtree whose trusted
+/// `/Count` is not the number of pages found beneath it, the visit bound, which a lookup that
+/// skips subtrees reaches later than this walk does, and a leaf whose dictionary cannot be
+/// copied out. [`Pages::every`] falls back to the lookups at any of them.
+fn every_leaf(
+    document: &Document,
+    node: Node<'_>,
+    inherited: &Inherited,
+    every: &mut Every,
+    walk: &mut Walk,
+    depth: usize,
+    boundaries: Boundaries,
+) -> usize {
+    if !every.exact || depth > MAX_TREE_DEPTH {
+        return 0;
+    }
+    if walk.visited > MAX_NODES_VISITED {
+        every.exact = false;
+        return 0;
+    }
+    let Some(kids) = node.key(document, "Kids") else {
+        return 0;
+    };
+    walk.visited = walk.visited.saturating_add(1);
+
+    let Some(kids) = kids.as_array() else {
+        if declares_a_node(document, node) {
+            return 0;
+        }
+        let Some(dict) = node.dictionary(document) else {
+            every.exact = false;
+            return 0;
+        };
+        let inherited = inherited.overlay(document, node);
+        every.pages.push(build_page(
+            document,
+            &dict,
+            &inherited,
+            boundaries,
+            node.id(),
+        ));
+        return 1;
+    };
+
+    let inherited = inherited.overlay(document, node);
+    let mut found = 0usize;
+    for entry in kids {
+        let Some(kid) = Node::of(entry) else { continue };
+        if walk.closes_a_cycle(node, kid) {
+            continue;
+        }
+        // The `/Count` `find_leaf` would skip this subtree by, read by the same test.
+        let trusted = kid
+            .key(document, "Count")
+            .as_ref()
+            .and_then(Object::as_integer)
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|&count| count > 0)
+            .filter(|_| {
+                kid.key(document, "Kids")
+                    .as_ref()
+                    .and_then(Object::as_array)
+                    .is_some_and(|kids| !kids.is_empty())
+            });
+        walk.enter(node);
+        let beneath = every_leaf(
+            document,
+            kid,
+            &inherited,
+            every,
+            walk,
+            depth.saturating_add(1),
+            boundaries,
+        );
+        walk.leave(node);
+        if trusted.is_some_and(|count| count != beneath) {
+            every.exact = false;
+        }
+        found = found.saturating_add(beneath);
+    }
+    found
 }
 
 /// Assembles a page from its dictionary and the attributes it inherited.

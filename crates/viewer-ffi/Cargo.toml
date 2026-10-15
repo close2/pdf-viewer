@@ -34,6 +34,10 @@ pdf-syntax.workspace = true
 # written a third time. ADR 0246 decision 3: a native host on this boundary is mostly not
 # toolkit code, and a C host is a native host.
 viewer-host.workspace = true
+# ISO 19005's conversion, run here for a C caller that cannot run it: the target named in the
+# judgement crate's words and the profile list the converter compiles in (ADR 1954).
+pdf-archive.workspace = true
+pdf-transform.workspace = true
 
 [lints]
 workspace = true

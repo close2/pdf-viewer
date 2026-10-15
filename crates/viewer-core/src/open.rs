@@ -759,6 +759,17 @@ pub(crate) enum Held {
     /// person who declines here has asked for a degraded print rather than for no print, and
     /// `Viewer::answer` begins one. ADR 1203.
     PrintFaithfully(crate::Sheet),
+    /// A conversion to ISO 19005, with the target and profile it was asked about —
+    /// `crate::Command::Archive`, held for [`Self::Print`]'s reason (ADR 1954).
+    Archive(crate::Archiving),
+    /// A media clip §13.2.2 called viable, held before it is handed over — Table 286's `/TF`
+    /// asked as `pdf_model::restriction::Operation::HandOverMedia` (ADR 1961).
+    Media {
+        /// Table 285's `/CT`.
+        content_type: Option<String>,
+        /// The clip's data, decoded when the question was asked.
+        media: crate::Media,
+    },
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

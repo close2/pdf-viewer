@@ -99,6 +99,9 @@
 //!   answers per page since Table 29's arrangements were obeyed, and a note that did not say which
 //!   page it was about would be a note about one of four. The other two are `Event::OpenFailed` and
 //!   a document with no pages, which no window answers by leaving the process (ADR 0564).
+//! - [`archiving`] — a conversion to ISO 19005 a person asked for: the `--archive` word, the run on
+//!   a thread of its own through `pdf_transform`'s converter and its one shared executor, and the
+//!   file written beside the document, for the three windows and the C library alike (ADR 1954).
 //! - [`popup`] — §12.5.6.14's window: the title bar's two texts, the body, and the upright box it
 //!   occupies. The clause gives a popup *no appearance stream*, so the window is furniture rather
 //!   than ink and a host draws it — which two of the three did not, until they were made to.
@@ -131,6 +134,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod archiving;
 pub mod arrangement;
 pub mod clock;
 pub mod copying;
@@ -191,13 +195,13 @@ pub use policy::{
     SEPARATIONS, SUBMISSIONS, SUBMIT_SCHEMES, Scripts, Sending, Settings, Submissions,
     TRUST_ANCHORS, URI_HANDLER, Unpacking, answered, asked_for, asked_to_fetch, asked_to_open,
     asked_to_open_embedded, asked_to_open_remote, asked_to_run_scripts, asked_to_submit, audience,
-    embedded_declined, embedded_documents, embedded_note, fetch_note, import_is_fetched, link,
-    links, may_choose_file, may_fetch_import, may_open_extracted, may_open_uri, may_submit,
-    may_write_extracted, offers_machine_fonts, open_chosen, open_uri, opening_embedded,
-    opens_as_document, read_import, reference_files, refused, remote, remote_declined,
-    remote_documents, remote_note, resolve_import, resolve_uri, restrictions, scripting, scripts,
-    scripts_answered, separations, separations_note, submissions, supply_note, trust_anchors,
-    unanswerable, under_remote_documents, uri_note, warned,
+    embedded_declined, embedded_documents, embedded_note, fetch_note, handed_media,
+    import_is_fetched, link, links, may_choose_file, may_fetch_import, may_open_extracted,
+    may_open_uri, may_submit, may_write_extracted, offers_machine_fonts, open_chosen, open_uri,
+    opening_embedded, opens_as_document, read_import, reference_files, refused, remote,
+    remote_declined, remote_documents, remote_note, resolve_import, resolve_uri, restrictions,
+    scripting, scripts, scripts_answered, separations, separations_note, submissions, supply_note,
+    trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Placing, Presenting, centred, fitted};

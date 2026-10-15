@@ -134,7 +134,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object};
 use std::fmt::Write as _;
 
 use crate::icon::{self, Mark};
-use crate::variable_text::{self, Asked, Owed, Quadding, Request, Shape};
+use crate::variable_text::{self, Asked, LayoutFonts, Owed, Quadding, Request, Shape};
 use crate::view::FieldValue;
 
 /// How many `/Parent` links a field's inheritable entry is followed through.
@@ -238,6 +238,7 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
         &subtype,
         crate::view::AnnotationView::default(),
         rect,
+        &LayoutFonts::new(document),
     );
     let drawn = built.content.is_some();
     // A value §12.7.4.3 could only set in a face from this machine is written with that face
@@ -582,6 +583,7 @@ pub(crate) fn construct(
     subtype: &[u8],
     view: crate::view::AnnotationView<'_>,
     rect: [f32; 4],
+    fonts: &LayoutFonts<'_>,
 ) -> Constructed {
     let mut stream = Stream::new();
     let bounded = bounded_by_rect(subtype);
@@ -597,12 +599,13 @@ pub(crate) fn construct(
             &with_scripted(document, annotation, view.scripted),
             &mut stream,
             view,
+            fonts,
         ),
-        b"Widget" => widget(document, annotation, &mut stream, view),
+        b"Widget" => widget(document, annotation, &mut stream, view, fonts),
         b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly" => {
             text_markup(document, annotation, &mut stream, subtype)
         }
-        b"FreeText" => free_text(document, annotation, &mut stream, view.contents),
+        b"FreeText" => free_text(document, annotation, &mut stream, view.contents, fonts),
         b"Text" => text_icon(document, annotation, &mut stream, rect),
         b"FileAttachment" | b"Sound" => symbol_icon(document, annotation, &mut stream, subtype),
         // §12.5.6.12's stamp is the one of the four icon clauses whose standard names are not
@@ -817,13 +820,14 @@ pub(crate) fn regenerate(
     stored: &pdf_syntax::Stream,
     bbox: [f32; 4],
     view: crate::view::AnnotationView<'_>,
+    fonts: &LayoutFonts<'_>,
 ) -> Option<Regenerated> {
     let value = view.value;
     // §12.7.4.3, for a field Table 231 bit 26 makes rich text: "the following conventions are
     // not used, and the entire annotation appearance shall be regenerated each time the value is
     // changed". The splice below is one of those conventions (ADR 1635).
     if is_rich_text_field(document, annotation, value) {
-        return Some(regenerated_whole(document, annotation, bbox, view));
+        return Some(regenerated_whole(document, annotation, bbox, view, fonts));
     }
     let data = document.decoded_stream_data(stored)?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
@@ -845,6 +849,7 @@ pub(crate) fn regenerate(
         crate::view::Appearance::Normal,
         Asked::default(),
         Format::of(view),
+        fonts,
     ) {
         Ok(Some(laid_out)) => (laid_out.content, laid_out.owed.map(|owed| owed.detail())),
         // A field with no value has no marks, and an empty marked-content region is the
@@ -887,6 +892,7 @@ fn regenerated_whole(
     annotation: &Dictionary,
     bbox: [f32; 4],
     view: crate::view::AnnotationView<'_>,
+    fonts: &LayoutFonts<'_>,
 ) -> Regenerated {
     let mut whole = annotation.clone();
     whole.insert(
@@ -904,7 +910,7 @@ fn regenerated_whole(
             Object::Dictionary(characteristics),
         );
     }
-    let constructed = construct(document, &whole, b"Widget", view, bbox);
+    let constructed = construct(document, &whole, b"Widget", view, bbox, fonts);
     Regenerated {
         content: constructed.content.unwrap_or_default(),
         resources: constructed.resources,
@@ -1208,7 +1214,9 @@ pub(crate) fn for_saving(
             displayed,
             ..crate::view::AnnotationView::default()
         };
-        let Some(regenerated) = regenerate(document, annotation, &stored, bbox, view) else {
+        let fonts = LayoutFonts::new(document);
+        let Some(regenerated) = regenerate(document, annotation, &stored, bbox, view, &fonts)
+        else {
             return ForSaving::Owed;
         };
         // A value set in a face from this machine is saved with the face subset and embedded;
@@ -1247,6 +1255,7 @@ pub(crate) fn for_saving(
             ..crate::view::AnnotationView::default()
         },
         rect,
+        &LayoutFonts::new(document),
     );
     let Some(content) = constructed.content else {
         // A field with no value, no background and no border draws nothing, and there is no
@@ -1288,6 +1297,8 @@ fn toggling_states(
     let on = on_state(document, annotation)?;
     let rect = rectangle(document, annotation).ok()?;
     let mut states = Vec::new();
+    // One for both states, which are the same widget in the same face.
+    let fonts = LayoutFonts::new(document);
     for name in [on, Name::new(OFF)] {
         let mut posed = annotation.clone();
         posed.insert(Name::new(&b"AS"[..]), Object::Name(name.clone()));
@@ -1300,6 +1311,7 @@ fn toggling_states(
                 ..crate::view::AnnotationView::default()
             },
             rect,
+            &fonts,
         );
         let content = match constructed.content {
             Some(content) => content,
@@ -2734,6 +2746,8 @@ fn caption(
     // it to §9.6.2.2's Helvetica out of this binary and owes no report for having done so.
     let default_appearance = format!("/Helv {CAPTION_SIZE} Tf");
     let height = CAPTION_SIZE * variable_text::LINE_HEIGHT;
+    // The measuring pass and the drawing pass set the same caption in the same face.
+    let fonts = LayoutFonts::new(document);
     let lay_out = |box_: [f32; 4]| {
         variable_text::lay_out(
             document,
@@ -2751,6 +2765,7 @@ fn caption(
                 shape: Shape::SingleLine,
                 asked: Asked::default(),
                 selected: &[],
+                fonts: &fonts,
             },
         )
     };
@@ -3204,6 +3219,7 @@ fn widget(
     annotation: &Dictionary,
     stream: &mut Stream,
     view: crate::view::AnnotationView<'_>,
+    fonts: &LayoutFonts<'_>,
 ) -> Outcome {
     let value = view.value;
     let rect = rectangle(document, annotation)?;
@@ -3276,6 +3292,7 @@ fn widget(
         view.appearance,
         Asked::default(),
         Format::of(view),
+        fonts,
     ) {
         Ok(laid_out) => laid_out,
         Err(refusal) => {
@@ -3954,8 +3971,9 @@ fn list_box_options(
     clippy::too_many_arguments,
     clippy::too_many_lines,
     reason = "one layout's inputs, each a different clause's: the widget, its characteristics, its \
-              box, its value, its appearance state, what a host asked, and Table 199's format; \
-              and one match over §12.7.4.3's field types, each arm the text that type lays out"
+              box, its value, its appearance state, what a host asked, and Table 199's format, \
+              and the fonts the layouts before it loaded; and one match over §12.7.4.3's field \
+              types, each arm the text that type lays out"
 )]
 fn field_text(
     document: &Document,
@@ -3966,6 +3984,7 @@ fn field_text(
     appearance: crate::view::Appearance,
     asked: Asked,
     format: Format<'_>,
+    fonts: &LayoutFonts<'_>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     let field = Field::read(document, annotation, value);
     if field.too_deep {
@@ -4135,6 +4154,7 @@ fn field_text(
                 shape,
                 asked,
                 value: &text,
+                fonts,
             };
             return rich_laid_out(document, &chosen, &route)
                 .map(|mut laid_out| {
@@ -4155,6 +4175,7 @@ fn field_text(
         shape,
         asked,
         selected: &selected,
+        fonts,
     };
     variable_text::lay_out(document, &request)
         .map(|mut laid_out| {
@@ -4194,6 +4215,8 @@ struct RichRoute<'a> {
     asked: Asked,
     /// The characters a host's offsets index: the value it edits.
     value: &'a str,
+    /// The fonts the layouts before this one loaded, for the one-style layout's `/DA` font.
+    fonts: &'a LayoutFonts<'a>,
 }
 
 /// Lays a field's or a note's rich text string out (ADRs 1634, 1635, 1649).
@@ -4266,6 +4289,7 @@ fn one_style_laid_out(
         shape: route.shape,
         asked: route.asked,
         selected: &[],
+        fonts: route.fonts,
     };
     let mut laid_out = variable_text::lay_out(document, &plain)?;
     laid_out.fonts.extend(one.font);
@@ -4648,8 +4672,9 @@ fn laid_out_in(
     box_: [f32; 4],
     asked: Asked,
 ) -> Option<variable_text::LaidOut> {
+    let fonts = LayoutFonts::new(document);
     if is_free_text(document, annotation) {
-        return free_text_layout(document, annotation, box_, view.contents, asked)
+        return free_text_layout(document, annotation, box_, view.contents, asked, &fonts)
             .ok()
             .flatten();
     }
@@ -4666,6 +4691,7 @@ fn laid_out_in(
         // A caret, a click or a selection is asked of the characters a host edits, which are the
         // value as typed rather than as a format shows it (ADR 1579).
         Format::RAW,
+        &fonts,
     )
     .ok()
     .flatten()
@@ -4822,6 +4848,8 @@ pub(crate) fn accepted_prefix(
     // `field_text` echoes them as bullets — so the width that decides whether the field is full
     // is the bullets' and not the characters'.
     let password = field.flags & FLAG_PASSWORD != 0;
+    // Every prefix the search below tries is set in the same face.
+    let fonts = LayoutFonts::new(document);
     let fits = |prefix: &str| {
         let shown = if password {
             "\u{2022}".repeat(prefix.chars().count())
@@ -4837,6 +4865,7 @@ pub(crate) fn accepted_prefix(
             shape,
             asked: Asked::default(),
             selected: &[],
+            fonts: &fonts,
         };
         // A layout this crate cannot build says nothing about how much text the box holds, so
         // it constrains nothing — the report `field_text` raises is the honest answer there.
@@ -4908,6 +4937,7 @@ fn free_text(
     annotation: &Dictionary,
     stream: &mut Stream,
     retyped: Option<&str>,
+    fonts: &LayoutFonts<'_>,
 ) -> Outcome {
     let rect = rectangle(document, annotation)?;
     // §12.5.6.6's `/RD` uses the same left, top, right, bottom order §12.5.6.8's does, which
@@ -4925,13 +4955,14 @@ fn free_text(
     let border = free_text_border(document, annotation, stream, box_);
     let drawn_already = callout.drawn || border.drawn;
     let decoration = border.report;
-    let laid_out = match free_text_layout(document, annotation, box_, retyped, Asked::default()) {
-        Ok(laid_out) => laid_out,
-        // ADR 0075's rule, one subtype over: an entry that cannot be read is a reason to draw
-        // the part that can be rather than a reason to decline the whole annotation.
-        Err(refusal) if drawn_already => return Ok(Painted::partly(refusal)),
-        Err(refusal) => return Err(refusal),
-    };
+    let laid_out =
+        match free_text_layout(document, annotation, box_, retyped, Asked::default(), fonts) {
+            Ok(laid_out) => laid_out,
+            // ADR 0075's rule, one subtype over: an entry that cannot be read is a reason to draw
+            // the part that can be rather than a reason to decline the whole annotation.
+            Err(refusal) if drawn_already => return Ok(Painted::partly(refusal)),
+            Err(refusal) => return Err(refusal),
+        };
     let Some(laid_out) = laid_out else {
         // An empty note with a border is still a mark on the page: `drawn` is what decides
         // whether the stream this function has been writing into reaches the display list.
@@ -5188,6 +5219,7 @@ fn free_text_layout(
     box_: [f32; 4],
     retyped: Option<&str>,
     asked: Asked,
+    fonts: &LayoutFonts<'_>,
 ) -> Result<Option<variable_text::LaidOut>, Refusal> {
     // §12.5.6.2 makes `/Contents` and `/RC` group attributes, so a free text annotation that is a
     // group's subordinate displays the primary's words: "the corresponding entries in the
@@ -5228,6 +5260,7 @@ fn free_text_layout(
             shape: Shape::Multiline,
             asked,
             value: retyped.or(contents.as_deref()).unwrap_or(&text),
+            fonts,
         };
         return rich_laid_out(document, &chosen, &route)
             .map(Some)
@@ -5243,6 +5276,7 @@ fn free_text_layout(
         shape: Shape::Multiline,
         asked,
         selected: &[],
+        fonts,
     };
     variable_text::lay_out(document, &request)
         .map(Some)

@@ -200,8 +200,48 @@ static void say_panel(const char *what, quorra_panel *panel)
  * Nothing here is fatal, deliberately: this function reports and returns, because the shape of
  * these calls is what is under test and the corpus decides what they answer.
  */
+/* ISO 19005: the profiles the library ships, a conversion asked for under one of them, and its
+ * report read back line by line (ADR 1954). The file itself is the caller's to write. */
+static void convert_to_pdfa(quorra_viewer *viewer)
+{
+    size_t profiles = 0;
+    char name[64];
+    size_t needed = 0;
+    if (quorra_archive_profiles(&profiles) != QUORRA_OK ||
+        quorra_archive_profile(1, name, sizeof name, &needed) != QUORRA_OK) {
+        printf("archive: no profile list\n");
+        return;
+    }
+    printf("archive: %zu profile(s), the second %s\n", profiles, name);
+    quorra_events *events = NULL;
+    if (quorra_archive(viewer, "2b", name, &events) != QUORRA_OK) {
+        printf("archive: refused\n");
+        return;
+    }
+    size_t granted = 0;
+    for (size_t index = 0; index < quorra_events_len(events); ++index) {
+        uint32_t kind = 0;
+        if (quorra_events_kind(events, index, &kind) == QUORRA_OK &&
+            kind == QUORRA_EVENT_ARCHIVING) {
+            ++granted;
+        }
+    }
+    quorra_events_free(events);
+    size_t written = 0;
+    size_t lines = 0;
+    char line[512];
+    if (quorra_archived(viewer, &written, &lines) != QUORRA_OK || lines == 0 ||
+        quorra_archived_line(viewer, 0, line, sizeof line, &needed) != QUORRA_OK) {
+        printf("archive: %zu grant(s) and no report\n", granted);
+        return;
+    }
+    printf("archive: %zu grant(s), %zu line(s), the first: %s\n", granted, lines, line);
+}
+
 static void exercise_the_other_half(quorra_viewer *viewer)
 {
+    convert_to_pdfa(viewer);
+
     /* Table 29's two display entries. A caller that could set the arrangement could not ask what
      * the catalogue opens in. */
     uint32_t mode = 0;

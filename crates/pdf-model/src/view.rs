@@ -578,6 +578,12 @@ pub enum Request {
     /// [`crate::forms_data::FormsData::read`] and then to [`ViewState::import`], which is where
     /// the values become ink.
     Import(ImportData),
+    /// §12.6.4.14: a rendition is to be played, stopped, paused or resumed.
+    ///
+    /// The same division as [`Self::Resolve`]: judging the rendition needs what a host has said
+    /// about its reader (`crate::media::Processor`), and handing the clip on is a decision about
+    /// this machine. Neither is part of the state a click changes. ADR 1960.
+    Rendition(crate::action::Rendition),
 }
 
 /// Which statement about a field's value a widget is currently showing.
@@ -4113,6 +4119,7 @@ impl ViewState {
             Action::Trans(transition) => {
                 return Some(Request::Transition(transition.clone()));
             }
+            Action::Rendition(rendition) => return Some(Request::Rendition(rendition.clone())),
             Action::SetOcgState(state) => {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);
@@ -5898,8 +5905,14 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     let Some(rect) = crate::annotation::rectangle(document, dict, "Rect") else {
         return true;
     };
-    let built =
-        crate::appearance::construct(document, dict, &subtype, AnnotationView::default(), rect);
+    let built = crate::appearance::construct(
+        document,
+        dict,
+        &subtype,
+        AnnotationView::default(),
+        rect,
+        &crate::variable_text::LayoutFonts::new(document),
+    );
     // A value set in a face from this machine is written with the face subset and embedded, and
     // not written at all where the face's licence forbids it (ADR 1425).
     let Ok(resources) = crate::variable_text::for_a_file(&built.resources) else {
@@ -6011,7 +6024,14 @@ fn write_retyped_appearance(
         contents: Some(text),
         ..AnnotationView::default()
     };
-    let built = crate::appearance::construct(document, dict, b"FreeText", view, rect);
+    let built = crate::appearance::construct(
+        document,
+        dict,
+        b"FreeText",
+        view,
+        rect,
+        &crate::variable_text::LayoutFonts::new(document),
+    );
     // A value set in a face from this machine is written with the face subset and embedded; where
     // the face's licence forbids that, the annotation is written as one owing its appearance, as
     // a layout that declined would be (ADR 1425).

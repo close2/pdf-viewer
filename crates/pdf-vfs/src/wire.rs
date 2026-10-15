@@ -878,6 +878,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Assemble => 5,
         Operation::Process => 6,
         Operation::PrintFaithfully => 7,
+        Operation::HandOverMedia => 8,
     }
 }
 
@@ -892,6 +893,7 @@ fn operation_of(code: u8) -> Result<Operation, WireError> {
         5 => Ok(Operation::Assemble),
         6 => Ok(Operation::Process),
         7 => Ok(Operation::PrintFaithfully),
+        8 => Ok(Operation::HandOverMedia),
         value => Err(WireError::Unrecognised {
             what: "an operation",
             value,

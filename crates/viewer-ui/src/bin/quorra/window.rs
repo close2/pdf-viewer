@@ -752,6 +752,14 @@ impl App {
                 }
             }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
+            // ISO 19005's conversion: the target and profile are this window's, chosen by
+            // `--archive`, and a window with none chosen says how to choose (ADR 1954).
+            viewer_host::WindowAct::Archive => {
+                match viewer_host::archiving::command(self.archive.as_ref()) {
+                    Ok(command) => self.dispatch(command),
+                    Err(sentence) => println!("note: {sentence}"),
+                }
+            }
             // §10.8.3: the state is this window's, because it is a preference a person toggles
             // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
             viewer_host::WindowAct::Separations => {
@@ -872,9 +880,24 @@ impl App {
     /// the time or §12.6.4.15's one effect is drawn — the two toolkit windows keep one clock for
     /// both and wait the effect out, and this one does as they do — so a still window waits for
     /// an event and nothing else (ADR 1702).
+    ///
+    /// **A tick runs between frames, never instead of one** (ADR 1957). While a render of a page
+    /// on the screen has not reached the window, a due timer waits for it: the frame that lands
+    /// wakes this loop (ADR 1926), and the ticker goes on counting, so the tick after it carries
+    /// the time the wait took and ADR 1702's late timer runs once. A timer whose run costs more
+    /// than its period otherwise asked for a page each tick and was given none, because each
+    /// tick's page replaced the one still being drawn. A tab behind the front draws nothing until
+    /// it is brought forward, so its renders hold no timer back.
     fn script_timers(&mut self) -> Option<std::time::Instant> {
         if self.presentation.is_some() || self.effect.is_some() {
             self.script_ticker.stand_down();
+            return None;
+        }
+        if self
+            .requests
+            .iter()
+            .any(|request| self.unacknowledged.contains(&request.token))
+        {
             return None;
         }
         let now = std::time::Instant::now();

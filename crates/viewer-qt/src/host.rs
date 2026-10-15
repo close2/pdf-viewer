@@ -496,6 +496,8 @@ impl Host {
         );
         let ahead = viewer_host::Ahead::page_sized();
         let drawing_ahead = ahead.clone();
+        // The conversion `--archive` chose, kept for the window's archive key (ADR 1954).
+        let archive = reader.archive.clone();
         let anticipated = viewer_host::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent. The core is made here and moved back, so it is still
@@ -525,7 +527,7 @@ impl Host {
             (viewer, events)
         });
         Ok(Self {
-            state: WindowState::new(path, bytes, fragment, trace, ahead),
+            state: WindowState::new(path, bytes, fragment, trace, ahead).archiving(archive),
             // No thread and nothing read until a label holds a character the compiled-in face
             // lacks, and then off this thread (ADR 1406).
             faces: viewer_host::machine_faces::MachineFaces::new(),

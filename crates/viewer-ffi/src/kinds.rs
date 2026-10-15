@@ -116,6 +116,13 @@ pub enum EventKind {
     /// console. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason: a session
     /// supplies no runner (ADR 1771).
     Console = 27,
+    /// [`viewer_core::Event::Media`] — §13.2.2 called a rendition's clip viable and the reader's
+    /// level let it through. `quorra_events_describe` says what it is and `quorra_events_bytes`
+    /// gives an embedded clip's data; starting a player is the caller's decision (ADR 1961).
+    Media = 28,
+    /// [`viewer_core::Event::Archiving`] — `quorra_archive` was granted and the conversion has run
+    /// before the call returned: `quorra_archived` says how it went (ADR 1954).
+    Archiving = 29,
 }
 
 impl EventKind {
@@ -124,7 +131,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 28;
+    pub const COUNT: u32 = 30;
 
     /// Which kind an event is.
     ///
@@ -162,6 +169,8 @@ impl EventKind {
             Event::Beep { .. } => Self::Beep,
             Event::SignaturePoliciesPublished { .. } => Self::SignaturePoliciesPublished,
             Event::Console { .. } => Self::Console,
+            Event::Media { .. } => Self::Media,
+            Event::Archiving { .. } => Self::Archiving,
         }
     }
 
@@ -201,6 +210,8 @@ impl EventKind {
             Self::Beep => "Beep\0",
             Self::SignaturePoliciesPublished => "SignaturePoliciesPublished\0",
             Self::Console => "Console\0",
+            Self::Media => "Media\0",
+            Self::Archiving => "Archiving\0",
         }
     }
 
@@ -240,6 +251,8 @@ impl EventKind {
             25 => Self::Beep,
             26 => Self::SignaturePoliciesPublished,
             27 => Self::Console,
+            28 => Self::Media,
+            29 => Self::Archiving,
             _ => return None,
         })
     }
@@ -593,6 +606,9 @@ pub enum RestrictedKind {
     /// limits a print that goes ahead anyway. `quorra_print` asks both, and
     /// `quorra_printing_fidelity` is what bit 12's answer came to (ADR 1203).
     PrintFaithfully = 7,
+    /// §13.2.4.2's Table 286 `/TF`: handing an embedded media clip to a player, which needs the
+    /// temporary file the entry governs. Asked where a rendition action is activated (ADR 1961).
+    Media = 8,
 }
 
 impl RestrictedKind {
@@ -608,6 +624,7 @@ impl RestrictedKind {
             5 => Self::Assemble,
             6 => Self::Process,
             7 => Self::PrintFaithfully,
+            8 => Self::Media,
             _ => return None,
         })
     }
@@ -625,6 +642,7 @@ impl RestrictedKind {
             Self::Assemble => O::Assemble,
             Self::Process => O::Process,
             Self::PrintFaithfully => O::PrintFaithfully,
+            Self::Media => O::HandOverMedia,
         }
     }
 }

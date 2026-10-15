@@ -36,13 +36,16 @@
 //!
 //! # A compile that fails is a refusal, never a hang
 //!
-//! ADR 0042's rule, applied to text this tree did not write: the compile runs inside a
-//! validation error scope, a captured failure becomes a
+//! ADR 0042's rule, applied to text this tree did not write: the compile runs inside
+//! [`captured`]'s validation and internal error scopes, a captured failure becomes a
 //! [`PipelineProblem::GeneratedShader`] or [`PipelineProblem::GeneratedPipeline`] naming
 //! the program's hash and carrying `wgpu`'s message — span included, which for generated
 //! source is the only way to say *where* — and the frame that needed it is refused by
-//! name. Nothing is cached for a program that failed, so a defect in the generator is
-//! reported on every frame that reaches it rather than once.
+//! name. **The refusal is kept by its key** (ADR 1962), as the fixed table keeps one (ADR
+//! 1929): every later frame that reaches the same shader, style and format is refused in the
+//! same words without generating, parsing or building again, so a defect in the generator is
+//! still reported on every frame that reaches it, at the cost of one failing compile rather
+//! than one per frame. Releasing the program drops its refusals with its pipelines.
 
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -101,13 +104,22 @@ impl PipelineStore {
         if let Some(pipeline) = state.function_pipelines.get(&key) {
             return Ok((Arc::clone(pipeline), None));
         }
+        if let Some(problem) = state.function_refused.get(&key) {
+            return Err(problem.clone());
+        }
         let started = Instant::now();
-        let pipeline = Arc::new(self.compile_function(&mut state, key, analysis, range)?);
+        let pipeline = match self.compile_function(&mut state, key, analysis, range) {
+            Ok(pipeline) => Arc::new(pipeline),
+            Err(problem) => {
+                state.function_refused.insert(key, problem.clone());
+                return Err(problem);
+            }
+        };
         state.function_pipelines.insert(key, Arc::clone(&pipeline));
         Ok((pipeline, Some(started.elapsed())))
     }
 
-    /// Drop every pipeline and module a program's hash keys.
+    /// Drop every pipeline, refusal and module a program's hash keys.
     ///
     /// Called when the last resident program with that hash is released: a compiled
     /// pipeline the caller can no longer name is GPU memory nothing will ever free, which
@@ -126,6 +138,9 @@ impl PipelineStore {
             .collect();
         state
             .function_pipelines
+            .retain(|key, _| !shaders.contains(&key.shader));
+        state
+            .function_refused
             .retain(|key, _| !shaders.contains(&key.shader));
         state
             .function_modules
@@ -157,6 +172,10 @@ impl PipelineStore {
         analysis: &Analysis,
         range: FnRange,
     ) -> Result<wgpu::RenderPipeline, PipelineProblem> {
+        #[cfg(test)]
+        {
+            state.function_compiles = state.function_compiles.saturating_add(1);
+        }
         // Destructured for the same reason `PipelineStore::base` destructures: the layouts
         // and the modules are disjoint fields, so one borrow of the state can produce two
         // and the pipeline can be built from both at once.
@@ -170,11 +189,13 @@ impl PipelineStore {
         let module = match function_modules.entry(key.shader) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let module = Self::function_module(&self.device, key.shader, analysis, range)?;
                 // Which program this shader belongs to, so that releasing the program can
                 // find every shader it generated — a `Gray` and an `Rgb` placement of one
                 // program are two shaders, and only the program knows they are siblings.
+                // Recorded before the parse, so that a refused module's kept refusal is
+                // found and dropped with the program too (ADR 1962).
                 function_shaders.insert(key.shader, analysis.program_hash());
+                let module = Self::function_module(&self.device, key.shader, analysis, range)?;
                 entry.insert(module)
             }
         };
@@ -426,10 +447,58 @@ mod tests {
         assert_eq!(
             store.function_pipelines_compiled(),
             0,
-            "nothing is cached for a format that failed"
+            "no pipeline is cached for a format that failed"
         );
         // The module parsed, so it is kept: what failed is the pipeline, and the next
         // format asked for must not pay the parse again.
         assert_eq!(store.function_modules_parsed(), 1);
+    }
+
+    /// **A refused generated pipeline is refused again in the same words without a second
+    /// compile** (ADR 1962), as the fixed table's is (ADR 1929), and releasing the program
+    /// drops the refusal with everything else it keyed.
+    #[test]
+    fn a_refused_generated_pipeline_is_kept_until_its_program_is_released() {
+        let (_device, store) = store();
+        let analysis = analyse(&ADD).expect("`add` is admitted");
+        let range = FnRange::Gray([0.0, 1.0]);
+        let ask = || {
+            store.function_pipeline(
+                &analysis,
+                range,
+                Style::Over,
+                wgpu::TextureFormat::Rgba8Snorm,
+            )
+        };
+        let Err(first) = ask() else {
+            panic!("Rgba8Snorm is not a renderable format");
+        };
+        let key = super::FunctionKey {
+            shader: analysis.shader_hash(range),
+            style: Style::Over,
+            format: wgpu::TextureFormat::Rgba8Snorm,
+        };
+        assert!(
+            store.lock().function_refused.contains_key(&key),
+            "the refusal is kept by its key"
+        );
+        let Err(second) = ask() else {
+            panic!("a kept refusal is still a refusal");
+        };
+        assert_eq!(
+            second, first,
+            "the second ask hears the first refusal's words"
+        );
+        assert_eq!(
+            store.lock().function_compiles,
+            1,
+            "the second ask compiled nothing"
+        );
+
+        store.forget_program(analysis.program_hash());
+        assert!(
+            store.lock().function_refused.is_empty(),
+            "releasing the program drops its refusals"
+        );
     }
 }

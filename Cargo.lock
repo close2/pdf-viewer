@@ -5763,6 +5763,7 @@ name = "viewer-core"
 version = "0.1.0"
 dependencies = [
  "gate-ratchet",
+ "pdf-archive",
  "pdf-font",
  "pdf-model",
  "pdf-render",
@@ -5778,10 +5779,12 @@ dependencies = [
 name = "viewer-ffi"
 version = "0.1.0"
 dependencies = [
+ "pdf-archive",
  "pdf-model",
  "pdf-render",
  "pdf-signature",
  "pdf-syntax",
+ "pdf-transform",
  "render-cpu",
  "viewer-core",
  "viewer-host",
@@ -5807,6 +5810,7 @@ dependencies = [
 name = "viewer-host"
 version = "0.1.0"
 dependencies = [
+ "pdf-archive",
  "pdf-font",
  "pdf-model",
  "pdf-render",
@@ -5814,6 +5818,7 @@ dependencies = [
  "pdf-script-worker",
  "pdf-signature",
  "pdf-syntax",
+ "pdf-transform",
  "render-cpu",
  "rustls",
  "rustls-native-certs",

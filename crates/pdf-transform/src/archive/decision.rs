@@ -985,6 +985,22 @@ const RENDERING_INTENT_REINTERPRETS: &str = "a rendering intent this file states
      know the producer's own name for an intent is no longer told it. The report names every \
      entry restated";
 
+/// What removing an identity transfer function asserts (`doc/adr/1952` section 3).
+const IDENTITY_TRANSFER_REINTERPRETS: &str = "a graphics state in this file states TR \
+     Identity, which ISO 19005 forbids, and no graphics state in it states any other transfer \
+     function, so the entry is removed. ISO 32000-2 8.4.1's Table 53 leaves the initial transfer \
+     function device dependent; on this reader's device it is the identity, so every colour is \
+     drawn where it was. On a device whose own default is not the identity, the producer's \
+     reset to the identity no longer happens. The report names every graphics state rewritten";
+
+/// What writing a filter's name out in full asserts (`doc/adr/1952`).
+const FILTER_NAMES_REINTERPRET: &str = "a stream in this file names a filter by the abbreviation \
+     ISO 32000-2 8.9.7's Table 92 gives it for inline images, which that subclause says shall not \
+     be used anywhere else, and the stream now names the filter in full. The standard says \
+     nothing of what a reader does with such a name outside an inline image; this reader decodes \
+     it as the filter Table 92 names, so the pages were drawn through that filter and still are. \
+     The stream's bytes are the producer's, unchanged. The report names every stream rewritten";
+
 /// What restating a blend mode array asserts, which is `doc/adr/0948`'s condition on it.
 const BLEND_MODE_REINTERPRETS: &str = "a BM entry in this file is an array naming no blend mode \
      ISO 32000-2 defines, and it now names Normal — which is what §8.4.1's Table 57 has every \
@@ -1095,6 +1111,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "file-structure/no-lzw-filter",
         answer: Answer::Mechanical(Rewrite::FlateInsteadOfLzw),
+    },
+    // The same two subclauses' first sentence, at the names this tree's decoder reads: a filter
+    // named by its inline-image abbreviation. Any other name is refused by `super::sites`, with
+    // the sentence that says this tree does not decode it (`doc/adr/1952`).
+    Remedy {
+        requirement: "file-structure/stream-filters-are-standard",
+        answer: Answer::Stated(
+            None,
+            Rewrite::FilterNamesSpelledOut,
+            FILTER_NAMES_REINTERPRET,
+        ),
     },
     // ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1: six rows naming action *types*,
     // answered by taking the action out of the tree it sits in and promoting §12.6.2's `/Next`
@@ -1618,6 +1645,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // is also what refuses a document failing in the shape the standard leaves unanswered.
     // -----------------------------------------------------------------------------------------
 
+    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5 — the identity half (`doc/adr/1952`
+    // section 3). A real transfer function is refused by `super::sites` with its own sentence.
+    Remedy {
+        requirement: "graphics/no-transfer-function-in-a-graphics-state",
+        answer: Answer::Stated(
+            None,
+            Rewrite::IdentityTransferFunctionRemoved,
+            IDENTITY_TRANSFER_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.2.6, which part 4 does not state.
     Remedy {
         requirement: "graphics/rendering-intent-entries-name-one-of-four",
@@ -2499,10 +2536,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
     ),
     (
-        "graphics/no-transfer-function-in-a-graphics-state",
-        Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
-    ),
-    (
         "graphics/second-transfer-function-is-default",
         Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
     ),
@@ -2873,7 +2906,7 @@ const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a g
      doc/pdf-a-conversion-limits.md section 4.8's default is to render the page both ways, show \
      whether anything changed, and remove it only with that shown. The comparison and the \
      rewrite are both owed; where the function is the identity the removal is silent and safe, \
-     and even that is not built";
+     which doc/adr/1952 builds for TR and not yet for TR2";
 
 /// Why JPEG 2000 samples are not re-encoded.
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
@@ -3001,13 +3034,13 @@ const UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED: &str = "this packet states a stru
 /// is the half that is not, because the two are different acts. Completing an array with groups
 /// the file already lists invents nothing; a name does not exist anywhere to be found.
 const CONFIGURATION_NAME_NOT_WRITTEN: &str = "an optional content configuration here states no \
-     Name, or states one another configuration already uses. doc/pdf-a-conversion-limits.md \
-     section 3.8 calls a name synthesised uniquely within the file Default work, and this is \
-     where that class meets doc/questions/A48's line: §8.11.4.3 makes Name a label for a user \
-     interface, so a synthesised one is text no producer wrote, and the answer has to be argued \
-     rather than assumed. The neighbouring rule of the same subclause — an Order array that does \
-     not reference every group in the file — is answered, because the groups and their order are \
-     both the file's own";
+     Name, or states one another configuration already uses. §8.11.4.3 makes Name a label for a \
+     user interface, so no name is in the file to be found, and doc/questions/A48's line forbids \
+     this converter filling in an absence on its own authority. A configuration that answers \
+     this site with remedy = \"supply\" and a name-template writes the operator's own label, \
+     numbered past every name the file uses, into each configuration that states none \
+     (doc/adr/1952); a name two configurations share stays refused, because choosing which one \
+     keeps it would be renaming the producer's text";
 
 /// The sentence a requirement absent from both tables is refused with.
 ///

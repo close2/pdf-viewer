@@ -120,10 +120,7 @@ fn streams(
 ) -> Vec<(ObjectId, Dictionary)> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
-            continue;
-        };
+    for page in pages.every().into_iter().flatten() {
         let resources = document
             .get_key(&page.dict, "Resources")
             .as_dict()

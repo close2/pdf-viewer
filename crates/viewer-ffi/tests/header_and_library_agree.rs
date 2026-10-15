@@ -132,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        232,
+        239,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -258,6 +258,10 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         ),
         // A script's `console.show`, `hide` and `clear` (ADR 1771).
         ("QUORRA_EVENT_CONSOLE", EventKind::Console),
+        // §13.2.4.2's clip handed over (ADR 1961).
+        ("QUORRA_EVENT_MEDIA", EventKind::Media),
+        // `quorra_archive` granted: Table 22 bit 11's operation, the conversion run (ADR 1954).
+        ("QUORRA_EVENT_ARCHIVING", EventKind::Archiving),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
@@ -437,6 +441,8 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_RESTRICTED_PRINT_QUALITY",
             viewer_ffi::RestrictedKind::PrintFaithfully,
         ),
+        // Table 286's /TF (ADR 1961).
+        ("QUORRA_RESTRICTED_MEDIA", viewer_ffi::RestrictedKind::Media),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

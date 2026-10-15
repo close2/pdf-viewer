@@ -123,6 +123,8 @@ pub struct Opening {
     /// Page one drawn while it is read on that thread (ADRs 1855, 1867): told the window's size on
     /// the first allocation, looked at while the bar is up, and handed to the drawing at the join.
     ahead: viewer_host::Ahead,
+    /// The conversion `--archive` chose, kept for the window's archive key (ADR 1954).
+    archive: Option<viewer_core::Archiving>,
 }
 
 impl Opening {
@@ -160,6 +162,7 @@ impl Opening {
         );
         let ahead = viewer_host::Ahead::page_sized();
         let drawing_ahead = ahead.clone();
+        let archive = reader.archive.clone();
         let thread = viewer_host::Loading::start(move || {
             // No viewport: the window does not exist yet, and the core renders nothing into one
             // with no extent.
@@ -193,6 +196,7 @@ impl Opening {
             fragment,
             thread,
             ahead,
+            archive,
         })
     }
 }
@@ -630,6 +634,7 @@ impl Host {
             fragment,
             thread,
             ahead,
+            archive,
         } = opening;
         let path = path.as_path();
         trace.say(
@@ -644,7 +649,7 @@ impl Host {
             let ui = build_window(app, path, me, &chrome);
             trace.say(Topic::Launch, format_args!("window built"));
             RefCell::new(Self {
-                state: WindowState::new(path, bytes, fragment, trace, ahead),
+                state: WindowState::new(path, bytes, fragment, trace, ahead).archiving(archive),
                 pointer_at: None,
                 zoom_wheel: viewer_host::ZoomWheel::default(),
                 panels_due: false,

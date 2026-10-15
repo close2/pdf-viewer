@@ -304,6 +304,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
             |name| format!("beside {name:?}"),
         ),
         Command::Print(printing) => describe_printing(*printing),
+        Command::Archive(asked) => format!("archive to {} under {:?}", asked.target, asked.profile),
         // Every operation's level, because a policy where five are `Off` and one is `Ask` is not
         // legible from one of the six (ADR 1144).
         // And which scope it is about, because *for this document* and *for this window* are two
@@ -444,6 +445,12 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::PasswordRequired { .. } => "a password is required".to_owned(),
         Event::Closed(_) => "closed".to_owned(),
         Event::Printing { pages, .. } => format!("printing, {pages} page(s)"),
+        Event::Archiving { bytes, asked, .. } => format!(
+            "archiving {} bytes to {} under {:?}",
+            bytes.len(),
+            asked.target,
+            asked.profile
+        ),
         Event::PageChanged { index, of, .. } => format!("page {} of {of}", index.saturating_add(1)),
         Event::NeedsRender(request) => format!(
             "needs render: page {}, {}x{}, {} command(s), {:?}",
@@ -503,6 +510,15 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::ScriptQuestionWithdrawn { .. } => "script question withdrawn".to_owned(),
         Event::Beep { sound, .. } => format!("beep {}", sound.name()),
         Event::Console { request, .. } => format!("console {:?}", request.command),
+        Event::Media {
+            content_type,
+            media,
+            ..
+        } => format!(
+            "media {} {}",
+            content_type.as_deref().unwrap_or("-"),
+            media.describe()
+        ),
         Event::Copied {
             logical,
             page_order,

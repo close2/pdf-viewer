@@ -1229,9 +1229,10 @@ fn output_intent_arrays(document: &Document) -> Vec<Vec<(Where, Dictionary)>> {
 
 /// Every page's own `OutputIntents` array.
 fn page_output_intent_arrays(document: &Document) -> Vec<Vec<(Where, Dictionary)>> {
-    let pages = Pages::new(document);
-    (0..pages.len())
-        .filter_map(|index| pages.get(index))
+    Pages::new(document)
+        .every()
+        .into_iter()
+        .flatten()
         .map(|page| output_intents(document, &page.dict))
         .filter(|array| !array.is_empty())
         .collect()
@@ -2881,10 +2882,11 @@ fn document_intent(document: &Document) -> Intent {
 
 /// The PDF/A output intent each page states, which ISO 19005-4 section 6.2.3 adds.
 fn page_intents(document: &Document) -> Vec<Intent> {
-    let pages = Pages::new(document);
-    (0..pages.len())
-        .map(|index| {
-            pages.get(index).map_or(Intent::Absent, |page| {
+    Pages::new(document)
+        .every()
+        .into_iter()
+        .map(|page| {
+            page.map_or(Intent::Absent, |page| {
                 intent_of(document, &output_intents(document, &page.dict))
             })
         })
@@ -3543,10 +3545,11 @@ fn duplicating_a_current_profile(
     let of_document = output_intent_arrays(document)
         .first()
         .and_then(|array| pdfa_destination_profile(document, array));
-    let pages = Pages::new(document);
-    let of_page: Vec<Option<Candidate>> = (0..pages.len())
-        .map(|index| {
-            pages.get(index).and_then(|page| {
+    let of_page: Vec<Option<Candidate>> = Pages::new(document)
+        .every()
+        .into_iter()
+        .map(|page| {
+            page.and_then(|page| {
                 pdfa_destination_profile(document, &output_intents(document, &page.dict))
             })
         })
@@ -4471,16 +4474,19 @@ fn a_transparent_page_has_a_blending_space_or_an_output_intent(
 fn transparent_pages_without_a_blending_space(exam: &Examination<'_>) -> Vec<usize> {
     let document = exam.document;
     let survey = exam.survey();
-    let pages = Pages::new(document);
+    let pages = Pages::new(document).every();
     (0..survey.pages())
         .filter(|index| survey.page_is_transparent(*index))
         .filter(|index| {
-            pages.get(*index).is_none_or(|page| {
-                document
-                    .get_key(&page.dict, "Group")
-                    .as_dict()
-                    .is_none_or(|group| !states(document, group, "CS"))
-            })
+            pages
+                .get(*index)
+                .and_then(Option::as_ref)
+                .is_none_or(|page| {
+                    document
+                        .get_key(&page.dict, "Group")
+                        .as_dict()
+                        .is_none_or(|group| !states(document, group, "CS"))
+                })
         })
         .collect()
 }

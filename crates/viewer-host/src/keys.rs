@@ -348,6 +348,14 @@ pub enum WindowAct {
     /// the job and the window sends the message once it knows what sheet the person chose
     /// (ADR 1180).
     Print,
+    /// Convert the document to ISO 19005 (PDF/A) at the target and under the profile the window
+    /// was started with ([`crate::archiving`]).
+    ///
+    /// **A window act rather than a [`Command`], for [`Self::Print`]'s reason turned round**:
+    /// [`viewer_core::Command::Archive`] asks the policy, but the target and the profile are a
+    /// window's to hold — chosen by `--archive` — and a window with none chosen says how to
+    /// choose rather than sending a command it has nothing to fill with (ADR 1954).
+    Archive,
     /// Leave full screen, which is what Escape means while one is running.
     LeaveFullScreen,
     /// Move on to the next of Table 29's six arrangements ([`crate::arrangement`]).
@@ -517,6 +525,10 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
             at: None,
         }),
         Key::W => Meaning::Window(WindowAct::FitControls),
+        // ISO 19005's conversion on Shift, for `Print`'s reason below: `A` unshifted selects
+        // everything and has since this table existed, the standard names no key for either, and
+        // Shift is the one modifier this table reads (ADR 1954).
+        Key::A if shift => Meaning::Window(WindowAct::Archive),
         Key::A => Meaning::Send(Command::Select(Selection::All)),
         // Full screen first, then the draw the window has warned about, then the text selection.
         // All three are documented choices and the module documentation has the argument for
@@ -1029,8 +1041,16 @@ mod tests {
             meaning(Key::S, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Separations))
         ));
+        assert!(matches!(
+            meaning(Key::A, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Send(Command::Select(Selection::All)))
+        ));
+        assert!(matches!(
+            meaning(Key::A, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Archive))
+        ));
         for key in Key::ALL {
-            if matches!(key, Key::Tab | Key::P | Key::S) {
+            if matches!(key, Key::Tab | Key::P | Key::S | Key::A) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

@@ -108,12 +108,12 @@ pub mod transition;
 
 pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
-    Answered, AttachHome, Command, Edit, Fidelity, Find, FindDirection, FocusMove, Oversize,
-    PageTarget, PointerAction, PresentationMode, Printing, Purpose, ReferenceFiles, Rendered,
-    RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection, Sheet,
-    TrustPolicy, Viewing, Zoom,
+    Answered, Archiving, AttachHome, Command, Edit, Fidelity, Find, FindDirection, FocusMove,
+    Oversize, PageTarget, PointerAction, PresentationMode, Printing, Purpose, ReferenceFiles,
+    Rendered, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
+    Selection, Sheet, TrustPolicy, Viewing, Zoom,
 };
-pub use event::{Event, Extraction, Found, RenderRequest};
+pub use event::{Event, Extraction, Found, Media, RenderRequest};
 pub use located::Located;
 pub use open::{Preparation, Prepared};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,

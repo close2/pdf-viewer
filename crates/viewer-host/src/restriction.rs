@@ -739,7 +739,9 @@ impl Restrictions {
 /// and no window has one.
 ///
 /// §12.11.6's processing is not one of the table's positions at all and every window performs it,
-/// because opening a document is the first thing any of them does (ADR 1167).
+/// because opening a document is the first thing any of them does (ADR 1167). Table 286's media
+/// hand-off is asked wherever a rendition action is activated, which every window does through
+/// `viewer_core` (ADR 1961).
 #[must_use]
 pub const fn inert(operation: Operation) -> &'static str {
     match operation {
@@ -749,7 +751,8 @@ pub const fn inert(operation: Operation) -> &'static str {
         | Operation::Modify
         | Operation::Print
         | Operation::PrintFaithfully
-        | Operation::Process => "",
+        | Operation::Process
+        | Operation::HandOverMedia => "",
         Operation::Assemble => INERT,
     }
 }

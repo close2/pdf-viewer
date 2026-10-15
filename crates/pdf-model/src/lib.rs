@@ -54,6 +54,7 @@ pub mod jpeg2000;
 pub mod link;
 mod markup;
 pub mod measurement;
+pub mod media;
 pub use pdf_colour::mesh;
 pub mod metadata;
 pub mod named_page;

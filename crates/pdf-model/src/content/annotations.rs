@@ -152,6 +152,7 @@ impl Interpreter<'_> {
                 // use the dimensions of the media box".
                 media_box: page.media_box,
             },
+            &self.layout_fonts,
         ) {
             crate::annotation::Decision::Nothing => {}
             crate::annotation::Decision::Unsupported(detail) => {

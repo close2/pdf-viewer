@@ -443,6 +443,11 @@ pub(crate) struct App {
     /// §12.7.6.2's submissions on the wire, each on a thread of its own, and the answers that have
     /// come back — collected when the thread wakes this loop (ADR 1291).
     pub(crate) submitter: viewer_host::submit::Submitter,
+    /// The conversion `--archive` chose, which the archive key asks for (ADR 1954).
+    pub(crate) archive: Option<viewer_core::Archiving>,
+    /// The conversions running, each on an `archive` thread of its own that wakes this loop when
+    /// it is done — collected where a server's answer is (ADR 1954).
+    pub(crate) converter: viewer_host::archiving::Converter,
     /// What the standing question is about.
     ///
     /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of

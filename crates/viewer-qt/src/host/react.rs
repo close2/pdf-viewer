@@ -179,6 +179,13 @@ impl Host {
     }
 
     /// Does what one event asks.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of `viewer_core::Event`, and the count is that enum's: the \
+                  match is exhaustive so that an event added to the vocabulary fails to compile \
+                  here, and each arm that does more than one thing already calls a method (ADR \
+                  1920 section 3)"
+    )]
     pub(super) fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             Event::Opened { document, pages } => self.opened(document, pages, queue),
@@ -298,6 +305,10 @@ impl Host {
             Event::Printing {
                 pages, fidelity, ..
             } => self.showing_what_would_print(pages, fidelity),
+            // Table 22's bit 11 granted: the conversion runs on a thread of its own, and the timer
+            // `drawing_wait` sets looks for its report while it runs — so there is no timer to arm
+            // here, whatever the answer says (ADR 1954).
+            granted @ Event::Archiving { .. } => self.start_archiving(granted),
             Event::Copied {
                 logical,
                 page_order,
@@ -333,6 +344,17 @@ impl Host {
             Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
                 &self.state.documents.label_of(document),
                 request,
+            )),
+            // §13.2.4.2's clip handed over: no player is started yet, and the window says so
+            // (ADR 1961).
+            Event::Media {
+                document,
+                content_type,
+                media,
+            } => self.say(&viewer_host::handed_media(
+                &self.state.documents.label_of(document),
+                content_type.as_deref(),
+                &media,
             )),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display

@@ -406,6 +406,10 @@ winner = "first"           # or "most-used"; which of the file's OWN definitions
 remedy = "supply"          # built (ADR 1286): the dictionary is made to state the program's mode
 write-mode = "program"     # or "stream"; the file's two statements disagree and a person decides
 
+[site."optional-content/configuration-names"]
+remedy = "supply"          # built (ADR 1952): a configuration stating no Name is given this label
+name-template = "Configuration {n}"  # your own wording; {n} makes each unique within the file
+
 [site."fonts/cmap-embedded-or-predefined"]
 remedy = "preserve"
 source = "shipped-cmaps"   # built: embed the published Adobe CMap the file names, from data/cmaps/,

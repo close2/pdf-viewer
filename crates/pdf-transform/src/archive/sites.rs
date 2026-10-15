@@ -112,6 +112,88 @@ pub(super) fn rendering_intents(input: &pdf_archive::Report) -> Result<Sites, Be
     Ok(Sites { at })
 }
 
+/// Why a stream naming a filter that is no abbreviation is not rewritten.
+const FILTER_NOT_DECODED: &str = "a stream in this file names a filter that is neither one of \
+     the base standard's standard filters nor the abbreviation ISO 32000-2 8.9.7's Table 92 \
+     gives one, so this tree does not decode it and cannot say what the stream holds. \
+     Re-encoding it under a standard filter would need its decoded bytes, and naming a standard \
+     filter over bytes it did not encode would be a statement about them nobody has made";
+
+/// Whether every failing filter name is one [`super::rewrite::FILTER_ABBREVIATIONS`] spells out.
+///
+/// ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2. The findings carry the name; the
+/// rewrite finds the streams itself, structurally, so a shortened finding list costs nothing
+/// here — any stream it did not reach is still in the output's own verdict.
+pub(super) fn abbreviated_filters(input: &pdf_archive::Report) -> Result<(), Because> {
+    for judgement in input.failures() {
+        if judgement.id != "file-structure/stream-filters-are-standard" {
+            continue;
+        }
+        let Outcome::Failed { places, .. } = &judgement.outcome else {
+            continue;
+        };
+        for finding in places {
+            let abbreviation = finding.place.name.as_deref().is_some_and(|name| {
+                super::rewrite::FILTER_ABBREVIATIONS
+                    .iter()
+                    .any(|(short, _)| *short == name.as_bytes())
+            });
+            if !abbreviation {
+                return Err(Because::NotBuiltYet(FILTER_NOT_DECODED));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Why a graphics state's transfer function is not removed.
+const TRANSFER_FUNCTION_IS_DRAWN: &str = "a graphics state in this file states a transfer \
+     function other than the identity, or states one where this conversion cannot reach every \
+     graphics state that does. ISO 32000-2 10.5's function is applied to what this reader \
+     draws, so removing it would move the colours a reader saw; carrying it into the colours \
+     instead would rewrite every colour, image and shading the page paints under it, which is \
+     content. doc/adr/1952 section 3 says what each profile is to do with one; neither is built";
+
+/// The graphics states whose `/TR` is the name `Identity`, where no graphics state states another.
+///
+/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5. The findings are the whole population —
+/// every graphics state stating the key fails the requirement — so a list the validator shortened
+/// leaves the site refused rather than answered for the part of it this can see; so does a
+/// finding naming an object that is not itself the graphics state, a dictionary written inside
+/// another object being one this rewrite does not reach (`doc/adr/1952`).
+pub(super) fn identity_transfer_functions(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Sites, Because> {
+    let refused = Because::NotBuiltYet(TRANSFER_FUNCTION_IS_DRAWN);
+    let mut at = BTreeSet::new();
+    for judgement in input.failures() {
+        if judgement.id != "graphics/no-transfer-function-in-a-graphics-state" {
+            continue;
+        }
+        let Outcome::Failed { places, total } = &judgement.outcome else {
+            continue;
+        };
+        if places.len() != *total {
+            return Err(refused);
+        }
+        for finding in places {
+            let id = finding.place.object.ok_or(refused)?;
+            let object = document.get(id);
+            let state = object.as_dict().ok_or(refused)?;
+            let identity = matches!(
+                state.get("TR"),
+                Some(Object::Name(name)) if name.as_bytes() == b"Identity"
+            );
+            if !identity {
+                return Err(refused);
+            }
+            at.insert(id);
+        }
+    }
+    Ok(Sites { at })
+}
+
 /// Why a blend mode written as a bare name the standard does not define is not resolved.
 const BARE_BLEND_MODE: &str = "this file sets a blend mode ISO 32000-2 does not define, written \
      as a bare name. §8.4.1's Table 57 says what a reader takes from an *array* of names and \
@@ -631,6 +713,127 @@ pub(super) fn completed_orders(document: &Document) -> Result<CompletedOrders, B
         }
     }
     Ok(found)
+}
+
+/// The `/Name` each optional content configuration stating none is given, and where it is.
+///
+/// The three places [`AutomaticStates`] reaches, for its reason: a configuration that is an
+/// object of its own, one written directly inside an `/OCProperties` object, and one inside an
+/// `/OCProperties` the catalog states directly. The rewrite edits the dictionary each is in after
+/// the `/Order` completion and the `/AS` removal, so the three compose (`doc/adr/1952`).
+#[derive(Debug, Default)]
+pub(super) struct ConfigurationNames {
+    /// Each configuration that is an object of its own, and its new name.
+    pub(super) at: BTreeMap<ObjectId, String>,
+    /// Each configuration written directly inside `/OCProperties`: `None` is `/D`, `Some(i)` the
+    /// `i`-th entry of `/Configs`.
+    pub(super) direct: BTreeMap<Option<usize>, String>,
+    /// The `/OCProperties` object holding the direct ones, where it is an object.
+    pub(super) properties: Option<ObjectId>,
+    /// Whether the catalog states that `/OCProperties` directly.
+    pub(super) in_catalog: bool,
+}
+
+impl ConfigurationNames {
+    /// Every name written, in the order the configurations were met: `/D`, then `/Configs`.
+    pub(super) fn written(&self) -> impl Iterator<Item = &String> {
+        self.direct.values().chain(self.at.values())
+    }
+}
+
+/// Every optional content configuration stating no `/Name`, each given `template`'s wording.
+///
+/// ISO 19005-2 section 6.9, ISO 19005-4 section 6.10. `{n}` becomes the first number from 1 that
+/// no configuration's name already is — compared as text, which is how the validator compares
+/// them — so the names are unique among themselves and among the producer's. `None` where the
+/// file states two configurations of one name, which this does not answer, or a configuration
+/// needing a name inside a `/Configs` array that is an object of its own, which this walk does not
+/// rewrite; the requirement keeps its refusal in both.
+pub(super) fn configuration_names(
+    document: &Document,
+    template: &str,
+) -> Option<ConfigurationNames> {
+    let catalog = document.catalog().ok()?;
+    let properties = document
+        .get_key(&catalog, "OCProperties")
+        .as_dict()
+        .cloned()?;
+    // Each configuration in the order the requirement meets them, with where it is written.
+    let mut configurations: Vec<(Option<ObjectId>, Option<usize>, Dictionary)> = Vec::new();
+    if let Some(entry) = properties.get("D")
+        && let Some(configuration) = document.resolve(entry).as_dict()
+    {
+        configurations.push((entry.as_reference(), None, configuration.clone()));
+    }
+    match properties.get("Configs") {
+        Some(Object::Array(items)) => {
+            for (index, item) in items.iter().enumerate() {
+                if let Some(configuration) = document.resolve(item).as_dict() {
+                    configurations.push((item.as_reference(), Some(index), configuration.clone()));
+                }
+            }
+        }
+        // A `/Configs` that is an object of its own: a configuration it names by reference is
+        // named in its own object, and one written directly inside it is past what this walk
+        // rewrites — `usize::MAX` marks it, and the loop below refuses where one needs a name.
+        Some(entry) => {
+            let resolved = document.resolve(entry);
+            for item in resolved.as_array().unwrap_or_default() {
+                if let Some(configuration) = document.resolve(item).as_dict() {
+                    configurations.push((
+                        item.as_reference(),
+                        Some(usize::MAX),
+                        configuration.clone(),
+                    ));
+                }
+            }
+        }
+        None => {}
+    }
+    let mut used: BTreeSet<String> = BTreeSet::new();
+    let mut unnamed = Vec::new();
+    for (at, place, configuration) in configurations {
+        match document.get_key(&configuration, "Name").as_string() {
+            Some(bytes) => {
+                if !used.insert(pdf_syntax::text_string(bytes)) {
+                    return None;
+                }
+            }
+            None if at.is_none() && place == Some(usize::MAX) => return None,
+            None => unnamed.push((at, place)),
+        }
+    }
+    if unnamed.is_empty() {
+        return None;
+    }
+    let mut found = ConfigurationNames::default();
+    let mut number = 0usize;
+    for (at, place) in unnamed {
+        let name = loop {
+            number = number.saturating_add(1);
+            let candidate = template.replacen("{n}", &number.to_string(), 1);
+            if !used.contains(&candidate) {
+                break candidate;
+            }
+        };
+        used.insert(name.clone());
+        match at {
+            Some(id) => {
+                found.at.insert(id, name);
+            }
+            None => {
+                found.direct.insert(place, name);
+            }
+        }
+    }
+    if !found.direct.is_empty() {
+        match catalog.get("OCProperties") {
+            Some(Object::Reference(at)) => found.properties = Some(*at),
+            Some(Object::Dictionary(_)) => found.in_catalog = true,
+            _ => return None,
+        }
+    }
+    Some(found)
 }
 
 /// Why an `/AS` entry could not be removed.

@@ -213,7 +213,12 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 2 (header 2), 28 event kind(s) (header 28)",
+        "abi 2 (header 2), 30 event kind(s) (header 30)",
+        // ISO 19005's conversion asked for at the reader's default level, granted once, and its
+        // report's first line naming the profile the library listed second (ADR 1954).
+        "archive: 6 profile(s), the second as-if-printed",
+        "archive: 1 grant(s), ",
+        "line(s), the first: converting to PDF/A-2b under the profile \"as-if-printed\"",
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
         // The open read no outline, so its announcement had no section; the preparation, run and

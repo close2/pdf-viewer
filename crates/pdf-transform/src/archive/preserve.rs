@@ -1076,10 +1076,7 @@ fn is_set(character: char) -> bool {
 fn font_objects(document: &Document) -> Vec<ObjectId> {
     let tree = Pages::new(document);
     let mut out: BTreeSet<ObjectId> = BTreeSet::new();
-    for index in 0..tree.len() {
-        let Some(page) = tree.get(index) else {
-            continue;
-        };
+    for page in tree.every().into_iter().flatten() {
         let Some(fonts) = document.get_key(&page.resources, "Font").as_dict().cloned() else {
             continue;
         };

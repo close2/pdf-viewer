@@ -1,8 +1,7 @@
 # 70 — Doom in a PDF: what a document that runs a program asks of this viewer
 
-Status: **open** — the evaluation is ADR 1950, and its first item is built. A 30-band item: items
-2–5 are three fixes and a report that serve every scripted or form document, and item 6 is a
-decision.
+Status: **open** — the evaluation is ADR 1950; items 1–5 are built (ADRs 1950, 1956, 1957), and
+item 6 is a decision.
 Priority: the owner's, 2026-10-15: "find out, what still needs to be implemented to get it working"
 — and fix what is wrong on its own terms on the way.
 Witness: `/home/cl/projects/pdf-viewer/tmp/doom.pdf`, the owner's, **not in the repository**
@@ -20,28 +19,29 @@ Each item below is argued and priced in ADR 1950 section 5; this file is the ord
 Left: at Table 197's events and an outline item a host still says Tier 0's sentence beside it,
 because `ScriptsRan` does not carry what the view state said (`viewer_core::interact::handed_over`).
 
-## 2. Variable text's `/DA` font loaded once per interpretation, not once per field
+## 2. Built — variable text's `/DA` font loaded once per interpretation (ADR 1956)
 
-42 % of the instructions of interpreting a page of 200 changed text fields are
-`pdf_font::LoadedFont::load` called from `variable_text::set_in`. S–M; every form pays it. No pixel
-may move: `raster_golden` and the six arms prove it, and the figure is `script_cost`'s "page
-interpreted after a tick" before and after, in one clock hold.
+`variable_text::LayoutFonts`, held by the interpreter and passed to every layout: 603 loads become 6
+on the framebuffer witness, and interpreting it 2 199 M → 954 M instructions. No digest of the six
+arms moved. Left: the interpreter's own `Tf` loads the same `/DR` font once more an interpretation.
 
-## 3. A timer that cannot starve the window
+## 3. Built — a timer that cannot starve the window (ADR 1957)
 
-At a period shorter than the tick's own cost (`framebuffer.pdf`, 0 ms: 64–120 ms a tick) `quorra`
-presents no frame at all. A due timer waits for the frame its last run asked for. S, `viewer-ui` and
-`viewer-core`; driven at 0 ms and 250 ms under Xvfb, every window.
+In `quorra` a due timer waits while a render of a page on the screen has not reached the window: at
+0 ms, 0 → 54 frames presented in 20 s. The toolkit windows draw the fields in controls and the page
+on their own thread, and answered every tick with its page without the rule (ADR 1957 section 3).
 
-## 4. A widget no `/AcroForm` reaches, and a direct annotation dictionary, said once
+## 4. Built — a widget no `/AcroForm` reaches, and a direct annotation dictionary, said once
 
-Both are silent today. The condition comes from Table 224's Required `/Fields` and Table 31's "shall
-contain indirect references" (trap 11), and is costed in gated pages. S.
+At a page's open with a runner (`script_sites::report_unreachable`): Table 31's sentence for an
+annotation written into `/Annots` as a dictionary, and §12.7.3's or Table 224's for widgets where the
+catalog names no form or the form no `/Fields` — `field_table`'s two early returns, nothing wider.
+Page one of the corpus: 0, 1 (`issue12963.pdf`) and 1 (`issue15597.pdf`) documents of 944. Left:
+with scripts off, a person's press on such a widget is still unsaid.
 
-## 5. A refused method refused at its call, not at its name
+## 5. Built — a refused method refused at its call, not at its name (ADR 1957 section 2)
 
-`typeof print` throws today (ADR 1591's accessor). M: `crate::surface` gains a member's kind; both
-script-corpus gates are held again.
+`crate::surface::Member` on every row; `typeof print` answers `function`, and the call throws.
 
 ## 6. Running the document — a decision, not recommended
 

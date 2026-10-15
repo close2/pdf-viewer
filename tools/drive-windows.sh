@@ -75,6 +75,10 @@
 # of the environment, on a page whose image the sandboxed worker decodes, each saying its first
 # frame (ADR 1907).
 #
+# And in all four windows, ISO 19005's conversion: `--archive 2b:as-if-printed` and Shift+A, the
+# report's lines and the file beside the document read back, and the confined window saying it
+# converts nothing (ADR 1954).
+#
 # And one step outside the list, run by `--step heavy_open` alone: a heavy document's window path
 # timed in all four windows — the first frame, each process's peak memory, what the page crossed as,
 # and how long a key waited while it loaded (ADR 1815); `tools/state.sh heavy` is its clock walk.
@@ -4156,6 +4160,80 @@ bare_session_start() {
     fi
 }
 
+# ISO 19005's conversion, in all four windows (ADR 1954): each launched with `--archive
+# 2b:as-if-printed` and Shift+A pressed on the page, over two documents. The drive's own fixture
+# names a standard 14 font with no descriptor, which the converter refuses by name; a one-page
+# rectangle converts. The three that convert say the profile once, the report's lines per site, and
+# either the file written beside the document — read back here for its header and its
+# `pdfaid:part` — or the sentence saying none was, after the refusal; the confined window says it
+# converts nothing, because a conversion reads the whole document again outside its worker.
+archive_fixture() { # path: one page, one filled rectangle, nothing PDF/A-2b refuses
+    python3 - "$1" <<'PY'
+import sys
+content = b"0 0 1 rg 10 10 50 50 re f"
+objects = [b"<< /Type /Catalog /Pages 2 0 R >>",
+           b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+           b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+           b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content)]
+out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+offsets = []
+for number, body in enumerate(objects, 1):
+    offsets.append(len(out))
+    out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+table = len(out)
+out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+for offset in offsets:
+    out += b"%010d 00000 n \n" % offset
+out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, table)
+open(sys.argv[1], "wb").write(out)
+PY
+}
+archive_converted() {
+    local file copy written mark sites said step
+    for file in "$FIXTURES/drive.pdf" "$FIXTURES/drive-archive.pdf"; do
+        [ -f "$FIXTURES/drive-archive.pdf" ] || archive_fixture "$FIXTURES/drive-archive.pdf"
+        copy="$OUT/$WINDOW-$(basename "$file")"
+        written="${copy%.pdf}.pdfa-2b.pdf"
+        step=88-archive; [ "$file" = "$FIXTURES/drive.pdf" ] && step=88-archive-refused
+        cp "$file" "$copy"
+        rm -f "$written"
+        launch "$copy" --archive 2b:as-if-printed
+        mark=$(lines)
+        coordinates
+        [ "$WINDOW" != quorra-confined ] && click $PAGE
+        key shift+a
+        if [ "$WINDOW" = quorra-confined ]; then
+            wait_for 10 said_since "$mark" "this window converts nothing to ISO 19005"
+            shot "$step"
+            if said_since "$mark" "this window converts nothing to ISO 19005"; then
+                verdict "$step" works "the confined window says it converts nothing"
+            else
+                verdict "$step" wrong "Shift+A said nothing: $LOG"
+            fi
+            kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+            continue
+        fi
+        # The conversion validates the document twice on its own thread; the ceiling is far above
+        # the seconds either fixture takes, for a neighbour's build.
+        wait_for 120 said_since "$mark" "under the profile \"as-if-printed\": wrote\|no PDF/A-2b file was written"
+        shot "$step"
+        sites=$(tail -n "+$((mark + 1))" "$LOG" | grep -c "place(s)\|already met\|^note:       ")
+        said=$(tail -n "+$((mark + 1))" "$LOG" | grep -o "converted to PDF/A-2b under the profile \"as-if-printed\": wrote [0-9]* bytes\|no PDF/A-2b file was written.*" | head -1)
+        if ! said_since "$mark" "converting to PDF/A-2b under the profile \"as-if-printed\""; then
+            verdict "$step" wrong "the profile was never said: $LOG"
+        elif [ "$step" = 88-archive ] && [ -f "$written" ] && head -c 5 "$written" | grep -q '%PDF-' &&
+            grep -aq 'pdfaid:part' "$written" && [ -n "$said" ]; then
+            verdict "$step" works "$said, $sites report line(s) before it"
+        elif [ "$step" = 88-archive-refused ] && [ ! -f "$written" ] && [ -n "$said" ] &&
+            said_since "$mark" "refused: fonts/font-programs-embedded"; then
+            verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'refused: fonts/font-programs-embedded ([^)]*)' | head -1); $said"
+        else
+            verdict "$step" wrong "${said:-no verdict line}: $LOG"
+        fi
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    done
+}
+
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
     # `--step FUNCTION` runs the named step functions alone, in each window asked for.
@@ -4182,6 +4260,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         loading_bar
         zoom_past_the_bound
         bare_session_start
+        archive_converted
         continue
     fi
     drive
@@ -4226,6 +4305,7 @@ for WINDOW in "${WINDOWS[@]}"; do
     zoom_past_the_bound
     transition_frames
     bare_session_start
+    archive_converted
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
      "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

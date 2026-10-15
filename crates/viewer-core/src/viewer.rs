@@ -663,6 +663,7 @@ impl Viewer {
             },
             Command::Copy => self.copy(events),
             Command::Print(printing) => self.print(printing, events),
+            Command::Archive(asked) => self.archive(asked, events),
             // A document's report is a function of the file *and* of whom this reader believes, so
             // the wording already produced is no longer the wording this policy would produce.
             // `Open::about` is a `OnceLock` over exactly that function (ADR 1044), and forgetting
@@ -1753,6 +1754,9 @@ impl Viewer {
             });
         }
         self.ask_for_files(id, outcome.needs_file, events);
+        for clip in outcome.media {
+            self.media(id, clip, events);
+        }
         if let Some(locked) = outcome.locked {
             self.hold(id, into, locked, events);
         }
@@ -2175,6 +2179,20 @@ impl Viewer {
                 };
                 Self::begin_printing(document, open, sheet, fidelity, events);
             }
+            // A conversion changes no document either: the `yes` releases the file to the host
+            // for the target and profile the question was asked about (ADR 1954).
+            crate::open::Held::Archive(asked) => {
+                events.push(Self::archiving(document, open, asked));
+            }
+            // Nothing to commit: handing a clip over changes no document (ADR 1961).
+            crate::open::Held::Media {
+                content_type,
+                media,
+            } => events.push(Event::Media {
+                document,
+                content_type,
+                media,
+            }),
             crate::open::Held::Print(sheet) => {
                 let granted = Self::faithfulness(
                     document,
@@ -2269,6 +2287,52 @@ impl Viewer {
             }
         }
         events.push(damage(self.viewport));
+    }
+
+    /// [`Command::Archive`]: Table 22's bit 11 asked as an operation, and the file if it is
+    /// granted.
+    ///
+    /// The conversion is not run here: `pdf_transform` depends on this crate, so the grant
+    /// carries the file and the host runs the verb (ADR 1954). What this crate owns is the one
+    /// place the reader's level for assembling a document is asked, exactly as a print's bit 3
+    /// is asked by [`Self::print`].
+    fn archive(&mut self, asked: crate::Archiving, events: &mut Vec<Event>) {
+        use pdf_model::restriction::Operation;
+
+        let Some(id) = self.focused else { return };
+        let standing = self.standing(id, Operation::Assemble, None, None);
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        match standing {
+            Standing::Refuse(refused) => events.push(refused),
+            Standing::Proceed => events.push(Self::archiving(id, open, asked)),
+            Standing::Warn(notes) => {
+                events.push(Self::archiving(id, open, asked));
+                events.push(Event::Warned {
+                    document: id,
+                    operation: Operation::Assemble,
+                    notes,
+                });
+            }
+            Standing::Ask(notes) => {
+                open.asking = Some(crate::open::Held::Archive(asked));
+                events.push(Event::Asking {
+                    document: id,
+                    operation: Operation::Assemble,
+                    notes,
+                });
+            }
+        }
+    }
+
+    /// The grant [`Self::archive`] and a `yes` to its question both send.
+    fn archiving(id: DocumentId, open: &Open, asked: crate::Archiving) -> Event {
+        Event::Archiving {
+            document: id,
+            bytes: open.document.bytes().clone(),
+            asked,
+        }
     }
 
     /// §7.6.4.2's Table 22 bit 12, asked of a print bit 3 has already let through.
@@ -2510,6 +2574,72 @@ impl Viewer {
             field,
             annotation,
         )
+    }
+
+    /// §13.2.4.2's clip, asked of the reader's level for Table 286's `/TF` and handed over if it is
+    /// let through — the four verdicts as [`Self::edit`] has them.
+    ///
+    /// **Only embedded data asks**: `/TF` governs "a temporary file in order to play a media clip",
+    /// and a player handed a URL or a named file is given no file this program wrote. ADR 1961.
+    fn media(&mut self, id: DocumentId, clip: pdf_model::media::Clip, events: &mut Vec<Event>) {
+        use crate::notes::{Standing as Worded, restricted};
+        use pdf_model::restriction::{Operation, Verdict};
+        let operation = Operation::HandOverMedia;
+        let level = self.restrictions;
+        let Some(open) = self.documents.get_mut(&id) else {
+            return;
+        };
+        let level = level.under(open.restrictions).level(operation).level();
+        let asserted = match clip.data {
+            pdf_model::media::Data::Embedded(_) => {
+                pdf_model::restriction::media(&open.document, clip.temporary_file)
+            }
+            _ => Vec::new(),
+        };
+        let verdict = level.verdict(asserted);
+        if let Verdict::Refuse(restrictions) = verdict {
+            events.push(Event::Refused {
+                document: id,
+                operation,
+                notes: restricted(operation, &restrictions, Worded::Refused),
+            });
+            return;
+        }
+        let Some(media) = media_of(id, &open.document, &clip, events) else {
+            return;
+        };
+        let content_type = clip.content_type;
+        match verdict {
+            // `Refuse` returned above, before anything was decoded.
+            Verdict::Proceed | Verdict::Refuse(_) => events.push(Event::Media {
+                document: id,
+                content_type,
+                media,
+            }),
+            Verdict::Warn(restrictions) => {
+                events.push(Event::Media {
+                    document: id,
+                    content_type,
+                    media,
+                });
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Warned),
+                });
+            }
+            Verdict::Ask(restrictions) => {
+                open.asking = Some(crate::open::Held::Media {
+                    content_type,
+                    media,
+                });
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes: restricted(operation, &restrictions, Worded::Asked),
+                });
+            }
+        }
     }
 
     /// `pdf_model::restriction::decide` at a stated level, worded.
@@ -5942,6 +6072,45 @@ fn build_layers(
 /// filed, and a click on §12.5.6.15's file attachment annotation, which names none because an
 /// annotation files its file under nothing. Both owe the same three statements, which is why
 /// this is one function rather than two that drifted.
+/// What [`Event::Media`] hands over for one clip, its embedded data decoded here for
+/// [`hand_over`]'s reason: a host that had to undo §7.4's filters would be a second reader of the
+/// document.
+fn media_of(
+    id: DocumentId,
+    document: &pdf_syntax::Document,
+    clip: &pdf_model::media::Clip,
+    events: &mut Vec<Event>,
+) -> Option<crate::Media> {
+    use pdf_model::media::Data;
+    let media = match &clip.data {
+        Data::Embedded(file) => {
+            let name = file.file_name.clone().unwrap_or_else(|| file.name.clone());
+            // Trap 5, as `hand_over` has it: a stream that will not decode is said, never handed
+            // over empty.
+            let Some(bytes) = document.decoded_stream_data(&file.stream) else {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes: vec![format!(
+                        "the media clip {name:?} states a filter or an encryption this program \
+                         cannot undo, so nothing was handed over"
+                    )],
+                });
+                return None;
+            };
+            crate::Media::Embedded {
+                name,
+                bytes: bytes.to_vec(),
+            }
+        }
+        Data::Url(url) => crate::Media::Url(url.clone()),
+        Data::File(name) => crate::Media::File(name.clone()),
+        // `interact::rendered` keeps a form XObject back: its player is this processor.
+        Data::Form => return None,
+    };
+    Some(media)
+}
+
 fn hand_over(
     id: DocumentId,
     asked: Extraction,

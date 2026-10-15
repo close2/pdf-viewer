@@ -500,6 +500,16 @@ the traced path drawn over the page in each window's own colour, with every pres
 message, no shared code, and the colour is each platform's answer to a clause that states none.
 ADR 1264.
 
+**And `Command::Archive` and `Event::Archiving` are print's shape for a verb this crate cannot run.**
+`Command::Archive(Archiving { target, profile })` asks Table 22's bit 11 — assembling the document
+into a new one, the operation `quorra-transform archive` asks — at the reader's level, and the grant
+carries the `FileBytes` the document was opened from, because `pdf-transform` depends on this crate
+and so the converter is a host's to run. `viewer_host::archiving` runs it for every host: the
+profiles are `pdf_transform::profiles`'s compiled-in list, a profile's tools go through the one
+shared executor, the run is on a thread of its own, and the file lands beside the document. The
+confined window's wire refuses both as `Uncarried`; the C ABI gained seven entry points and
+`QUORRA_EVENT_ARCHIVING`; every window gained `--archive <target>:<profile>` and Shift+A. ADR 1954.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

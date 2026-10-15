@@ -1029,3 +1029,21 @@ printed beside it are compared against HEAD; where they are equal the figure is 
 the record says so with both numbers. HEAD is measured in a tree of its own
 (`git worktree add --detach`, every submodule and untracked document linked in, the workers built
 beside the test) rather than read from a log, because the machine on the day is the variable.
+
+## 102. A worked example's printed figure is checked against its own formula before it sets a tolerance
+
+Guidance Note 7-2 section 4.2.3 prints an intermediate coordinate 6 mm away from what its own
+formula gives, with either rotation convention. Round 1561 found this because its test's tolerance
+was one unit of the example's last printed digit, which the formula could not meet, and the test
+now says why its tolerance is what it is. A worked example is a document's claim about a
+computation; before its last digit becomes a test's bound, the computation is run from the
+document's inputs and the two are compared, and a disagreement is written into the test's reason.
+
+## 103. A new arm of a host's event match is one line that hands the event to a method
+
+Two rounds of batch eighty-nine each added an arm to the GTK and Qt windows' `react` matches, and
+together they pushed both past clippy's hundred-line limit, which the second round lifted with an
+`expect`. A match over an exhaustive event enum is where every feature arrives, so its arms grow
+with the features; an arm that carries its body makes the match the longest function in the
+window. An arm is `Event::X(it) => self.x(it)`, and the body is the method's, where it can be read
+on its own and tested on its own.

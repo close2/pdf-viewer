@@ -49,6 +49,10 @@ pub struct ReaderWords {
     /// The level [`SCRIPTS`] named, the last one typed where it was typed twice: `off` where none
     /// was (`doc/questions/A193`).
     pub scripts: Scripts,
+    /// The conversion [`crate::archiving::ARCHIVE`] chose, the last one typed where it was typed
+    /// twice: what the archive key asks for (ADR 1954). Not a command sent at launch — a
+    /// conversion is something a person asks for later, by the key.
+    pub archive: Option<viewer_core::Archiving>,
 }
 
 /// The four commands the words became, and every file a person named that did not take.
@@ -69,9 +73,9 @@ impl ReaderWords {
     pub const USAGE: &'static str = "[--trust-anchors <dir>] [--accept-unknown-revocation] \
          [--reference-files <dir>] [--reader-name <name>] [--reader-title <title>] \
          [--reader-organisation <organisation>] [--interface-language <tag>] \
-         [--scripts off|ask|warn|on]";
+         [--scripts off|ask|warn|on] [--archive <target>:<profile>]";
 
-    /// Takes `word` if it is one of the eight, reading the value after it from `rest`.
+    /// Takes `word` if it is one of the nine, reading the value after it from `rest`.
     ///
     /// `Ok(false)` where `word` is none of them, which leaves it to the window's own parser.
     ///
@@ -101,6 +105,17 @@ impl ReaderWords {
                 "a directory of PDF files",
                 rest.next(),
             )?);
+        } else if word == crate::archiving::ARCHIVE {
+            let value = rest
+                .next()
+                .map(|value| value.into().to_string_lossy().into_owned())
+                .ok_or_else(|| {
+                    format!(
+                        "{} wants <target>:<profile>, as in 2b:as-if-printed",
+                        crate::archiving::ARCHIVE
+                    )
+                })?;
+            self.archive = Some(crate::archiving::chosen(&value)?);
         } else if word == SCRIPTS {
             let level = rest
                 .next()
@@ -270,6 +285,20 @@ mod tests {
             }
             other => panic!("Trust, References, Audience, Scripts off in that order: {other:?}"),
         }
+    }
+
+    /// The archive word chooses a target and a shipped profile, and a profile not shipped is refused
+    /// by naming the ones that are (ADR 1954).
+    #[test]
+    fn the_archive_word_chooses_what_the_archive_key_asks_for() {
+        let (words, left) = read(&["--archive", "2b:as-if-printed", "doc.pdf"]).expect("chosen");
+        assert_eq!(left, ["doc.pdf"]);
+        let chosen = words.archive.expect("a conversion chosen");
+        assert_eq!(chosen.profile, "as-if-printed");
+        let complaint = read(&["--archive", "2b:nothing-lost"]).expect_err("no such profile");
+        assert!(complaint.contains("as-shown"), "{complaint}");
+        let complaint = read(&["--archive"]).expect_err("a value is wanted");
+        assert!(complaint.contains("2b:as-if-printed"), "{complaint}");
     }
 
     /// RFC 0008 section 6.3's four words, the last one typed standing, and a fifth refused by name.

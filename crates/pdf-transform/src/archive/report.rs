@@ -450,6 +450,15 @@ pub struct Conversion {
     pub source: usize,
     /// The target asked for.
     pub target: Target,
+    /// The profile whose rows answered this conversion's refusals, by the name it states.
+    ///
+    /// `None` where the run named no configuration, or one that states no `[profile] name`.
+    /// **Set by the face that read the configuration and not by the conversion**, because the
+    /// plan carries what a configuration *contributes* and not where it came from: the command
+    /// line knows which `--profile` or `--config` it read, and a window knows which profile a
+    /// person chose (ADR 1954). The rendered report leaves it to that face, which says it once
+    /// above the per-site lines; the JSON report carries it so that a pipeline can read it.
+    pub configuration: Option<String>,
     /// Every requirement the input already met, by identifier.
     pub conformed: Vec<&'static str>,
     /// Every requirement the input failed, with the decision taken about it.
@@ -687,6 +696,12 @@ impl Conversion {
         Value::Object(vec![
             ("source".to_owned(), Value::count(self.source)),
             ("target".to_owned(), Value::text(self.target.to_string())),
+            (
+                "profile".to_owned(),
+                self.configuration
+                    .as_ref()
+                    .map_or(Value::Null, |name| Value::text(name.clone())),
+            ),
             (
                 "conformed".to_owned(),
                 Value::Array(self.conformed.iter().map(|id| Value::text(*id)).collect()),

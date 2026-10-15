@@ -327,6 +327,7 @@ impl Host {
                  its editor are viewer-ui's alone (doc/todo/30)",
             ),
             viewer_host::WindowAct::Print => self.ask_to_print(),
+            viewer_host::WindowAct::Archive => self.ask_to_archive(),
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
     }

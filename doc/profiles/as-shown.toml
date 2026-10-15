@@ -151,6 +151,14 @@ remedy = "discard"
 remedy = "supply"
 winner = "first"
 
+# A configuration of the file's optional content that states no Name is given a label: the clause
+# requires one, nothing in the file is it, and the wording is this profile's, said in the report
+# and in xmpMM:History as the operator's rather than the producer's (ADR 1952). No page changes:
+# the name labels a variant in a user interface and decides nothing about what is drawn.
+[site."optional-content/configuration-names"]
+remedy = "supply"
+name-template = "Configuration {n}"
+
 [site."file-structure/permissions-dictionary-keys"]
 remedy = "discard"
 

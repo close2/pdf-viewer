@@ -999,9 +999,9 @@ fn for_each_document_additional_actions(
             &document.get_key(&catalog, "AA"),
         );
     }
-    let pages = Pages::new(document);
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
+    // One walk of the tree rather than one lookup per page (ADR 1953).
+    for (index, page) in Pages::new(document).every().into_iter().enumerate() {
+        let Some(page) = page else {
             continue;
         };
         // `/AA` is not one of §7.7.3.4's inheritable entries, so the page's own dictionary is
@@ -2311,8 +2311,9 @@ pub fn action_sites(document: &Document, target: Target) -> Vec<ActionSite> {
         });
     }
     let pages = Pages::new(document);
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
+    // One walk of the tree rather than one lookup per page (ADR 1953).
+    for (index, page) in pages.every().into_iter().enumerate() {
+        let Some(page) = page else {
             continue;
         };
         out.push(ActionSite {

@@ -209,6 +209,13 @@ struct StoreState {
     /// every shader it generated.
     function_shaders: HashMap<ProgramHash, ProgramHash>,
     function_pipelines: HashMap<FunctionKey, Arc<wgpu::RenderPipeline>>,
+    /// The generated pipelines this adapter refused, kept by the key `function_pipelines` uses
+    /// for `refused`'s reason (ADR 1929, ADR 1962).
+    function_refused: HashMap<FunctionKey, PipelineProblem>,
+    /// How many times a generated pipeline was compiled, refused or not, so that a test can
+    /// tell a kept refusal from a second compile that failed the same way (ADR 1962).
+    #[cfg(test)]
+    function_compiles: usize,
 }
 
 /// The lazily-populated set of render pipelines, shared between the device and its
@@ -261,6 +268,9 @@ impl PipelineStore {
                 function_modules: HashMap::new(),
                 function_shaders: HashMap::new(),
                 function_pipelines: HashMap::new(),
+                function_refused: HashMap::new(),
+                #[cfg(test)]
+                function_compiles: 0,
             }),
             warm_up: Mutex::new(WarmUp::Running),
             warmed: Condvar::new(),

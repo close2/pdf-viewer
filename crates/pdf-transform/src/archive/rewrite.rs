@@ -950,6 +950,39 @@ pub enum Rewrite {
     /// — the dictionary's entry written, or the program's own entry's digit replaced
     /// (`doc/adr/1286`).
     WriteModeAgreed,
+    /// Every stream whose `/Filter` names a filter by the abbreviation §8.9.7's Table 92 gives it
+    /// states the filter's full name instead; the stream's bytes are not touched.
+    ///
+    /// ISO 19005-2 section 6.1.7.2 and ISO 19005-4 section 6.1.6.2 admit only the base standard's
+    /// standard filters, and §8.9.7 confines the abbreviations to inline images:
+    ///
+    /// > These abbreviations are valid only in inline images; they shall not be used in image
+    /// > XObjects.
+    ///
+    /// The standard says nothing of what a reader does with one in a stream, and this reader's
+    /// decoder takes each as the filter Table 92 names — so the page a person saw was drawn
+    /// through that filter, and writing the name out in full states the reading it was drawn by
+    /// (`doc/adr/1952`). A name that is no abbreviation is refused by `super::sites`.
+    FilterNamesSpelledOut,
+    /// Every optional content configuration that states no `/Name` is given the one the
+    /// operator's `name-template` makes, numbered past every name the file already uses.
+    ///
+    /// ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10 require each configuration to carry
+    /// a `/Name` unique within the file; §8.11.4.3's Table 99 makes it a label for a user
+    /// interface. A `supply`, because no name exists in the file to be found: the text is the
+    /// operator's, the report and `xmpMM:History` say so, and a configuration that states a name
+    /// another one also states keeps its refusal (`doc/adr/1952`).
+    ConfigurationNamed,
+    /// Every graphics state stating `/TR /Identity` loses the entry, where no graphics state in
+    /// the file states any other transfer function.
+    ///
+    /// ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5 forbid the key. §10.5 is drawn
+    /// here, so a real function changes what is shown and is not this rewrite's; but where every
+    /// `/TR` the file states is the name `Identity`, the function in force is the identity before
+    /// and after each `gs`, and removing the entry leaves every colour where it was on this
+    /// reader's device, whose initial transfer function Table 53 leaves device dependent and
+    /// which is the identity here (`doc/adr/1952` section 3).
+    IdentityTransferFunctionRemoved,
 }
 
 impl Rewrite {
@@ -1263,6 +1296,18 @@ impl Rewrite {
                 "an embedded CMap whose dictionary and program disagreed about its writing mode \
                  states in both the one the operator said its producer meant"
             }
+            Self::FilterNamesSpelledOut => {
+                "a stream naming a filter by the abbreviation ISO 32000-2 \u{a7}8.9.7's Table 92 \
+                 gives it for inline images states the filter's full name, its bytes untouched"
+            }
+            Self::ConfigurationNamed => {
+                "an optional content configuration stating no Name is given the one the \
+                 operator's name-template makes, numbered past every name the file already uses"
+            }
+            Self::IdentityTransferFunctionRemoved => {
+                "a graphics state's TR entry naming the identity is removed, in a file whose \
+                 graphics states state no other transfer function"
+            }
             Self::ShippedCMapEmbedded => {
                 "a composite font naming a CMap the base standard does not predefine names a \
                  stream holding Adobe's published program for it, byte for byte, so the same \
@@ -1359,6 +1404,9 @@ impl Rewrite {
             Self::Jpeg2000TranscodedToFlate => "jpeg2000-transcoded-to-flate",
             Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
             Self::WriteModeAgreed => "write-mode-agreed",
+            Self::FilterNamesSpelledOut => "filter-names-spelled-out",
+            Self::ConfigurationNamed => "configuration-named",
+            Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
         }
     }
 }
@@ -1421,6 +1469,7 @@ pub(super) fn convert(
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
         rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
+        identity_transfers: prepared.owed.identity_transfers.as_ref().ok(),
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
         appearance_states: prepared.owed.appearance_states.as_ref().ok(),
         orders: prepared.owed.orders.as_ref().ok(),
@@ -1805,8 +1854,10 @@ impl Sites {
             .as_dict()
             .and_then(|dict| dict.get("Names").and_then(Object::as_reference));
         let tree = Pages::new(document);
-        let pages: BTreeSet<ObjectId> = (0..tree.len())
-            .filter_map(|index| tree.get(index).and_then(|page| page.id))
+        let pages: BTreeSet<ObjectId> = tree
+            .every()
+            .into_iter()
+            .filter_map(|page| page.and_then(|page| page.id))
             .collect();
         let default_cmyk = if wanted.contains(&Rewrite::DefaultCmyk) {
             CmykSites::of(document, &tree)
@@ -1852,10 +1903,7 @@ impl Sites {
 /// which `doc/adr/0947`'s third stage refuses the file for.
 fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectId> {
     let mut out = BTreeSet::new();
-    for index in 0..tree.len() {
-        let Some(page) = tree.get(index) else {
-            continue;
-        };
+    for page in tree.every().into_iter().flatten() {
         let Some(annotations) = document
             .get_key(&page.dict, "Annots")
             .as_array()
@@ -1940,10 +1988,7 @@ impl CmykSites {
         let mut found = Self::default();
         let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
         let mut queue: VecDeque<Object> = VecDeque::new();
-        for index in 0..tree.len() {
-            let Some(page) = tree.get(index) else {
-                continue;
-            };
+        for page in tree.every().into_iter().flatten() {
             if let Some(id) = page.id {
                 found.holder(
                     document,
@@ -2264,6 +2309,8 @@ struct Rewriter<'a> {
     metrics: Option<&'a Metrics>,
     /// The graphics states and images whose rendering intent is restated.
     rendering_intents: Option<&'a sites::Sites>,
+    /// The graphics states whose `/TR /Identity` goes.
+    identity_transfers: Option<&'a sites::Sites>,
     /// The dictionaries whose `/BM` array is restated.
     blend_modes: Option<&'a sites::Sites>,
     /// The stream each annotation's normal appearance collapses to.
@@ -2537,6 +2584,15 @@ impl Rewriter<'_> {
     ) -> bool {
         let mut changed = false;
         changed |= self.restate_rendering_intent(id, out, applied);
+        if self.wants(Rewrite::IdentityTransferFunctionRemoved)
+            && self
+                .identity_transfers
+                .is_some_and(|sites| sites.at.contains(&id))
+            && out.remove("TR").is_some()
+        {
+            count(applied, Rewrite::IdentityTransferFunctionRemoved);
+            changed = true;
+        }
         changed |= self.restate_blend_mode(id, out, applied);
         changed |= self.collapse_appearance_states(id, out, applied);
         changed |= self.reduce_appearance_dictionary(id, out, applied);
@@ -2545,6 +2601,8 @@ impl Rewriter<'_> {
         // one its own preparation built: this removal edits whatever `out` now holds, so the two
         // compose on a document that needs both rather than one undoing the other.
         changed |= self.remove_automatic_states(id, out, applied);
+        // After both, for the same reason: it edits what `out` holds by then.
+        changed |= self.name_configurations(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
@@ -2990,6 +3048,95 @@ impl Rewriter<'_> {
                         rebuilt.push(Object::Dictionary(configuration));
                     }
                     other => rebuilt.push(other.clone()),
+                }
+            }
+            if any {
+                properties.insert(Name::new(&b"Configs"[..]), Object::Array(rebuilt));
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The `/Name` the operator's wording gives a configuration stating none, wherever this
+    /// object holds one (`doc/adr/1952`).
+    ///
+    /// [`Self::remove_automatic_states`]' two places: the configuration that is this object, and
+    /// the `/OCProperties` object holding some directly. The third is
+    /// [`Self::name_the_catalogs_configurations`]'.
+    fn name_configurations(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::ConfigurationNamed) {
+            return false;
+        }
+        let names = &self.remedies.configuration_names;
+        if let Some(name) = names.at.get(&id) {
+            out.insert(Name::new(&b"Name"[..]), name_string(name));
+            count(applied, Rewrite::ConfigurationNamed);
+            return true;
+        }
+        if names.properties == Some(id) {
+            return Self::name_direct_configurations(out, &names.direct, applied);
+        }
+        false
+    }
+
+    /// The names of configurations written inside an `/OCProperties` the catalog states directly.
+    fn name_the_catalogs_configurations(
+        &self,
+        catalog: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let names = &self.remedies.configuration_names;
+        if !self.wants(Rewrite::ConfigurationNamed) || !names.in_catalog {
+            return false;
+        }
+        let Some(Object::Dictionary(properties)) = catalog.get("OCProperties") else {
+            return false;
+        };
+        let mut properties = properties.clone();
+        if !Self::name_direct_configurations(&mut properties, &names.direct, applied) {
+            return false;
+        }
+        catalog.insert(
+            Name::new(&b"OCProperties"[..]),
+            Object::Dictionary(properties),
+        );
+        true
+    }
+
+    /// Each configuration written in place inside one `/OCProperties` dictionary, named.
+    fn name_direct_configurations(
+        properties: &mut Dictionary,
+        direct: &BTreeMap<Option<usize>, String>,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if let Some(name) = direct.get(&None)
+            && let Some(Object::Dictionary(default)) = properties.get("D")
+        {
+            let mut default = default.clone();
+            default.insert(Name::new(&b"Name"[..]), name_string(name));
+            properties.insert(Name::new(&b"D"[..]), Object::Dictionary(default));
+            count(applied, Rewrite::ConfigurationNamed);
+            changed = true;
+        }
+        if let Some(Object::Array(items)) = properties.get("Configs") {
+            let mut rebuilt = items.clone();
+            let mut any = false;
+            for (index, item) in rebuilt.iter_mut().enumerate() {
+                if let (Some(name), Object::Dictionary(configuration)) =
+                    (direct.get(&Some(index)), &*item)
+                {
+                    let mut configuration = configuration.clone();
+                    configuration.insert(Name::new(&b"Name"[..]), name_string(name));
+                    *item = Object::Dictionary(configuration);
+                    count(applied, Rewrite::ConfigurationNamed);
+                    any = true;
                 }
             }
             if any {
@@ -3794,6 +3941,7 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.remove_the_catalogs_automatic_states(catalog, applied);
+        changed |= self.name_the_catalogs_configurations(catalog, applied);
         if self.wants(Rewrite::AlternatePresentations)
             && let Some(Object::Dictionary(names)) = catalog.get("Names")
         {
@@ -4313,6 +4461,15 @@ impl Rewriter<'_> {
             None => stream.dict.clone(),
         };
         changed |= self.rewrite_xobject(&mut dict, applied);
+        // Before the re-encoding, which carries whatever image codec follows the stages it
+        // decodes under the name this has just written out.
+        if self.wants(Rewrite::FilterNamesSpelledOut)
+            && let Some(spelled) = filter_names_spelled_out(&dict)
+        {
+            dict = spelled;
+            changed = true;
+            count(applied, Rewrite::FilterNamesSpelledOut);
+        }
         if self.wants(Rewrite::FlateInsteadOfLzw)
             && let Some(reencoded) = self.reencode(stream, &dict)
         {
@@ -4610,6 +4767,62 @@ fn holds_reference(value: &Object, depth: usize) -> bool {
             .any(|(_, item)| holds_reference(item, deeper)),
         _ => false,
     }
+}
+
+/// A configuration's `/Name`, as §7.9.2.2's text string that Table 99 makes it.
+fn name_string(name: &str) -> Object {
+    Object::String(pdf_syntax::text_string::encode_text_string(name).into())
+}
+
+/// The filter each of §8.9.7's Table 92 abbreviations names, as this tree's decoder reads it.
+pub(super) const FILTER_ABBREVIATIONS: [(&[u8], &[u8]); 7] = [
+    (b"AHx", b"ASCIIHexDecode"),
+    (b"A85", b"ASCII85Decode"),
+    (b"LZW", b"LZWDecode"),
+    (b"Fl", b"FlateDecode"),
+    (b"RL", b"RunLengthDecode"),
+    (b"CCF", b"CCITTFaxDecode"),
+    (b"DCT", b"DCTDecode"),
+];
+
+/// A stream dictionary whose `/Filter` names each abbreviated filter in full, where it named one.
+///
+/// `None` where nothing is abbreviated, or where `/Filter` is not a name or an array of names —
+/// an indirect entry is left as its producer wrote it, and the output's own verdict says so.
+fn filter_names_spelled_out(dict: &Dictionary) -> Option<Dictionary> {
+    let full = |name: &Name| {
+        FILTER_ABBREVIATIONS
+            .iter()
+            .find(|(short, _)| *short == name.as_bytes())
+            .map(|(_, long)| Name::new(*long))
+    };
+    let spelled = match dict.get("Filter")? {
+        Object::Name(name) => Object::Name(full(name)?),
+        Object::Array(items) => {
+            let mut any = false;
+            let spelled: Vec<Object> = items
+                .iter()
+                .map(|item| match item {
+                    Object::Name(name) => full(name).map_or_else(
+                        || item.clone(),
+                        |long| {
+                            any = true;
+                            Object::Name(long)
+                        },
+                    ),
+                    other => other.clone(),
+                })
+                .collect();
+            if !any {
+                return None;
+            }
+            Object::Array(spelled)
+        }
+        _ => return None,
+    };
+    let mut out = dict.clone();
+    out.insert(Name::new(&b"Filter"[..]), spelled);
+    Some(out)
 }
 
 /// The stream dictionary a re-encoded stream gets: one `FlateDecode` in place of the stages

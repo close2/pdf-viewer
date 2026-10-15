@@ -560,6 +560,8 @@ fn decide_every_failure(
     let mut conversion = Conversion {
         source: plan.source,
         target: plan.target,
+        // The face that read the configuration names it; the plan does not carry it (ADR 1954).
+        configuration: None,
         conformed: input
             .judgements
             .iter()

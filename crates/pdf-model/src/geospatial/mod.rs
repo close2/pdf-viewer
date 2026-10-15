@@ -16,7 +16,10 @@
 //!   Guidance Note 7-2's own section and tested on its worked example;
 //! - [`registration`] is the affine map a registration determines between an object's unit
 //!   square and the earth, and that map run backwards (ADRs 1593 and 1672);
-//! - [`Ellipsoid`] is Guidance Note 7-2 section 1.1's shared quantities.
+//! - [`datum`] carries a position to a display system on another datum, through the parameters a
+//!   file's `TOWGS84` states (ADR 1958);
+//! - [`Ellipsoid`] is Guidance Note 7-2 section 1.1's shared quantities, and section 4.1.1's
+//!   conversion to and from earth-centred coordinates.
 //!
 //! # The fork the census decided
 //!
@@ -30,12 +33,14 @@
 //!
 //! # What is not done, and why it is the clause's line
 //!
-//! **No datum is transformed.** §12.10 asks where a point is in the system the file names; the
-//! answer is a latitude on that system's own datum. §12.10.2's `/DCS` names the system positions
-//! are displayed in, and [`Geospatial::display`] reaches it where it is on the same datum —
-//! geographic, or projected through the forward projection; a `/DCS` on another datum is a datum
-//! transformation, which no clause here defines and the owner's answer leaves out, so it is
-//! refused by the two datums' names.
+//! **A datum is transformed where the file states how, and only there.** §12.10 asks where a point
+//! is in the system the file names; the answer is a latitude on that system's own datum.
+//! §12.10.2's `/DCS` names the system positions are displayed in, and [`Geospatial::display`]
+//! reaches it — on the same datum as the same latitude, and on another through Guidance Note 7-2
+//! section 4.2.3's Helmert transformation with the parameters each datum's `TOWGS84` states, on
+//! the owner's answer `doc/questions/A436`. The parameters between two datums are in no clause and
+//! no name, so a datum that states none is refused by both datums' names rather than guessed for
+//! (ADR 1958).
 //! **Between registration points the function is a choice, and it is named**: §12.10 states the
 //! points and no function between them, so [`Geospatial::registration_geographic`] converts the
 //! points the file states, [`Geospatial::geographic_position`] converts through `/PCSM`, the one
@@ -48,12 +53,14 @@
 //! degrees rather than as the "eastings and northings" the table states, because every projected
 //! map the census found writes them so (ADR 1918).
 
+pub mod datum;
 pub mod ellipsoid;
 pub mod projection;
 pub mod registration;
 pub mod system;
 pub mod wkt;
 
+pub use datum::{DatumShift, Helmert};
 pub use ellipsoid::Ellipsoid;
 pub use projection::{GridPoint, LatLon, Method, Parameters, Projection};
 pub use registration::AffineRegistration;
@@ -88,6 +95,11 @@ pub enum Refusal {
     /// A projection method this tree does not carry, by the name the file gives it.
     #[error("the projection method {0:?} is not one this program evaluates")]
     UnsupportedMethod(String),
+    /// A bound CRS's transformation method this tree does not carry, by the name the file gives
+    /// it: one outside the Helmert family of Guidance Note 7-2 sections 4.2.3 and 4.2.4, or one
+    /// that reads a grid of shifts from a file (ADR 1958).
+    #[error("the datum transformation method {0:?} is not one this program evaluates")]
+    UnsupportedTransformation(String),
     /// A parameter a method's formulas need and the system does not state.
     #[error("{method} needs its {parameter}, which the system does not state")]
     MissingParameter {
@@ -129,14 +141,28 @@ pub enum Refusal {
         /// The method.
         method: &'static str,
     },
-    /// `/DCS` names a geographic system on another datum, and reaching it is a datum
-    /// transformation, which §12.10 does not ask for and `doc/questions/A171` leaves out.
-    #[error("the display system's datum {to:?} is not the file's own {from:?}")]
+    /// `/DCS` names a system on another datum, and one of the two datums states no parameters
+    /// that carry it to WGS 84 and is not WGS 84 itself, so no transformation between them is
+    /// stated (ADR 1958).
+    #[error(
+        "the display system's datum {to:?} is not the file's own {from:?}, and the two strings \
+         state no transformation between them"
+    )]
     DatumTransformation {
         /// The datum of `/GCS`'s geographic system.
         from: String,
         /// The datum `/DCS` names.
         to: String,
+    },
+    /// A datum's `TOWGS84` clause is not the three, six or seven numbers OGC 01-009 section
+    /// 7.3.18 lets it state.
+    #[error(
+        "the datum's TOWGS84 states {count} parameter(s), where three, six or seven numbers are a \
+         transformation"
+    )]
+    DatumShift {
+        /// How many attributes the clause states.
+        count: usize,
     },
     /// A point the method's formulas do not reach.
     #[error("the point is outside the domain of {method}")]
@@ -368,18 +394,20 @@ impl Geospatial {
     /// 269's `/DCS` names — "[a] projected or geographic coordinate system that shall be used for
     /// the display of position values".
     ///
-    /// Without a `/DCS` the position is displayed as it is. With one, the display system is
-    /// reached where that needs no datum transformation: a `/DCS` whose geographic system — the
-    /// system itself, or a projected system's base — is on the same datum and ellipsoid as
-    /// `/GCS`'s is the same latitude, its longitude moved by the difference of the two prime
-    /// meridians, and a projected `/DCS` then carries it through its forward projection to an
-    /// easting and a northing. A `/DCS` on another datum — the clause's own example, a 1927 datum
-    /// displayed in WGS84 — is refused by both datums' names.
+    /// Without a `/DCS` the position is displayed as it is. With one, the position is carried to
+    /// the display system's geographic system — the system itself, or a projected system's base —
+    /// by [`datum::transform`]: on the same datum and ellipsoid as `/GCS`'s it is the same
+    /// latitude, its longitude moved by the difference of the two prime meridians, and on another
+    /// datum — the clause's own example, a 1927 datum displayed in WGS84 — it goes through the
+    /// Helmert transformations the two strings' `TOWGS84` clauses state (ADR 1958). A projected
+    /// `/DCS` then carries it through its forward projection to an easting and a northing.
     ///
     /// # Errors
     ///
-    /// [`Refusal::DatumTransformation`] as above, whatever reading either system's `/WKT`
-    /// refuses, and what the display system's forward projection refuses.
+    /// [`Refusal::DatumTransformation`] by both datums' names where the strings state no
+    /// transformation between them, [`Refusal::DatumShift`] for a `TOWGS84` this reader cannot
+    /// read, whatever reading either system's `/WKT` refuses, and what the display system's
+    /// forward projection refuses.
     pub fn display(&self, position: GeographicPosition) -> Result<Displayed, Refusal> {
         let Some(display) = self.display_system.as_ref() else {
             return Ok(Displayed::Geographic(position));
@@ -397,36 +425,7 @@ impl Geospatial {
             ReferenceSystem::Geographic(geographic) => geographic,
             ReferenceSystem::Projected(projected) => projected.base,
         };
-        let datum = |name: &str| {
-            let plain: String = name
-                .chars()
-                .filter(char::is_ascii_alphanumeric)
-                .map(|c| c.to_ascii_lowercase())
-                .collect();
-            // ESRI writes a datum `D_WGS_1984` where its ellipsoid is `WGS_1984`; the prefix
-            // is the spelling's and not the datum's.
-            plain
-                .strip_prefix('d')
-                .filter(|_| name.starts_with("D_"))
-                .map(str::to_owned)
-                .unwrap_or(plain)
-        };
-        if datum(&from.datum) != datum(&to.datum) || from.ellipsoid != to.ellipsoid {
-            return Err(Refusal::DatumTransformation {
-                from: from.datum,
-                to: to.datum,
-            });
-        }
-        let mut longitude = position.longitude + from.prime_meridian - to.prime_meridian;
-        if longitude > 180.0 {
-            longitude -= 360.0;
-        } else if longitude < -180.0 {
-            longitude += 360.0;
-        }
-        let shown = GeographicPosition {
-            latitude: position.latitude,
-            longitude,
-        };
+        let shown = datum::transform(&from, &to, position)?;
         Ok(match projected {
             None => Displayed::Geographic(shown),
             Some(projected) => {
@@ -700,6 +699,88 @@ mod tests {
             ..Geospatial::default()
         };
         assert_eq!(none.display_position(position), Ok(position));
+    }
+
+    #[test]
+    fn a_display_system_on_another_datum_is_reached_through_the_parameters_the_file_states() {
+        // §12.10.2's illustration, a map on a 1927 datum displayed in WGS84 "corresponding to
+        // values reported by a GPS device", where the map's string states its datum's `TOWGS84`
+        // (OGC 01-009 section 7.3.18): three translations, the rest zero.
+        let nad27 = r#"GEOGCS["GCS_North_American_1927",DATUM["D_North_American_1927",SPHEROID["Clarke_1866",6378206.4,294.9786982],TOWGS84[-8,160,176]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]"#;
+        let wgs84 = r#"GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]"#;
+        let system = |wkt: &str, projected: bool| CoordinateSystem {
+            projected,
+            epsg: None,
+            wkt: Some(wkt.to_owned()),
+        };
+        let geospatial = Geospatial {
+            coordinate_system: Some(system(nad27, false)),
+            display_system: Some(system(wgs84, false)),
+            ..Geospatial::default()
+        };
+        let position = GeographicPosition {
+            latitude: 30.0,
+            longitude: -97.0,
+        };
+        let shown = geospatial
+            .display_position(position)
+            .expect("a stated transformation");
+        // Guidance Note 7-2 section 4.3.1's steps written out: height zero (section 4.1.4), to
+        // geocentric on Clarke 1866 (section 4.1.1), the translation (section 4.2.4), and back on
+        // WGS 84's ellipsoid.
+        let clarke = Ellipsoid::new(6_378_206.4, 294.978_698_2).expect("Clarke 1866");
+        let figure = Ellipsoid::new(6_378_137.0, 298.257_223_563).expect("WGS 84");
+        let [x, y, z] = clarke.geocentric(
+            LatLon {
+                latitude: 30f64.to_radians(),
+                longitude: (-97f64).to_radians(),
+            },
+            0.0,
+        );
+        let (expected, _) = figure.geodetic([x - 8.0, y + 160.0, z + 176.0]);
+        assert!(
+            (shown.latitude - expected.latitude.to_degrees()).abs() < 1e-12,
+            "{shown:?}"
+        );
+        assert!(
+            (shown.longitude - expected.longitude.to_degrees()).abs() < 1e-12,
+            "{shown:?}"
+        );
+        assert!(
+            (shown.latitude - 30.0).abs() > 1e-5,
+            "the datum moved the latitude"
+        );
+        // A projected display system on WGS 84 — UTM zone 14N — is reached through the same
+        // transformation and then its forward projection.
+        let utm_14n = r#"PROJCS["WGS_1984_UTM_Zone_14N",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",-99.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]"#;
+        let projected = Geospatial {
+            display_system: Some(system(utm_14n, true)),
+            ..geospatial.clone()
+        };
+        let Ok(Displayed::Projected {
+            easting, northing, ..
+        }) = projected.display(position)
+        else {
+            panic!("an easting and a northing");
+        };
+        let Ok(ReferenceSystem::Projected(utm)) = system::from_wkt(utm_14n) else {
+            panic!("a projected system");
+        };
+        let [grid_easting, grid_northing] = utm.grid(shown).expect("a grid point");
+        assert!((easting - grid_easting).abs() < 1e-6 && (northing - grid_northing).abs() < 1e-6);
+        // The same map without its `TOWGS84` states no transformation, and is refused by both
+        // datums' names, as before.
+        let unstated = Geospatial {
+            coordinate_system: Some(system(&nad27.replace(",TOWGS84[-8,160,176]", ""), false)),
+            ..geospatial
+        };
+        assert_eq!(
+            unstated.display_position(position),
+            Err(Refusal::DatumTransformation {
+                from: "D_North_American_1927".to_owned(),
+                to: "D_WGS_1984".to_owned()
+            })
+        );
     }
 
     #[test]

@@ -245,9 +245,15 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
   actually wants.
 
 ### `file-structure/stream-filters-are-standard`
-ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · today `not-built-yet`
+ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · **built for Table 92's abbreviations**
+(ADR 1952), `not-built-yet` for every other name
 
-- **Mitigation** — **none, for a stream anything draws**, and the argument is short: re-encoding
+- **Built** — a stream naming a filter by the abbreviation ISO 32000-2 §8.9.7's Table 92 gives it
+  for inline images (`AHx`, `A85`, `LZW`, `Fl`, `RL`, `CCF`, `DCT`) states the full name instead,
+  its bytes untouched (`Stated`): this reader decodes each as the filter it abbreviates, so the
+  page was drawn through that filter. Of the census's 26 failing streams, 14 are abbreviations.
+- **Mitigation** — **none, for a stream anything draws under a name that is no abbreviation**,
+  and the argument is short: re-encoding
   needs the decoded bytes and the decoded bytes need a decoder nobody specifies. There is no tool
   the configuration could name, because the filter is not a published format. The one case with an
   answer is a stream **nothing references**, where ISO 19005-2 6.2.2's exemption for an unreferenced
@@ -719,7 +725,8 @@ transfer function can change the page and removing a halftone cannot.
 #### `graphics/no-transfer-function-in-a-graphics-state`
 #### `graphics/second-transfer-function-is-default`
 #### `graphics/halftone-transfer-function-only-where-required`
-all six · today `not-built-yet`
+all six · today `not-built-yet`, except **`/TR` where every one the file states is `Identity`**
+(ADR 1952 section 3, `Stated`: removed, nothing drawn moves on this reader's device)
 
 - **Mitigation** — `discard`, with the limits document's section 4.8 evidence attached: render the
   page both ways, show whether anything changed, and remove the function only with that shown. Add a
@@ -2047,7 +2054,10 @@ ISO 19005-4 Annex A.2 · PDF/A-4f · today `not-this-target`
 #### `optional-content/configuration-names`
 #### `optional-content/order-lists-every-group`
 ISO 19005-2 6.9, ISO 19005-4 6.10 · all six · **the `/Order` row built in session 957**
-(`Mechanical`); the name row stays `not-built-yet`
+(`Mechanical`); **the name row built as a `supply`** (ADR 1952): `name-template = "Configuration
+{n}"`, `{n}` numbered past every name the file uses, in `as-if-printed`, `as-shown` and
+`keep-everything`; a name two configurations share stays refused. The table default argued below
+was not taken, because `A48`'s line forbids the converter filling an absence on its own authority
 
 - **Mitigation** — section 3.8 of the limits document calls both Default work and the review splits
   them. Completing an `/Order` array with the groups it omits, in the file's own order, invents
@@ -2166,7 +2176,8 @@ four shapes, and the shapes are more useful than the list:
 - **The information is not in the document and nobody but its producer has it**:
   `logical-structure/structure-tree-root`, `metadata/extension-schema-container-fields` where the
   schema is not the operator's own, `metadata/provenance-recorded-action-fields-four`,
-  `embedded-files/pdfa-4f-carries-embedded-files`, `file-structure/stream-filters-are-standard`.
+  `embedded-files/pdfa-4f-carries-embedded-files`, `file-structure/stream-filters-are-standard`
+  outside Table 92's abbreviations.
 
 **None of these is a gap.** ADR 0955's discipline applies: a refusal with an argument is finished
 work, and the useful thing a report can add is which of the four shapes it is, because the shapes
@@ -2193,8 +2204,8 @@ and are struck from the list here as they were struck from `decision.rs`'s `REFU
   every invocation.
 - `annotations/normal-appearance-shape` — `Stated`, **where the annotation states an `/AS`**.
 - `optional-content/order-lists-every-group` — `Mechanical`. Its neighbour
-  `optional-content/configuration-names` is still refused, and the two reasons are now separate
-  sentences rather than one.
+  `optional-content/configuration-names` is answered by a `supply` since ADR 1952, and refused
+  without one.
 - `fonts/charset-lists-every-glyph-in-the-program` and `fonts/cidset-lists-every-cid-in-the-program`
   — `Mechanical`, by the **remove** route rather than the recompute one. The catalogue offered both
   and the base standard decides — **and session 966 found that the edition named here is the wrong

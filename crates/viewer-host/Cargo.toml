@@ -46,6 +46,12 @@ pdf-script-worker.workspace = true
 # The questions a script puts to the person and their answers, `app.alert` and `app.response`, as
 # the worker hands them over — the crate's data alone, without `engine` (ADR 1628).
 pdf-script.workspace = true
+# A window's conversion to ISO 19005: `viewer-core` grants it and the host runs it, through the
+# converter, its compiled-in profiles and its one shared executor (`doc/questions/A54`), so a window
+# converts exactly as `quorra-transform archive --profile` does (ADR 1954). `pdf-archive` names the
+# target.
+pdf-transform.workspace = true
+pdf-archive.workspace = true
 
 [lints]
 workspace = true

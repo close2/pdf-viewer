@@ -208,6 +208,12 @@ pub struct WindowState {
     /// §12.7.6.2's submissions on the wire, each on a `submit-form` thread of its own, and the
     /// answers that have come back — looked at on the toolkit's loop while one is out (ADR 1291).
     pub submitter: crate::submit::Submitter,
+    /// The conversion to ISO 19005 `--archive` chose, which the archive key asks for; `None`
+    /// where the window was started without one (ADR 1954).
+    pub archive: Option<viewer_core::Archiving>,
+    /// The conversions running, each on an `archive` thread of its own, looked for on the timer
+    /// that looks for a server's answers (ADR 1954).
+    pub converter: crate::archiving::Converter,
 }
 
 impl WindowState {
@@ -246,7 +252,22 @@ impl WindowState {
             ahead: Some(ahead),
             read_look: None,
             submitter: crate::submit::Submitter::new(),
+            archive: None,
+            converter: crate::archiving::Converter::new(),
         }
+    }
+
+    /// The same state, with the conversion `--archive` chose for the archive key (ADR 1954).
+    #[must_use]
+    pub fn archiving(self, archive: Option<viewer_core::Archiving>) -> Self {
+        Self { archive, ..self }
+    }
+
+    /// Whether anything this window runs on a thread of its own is still out, so that the
+    /// timer looking for it keeps running: a server's answer, or a conversion.
+    #[must_use]
+    pub const fn looking(&self) -> bool {
+        self.submitter.interval().is_some() || self.converter.interval().is_some()
     }
 }
 
@@ -777,6 +798,50 @@ pub trait NativeWindow {
                 }
                 crate::submit::Reply::Say(note) => self.say(&note),
             }
+        }
+        self.take_the_conversions();
+    }
+
+    /// The archive key: the conversion `--archive` chose, or the sentence saying how to choose.
+    fn ask_to_archive(&mut self) {
+        match crate::archiving::command(self.state().archive.as_ref()) {
+            Ok(command) => self.dispatch(command),
+            Err(sentence) => self.say(&sentence),
+        }
+    }
+
+    /// `Event::Archiving`, the grant: the conversion starts on a thread of its own, looked for on
+    /// the timer a server's answer is (ADR 1954). Any other event is not a grant and starts
+    /// nothing; a thread that could not be started is said.
+    fn start_archiving(&mut self, granted: Event) {
+        let Event::Archiving {
+            document,
+            bytes,
+            asked,
+        } = granted
+        else {
+            return;
+        };
+        self.say(&crate::archiving::starting(&asked));
+        let path = self.state().showing.path.clone();
+        if let Err(sentence) = self
+            .state_mut()
+            .converter
+            .start(document, path, bytes, asked, None)
+        {
+            self.say(&sentence);
+        }
+    }
+
+    /// Every conversion that has finished: its report's lines said in order, and the file written
+    /// beside the document it was read from.
+    fn take_the_conversions(&mut self) {
+        for (path, converted) in self.state_mut().converter.collect() {
+            for line in &converted.lines {
+                self.say(line);
+            }
+            let written = crate::archiving::write_beside(&path, &converted);
+            self.say(&written);
         }
     }
 

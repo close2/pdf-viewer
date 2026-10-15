@@ -556,6 +556,72 @@ fn an_lzw_stream_becomes_flate_and_its_decoded_bytes_are_unchanged() {
     );
 }
 
+#[test]
+fn a_filter_named_by_its_inline_image_abbreviation_is_named_in_full_and_its_bytes_kept() {
+    // ISO 19005-2 section 6.1.7.2 and ISO 19005-4 section 6.1.6.2 admit only the standard
+    // filters, and ISO 32000-2 §8.9.7 says Table 92's abbreviations "are valid only in inline
+    // images". This reader decodes `AHx` as ASCIIHexDecode wherever it meets it, so the name is
+    // written out and the producer's bytes stay as they were (`doc/adr/1952`).
+    let marks = b"0 0 200 200 re W n\n";
+    let hex: Vec<u8> = marks
+        .iter()
+        .flat_map(|byte| format!("{byte:02X}").into_bytes())
+        .chain(*b">")
+        .collect();
+    let source = Conforming {
+        contents: Some(("/Filter /AHx".to_owned(), hex.clone())),
+        ..Conforming::default()
+    }
+    .build();
+    assert_eq!(decoded_contents(&source), marks, "the fixture decodes");
+    let row = "file-structure/stream-filters-are-standard";
+    assert!(
+        holds(&source, Target::Four(Flavour::Plain))
+            .failures()
+            .any(|failed| failed.id == row),
+        "the abbreviation fails the filter rule before anything is converted"
+    );
+
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::FilterNamesSpelledOut,
+            ..
+        }
+    ));
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(decoded_contents(&output), marks, "the same marks");
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("/ASCIIHexDecode"), "the name in full");
+    assert!(
+        text.contains(&*String::from_utf8_lossy(&hex)),
+        "and the producer's encoded bytes, not a re-encoding"
+    );
+}
+
+#[test]
+fn a_filter_this_tree_does_not_decode_stays_refused() {
+    // The other half: a name that is no abbreviation names nothing this reader decodes, so what
+    // the stream holds is unknown and writing a standard filter over it would be a claim nobody
+    // has made.
+    let source = Conforming {
+        contents: Some(("/Filter /BrotliDecode".to_owned(), b"xyz".to_vec())),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "file-structure/stream-filters-are-standard"),
+        Decision::Refused(Because::NotBuiltYet(_))
+    ));
+    assert!(output.is_none(), "and no file is written");
+}
+
 /// The first page's content stream, decoded.
 fn decoded_contents(bytes: &[u8]) -> Vec<u8> {
     let document =
@@ -1234,10 +1300,14 @@ fn a_requirement_this_converter_cannot_meet_refuses_by_name_and_writes_nothing()
     // ISO 19005-4 section 6.2.5 forbids a transfer function in a graphics state.
     // doc/pdf-a-conversion-limits.md section 4.8 says why removing one is not mechanical — a
     // transfer function decides what a *screen* shows, and an inverting one is a photographic
-    // negative — so this converter does not do it yet, and says which requirement it could not
-    // meet rather than writing a file that claims to have met it.
+    // negative — so this converter does not remove one that is not the identity
+    // (`doc/adr/1952` section 3), and says which requirement it could not meet rather than
+    // writing a file that claims to have met it.
     let source = Conforming {
-        objects: vec!["<< /Type /ExtGState /TR /Identity >>".to_owned()],
+        objects: vec![
+            "<< /Type /ExtGState /TR 7 0 R >>".to_owned(),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
         resources: "/ExtGState << /Gs0 6 0 R >>".to_owned(),
         ..Conforming::default()
     }
@@ -9967,6 +10037,168 @@ fn write_mode_stream_restates_the_programs_own_entry_and_the_output_validates() 
             .iter()
             .any(|fact| fact.value.contains("dictionary's 1"))
     );
+}
+
+/// A page whose one graphics state states `/TR` as `tr`, and paints under it.
+fn a_transfer_function(tr: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![format!("<< /Type /ExtGState /TR {tr} >>")],
+        contents: Some((String::new(), b"/G0 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn an_identity_transfer_function_goes_where_the_file_states_no_other() {
+    // ISO 19005-2 and ISO 19005-4 section 6.2.5 forbid the key. Every /TR here is the identity,
+    // so the function in force never differs from it and nothing drawn moves (`doc/adr/1952`).
+    let source = a_transfer_function("/Identity");
+    let row = "graphics/no-transfer-function-in-a-graphics-state";
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::IdentityTransferFunctionRemoved,
+            ..
+        }
+    ));
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn a_transfer_function_that_is_not_the_identity_stays_refused() {
+    // §10.5's function is drawn, so removing one would move the colours a reader saw.
+    let source = Conforming {
+        resources: "/ExtGState << /G0 6 0 R /G1 7 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /TR /Identity >>".to_owned(),
+            "<< /Type /ExtGState /TR 8 0 R >>".to_owned(),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((
+            String::new(),
+            b"/G1 gs 0 0 1 rg 10 10 50 50 re f /G0 gs".to_vec(),
+        )),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
+        Decision::Refused(Because::NotBuiltYet(_))
+    ));
+    assert!(output.is_none());
+}
+
+/// A fixture whose optional content configurations state no `/Name`: the default written inside
+/// `/OCProperties`, a second one an object of its own, and a third named by its producer with
+/// the wording the template would have chosen first.
+fn configurations_without_names() -> Vec<u8> {
+    Conforming {
+        catalog: "/OCProperties << /OCGs [6 0 R] /D << /Order [6 0 R] >> \
+                   /Configs [7 0 R << /Name (Configuration 1) >>] >>"
+            .to_owned(),
+        objects: vec![
+            "<< /Type /OCG /Name (Layer) >>".to_owned(),
+            "<< /Order [6 0 R] >>".to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_configuration_stating_no_name_stays_refused_without_a_supplied_wording() {
+    // ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10 require the name; nothing in the file
+    // is it, and `doc/questions/A48` forbids this converter filling the absence on its own.
+    let (report, output) = to_part_four(&configurations_without_names());
+    assert!(matches!(
+        decision(&report, "optional-content/configuration-names"),
+        Decision::Refused(Because::NotBuiltYet(_))
+    ));
+    assert!(output.is_none());
+}
+
+#[test]
+fn the_profiles_wording_names_each_configuration_uniquely_and_the_output_validates() {
+    // `as-shown`'s row: the operator's wording, numbered past the producer's own
+    // "Configuration 1", so the two written are unique among all three (`doc/adr/1952`).
+    let source = configurations_without_names();
+    let target = Target::Four(Flavour::Plain);
+    let row = "optional-content/configuration-names";
+    let text = "[site.\"optional-content/configuration-names\"]\nremedy = \"supply\"\n\
+                name-template = \"Configuration {n}\"\n";
+    let plan = plan_from(text, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!("the supply answers the site: {:?}", decision(&report, row));
+    };
+    assert_eq!(rewrite, Rewrite::ConfigurationNamed);
+    let output = output.expect("the file is written");
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let properties = document.get_key(&catalog, "OCProperties");
+    let properties = properties.as_dict().expect("the properties are kept");
+    let name_of = |configuration: &pdf_syntax::Object| {
+        document.resolve(configuration).as_dict().and_then(|dict| {
+            document
+                .get_key(dict, "Name")
+                .as_string()
+                .map(<[u8]>::to_vec)
+        })
+    };
+    let configs = document.get_key(properties, "Configs");
+    let configs = configs.as_array().expect("the Configs array");
+    let names: Vec<Option<Vec<u8>>> = [properties.get("D").cloned()]
+        .into_iter()
+        .flatten()
+        .chain(configs.iter().cloned())
+        .map(|configuration| name_of(&configuration))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            Some(b"Configuration 2".to_vec()),
+            Some(b"Configuration 3".to_vec()),
+            Some(b"Configuration 1".to_vec())
+        ],
+        "the producer's own name stands and the two written are past it"
+    );
+    let supplied: Vec<&str> = conversion(&report)
+        .supplied
+        .iter()
+        .filter(|fact| fact.site == row)
+        .map(|fact| fact.value.as_str())
+        .collect();
+    assert_eq!(supplied.len(), 2, "{supplied:?}");
+}
+
+#[test]
+fn two_configurations_of_one_name_keep_their_refusal_under_a_wording() {
+    // Renaming either of the producer's two labels would be rewriting text they did write.
+    let source = Conforming {
+        catalog: "/OCProperties << /OCGs [6 0 R] /D << /Name (Same) >> \
+                   /Configs [<< /Name (Same) >>] >>"
+            .to_owned(),
+        objects: vec!["<< /Type /OCG /Name (Layer) >>".to_owned()],
+        ..Conforming::default()
+    }
+    .build();
+    let text = "[site.\"optional-content/configuration-names\"]\nremedy = \"supply\"\n\
+                name-template = \"Configuration {n}\"\n";
+    let plan = plan_from(text, Target::Four(Flavour::Plain));
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(matches!(
+        decision(&report, "optional-content/configuration-names"),
+        Decision::Refused(_)
+    ));
+    assert!(output.is_none());
 }
 
 #[test]

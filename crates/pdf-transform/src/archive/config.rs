@@ -512,6 +512,17 @@ pub enum Supplied {
     /// tell; the operator states it once for a producer's output, and every value written is one
     /// the file already held (`doc/adr/1286`).
     WriteMode(WriteModeSource),
+    /// `optional-content/configuration-names`: the label each configuration stating none gets.
+    ///
+    /// ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10 require every optional content
+    /// configuration to state a `/Name` unique within the file, and §8.11.4.3 makes it a label
+    /// for a user interface — so where the producer wrote none, nothing in the file is the
+    /// answer and `doc/questions/A48` forbids this converter inventing one. The operator states
+    /// the wording once; `{n}` is replaced by the first number that makes it unique.
+    ConfigurationNames {
+        /// The operator's wording, holding `{n}` exactly where the number goes.
+        template: String,
+    },
 }
 
 /// Which of an embedded `CMap`'s two statements of its writing mode stands.
@@ -1058,11 +1069,14 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// know what their own attachments are, types nothing about any individual document, and can read
 /// the cost in one line — *the archive asserts these media types on our authority*. Beside it,
 /// [`Supplied`]'s two choices among a file's own disagreeing statements: which definition of an
-/// ink, and which statement of a `CMap`'s writing mode.
-const SUPPLIABLE: [&str; 3] = [
+/// ink, and which statement of a `CMap`'s writing mode. Last, the label an optional content
+/// configuration states none of, which `doc/pdf-a-mitigations.md` section 12 makes the operator's
+/// to write (`doc/adr/1952`).
+const SUPPLIABLE: [&str; 4] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
     "fonts/embedded-cmap-states-its-own-write-mode",
+    "optional-content/configuration-names",
 ];
 
 /// One remedy configuration, read from a file and validated against a target.
@@ -1119,6 +1133,8 @@ struct Row {
     winner: Option<Winner>,
     /// `write-mode` — which of an embedded `CMap`'s two write-mode statements stands.
     write_mode: Option<WriteModeSource>,
+    /// `name-template` — the label an optional content configuration stating none is given.
+    name_template: Option<String>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
     /// built first. `true` where the row states none, which is the catalogue's *owed, not
     /// optional*.
@@ -1785,6 +1801,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .unwrap_or(Kind::Stop);
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
     let write_mode = write_mode_key(tbl, &site)?;
+    let name_template = name_template_key(tbl, &site)?;
     let shipped_cmaps = source_key(tbl, &site)?;
     let unmapped = unmapped_key(tbl, &site)?;
     let media_types = tbl
@@ -1820,8 +1837,34 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         winner,
         shipped_cmaps,
         write_mode,
+        name_template,
         line: tbl.line,
     })
+}
+
+/// `name-template`, which holds `{n}` once: the number is what makes every name unique, so a
+/// wording without it would name two configurations alike and answer nothing.
+fn name_template_key(tbl: &toml::Table, site: &str) -> Result<Option<String>, ConfigError> {
+    let Some(value) = tbl.get("name-template") else {
+        return Ok(None);
+    };
+    match value.as_text() {
+        Some(text) if text.matches("{n}").count() == 1 => Ok(Some(text.to_owned())),
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "name-template".to_owned(),
+            wanted: "a string holding {n} exactly once",
+            found: "a string without it, or with it twice",
+        }),
+        None => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "name-template".to_owned(),
+            wanted: "a string",
+            found: value.kind(),
+        }),
+    }
 }
 
 /// `keep-xfa`, whose one word is `attach`.
@@ -1904,6 +1947,9 @@ fn supplied(row: &Row) -> Option<Supply> {
     let fact = match row.site.as_str() {
         "graphics/separations-of-one-name-agree" => Supplied::SeparationWinner(row.winner?),
         "fonts/embedded-cmap-states-its-own-write-mode" => Supplied::WriteMode(row.write_mode?),
+        "optional-content/configuration-names" => Supplied::ConfigurationNames {
+            template: row.name_template.clone()?,
+        },
         _ if row.media_types.is_empty() => return None,
         _ => Supplied::MediaTypes {
             by_extension: row.media_types.clone(),
@@ -2924,6 +2970,31 @@ output-limit = \"1MiB\"
         let config = Configuration::read(text, target).expect("it reads");
         assert!(config.supplies(target).is_empty());
         assert_eq!(config.unbuilt(target).len(), 1);
+    }
+
+    #[test]
+    fn a_name_template_states_where_its_number_goes_exactly_once() {
+        // The number is what makes each configuration's name unique (`doc/adr/1952`), so a
+        // wording without it — or with two — is refused when the file is read.
+        let target = Target::Two(Level::B);
+        let row = |template: &str| {
+            format!(
+                "[site.\"optional-content/configuration-names\"]\nremedy = \"supply\"\n\
+                 name-template = \"{template}\"\n"
+            )
+        };
+        let config = Configuration::read(&row("Variant {n}"), target).expect("it reads");
+        assert_eq!(
+            config.supplies(target),
+            vec![Supply {
+                site: "optional-content/configuration-names".to_owned(),
+                fact: Supplied::ConfigurationNames {
+                    template: "Variant {n}".to_owned(),
+                },
+            }]
+        );
+        assert!(Configuration::read(&row("Variant"), target).is_err());
+        assert!(Configuration::read(&row("{n} of {n}"), target).is_err());
     }
 
     #[test]

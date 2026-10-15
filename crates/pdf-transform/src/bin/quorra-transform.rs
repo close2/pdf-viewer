@@ -66,6 +66,7 @@ use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
+use pdf_transform::profiles::Contribution;
 use pdf_transform::range::Selection;
 use pdf_transform::redact::RedactPlan;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
@@ -425,7 +426,7 @@ fn run() -> Result<Exit, Failure> {
             "--report=json and -o - both want stdout".to_owned(),
         ));
     }
-    let plan = plan(&arguments, output)?;
+    let mut plan = plan(&arguments, output)?;
     let sources = open_inputs(&arguments, &plan)?;
 
     let mut policy = Policy {
@@ -447,9 +448,8 @@ fn run() -> Result<Exit, Failure> {
     let protect = protection(&arguments, &plan)?;
     let borrowed: Vec<&Source> = sources.iter().collect();
 
-    let mut plan = plan;
     let mut passes = 0_usize;
-    let report = loop {
+    let mut report = loop {
         let sinks: &dyn Sinks = if to_stdout {
             &StdoutSinks::default()
         } else {
@@ -490,6 +490,7 @@ fn run() -> Result<Exit, Failure> {
         }
     };
 
+    name_the_profile(&arguments, &mut report)?;
     for warning in &report.warnings {
         match warning.page {
             Some(page) => eprintln!("warning: page {page}: {}", warning.detail),
@@ -513,6 +514,22 @@ fn run() -> Result<Exit, Failure> {
         arguments.switch("--strict"),
         arguments.switch("--quiet-warnings"),
     ))
+}
+
+/// The JSON report's `profile` field: which configuration answered, by the name it states for
+/// itself, read again from the text the plan was built from (ADR 1954).
+///
+/// The text was read once already in `archive_plan`, where a failure stopped the run, so `ok()`
+/// drops nothing.
+fn name_the_profile(arguments: &Arguments, report: &mut Report) -> Result<(), Failure> {
+    if let Some(conversion) = report.archive.as_mut()
+        && let Some((_, text)) = configuration_text(arguments)?
+    {
+        conversion.configuration = Contribution::read(&text, conversion.target)
+            .ok()
+            .and_then(|read| read.name);
+    }
+    Ok(())
 }
 
 /// How many times a plan may come back asking for a tool before this program refuses to try again.
@@ -959,7 +976,8 @@ fn read_config(
             resolutions: Vec::new(),
         });
     };
-    let config = Configuration::read(&text, target)
+    // Read by the library, which a window's archive command reads it through too (ADR 1954).
+    let config = Contribution::read(&text, target)
         .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
     // The report's per-site lines say "this configuration answered it"; this is the line that
     // says which configuration that was, once, where a person reading the run meets it.
@@ -969,7 +987,7 @@ fn read_config(
              the profile {name:?} ({label})"
         );
     }
-    let departures = config.built_departures(target);
+    let departures = config.departures;
     if !departures.is_empty() && !arguments.switch("--depart-from-the-standard") {
         return Err(Failure::Usage(format!(
             "{label} names a departure from ISO 19005, which produces a file that does not \
@@ -977,13 +995,12 @@ fn read_config(
              doc/rfc/0007 section 4.7.3"
         )));
     }
-    let folded = config.authorisations(target);
     for loss in Loss::ALL {
-        if folded.grants(loss) {
+        if config.authorised.grants(loss) {
             authorised.authorise(loss);
         }
     }
-    for unbuilt in config.unbuilt(target) {
+    for unbuilt in &config.unbuilt {
         eprintln!(
             "note: the configuration answers {:?} with `{}`, which this version does not carry out \
              yet; that site stays refused with the sentence it names",
@@ -991,15 +1008,11 @@ fn read_config(
             unbuilt.remedy.word()
         );
     }
-    let derivations = config.derivations(target);
-    let supplies = config.supplies(target);
-    let preservations = config.preservations(target);
-    let resolutions = config.resolutions(target);
     // **`doc/questions/A56`'s warning, where the operator meets it.** The answer put it at the
     // configuration site rather than in a security document nobody opens, and the two places an
     // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
     // to start somebody else's program over an untrusted document says so before it does.
-    for tool in config.tools() {
+    for tool in &config.tools {
         eprintln!(
             "note: {label} declares the tool {:?} as {} — {}",
             tool.name,
@@ -1009,12 +1022,12 @@ fn read_config(
     }
     Ok(FromConfig {
         departures,
-        forms: config.form_answers(target),
+        forms: config.forms,
         claim_conformance: claim,
-        derivations,
-        supplies,
-        preservations,
-        resolutions,
+        derivations: config.derivations,
+        supplies: config.supplies,
+        preservations: config.preservations,
+        resolutions: config.resolutions,
     })
 }
 
@@ -1232,39 +1245,6 @@ fn print_unbuilt_answers(
     Ok(())
 }
 
-/// The remedy configurations this program ships, by the name each states for itself.
-///
-/// `doc/rfc/0007` section 5a's profiles: each is a list of refusal sites with an answer beside
-/// each, a lower bound on what a conversion may lose and never an instruction to lose it (ADR
-/// 1942). Compiled in so that `--profile <name>` works wherever the program is installed;
-/// `tests/profiles.rs` holds every one of them to every target.
-const SHIPPED_PROFILES: [(&str, &str); 6] = [
-    (
-        "refuse-any-loss",
-        include_str!("../../../../doc/profiles/refuse-any-loss.toml"),
-    ),
-    (
-        "as-if-printed",
-        include_str!("../../../../doc/profiles/as-if-printed.toml"),
-    ),
-    (
-        "as-shown",
-        include_str!("../../../../doc/profiles/as-shown.toml"),
-    ),
-    (
-        "only-metadata-loss",
-        include_str!("../../../../doc/profiles/only-metadata-loss.toml"),
-    ),
-    (
-        "keep-everything",
-        include_str!("../../../../doc/profiles/keep-everything.toml"),
-    ),
-    (
-        "derive-attachments",
-        include_str!("../../../../doc/profiles/derive-attachments.toml"),
-    ),
-];
-
 /// `--config <file>` or `--profile <name>`: where the configuration came from, and its text.
 ///
 /// The two are one choice, so naming both is a usage error rather than a precedence a reader has
@@ -1285,15 +1265,19 @@ fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>,
                 .map_err(|error| Failure::Unreadable(path.clone(), error))?;
             Ok(Some((format!("--config {}", path.display()), text)))
         }
-        (None, Some(name)) => SHIPPED_PROFILES
-            .iter()
-            .find(|(shipped, _)| *shipped == name)
-            .map(|(shipped, text)| Some((format!("--profile {shipped}"), (*text).to_owned())))
+        // The list is the library's, so a window's archive command offers the same profiles
+        // (ADR 1954).
+        (None, Some(name)) => pdf_transform::profiles::named(name)
+            .map(|shipped| {
+                Some((
+                    format!("--profile {}", shipped.name),
+                    shipped.text.to_owned(),
+                ))
+            })
             .ok_or_else(|| {
-                let names: Vec<&str> = SHIPPED_PROFILES.iter().map(|(name, _)| *name).collect();
                 Failure::Usage(format!(
                     "--profile {name:?}: the profiles this program ships are {}",
-                    names.join(", ")
+                    pdf_transform::profiles::names()
                 ))
             }),
         (None, None) => Ok(None),

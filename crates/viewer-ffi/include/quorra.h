@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 28u
+#define QUORRA_EVENT_KIND_COUNT 30u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -137,6 +137,16 @@ extern "C" {
  * a switch (ADR 1771). */
 #define QUORRA_EVENT_CONSOLE 27u
 
+/* ISO 32000-2 §13.2.2 judged a rendition's clip viable and the reader's level let it through:
+ * quorra_events_describe says what it is, and quorra_events_bytes gives an embedded clip's data.
+ * Starting a player is the caller's decision; this library plays nothing (ADR 1961). */
+#define QUORRA_EVENT_MEDIA 28u
+
+/* quorra_archive was granted: Table 22's bit 11 let it through at the reader's level and the
+ * conversion to ISO 19005 has run before the call that released it returned. quorra_archived
+ * says how it went (ADR 1954). */
+#define QUORRA_EVENT_ARCHIVING 29u
+
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
 #define QUORRA_POINTER_PRESSED   1u
@@ -186,6 +196,9 @@ extern "C" {
  * beside QUORRA_RESTRICTED_PRINT and not a second answer to it — Table 22 states two
  * consequences, and bit 12 clear limits a print that bit 3 let through (ADR 1203). */
 #define QUORRA_RESTRICTED_PRINT_QUALITY 7u
+/* ISO 32000-2 §13.2.4.2's Table 286 /TF: handing an embedded media clip to a player, which needs the
+ * temporary file the entry governs. Asked where a rendition action is activated (ADR 1961). */
+#define QUORRA_RESTRICTED_MEDIA 8u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
@@ -929,6 +942,27 @@ int32_t quorra_print_page_copy(const quorra_viewer *viewer, size_t page, uint8_t
 int32_t quorra_printed_reports(const quorra_viewer *viewer, size_t *count);
 int32_t quorra_printed_report(const quorra_viewer *viewer, size_t index, char *out, size_t cap,
                        size_t *needed);
+/* ISO 19005 (PDF/A): the profiles this library ships, by name — the command line's --profile list. */
+int32_t quorra_archive_profiles(size_t *count);
+int32_t quorra_archive_profile(size_t index, char *out, size_t cap, size_t *needed);
+/* Asks for the focused document as ISO 19005 at `target` (2b, 2u, 2a, 4, 4f, 4e) under a shipped
+ * profile. Table 22's bit 11 is asked at the reader's level; where it is granted the conversion
+ * runs on the calling thread before this returns (inside quorra_answer at the ask level).
+ * QUORRA_OUT_OF_RANGE for a target this converter does not write; a profile it does not ship is
+ * said in the report. The file is the caller's to write (ADR 1954). */
+int32_t quorra_archive(quorra_viewer *viewer, const char *target, const char *profile,
+                       quorra_events **events);
+/* The last conversion: the file's length, zero where none was written, and its report's lines.
+ * QUORRA_NO_ANSWER where none was granted. */
+int32_t quorra_archived(const quorra_viewer *viewer, size_t *bytes, size_t *lines);
+/* Copies the converted file. Size it from quorra_archived's `bytes`. */
+int32_t quorra_archived_copy(const quorra_viewer *viewer, uint8_t *into, size_t cap,
+                       size_t *written);
+/* One line of the report: the profile once, then each site, then what the run declined. */
+int32_t quorra_archived_line(const quorra_viewer *viewer, size_t index, char *out, size_t cap,
+                       size_t *needed);
+/* The report as RFC 0002 section 4.5's JSON, with its `profile` field. */
+int32_t quorra_archived_json(const quorra_viewer *viewer, char *out, size_t cap, size_t *needed);
 /* A QUORRA_EVENT_COPIED's text, with *logical set to whether it is §14.8.2.5's logical content
  * order rather than page content order. */
 int32_t quorra_event_copied(const quorra_events *events, size_t index, bool *logical, char *out,

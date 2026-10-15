@@ -166,6 +166,7 @@ impl Host {
                     )));
                 }
             }
+            viewer_host::WindowAct::Archive => self.ask_to_archive(),
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
     }

@@ -319,6 +319,7 @@ fn main() {
         .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents))
         .with(viewer_host::ActLevel::Submissions(submissions))
         .with(viewer_host::ActLevel::Scripts(reader.scripts));
+    let archive = reader.archive.clone();
     let policies = Policies {
         restrictions,
         reader,
@@ -465,6 +466,8 @@ fn main() {
         links,
         remote_documents,
         submitter: viewer_host::submit::Submitter::new(),
+        archive,
+        converter: viewer_host::archiving::Converter::new(),
         asked: None,
         script_wait: None,
         script_ticker: viewer_host::script_timers::Ticker::default(),

@@ -208,6 +208,23 @@ pub enum Event {
         /// §12.5.6.15's annotation, which have no URI behind them at all. ADR 0431.
         fragment: Option<String>,
     },
+    /// §13.2.4.2's media clip data, which §13.2.2 called viable, handed over for a player.
+    ///
+    /// **What `CLAUDE.md`'s clause 13 entry admits and no more**: the media file "handed to this
+    /// machine's own player under *A document's restrictions are the reader's to set*". Handed
+    /// over rather than played, for [`Self::OpenUri`]'s reason — starting a program on a document's
+    /// word is a decision about this machine — and sent only after the reader's level for
+    /// `pdf_model::restriction::Operation::HandOverMedia` let it through. A host that starts no
+    /// player says so; the [`Self::Reported`] before this one has already said what the clip is and
+    /// why it was chosen. ADR 1961.
+    Media {
+        /// Which document.
+        document: DocumentId,
+        /// Table 285's `/CT`, the type a player is chosen by.
+        content_type: Option<String>,
+        /// The clip's data.
+        media: Media,
+    },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).
     ///
@@ -394,6 +411,27 @@ pub enum Event {
         /// granted and the fidelity is not, which is the pair Table 22 states. ADR 1203.
         fidelity: crate::Fidelity,
     },
+    /// [`crate::Command::Archive`] went ahead: here is the file, and the host runs the converter.
+    ///
+    /// **The grant, for [`Self::Printing`]'s reason**: Table 22's bit 11 restricts assembling a
+    /// document into a new one, so at [`crate::RestrictionLevel::On`] with the bit withheld this
+    /// does not arrive and [`Self::Refused`] does, and at `Ask` it arrives only after
+    /// [`crate::Command::Answer`] says to proceed. Having arrived, the reader's level has been
+    /// answered, so the host converts with the restriction level off rather than asking a second
+    /// time (ADR 1954).
+    ///
+    /// **The bytes are the file as it was opened**, not the window's unsaved edits: what is
+    /// converted is what a producer wrote, the immutable `pdf_syntax::Document` this crate reads,
+    /// and an edit a person wants in the archive is saved first and the saved file converted.
+    /// A `FileBytes` is a handle, so carrying it copies nothing.
+    Archiving {
+        /// Which document.
+        document: DocumentId,
+        /// The file, as this crate opened it.
+        bytes: pdf_syntax::FileBytes,
+        /// What the person asked for, as [`crate::Command::Archive`] stated it.
+        asked: crate::Archiving,
+    },
     /// §7.11.4's list of embedded files is not what [`crate::Query::Attachments`] last answered:
     /// a file was attached or detached, or an undo or a redo crossed such an edit. Ask again.
     ///
@@ -481,6 +519,35 @@ pub enum Extraction {
     /// Annex O's `ef` parameter: the URI the document was opened from named the file, and nobody
     /// pressed anything.
     Fragment,
+}
+
+/// What [`Event::Media`] hands over: Table 285's `/D`, in the form a player is given it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Media {
+    /// §7.11.4's embedded file, decoded. **A name and not a path**, as [`Event::Extracted`]'s.
+    Embedded {
+        /// Table 43's `/UF` or `/F`.
+        name: String,
+        /// The file.
+        bytes: Vec<u8>,
+    },
+    /// §7.11.5's URL, which a player is given as it stands.
+    Url(String),
+    /// A file outside the document, named by its specification — the document's words, not a
+    /// path, which turning into one is the host's decision as `Event::NeedsFile`'s name is.
+    File(String),
+}
+
+impl Media {
+    /// What is handed over, in a phrase for a host's sentence.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Embedded { name, bytes } => format!("{name:?}, {} bytes", bytes.len()),
+            Self::Url(url) => url.clone(),
+            Self::File(name) => format!("the file {name:?}"),
+        }
+    }
 }
 
 /// Where a [`crate::Command::Find`] landed.

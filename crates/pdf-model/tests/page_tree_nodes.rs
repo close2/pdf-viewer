@@ -508,3 +508,141 @@ fn pages_found_by_scanning_are_in_object_number_order_and_counted() {
         "object 2 before object 5, whatever order the bytes are in"
     );
 }
+
+/// Each page's object and width, through the lookups and through [`pdf_model::Pages::every`].
+///
+/// `every` is defined as the lookups' answer (ADR 1953), so the assertion is equality, page for
+/// page, whichever of its two routes a tree takes.
+fn both_ways(bytes: Vec<u8>) -> Vec<Option<(Option<pdf_syntax::ObjectId>, f32)>> {
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    let looked_up: Vec<_> = (0..pages.len())
+        .map(|index| pages.get(index).map(|page| (page.id, page.media_box[2])))
+        .collect();
+    let walked: Vec<_> = pages
+        .every()
+        .into_iter()
+        .map(|page| page.map(|page| (page.id, page.media_box[2])))
+        .collect();
+    assert_eq!(
+        walked, looked_up,
+        "one walk answers what the lookups answer"
+    );
+    walked
+}
+
+/// A two-level tree whose every `/Count` is true: the walk's own route, in the tree's order, with
+/// the width the intermediate node passes down (§7.7.3.4) on the pages that state none.
+#[test]
+fn every_page_in_one_walk_is_every_page_looked_up() {
+    let bytes = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Count 3 /Kids [2 0 R 7 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Parent 1 0 R /Count 2 /MediaBox [0 0 150 150] /Kids [3 0 R 5 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>\nendobj\n\
+         7 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 100] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 8 >>\n%%EOF\n"
+        .to_vec();
+    let widths: Vec<Option<f32>> = both_ways(bytes)
+        .into_iter()
+        .map(|page| page.map(|(_, width)| width))
+        .collect();
+    assert_eq!(widths, [Some(150.0), Some(300.0), Some(200.0)]);
+}
+
+/// A `/Count` that is false: the lookups skip by it and the walk cannot, so `every` answers by
+/// the lookups and the page the skip lands on is still the one at its index.
+#[test]
+fn a_false_count_beneath_the_root_is_answered_by_the_lookups() {
+    let bytes = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Count 3 /Kids [2 0 R 7 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Parent 1 0 R /Count 1 /Kids [3 0 R 5 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>\nendobj\n\
+         7 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 100] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 8 >>\n%%EOF\n"
+        .to_vec();
+    let walked = both_ways(bytes);
+    let widths: Vec<Option<f32>> = walked
+        .into_iter()
+        .map(|page| page.map(|(_, width)| width))
+        .collect();
+    assert_eq!(
+        widths,
+        [Some(100.0), Some(200.0), None],
+        "the skip by object 2's /Count lands on object 7 at index 1"
+    );
+}
+
+/// Ten thousand pages in one `/Kids` array — Isartor's `6-1-12-t01-fail-a.pdf`'s shape — come
+/// back from one walk, where asking for each by index reads the array from its start each time.
+/// The bound is generous for a `dev` build; the lookups took 27 s over this shape in `release`.
+#[test]
+fn a_wide_kids_array_is_walked_once() {
+    const PAGES: usize = 10_000;
+    use std::fmt::Write as _;
+    let mut body = String::from("%PDF-1.7\n");
+    let kids: Vec<String> = (0..PAGES).map(|at| format!("{} 0 R", at + 10)).collect();
+    write!(
+        body,
+        "1 0 obj\n<< /Type /Pages /Count {PAGES} /MediaBox [0 0 100 100] /Kids [{}] >>\nendobj\n",
+        kids.join(" ")
+    )
+    .expect("writing to a String cannot fail");
+    for at in 0..PAGES {
+        write!(
+            body,
+            "{} 0 obj\n<< /Type /Page /Parent 1 0 R >>\nendobj\n",
+            at + 10
+        )
+        .expect("writing to a String cannot fail");
+    }
+    body.push_str(
+        "4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 10010 >>\n%%EOF\n",
+    );
+    let document = Document::open(body.into_bytes()).expect("the fixture opens");
+    let started = std::time::Instant::now();
+    let pages = pdf_model::Pages::new(&document).every();
+    let elapsed = started.elapsed();
+    assert_eq!(pages.iter().flatten().count(), PAGES);
+    assert_eq!(
+        pages
+            .last()
+            .and_then(|page| page.as_ref())
+            .and_then(|page| page.id)
+            .map(|id| id.number),
+        Some(10_009)
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "one walk, not one per page: {elapsed:?}"
+    );
+}
+
+/// The two shapes above whose lookups step over something — the empty node and the cycle —
+/// agree too.
+#[test]
+fn the_walk_steps_over_what_the_lookups_step_over() {
+    let empty = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Kids [6 0 R 2 0 R 5 0 R] >>\nendobj\n\
+         6 0 obj\n<< /Type /Pages /Parent 1 0 R /Count 1 /Kids [] >>\nendobj\n\
+         2 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 100] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 300 400] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 7 >>\n%%EOF\n"
+        .to_vec();
+    assert_eq!(both_ways(empty).len(), 2);
+    let cycle = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Kids [1 0 R 3 0 R 4 0 R 2 0 R] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Parent 1 0 R /Kids [1 0 R 2 0 R 5 0 R] >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 100 100] >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] >>\nendobj\n\
+         6 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 6 0 R /Size 7 >>\n%%EOF\n"
+        .to_vec();
+    assert_eq!(both_ways(cycle).len(), 3);
+}

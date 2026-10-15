@@ -243,6 +243,22 @@ pub enum Command {
     /// The pages themselves are pulled one at a time by [`crate::Query::PrintPage`], which
     /// answers nothing until this has been granted. ADR 1180.
     Print(Printing),
+    /// A person asked for this document as ISO 19005 (PDF/A), at one target, under one profile.
+    ///
+    /// **A command for [`Self::Print`]'s reason**: the conversion is a whole new file made of the
+    /// document's own pages, which is Table 22's bit 11 — "[a]ssemble the document (insert,
+    /// rotate, or delete pages …)" — the operation `pdf_transform`'s `archive` verb asks too, so it
+    /// has to be refusable, askable and warnable at the reader's level and a [`crate::Query`]
+    /// could carry none of them.
+    ///
+    /// **And a grant rather than the conversion**, because the converter is `pdf_transform`'s and
+    /// that crate depends on this one: what comes back is [`crate::Event::Archiving`] carrying
+    /// the file, and the host runs the verb through the one shared executor `doc/questions/A54`
+    /// settled, writes the file and says the report's lines (`viewer_host::archiving`). A profile
+    /// is named rather than typed for the same reason: the list is `pdf_transform::profiles`'s,
+    /// compiled in once, and the host that runs the conversion is the one that can refuse a name
+    /// it does not hold. ADR 1954.
+    Archive(Archiving),
     /// §12.8.1's third question: whom this reader believes, and what it will accept not knowing.
     ///
     /// **The sixth host-supplied policy value, and the one ADR 1039 named and left unbuilt.** That
@@ -1139,6 +1155,7 @@ pub struct RestrictionPolicy {
     modify: RestrictionLevel,
     assemble: RestrictionLevel,
     process: RestrictionLevel,
+    hand_over_media: RestrictionLevel,
 }
 
 impl RestrictionPolicy {
@@ -1147,7 +1164,7 @@ impl RestrictionPolicy {
     /// The order is this type's own and is what the wire, the C ABI and a command line all
     /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
     /// six and in what sequence.
-    pub const OPERATIONS: [pdf_model::restriction::Operation; 8] = {
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 9] = {
         use pdf_model::restriction::Operation as O;
         [
             O::Extract,
@@ -1158,6 +1175,7 @@ impl RestrictionPolicy {
             O::Modify,
             O::Assemble,
             O::Process,
+            O::HandOverMedia,
         ]
     };
 
@@ -1173,6 +1191,7 @@ impl RestrictionPolicy {
             modify: level,
             assemble: level,
             process: level,
+            hand_over_media: level,
         }
     }
 
@@ -1189,6 +1208,7 @@ impl RestrictionPolicy {
             O::Modify => self.modify,
             O::Assemble => self.assemble,
             O::Process => self.process,
+            O::HandOverMedia => self.hand_over_media,
         }
     }
 
@@ -1209,6 +1229,7 @@ impl RestrictionPolicy {
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
+            O::HandOverMedia => self.hand_over_media = level,
         }
         self
     }
@@ -1237,6 +1258,9 @@ impl RestrictionPolicy {
             // the document is processed and stops it going on, which is a wider thing than
             // opening a file and is what this level decides.
             O::Process => "process",
+            // Table 286's subject is the media clip's data, and what this level decides is whether
+            // a clip goes to a player at all (ADR 1961).
+            O::HandOverMedia => "media",
         }
     }
 
@@ -1315,6 +1339,7 @@ pub struct RestrictionOverride {
     modify: Option<RestrictionLevel>,
     assemble: Option<RestrictionLevel>,
     process: Option<RestrictionLevel>,
+    hand_over_media: Option<RestrictionLevel>,
 }
 
 impl RestrictionOverride {
@@ -1331,6 +1356,7 @@ impl RestrictionOverride {
         modify: None,
         assemble: None,
         process: None,
+        hand_over_media: None,
     };
 
     /// The level this document departs to for one operation, if it departs at all.
@@ -1349,6 +1375,7 @@ impl RestrictionOverride {
             O::Modify => self.modify,
             O::Assemble => self.assemble,
             O::Process => self.process,
+            O::HandOverMedia => self.hand_over_media,
         }
     }
 
@@ -1370,6 +1397,7 @@ impl RestrictionOverride {
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
+            O::HandOverMedia => self.hand_over_media = level,
         }
         self
     }
@@ -1670,6 +1698,23 @@ pub enum Printing {
     /// duration of the operation and says nothing about how it ended — and harmless where no job
     /// is running.
     Finish,
+}
+
+/// What [`Command::Archive`] asks for: the part and level, and the profile that answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Archiving {
+    /// The part and level of ISO 19005 the file is to conform to.
+    ///
+    /// **No default, for the command line's reason**: which part and level an archive accepts
+    /// is the one thing this program cannot work out for a person (`quorra-transform archive`'s
+    /// `--to`, `doc/pdf-a-conversion-limits.md` section 9).
+    pub target: pdf_archive::Target,
+    /// The shipped profile whose rows answer the refusals, by the name it states for itself.
+    ///
+    /// A lower bound on what the conversion may lose and never an instruction to lose it (ADR
+    /// 1942); one of `pdf_transform::profiles::SHIPPED`'s names, refused by the host that runs
+    /// the conversion where it is not.
+    pub profile: String,
 }
 
 /// The paper a print operation is going onto.

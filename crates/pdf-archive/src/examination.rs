@@ -170,8 +170,12 @@ impl<'a> Examination<'a> {
     /// rather than the hypothesis.
     pub fn pages(&self) -> &[pdf_model::Page] {
         self.pages.get_or_init(|| {
-            let pages = pdf_model::Pages::new(self.document);
-            (0..pages.len()).filter_map(|at| pages.get(at)).collect()
+            // One walk of the tree rather than one lookup per page (ADR 1953).
+            pdf_model::Pages::new(self.document)
+                .every()
+                .into_iter()
+                .flatten()
+                .collect()
         })
     }
 

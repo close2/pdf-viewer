@@ -520,3 +520,12 @@ Qt window with its `a` and `c` keys went to the neighbour's display for about te
 middle of that round's measurements. Before any window is launched on a display: the lock file is
 absent, the server is started, and `/tmp/.X<n>-lock` holds *your* pid. A display that fails either
 test is somebody else's; pick another number.
+
+### 188. A refusal in an adapter's words is several lines
+
+Round 1563's drive showed a four-line refusal in the window title: `wgpu`'s error carries its
+chain of causes, one per line, and `surface.rs` had placed the whole of it where a title goes and in
+the middle of the terminal's sentence. The title now takes the first line and the note reads "…
+because the graphics device {problem}", so the lines end the sentence rather than split it (ADR
+1962). Any sentence built around a library's error text is checked in a window, not only in a test,
+because the text's shape is the library's and changes with it.

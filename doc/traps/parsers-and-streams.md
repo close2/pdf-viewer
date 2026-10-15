@@ -452,3 +452,13 @@ it learned may be a failure the next reading must report.
   run reaching it is often a perfectly conforming number — four hundred decimal digits — so this
   was not a malformed-file tolerance but a conforming number silently replaced, and no corpus
   document exercises it, which is exactly why it survived.
+
+### 190. A per-index loop over the pages is quadratic on a flat page tree
+
+`pdf_archive::check` ran 45 minutes on `isartor-6-1-12-t01-fail-a.pdf`, a file whose 10 000
+pages hang from one `/Kids` array. Three samples under gdb were all in `Pages::get`, called from
+`0..len()` loops: each lookup skips through the array by `/Count` from the front, so a pass over
+the pages reads the array ten thousand times, and the check made about ten passes. Round 1558 built
+`Pages::every()` — one walk, used only where every `/Count` matches what is found beneath it and
+the visit bound holds, falling back to the lookups otherwise — and the file went to 1.5 s a target
+(ADR 1953). A loop over pages by index is a smell wherever the page count is the file's to choose.

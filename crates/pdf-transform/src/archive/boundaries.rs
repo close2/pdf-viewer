@@ -179,8 +179,8 @@ pub(super) fn removal(
         failed.entry(index).or_default().insert(key);
     }
     let mut out = Boundaries::default();
-    for index in 0..tree.len() {
-        let Some(page) = tree.get(index) else {
+    for (index, page) in tree.every().into_iter().enumerate() {
+        let Some(page) = page else {
             return Err(Because::NotBuiltYet(NO_SUCH_PAGE));
         };
         // Which of the removals this page's boundaries resolve through — its own entries, and

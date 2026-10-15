@@ -1458,6 +1458,7 @@ impl<'a> Interpreter<'a> {
             reach_scanned: 0,
             list_budget: list_budget::ListBudget::default(),
             fonts: BTreeMap::new(),
+            layout_fonts: crate::variable_text::LayoutFonts::new(document),
             across: Some(across),
             references,
             text: String::new(),
@@ -1584,6 +1585,7 @@ impl<'a> Interpreter<'a> {
             // would be carrying a decoded image per notch to save a decode the annotation half
             // rarely makes.
             fonts: _,
+            layout_fonts: _,
             shadings: _,
             resource_tables: _,
             icc_spaces: _,
@@ -2658,6 +2660,9 @@ struct Interpreter<'a> {
     ///
     /// It holds a *failure* as well as a font, which [`Self::across`] deliberately does not.
     fonts: BTreeMap<FontKey, Option<Font>>,
+    /// The `/DA` fonts §12.7.4.3's layouts loaded for the annotations drawn so far, so that a
+    /// page of fields set in one face loads it once rather than once a field (ADR 1956).
+    layout_fonts: crate::variable_text::LayoutFonts<'a>,
     /// Fonts loaded out of this document by an *earlier* interpretation, where the caller kept
     /// them (§9.6, ADR 0710).
     ///

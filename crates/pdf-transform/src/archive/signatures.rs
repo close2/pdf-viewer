@@ -300,10 +300,7 @@ impl Walk<'_> {
     /// The second route: every page's `/Annots`, for a signed widget in no field tree.
     fn annotations(&mut self, found: &mut Signatures) {
         let tree = Pages::new(self.document);
-        for index in 0..tree.len() {
-            let Some(page) = tree.get(index) else {
-                continue;
-            };
+        for page in tree.every().into_iter().flatten() {
             let Some(annotations) = self
                 .document
                 .get_key(&page.dict, "Annots")
@@ -768,10 +765,7 @@ fn find_without_verifying(document: &Document) -> Vec<String> {
         }
     }
     let tree = Pages::new(document);
-    for index in 0..tree.len() {
-        let Some(page) = tree.get(index) else {
-            continue;
-        };
+    for page in tree.every().into_iter().flatten() {
         let Some(annotations) = document
             .get_key(&page.dict, "Annots")
             .as_array()

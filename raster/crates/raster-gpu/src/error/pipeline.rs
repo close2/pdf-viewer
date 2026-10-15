@@ -10,7 +10,8 @@
 
 use thiserror::Error;
 
-/// Why a shader module or a render pipeline could not be built on this adapter.
+/// Why a shader module, a render pipeline or a compute pipeline could not be built on this
+/// adapter.
 ///
 /// Its own type rather than a [`RenderError`](crate::error::RenderError) variant's
 /// fields, and deliberately
@@ -56,6 +57,18 @@ pub enum PipelineProblem {
         program: crate::function::ProgramHash,
         /// The colour target format it was asked for.
         format: wgpu::TextureFormat,
+        /// What `wgpu` said.
+        detail: String,
+    },
+    /// A compute pipeline of the coverage lane (`compute.rs`, ADR 0080) built from a module
+    /// that parsed was itself refused (ADR 1962).
+    ///
+    /// Its own variant rather than [`PipelineProblem::Pipeline`] because a compute pipeline
+    /// has no colour target, so there is no format to name.
+    #[error("compute pipeline '{pipeline}' was refused: {detail}")]
+    ComputePipeline {
+        /// The pipeline's label.
+        pipeline: &'static str,
         /// What `wgpu` said.
         detail: String,
     },

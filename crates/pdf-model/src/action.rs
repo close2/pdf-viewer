@@ -22,6 +22,7 @@
 //! | `Launch` | §12.6.4.6 | where `/F` names a file — named as `GoToR`'s is, opened only if it proves to be a PDF |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
+//! | `Rendition` | §12.6.4.14 | read, and its rendition judged by §13.2.2 — [`crate::media`]; the playing is excluded |
 //! | `SubmitForm` | §12.7.6.2 | yes — read here, composed by [`crate::submission`], transmitted by whoever has a network |
 //! | everything else | | [`Action::Refused`], by name |
 //!
@@ -29,8 +30,9 @@
 //! application wants a process started, which principle 3's sandbox deliberately withholds (ADR
 //! 0014); `JavaScript` is run beside this path, by the runner a host supplies at the reader's
 //! level, and its refusal here is what is said where no runner was handed it (ADRs 1752, 1904);
-//! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by
-//! `CLAUDE.md`'s closed list. Each keeps its own name in the refusal so that a caller can say which,
+//! `Sound`, `Movie` and `GoTo3DView` are clause 13's multimedia, excluded by `CLAUDE.md`'s closed
+//! list; `Rendition` is read, because the entry admits §13.2.2's viability and the hand-off of the
+//! clip it names, and only its playing stays excluded (ADR 1960). Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
 //! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**,
@@ -146,12 +148,121 @@ pub enum Action {
     /// is *when*: a page's transition plays when the page is turned to, and this one plays in
     /// the middle of a `/Next` chain, which is the whole of what §12.6.4.15 adds.
     Trans(crate::navigation::Transition),
+    /// §12.6.4.14: play, stop, pause or resume a rendition — read, and judged by
+    /// [`crate::media::judge`] where it asks for one to be played.
+    ///
+    /// The playing is `CLAUDE.md`'s clause 13 exclusion and this program does none of it; what the
+    /// amended entry admits is §13.2.2's viability reported and the clip handed to the host, and a
+    /// rendition action is where §13.2.1 says playing begins, so it is where both happen (ADR 1960).
+    Rendition(Rendition),
     /// An action type this program recognises and does not perform, named.
     ///
     /// A `&'static str` rather than the file's own bytes: the name is one of Table 201's
     /// twenty, matched here, so it is this program's vocabulary and not the document's. An
     /// `/S` that is *not* one of the twenty is not an action at all and produces no entry.
     Refused(&'static str),
+}
+
+/// §12.6.4.14's rendition action, Table 218, as far as this program acts on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rendition {
+    /// What Table 218's `/OP` asks for, or why nothing is asked.
+    pub operation: RenditionOperation,
+    /// Table 218's `/AN`: the screen annotation the rendition plays in.
+    pub annotation: Option<ObjectId>,
+    /// Table 218's `/R`, unresolved: [`crate::media::judge`] walks it.
+    pub rendition: Object,
+}
+
+/// Table 218's `/OP`, the five values and what is left when there is none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenditionOperation {
+    /// `0`, and `4`: play the rendition `/R` names, associating it with `/AN`.
+    ///
+    /// One arm for both because they part only over a rendition already playing — `4` resumes it
+    /// where `0` replaces it — and nothing plays here.
+    Play,
+    /// `1`: stop what plays in `/AN`. "If no rendition is being played, there is no effect."
+    Stop,
+    /// `2`: pause. Where a pause "may not make sense or the player may not support it", §12.6.4.14
+    /// says "the user should be notified of the failure to perform the operation".
+    Pause,
+    /// `3`: resume, with `2`'s notification.
+    Resume,
+    /// No `/OP` this program can perform: a `/JS` alone, which the script runner is handed at the
+    /// same trigger, or an unrecognised value with no `/JS`, which makes "the action … invalid".
+    None,
+}
+
+/// §12.6.4.14's action, read.
+///
+/// > Either the JS entry or the OP entry shall be present. If both are present, OP is considered a
+/// > fallback that shall be executed if the interactive PDF processor is unable to execute
+/// > ECMAScripts.
+///
+/// No script runner in this tree is handed a rendition's `/JS` — the runner takes §12.6.4.17's
+/// actions and the triggers of §12.6.3 (ADR 1904) — so `/OP` is what is executed wherever it is
+/// present, and a `/JS` alone is [`RenditionOperation::None`], said by whoever performs it.
+fn rendition(document: &Document, dict: &Dictionary) -> Action {
+    let operation = match document.get_key(dict, "OP").as_integer() {
+        Some(0 | 4) => RenditionOperation::Play,
+        Some(1) => RenditionOperation::Stop,
+        Some(2) => RenditionOperation::Pause,
+        Some(3) => RenditionOperation::Resume,
+        _ => RenditionOperation::None,
+    };
+    Action::Rendition(Rendition {
+        operation,
+        annotation: dict.get("AN").and_then(Object::as_reference),
+        rendition: dict.get("R").cloned().unwrap_or(Object::Null),
+    })
+}
+
+impl Rendition {
+    /// §12.6.4.14's precondition, checked:
+    ///
+    /// > Before a rendition action is executed, the interactive PDF processor shall make sure that
+    /// > the P entry of the screen annotation dictionary references a valid page object and that the
+    /// > annotation is present in the page object's Annots array
+    ///
+    /// `None` where it holds; the sentence saying which half failed otherwise.
+    #[must_use]
+    pub fn unplaced(&self, document: &Document) -> Option<&'static str> {
+        let Some(annotation) = self.annotation else {
+            return Some(
+                "Rendition: Table 218's /AN names no screen annotation by reference, so §12.6.4.14 \
+                 has nowhere to play it",
+            );
+        };
+        let dict = document.get(annotation);
+        let Some(dict) = dict.as_dict() else {
+            return Some("Rendition: Table 218's /AN is not an annotation dictionary");
+        };
+        let page = document.get_key(dict, "P");
+        let Some(page) = page.as_dict().filter(|page| {
+            document
+                .get_key(page, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Page")
+        }) else {
+            return Some(
+                "Rendition: the screen annotation's /P is not a page object, which §12.6.4.14 \
+                 requires before the action is executed",
+            );
+        };
+        let listed = document
+            .get_key(page, "Annots")
+            .as_array()
+            .is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.as_reference() == Some(annotation))
+            });
+        (!listed).then_some(
+            "Rendition: the screen annotation is not in its page's /Annots, which §12.6.4.14 \
+             requires before the action is executed",
+        )
+    }
 }
 
 /// §12.6.4.13's set-OCG-state action. Table 217.
@@ -1432,6 +1543,7 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         // §12.6.4.6: a named file is opened if it proves to be a PDF, and the refusals are the
         // dictionary's own; `launch` says which is which.
         b"Launch" => launch(document, dict),
+        b"Rendition" => rendition(document, dict),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1814,10 +1926,10 @@ fn launch(document: &Document, dict: &Dictionary) -> Action {
     Action::Refused("Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing")
 }
 
-/// The eight of Table 201's types this reader declines with one sentence each.
+/// The seven of Table 201's types this reader declines with one sentence each.
 ///
-/// ISO 32000-2's Table 201 lists twenty types, [`one`] performs twelve of them, and eight are
-/// left with no arm of their own. Six are named here rather than eight, and the two that are not
+/// ISO 32000-2's Table 201 lists twenty types, [`one`] performs or reads thirteen of them, and
+/// seven are left with no arm of their own. Five are named here rather than seven, and the two that are not
 /// have sentences their own dictionaries decide: [`launch`] writes `Launch`'s, and [`thread`]
 /// writes the one refusal §12.6.4.7 has left — a `/F` beside a thread or bead named by reference,
 /// which Table 209 says shall be in the current file (ADR 1239).
@@ -1829,7 +1941,6 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
     Some(match kind {
         b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
-        b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"GoTo3DView" => "GoTo3DView: clause 13's 3D, excluded by CLAUDE.md principle 5",
         // Said only where no runner was handed the script (ADR 1752): what ran then is RFC 0008's
         // Tier 0, which runs a field's one-call `AF*` scripts natively and constructs no

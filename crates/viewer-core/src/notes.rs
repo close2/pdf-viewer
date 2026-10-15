@@ -582,6 +582,13 @@ pub(crate) fn restricted(
                  penalty points over the 100 above which §12.11.3 says a processor should not \
                  attempt to display or process it — {tail}"
             ),
+            // Table 286's `/TF`, named by its own value so that a person can see which of the
+            // four the author chose (ADR 1961).
+            Restriction::MediaTemporaryFile { value } => format!(
+                "this document's media permissions say ({}) for the temporary file a player \
+                 would be handed (ISO 32000-2 Table 286's /TF) — {tail}",
+                value.as_str()
+            ),
         })
         .collect()
 }

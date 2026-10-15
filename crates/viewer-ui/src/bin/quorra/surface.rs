@@ -710,9 +710,13 @@ impl App {
         // terminal and in the title when the answer changes and not at every frame (ADR 1466,
         // ADR 1821): a zoom gesture over a refused page draws a frame per magnification it stops
         // at, and the person needs the sentence once. Every refusal is still in the trace.
+        // **A title is one line**, and a refusal in the adapter's words is often several: `wgpu`
+        // writes a refused pipeline as a chain of causes, one per line (ADR 1962). The title takes
+        // the first, which names what was refused; the terminal and the trace keep all of it.
         let on_the_processor = match (&landed.fell_back, &landed.chose) {
             (Some(problem), _) => Some(format!(
-                "drawn on the processor: the graphics device {problem}"
+                "drawn on the processor: the graphics device {}",
+                problem.lines().next().unwrap_or(problem)
             )),
             (None, Some(chose)) => Some(format!("drawn on the processor: {}", predicted(chose))),
             (None, None) if landed.finished_ahead => {
@@ -722,9 +726,11 @@ impl App {
         };
         if on_the_processor != self.on_the_processor {
             if let Some(problem) = &landed.fell_back {
+                // The adapter's words last, so that a refusal of several lines ends the sentence
+                // rather than splitting it (ADR 1962).
                 println!(
-                    "note: the graphics device {problem}, so the page was drawn on the processor \
-                     instead"
+                    "note: the page was drawn on the processor instead, because the graphics \
+                     device {problem}"
                 );
             } else if let Some(chose) = &landed.chose {
                 println!(

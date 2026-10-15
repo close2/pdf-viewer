@@ -260,7 +260,7 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::policy_fetch_note(&policy));
-        let first = self.state.submitter.interval().is_none();
+        let first = !self.state.looking();
         if let Err(sentence) = self
             .state
             .submitter
@@ -277,7 +277,7 @@ impl Host {
     /// Puts the GET on a `fetch-import` thread of its own, looked for as a submission's answer is.
     fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
         self.say(&viewer_host::fetch_note(&url, None));
-        let first = self.state.submitter.interval().is_none();
+        let first = !self.state.looking();
         if let Err(sentence) = self.state.submitter.fetch(document, url, warned, None) {
             self.say(&sentence);
             return;
@@ -296,7 +296,7 @@ impl Host {
         warned: Option<String>,
     ) {
         self.say(&viewer_host::policy::submission_note(&submission, None));
-        let first = self.state.submitter.interval().is_none();
+        let first = !self.state.looking();
         if let Err(sentence) = self
             .state
             .submitter
@@ -310,14 +310,26 @@ impl Host {
         }
     }
 
+    /// `Event::Archiving`: the conversion starts on a thread of its own, and its report is looked
+    /// for on the timer a server's answer is, armed here where nothing was being looked for
+    /// (ADR 1954).
+    pub(super) fn convert(&mut self, granted: viewer_core::Event) {
+        let first = !self.state.looking();
+        self.start_archiving(granted);
+        if first && self.state.looking() {
+            self.look_for_answers();
+        }
+    }
+
     /// Looks for the answers on GTK's main loop, at `viewer_host::submit::LOOK`, until none is out.
-    fn look_for_answers(&self) {
+    pub(super) fn look_for_answers(&self) {
         let me = self.me.clone();
         glib::timeout_add_local(viewer_host::submit::LOOK, move || {
             let mut more = false;
             with(&me, |host| {
+                // A conversion's report is collected inside it too (ADR 1954).
                 host.take_the_answers();
-                more = host.state.submitter.interval().is_some();
+                more = host.state.looking();
             });
             if more {
                 glib::ControlFlow::Continue

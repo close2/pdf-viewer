@@ -306,8 +306,8 @@ fn reading(gcs: &System, points: Vec<[f64; 2]>) -> String {
 }
 
 /// Whether Table 269's `/DCS` is reached from `/GCS` at the map's first registration point, by this
-/// tree's own `Geospatial::display`, or the refusal — a display system on another datum is the
-/// datum transformation `doc/questions/A171` leaves out, and this is what that costs.
+/// tree's own `Geospatial::display`, or the refusal — a display system on another datum is reached
+/// only where the strings state the transformation (ADR 1958), and this is what that costs.
 fn displayed(gcs: &System, dcs: &System, points: &[[f64; 2]]) -> String {
     use pdf_model::measurement::{CoordinateSystem, Geospatial};
     let system = |of: &System| CoordinateSystem {
@@ -333,6 +333,41 @@ fn displayed(gcs: &System, dcs: &System, points: &[[f64; 2]]) -> String {
         Ok(_) => "/DCS reached from /GCS".to_owned(),
         Err(refusal) => format!("/DCS refused: {refusal}"),
     }
+}
+
+/// Whether a system's string states the parameters that carry its datum to another — a WKT1
+/// `TOWGS84` clause or an ISO 19162 bound CRS, which a `/DCS` on another datum is reached through
+/// (ADR 1958) — and to which datum, or the refusal of a statement this tree cannot read. `None`
+/// where the string states none or does not read.
+fn datum_shift(key: &str, of: &System) -> Option<String> {
+    use pdf_model::geospatial::ReferenceSystem;
+    use pdf_model::measurement::CoordinateSystem;
+    let system = CoordinateSystem {
+        projected: of.projected,
+        epsg: of.epsg,
+        wkt: of.wkt.clone(),
+    };
+    let base = match system.reference_system().ok()? {
+        ReferenceSystem::Geographic(geographic) => geographic,
+        ReferenceSystem::Projected(projected) => projected.base,
+    };
+    Some(match base.datum_shift? {
+        Ok(shift) => {
+            let helmert = shift.helmert;
+            let rotated =
+                helmert.rotation.iter().any(|r| *r != 0.0) || helmert.scale_difference != 0.0;
+            format!(
+                "/{key} datum states a transformation to {}: {}",
+                shift.datum,
+                if rotated {
+                    "rotations or a scale"
+                } else {
+                    "translations only"
+                }
+            )
+        }
+        Err(refusal) => format!("/{key} datum states a transformation, refused: {refusal}"),
+    })
 }
 
 /// The forward projection and the inverse run in turn at every registration point of a projected
@@ -662,9 +697,11 @@ fn measure(path: &Path) -> Counts {
                     ));
                 }
                 readings.extend(round_trip(&gcs, &points));
+                readings.extend(datum_shift("GCS", &gcs));
                 let dcs = system(&document, &dict, "DCS");
                 if let Some(dcs) = &dcs {
                     readings.insert(displayed(&gcs, dcs, &points));
+                    readings.extend(datum_shift("DCS", dcs));
                 }
                 readings.insert(reading(&gcs, points));
                 systems.push(("GCS", gcs));

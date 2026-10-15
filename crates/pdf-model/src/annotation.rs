@@ -936,12 +936,14 @@ pub(crate) fn decide(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
     geometry: ViewGeometry,
+    fonts: &crate::variable_text::LayoutFonts<'_>,
 ) -> Decision {
     let mut decision = decided(
         document,
         annotation,
         view,
         target_media(view, geometry.media_box),
+        fonts,
     );
     // §12.5.3's two view-dependent flags, applied once and to the whole annotation. Read here
     // rather than inside each construction because the clause's own sentence is about the
@@ -1016,11 +1018,18 @@ fn target_media(
 /// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.
 ///
 /// `media` is §12.5.6.22's target media and how the page sits on it; see [`fixed_print`].
+#[expect(
+    clippy::too_many_lines,
+    reason = "one decision over the three places §12.5.5 finds an appearance — a stored stream set \
+              aside, none stated, one stored — and the precedence between them is the function; \
+              split, the order would live apart from the arms it orders"
+)]
 fn decided(
     document: &Document,
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
     media: crate::view::TargetMedia,
+    fonts: &crate::variable_text::LayoutFonts<'_>,
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -1068,9 +1077,15 @@ fn decided(
     // states at length: `FreeText` is one of [`crate::appearance::bounded_by_rect`]'s six, so
     // Table 177's `/CL` reaches the page whatever `/Rect` says, and the value is clipped to the
     // box it is laid out in rather than to a `/BBox`. One question, one answer, in both places.
-    if let Some(decision) =
-        stored_set_aside(document, annotation, &subtype, &name, stated_rect, view)
-    {
+    if let Some(decision) = stored_set_aside(
+        document,
+        annotation,
+        &subtype,
+        &name,
+        stated_rect,
+        view,
+        fonts,
+    ) {
         return decision;
     }
 
@@ -1127,7 +1142,7 @@ fn decided(
                 }
                 None => rect,
             };
-            return construct(document, annotation, &subtype, &name, rect, view);
+            return construct(document, annotation, &subtype, &name, rect, view, fonts);
         }
         Normal::StateNotDefined => return Decision::Nothing,
     };
@@ -1204,7 +1219,7 @@ fn decided(
     let mut content = Content::Stored(Arc::clone(&stored));
     if crate::appearance::regenerates(document, annotation, &subtype, view.value)
         && let Some(regenerated) =
-            crate::appearance::regenerate(document, annotation, &stored, bbox, view)
+            crate::appearance::regenerate(document, annotation, &stored, bbox, view, fonts)
     {
         owed = owed.or_else(|| regenerated.report.map(|detail| format!("{name}: {detail}")));
         content = Content::Constructed {
@@ -1265,6 +1280,7 @@ fn stored_set_aside(
     name: &str,
     stated_rect: Option<[f32; 4]>,
     view: crate::view::AnnotationView<'_>,
+    fonts: &crate::variable_text::LayoutFonts<'_>,
 ) -> Option<Decision> {
     let retyped = view.contents.is_some() && subtype == b"FreeText";
     let scripted = !view.scripted.is_empty()
@@ -1274,7 +1290,7 @@ fn stored_set_aside(
         return None;
     }
     Some(match stated_rect {
-        Some(rect) => construct(document, annotation, subtype, name, rect, view),
+        Some(rect) => construct(document, annotation, subtype, name, rect, view, fonts),
         None => Decision::Unsupported(format!("{name}: no usable /Rect")),
     })
 }
@@ -1293,6 +1309,7 @@ fn construct(
     name: &str,
     rect: [f32; 4],
     view: crate::view::AnnotationView<'_>,
+    fonts: &crate::variable_text::LayoutFonts<'_>,
 ) -> Decision {
     // §12.5.6.14: a popup is the window belonging to some *other* annotation, and §12.5.6.24's
     // projection is a measurement inside an activated 3D model — clause 13, which principle 5
@@ -1322,7 +1339,8 @@ fn construct(
         return Decision::Nothing;
     }
 
-    let constructed = crate::appearance::construct(document, annotation, subtype, view, rect);
+    let constructed =
+        crate::appearance::construct(document, annotation, subtype, view, rect, fonts);
     let owed = constructed.report.map(|detail| format!("{name}: {detail}"));
     let Some(content) = constructed.content else {
         return match owed {

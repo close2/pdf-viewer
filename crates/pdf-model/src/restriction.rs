@@ -297,6 +297,19 @@ pub enum Operation {
     /// reader's decision like every other restriction a document asserts, and `off` is the
     /// default `CLAUDE.md` requires. ADR 1167.
     Process,
+    /// Handing a media clip's data to the host for a player — §13.2.4.2's media clip data, after
+    /// `crate::media::judge` called it viable.
+    ///
+    /// **Table 286's `/TF` is the document's statement about it**, and a permission rather than a
+    /// fact about the clip: "permissions that control the use of the media data", which "allow
+    /// authors control over how their data are exposed to operations that could allow it to be
+    /// copied". A player started on an embedded clip is handed a file, so the temporary file the
+    /// entry governs is exactly what the hand-off makes. [`media`] reads it; the reader's level
+    /// decides, `off` by default as every other (ADR 1961).
+    ///
+    /// Table 22 states no position for it — `/TF`'s own values name bit 5 where they need one —
+    /// so [`Operation::bit`] answers `None`, as it does for [`Operation::Process`].
+    HandOverMedia,
 }
 
 impl Operation {
@@ -316,6 +329,7 @@ impl Operation {
             // §12.11.6's own verb, so that the sentences a host words around it — "… was not
             // done", "… is waiting on your answer" — say what the clause says.
             Self::Process => "continuing to process this document",
+            Self::HandOverMedia => "handing a media clip to a player",
         }
     }
 
@@ -351,7 +365,7 @@ impl Operation {
             Self::Extract => Bit::Extract,
             Self::Assemble if revision >= 3 => Bit::Assemble,
             Self::Modify | Self::Assemble => Bit::Modify,
-            Self::Process => return None,
+            Self::Process | Self::HandOverMedia => return None,
         })
     }
 }
@@ -469,6 +483,46 @@ pub enum Restriction {
         /// [`crate::requirements::PENALTY_LIMIT`].
         penalty: u32,
     },
+    /// Table 286's `/TF`, which withholds the temporary file a player handed the clip would need.
+    ///
+    /// The value is carried so that a person is told which of the table's four the author chose:
+    /// `TEMPNEVER` withholds it outright, and `TEMPEXTRACT` and `TEMPACCESS` only where §7.6.4.2's
+    /// bit 5 withholds extraction. [`media`] is the reading.
+    MediaTemporaryFile {
+        /// The value Table 286 states, its default and unrecognised values read as `TEMPNEVER`.
+        value: crate::media::TemporaryFile,
+    },
+}
+
+/// What §13.2.4.2's Table 286 `/TF` asserts against [`Operation::HandOverMedia`] in this document.
+///
+/// > (TEMPNEVER) Never allowed. (TEMPEXTRACT) Allowed only if the document permissions allow
+/// > content extraction; when bit 5 of the user access permissions (see "Table 22 - Standard
+/// > security handler user access permissions") is set. (TEMPACCESS) Allowed only if the document
+/// > permissions allow content extraction, including for accessibility purposes; when bits 5 or 10
+/// > of the user access permissions (see "Table 22 - Standard security handler user access
+/// > permissions") are set, or both. (TEMPALWAYS) Always allowed.
+///
+/// **Bit 10 grants nothing here**, on §7.6.4.2's Table 22 row for it: "Not used. This bit was previously
+/// used to determine whether content could be extracted for the purposes of accessibility, however,
+/// that restriction has been deprecated in PDF 2.0. PDF readers shall ignore this bit" — so
+/// `TEMPACCESS` and `TEMPEXTRACT` read the same bit. A document no security handler protects
+/// withholds no extraction, so both are allowed there.
+#[must_use]
+pub fn media(document: &Document, value: crate::media::TemporaryFile) -> Vec<Restriction> {
+    use crate::media::TemporaryFile;
+    let allowed = match value {
+        TemporaryFile::Never => false,
+        TemporaryFile::Always => true,
+        TemporaryFile::Extract | TemporaryFile::Access => document
+            .permissions()
+            .is_none_or(|permissions| withheld(permissions, Operation::Extract).is_none()),
+    };
+    if allowed {
+        Vec::new()
+    } else {
+        vec![Restriction::MediaTemporaryFile { value }]
+    }
 }
 
 /// Every restriction this document asserts against this operation.
@@ -586,7 +640,8 @@ const fn certification_binds(operation: Operation) -> bool {
         | Operation::PrintFaithfully
         | Operation::Extract
         | Operation::Assemble
-        | Operation::Process => false,
+        | Operation::Process
+        | Operation::HandOverMedia => false,
         Operation::Modify | Operation::FillInForm | Operation::Annotate => true,
     }
 }
@@ -629,7 +684,8 @@ fn certification_permits(level: Modification, operation: Operation) -> bool {
         | Operation::PrintFaithfully
         | Operation::Extract
         | Operation::Assemble
-        | Operation::Process => true,
+        | Operation::Process
+        | Operation::HandOverMedia => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,

@@ -57,8 +57,9 @@
 //! with a name. The persistent buffers are charged at their capacity against that same
 //! budget.
 
-use crate::error::RenderError;
+use crate::error::{PipelineProblem, RenderError};
 use crate::keyhash::FastMap;
+use crate::pipeline::captured;
 use raster_scene::Segment;
 
 /// One tile's record, as the encoder placed it: everything the device needs to
@@ -705,7 +706,7 @@ fn coverage_rows(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ";
 
-/// The lane's three pipelines, compiled together on the first frame that takes the
+/// The lane's four pipelines, compiled together on the first frame that takes the
 /// lane and kept — never on the startup path (brief section 7).
 #[derive(Debug)]
 pub(crate) struct Pipelines {
@@ -716,51 +717,93 @@ pub(crate) struct Pipelines {
     deposit: wgpu::ComputePipeline,
 }
 
+/// What the device keeps of the lane's pipelines: nothing before the first frame that
+/// takes the lane, and afterwards the four built or the refusal that stopped them.
+///
+/// **A refusal is kept for the reason the render lane keeps one** (ADR 1929, ADR 1962): the
+/// same four descriptors are refused in the same words every time, so asking again costs a
+/// failing compile inside every frame that takes the lane and says nothing new. The four are
+/// one artefact, as the render lane's modules are: a frame of this lane needs every pass, so
+/// there is no state in which some of them drawing is of use.
+pub(crate) type Kept = Option<Result<Pipelines, PipelineProblem>>;
+
+#[cfg(test)]
+thread_local! {
+    /// Builds the count pipeline against an entry point its module does not have, so that a
+    /// test can watch `create_compute_pipeline` refuse (ADR 1962). Thread-local because the
+    /// frame that compiles the lane runs on the thread that asked for it, and a test on
+    /// another thread must not see the plant.
+    static BROKEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// From here on, on this thread, the lane's count pipeline is built so that it is refused
+/// (ADR 1962).
+#[cfg(test)]
+pub(crate) fn break_count_pipeline() {
+    BROKEN.with(|broken| broken.set(true));
+}
+
 impl Pipelines {
-    fn compile(gpu: &wgpu::Device) -> Self {
-        let flatten_pipeline = |label: &str, emit: bool| {
-            let source = format!("const EMIT: bool = {emit};\n{FLATTEN}");
-            let module = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+    /// Parse the three modules and build the four pipelines, or name the first one this
+    /// adapter refused.
+    ///
+    /// Every creation runs inside [`captured`]'s validation and internal scopes (ADR 1962):
+    /// outside them a refusal was a validation error on the queue — reported to the device's
+    /// uncaptured handler while the handle came back as though built — and the frame went on
+    /// to dispatch a pipeline that did not exist.
+    fn compile(gpu: &wgpu::Device) -> Result<Self, PipelineProblem> {
+        let module = |label: &'static str, source: String| {
+            let (module, detail) = captured(gpu, || {
+                gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(label),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                })
             });
-            gpu.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(label),
-                layout: None,
-                module: &module,
-                entry_point: Some("flatten_tiles"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            })
+            match detail {
+                Some(detail) => Err(PipelineProblem::Shader {
+                    shader: label,
+                    detail,
+                }),
+                None => Ok(module),
+            }
         };
-        let deposit = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("raster compute deposit"),
-            source: wgpu::ShaderSource::Wgsl(DEPOSIT.into()),
-        });
-        let scan = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("raster compute scan"),
-            source: wgpu::ShaderSource::Wgsl(SCAN.into()),
-        });
-        Self {
-            count: flatten_pipeline("raster compute count", false),
-            emit: flatten_pipeline("raster compute emit", true),
-            scan: gpu.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("raster compute scan"),
-                layout: None,
-                module: &scan,
-                entry_point: Some("scan"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            }),
-            deposit: gpu.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("raster compute deposit"),
-                layout: None,
-                module: &deposit,
-                entry_point: Some("coverage_rows"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            }),
-        }
+        let pipeline = |label: &'static str, module: &wgpu::ShaderModule, entry: &str| {
+            #[cfg(test)]
+            let entry = if label == "raster compute count" && BROKEN.with(std::cell::Cell::get) {
+                "an_entry_point_no_module_has"
+            } else {
+                entry
+            };
+            let (pipeline, detail) = captured(gpu, || {
+                gpu.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(label),
+                    layout: None,
+                    module,
+                    entry_point: Some(entry),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+            });
+            match detail {
+                Some(detail) => Err(PipelineProblem::ComputePipeline {
+                    pipeline: label,
+                    detail,
+                }),
+                None => Ok(pipeline),
+            }
+        };
+        let flatten_pipeline = |label: &'static str, emit: bool| {
+            let module = module(label, format!("const EMIT: bool = {emit};\n{FLATTEN}"))?;
+            pipeline(label, &module, "flatten_tiles")
+        };
+        let deposit = module("raster compute deposit", DEPOSIT.to_owned())?;
+        let scan = module("raster compute scan", SCAN.to_owned())?;
+        Ok(Self {
+            count: flatten_pipeline("raster compute count", false)?,
+            emit: flatten_pipeline("raster compute emit", true)?,
+            scan: pipeline("raster compute scan", &scan, "scan")?,
+            deposit: pipeline("raster compute deposit", &deposit, "coverage_rows")?,
+        })
     }
 }
 
@@ -923,7 +966,7 @@ impl ComputePersist {
 pub(crate) fn dispatch_chain(
     gpu: &wgpu::Device,
     queue: &wgpu::Queue,
-    pipelines: &mut Option<Pipelines>,
+    pipelines: &mut Kept,
     arena: &mut SegmentArena,
     persist: &mut ComputePersist,
     resources: &crate::resources::ResourceStore,
@@ -933,7 +976,12 @@ pub(crate) fn dispatch_chain(
     queries: Option<&ComputeQueries>,
     spans: &mut Vec<(&'static str, std::time::Duration)>,
 ) -> Result<Option<ComputeRun>, RenderError> {
-    let pipelines = &*pipelines.get_or_insert_with(|| Pipelines::compile(gpu));
+    // A refusal kept from an earlier frame refuses this one in the same words, before any of
+    // the frame's buffers is made (ADR 1962).
+    let pipelines = pipelines
+        .get_or_insert_with(|| Pipelines::compile(gpu))
+        .as_ref()
+        .map_err(|problem| RenderError::from(problem.clone()))?;
     // Residency first: every outline this frame draws, uploaded once ever.
     let residency_started = std::time::Instant::now();
     let mut records: Vec<u32> = Vec::with_capacity(compute.tiles.len().saturating_mul(TILE_U32S));
@@ -1257,5 +1305,104 @@ mod persist_tests {
         // prices.
         let priced = ComputePersist::price(1_000, u64::MAX).expect("fits");
         assert_eq!(priced, 1_250);
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    #![allow(clippy::expect_used, clippy::panic)] // test-module policy: a fixture that cannot run must fail loudly
+
+    use raster_scene::{
+        Affine, BlendMode, Color, Compose, FillRule, Paint, Point, Rect, Scene, SceneBuilder,
+        Segment,
+    };
+
+    use crate::device::Device;
+    use crate::error::{PipelineProblem, RenderError};
+    use crate::startup::{Coverage, Options};
+    use crate::target::Target;
+    use crate::viewport::Viewport;
+
+    const SIZE: u32 = 32;
+
+    /// A triangle the compute lane rasterises: under `Coverage::Compute` every solid fill
+    /// is one of its tiles.
+    fn triangle(device: &mut Device) -> Scene {
+        let outline = device
+            .upload_outline(&[
+                Segment::MoveTo(Point::new(2.0, 2.0)),
+                Segment::LineTo(Point::new(30.0, 6.0)),
+                Segment::LineTo(Point::new(10.0, 28.0)),
+                Segment::Close,
+            ])
+            .expect("a triangle uploads");
+        let mut builder = SceneBuilder::new();
+        builder
+            .fill(
+                outline,
+                Affine::IDENTITY,
+                FillRule::NonZero,
+                Paint::Solid(Color::new(0.2, 0.5, 0.8, 1.0)),
+                None,
+                BlendMode::Normal,
+                Compose::SrcOver,
+                None,
+            )
+            .expect("a fill is a valid scene");
+        builder.finish()
+    }
+
+    /// The compute lane's pipelines refused by the adapter take the frames of that lane with
+    /// them, by name, and nothing else (ADR 1962), as ADR 1929's test holds the render lane: the
+    /// frame is a [`RenderError`] a window answers by drawing on the processor, the next frame
+    /// of the lane is refused in the same words, and a frame the lane has no part in still
+    /// draws on the device.
+    ///
+    /// **The plant is lifted after the first frame**, so the second refusal can only be the
+    /// kept one: compiled again, the four pipelines would build and the frame would draw. With
+    /// the keeping removed this test fails there.
+    #[test]
+    fn a_refused_compute_pipeline_is_refused_by_name_kept_and_takes_only_its_lane() {
+        let mut device = Device::headless(&Options {
+            adapter: Some("llvmpipe".into()),
+            coverage: Coverage::Compute,
+            ..Options::default()
+        })
+        .expect("llvmpipe is present wherever this suite runs");
+        let scene = triangle(&mut device);
+        let viewport = Viewport::full(SIZE, SIZE, Affine::IDENTITY);
+        super::break_count_pipeline();
+        let mut refusal = || match device.render(&scene, &viewport, Target::Readback) {
+            Err(RenderError::PipelineUnavailable {
+                reason: PipelineProblem::ComputePipeline { pipeline, detail },
+            }) => (pipeline, detail),
+            other => panic!("expected the compute lane refused by name, got {other:?}"),
+        };
+        let first = refusal();
+        assert_eq!(first.0, "raster compute count");
+        super::BROKEN.with(|broken| broken.set(false));
+        assert_eq!(
+            refusal(),
+            first,
+            "the second frame hears the kept refusal's words, without compiling again"
+        );
+        let mut builder = SceneBuilder::new();
+        builder
+            .rect(
+                Rect::new(Point { x: 0.0, y: 0.0 }, Point { x: 8.0, y: 8.0 }),
+                Affine::IDENTITY,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+                None,
+                None,
+            )
+            .expect("a rectangle is a valid scene");
+        device
+            .render(&builder.finish(), &viewport, Target::Readback)
+            .expect("a frame the compute lane has no part in does not need its pipelines");
     }
 }

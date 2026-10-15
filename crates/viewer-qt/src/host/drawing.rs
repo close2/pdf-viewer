@@ -206,10 +206,14 @@ impl Host {
     /// and a bridge function for it: the look is one channel drain, and the shorter of the two
     /// intervals is the one that stands (ADR 1291).
     pub(crate) fn drawing_wait(&self) -> i32 {
-        let interval = match (
-            self.state.drawing.interval(),
-            self.state.submitter.interval(),
-        ) {
+        // A conversion running is looked for on the same timer as a server's answer, at the same
+        // interval (ADR 1954).
+        let looking = self
+            .state
+            .submitter
+            .interval()
+            .or(self.state.converter.interval());
+        let interval = match (self.state.drawing.interval(), looking) {
             (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
             (drawing, submitting) => drawing.or(submitting),
         };

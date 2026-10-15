@@ -18,6 +18,11 @@ pdf-font.workspace = true
 pdf-signature.workspace = true
 pdf-render.workspace = true
 pdf-syntax.workspace = true
+# One type, `pdf_archive::Target`: `Command::Archive` names the part and level of ISO 19005 a
+# person asked for in the judgement crate's own words rather than in a second enumeration of them
+# (ADR 1954). The converter itself is `pdf-transform`'s, which depends on this crate, so it is a
+# host's to run.
+pdf-archive.workspace = true
 
 [dev-dependencies]
 # The census floors and ceilings, each printed beside the population it bounds (ADR 1075).

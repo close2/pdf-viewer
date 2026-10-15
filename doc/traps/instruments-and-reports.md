@@ -1540,3 +1540,32 @@ for its lane. When the lane came, the build's working directory had been replace
 failed with `Could not locate working directory` — one thirty-minute queue lost. An export's tree
 belongs to every command queued against it until that command has run; a second export of the same
 session is a new name (`--as`), or it waits.
+
+### 187. `doc/md` in a worktree is the owner's directory
+
+Round 1561 followed `doc/third-party-data.md`'s recipe — `tools/spec-md.py … --out doc/md/X.md` —
+and wrote OGC 01-009's conversion straight into `/home/cl/projects/pdf-viewer/doc/md/`, because the
+worktree's `doc/md` is a symlink there (`tools/batch.sh open` links every untracked document in).
+The round noticed and removed it, and main's `git status` matched the session's start. The rule
+every brief states — never edit the owner's checkout — is not a rule about paths that *look* like
+the worktree's; before writing under `doc/`, `readlink -f` says whose directory it is, and a
+conversion a round needs goes under its own `scratchpad/`.
+
+### 189. A Python heredoc swallows Rust's string continuations
+
+Round 1562 wrote a window's printed sentences through a Python `'''…'''` string. Rust's `\` at a
+line's end inside a literal is the continuation that drops the newline and the next line's leading
+spaces; Python's non-raw string consumed the backslash first, so the compiled text joined its words
+with the indentation's spaces and said so in the windows before anyone read it. The check is one
+grep over the diff for a literal holding eight or more spaces in a row; the cure is a raw string, or
+a shell heredoc with a quoted delimiter, for any file whose language has its own escapes.
+
+### 191. A build into the shared target replaces the binary a sibling is driving
+
+Round 1560 rebuilt `quorra` in release into the shared batch target while round 1559's drive was
+running the `quorra` that had been there. A drive names its binary by path, and the path is the
+shared target's, so the sibling's measurements from that minute were taken on a mix of two programs.
+The round had already copied its own binaries into `scratchpad/r1560/bin-new` for its own runs; the
+rule is that every drive does, and that a release build into the shared target is announced in the
+lock's log line. The export (`tools/batch.sh export`) exists for the same reason and is the better
+tool: it builds under a target of its own.

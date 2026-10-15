@@ -629,6 +629,7 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             A::Launch(_) => "Launch",
             A::GoToDp(_) => "GoToDp",
             A::Trans(_) => "Trans",
+            A::Rendition(_) => "Rendition",
             A::Refused(_) => "Refused",
         }
     }
@@ -682,7 +683,9 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             "/S /SetOCGState /State [/OFF 7 0 R]",
             Performed("SetOCGState"),
         ),
-        ("Rendition", "/S /Rendition /OP 0", Refused),
+        // Read since ADR 1960: the clause 13 entry admits §13.2.2's viability and the hand-off,
+        // so the action reaches a variant whose rendition `pdf_model::media` judges.
+        ("Rendition", "/S /Rendition /OP 0", Performed("Rendition")),
         (
             "Trans",
             "/S /Trans /Trans << /S /Wipe >>",

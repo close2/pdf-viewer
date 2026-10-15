@@ -301,6 +301,9 @@ fn reason(restriction: Restriction) -> String {
         Restriction::RequirementsUnmet { penalty } => {
             format!("requirements this program cannot meet, {penalty} penalty points (§12.11.6)")
         }
+        Restriction::MediaTemporaryFile { value } => {
+            format!("a media clip's /TF ({}) (Table 286)", value.as_str())
+        }
     }
 }
 

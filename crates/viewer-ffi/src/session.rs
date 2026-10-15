@@ -58,6 +58,11 @@ pub struct Session {
     /// pixels, and a page rasterised twice at the printer's resolution is the whole page's cost
     /// paid twice. One at a time, because a print job draws a page, spools it and moves on.
     printed: Option<PrintedPage>,
+    /// The last conversion to ISO 19005 a grant released — see [`Session::archive`].
+    ///
+    /// Held for [`Self::printed`]'s reason: C's two-call idiom asks for the size and then for the
+    /// bytes, and the report's lines are read one at a time (ADR 1954).
+    archived: Option<viewer_host::archiving::Converted>,
 }
 
 /// One printed page, rasterised and waiting for the caller's buffer.
@@ -84,6 +89,7 @@ impl Session {
             restrictions: viewer_core::RestrictionPolicy::default(),
             departures: viewer_core::RestrictionOverride::NONE,
             printed: None,
+            archived: None,
         }
     }
 
@@ -92,7 +98,26 @@ impl Session {
     /// The one place a command reaches the viewer, so that "the borrow ends before the caller
     /// sees anything" is a property of one function rather than of every entry point.
     fn handle(&mut self, command: Command) -> Events {
-        Events::new(self.viewer.handle(command).collect::<Vec<Event>>())
+        let events = self.viewer.handle(command).collect::<Vec<Event>>();
+        // A conversion's grant is answered here, whichever call released it — `quorra_archive`,
+        // or `quorra_answer` after the ask level's question — because a C caller cannot run
+        // `pdf_transform`'s converter and this library is its host (ADR 1954). On the calling
+        // thread: a caller that wants it elsewhere calls from elsewhere.
+        for event in &events {
+            if let Event::Archiving {
+                document,
+                bytes,
+                asked,
+            } = event
+            {
+                self.archived = Some(viewer_host::archiving::convert(
+                    *document,
+                    bytes.clone(),
+                    asked.clone(),
+                ));
+            }
+        }
+        Events::new(events)
     }
 
     /// §7.6.4.1 and Annex O: opens a document from bytes the caller owns.
@@ -931,6 +956,21 @@ impl Session {
     #[must_use]
     pub fn print(&mut self, printing: viewer_core::Printing) -> Events {
         self.handle(Command::Print(printing))
+    }
+
+    /// Asks for the focused document as ISO 19005 at one target, under one shipped profile.
+    ///
+    /// Table 22's bit 11 is asked at the reader's level; where it is granted the conversion runs
+    /// before this returns and [`Self::archived`] holds it (ADR 1954).
+    #[must_use]
+    pub fn archive(&mut self, asked: viewer_core::Archiving) -> Events {
+        self.handle(Command::Archive(asked))
+    }
+
+    /// The last conversion a grant released, where one has been.
+    #[must_use]
+    pub const fn archived(&self) -> Option<&viewer_host::archiving::Converted> {
+        self.archived.as_ref()
     }
 
     /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.

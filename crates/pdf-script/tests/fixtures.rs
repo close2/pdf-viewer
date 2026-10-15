@@ -458,9 +458,14 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
                 pdf_script::surface::Holder::Bookmark => format!("this.bookmarkRoot.{member}"),
                 _ => spelled.clone(),
             };
+            // A method answers `typeof` as the reference's would and throws when called; a
+            // property throws when read, so `typeof` never answers (ADR 1957).
             let mut asked = request(
                 Trigger::Format,
-                &format!("try {{ var x = {reached}; }} catch (e) {{ console.println(e.name); }}"),
+                &format!(
+                    "var t = 'threw'; try {{ t = typeof {reached}; {reached}(); }} \
+                     catch (e) {{ console.println(t + ' ' + e.name); }}"
+                ),
                 "1",
                 "",
                 false,
@@ -482,10 +487,14 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
             });
             let ran = outcome(&asked);
             assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);
+            let met = match row.kind {
+                pdf_script::surface::Member::Method => "function",
+                pdf_script::surface::Member::Property => "threw",
+            };
             assert_eq!(
                 ran.log,
-                vec!["NotAllowedError".to_owned()],
-                "{spelled} throws a NotAllowedError"
+                vec![format!("{met} NotAllowedError")],
+                "{spelled} throws a NotAllowedError where a script meets it"
             );
             assert_eq!(
                 ran.refusals.first().map(|refusal| refusal.member.as_str()),

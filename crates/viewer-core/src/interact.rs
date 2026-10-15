@@ -43,6 +43,8 @@ pub(crate) struct Outcome {
     pub(crate) needs_file: Vec<(Purpose, String)>,
     /// §12.4.4: transitions to play, for a caller that has one.
     pub(crate) transitions: Vec<Transition>,
+    /// §13.2.4.2: clips §13.2.2 called viable, for the reader's level and then the host.
+    pub(crate) media: Vec<pdf_model::media::Clip>,
     /// The page to show, where a request named one.
     pub(crate) target: Option<usize>,
     /// Table 149's view of that page, where the destination that named it stated one.
@@ -366,6 +368,73 @@ pub(crate) fn page_trigger(
     perform(open, &actions, None, None, None, "this page")
 }
 
+/// §12.6.4.14's action, as far as a processor that plays nothing performs it: the precondition
+/// checked, §13.2.2's viability judged and said, and the chosen clip kept for the hand-off.
+///
+/// Every arm says something, because each is a click a person made on a page (trap 5): stopping
+/// what does not play has "no effect" and says so, and pause and resume carry the clause's own
+/// "the user should be notified of the failure to perform the operation". ADR 1960.
+fn rendered(
+    open: &Open,
+    rendition: &pdf_model::action::Rendition,
+    subject: &str,
+    outcome: &mut Outcome,
+) {
+    use pdf_model::action::RenditionOperation;
+    let note = |outcome: &mut Outcome, why: &str| outcome.notes.push(format!("{subject} — {why}"));
+    match rendition.operation {
+        RenditionOperation::Play => {}
+        RenditionOperation::Stop => {
+            return note(
+                outcome,
+                "Rendition: stop, and nothing plays in this program, so §12.6.4.14 says it has no \
+                 effect",
+            );
+        }
+        RenditionOperation::Pause | RenditionOperation::Resume => {
+            return note(
+                outcome,
+                "Rendition: pause or resume, and nothing plays in this program to pause or resume \
+                 (§12.6.4.14)",
+            );
+        }
+        RenditionOperation::None => {
+            return note(
+                outcome,
+                "Rendition: no /OP this program performs — a /JS alone is a script no runner here \
+                 is handed, and an unrecognised /OP without one makes the action invalid \
+                 (§12.6.4.14)",
+            );
+        }
+    }
+    if let Some(why) = rendition.unplaced(&open.document) {
+        return note(outcome, why);
+    }
+    let report = pdf_model::media::judge(
+        &open.document,
+        &rendition.rendition,
+        pdf_model::media::Processor {
+            language: open.view.audience().language.as_deref(),
+        },
+    );
+    for line in report.notes() {
+        note(outcome, &line);
+    }
+    if let Some((_, clip)) = report.chosen() {
+        if matches!(clip.data, pdf_model::media::Data::Form) {
+            // Table 285: "the associated player is implicitly the interactive PDF processor", and
+            // the playing is the clause 13 entry's exclusion (ADR 1960).
+            note(
+                outcome,
+                "Rendition: the clip is a form XObject, which only this processor could play, and \
+                 playing is excluded by CLAUDE.md principle 5's clause 13 entry",
+            );
+        } else {
+            outcome.media.push(clip.clone());
+        }
+    }
+}
+
 /// A trigger's chain without its ECMAScript actions, where the view state's runner was handed
 /// them at the same event, and whole where it was not.
 ///
@@ -508,6 +577,7 @@ fn perform(
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Remote(request) => remote = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),
+            Request::Rendition(rendition) => rendered(open, rendition, subject, &mut outcome),
             Request::Thread(thread) if thread.file.is_some() => {
                 // Table 209's `/F` puts §12.4.3's beads in a second document, so the walk
                 // suspends here exactly as §12.6.4.3's does and the *name* goes to whoever

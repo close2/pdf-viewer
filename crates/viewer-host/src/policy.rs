@@ -1374,6 +1374,28 @@ pub enum Opening {
     Refuse(String),
 }
 
+/// What a window says when [`viewer_core::Event::Media`] arrives: the clip handed over, and that no
+/// player was started.
+///
+/// One sentence for every window, worded here for [`asked_to_open`]'s reason. `CLAUDE.md`'s clause
+/// 13 entry admits the media file "handed to this machine's own player" at the reader's level; the
+/// level for starting that player — RFC 0009 section 11's question 3, `doc/questions/A254` — is
+/// not built, so a window starts nothing, and saying so is trap 5's rule on a path that does less
+/// than the document asked (ADR 1961).
+#[must_use]
+pub fn handed_media(
+    document: &str,
+    content_type: Option<&str>,
+    media: &viewer_core::Media,
+) -> String {
+    let kind = content_type.map_or_else(String::new, |kind| format!("{kind}, "));
+    format!(
+        "{document} hands a media clip to this window for a player — {kind}{} (ISO 32000-2 \
+         §13.2.4.2); this window starts no player yet, so nothing plays",
+        media.describe()
+    )
+}
+
 /// Whether §12.6.4.8's resolved URI may be **handed to whatever this machine opens one with**.
 ///
 /// §12.6.4.8 says "[a] URI action causes a URI to be resolved", of a string the clause introduces

@@ -994,9 +994,9 @@ fn no_alternate_presentations(exam: &Examination<'_>, findings: &mut Findings) {
 /// ISO 19005-2 section 6.10, ISO 19005-4 section 6.11.
 fn no_presentation_steps(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    let pages = Pages::new(document);
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
+    // One walk of the tree rather than one lookup per page (ADR 1953).
+    for (index, page) in Pages::new(document).every().into_iter().enumerate() {
+        let Some(page) = page else {
             continue;
         };
         if page.dict.get("PresSteps").is_some() {

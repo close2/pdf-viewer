@@ -777,8 +777,9 @@ impl Survey {
         };
         let pages = Pages::new(document);
         walk.survey.pages = pages.len();
-        for index in 0..pages.len() {
-            let Some(page) = pages.get(index) else {
+        // One walk of the tree rather than one lookup per page (ADR 1953).
+        for (index, page) in pages.every().into_iter().enumerate() {
+            let Some(page) = page else {
                 continue;
             };
             walk.page(&page, index);

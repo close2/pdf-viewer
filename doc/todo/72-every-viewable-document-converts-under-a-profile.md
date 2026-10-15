@@ -13,35 +13,38 @@ Catalogue: `doc/pdf-a-mitigations.md`, keyed by the same site identifiers.
 
 ## 1. Where a person chooses a profile
 
-- **The window has no archive path.** `viewer-core`, the hosts and the dialogue offer no PDF/A
-  conversion at all; only `quorra-transform archive` does. Owed: a command beside Print that names
-  the target and one of the shipped profiles by name, runs the verb, and shows the report's
-  per-site lines — `--profile <name>` is the CLI's half (ADR 1942).
-- **The report names the configuration once** (stderr) and each site "answered by this
-  configuration"; a JSON `profile` field in the conversion report is owed so a pipeline can read it.
+- **The window converts, chosen at launch** (ADR 1954): `--archive <target>:<profile>` and Shift+A
+  in `quorra`, `quorra-gtk` and `quorra-qt`; `Command::Archive` asks Table 22's bit 11, the host runs
+  the verb on a thread through `pdf_transform::profiles` and the one executor, says the report's
+  lines and writes `<name>.pdfa-<target>.pdf` beside the document; `quorra_archive` in the C ABI.
+  The JSON report carries `profile`. **Owed**: a menu or card that chooses the target and profile
+  after launch; a password-protected document converts only where its user password is empty
+  (the core keeps no password); the confined window converts nothing, by argument.
 
 ## 2. The sites with no remedy, by how many documents reach them
 
 Each line: the site, and what its remedy would be. `the-fence` rows are refused by argument
 (ADR 0816) and leave this list only by an argued amendment or a departure the owner allows.
 
-1. `optional-content/configuration-names` (not built) — ISO 19005-2 section 6.9: every optional
-   content configuration states a `/Name`; supplying one is a fresh text string naming nothing on
-   any page, the sibling of the `/Order` row the converter already answers.
+1. `optional-content/configuration-names` — **built as a `supply`** (ADR 1952): the three shipped
+   lower-bound profiles name a configuration that states none `Configuration {n}`. Left: a name
+   two configurations share (no corpus document does).
 2. `graphics/only-operators-the-base-standard-defines` (fence) — an operator the standard does
    not define. §7.8.2 makes one an error outside a `BX`/`EX` section and has it ignored inside
    one (Table 33), so removing one *inside* such a section changes nothing a conforming reader
    draws; outside, what the page means is this reader's tolerance. Argue the first half.
 3. `fonts/embedded-programs-define-every-glyph-shown` (fence) — a shown code the program has no
    glyph for. ADR 1943's route may reach a glyph for some; re-count after it before anything else.
-4. `graphics/no-transfer-function-in-a-graphics-state` (not built) — §10.5's transfer function is
-   in scope and drawn (doc/todo/13); applying it into the colours is a content rewrite, and the
-   honest answer is per profile: as-if-printed keeps it for the press, as-shown would bake it in.
+4. `graphics/no-transfer-function-in-a-graphics-state` — **built where every `/TR` is
+   `Identity`** (26 of 27 documents; ADR 1952 section 3). Decided, not built: a real function is
+   `discard` with the function kept in `xmpMM:History` under as-if-printed, and a stop under
+   as-shown (baking it in is a content rewrite); witness `issue6931_reduced.pdf`.
 5. `graphics/named-resources-are-defined` (fence) — a resource name the page uses and the file
    does not define. Read what ISO 32000-2 has a processor do with one before arguing a remedy;
    the catalogue's "none" rests on supplying an object being invention.
-6. `file-structure/stream-filters-are-standard` (not built) — a non-standard filter; decoding and
-   re-encoding under `FlateDecode` loses nothing where this tree decodes it.
+6. `file-structure/stream-filters-are-standard` — **built for Table 92's abbreviations** (ADR
+   1952: the name written in full, the bytes kept). Left: `XXXDecode`, `BrotliDecode`, `DCTecode`,
+   names this tree does not decode.
 7. `implementation-limits/values-written-in-content-streams` (not this target) — part 4 lifts it.
 8. `fonts/non-symbolic-truetype-differences-are-listed-names` (fence) — a `/Differences` name
    outside the Adobe Glyph List; ADR 1942's construction names the glyph by its `/ToUnicode`
@@ -58,11 +61,10 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
 11. Level A only: `logical-structure/structure-tree-root` (fence — auto-tagging; 2u is the answer)
     and `logical-structure/role-map-terminates-at-a-standard-type` (catalogued as `supply`).
 
-**One validation that does not end.** `isartor-6-1-12-t01-fail-a.pdf` under
-`doc/veraPDF-corpus/Isartor test files/PDFA-1b/` (4 010 934 bytes) holds `pdf_archive::check` at
-one target for more than 120 s at full processor; the census over that corpus never finished.
-No gate walks that directory. The validator owes a budget, and the walk that stalls a profile,
-before a viewer's conversion command can be offered (item 1).
+**The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
+thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs
+1.5 s with `Pages::every`'s one walk. No gate walks `doc/veraPDF-corpus`; the census over it is
+the instrument (`examples/archive_unbuilt -- doc/veraPDF-corpus`).
 
 ## 3. What the two shipped lower-bound profiles still owe
 

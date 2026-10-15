@@ -198,6 +198,96 @@ pub(crate) struct Request<'a> {
     /// For [`Shape::ListBox`], the lines whose option the field's value selects, counted from the
     /// first line drawn; each is marked with [`SELECTION_HIGHLIGHT`]. Empty for every other shape.
     pub selected: &'a [usize],
+    /// The `/DA` fonts already loaded by the layouts before this one, which [`set_in`] asks
+    /// first.
+    pub fonts: &'a LayoutFonts<'a>,
+}
+
+/// The `/DA` fonts one interpretation has loaded, each kept for the layouts after it (ADR 1956).
+///
+/// **A page of fields names one or two fonts, and each field used to load its own.** On a page
+/// of 200 text fields under one `/DA`, 44 % of interpreting it was `pdf_font::LoadedFont::load`
+/// called once per field from [`set_in`], and another 9 % was each fresh font filling its own
+/// character-to-code memo. Asked here instead, the font is loaded by the first field and its
+/// memos are filled once and read by the rest.
+///
+/// **The key is what the load reads, compared whole**: the font dictionary [`resolve_font`]
+/// answered and the label. `LoadedFont::load` is a function of the document, that dictionary and
+/// that label, and a `pdf_syntax::Document` is immutable, so two equal keys load two equal fonts
+/// and sharing one changes no code, width, outline or report. The document is held rather than
+/// assumed: a layout asked of any other document loads its font afresh, as every layout did.
+///
+/// **At most [`Self::KEPT`] fonts are kept**, and a font past them is loaded and not kept, so
+/// what the cache holds alive is bounded whatever a page names. It is meant to live as long as
+/// one interpretation (`crate::content`'s interpreter holds one) or one question, and is dropped
+/// with it.
+pub(crate) struct LayoutFonts<'d> {
+    /// The document every kept font was loaded out of.
+    document: &'d Document,
+    /// The fonts, in the order they were first asked for.
+    kept: std::cell::RefCell<Vec<KeptFont>>,
+}
+
+/// One font a [`LayoutFonts`] holds: the key it was loaded from, and what the load answered.
+struct KeptFont {
+    /// The font dictionary the load read.
+    dict: Dictionary,
+    /// The label the load's errors name the font by.
+    label: String,
+    /// The font, or the sentence its failure is reported with — kept too, because the same
+    /// dictionary fails the same way for every field after the first.
+    loaded: Result<std::sync::Arc<pdf_font::LoadedFont>, String>,
+}
+
+impl<'d> LayoutFonts<'d> {
+    /// How many distinct fonts are kept: more than the `/DR` of any form names under the fields of
+    /// one page, and few enough that the fonts kept alive stay small beside the page's own.
+    pub(crate) const KEPT: usize = 16;
+
+    /// No font loaded yet, for layouts of `document`.
+    pub(crate) fn new(document: &'d Document) -> Self {
+        Self {
+            document,
+            kept: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The font `dict` loads, from an earlier layout where one loaded it.
+    ///
+    /// # Errors
+    ///
+    /// The load's own error, as the sentence [`Owed::FontUnusable`] carries.
+    fn load(
+        &self,
+        document: &Document,
+        dict: &Dictionary,
+        label: &str,
+    ) -> Result<std::sync::Arc<pdf_font::LoadedFont>, String> {
+        let load = || {
+            pdf_font::LoadedFont::load(document, dict, label)
+                .map(std::sync::Arc::new)
+                .map_err(|error| error.to_string())
+        };
+        if !std::ptr::eq(document, self.document) {
+            return load();
+        }
+        let mut kept = self.kept.borrow_mut();
+        if let Some(found) = kept
+            .iter()
+            .find(|font| font.label == label && font.dict == *dict)
+        {
+            return found.loaded.clone();
+        }
+        let loaded = load();
+        if kept.len() < Self::KEPT {
+            kept.push(KeptFont {
+                dict: dict.clone(),
+                label: label.to_owned(),
+                loaded: loaded.clone(),
+            });
+        }
+        loaded
+    }
 }
 
 /// What §12.7.4.3 asks for that this module cannot supply.
@@ -561,13 +651,23 @@ fn set_in(
     request: &Request,
     font_name: &pdf_syntax::Name,
     paragraphs: Option<&pdf_font::shaping::Paragraphs>,
-) -> Result<(Dictionary, pdf_font::LoadedFont, Encoded, Resolution), Owed> {
+) -> Result<
+    (
+        Dictionary,
+        std::sync::Arc<pdf_font::LoadedFont>,
+        Encoded,
+        Resolution,
+    ),
+    Owed,
+> {
     let (dict, resolution) = resolve_font(document, request.resources, font_name);
     // The label `FontError` puts in its message, which is §7.3.5's text exception rather than a
     // lookup — so it is the escaped form, which names the name exactly.
     let label = font_name.escaped();
-    let font = pdf_font::LoadedFont::load(document, &dict, &label)
-        .map_err(|error| Owed::FontUnusable(error.to_string()))?;
+    let font = request
+        .fonts
+        .load(document, &dict, &label)
+        .map_err(Owed::FontUnusable)?;
     // **The whole layout below is horizontal**, and §9.7.5.1 makes the writing mode decide
     // "which metrics shall be used when glyphs are painted from that font". A field's text
     // placed along x with a font whose displacement is `w1` and whose glyphs sit at `-v` would
@@ -695,9 +795,9 @@ fn named_glyphs_reach_more(
     request: &Request,
     runs: &Encoded,
     paragraphs: Option<&pdf_font::shaping::Paragraphs>,
-) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
+) -> Option<(Dictionary, std::sync::Arc<pdf_font::LoadedFont>, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
-    let reloaded = pdf_font::LoadedFont::load(document, &named, label).ok()?;
+    let reloaded = std::sync::Arc::new(pdf_font::LoadedFont::load(document, &named, label).ok()?);
     let again = encode(
         &|character| {
             reloaded
@@ -803,7 +903,7 @@ fn machine_set(
     label: &str,
     request: &Request,
     paragraphs: Option<&pdf_font::shaping::Paragraphs>,
-) -> Option<(Dictionary, pdf_font::LoadedFont, Encoded)> {
+) -> Option<(Dictionary, std::sync::Arc<pdf_font::LoadedFont>, Encoded)> {
     let glyphs = pdf_font::shaping::displayed_characters(request.text, paragraphs)?;
     let wanted: Vec<char> = glyphs.keys().copied().collect();
     let mut asked = pdf_font::substitute::Request::derive(document, stood_in, None);
@@ -812,7 +912,7 @@ fn machine_set(
     asked.standard = false;
     let program = pdf_font::substitute::installed_covering(asked, &wanted)?;
     let (dict, by_character) = machine_font(&program, &glyphs)?;
-    let font = pdf_font::LoadedFont::load(document, &dict, label).ok()?;
+    let font = std::sync::Arc::new(pdf_font::LoadedFont::load(document, &dict, label).ok()?);
     let identity = pdf_font::cmap::CMap::identity();
     let again = encode(
         &|character| {

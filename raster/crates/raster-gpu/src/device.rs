@@ -186,8 +186,9 @@ pub struct Device {
     /// The GPU lane's winding target, kept across frames (ADR 0016's measurement).
     winding_texture: crate::winding::WindingTexture,
     /// The compute coverage lane's pipelines, compiled on the first frame that takes
-    /// the lane and kept — never on the startup path (ADR 0080).
-    compute_pipelines: Option<crate::compute::Pipelines>,
+    /// the lane and kept — never on the startup path (ADR 0080) — or the refusal that
+    /// stopped them, kept as the render lane keeps one (ADR 1962).
+    compute_pipelines: crate::compute::Kept,
     /// The compute lane's resident segments: every outline it has drawn, uploaded
     /// once (ADR 0081).
     segment_arena: crate::compute::SegmentArena,

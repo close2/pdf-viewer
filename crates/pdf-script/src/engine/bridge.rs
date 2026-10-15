@@ -48,7 +48,7 @@ use pdf_model::view::{
 
 use super::{State, guard, members, refuse};
 use crate::request::byte_offset;
-use crate::surface::{EXCLUDED, Holder, NOT_BRIDGED, REFUSED};
+use crate::surface::{EXCLUDED, Holder, Member, NOT_BRIDGED, REFUSED};
 use crate::{Outcome, RefusalKind, Request, viewer};
 
 /// The objects a realm builds once and hands out many times.
@@ -725,7 +725,7 @@ fn constants(context: &mut Context) -> JsResult<()> {
         }),
     );
     data(&color, "equal", JsValue::from(equal), false, context)?;
-    refuser(&color, "color.", "convert", None, context)?;
+    refuser(&color, ("color.", "convert"), Member::Method, None, context)?;
     data(&global, "color", JsValue::from(color), false, context)?;
     Ok(())
 }
@@ -2074,15 +2074,16 @@ pub(super) fn function(context: &Context, name: &str, native: NativeFunction) ->
 }
 
 /// Defines every member [`crate::surface`] lists for `holder` on `object`, each an accessor that
-/// throws on read and on write.
+/// throws on write and refuses where its [`Member`] kind says: a method when called, a property
+/// when read (ADR 1957).
 pub(super) fn refusers(object: &JsObject, holder: Holder, context: &mut Context) -> JsResult<()> {
     let prefix = holder.prefix();
     for row in EXCLUDED.iter().filter(|row| row.holder == holder) {
         for member in row.members {
             refuser(
                 object,
-                prefix,
-                member,
+                (prefix, member),
+                row.kind,
                 Some(Refused::Excluded(row.reason)),
                 context,
             )?;
@@ -2092,16 +2093,18 @@ pub(super) fn refusers(object: &JsObject, holder: Holder, context: &mut Context)
         for member in row.members {
             refuser(
                 object,
-                prefix,
-                member,
+                (prefix, member),
+                row.kind,
                 Some(Refused::Kept(row.reason)),
                 context,
             )?;
         }
     }
+    // A member waiting to be bridged has no kind written down, so it keeps throwing where a script
+    // first meets it.
     for (_, members) in NOT_BRIDGED.iter().filter(|(listed, _)| *listed == holder) {
         for member in *members {
-            refuser(object, prefix, member, None, context)?;
+            refuser(object, (prefix, member), Member::Property, None, context)?;
         }
     }
     Ok(())
@@ -2117,12 +2120,14 @@ pub(super) enum Refused {
     Kept(&'static str),
 }
 
-/// One refused member: a getter and a setter that each throw its `NotAllowedError` — Tier 2's or
-/// a kept member's where `reason` says which, one not yet bridged where it is `None`.
+/// One refused member, whose `NotAllowedError` is Tier 2's or a kept member's where `reason` says
+/// which, one not yet bridged where it is `None`: a setter that throws it, and a getter that throws
+/// it for a [`Member::Property`] and answers, for a [`Member::Method`], a function of the member's
+/// name that throws it when called (ADR 1957).
 pub(super) fn refuser(
     object: &JsObject,
-    prefix: &'static str,
-    member: &'static str,
+    (prefix, member): (&'static str, &'static str),
+    kind: Member,
     reason: Option<Refused>,
     context: &mut Context,
 ) -> JsResult<()> {
@@ -2134,7 +2139,22 @@ pub(super) fn refuser(
         };
         Err(refuse(format!("{prefix}{member}"), kind, context))
     };
-    let getter = function(context, member, NativeFunction::from_copy_closure(throws));
+    let getter = match kind {
+        Member::Property => function(context, member, NativeFunction::from_copy_closure(throws)),
+        Member::Method => {
+            let method = function(context, member, NativeFunction::from_copy_closure(throws));
+            function(
+                context,
+                member,
+                NativeFunction::from_copy_closure_with_captures(
+                    |_this, _arguments, method: &JsObject, _context| {
+                        Ok(JsValue::from(method.clone()))
+                    },
+                    method,
+                ),
+            )
+        }
+    };
     let setter = function(context, member, NativeFunction::from_copy_closure(throws));
     object.define_property_or_throw(
         JsString::from(member),

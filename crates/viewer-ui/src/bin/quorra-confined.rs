@@ -756,6 +756,12 @@ impl Host {
                      which this window never asked for"
                 );
             }
+            // The same for a conversion's grant: `Command::Archive` never crosses (ADR 1954).
+            Event::Archiving { .. } => {
+                eprintln!(
+                    "note: the confined viewer granted a conversion this window never asked for"
+                );
+            }
             Event::OpenFailed { reason, .. } => {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
@@ -1003,6 +1009,22 @@ impl Host {
                         &format!("document {}", document.0),
                         sound,
                         "this window has no sound for a document's script"
+                    )
+                );
+            }
+            // §13.2.4.2's clip, which the worker judged and this window was handed: no player is
+            // started yet, said (ADR 1961).
+            Event::Media {
+                document,
+                content_type,
+                media,
+            } => {
+                eprintln!(
+                    "note: {}",
+                    viewer_host::handed_media(
+                        &format!("document {}", document.0),
+                        content_type.as_deref(),
+                        &media
                     )
                 );
             }
@@ -1511,6 +1533,9 @@ impl Host {
                     at: None,
                 }),
                 "q" => self.leaving = true,
+                // The archive key, said rather than ignored: `Command::Archive` does not cross
+                // this window's pipe (ADR 1954).
+                "A" => eprintln!("note: {}", viewer_host::archiving::NOT_IN_A_CONFINED_WINDOW),
                 "m" => {
                     let on = self.measuring.toggle();
                     eprintln!("note: {}", viewer_host::measuring::switched(on));

@@ -133,7 +133,9 @@ directions — including revision 5, whose algorithm is the Adobe extension the 
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is not clause 13's media — `JavaScript` at the
 reader's `Scripts` level, as the scripts below say, and a launch of an application the one half principle 3's sandbox withholds, with
-`pdf_model::action`'s table the list — §14.9's accessibility entries, §12.4.4's whole presentation
+`pdf_model::action`'s table the list — and a rendition action's clip judged by §13.2.2's viability,
+reported with its §14.9.2.4 alternate text and handed to the host at the reader's level for Table
+286's `/TF`, with no player started (ADRs 1960, 1961) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
 four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,
 which this program chose and says is its own (ADR 1299), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
@@ -270,7 +272,8 @@ with the script's buttons or an entry holding its default, the window's thread n
 while the script is held in its worker and what it does once answered applied late (ADRs 1627,
 1628), an answer only ever the question's the window took (ADR 1641), and a script's write to
 `this.pageNum` a page turn the window makes (ADR 1640), `app.setInterval` and `app.setTimeOut`
-counted down in the ticks every window sends only while a document holds one, and `app.beep` a
+counted down in the ticks every window sends only while a document holds one, a due tick waiting
+in `quorra` for the frame the last one asked for (ADR 1957), and `app.beep` a
 sound GTK and Qt play and `quorra` refuses by name (ADR 1702), `getField("name.N")` one widget of a
 field whose widget members are its own and whose value is the field's (ADR 1664),
 `Field.style` a check box's glyph redrawn (ADR 1665), and `this.getAnnots` the document's markup
@@ -337,7 +340,10 @@ degree with its hemispheres — read through the affine map its registration poi
 how far they depart from it, which is a choice because §12.10 defines no function between them
 (ADRs 1191, 1593) — and `pdf_model::geospatial` evaluates each method the census found in both
 directions, so a projected position comes back as a latitude, a projected `/DCS` is displayed as an
-easting and a northing, and a position given to a viewport answers its page point; a projected map
+easting and a northing, a `/DCS` on another datum is reached through the Helmert transformation the
+WKT states — the older form's `TOWGS84`, or ISO 19162's bound CRS — and refused by both datums' names
+where it states none (ADR 1958), and a
+position given to a viewport answers its page point; a projected map
 whose registration points are its base system's degrees, as every one the census found is, is
 fitted in the system's plane through the forward projection, a departure from Table 269's sentence
 (ADRs 1586, 1587, 1672, 1918); a person can **add an annotation** — §12.5.6.10's four markups over what is
@@ -881,7 +887,8 @@ dictionary a part 4 target forbids moves into the packet under Table 349's prope
 §12.6.2 `/Next` promoted into its place (ADR 1175); an encryption does not cross, and every flag it
 withheld is named in the report and in the output's `xmpMM:History` (ADR 1187); and where a fact is
 the operator's to state — which font program may be embedded, which of an ink's two definitions
-wins, what a stream outside the file holds — the operator states it and the report says whose
+wins, what a stream outside the file holds, what an unnamed optional content configuration is
+called — the operator states it and the report says whose
 authority it was (ADRs 1188, 1209, 1221, 1222). Every other repair is the one its clause states: a
 hexadecimal string's odd digit (ADR 1176), a page boundary by §14.11.2.1's defaults (ADR 1210),
 annotation flags and states (ADRs 1233, 1234), an extension schema described from what the packet
@@ -889,15 +896,20 @@ states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appea
 that `/NeedAppearances` can go (ADR 1257), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded in the space it states
 (ADRs 1400, 1412), a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286),
-and a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
-`.notdef` renamed (ADR 1942).
+a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
+`.notdef` renamed (ADR 1942), and a filter named by its inline-image abbreviation named in full
+(ADR 1952). The validator enumerates a page tree in one walk, so a ten-thousand-page `/Kids` array
+costs it a second rather than minutes (ADR 1953).
 [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) is the catalogue of each, with its clause. A
 refusal is a question answered in advance: a configuration names each refusal site and its remedy,
 `--remedy-sites` prints every site a target binds with what this version carries out, and the
 profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012) — each a lower
 bound on what may be lost, never an instruction to lose it, `as-if-printed` and `as-shown` among them,
-named with `--profile` (ADR 1942). **It is `quorra-transform archive` and a library verb; no window
-reaches it** (`doc/todo/72`).
+named with `--profile` (ADR 1942). **It is `quorra-transform archive`, a library verb, and Shift+A in
+`quorra`, `quorra-gtk` and `quorra-qt`** started with `--archive <target>:<profile>`: the core asks
+Table 22's bit 11 and grants the file, the window converts it on a thread of its own through the same
+profiles and executor, says the report per site and writes the file beside the document; `quorra_archive`
+in the C ABI (ADR 1954).
 
 **And it applies a redaction.** §12.5.6.23's `/Redact` annotation names a region — `/QuadPoints`
 else `/Rect`, and *within* is bounding-box intersection, a documented choice — and `redact` writes a

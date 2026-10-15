@@ -202,6 +202,27 @@ impl App {
         }
     }
 
+    /// Puts a granted conversion on an `archive` thread of its own, and says so (ADR 1954).
+    fn start_archiving(
+        &mut self,
+        document: viewer_core::DocumentId,
+        bytes: pdf_syntax::FileBytes,
+        asked: viewer_core::Archiving,
+    ) {
+        println!("note: {}", viewer_host::archiving::starting(&asked));
+        let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
+            Box::new(move || {
+                // A loop that has already exited has nobody to wake, and the report it would have
+                // said is one nobody is owed.
+                let _ = waker.send_event(());
+            })
+        });
+        let path = self.path.clone();
+        if let Err(sentence) = self.converter.start(document, path, bytes, asked, wake) {
+            println!("note: {sentence}");
+        }
+    }
+
     /// Puts the request on a `submit-form` thread of its own, and says where it went.
     ///
     /// The thread wakes this loop when the answer is in, which is what `user_event` is for; the
@@ -358,6 +379,17 @@ impl App {
 
     /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
     pub(crate) fn take_the_answers(&mut self) {
+        // A conversion's thread wakes this loop the same way, and its report is said here
+        // (ADR 1954).
+        for (path, converted) in self.converter.collect() {
+            for line in &converted.lines {
+                println!("note: {line}");
+            }
+            println!(
+                "note: {}",
+                viewer_host::archiving::write_beside(&path, &converted)
+            );
+        }
         for returned in self.submitter.collect() {
             let (document, url) = (returned.document, returned.url.clone());
             match returned.reply() {
@@ -609,6 +641,13 @@ answers in two places"
                      printer of its own yet (ADR 1180); press the key again to stop"
                 );
             }
+            // Table 22's bit 11 granted: the conversion runs on a thread of its own, which wakes
+            // this loop when its report is in (ADR 1954).
+            Event::Archiving {
+                document,
+                bytes,
+                asked,
+            } => self.start_archiving(document, bytes, asked),
             Event::Copied {
                 logical,
                 page_order,
@@ -661,6 +700,19 @@ answers in two places"
             Event::Console { document, request } => println!(
                 "note: {}",
                 viewer_host::script_timers::console(&self.documents.label_of(document), request)
+            ),
+            // §13.2.4.2's clip handed over: no player is started yet, said (ADR 1961).
+            Event::Media {
+                document,
+                content_type,
+                media,
+            } => println!(
+                "note: {}",
+                viewer_host::handed_media(
+                    &self.documents.label_of(document),
+                    content_type.as_deref(),
+                    &media
+                )
             ),
             Event::ScriptQuestionWithdrawn { document } => {
                 if matches!(

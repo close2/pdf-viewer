@@ -1113,11 +1113,12 @@ into the ignored `doc/md/`, and kept at `/home/AI/specs/` on the agent's machine
 |---|---|---|
 | **IOGP Publication 373-7-2, Geomatics Guidance Note 7 part 2**, *Coordinate Conversions and Transformations including Formulas*, revised September 2019 | `https://www.iogp.org/wp-content/uploads/2019/09/373-07-02.pdf` | `8951d9641e6a65a071e865d1e6bb0611d0d7248772fa3054496fc14041183465` |
 | **OGC 18-010r11**, *Geographic information — Well-known text representation of coordinate reference systems*, version 2.1.11 (2023), the OGC's publication of ISO 19162:2019 | `https://docs.ogc.org/is/18-010r11/18-010r11.pdf` | `c97a5eb8f454b7309c990e1e0eef18f884b74f7ade8cf7f1a6f15f43668430e3` |
+| **OGC 01-009**, *OpenGIS Coordinate Transformation Services Implementation Specification*, revision 1.00 (2001), the text that defines the older WKT form, `TOWGS84` included; fetched on 2026-10-15 for the datum transformation of `doc/questions/A436` (ADR 1958) and kept at `/home/AI/specs/01-009.pdf`; `python3 tools/spec-md.py <pdf> --out doc/md/OGC-01-009.md` prepares its text | `https://docs.ogc.org/sap/01-009/01-009.pdf` | `3afb6f4f032f262a7397652aeeae992d3f157556772b2fc758031b2423c1c0f8` |
 
 **Cited and paraphrased, never quoted.** The Guidance Note states no terms of reproduction in its
-text, which under ADR 0187 is the same as none granted. The OGC text carries a licence permitting
-copies with its notices intact, but the quotation gate reads a quotation mark as ISO 32000-2's, so
-both are cited by section — "Guidance Note 7-2 section 3.2.3.1", "ISO 19162 section 6.4" — and
+text, which under ADR 0187 is the same as none granted. The OGC texts carry a licence permitting
+copies with their notices intact, but the quotation gate reads a quotation mark as ISO 32000-2's, so
+all three are cited by section — "Guidance Note 7-2 section 3.2.3.1", "ISO 19162 section 6.4" — and
 paraphrased in source and in the ledger alike. What `crates/pdf-model/src/geospatial/` carries from
 the Note is its formulas, which are the method rather than prose about it, and its worked examples'
 numbers as test inputs (ADR 1587). Nothing from the EPSG Dataset is carried: the parameter and

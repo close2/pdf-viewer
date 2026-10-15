@@ -207,9 +207,27 @@ impl Events {
                 "a script's question is withdrawn: its wait ran out".to_owned()
             }
             Event::Beep { sound, .. } => format!("a script asks for the {} sound", sound.name()),
+            Event::Media {
+                content_type,
+                media,
+                ..
+            } => format!(
+                "a media clip is handed over for a player: {}{} (ISO 32000-2 §13.2.4.2); \
+                 starting one is this machine's decision",
+                content_type
+                    .as_deref()
+                    .map_or_else(String::new, |kind| format!("{kind}, ")),
+                media.describe()
+            ),
             Event::Console { request, .. } => {
                 viewer_host::script_timers::console("the document", *request)
             }
+            Event::Archiving { bytes, asked, .. } => format!(
+                "{} bytes converted to {} under the profile {:?}; quorra_archived says how it went",
+                bytes.len(),
+                asked.target,
+                asked.profile
+            ),
             Event::SignaturePoliciesPublished { policies, .. } => format!(
                 "a signature names its policy's published copy at {} (ETSI EN 319 122-1 clause \
                  5.2.9.2, under §12.8.3.4.4); fetching it is this machine's decision",
@@ -350,6 +368,8 @@ impl Events {
             | Event::ScriptQuestionWithdrawn { document }
             | Event::Beep { document, .. }
             | Event::Console { document, .. }
+            | Event::Media { document, .. }
+            | Event::Archiving { document, .. }
             | Event::SignaturePoliciesPublished { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
@@ -369,7 +389,12 @@ impl Events {
     /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
     pub fn bytes(&self, index: usize) -> Result<&[u8], Status> {
         match self.events.get(index).ok_or(Status::OutOfRange)? {
-            Event::Saved { bytes, .. } | Event::Extracted { bytes, .. } => Ok(bytes),
+            Event::Saved { bytes, .. }
+            | Event::Extracted { bytes, .. }
+            | Event::Media {
+                media: viewer_core::Media::Embedded { bytes, .. },
+                ..
+            } => Ok(bytes),
             _ => Err(Status::WrongKind),
         }
     }

@@ -17,7 +17,9 @@
 //! confined process answers them *itself*: it holds the rasteriser, so the render round trip
 //! never crosses the pipe. That is `doc/ui-boundary.md`'s "one boundary, not two". A third,
 //! [`viewer_core::Command::Respond`], is [`Uncarried`] because the confined window sends no form,
-//! so no server's answer exists to cross (ADR 1291).
+//! so no server's answer exists to cross (ADR 1291). A fourth, [`viewer_core::Command::Archive`]
+//! with its grant, is [`Uncarried`] because a conversion parses the whole document again, and the
+//! window's process is the side of this pipe that parses none (ADR 1954).
 //!
 //! **A message that cannot be decoded is a refusal that says so.** [`ProtocolError`] names what
 //! was truncated or unrecognised; nothing here defaults, clamps or guesses.
@@ -1754,6 +1756,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 writer.f32(sheet.page_scale);
             }
         }
+        Command::Archive(_) => {
+            return Err(Uncarried {
+                message: "Command::Archive",
+                reason: "a conversion parses the whole document again and writes a new one, and \
+                         the confined window's process parses no document, so it offers no \
+                         conversion (ADR 1954)",
+            });
+        }
         Command::Respond { .. } => {
             return Err(Uncarried {
                 message: "Command::Respond",
@@ -2547,6 +2557,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Assemble => 5,
         Operation::Process => 6,
         Operation::PrintFaithfully => 7,
+        Operation::HandOverMedia => 8,
     }
 }
 
@@ -2561,6 +2572,7 @@ fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
         5 => Operation::Assemble,
         6 => Operation::Process,
         7 => Operation::PrintFaithfully,
+        8 => Operation::HandOverMedia,
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "an operation",
@@ -2617,6 +2629,9 @@ mod event_kind {
     // A script's console request, which crosses for `BEEP`'s reason: the window holds the console
     // (ADR 1771).
     pub(super) const CONSOLE: u8 = 27;
+    // §13.2.4.2's clip handed over, which crosses for `EXTRACTED`'s reason: the window is the host
+    // that would start a player (ADR 1961).
+    pub(super) const MEDIA: u8 = 28;
 }
 
 /// Encodes one event.
@@ -2869,6 +2884,27 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .unwrap_or(u8::MAX);
             writer.u8(k::BEEP).document(*document).u8(tag);
         }
+        Event::Media {
+            document,
+            content_type,
+            media,
+        } => {
+            writer
+                .u8(k::MEDIA)
+                .document(*document)
+                .option_str(content_type.as_deref());
+            match media {
+                viewer_core::Media::Embedded { name, bytes } => {
+                    writer.u8(0).str(name).bytes(bytes);
+                }
+                viewer_core::Media::Url(url) => {
+                    writer.u8(1).str(url);
+                }
+                viewer_core::Media::File(name) => {
+                    writer.u8(2).str(name);
+                }
+            }
+        }
         Event::Console { document, request } => {
             let command = match request.command {
                 pdf_model::view::ConsoleCommand::Show => 0,
@@ -2905,6 +2941,13 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 }
             }
             writer.strings(notes);
+        }
+        Event::Archiving { .. } => {
+            return Err(Uncarried {
+                message: "Event::Archiving",
+                reason: "it answers `Command::Archive`, which the confined window does not send \
+                         (ADR 1954)",
+            });
         }
         Event::NeedsRender(_) => {
             return Err(Uncarried {
@@ -3142,6 +3185,29 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             Event::Console {
                 document,
                 request: pdf_model::view::ConsoleRequest { command, at },
+            }
+        }
+        k::MEDIA => {
+            let document = reader.document(what)?;
+            let content_type = reader.option_string("a media clip's content type")?;
+            let media = match reader.u8("where a media clip's data is")? {
+                0 => viewer_core::Media::Embedded {
+                    name: reader.string("a media clip's name")?,
+                    bytes: reader.owned_bytes("a media clip")?,
+                },
+                1 => viewer_core::Media::Url(reader.string("a media clip's URL")?),
+                2 => viewer_core::Media::File(reader.string("a media clip's file")?),
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "where a media clip's data is",
+                        value: u32::from(value),
+                    });
+                }
+            };
+            Event::Media {
+                document,
+                content_type,
+                media,
             }
         }
         k::SIGNATURE_POLICIES_PUBLISHED => Event::SignaturePoliciesPublished {
@@ -5395,6 +5461,25 @@ mod tests {
             Event::Saved {
                 document,
                 bytes: b"%PDF-2.0 ...".to_vec(),
+            },
+            // §13.2.4.2's three places a clip's data can be, each on the wire.
+            Event::Media {
+                document,
+                content_type: Some("video/mp4".to_owned()),
+                media: viewer_core::Media::Embedded {
+                    name: "clip.mp4".to_owned(),
+                    bytes: b"moov".to_vec(),
+                },
+            },
+            Event::Media {
+                document,
+                content_type: None,
+                media: viewer_core::Media::Url("https://example.org/clip.mp4".to_owned()),
+            },
+            Event::Media {
+                document,
+                content_type: Some("audio/mpeg".to_owned()),
+                media: viewer_core::Media::File("clip.mp3".to_owned()),
             },
             Event::Extracted {
                 document,

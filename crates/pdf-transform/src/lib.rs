@@ -59,6 +59,7 @@ pub mod merge;
 pub mod optimize;
 pub mod pages;
 pub mod pattern;
+pub mod profiles;
 pub mod range;
 pub mod redact;
 pub mod render;
@@ -1709,6 +1710,12 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         Restriction::RequirementsUnmet { penalty } => format!(
             "the requirements it states and this program cannot meet total {penalty} penalty \
              points, over §12.11.3's 100"
+        ),
+        // Table 286's `/TF`, asked by the window that hands a clip to a player and by no verb of
+        // this suite; worded here for the same reason (ADR 1961).
+        Restriction::MediaTemporaryFile { value } => format!(
+            "its media permissions say ({}) for a player's temporary file (Table 286's /TF)",
+            value.as_str()
         ),
     }
 }

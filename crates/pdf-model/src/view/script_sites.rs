@@ -522,6 +522,70 @@ impl ViewState {
         }
     }
 
+    /// Says, once a page, what of its `/Annots` no script reaches, each under the sentence the file
+    /// breaks to put it there.
+    ///
+    /// Both are a walk that leaves an entry out without a word (trap 5): [`page_annotations`]
+    /// takes Table 31's references, so an annotation written in the array as a dictionary has no
+    /// event run and no identity a script or a field could name; and [`super::field_table`] reads
+    /// fields from the interactive form alone, so where the catalog names none, or the form states
+    /// no `/Fields` array, no widget on the page is a field. The two conditions are those two early
+    /// returns and nothing wider: a root `/Fields` merely omits is recovered from the page (ADR
+    /// 1653) and is not said here.
+    fn report_unreachable(&mut self, document: &Document, page_dict: &Dictionary, page: usize) {
+        let annotations = document.get_key(page_dict, "Annots");
+        let Some(entries) = annotations.as_array() else {
+            return;
+        };
+        let number = page.saturating_add(1);
+        let direct = entries
+            .iter()
+            .filter(|entry| matches!(entry, Object::Dictionary(_)))
+            .count();
+        if direct > 0 {
+            self.report(format!(
+                "page {number}'s /Annots holds {direct} annotation(s) written into the array as \
+                 dictionaries, where Table 31 says it \"shall contain indirect references to all \
+                 annotations associated with the page\"; no script reaches them and none of their \
+                 events is run"
+            ));
+        }
+        let widgets = entries
+            .iter()
+            .filter(|entry| {
+                let resolved = document.resolve(entry);
+                resolved.as_dict().is_some_and(|annotation| {
+                    document
+                        .get_key(annotation, "Subtype")
+                        .as_name()
+                        .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+                })
+            })
+            .count();
+        if widgets == 0 {
+            return;
+        }
+        let Ok(catalog) = document.catalog() else {
+            return;
+        };
+        let form = document.get_key(&catalog, "AcroForm");
+        let missing = match form.as_dict() {
+            None => {
+                "the catalog names no interactive form dictionary, which §12.7.3 says \"shall be \
+                 referenced from the AcroForm entry in the document catalog dictionary\""
+            }
+            Some(form) if document.get_key(form, "Fields").as_array().is_none() => {
+                "the interactive form states no /Fields, which Table 224 makes Required: \"An \
+                 array of references to the document's root fields\""
+            }
+            Some(_) => return,
+        };
+        self.report(format!(
+            "page {number} holds {widgets} widget annotation(s), and {missing}; none of them is a \
+             field, so no script reaches one as a field"
+        ));
+    }
+
     /// The page's scripts and its annotations' for one of Table 198's events.
     fn page_scripts(
         &mut self,
@@ -547,6 +611,9 @@ impl ViewState {
             ),
             &unread,
         );
+        if trigger == PageTrigger::Open {
+            self.report_unreachable(document, &found.dict, page);
+        }
         let mut total = Ran::default();
         let run_page = |view: &mut Self| {
             let mut ran = Ran::default();
