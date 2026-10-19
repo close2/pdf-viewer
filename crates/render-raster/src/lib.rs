@@ -322,6 +322,13 @@ impl QuorraRasterizer {
         self.counters
     }
 
+    /// What the device's compute-lane segment arena holds now — live segments, the holes released
+    /// outlines left, and the buffer — which a session of zoom steps is read by (ADR 2037).
+    #[must_use]
+    pub fn segment_arena_bytes(&self) -> raster_gpu::ArenaBytes {
+        self.device.segment_arena_bytes()
+    }
+
     /// The named spans raster measured inside the last frame — see
     /// [`QuorraWindowRenderer::last_phases`], which documents what is in the list and what is not.
     ///

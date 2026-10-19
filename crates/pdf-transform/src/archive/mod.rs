@@ -1003,7 +1003,8 @@ fn apply_the_decisions(
     // `/DefaultCMYK` names the same object as its alternate space.
     if (wanted.contains(&Rewrite::OutputIntent)
         || wanted.contains(&Rewrite::DefaultCmyk)
-        || wanted.contains(&Rewrite::DestinationProfileReplaced))
+        || wanted.contains(&Rewrite::DestinationProfileReplaced)
+        || wanted.contains(&Rewrite::DestinationProfileSupplied))
         && let Ok(intent) = &prepared.intent
     {
         conversion.profile = Some(intent.reported.clone());

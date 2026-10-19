@@ -26,8 +26,10 @@ reads the section below it only where a line here sends it (ADR 1639).
    held. Quotation marks mean verbatim from ISO 32000-2; every other text is cited by section and
    paraphrased; a `§` is ISO 32000-2's.
 3. **Tier 1 is every round's, scoped to what you touched**: `rustfmt --check --edition 2024` on
-   your files; `RUSTFLAGS="-D warnings" cargo clippy -p <crate> --all-targets` and
-   `cargo nextest run -p <crate>` for each crate you touched; `cargo test -p conformance`; and
+   your files; `cargo fmt --check -p <crate>`, `RUSTFLAGS="-D warnings" cargo clippy -p <crate>
+   --all-targets` and `cargo nextest run -p <crate>` for each crate you touched — the first two read
+   a file you added, a test file above all, which `rustfmt` on your edited files and `cargo test`
+   do not (`tools/round.sh` prints both); `cargo test -p conformance`; and
    `tools/state.sh --round <session> docs` where you touched a crate its section holds (ADR 1938).
    Tier 2 only for the subsystem the change reaches, by section 2's rule list and map, behind the lock,
    each run declaring its kind: `--tree 6` for a walk under 6 GiB, `--clock` for one whose verdict

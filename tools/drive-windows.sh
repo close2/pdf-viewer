@@ -79,6 +79,9 @@
 # report's lines and the file beside the document read back, and the confined window saying it
 # converts nothing (ADR 1954).
 #
+# `--step FUNCTION` runs the named steps alone, in each window asked for; a step that window's list
+# does not hold says `not offered` there, and a name in no list is refused (ADR 2045).
+#
 # And one step outside the list, run by `--step heavy_open` alone: a heavy document's window path
 # timed in all four windows — the first frame, each process's peak memory, what the page crossed as,
 # and how long a key waited while it loaded (ADR 1815); `tools/state.sh heavy` is its clock walk.
@@ -132,6 +135,39 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ ${#WINDOWS[@]} -eq 0 ] && WINDOWS=(quorra quorra-gtk quorra-qt quorra-confined)
+# The full drive's list in each window, which `--step` reads as well: a step a window's list does not
+# hold is not offered there, rather than run where the window has nothing for it to drive and judged
+# wrong (ADR 2045). `quorra-confined` has a list of its own; the other three share one.
+CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels script_asks
+    script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
+    located_displayed signature_policy loading_bar zoom_past_the_bound
+    zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
+    bare_session_start archive_converted)
+WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
+    script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
+    script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
+    popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
+    note_window note_typed note_caret reply_threaded located located_displayed signature_policy
+    loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
+    transition_frames rendition_click link_levels bare_session_start archive_converted)
+# Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
+# write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
+# windows it is offered.
+OUTSIDE_STEPS=(heavy_open page_as_built_heavy zoom_past_the_bound_heavy)
+in_list() { # name item…
+    local name=$1 item
+    shift
+    for item in "$@"; do [ "$item" = "$name" ] && return 0; done
+    return 1
+}
+# A name in no list is refused before anything starts: a part of a step is run by its step, and a
+# misspelt step would otherwise be judged in every window.
+for step in "${STEPS[@]}"; do
+    in_list "$step" "${CONFINED_STEPS[@]}" "${WINDOW_STEPS[@]}" "${OUTSIDE_STEPS[@]}" || {
+        echo "drive-windows: --step $step is in no window's list and not one of the steps outside them (${OUTSIDE_STEPS[*]})" >&2
+        exit 2
+    }
+done
 for tool in Xvfb xdotool xwd magick python3; do
     command -v "$tool" >/dev/null || { echo "drive-windows: $tool is not installed" >&2; exit 2; }
 done
@@ -3824,10 +3860,12 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
-# rendition_click: a click on §12.5.6.18's screen annotation reaches its §12.6.4.14 rendition in the
-# confined window, whose worker judges the clip and hands it over as `Event::Media` (ADR 1987). The
-# drive's own page: one screen annotation over the whole of it, playing a clip named by a URL, so a
-# click at the window's middle is on it at any arrangement and no file is written for the hand-off.
+# rendition_click: a click on §12.5.6.18's screen annotation reaches its §12.6.4.14 rendition, and the
+# window hands the clip over as `Event::Media` — the confined window from its worker, which judges
+# the clip (ADR 1987), and the other three from their own viewer, through the same
+# `viewer_host::handed_media` (ADR 2045). The drive's own page: one screen annotation over the whole
+# of it, playing a clip named by a URL, so a click at the window's middle is on it at any arrangement
+# and no file is written for the hand-off.
 rendition_click() {
     local step=89-rendition-click file="$FIXTURES/drive-rendition.pdf" mark X Y WIDTH HEIGHT
     [ -s "$file" ] || python3 - "$file" <<'PY2'
@@ -3858,6 +3896,154 @@ PY2
     else
         verdict "$step" wrong "the click said nothing of the clip: $LOG"
     fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- steps 90 and 91: a link and a file a document names, at the reader's levels (ADR 2040) ---------
+# link_levels: §12.6.4.8's link and §12.6.4.3's remote go-to, each one link over the whole of the
+# drive's own page and clicked at the window's middle, at `--links=` `ask` answered both ways, `warn`
+# and `refuse`, and at `--remote-documents=` `ask` answered both ways — judged in all four windows
+# alike, each by the sentence `viewer_host` words for all four (a toolkit prints it after `note: `).
+# The handler a link is handed to is the drive's own `xdg-open`, first on the windows' PATH,
+# which writes down the URI it was given and starts nothing, so a `yes` is witnessed by that line
+# and a `no` by its absence. The go-to names a two-page file beside the document, so a `yes` is a
+# title that says "of 2" and a `no` the sentence saying it was declined. `quorra` and
+# `quorra-confined` draw their card and are answered by its two keys; the toolkits' card is a
+# dialogue whose buttons AT-SPI presses (ADR 1540).
+link_fixtures() {
+    [ -s "$FIXTURES/drive-uri.pdf" ] && [ -s "$FIXTURES/drive-remote.pdf" ] \
+        && [ -s "$FIXTURES/drive-remote-target.pdf" ] && return
+    python3 - "$FIXTURES" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+def linked(path, action):
+    pdf = pikepdf.new()
+    pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                             Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+    link = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Link,
+                                        Rect=Array([0, 0, 612, 792]), Border=Array([0, 0, 0]),
+                                        A=action))
+    pdf.pages[0].obj.Annots = Array([link])
+    pdf.save(path)
+linked(sys.argv[1] + "/drive-uri.pdf",
+       Dictionary(S=Name.URI, URI=String("https://example.org/linked")))
+linked(sys.argv[1] + "/drive-remote.pdf",
+       Dictionary(S=Name.GoToR, F=String("drive-remote-target.pdf"), D=Array([0, Name.Fit])))
+target = pikepdf.new()
+for _ in range(2):
+    target.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                                Contents=target.make_indirect(pikepdf.Stream(target, b"")))))
+target.save(sys.argv[1] + "/drive-remote-target.pdf")
+PY2
+}
+# link_clicked STEP FILE [ARGUMENTS]: launches FILE and clicks the window's middle, settling as
+# `click` does, since the four windows trace no common line for a question going up; the line before
+# the click is left in MARK. A window that never came up is STEP's `wrong`, with its first line.
+link_clicked() {
+    local step=$1 file=$2 X Y WIDTH HEIGHT
+    shift 2
+    launch "$file" "$@"
+    if [ -z "$(main_window)" ]; then
+        verdict "$step" wrong "no window for $*: $(head -1 "$LOG")"
+        return 1
+    fi
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    MARK=$(lines)
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    sleep 1.3
+}
+# link_answer STEP yes|no [SAID]: answers the card or the dialogue and waits for the window to say
+# SAID, where one is given, or says why it could not answer.
+link_answer() {
+    local word
+    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+        # With no window manager the confined window takes the keyboard only when given it.
+        xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+        shot "$1-card"
+        local pressing=Escape
+        [ "$2" = yes ] && pressing=Return
+        if [ -z "${3:-}" ]; then key "$pressing"; return 0; fi
+        key_then "$3" "$pressing" && return 0
+        verdict "$1" wrong "answered $2 by key, and the window never said $3: $LOG"
+        return 1
+    fi
+    [ "$2" = yes ] && word="Go ahead" || word="Do not"
+    if [ -z "$A11Y" ]; then
+        verdict "$1" "not offered" "no AT-SPI bus to find the dialogue's buttons on"
+        return 1
+    fi
+    if ! wait_for 20 pressed "$word"; then
+        shot "$1"
+        verdict "$1" wrong "no showing \"$word\" button: the question is not up"
+        return 1
+    fi
+    [ -z "${3:-}" ] || wait_for 10 said_since "$MARK" "$3" && return 0
+    verdict "$1" wrong "pressed \"$word\", and the window never said $3: $LOG"
+    return 1
+}
+link_levels() {
+    local handed="$OUT/handler/handed.log" uri=https://example.org/linked step answer level before
+    local said='^\(note: \)\?link: '
+    local -x PATH="$OUT/handler:$PATH"
+    link_fixtures
+    mkdir -p "$OUT/handler"
+    cat > "$OUT/handler/xdg-open" <<HANDLER
+#!/bin/sh
+printf '%s\n' "\$*" >> '$handed'
+HANDLER
+    chmod +x "$OUT/handler/xdg-open"
+    for answer in yes no; do
+        step=90-link-ask-$answer
+        before=$(cat "$handed" 2>/dev/null | wc -l)
+        link_clicked "$step" "$FIXTURES/drive-uri.pdf" --links=ask || continue
+        if link_answer "$step" "$answer" "$said"; then
+            sleep 0.5
+            if [ "$answer" = yes ] && said_since "$MARK" "$said$uri\$" \
+                    && [ "$(tail -n "+$((before + 1))" "$handed" 2>/dev/null)" = "$uri" ]; then
+                verdict "$step" works "asked, answered yes, and $uri handed to the handler"
+            elif [ "$answer" = no ] && said_since "$MARK" "${said}declined — you answered" \
+                    && [ "$(cat "$handed" 2>/dev/null | wc -l)" -eq "$before" ]; then
+                verdict "$step" works "asked, answered no: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'link: declined — [^.]*')"
+            else
+                verdict "$step" wrong "handed $(tail -n "+$((before + 1))" "$handed" 2>/dev/null | tr '\n' ' '): $LOG"
+            fi
+        fi
+    done
+    for level in warn refuse; do
+        step=90-link-$level
+        before=$(cat "$handed" 2>/dev/null | wc -l)
+        link_clicked "$step" "$FIXTURES/drive-uri.pdf" --links=$level || continue
+        wait_for 10 said_since "$MARK" "$said"
+        if [ "$level" = warn ] && said_since "$MARK" "$said$uri — it was" \
+                && [ "$(tail -n "+$((before + 1))" "$handed" 2>/dev/null)" = "$uri" ]; then
+            verdict "$step" works "not asked, handed over and said: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o "link: $uri — [^,.]*")"
+        elif [ "$level" = refuse ] && said_since "$MARK" "${said}declined" \
+                && [ "$(cat "$handed" 2>/dev/null | wc -l)" -eq "$before" ]; then
+            verdict "$step" works "not asked and not handed over: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o 'link: declined — [^(]*')"
+        else
+            verdict "$step" wrong "handed $(tail -n "+$((before + 1))" "$handed" 2>/dev/null | tr '\n' ' '): $LOG"
+        fi
+    done
+    for answer in yes no; do
+        step=91-remote-ask-$answer
+        link_clicked "$step" "$FIXTURES/drive-remote.pdf" --remote-documents=ask || continue
+        if [ "$answer" = yes ]; then
+            link_answer "$step" yes || continue
+            wait_for 15 title_has "of 2"
+            shot "$step"
+            if title_has "of 2"; then
+                verdict "$step" works "asked, answered yes, and the file opened: $(title)"
+            else
+                verdict "$step" wrong "title: $(title): $LOG"
+            fi
+        elif link_answer "$step" no "declined — you answered"; then
+            shot "$step"
+            if ! title_has "of 2" && said_since "$MARK" "declined — you answered"; then
+                verdict "$step" works "asked, answered no: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o '[A-Za-z-]*: declined — you answered "[^"]*"')"
+            else
+                verdict "$step" wrong "title: $(title): $LOG"
+            fi
+        fi
+    done
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 # zoomed_eighteen N: whether eighteen zooms have gone to the confined worker since line N and a
@@ -4522,81 +4708,27 @@ archive_converted() {
     archive_with_a_password
 }
 
+# A list can name a function that is not there; the drive stops before its first window rather
+# than say `command not found` as a verdict (trap 25).
+for step in "${CONFINED_STEPS[@]}" "${WINDOW_STEPS[@]}" "${OUTSIDE_STEPS[@]}"; do
+    declare -F "$step" >/dev/null || { echo "drive-windows: the list names $step, which is no function here" >&2; exit 2; }
+done
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures
 for WINDOW in "${WINDOWS[@]}"; do
-    # `--step FUNCTION` runs the named step functions alone, in each window asked for.
+    if [ "$WINDOW" = quorra-confined ]; then list=("${CONFINED_STEPS[@]}"); else list=("${WINDOW_STEPS[@]}"); fi
+    # `--step FUNCTION` runs the named step functions alone, in each window asked for, and says one
+    # that is in neither this window's list nor the steps outside every list is not offered here.
     if [ ${#STEPS[@]} -gt 0 ]; then
-        for step in "${STEPS[@]}"; do "$step"; done
+        for step in "${STEPS[@]}"; do
+            if in_list "$step" "${list[@]}" "${OUTSIDE_STEPS[@]}"; then
+                "$step"
+            else
+                verdict "$step" "not offered" "not in $WINDOW's list: the full drive does not run it in this window"
+            fi
+        done
         continue
     fi
-    if [ "$WINDOW" = quorra-confined ]; then
-        confined
-        reader_words
-        field_commit
-        combo_commit
-        scripts_levels
-        script_asks
-        script_withdrawn
-        script_goto
-        script_timer
-        script_timer_quiet
-        script_beep
-        script_triggers
-        located
-        located_displayed
-        signature_policy
-        loading_bar
-        zoom_past_the_bound
-        zoom_past_the_bound_uncrossable
-        zoomed_window_processor
-        rendition_click
-        bare_session_start
-        archive_converted
-        continue
-    fi
-    drive
-    accessibility
-    reader_words
-    field_commit
-    combo_commit
-    scripts_levels
-    script_painted
-    script_asks
-    script_withdrawn
-    script_goto
-    script_timer
-    script_timer_quiet
-    script_beep
-    script_triggers
-    script_keys
-    list_arrows
-    combo_arrows
-    popup_rich
-    popup_face
-    popup_rtl
-    popup_spacing
-    popup_scale
-    popup_tall
-    popup_list_rtl
-    popup_tab
-    popup_tab_rtl
-    popup_leader
-    note_window
-    note_typed
-    note_caret
-    reply_threaded
-    located
-    located_displayed
-    signature_policy
-    loading_bar
-    page_as_built
-    zoom_stand_in
-    retained_page
-    zoomed_window
-    zoom_past_the_bound
-    transition_frames
-    bare_session_start
-    archive_converted
+    for step in "${list[@]}"; do "$step"; done
 done
 echo "drive-windows: $(grep -c "	works	" "$RESULTS") works, $(grep -c "	wrong	" "$RESULTS") wrong," \
-     "$(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"
+     "$(grep -c "	not offered	" "$RESULTS") not offered, $(grep -c "	manual	" "$RESULTS") to look at; $RESULTS and $OUT/shots"

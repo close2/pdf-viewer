@@ -23,6 +23,31 @@ ignore = [
     # `proc-macro-error2` is only used by its macro crate.
     "RUSTSEC-2025-0141", # bincode 1.x unmaintained, via iai-callgrind
     "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained, via iai-callgrind-macros
+
+    # These three are in the shipped graph, which the two above are not, so the argument is a
+    # different one (ADR 2038). `accesskit_unix` is the Linux half of the accessibility layer —
+    # ISO 32000-2 §14.7's logical structure handed to AT-SPI, in `viewer-accessibility` only — and
+    # it reaches the session bus through `zbus` 5, whose wire format, name types and derive macros
+    # were these three crates until `zbus` 6.0.0 (2026-10-16) took them in as `zbus::wire`,
+    # `zbus::names` and its own macros. The advisories are `informational = "unmaintained"`: no
+    # vulnerability, no patched version, and the code is the code `zbus` 6 now carries. Nothing
+    # newer moves off them: `accesskit_unix` 0.24.0 asks `zbus ^5.19`, `accesskit_atspi_common`
+    # 0.21.0 `zvariant ^5.15`, and `atspi` 0.30.0 `zbus ^5.5`, read on crates.io on 2026-10-19.
+    #
+    # What the ignore costs: their maintainers say they receive no further releases, so a fault
+    # later found in them is fixed in `zbus` 6 and not here. They parse what the session bus
+    # delivers — a peer under the same user, never a document's bytes — in the unconfined host,
+    # on the adapter's own thread, which `Bridge::new` starts after the first frame (ADR 0214). A
+    # *vulnerability* advisory against any of them carries its own identifier and still fails this
+    # job, because an ignore names one advisory and not a crate. The alternative is to ship no
+    # accessibility on Linux, and `CLAUDE.md` puts clause 14 in scope as far as accessibility
+    # needs it.
+    #
+    # Revisit when an `accesskit_unix` release reaches `zbus` 6: `cargo deny` then reports these
+    # three as `advisory-not-detected`, and the lines go with the `accesskit_unix` bump.
+    "RUSTSEC-2026-0370", # zvariant unmaintained (merged into zbus 6), via accesskit_unix
+    "RUSTSEC-2026-0371", # zbus_names unmaintained (merged into zbus 6), via accesskit_unix
+    "RUSTSEC-2026-0372", # zvariant_derive unmaintained (merged into zbus 6), via accesskit_unix
 ]
 
 [licenses]

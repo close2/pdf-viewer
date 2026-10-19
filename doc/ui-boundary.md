@@ -1047,6 +1047,30 @@ rather than about this boundary (ADRs 0244, 0246).
 | page content | `Raster` | page, zoom, edit | us |
 | interactive chrome | geometry | pointer speed | the host |
 
+#### What each platform admits for the device
+
+The owner's `doc/questions/A287`: "If possible gtk, qt, and dotnet should provide a way to still
+render on the GPU." The tiers above are about what crosses. This is about who draws, and **the
+device can draw behind tier 1**: a frame the device drew and read back is a `Rendered::Raster` like
+any other, so the first device path in every native host changes no message (ADR 2049, G1 and Q1).
+The read-back is 0.34–1.18 ms of a frame on this machine's adapter, and the passes after it are
+1.18–4.20 ms, on a page from 596×842 to 1132×1601. What a zero-copy path saves is those, plus the
+0.23 ms copy above.
+
+| host | without a copy | what it costs | status |
+|---|---|---|---|
+| `quorra-gtk` | a dmabuf as a `gdk::DmabufTexture` (GTK 4.14), which `GtkGraphicsOffload` may put on a subsurface. GTK 4 hands out no other surface | `viewer-gtk`'s `forbid(unsafe_code)`, `ash`, Linux and Vulkan only | priced, waits for a profile (ADR 2049) |
+| `quorra-qt` | a `QRhiWidget` on Vulkan, whose texture wgpu draws into on Qt's imported device | `ash`, a second `unsafe` site, QRhi's "limited compatibility guarantees" | priced, waits for a profile (ADR 2049) |
+| a .NET host | a WinUI 3 `SwapChainPanel` (wgpu 30's DX12 target), XAML controls composed over it | one surface entry point in `viewer-ffi`'s `abi.rs` | proposed (RFC 0010 §4) |
+| a macOS host | a `CAMetalLayer` behind an `NSView`, made on the main thread | the same entry point, kind `CA_METAL_LAYER` | in mind, not built (ADR 2048) |
+
+**All four need the same first step**: the device renderer (the chooser, the kept scene, the
+presenter thread) is `quorra`'s *binary*'s today, tied to winit by a wake and a surface, and it moves
+to a library before any other host can draw on the device without copying it (ADR 2049 §2). **And
+all four rule out a native child window over which nothing composes.** The controls
+`Command::Delegate` places over the page have to be drawn above the device's picture, which a Qt
+window container and a WPF `HwndHost` both prevent.
+
 #### Two artefacts, both of which now exist
 
 **A text layer — done in the hundred-and-thirty-third session (ADR 0118), and selection on it in

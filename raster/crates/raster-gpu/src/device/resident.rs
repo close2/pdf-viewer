@@ -152,7 +152,7 @@ impl Device {
             // may be reissued and a stale arena range would be another outline's
             // geometry (ADR 0081).
             ResourceId::Outline(OutlineId(raw)) => {
-                self.segment_arena.forget(raw);
+                self.segment_arena.forget(&self.gpu, &self.queue, raw);
             }
         }
         Ok(())

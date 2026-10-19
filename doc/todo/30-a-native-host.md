@@ -73,21 +73,22 @@ or a panel added fails to compile in three places (ADRs 0526, 0564).
 not a fourth of them** (ADR 1190). It holds no `Viewer`, no document bytes and no parser, so a
 feature that lands in `quorra` and not there measures nothing. What that window owes is decided by
 the operation instead: **a host owes the control for an operation exactly when it can perform that
-operation.** It performs none of the six a restriction decides, supplies no files and follows no
-links, so it owes nothing. Each gap a reader notices is answered: there is no `--restrictions=`
-because there is nothing to decide, `Event::Asking` is refused out loud because nobody could answer
-(ADR 0814), and `--links=` and `--remote-documents=` are both pinned to `refuse` because there is no
-dialogue (ADRs 1155, 1227). A click reaches the page as `Command::Pointer`'s two ends: a link inside
+operation.** It performs none of the six a restriction decides, so it owes no `--restrictions=`,
+and `Event::Asking` is refused out loud because nothing could set a level that raises it (ADR 0814).
+It does hand a link to another program and read a file a document names, so it takes `--links=`
+and `--remote-documents=` at the other windows' default, `ask`, and puts the question on the
+flagship's `QuestionCard`, answered by Enter and Escape; a named file opens in place of the one
+document it holds (ADR 2040). A click reaches the page as `Command::Pointer`'s two ends: a link inside
 the document is followed, a field takes the keyboard, and a rendition's clip is handed over (ADR
-1987). For a file a document names it answers
+1987). For §12.7.6.4's import it answers
 `Command::Supply` with no bytes and tells the person by name (ADR 1227). It holds one document: a
 second would first have to decide whether two documents share one worker's confinement (ADRs 0713,
 1190). What arrives with each future feature, in the feature's own round:
 
 - **selection or copy** → `--restrictions=` with that row, and the ask dialogue on the modal
   machinery ADR 0718 already loads lazily;
-- **a dialogue** → `--links=` and `--remote-documents=` with real `Ask` arms, replacing the pins,
-  which click handling did not lift (ADR 1987);
+- **a sender on this side** → `--submissions=` at its four levels, on the card `--links=` already
+  uses (ADRs 1291, 2040);
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
   *worker* has no filesystem, but the host holds one by design and opens the document itself;
 - **§12.7.5.3's file-select control** → a file *chooser*, as the other windows have.
@@ -251,17 +252,23 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `quorra-gtk` prints through `GtkPrintOperation` and `quorra-qt` through a `QPrinter`.
 - **§12.5.6.6's free-text drag is refused by name in the two native windows**, because authoring
   that annotation is a drag mode plus an editor; it is `doc/todo/33`'s.
+- **A Windows-native .NET host joins the level hosts through the C ABI** (the owner's `A287`, ADR
+  2048), and RFC 0010 proposes it. Its first buildable step is the C# declarations held to
+  `include/quorra.h` by a Rust test. What it needs first from this tree: `CommitField`, `Clock` and
+  `Respond` reaching the ABI, and **the key table handed over**. A C caller places its own toolkit,
+  but a level host must mean by a key what the other windows mean, so `quorra_key_meaning` with a
+  `QUORRA_KEY_*` enumeration and a count beside it is owed, its modifier named by role (Ctrl here, ⌘
+  on macOS). The framework is the owner's choice (`doc/questions/Q501`).
+- **`quorra-gtk` and `quorra-qt` keep a device path** (ADR 2049). First the device renderer leaves
+  `quorra`'s binary for a library; then both windows draw on the device and read the frame back into
+  the `MemoryTexture` and `QImage` they show today. A dmabuf texture in GTK and a `QRhiWidget` in Qt
+  wait for a profile showing the read-back and the copy hold the time.
 - **`viewer-ffi` cannot stop a draw it has handed a caller.** A C caller is told to move the request
   to a thread of its own, so the structure is right; what is missing is an entry point to raise a
   flag with, which is a header change and a levelness question of its own.
 
 ## Decided rather than owed
 
-- **`viewer-ffi` has no keyboard table.** A C caller places its own toolkit and owns its keyboard,
-  and `include/quorra.h` says so where it mentions §12.5.1's tab key. `quorra_key_meaning(key,
-  shift, presenting)` with a `QUORRA_KEY_*` enumeration would hand `viewer_host::keys` over, with a
-  count beside the enumeration because a C caller cannot fail to compile; it is a decision about the
-  ABI's surface, and nothing is blocked on it.
 - **Ctrl + C inside a field is the toolkit's binding** in the two native windows, because they place
   a real `GtkEntry` and `QLineEdit`. `viewer-ui` draws its own field and makes the call the page's
   copy makes.

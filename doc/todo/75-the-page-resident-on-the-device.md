@@ -27,12 +27,17 @@ reachable today: the replay of the witness's page.
 ## 2. Line instances in page space, the view a uniform (ADR 1877 §5) — built, measured, taken back (ADR 2022)
 
 **The owner accepted the change of bar (`doc/questions/A473`), and the build is not in the tree**: it
-saved the witness's step its 264 MB of line bytes and 29–47 ms of transfer, and its walk was 60–80 ms
-slower in most processes for no cause instructions, caches, branches, the makers or page faults
-explain — and in the window, where a line the view does not admit became an instance, the step went
-from 144–151 ms to 249–252. ADR 2022 has the figures and what is owed first: the walk's cost found by a
-hardware profile or a bisected build, and the host's cull kept until item 3. The patches are outside
-the repository, in `/home/AI/r1593-line-lane/`.
+saved the witness's step its 264 MB of line bytes and 29–47 ms of transfer, and in the window, where a
+line the view does not admit became an instance, the step went from 144–151 ms to 249–252 (ADR 2022).
+**Its slower walk is explained and answered** (ADR 2036): the line makers read the `line_at` closure's
+captured slice and the view from the walk's own stack frame on every line, and whichever slot of the
+walk's shared their cache line paid about forty cycles a line — a layout the build happened to strike
+and HEAD does not. The answer, `lines_ahead.rs`'s 128-byte `Ahead` and the `line_at` closures taking
+their slices by `move`, returns with the build; the build plus it is
+`/home/AI/r1600-walk-false-sharing/line-lane-with-fix.patch`. With it the fit's step is 31–45 ms
+faster and the window's steps are HEAD's, but the window's first frame is 48 ms slower, sending the
+page's 264 MB of lines where HEAD's cull sends what the view admits — so the build waits for item 3,
+where that send is paid once a page.
 
 `line.wgsl` reads the endpoints after the line's own transform, the width and the clip rectangle in
 the same space, and maps all three by a view uniform (a scale and a translation; a turned view stays
@@ -77,6 +82,10 @@ An encode past the budget is drawn the same with its streams made per frame,
 `RetainedScene::residency_refused` names the three numbers, and the window's terminal says it once a
 scene. One page retained per device is always admitted, because the frame budget admitted its
 streams; the budget bites where a host retains several encodes on a device or asks for less.
+
+The compute lane's segment arena is held too (ADR 2037): a release that would leave more hole words
+than live ones compacts it on the device, so its buffer is at most four times its live bytes or its
+starting 1 MiB. A zoom releases nothing; the holes are a turn's and the cache's eviction's.
 
 ## 6. Strokes the line lane does not take, expanded on the device
 

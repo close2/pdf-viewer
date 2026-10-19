@@ -79,8 +79,8 @@
 #                that fans out, one that crosses the ceiling, one whose sampler stalls, one that
 #                forks past a task limit of its own, the lock's lanes, a build inside a hold, a long
 #                run pinned to the second lane, the second lane granted while a clock run waits
-#                for the first, walks granted in the order they asked and a wait
-#                stopped before its grant — and
+#                for the first, walks granted in the order they asked, a wait
+#                stopped before its grant and a pipe that reaches the command — and
 #                exit 0 only if every case holds. `tools/conformance/tests/bounded.rs` runs it under
 #                `cargo test -p conformance`, so the sequence's last line exercises the bound.
 #
@@ -1415,6 +1415,17 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ -s "$scratch/stop.queue" ] && fail "stop: a ticket outlived its walk: $(cat "$scratch/stop.queue")"
     echo "bounded --self-test: a walk and a clock run stopped while they queued each left a line with lane=- at once; a killed and a suspended walk's tickets held back nobody"
 
+    # 15. The caller's standard input is the command's (trap 207, ADR 2044): two lines piped into the
+    #     wrapper are the two lines `cat` prints, in order. Without the subshell's `<&0`, bash hands
+    #     the asynchronous list `/dev/null`, and this case reads nothing.
+    printf 'the first line of the pipe\nthe second\n' | "$self" --tree 1 --data 1 --nice 0 -- cat \
+        > "$scratch/stdin.out" 2> "$scratch/stdin.err"
+    status=$?
+    [ "$status" -eq 0 ] || fail "stdin: exit $status: $(tail -n 1 "$scratch/stdin.err")"
+    [ "$(tr '\n' '|' < "$scratch/stdin.out")" = 'the first line of the pipe|the second|' ] ||
+        fail "stdin: the command read \"$(tr '\n' '|' < "$scratch/stdin.out")\" of a two-line pipe"
+    echo "bounded --self-test: a two-line pipe into the wrapper was the command's standard input, both lines in order"
+
     echo "bounded --self-test: every case holds"
     exit 0
 fi
@@ -1512,6 +1523,11 @@ errlog="$scratch/stderr"
 # them for it. `without_lanes` closes them in its own process, one side of the pipeline, and becomes
 # the program. The output's copy is a descriptor of its own number for the same reason: an inherited
 # lock is on whatever number its `flock` opened, often 3.
+# The command reads its caller's standard input. Bash gives an asynchronous list `/dev/null` where
+# job control is off, as it is in a script, unless the list redirects its input itself, which is
+# what the `<&0` after the subshell is for: without it a probe fed through a pipe reads an empty
+# input and reports a clean result (trap 207, ADR 2044). A `--build` reads none, so a piped input
+# reaches the command whole.
 started=$(date +%s)
 without_lanes() {
     local fd
@@ -1529,7 +1545,7 @@ without_lanes() {
         build_started=$(date +%s)
         # shellcheck disable=SC2086 # the arguments are separate words by design (the header)
         ( without_lanes prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" cargo build $build ) \
-            > "$scratch/build.log" 2>&1 {out_fd}>&-
+            < /dev/null > "$scratch/build.log" 2>&1 {out_fd}>&-
         built=$?
         if [ "$built" -ne 0 ]; then
             tail -n 20 "$scratch/build.log" >&2
@@ -1541,7 +1557,7 @@ without_lanes() {
     without_lanes prlimit --data="$data_bytes" --nproc="$tasks" nice -n "$niceness" "$@" \
         2>&1 1>&"$out_fd" {out_fd}>&- | without_lanes tee "$errlog" {out_fd}>&- >&2
     exit "${PIPESTATUS[0]}"
-) &
+) <&0 &
 leader=$!
 
 watch_tree "$leader" "$tree_kib"

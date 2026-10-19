@@ -42,8 +42,8 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use crate::{Host, brief};
 
 /// A command out with the worker on a thread of its own: the worker comes back with what it
-/// answered.
-pub(crate) type Exchanging = Loading<(Confined, Result<Vec<Event>, ConfinedError>)>;
+/// answered, and with whether the command carried a file a document named (`asking`'s offer).
+pub(crate) type Exchanging = Loading<(Confined, Result<Vec<Event>, ConfinedError>, bool)>;
 
 /// What the window took while the worker was busy, to be done once it answers.
 #[derive(Debug)]
@@ -161,7 +161,7 @@ impl Host {
     /// prompt, and a field's Escape and `q` are the field's — so with either up they are held
     /// like any other key.
     pub(crate) fn acts_at_once(&self, key: &Key) -> bool {
-        if self.password.shown || self.typing.is_some() {
+        if self.password.shown || self.question.shown || self.typing.is_some() {
             return false;
         }
         match key {
@@ -189,12 +189,18 @@ impl Host {
             return;
         };
         self.sent = Some(Instant::now());
+        // An offer lives for the one command that carries it: a supply with bytes, or the open
+        // that is §7.6.4.1's next attempt at one (ADR 2040).
+        let offering = matches!(
+            command,
+            Command::Supply { bytes: Some(_), .. } | Command::Open { .. }
+        );
         let exchanging: Exchanging = Loading::start_reporting(move |progress| {
             // The worker relays how far a page has got inside the exchange, whatever the command
             // (ADR 1811); this thread is the one waiting on it now.
             confined.report_progress_to(progress);
             let answered = confined.handle(&command);
-            (confined, answered)
+            (confined, answered, offering)
         });
         if exchanging.wait() {
             self.answered(exchanging);
@@ -213,7 +219,7 @@ impl Host {
         if self.waiting.take().is_some() {
             self.retitle();
         }
-        let Ok((confined, answered)) = exchanging.join() else {
+        let Ok((confined, answered, offering)) = exchanging.join() else {
             self.stop("the thread performing a command in the worker panicked".to_owned());
             return;
         };
@@ -228,6 +234,9 @@ impl Host {
             Ok(events) => {
                 for event in events {
                     host.event(event);
+                }
+                if offering {
+                    host.supplied();
                 }
                 host.pull_frame();
             }

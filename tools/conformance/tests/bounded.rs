@@ -45,7 +45,8 @@
 //! a walk and a clock run stopped with `TERM` while they queue each leave `lane=-` at once, and a walk
 //! killed with `KILL` leaves a ticket that holds back nobody (ADR 1790) — and a suspend on the line
 //! rather than inside its clocks: a run the machine slept through part of its queue and its hold says
-//! `slept_queued=` and `slept=` before `cmd=`, and one it did not says nothing (ADR 1903). Every hand-off between a case's runs waits for the run to say
+//! `slept_queued=` and `slept=` before `cmd=`, and one it did not says nothing (ADR 1903) — and a
+//! two-line pipe into the wrapper read by its command, both lines in order (ADR 2044). Every hand-off between a case's runs waits for the run to say
 //! what it was asked, never for a hold of so many seconds, and the one cost it bounds is processor
 //! time: a hold an idle machine always outlasted failed inside the merge's whole-workspace test run at
 //! a load of 16 (ADR 1710). This test runs the script and repeats what it said.

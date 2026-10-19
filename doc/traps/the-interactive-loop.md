@@ -538,3 +538,11 @@ the second hold waited for the window's landing line and the photograph showed t
 where the device refuses and the processor fills in, the first frame is the refusal's and the picture
 arrives a frame later. A photograph is taken after the line that says what it should show, and after
 the pointer has moved once so that the frame is the presented one.
+
+### 209. `xdotool --shell` writes `X` over whatever `X` held
+
+Round 1602's scratch check kept its Xvfb pid in `X`, then evaluated `xdotool getwindowgeometry
+--shell`, which prints `X=0` among its four assignments; the later `kill $X` became `kill 0` and ended
+the round's own process group. The helper's four names are the tool's, not the script's: every
+function that evaluates the geometry declares `X`, `Y`, `WIDTH` and `HEIGHT` `local`, and a pid lives
+in a name that says so.

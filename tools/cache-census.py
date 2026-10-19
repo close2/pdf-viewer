@@ -16,7 +16,9 @@ it (the tool result it answers), and the **gap** before it is its send time less
 request's: the time the cached prefix sat unread. The cache's lifetime is "measured from the start
 of the request that writes or reads the cache entry" (Anthropic's prompt-caching page), which is
 why the gap is taken send to send. `--buckets` prints the miss rate by gap, which is how the
-lifetime this script assumes is checked against the transcripts themselves.
+lifetime this script assumes is checked against the transcripts themselves. `--since` and
+`--until` close the window on a batch's span, its open and the next batch's open, each a merge
+commit's `%cI`.
 
 The price is in base-input-token equivalents, from Anthropic's pricing page: a 5-minute cache write
 is 1.25 times an input token, a 1-hour write 2 times, and a hit 0.05 times on Claude Opus 5.5
@@ -119,10 +121,12 @@ def main():
     parser.add_argument("--write", type=float, default=1.25, help="a cache write's price")
     parser.add_argument("--read", type=float, default=0.05, help="a cache hit's price")
     parser.add_argument("--since", help="count only requests sent at or after this ISO time")
+    parser.add_argument("--until", help="count only requests sent before this ISO time")
     parser.add_argument("--worst", type=int, default=5, help="transcripts listed by their loss")
     parser.add_argument("--buckets", action="store_true", help="the miss rate by gap")
     args = parser.parse_args()
     since = seconds(args.since) if args.since else None
+    until = seconds(args.until) if args.until else None
 
     total = Counter()
     preceded = defaultdict(Counter)
@@ -132,7 +136,7 @@ def main():
     before = after = 0.0
     newest = None
     for path in args.transcripts:
-        lost_here = created_here = 0
+        lost_here = created_here = gaps_here = 0
         previous = None
         for request in requests(path):
             if newest is None or request["send"] > newest[0]:
@@ -140,6 +144,10 @@ def main():
             if since is not None and request["send"] < since:
                 previous = request
                 continue
+            # A batch's census ends where the next batch's rounds begin, and an orchestrator's
+            # transcript runs across both, so the window is closed on the right as well (habit 110).
+            if until is not None and request["send"] >= until:
+                break
             created, read, split = tokens(request)
             total["requests"] += 1
             total["created"] += created
@@ -162,6 +170,7 @@ def main():
                     preceded[kind]["created"] += created
                     preceded[kind]["seconds"] += gap
                     lost_here += created
+                    gaps_here += 1
                     if any(name == "Bash" for name, _ in previous["tools"]):
                         context = created + read
                         polls = math.ceil(gap / args.wall) - 1
@@ -172,13 +181,14 @@ def main():
                         total["command gaps"] += 1
                         total["polls"] += polls
             previous = request
-        per_file.append((path.rsplit("/", 1)[-1], created_here, lost_here))
+        per_file.append((path.rsplit("/", 1)[-1], created_here, lost_here, gaps_here))
 
     # A census that counted nothing prints a page of zeros that reads as "no gap lost the cache";
     # it is a sentence about the arguments, so it is said as one and the exit is not 0 (trap 13).
     if total["requests"] == 0:
         held = f"the newest request they hold is stamped {newest[1]}" if newest else "they hold none"
-        window = f" at or after {args.since}" if args.since else ""
+        window = (f" at or after {args.since}" if args.since else "") + (
+            f" before {args.until}" if args.until else "")
         print(f"cache-census: no request counted in {len(args.transcripts)} transcripts{window}; "
               f"{held}", file=sys.stderr)
         return 2
@@ -204,10 +214,13 @@ def main():
           f"requests — {(before - after) / mega:.1f} M saved, "
           f"{100 * (before - after) / max(1, total['spend']):.0f} % of the {total['spend'] / mega:.1f} M "
           f"the cache cost in all")
+    # Ranked by what was lost and then by how often the cache was left past its lifetime: when
+    # every gap was a hit, the count is the only column that names a round that waited too long.
     print(f"\nthe {args.worst} transcripts that lost most:")
-    for name, created, lost in sorted(per_file, key=lambda row: -row[2])[:args.worst]:
-        print(f"  {name}: {created / mega:.1f} M written, {lost / mega:.1f} M after gaps "
-              f"({100 * lost / max(1, created):.0f} %)")
+    for name, created, lost, gaps_over in sorted(per_file, key=lambda row: (-row[2], -row[3]))[
+            :args.worst]:
+        print(f"  {name}: {created / mega:.1f} M written, {lost / mega:.1f} M after "
+              f"{gaps_over} gaps over {args.ttl:.0f} s ({100 * lost / max(1, created):.0f} %)")
     if args.buckets:
         print("\nmiss rate by gap (requests over 50 000 tokens of context; a miss writes over half):")
         for i in range(len(edges) - 1):

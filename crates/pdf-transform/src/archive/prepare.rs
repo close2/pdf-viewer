@@ -672,6 +672,9 @@ pub(super) struct Prepared {
     pub(super) restated_destination: Result<RestatedDestination, Because>,
     /// The output intent to add, or why one cannot be.
     pub(super) intent: Result<Intent, Because>,
+    /// The PDF/A output intents stating no destination profile, given the intent's, or why they
+    /// are not (`doc/adr/2035`).
+    pub(super) supplied_destination: Result<SuppliedDestination, Because>,
     /// The `/DefaultCMYK` to write, or why one cannot be.
     ///
     /// Prepared **after** the intent and **before** the metadata, because the three depend on
@@ -925,9 +928,11 @@ impl Prepared {
             (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
+        // A PDF/A entry stating no profile is given the profile this conversion's own entry would
+        // name, so the intent is prepared for it as for the entry (`doc/adr/2035`).
         let intent = match (
             &replaced_destination,
-            wanted(Rewrite::OutputIntent),
+            wanted(Rewrite::OutputIntent) || wanted(Rewrite::DestinationProfileSupplied),
             catalog.as_ref(),
         ) {
             // The intent names the profile every entry already names, and that object is the one
@@ -942,6 +947,16 @@ impl Prepared {
             // reason is never read: `decide` consults this only for a requirement `wanted`
             // has already found in the table.
             (Err(_), false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        let supplied_destination = match (
+            wanted(Rewrite::DestinationProfileSupplied),
+            catalog.as_ref(),
+            intent.as_ref(),
+        ) {
+            (true, Some(catalog), Ok(intent)) => supplied_destination(document, catalog, intent),
+            (true, None, _) => Err(Because::NotBuiltYet(NO_CATALOG)),
+            (true, Some(_), Err(because)) => Err(*because),
+            (false, _, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
         // The `DeviceCMYK` sentence offers two licences and the output intent is the better one,
         // so the default is prepared only where the profile in hand cannot answer the clause —
@@ -1326,6 +1341,7 @@ impl Prepared {
             replaced_destination,
             restated_destination,
             intent,
+            supplied_destination,
             default_cmyk,
             metadata,
             to_unicode,
@@ -1370,6 +1386,12 @@ impl Prepared {
     /// a fact only a preparation knows, and `doc/adr/0947`'s rule is that a decision which cannot
     /// be carried out is a refusal rather than a plan. The reason returned is the preparation's
     /// own, never a paraphrase of it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per rewrite a preparation can stop, each naming the preparation it reads; \
+                  split, the one place a reader sees which rewrites a document can refuse would \
+                  become several"
+    )]
     pub(super) fn obstacle(&self, rewrite: Rewrite) -> Option<Because> {
         match rewrite {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
@@ -1378,6 +1400,9 @@ impl Prepared {
             }
             Rewrite::DestinationProfileRestated => {
                 self.restated_destination.as_ref().err().copied()
+            }
+            Rewrite::DestinationProfileSupplied => {
+                self.supplied_destination.as_ref().err().copied()
             }
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
@@ -1402,6 +1427,9 @@ impl Prepared {
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
             Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
+            Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
+            Rewrite::HalftonePhaseRemoved => self.owed.halftone_phases.as_ref().err().copied(),
+            Rewrite::HalftoneOriginRemoved => self.owed.halftone_origins.as_ref().err().copied(),
             Rewrite::OverprintModeRestated | Rewrite::OverprintModeZeroed => {
                 self.owed.overprint_modes.as_ref().err().copied()
             }
@@ -1591,6 +1619,12 @@ pub(super) struct Owed {
     pub(super) filter_names: Result<(), Because>,
     /// The halftones whose `HalftoneName` goes, or why none do.
     pub(super) halftone_names: Result<Sites, Because>,
+    /// The graphics states whose `HT` is written `Default`, or why none are (`doc/adr/2034`).
+    pub(super) halftone_defaults: Result<Sites, Because>,
+    /// The graphics states whose `HTP` goes, or why none do (`doc/adr/2035`).
+    pub(super) halftone_phases: Result<Sites, Because>,
+    /// The graphics states whose `HTO` goes, or why none do (`doc/adr/2034`).
+    pub(super) halftone_origins: Result<Sites, Because>,
     /// The graphics states whose overprint mode becomes 0, or why none do.
     pub(super) overprint_modes: Result<super::overprint::OverprintModes, Because>,
     /// The graphics states whose `/TR` goes, or why none do.
@@ -1642,6 +1676,15 @@ impl Owed {
             }),
             halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {
                 super::halftones::removal(document, input)
+            }),
+            halftone_defaults: asked(wanted(Rewrite::HalftoneWrittenDefault), || {
+                super::halftones::defaults(document, input)
+            }),
+            halftone_phases: asked(wanted(Rewrite::HalftonePhaseRemoved), || {
+                super::halftones::phases(document, input)
+            }),
+            halftone_origins: asked(wanted(Rewrite::HalftoneOriginRemoved), || {
+                super::halftones::origins(document, input)
             }),
             overprint_modes: asked(wanted(Rewrite::OverprintModeRestated), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
@@ -2081,6 +2124,101 @@ fn replaced_destination(
             copyright: stated.copyright,
         },
     })
+}
+
+/// The PDF/A output intents that state no destination profile, and the profile they are given.
+///
+/// ISO 19005-2 and ISO 19005-4 section 6.2.3 require a PDF/A output intent to state a valid ICC
+/// profile stream as its `DestOutputProfile`. §14.11.5's Table 401 lets an output condition that is
+/// not a recognised standard be identified as `Custom`, the profile then defining it; an entry
+/// stating `Custom` and no profile defines nothing, and this reader, which draws through the first
+/// entry whose profile it can read, drew the page as though the file stated no intent. That entry
+/// is the one [`intent_dictionary`] writes, `Custom` included, lacking the profile — so it is given
+/// the profile that construction would name: one another entry already names, which the same
+/// subclause makes every entry's, or the profile a file stating no intent is given. Its `Info` is
+/// the producer's and stays (`doc/adr/2035`).
+///
+/// Refused by name: an entry naming as its profile something that is not a stream, one whose
+/// output condition is not `Custom` — a registered condition's profile is the registry's, which
+/// this program does not hold — and a page stating an `OutputIntents` array of its own.
+#[derive(Debug)]
+pub(super) struct SuppliedDestination {
+    /// The entries written as objects of their own, in the source's numbering.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// Whether an entry is written directly in the catalog's array.
+    pub(super) in_catalog: bool,
+    /// The profile every such entry names.
+    pub(super) destination: ObjectId,
+}
+
+/// Why a PDF/A output intent stating no profile is not given one.
+const DESTINATION_NOT_SUPPLIED: &str = "a PDF/A output intent in this file states no destination \
+     profile stream, and it is not one this conversion can complete: it names as its profile \
+     something that is not a stream, its OutputConditionIdentifier names a condition other than \
+     Custom - whose profile is a registry's, which this program does not hold - or a page states \
+     an OutputIntents array of its own (doc/adr/2035)";
+
+/// The completion [`SuppliedDestination`] describes, where every condition it states holds.
+fn supplied_destination(
+    document: &Document,
+    catalog: &Dictionary,
+    intent: &Intent,
+) -> Result<SuppliedDestination, Because> {
+    let refused = Because::NotBuiltYet(DESTINATION_NOT_SUPPLIED);
+    let pages = pdf_model::Pages::new(document);
+    if pages
+        .every()
+        .into_iter()
+        .flatten()
+        .any(|page| page.dict.get("OutputIntents").is_some())
+    {
+        return Err(refused);
+    }
+    let mut at = BTreeSet::new();
+    let mut in_catalog = false;
+    for entry in output_intent_entries(document, catalog) {
+        let resolved = document.resolve(&entry);
+        let Some(dict) = resolved.as_dict() else {
+            continue;
+        };
+        if !needs_a_profile(document, dict) {
+            continue;
+        }
+        let custom = document
+            .get_key(dict, "OutputConditionIdentifier")
+            .as_string()
+            == Some(&b"Custom"[..]);
+        if dict.get("DestOutputProfile").is_some() || !custom {
+            return Err(refused);
+        }
+        match entry.as_reference() {
+            Some(id) => {
+                at.insert(id);
+            }
+            None => in_catalog = true,
+        }
+    }
+    if at.is_empty() && !in_catalog {
+        return Err(refused);
+    }
+    Ok(SuppliedDestination {
+        at,
+        in_catalog,
+        destination: intent.destination,
+    })
+}
+
+/// Whether an output intent is a PDF/A one stating no destination profile stream: the entry ISO
+/// 19005-2 and ISO 19005-4 section 6.2.3 find failing.
+pub(super) fn needs_a_profile(document: &Document, entry: &Dictionary) -> bool {
+    let pdfa = document
+        .get_key(entry, "S")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"GTS_PDFA1");
+    pdfa && !matches!(
+        document.get_key(entry, "DestOutputProfile"),
+        Object::Stream(_)
+    )
 }
 
 /// The object an entry of the catalog's `OutputIntents` array already names as its destination

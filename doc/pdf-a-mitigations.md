@@ -491,8 +491,17 @@ cases.
 #### `graphics/pdfa-output-intent-states-a-destination-profile`
 #### `graphics/one-destination-profile-per-output-intents-array`
 #### `graphics/page-output-intents-have-the-same-shape`
-all six · 4f/4e-and-4 for the third · the second **built in session 966**, the other two
-`not-built-yet` · **corrected in session 966**
+all six · 4f/4e-and-4 for the third · the second **built in session 966**, the first **built
+where the entry is `Custom` and states no profile** (ADR 2035), the third `not-built-yet` ·
+**corrected in session 966**
+
+- **What the first row builds** — a statement. Table 401 makes `Custom` the identifier of a
+  condition that is no recognised standard, the profile then defining it, so an entry stating
+  `Custom` and no profile defines nothing and this reader drew the page as though no intent were
+  stated. That entry is the converter's own construction short of its profile, so it is given the
+  profile that construction names — the one another entry names, or the one a file stating no
+  intent is given — with its `Info` kept and no second entry appended. Refused by name: an entry
+  naming something other than a stream, an identifier other than `Custom`, a page-level array.
 
 - **The three were one refusal sentence and they are three different waits.** That is this
   entry's first correction, and it was invisible while the block read as one mitigation: the
@@ -808,10 +817,16 @@ Part 4 no longer states the rule (PDF Association issue #314)
 #### `graphics/no-halftone-name`
 #### `graphics/no-halftone-phase-in-a-graphics-state` (part 2, `/HTP`)
 #### `graphics/no-halftone-origin-in-a-graphics-state` (part 4, `/HTO`)
-today `not-built-yet`, except **`HalftoneName`**, built as the loss `halftone-name` (ADR 1965): the
-key goes from a halftone that states a `HalftoneType`, every parameter it defines kept, and one that
-is only a name stays refused. `as-shown` answers it `discard` (the window does not halftone);
-`as-if-printed` leaves it at `stop`
+all four **built**. **`HalftoneName`** is the loss `halftone-name` (ADR 1965): the key goes from a
+halftone that states a `HalftoneType`, every parameter it defines kept, and one that is only a name
+stays refused. **A type other than 1 or 5** is the loss `halftone` (ADR 2034): a threshold array is a
+whole screen, so the graphics states whose `HT` names it are written Table 57's `Default`, the
+device's own halftone, and the halftone leaves the file; one a type 5 names as a colourant's screen
+is refused. A dictionary an `ExtGState` table names is a graphics state, and is judged a halftone
+only where an `HT` or a type 5 names it too. **Part 4's `HTO`** is the same loss, removed. **Part
+2's `HTP`** is a statement (ADR 2035): neither ISO 32000-1 nor ISO 32000-2 defines it, and Annex I.3
+makes an entry the specification does not describe change nothing a processor does. `as-shown`
+answers both losses `discard` (the window does not halftone); `as-if-printed` leaves them at `stop`
 
 - **Mitigation** — `discard`: remove the key or the halftone. Nothing this renderer draws changes,
   which is what makes the loss narrow and nameable — what changes is what a **press** does with the

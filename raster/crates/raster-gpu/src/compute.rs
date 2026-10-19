@@ -196,19 +196,41 @@ impl ComputeSheet {
 ///
 /// Grows by doubling with a device-side copy, so residency survives its own growth. A
 /// released outline's entry leaves the map — its id may be reissued, and a stale range
-/// would be another outline's geometry — but its words stay until the device goes;
-/// [`SegmentArena::holes`] counts them so the cost is a number rather than a feeling,
-/// and compaction is a measured decision for the round that sees it grow.
+/// would be another outline's geometry — and its words become a hole.
+///
+/// **The holes are never more than the live words** (viewer ADR 2037). The live words are
+/// paid for already: each is an outline's segments, which the resource budget charged at
+/// upload and gives back at release. The holes are paid for by nothing, so the release that
+/// would leave more of them than live words compacts the arena instead — the live ranges
+/// copied down on the device, in their order, into a buffer sized for them alone. The
+/// arena's buffer is then at most four times its live bytes (or its starting size), and a
+/// compaction copies no more words than were released since the one before it.
 #[derive(Debug, Default)]
 pub(crate) struct SegmentArena {
     buffer: Option<wgpu::Buffer>,
-    /// Words used and words allocated.
+    /// Words used — live and holes, in the order they were written — and bytes allocated.
     used: u64,
     capacity: u64,
     /// Raw outline id → (word offset, word length).
     entries: FastMap<u32, (u32, u32)>,
-    /// Words belonging to released outlines, unreachable until the device goes.
+    /// Words belonging to released outlines, until the next compaction.
+    holes: u64,
+    /// Compactions this arena has run, for [`ArenaBytes::compactions`].
+    compactions: u32,
+}
+
+/// What the compute lane's segment arena holds on the device, in bytes (viewer ADR 2037):
+/// [`Device::segment_arena_bytes`](crate::Device::segment_arena_bytes).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ArenaBytes {
+    /// The segments of the outlines resident now — what the resource budget already charges.
+    pub live: u64,
+    /// The words of released outlines not yet compacted away: at most [`Self::live`].
     pub holes: u64,
+    /// The buffer's size on the device.
+    pub device: u64,
+    /// How often the arena has compacted on this device.
+    pub compactions: u32,
 }
 
 /// One outline's arena encoding: a tag word per segment, then its point words.
@@ -262,16 +284,102 @@ impl SegmentArena {
         Some((offset, len))
     }
 
-    /// Forgets a released outline's range (`Device::release`); its words become holes.
-    pub(crate) fn forget(&mut self, outline: u32) {
+    /// Forgets a released outline's range (`Device::release`); its words become holes, and
+    /// where they would outnumber the live words the arena is compacted (the type's comment).
+    pub(crate) fn forget(&mut self, gpu: &wgpu::Device, queue: &wgpu::Queue, outline: u32) {
         if let Some((_, len)) = self.entries.remove(&outline) {
             self.holes = self.holes.saturating_add(u64::from(len));
+        }
+        if self.holes > self.used.saturating_sub(self.holes) {
+            self.compact(gpu, queue);
         }
     }
 
     /// Bytes the arena holds on the device.
     pub(crate) fn device_bytes(&self) -> u64 {
         self.capacity
+    }
+
+    /// What the arena holds, live and not.
+    pub(crate) fn bytes(&self) -> ArenaBytes {
+        ArenaBytes {
+            live: self.used.saturating_sub(self.holes).saturating_mul(4),
+            holes: self.holes.saturating_mul(4),
+            device: self.capacity,
+            compactions: self.compactions,
+        }
+    }
+
+    /// Copy the live ranges down, in offset order, into a buffer sized for them, and point
+    /// every entry at its new offset.
+    ///
+    /// The copy is the device's, one command a run of ranges that were adjacent before, and
+    /// it is submitted before any later frame's records are written, so every record names an
+    /// offset in the buffer it binds. A frame already submitted keeps the old buffer alive
+    /// until it ends, which is `wgpu`'s rule for a buffer dropped while in use.
+    fn compact(&mut self, gpu: &wgpu::Device, queue: &wgpu::Queue) {
+        self.compactions = self.compactions.saturating_add(1);
+        let live = self.used.saturating_sub(self.holes);
+        let Some(old) = self.buffer.take().filter(|_| live > 0) else {
+            // Nothing live: the buffer goes, and the next upload starts the arena again.
+            self.entries.clear();
+            (self.used, self.holes, self.capacity) = (0, 0, 0);
+            return;
+        };
+        let capacity = live.saturating_mul(4).next_power_of_two().max(1 << 20);
+        let compacted = gpu.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("raster segment arena"),
+            size: capacity,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let mut ranges: Vec<(u32, u32, u32)> = self
+            .entries
+            .iter()
+            .map(|(&outline, &(offset, len))| (offset, len, outline))
+            .collect();
+        ranges.sort_unstable();
+        let mut encoder = gpu.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("raster segment arena compaction"),
+        });
+        // A run: where it starts in the old buffer and the new, and its length, in words.
+        let mut run: Option<(u64, u64, u64)> = None;
+        let mut next: u32 = 0;
+        for (offset, len, outline) in ranges {
+            run = match run {
+                Some((from, to, words)) if from.saturating_add(words) == u64::from(offset) => {
+                    Some((from, to, words.saturating_add(u64::from(len))))
+                }
+                ended => {
+                    if let Some((from, to, words)) = ended {
+                        encoder.copy_buffer_to_buffer(
+                            &old,
+                            from.saturating_mul(4),
+                            &compacted,
+                            to.saturating_mul(4),
+                            words.saturating_mul(4),
+                        );
+                    }
+                    Some((u64::from(offset), u64::from(next), u64::from(len)))
+                }
+            };
+            self.entries.insert(outline, (next, len));
+            next = next.saturating_add(len);
+        }
+        if let Some((from, to, words)) = run {
+            encoder.copy_buffer_to_buffer(
+                &old,
+                from.saturating_mul(4),
+                &compacted,
+                to.saturating_mul(4),
+                words.saturating_mul(4),
+            );
+        }
+        queue.submit([encoder.finish()]);
+        self.buffer = Some(compacted);
+        (self.used, self.holes, self.capacity) = (live, 0, capacity);
     }
 
     fn grow(&mut self, gpu: &wgpu::Device, queue: &wgpu::Queue, needed: u64) {

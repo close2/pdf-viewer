@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1, 2 and 3 are split (ADRs 2004, 2018, 2032); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1, 2, 3 and 5 are split (ADRs 2004, 2018, 2032, 2046); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -53,18 +53,14 @@ form (`rewrite_catalog`, `edit_*`, `unsign`, permissions) and streams (`rewrite_
 `reencode`, `hexadecimal_repair`). Split along those seven; `archive/` already has `attach.rs`,
 `boundaries.rs`, `decision.rs`, `hexadecimal.rs`, `prepare.rs` beside it, so some of the names exist.
 
-## 5. `Tree` (`crates/pdf-model/src/structure.rs`) — the largest source file
+## 5. Built — `Tree` (`crates/pdf-model/src/structure.rs`, with `structure/`), ADR 2046
 
-7 872 lines of which about 2 670 are tests, one 2 125-line `impl Tree`. The brief for this round
-guessed three concerns (the tree's reading, the logical order, the accessibility view); the method
-list says five: roles and namespaces (`role`, `standard_role`, `namespace`, the MathML and foreign
-counts), attributes (`attributes`, `inherited_attribute`, `unranked_owners`), tables (`cell_span`,
-`header_scope`, `cell_headers`, `table_summary`, `cell_facts`, `allocation`, `block_spacing`,
-`writing_mode`), owners (`search_owners`, `appearance_owners`, `stream_owners`, `xobject_owners`,
-`unkeyed_widget_owners`, `object_owner`, the parent-tree entries) and the logical order
-(`logical_order`, `logical_text`, `logical_range`, `descend`). The free items around it — the list,
-table, language and artifact helpers — fall out with them. Tests go to `structure/tests.rs` or to
-the module they test.
+The largest source file. `structure.rs` is the root — the state, the entry points that read `/K`,
+`logical_range` and the types and free functions the concerns share — and five modules each hold an
+`impl Tree` for one concern: `roles` (roles and namespaces, one walk), `attributes`, `tables`,
+`owners` and `logical`; the tests are `structure/tests.rs`. `logical_range` stays in the root until
+the clause slot of batch ninety-five that edits it has merged; moving it into `logical` is then one
+cut. About 3 000 lines of types and helpers remain in the root, a different split.
 
 ## 6. `LoadedFont` (`crates/pdf-font/src/loading.rs`)
 

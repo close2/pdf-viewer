@@ -1210,3 +1210,31 @@ the same every run. Before any theory is built on a wall figure the deterministi
 explain, both builds are run under `setarch -R` so that the difference is reproducible, and the
 record says whether it survived.
 
+## 122. An ADR a brief cites as the source of a limit is opened before anything is built on it
+
+Batch ninety-five's brief, and A287's own reading, cited ADR 0604 for the limit on a GTK 4 widget's
+surface; round 1606 opened it and found a decision about `--ignore-restrictions`. The limit is ADR
+0244's Decision 2. A citation copied from memory into a brief is a claim that decays like any other,
+and a round that would build on it reads the ADR's title and decision first, then names the right one
+in its own record so the next brief does not inherit the slip.
+
+
+## 123. A census's count of a witness's objects is read against the file's bytes before it is built on
+
+`archive_unbuilt` said the halftone witness held types 6, 10 and 16; the file holds one halftone, and
+the other two were graphics-state entries with halftone keys that nothing names, which this validator
+counted and veraPDF did not. Round 1599 read the bytes, narrowed the validator to what an `HT` entry
+or a type 5 halftone names, and built the one remedy the file needed (ADR 2034). A count the census
+prints is a claim about the file; the witness is opened and veraPDF's own failed-check count read
+beside it before the count becomes a contract.
+
+
+## 124. A sentence that forbids "X or Y" is read against the standard's own list of operations
+
+Table 333 forbids interpreting a `Private` element "or export[ing it] to other document formats", and
+round 1603's brief took the clipboard copy for the export. §14.8.1's NOTE names "[e]xtraction of text
+and graphics for pasting into other applications" and "[c]onversion to other common file formats" as
+two operations, so the copy is neither the export nor the interpretation, and only the reading of
+types inside the subtree is bound (ADR 2042). Before deciding which half of a disjunction binds an
+operation, the standard's own vocabulary for that operation is found, and the decision quotes it.
+

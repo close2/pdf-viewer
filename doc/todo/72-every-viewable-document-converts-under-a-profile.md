@@ -57,7 +57,10 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    outside the Adobe Glyph List; ADR 1942's construction names the glyph by its `/ToUnicode`
    character instead, proved the same way — the same build widened.
 9. `graphics/no-halftone-name` — **built** as the loss `halftone-name`, `discard` under `as-shown`
-   (ADR 1965): `endchar.pdf` converts to 2b. `graphics/no-overprint-mode-one-under-icc-cmyk` —
+   (ADR 1965): `endchar.pdf` converts to 2b. `graphics/halftone-type-is-one-or-five` and part 4's
+   `…-no-halftone-origin-…` — **built** as the loss `halftone` (ADR 2034): a threshold halftone's
+   graphics states set `Default`, and `HTO` goes. Part 2's `…-no-halftone-phase-…` — **built** as
+   a statement (ADR 2035): no base standard defines `HTP`. `graphics/no-overprint-mode-one-under-icc-cmyk` —
    **built** (ADR 1978): the states that set mode 1 for `ICCBased` marks state 0, a statement where
    they govern no `DeviceCMYK` mark (`2018-Lee-Fatherinclusiveperinatal.pdf`, whose next refusal
    is a standard-14 font) and the loss `overprint-mode` where they do (`102952.pdf`, which
@@ -93,8 +96,15 @@ witnesses convert, two drawn-through ones stay refused) — and
 `…-carries-the-tags-its-class-requires` with `…-states-a-correct-profile-id` (2 each, one witness
 failing both) — **built** where the header alone fails them (ADR 2021): a version 5 header on a
 profile written in ICC.1:1998-09's tags and types is restated 2.2.0, a stale `Profile ID` is
-written as the digest; `6-2-3-t01-fail-d` converts to 2b and 4. Next:
-`graphics/halftone-type-is-one-or-five` (2).
+written as the digest; `6-2-3-t01-fail-d` converts to 2b and 4 — and
+`graphics/halftone-type-is-one-or-five` (2) — **built** as ADR 2034's loss, its witness
+`6-2-5-t03-fail-a` holding one threshold halftone where the validator had counted three: two were
+graphics states its `ExtGState` table names, now not halftones — and
+`graphics/no-halftone-phase-in-a-graphics-state` and
+`graphics/pdfa-output-intent-states-a-destination-profile` (1 each) — **built** as ADR 2035's
+statements, a `Custom` PDF/A entry stating no profile given its construction's. Next:
+`metadata/extension-schema-structure-fields-are-described` (1, `6-6-2-3-3-t03-fail-b`), the last
+`not-built-yet` site the veraPDF corpus reaches at 2b.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

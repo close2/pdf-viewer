@@ -343,6 +343,15 @@ pub enum Loss {
     /// a halftone of that name screens with the dictionary's own parameters instead. A halftone
     /// that is only a name is refused rather than removed (`doc/adr/1965`).
     HalftoneName,
+    /// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: a halftone of a type other than 1 or
+    /// 5, replaced by the device's own, and part 4's halftone origin, removed.
+    ///
+    /// A threshold halftone is a whole screen, so the graphics states naming it set Table 57's
+    /// `Default` — the halftone in effect at the start of the page — and the halftone leaves the
+    /// file; `HTO` places a screen and is simply removed. **Nothing a screen shows moves**, for
+    /// §10.6.1's reason as [`Self::HalftoneName`]; what is lost is the producer's screen on a press,
+    /// which screens those marks with its own halftone, at its own origin (`doc/adr/2034`).
+    Halftone,
     /// ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: overprint mode 1, set to 0 in the
     /// graphics states that set it, where one of them also governs a `DeviceCMYK` mark.
     ///
@@ -359,7 +368,7 @@ pub enum Loss {
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -379,6 +388,7 @@ impl Loss {
         Self::EmbeddedFile,
         Self::TransferFunction,
         Self::HalftoneName,
+        Self::Halftone,
         Self::OverprintMode,
     ];
 
@@ -405,6 +415,7 @@ impl Loss {
             Self::EmbeddedFile => "embedded-file",
             Self::TransferFunction => "transfer-function",
             Self::HalftoneName => "halftone-name",
+            Self::Halftone => "halftone",
             Self::OverprintMode => "overprint-mode",
         }
     }
@@ -549,6 +560,14 @@ impl Loss {
                  file's parameters instead of its own. Nothing on a screen moves: ISO 32000-2 \
                  \u{a7}10.6.1 needs no halftoning on a device that shows continuous tone"
             }
+            Self::Halftone => {
+                "a halftone of a type other than 1 or 5 is replaced by the device's own - the \
+                 graphics states naming it set Default, the halftone in effect at the start of \
+                 the page - and a graphics state's halftone origin is removed, so a press screens \
+                 those marks its own way rather than with the producer's threshold screen or at \
+                 the producer's origin. Nothing on a screen moves: ISO 32000-2 \u{a7}10.6.1 needs \
+                 no halftoning on a device that shows continuous tone"
+            }
             Self::OverprintMode => {
                 "a graphics state's overprint mode 1 is set to 0, so a DeviceCMYK mark painted \
                  with overprinting on paints its zero components instead of leaving what was \
@@ -617,6 +636,8 @@ pub struct Authorisations {
     pub transfer_function: bool,
     /// Whether [`Loss::HalftoneName`] was authorised.
     pub halftone_name: bool,
+    /// Whether [`Loss::Halftone`] was authorised.
+    pub halftone: bool,
     /// Whether [`Loss::OverprintMode`] was authorised.
     pub overprint_mode: bool,
 }
@@ -645,6 +666,7 @@ impl Authorisations {
             Loss::EmbeddedFile => self.embedded_file,
             Loss::TransferFunction => self.transfer_function,
             Loss::HalftoneName => self.halftone_name,
+            Loss::Halftone => self.halftone,
             Loss::OverprintMode => self.overprint_mode,
         }
     }
@@ -671,6 +693,7 @@ impl Authorisations {
             Loss::EmbeddedFile => self.embedded_file = true,
             Loss::TransferFunction => self.transfer_function = true,
             Loss::HalftoneName => self.halftone_name = true,
+            Loss::Halftone => self.halftone = true,
             Loss::OverprintMode => self.overprint_mode = true,
         }
     }
@@ -1737,6 +1760,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // the destination profile's header alone fails them — a version 5 header on a profile written
     // in ICC.1:1998-09's tags and types, or a stale Profile ID. One rewrite answers both rows, and
     // `super::destination` names each other case's refusal (`doc/adr/2021`).
+    // The same subclauses' first sentence, where a PDF/A entry identified as `Custom` states no
+    // profile at all: it is given the one this conversion's own entry would name
+    // (`super::prepare::SuppliedDestination`, `doc/adr/2035`).
+    Remedy {
+        requirement: "graphics/pdfa-output-intent-states-a-destination-profile",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileSupplied,
+            DESTINATION_SUPPLIED_REINTERPRETS,
+        ),
+    },
     Remedy {
         requirement: "graphics/destination-profile-carries-the-tags-its-class-requires",
         answer: Answer::Stated(
@@ -1807,6 +1841,26 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "graphics/no-halftone-name",
         answer: Answer::Loses(Loss::HalftoneName, Rewrite::HalftoneNameRemoved),
+    },
+    // The same subclauses' halftone type and part 4's origin: a press's screen, replaced by its
+    // own or placed at its own origin, and nothing on a screen moved (`doc/adr/2034`).
+    Remedy {
+        requirement: "graphics/halftone-type-is-one-or-five",
+        answer: Answer::Loses(Loss::Halftone, Rewrite::HalftoneWrittenDefault),
+    },
+    Remedy {
+        requirement: "graphics/no-halftone-origin-in-a-graphics-state",
+        answer: Answer::Loses(Loss::Halftone, Rewrite::HalftoneOriginRemoved),
+    },
+    // Part 2's halftone phase, an entry neither ISO 32000-1 nor ISO 32000-2 defines, so that no
+    // processor of the base standard reads it (`doc/adr/2035`).
+    Remedy {
+        requirement: "graphics/no-halftone-phase-in-a-graphics-state",
+        answer: Answer::Stated(
+            None,
+            Rewrite::HalftonePhaseRemoved,
+            HALFTONE_PHASE_REINTERPRETS,
+        ),
     },
     // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2. Stated where the states setting
     // the mode govern no `DeviceCMYK` mark, and a loss where one does (`doc/adr/1978`):
@@ -2671,10 +2725,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the shape of the array itself.
     (
-        "graphics/pdfa-output-intent-states-a-destination-profile",
-        Because::NotBuiltYet(PDFA_OUTPUT_INTENT_NOT_COMPLETED),
-    ),
-    (
         "graphics/page-output-intents-have-the-same-shape",
         Because::NotBuiltYet(PAGE_OUTPUT_INTENTS_NOT_TIDIED),
     ),
@@ -2685,24 +2735,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
         Because::NotBuiltYet(PROFILE_REFERENCE_NOT_REMOVED),
-    ),
-    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: section 4.8's two halves, which are
-    // two different facts about what a reader sees.
-    (
-        "graphics/halftone-type-is-one-or-five",
-        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
-    ),
-    (
-        "graphics/no-halftone-origin-in-a-graphics-state",
-        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
-    ),
-    (
-        "graphics/no-halftone-phase-in-a-graphics-state",
-        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
-    ),
-    (
-        "graphics/halftone-transfer-function-only-where-required",
-        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
     ),
     // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table. The two
     // rows whose field is in the JP2 wrapper are `REMEDIES`' now — a colour specification box can
@@ -3015,20 +3047,6 @@ const ICC_SPACE_PROFILE_NOT_REPLACED: &str = "an ICCBased colour space in this f
      Both are doc/pdf-a-conversion-limits.md section 3's kind of loss, neither is built, and \
      nothing in the file supplies a corrected profile";
 
-/// Why a PDF/A output intent that names no destination profile is left where it is.
-///
-/// **One of two rows waiting on the same thing**; the third that once shared their sentence,
-/// `graphics/one-destination-profile-per-output-intents-array`, is a row of [`REMEDIES`] (ADR
-/// 0973).
-const PDFA_OUTPUT_INTENT_NOT_COMPLETED: &str = "an entry of this file's OutputIntents array is \
-     identified as a PDF/A output intent and states no valid destination profile stream, which \
-     ISO 19005 section 6.2.3 requires of it. Two routes exist and both are decisions: giving the \
-     entry a profile makes this conversion say which device its producer's colours were prepared \
-     for, and removing the entry throws away the production condition it names. This conversion \
-     writes a PDF/A output intent by appending one to the array it found \
-     (doc/pdf-a-conversion-limits.md section 4.1), which leaves the producer's own entry exactly \
-     as they wrote it and therefore still failing";
-
 /// Why a page's own `/OutputIntents` array is not reconciled.
 const PAGE_OUTPUT_INTENTS_NOT_TIDIED: &str = "a page of this file states an OutputIntents array \
      of its own, which ISO 19005-4 section 6.2.3 holds to the same three rules as the document's \
@@ -3046,19 +3064,6 @@ const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its des
      doc/pdf-a-conversion-limits.md section 2.3's refusal applies unless --output-intent-profile \
      supplies one. Neither branch is built";
 
-/// Why a halftone is not removed.
-///
-/// `CLAUDE.md` records §10.6's halftones as inapplicable on the standard's own condition and
-/// §10.5's transfer functions as emphatically not, so removing a halftone costs what a press does
-/// and a transfer function is `super::transfer`'s loss.
-const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or 5, and \
-     forbids a halftone phase or origin key in a graphics state. Removing one \
-     changes nothing this renderer draws — CLAUDE.md records §10.6's halftones as inapplicable \
-     on the standard's own condition, because a halftone describes how a marking device renders \
-     continuous tone — and it does change what a press does with the file, which is exactly what \
-     an archived print master is kept for. doc/pdf-a-conversion-limits.md section 4.8 therefore \
-     makes it an Ask, and neither the authorisation word nor the rewrite is built";
-
 /// What writing a `/TR2 /Identity` as `Default` asserts (`doc/adr/1978` section 6).
 const SECOND_IDENTITY_REINTERPRETS: &str = "a graphics state in this file states TR2 Identity, \
      which ISO 19005 forbids, and no graphics state in it states any other transfer function, so \
@@ -3067,6 +3072,21 @@ const SECOND_IDENTITY_REINTERPRETS: &str = "a graphics state in this file states
      this reader's device it is the identity, so every colour is drawn where it was. On a device \
      whose own default is not the identity, the producer's reset to the identity no longer \
      happens. The report names every graphics state rewritten";
+
+/// What giving a PDF/A output intent stating no profile its profile asserts (`doc/adr/2035`).
+const DESTINATION_SUPPLIED_REINTERPRETS: &str = "a PDF/A output intent in this file \
+     identifies its output condition as Custom and states no destination profile, so this reader \
+     drew the page as though no intent were stated. The entry is given the profile this \
+     conversion's own PDF/A output intent would name - one another entry already names, or else \
+     the profile a file stating no intent is given - which is the entry this conversion writes, \
+     Custom included, with the producer's own Info kept. The report names the profile written";
+
+/// What removing `HTP` asserts (`doc/adr/2035`).
+const HALFTONE_PHASE_REINTERPRETS: &str = "a graphics state in this file states HTP, a halftone \
+     phase that ISO 19005-2 section 6.2.5 forbids and that neither ISO 32000-1 nor ISO 32000-2 \
+     defines: PDF 1.3 removed it. ISO 32000-2 Annex I.3 makes an entry the specification does not \
+     describe change nothing a processor does, so the entry is removed and no processor of the \
+     base standard, press or screen, behaves otherwise";
 
 /// What writing a profile over an unreadable destination profile asserts (`doc/adr/2007`).
 const DESTINATION_REPLACED_REINTERPRETS: &str = "the destination profile this file's own output \

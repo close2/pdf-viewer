@@ -29,9 +29,11 @@
 //! and S to save — because §12.7.4.3's commit runs where the scripts are, inside the confinement,
 //! and a boundary nobody can type across has not been shown to carry it (ADR 1592). What is complete is the part no other window has at all: every page on the screen came
 //! out of the sandboxed process, on both of ADR 0607's arms, with the drawing of the marks arm
-//! interruptible and the worker killable from the keyboard. A document this window cannot serve —
-//! a file the document asks for, a URI it wants resolved — is refused **by name**, on the screen
-//! and on standard error, never quietly.
+//! interruptible and the worker killable from the keyboard. A link to another program and a file
+//! the document names are put to the reader at the level `--links=` and `--remote-documents=` set,
+//! as in the other three windows, on a card answered by Enter and Escape (`asking`, ADR 2040); what
+//! this window still cannot serve — a form sent to a server, a file imported from one — is refused
+//! **by name**, on standard error, never quietly.
 //!
 //! # When the worker dies without being asked to
 //!
@@ -84,6 +86,8 @@
               that cannot create a window or an event loop should stop loudly"
 )]
 
+#[path = "quorra-confined/asking.rs"]
+mod asking;
 #[path = "quorra-confined/device.rs"]
 mod device;
 #[path = "quorra-confined/exchange.rs"]
@@ -108,7 +112,7 @@ use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Viewing, Zoom};
 use viewer_host::drawing::Drawing;
 use viewer_host::trace::{Topic, Trace};
 use viewer_host::{Ask, Asking, Supplied};
-use viewer_ui::chrome::{Chrome, PasswordCard};
+use viewer_ui::chrome::{Chrome, PasswordCard, QuestionCard};
 use viewer_ui::software::SoftwareSurface;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
@@ -136,7 +140,7 @@ const OVERSIZE: Command = Command::Oversize(viewer_core::Oversize::Listed);
 /// desktop convention.
 const WHEEL_NOTCH: f32 = 48.0;
 
-/// The command line: a document, optionally `--trace[=topics]`, and `--cpu`.
+/// The command line: a document, optionally `--trace[=topics]`, `--cpu` and two levels.
 struct Arguments {
     /// The file to open.
     path: PathBuf,
@@ -155,7 +159,15 @@ struct Arguments {
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words every
     /// window takes (ADRs 1580, 1581).
     reader: viewer_host::ReaderWords,
+    /// §12.6.4.8: what this window does when a link asks for a URI, per [`viewer_host::LINKS`].
+    links: viewer_host::Links,
+    /// §12.6.4.3: what it does when a document names another PDF file, per
+    /// [`viewer_host::REMOTE_DOCUMENTS`].
+    remote_documents: viewer_host::RemoteDocuments,
 }
+
+/// What the usage line names, after the program's name.
+const USAGE: &str = "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R]";
 
 /// A message's `Debug` form cut to a line, for the trace.
 ///
@@ -174,6 +186,14 @@ fn brief(message: &impl std::fmt::Debug) -> String {
     whole
 }
 
+/// A file's own name, or the whole path where it has none.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
 /// Reads the arguments or says why not; the usage line is the refusal.
 fn arguments() -> Arguments {
     let mut path = None;
@@ -181,6 +201,8 @@ fn arguments() -> Arguments {
     let mut processor = false;
     let mut faces = false;
     let mut reader = viewer_host::ReaderWords::default();
+    let mut links = viewer_host::Links::default();
+    let mut remote_documents = viewer_host::RemoteDocuments::default();
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let taken = reader
@@ -198,6 +220,16 @@ fn arguments() -> Arguments {
             processor = true;
         } else if argument == viewer_host::MACHINE_FONTS {
             faces = true;
+        } else if let Some(level) = argument.strip_prefix(viewer_host::LINKS) {
+            links = viewer_host::links(level).unwrap_or_else(|complaint| {
+                eprintln!("{complaint}");
+                std::process::exit(2);
+            });
+        } else if let Some(level) = argument.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
+            remote_documents = viewer_host::remote_documents(level).unwrap_or_else(|complaint| {
+                eprintln!("{complaint}");
+                std::process::exit(2);
+            });
         } else if let Some(list) = argument.strip_prefix("--trace=") {
             topics = match viewer_host::parse_topics(list) {
                 Ok(topics) => topics,
@@ -210,7 +242,7 @@ fn arguments() -> Arguments {
             path = Some(PathBuf::from(argument));
         } else {
             eprintln!(
-                "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] {} document.pdf",
+                "usage: quorra-confined {USAGE} [{}] {} document.pdf",
                 viewer_host::MACHINE_FONTS,
                 viewer_host::ReaderWords::USAGE
             );
@@ -219,7 +251,7 @@ fn arguments() -> Arguments {
     }
     let Some(path) = path else {
         eprintln!(
-            "usage: quorra-confined [--trace[=topics]] [--cpu] [{}] {} document.pdf",
+            "usage: quorra-confined {USAGE} [{}] {} document.pdf",
             viewer_host::MACHINE_FONTS,
             viewer_host::ReaderWords::USAGE
         );
@@ -243,6 +275,8 @@ fn arguments() -> Arguments {
         // The word, or the environment for a window nobody typed a command line at.
         faces: viewer_host::offers_machine_fonts(faces),
         reader,
+        links,
+        remote_documents,
     }
 }
 
@@ -319,6 +353,19 @@ struct Host {
     /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
     /// off a launch. `viewer_host::report::Due` holds the rule for every host. ADR 1044.
     report_due: viewer_host::report::Due,
+    /// §12.6.4.8's and §12.6.4.3's levels, read off the command line as the other three windows
+    /// read them (ADR 2040).
+    links: viewer_host::Links,
+    remote_documents: viewer_host::RemoteDocuments,
+    /// The *ask* level's card — the flagship's, reused whole — and what it is asking about.
+    ///
+    /// While it is shown it has the keyboard and the pointer, as the password card does.
+    question: QuestionCard,
+    asked: Option<asking::Asked>,
+    /// A file a document named, supplied to the worker and not yet answered for (`asking`).
+    offered: Option<asking::Offered>,
+    /// A file a document named whose §7.6.4.1 password the card is asking for.
+    prompting: Option<asking::Offered>,
     /// §7.6.4.1's prompt — the card the flagship draws for itself, reused whole.
     ///
     /// While it is shown it has the keyboard: the document behind it is not open, so a key that
@@ -429,6 +476,12 @@ impl Host {
             presented: None,
             asking: Asking::new(),
             report_due: viewer_host::report::Due::default(),
+            links: viewer_host::Links::default(),
+            remote_documents: viewer_host::RemoteDocuments::default(),
+            question: QuestionCard::default(),
+            asked: None,
+            offered: None,
+            prompting: None,
             password: PasswordCard::default(),
             chrome: None,
             leaving: false,
@@ -592,6 +645,7 @@ impl Host {
         if self.stopped.is_some() {
             return;
         }
+        self.forget_the_offers();
         let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
@@ -666,10 +720,7 @@ impl Host {
 
     /// The file's own name, for the title.
     fn name(&self) -> String {
-        self.path.file_name().map_or_else(
-            || self.path.to_string_lossy().into_owned(),
-            |name| name.to_string_lossy().into_owned(),
-        )
+        file_name(&self.path)
     }
 
     /// Sends one command, hands its events on, and pulls the frame the view now shows — or, while
@@ -712,14 +763,21 @@ impl Host {
         }
         match self.asking.required() {
             Ask::Prompt { attempt, of } => {
-                self.password
-                    .ask(viewer_host::password::prompt(&self.name(), attempt, of));
+                self.password.ask(viewer_host::password::prompt(
+                    &file_name(self.prompted_for()),
+                    attempt,
+                    of,
+                ));
                 self.card_changed();
             }
             Ask::Exhausted => {
                 // Stop asking and leave the window open — `viewer_host::password`'s rule: no
-                // host may make `Exhausted` mean the window closes.
+                // host may make `Exhausted` mean the window closes. A file a document named is
+                // declined to the worker that holds it, and the window's own stays.
                 eprintln!("note: {}", viewer_host::password::EXHAUSTED);
+                if self.decline_the_prompted() {
+                    return;
+                }
                 self.heading = format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
                 self.retitle();
             }
@@ -743,6 +801,8 @@ impl Host {
         }
         match event {
             Event::Opened { pages, .. } => {
+                // A file a document named and this window supplied is the window's document now.
+                self.opened_an_offer();
                 // The next document's attempts start from nothing (`Asking::opened`'s rule).
                 self.asking.opened();
                 self.report_due.opened();
@@ -774,7 +834,11 @@ impl Host {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
             }
-            Event::PasswordRequired { .. } => self.password_required(),
+            Event::PasswordRequired { .. } => {
+                // The file a document named, where it is the one that asks (ADR 1332).
+                self.locked_an_offer();
+                self.password_required();
+            }
             // Five arms with nothing to do, and each for its own reason, kept in one place so
             // that a message added to the boundary still breaks this build: a `Closed` follows
             // this window's own `Close` and nothing else; a `Transition` never fires because this
@@ -819,30 +883,13 @@ impl Host {
                 self.ask_frame();
                 self.redraw();
             }
-            // §12.6.4.8: the same policy the other three windows ask, rather than this one's own
-            // sentence about links — the URI is resolved against the document's location first,
-            // which is the half of the clause a window can answer and the core cannot (ADR 1079).
-            //
-            // **At `Links::Refuse` and not at the level the other three default to**, which is a
-            // choice with a reason: this window has no dialogue, so it could not put the question
-            // the *ask* level asks, and a window that opened links without being able to ask would
-            // be the one face where a document reaches another program with nobody consulted. It
-            // is `viewer_host::unanswerable`'s decision one clause over, taken before the question
-            // rather than after it (ADR 1155).
-            Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::resolve_uri(Some(&self.path), &uri);
-                match viewer_host::link(&uri, viewer_host::Links::Refuse) {
-                    viewer_host::Link::Say(note) => eprintln!("{note}"),
-                    // Unreachable at this level and said rather than ignored, because a level that
-                    // grew a question this window cannot put would otherwise go quiet (trap 5).
-                    viewer_host::Link::Ask(words) => {
-                        eprintln!("note: {}", viewer_host::unanswerable(&[words.reasons]));
-                    }
-                }
-            }
-            // §12.7.6.2, the same way: composed by the confined process and declined here at
-            // `Submissions::Refuse`, for `Links::Refuse`'s reason above — this window has no
-            // dialogue to put the *ask* level's question in (ADRs 1062, 1291).
+            // §12.6.4.8: the same policy the other three windows ask, at the level this window was
+            // started at, and the *ask* level's question on the card (ADRs 1079, 1155, 2040).
+            Event::OpenUri { uri, .. } => self.open_uri(&uri),
+            // §12.7.6.2: composed by the confined process and declined here at
+            // `Submissions::Refuse`. The *ask* level's card exists now (ADR 2040); what this pin
+            // still waits for is a sender on this side and the `--submissions=` word, which this
+            // window has never had (ADRs 1062, 1291, 1527).
             Event::Submit { submission, .. } => {
                 let why =
                     match viewer_host::may_submit(&submission, viewer_host::Submissions::Refuse) {
@@ -853,8 +900,7 @@ impl Host {
                             viewer_host::unanswerable(&[words.reasons])
                         }
                         viewer_host::Sending::Send | viewer_host::Sending::Warn(_) => {
-                            "this window sends no form: it has no dialogue to ask you in (ADR 1291)"
-                                .to_owned()
+                            "this window sends no form to a server (ADR 1291)".to_owned()
                         }
                     };
                 eprintln!(
@@ -869,13 +915,17 @@ impl Host {
             // dropped and the person is told the link declined; without it the worker waits for
             // an answer that never comes and the click reports nothing (trap 5).
             //
-            // §12.6.4.3 is refused at `RemoteDocuments::Refuse` and for `Links::Refuse`'s reason
-            // one clause over: this window has no dialogue, so it could not put the *ask* level's
-            // question, and a window that opened a file a document named without being able to
-            // ask would be the one face where that happens with nobody consulted (ADR 1227).
+            // §12.6.4.3's file and the three purposes beside it are asked at the level
+            // `--remote-documents=` set, as in the other three windows (ADRs 1227, 1239, 2040);
+            // §12.7.6.4's own file is the rest of this arm.
             //
             // An import named by an absolute URI is refused at every level here, whatever
             // `--submissions=` would say elsewhere: this window has no network (ADR 1527).
+            Event::NeedsFile { purpose, name, .. }
+                if viewer_host::under_remote_documents(purpose) =>
+            {
+                self.needs_remote(purpose, &name);
+            }
             Event::NeedsFile { purpose, name, .. } => {
                 let why = if purpose == viewer_core::Purpose::ImportData
                     && viewer_host::import_is_fetched(&name)
@@ -910,9 +960,8 @@ impl Host {
                     );
                 }
             }
-            // §O.2.1's `ef` at `EmbeddedDocuments::Refuse`, for `Links::Refuse`'s reason above:
-            // this window has no dialogue to put the *ask* level's question in, and it holds one
-            // document (ADR 1331). It passes no fragment, so the arm is the policy's answer said
+            // §O.2.1's `ef` at `EmbeddedDocuments::Refuse`, because this window holds one document
+            // and opens none beside it (ADR 1331). It passes no fragment, so the arm is the policy's answer said
             // out loud should one ever arrive, rather than a window that opens it unasked.
             Event::Extracted {
                 asked, name, bytes, ..
@@ -1351,8 +1400,9 @@ impl Host {
         self.redraw();
     }
 
-    /// §7.6.4.1's card as display lists, over whatever the screen has — which for an encrypted
-    /// document is the surround, exactly the flagship's arrangement of the same card.
+    /// The cards as display lists — §7.6.4.1's and the *ask* level's — over whatever the screen
+    /// has, which for an encrypted document is the surround, exactly the flagship's arrangement of
+    /// the same cards. The device and the processor both draw what this answers (ADR 2040).
     fn overlays(&self) -> Vec<pdf_render::DisplayList> {
         let (Some(window), Some(chrome)) = (self.window.as_ref(), self.chrome.as_ref()) else {
             return Vec::new();
@@ -1366,6 +1416,10 @@ impl Host {
         self.password
             .draw(chrome, extent.width, extent.height, scale)
             .into_iter()
+            .chain(
+                self.question
+                    .draw(chrome, extent.width, extent.height, scale),
+            )
             .collect()
     }
 
@@ -1430,9 +1484,7 @@ impl Host {
 
     /// The processor's present: the screen composed, the card drawn over it.
     fn present_software(&mut self) {
-        let (Some(window), Some(Presentation::Software(surface))) =
-            (self.window.as_ref(), self.presentation.as_mut())
-        else {
+        let Some(window) = self.window.as_ref() else {
             return;
         };
         let extent = window.inner_size();
@@ -1446,16 +1498,11 @@ impl Host {
         let Some(composed) = self.screen.compose() else {
             return;
         };
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "a display's scale factor is a small ratio"
-        )]
-        let scale = window.scale_factor() as f32;
-        let card = self.chrome.as_ref().and_then(|chrome| {
-            self.password
-                .draw(chrome, extent.width, extent.height, scale)
-        });
-        let overlays: Vec<&pdf_render::DisplayList> = card.iter().collect();
+        let cards = self.overlays();
+        let Some(Presentation::Software(surface)) = self.presentation.as_mut() else {
+            return;
+        };
+        let overlays: Vec<&pdf_render::DisplayList> = cards.iter().collect();
         match surface.present(&composed, &overlays) {
             Ok(()) => self.shown(extent),
             Err(problem) => eprintln!("the frame could not be presented: {problem}"),
@@ -1546,20 +1593,30 @@ impl Host {
             Supplied::Open(secret) => secret,
             Supplied::Cancelled => {
                 eprintln!("note: {}", viewer_host::password::CANCELLED);
+                if self.decline_the_prompted() {
+                    return;
+                }
                 self.heading = format!("{} — {}", self.name(), viewer_host::password::CANCELLED);
                 self.retitle();
                 return;
             }
         };
-        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
+        let bytes = match pdf_syntax::FileBytes::on_disk(self.prompted_for()) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                eprintln!("note: cannot reopen {}: {problem}", self.path.display());
+                eprintln!(
+                    "note: cannot reopen {}: {problem}",
+                    self.prompted_for().display()
+                );
+                if self.decline_the_prompted() {
+                    return;
+                }
                 self.heading = format!("{} — cannot reopen the file", self.name());
                 self.retitle();
                 return;
             }
         };
+        self.offer_the_prompted();
         // The worker survives an open it could not finish (ADR 0597), so the retry goes to the
         // same process: the document's descriptor crosses once more, which since ADR 0812 costs
         // an `open` and a `sendmsg` rather than the file's whole length down a pipe, however
@@ -1616,6 +1673,10 @@ impl Host {
         }
         if self.password.shown {
             self.password_key(&key.as_ref());
+            return;
+        }
+        if self.question.shown {
+            self.question_key(&key.as_ref());
             return;
         }
         if let typing::Typed::Taken = self.field_key(&key.as_ref()) {
@@ -1870,7 +1931,9 @@ impl ApplicationHandler for Host {
                 state,
                 button: winit::event::MouseButton::Left,
                 ..
-            } if !self.password.shown && !self.measuring.is_on() => self.click(state),
+            } if !self.password.shown && !self.question.shown && !self.measuring.is_on() => {
+                self.click(state);
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
@@ -2020,9 +2083,13 @@ fn main() {
         processor,
         faces,
         reader,
+        links,
+        remote_documents,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
     host.reader = reader;
+    host.links = links;
+    host.remote_documents = remote_documents;
     host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -2170,6 +2237,149 @@ mod tests {
             "and the window says so, was {:?}",
             host.heading
         );
+    }
+
+    /// A directory of its own for one test, holding the document and the file it names.
+    fn beside(test: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("quorra-confined-{}-{test}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory");
+        std::fs::write(directory.join("other.pdf"), b"%PDF-2.0\n").expect("the named file");
+        directory
+    }
+
+    /// §12.6.4.3's question for a file beside the document, as the worker raises it.
+    fn needs_other() -> Event {
+        Event::NeedsFile {
+            document: DocumentId(0),
+            purpose: viewer_core::Purpose::RemoteDocument,
+            name: "other.pdf".to_owned(),
+            beside: false,
+        }
+    }
+
+    /// The *ask* level's question reaches this window as the toolkits' does: a link puts the card
+    /// up and Escape takes it down with nothing handed over (ADR 2040). Before it the window was
+    /// pinned to `refuse`, so the discriminating assertion is that the card was shown at all.
+    #[test]
+    fn a_link_at_ask_puts_the_question_and_escape_declines_it() {
+        let mut host = a_host();
+        host.event(Event::OpenUri {
+            document: DocumentId(0),
+            uri: "https://example.org/linked".to_owned(),
+        });
+        assert!(host.question.shown, "the question is up");
+        host.press(&Key::Named(NamedKey::Escape));
+        assert!(!host.question.shown, "the card came down");
+        assert!(host.asked.is_none(), "and nothing is still asked");
+        assert!(
+            host.stopped.is_none(),
+            "Escape on the card is not the abort"
+        );
+    }
+
+    /// At `refuse` nothing is asked: the level is the reader's, and the card is the *ask* level's.
+    #[test]
+    fn a_link_at_refuse_is_not_asked() {
+        let mut host = a_host();
+        host.links = viewer_host::Links::Refuse;
+        host.event(Event::OpenUri {
+            document: DocumentId(0),
+            uri: "https://example.org/linked".to_owned(),
+        });
+        assert!(!host.question.shown, "no question at refuse");
+    }
+
+    /// A file a document named is asked about, read on a `yes`, and becomes the window's document
+    /// when the worker says it opened — the title, the save and a resume all follow it.
+    #[test]
+    fn a_remote_file_answered_yes_becomes_the_windows_document() {
+        let directory = beside("yes");
+        let mut host = a_host();
+        host.path = directory.join("document.pdf");
+        host.event(needs_other());
+        assert!(host.question.shown, "the question is up");
+        host.press(&Key::Named(NamedKey::Enter));
+        assert!(!host.question.shown, "the card came down");
+        assert!(host.offered.is_some(), "the file was read and offered");
+        host.event(Event::Opened {
+            document: DocumentId(0),
+            pages: 1,
+        });
+        assert_eq!(host.path, directory.join("other.pdf"));
+        assert!(
+            host.heading.starts_with("other.pdf"),
+            "was {:?}",
+            host.heading
+        );
+        std::fs::remove_dir_all(&directory).expect("the scratch directory goes");
+    }
+
+    /// An offer nothing took is spent once its command is answered: a later open of the window's
+    /// own document is not mistaken for it.
+    #[test]
+    fn an_offer_nothing_took_is_spent() {
+        let directory = beside("spent");
+        let mut host = a_host();
+        host.path = directory.join("document.pdf");
+        host.remote_documents = viewer_host::RemoteDocuments::Open;
+        host.event(needs_other());
+        assert!(host.offered.is_some(), "read and offered at open, unasked");
+        host.supplied();
+        host.event(Event::Opened {
+            document: DocumentId(0),
+            pages: 1,
+        });
+        assert_eq!(host.path, directory.join("document.pdf"));
+        std::fs::remove_dir_all(&directory).expect("the scratch directory goes");
+    }
+
+    /// A file a document named that asks for §7.6.4.1's password is the file the card is about,
+    /// and a cancelled prompt declines it rather than the window's own document.
+    #[test]
+    fn a_locked_remote_file_is_the_prompts_and_a_cancel_declines_it() {
+        let directory = beside("locked");
+        let mut host = a_host();
+        host.path = directory.join("document.pdf");
+        host.remote_documents = viewer_host::RemoteDocuments::Open;
+        host.event(needs_other());
+        host.event(Event::PasswordRequired {
+            document: DocumentId(0),
+        });
+        assert!(host.password.shown, "the prompt is up");
+        assert_eq!(host.prompted_for(), directory.join("other.pdf"));
+        host.password_key(&Key::Named(NamedKey::Escape));
+        assert!(host.prompting.is_none(), "the hold was declined");
+        assert_eq!(
+            host.path,
+            directory.join("document.pdf"),
+            "the window's own stays"
+        );
+        assert!(
+            !host.heading.contains(viewer_host::password::CANCELLED),
+            "the window's own document was not the one cancelled, was {:?}",
+            host.heading
+        );
+        std::fs::remove_dir_all(&directory).expect("the scratch directory goes");
+    }
+
+    /// One question stands at a time: a second that arrives while one is up is declined, and the
+    /// first is still the one the card holds.
+    #[test]
+    fn a_second_question_is_declined_while_one_is_up() {
+        let directory = beside("second");
+        let mut host = a_host();
+        host.path = directory.join("document.pdf");
+        host.event(Event::OpenUri {
+            document: DocumentId(0),
+            uri: "https://example.org/linked".to_owned(),
+        });
+        host.event(needs_other());
+        assert!(
+            matches!(host.asked, Some(super::asking::Asked::Link { .. })),
+            "the link's question is still the one up"
+        );
+        std::fs::remove_dir_all(&directory).expect("the scratch directory goes");
     }
 
     /// A refusal that leaves the worker alive is not a death: nothing is restarted and the window

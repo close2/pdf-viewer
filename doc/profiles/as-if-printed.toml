@@ -251,7 +251,8 @@ remedy = "stop"
 #
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
 #   halftone-*                     a press applies these; an archived print master is kept for it
-#                                  (TR above)
+#                                  (TR above). A halftone phase HTP converts as a statement under
+#                                  every profile: no base standard defines it (doc/adr/2035)
 #   graphics/no-overprint-mode-one-under-icc-cmyk  a press composites DeviceCMYK marks by the
 #                                  mode; one whose marks are all ICCBased converts as a statement
 #                                  (doc/adr/1978)

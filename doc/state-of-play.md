@@ -435,7 +435,7 @@ two decide where the marks land and every other setting in a print dialogue does
 
 **And what a document may ask this machine to do is the reader's to set too, at the same four
 levels running the other way.** §12.6.4.8's link is opened by the host and by nothing inside the
-confinement, under `--links=refuse|ask|warn|open` in all three windows — `ask` by default, so
+confinement, under `--links=refuse|ask|warn|open` in all four windows — `ask` by default, so
 nothing reaches another program without a keypress, and only `http`, `https` and `mailto` are
 handed over at all, whatever the level, because a document free to name a scheme would be choosing
 which of this machine's handlers runs. The words are not the restriction menu's four: there *off*
@@ -444,7 +444,9 @@ with a tick beside it (ADR 1155). **§12.6.4.3's remote go-to is a second such v
 same one**, `--remote-documents=refuse|ask|warn|open`, `ask` by default: a document that names
 another file is asking this reader to open a PDF in place of the one being read rather than to
 start another program, and the file is looked for beside the open document and nowhere else at
-every level, including the permissive one — Table 203's `/D` and `/SD` are then read in the
+every level, including the permissive one; `quorra-confined` asks both on the flagship's card,
+answered by Enter and Escape, and opens a named file in place of the one document it holds (ADR
+2040) — Table 203's `/D` and `/SD` are then read in the
 document that came back, because §12.3.2.2 makes an explicit destination's first element a page
 number *there*. **A request for a new window opens a second document beside the first**: Table 203's
 and Table 204's `/NewWindow true` are read in the core and answered where the host's answer is,
@@ -891,7 +893,10 @@ from ITU-T T.801 M.9.2, the held text of ISO/IEC 15444-2, subclause by subclause
 1399), and a non-baseline image that states its own colour space is transcoded to `FlateDecode` in
 that space on an operator's `preserve` (ADR 1400) — its opacity channel written as the soft-mask image
 Table 87 names, and the channel-count, bit-depth and CIEJab rows answered by the same transcode
-(ADR 1412).
+(ADR 1412). A packet's properties are held to the edition of the XMP Specification part 2 itself
+identifies, its bibliography's September 2005 one, so a predefined property is held to that
+edition's type — an `xmp:Rating` of `1.0` spells a Real where it types an Integer, and the corpus
+comparison records its pass of that file as a ruling against the corpus (ADRs 1991, 2020).
 
 Its own reading is compared against the veraPDF corpus clause by clause, and **the comparison is
 adjudicated rather than tolerated**: where the corpus and the clause disagree, the clause is read
@@ -931,9 +936,15 @@ reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded in
 a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
 `.notdef` renamed (ADR 1942), a filter named by its inline-image abbreviation named in full
 (ADR 1952), and a destination profile's header restated as the ICC edition its own tags are written
-in, or its Profile ID as the profile's digest (ADR 2021). A graphics state's transfer function other than the identity, and a halftone's
+in, or its Profile ID as the profile's digest (ADR 2021). An ICC profile short of the tags its
+edition requires is given the operator's text where this reader drew through it and lacks only
+`desc` or `cprt`, and is written as its Table 65 alternate where it did not draw through it — at
+part 4 against the edition the profile's own header names (ADRs 1990, 2006); an output intent's
+only destination profile, if this reader cannot parse it and drew nothing through it, is written as
+the shipped sRGB where it stated three components and refused otherwise (ADR 2007). A graphics state's transfer function other than the identity, and a halftone's
 `HalftoneName`, go only as losses a person authorises — the function first written into the
-output's own `xmpMM:History` (ADRs 1964, 1965), and a `/TR2` other than `Default` is written
+output's own `xmpMM:History` (ADRs 1964, 1965), a halftone's own `TransferFunction` under the same
+two answers where §10.6.5.6 does not require it (ADR 2007), and a `/TR2` other than `Default` is written
 `Default` under the same two answers (ADR 1978); overprint mode 1 under an `ICCBased` CMYK mark is set
 to 0 as a statement where the states govern no `DeviceCMYK` mark and as a press's loss where they do
 (ADR 1978). The validator enumerates a page tree in one walk, so a ten-thousand-page `/Kids` array

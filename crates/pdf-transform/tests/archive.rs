@@ -786,6 +786,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -937,6 +938,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -1015,6 +1017,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -3462,6 +3465,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -4256,6 +4260,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4307,6 +4312,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4356,6 +4362,7 @@ fn two_specifications_marked_best_stay_refused() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -4398,6 +4405,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
@@ -6345,6 +6353,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (lost, output) = convert(&source, target, authorised);
@@ -7590,6 +7599,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -7909,6 +7919,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
@@ -7944,6 +7955,7 @@ fn every_loss() -> Authorisations {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        halftone: false,
         overprint_mode: false,
     }
 }
@@ -10441,6 +10453,229 @@ fn a_halftone_name_is_a_loss_and_once_authorised_goes_with_its_screen_kept() {
         text.contains("/SpotFunction /Round"),
         "the screen it defines stays"
     );
+}
+
+/// A type 6 threshold halftone of two by two device pixels, a stream as §10.6.5.3 has it.
+const THRESHOLD_HALFTONE: &str = "<< /Type /Halftone /HalftoneType 6 /Width 2 /Height 2 \
+     /Length 4 >>\nstream\n@P`p\nendstream";
+
+#[test]
+fn a_threshold_halftone_is_a_loss_and_once_authorised_its_states_set_the_devices_own() {
+    // ISO 19005-2 and ISO 19005-4 section 6.2.5 admit halftone types 1 and 5 alone. The graphics
+    // state's HT is written Table 57's Default and the threshold screen leaves the file; nothing
+    // the window draws moves, and a press screens with its own halftone (`doc/adr/2034`).
+    let row = "graphics/halftone-type-is-one-or-five";
+    let source = Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            THRESHOLD_HALFTONE.to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::Halftone,
+            ..
+        }
+    ));
+    assert!(output.is_none());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::Halftone);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::Halftone,
+            rewrite: Rewrite::HalftoneWrittenDefault,
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        text.contains("/HT /Default"),
+        "the state names the device's own"
+    );
+    assert!(
+        !text.contains("HalftoneType"),
+        "the threshold screen is gone"
+    );
+    assert_eq!(
+        drawn(&source),
+        drawn(&output),
+        "nothing the window draws moves"
+    );
+}
+
+#[test]
+fn a_threshold_halftone_a_type_five_names_stays_refused() {
+    // A colourant's screen inside a type 5 halftone is not a graphics state's HT, which is the one
+    // place this rewrite writes `Default` (`doc/adr/2034`).
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::Halftone);
+    let mut source = Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            "<< /Type /Halftone /HalftoneType 5 /Default 8 0 R >>".to_owned(),
+            THRESHOLD_HALFTONE.to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    };
+    let (report, output) = convert(&source.build(), Target::Four(Flavour::Plain), authorised);
+    let Decision::Refused(Because::NotBuiltYet(sentence)) =
+        decision(&report, "graphics/halftone-type-is-one-or-five")
+    else {
+        panic!("refused");
+    };
+    assert!(sentence.contains("type 5 halftone"), "{sentence}");
+    assert!(output.is_none());
+    // A graphics state naming the halftone as a table entry rather than through HT is not one of
+    // its halftones at all, so the file has nothing to answer (`doc/adr/2034`).
+    source.resources = "/ExtGState << /G0 8 0 R >>".to_owned();
+    source.objects[1] = "<< /Type /ExtGState >>".to_owned();
+    source.objects[2] = "<< /Type /Halftone /HalftoneType 10 /Xsquare 5 /Ysquare 5 >>".to_owned();
+    source.contents = Some((String::new(), b"/G0 gs 0.5 g 10 10 50 50 re f".to_vec()));
+    assert!(
+        holds(&source.build(), Target::Four(Flavour::Plain))
+            .failures()
+            .all(|judgement| judgement.id != "graphics/halftone-type-is-one-or-five"),
+        "a graphics state stating halftone keys is not a halftone"
+    );
+}
+
+#[test]
+fn a_halftone_phase_is_stated_away_at_part_two() {
+    // Neither ISO 32000-1 nor ISO 32000-2 defines HTP, and Annex I.3 makes an entry the
+    // specification does not describe change nothing a processor does: a statement under every
+    // profile (`doc/adr/2035`).
+    let row = "graphics/no-halftone-phase-in-a-graphics-state";
+    let source = Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec!["<< /Type /ExtGState /HTP [0 1] >>".to_owned()],
+        contents: Some((String::new(), b"/G0 gs 0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = to_part_two(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::HalftonePhaseRemoved,
+            ..
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(!String::from_utf8_lossy(&output).contains("HTP"));
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_halftone_origin_is_a_loss_at_part_four() {
+    // ISO 32000-2 defines HTO and ISO 19005-4 section 6.2.5 forbids it: a press places its screen
+    // at its own origin without it (`doc/adr/2034`).
+    let row = "graphics/no-halftone-origin-in-a-graphics-state";
+    let source = Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec!["<< /Type /ExtGState /HTO [0 0] >>".to_owned()],
+        contents: Some((String::new(), b"/G0 gs 0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::Halftone);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::Halftone,
+            rewrite: Rewrite::HalftoneOriginRemoved,
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(!String::from_utf8_lossy(&output).contains("HTO"));
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+/// A part 2 page drawing in `DeviceGray` under a catalog whose `OutputIntents` holds `entries`.
+fn an_intent_without_a_profile(entries: &str, objects: &[&str]) -> Vec<u8> {
+    Conforming {
+        catalog: format!("/OutputIntents [{entries}]"),
+        objects: objects.iter().map(|object| (*object).to_owned()).collect(),
+        contents: Some((String::new(), b"0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The entry veraPDF's `6-2-2-t02-fail-a` states: `Custom`, its own `Info`, and no profile.
+const CUSTOM_WITHOUT_A_PROFILE: &str = "<< /Type /OutputIntent /S /GTS_PDFA1 \
+     /OutputConditionIdentifier (Custom) /RegistryName (http://www.color.org) /Info (CustomICC) >>";
+
+#[test]
+fn a_custom_pdfa_intent_stating_no_profile_is_given_the_one_its_construction_names() {
+    // ISO 19005-2 section 6.2.3 requires the profile; the entry is this conversion's own, Custom
+    // included, lacking it, and the page was drawn as though no intent were stated
+    // (`doc/adr/2035`). Both an entry of its own and one written in the array.
+    let row = "graphics/pdfa-output-intent-states-a-destination-profile";
+    for source in [
+        an_intent_without_a_profile("6 0 R", &[CUSTOM_WITHOUT_A_PROFILE]),
+        an_intent_without_a_profile(CUSTOM_WITHOUT_A_PROFILE, &[]),
+    ] {
+        let (report, output) = to_part_two(&source);
+        assert!(matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DestinationProfileSupplied,
+                ..
+            }
+        ));
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let held = holds(&output, Target::Two(Level::B));
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        let text = String::from_utf8_lossy(&output);
+        assert_eq!(text.matches("GTS_PDFA1").count(), 1, "no second entry");
+        // Strings are written hexadecimal, so the producer's Info is looked for as its digits:
+        // `CustomICC`.
+        assert!(
+            text.to_ascii_uppercase().contains("437573746F6D494343"),
+            "the producer's Info stays"
+        );
+        assert_eq!(drawn(&source), drawn(&output));
+    }
+}
+
+#[test]
+fn a_pdfa_intent_naming_a_registered_condition_and_no_profile_stays_refused() {
+    // A registered condition's profile is the registry's, which this program does not hold
+    // (`doc/adr/2035`).
+    let source = an_intent_without_a_profile(
+        "6 0 R",
+        &[
+            "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (FOGRA39) \
+           /RegistryName (http://www.color.org) >>",
+        ],
+    );
+    let (report, output) = to_part_two(&source);
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(
+        &report,
+        "graphics/pdfa-output-intent-states-a-destination-profile",
+    ) else {
+        panic!("refused");
+    };
+    assert!(sentence.contains("other than"), "{sentence}");
+    assert!(output.is_none());
 }
 
 #[test]

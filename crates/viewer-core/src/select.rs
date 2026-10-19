@@ -203,8 +203,10 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 /// readback, joined by what the structure says lies between them.
 ///
 /// The pieces are `pdf_model::structure::Tree::logical_range`'s, which has already left out what
-/// the producer declared an artifact. What stands for each boundary is this function's choice and
-/// is written down here, because no clause states what a clipboard holds (ADR 1948):
+/// the producer declared an artifact, and which keeps a `Private` element's content with no
+/// boundary inside it, because a copy is not the export ISO 32000-1 Table 333 withholds that
+/// element from (ADR 2042). What stands for each boundary is this function's choice and is written
+/// down here, because no clause states what a clipboard holds (ADR 1948):
 ///
 /// - **a block's end is one line break**, which is what §14.8.3.3's stacking of block-level
 ///   elements "in block-progression order" looks like as plain text;

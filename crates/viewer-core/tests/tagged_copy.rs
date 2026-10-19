@@ -345,6 +345,94 @@ fn an_annotation_named_twice_is_copied_once() {
     );
 }
 
+/// [`PAGE`] with a `Private` element after the table: a two-cell table of its own on one line, and
+/// a paragraph on the next.
+///
+/// Drawn by the stream after everything [`PAGE`] draws, and stated by the tree after the table, so
+/// both orders put it last.
+fn with_a_private_element() -> Vec<u8> {
+    let page = format!(
+        "{PAGE} BT /F1 12 Tf 20 100 Td /TD << /MCID 7 >> BDC (C1) Tj EMC 60 0 Td \
+         /TD << /MCID 8 >> BDC (D1) Tj EMC ET \
+         BT /F1 12 Tf 20 80 Td /P << /MCID 9 >> BDC (Kept.) Tj EMC ET"
+    );
+    let structure = structure(
+        "23 0 R",
+        "23 0 obj\n<< /Type /StructElem /S /Private /P 11 0 R /K [24 0 R 28 0 R] >>\nendobj\n\
+         24 0 obj\n<< /Type /StructElem /S /Table /P 23 0 R /K [25 0 R] >>\nendobj\n\
+         25 0 obj\n<< /Type /StructElem /S /TR /P 24 0 R /K [26 0 R 27 0 R] >>\nendobj\n\
+         26 0 obj\n<< /Type /StructElem /S /TD /P 25 0 R /Pg 3 0 R /K 7 >>\nendobj\n\
+         27 0 obj\n<< /Type /StructElem /S /TD /P 25 0 R /Pg 3 0 R /K 8 >>\nendobj\n\
+         28 0 obj\n<< /Type /StructElem /S /P /P 23 0 R /Pg 3 0 R /K 9 >>\nendobj\n",
+    )
+    .replace("22 0 R]] >>", "22 0 R 26 0 R 27 0 R 28 0 R]] >>");
+    tagged(&page, &structure)
+}
+
+/// ISO 32000-1 Table 333's `Private`: "[n]either the Private element nor any of its descendants
+/// shall be interpreted or exported to other document formats" — and a copy is not the second,
+/// because §14.8.1's NOTE names "[e]xtraction of text and graphics for pasting into other
+/// applications" and "[c]onversion to other common file formats" as two things (ADR 2042).
+///
+/// So the subtree's text is in the copy, where the traversal reaches it and as the page order has
+/// it, and none of its types is read: the table inside it states no cell's end and no row's, and
+/// the paragraph no block's, so the readback's own separators stand between them. The table
+/// *before* it is outside it and still ends as a table does.
+#[test]
+fn a_private_element_is_copied_and_its_types_are_not_read() {
+    use pdf_model::structure::{Boundary, ContentSpans, Tree};
+
+    let bytes = with_a_private_element();
+    let (logical, page_order) = copy_all(bytes.clone());
+    assert!(
+        page_order.contains("C1") && page_order.contains("Kept."),
+        "{page_order:?}"
+    );
+    assert_eq!(
+        logical.as_deref(),
+        Some("First paragraph.\nSecond paragraph.\nA1\tB1\nA2\tB2\nC1 D1\nKept."),
+        "the outer table ends as a table, and the cells inside the `Private` element are the \
+         readback's: page order was {page_order:?}"
+    );
+
+    let document = pdf_syntax::Document::open(bytes).expect("the fixture is a valid file");
+    let pages = pdf_model::Pages::new(&document);
+    let interpretation = pdf_model::interpret(&document, &pages.get(0).expect("one page"));
+    let tree = Tree::of(&document).expect("the fixture states a structure tree");
+    let page = pdf_syntax::ObjectId {
+        number: 3,
+        generation: 0,
+    };
+    let text = &interpretation.text;
+    let pieces = tree
+        .logical_range(
+            &document,
+            page,
+            ContentSpans::of(&interpretation),
+            0..text.len(),
+        )
+        .expect("every byte is reached or declared an artifact");
+    let private: Vec<(&str, Boundary)> = pieces
+        .iter()
+        .skip(7)
+        .map(|piece| {
+            (
+                text.get(piece.range.clone()).unwrap_or_default().trim(),
+                piece.after,
+            )
+        })
+        .collect();
+    assert_eq!(
+        private,
+        vec![
+            ("C1", Boundary::Block),
+            ("D1", Boundary::Flow),
+            ("Kept.", Boundary::Flow),
+        ],
+        "the block before the subtree is the outer table's end; nothing inside it is a boundary"
+    );
+}
+
 /// §14.8.2.3's soft hyphen at a line's end, in both of a copy's orders: the break after it is the
 /// incidental division and goes, the character is what the producer mapped and stays, so the
 /// pasted word is the word a search finds (ADR 1971). The paragraph is one element whose content

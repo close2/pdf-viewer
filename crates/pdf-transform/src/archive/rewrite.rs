@@ -25,7 +25,7 @@ use super::jpeg2000::Specifications;
 use super::prepare::{
     Amended, Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, FieldAppearances,
     ForbiddenAnnotations, Fresh, Headers, HiddenAnnotations, Intent, Metadata, Prepared, Respelled,
-    SchemasDescribed, intent_dictionary, metadata_stream, output_intent_entries,
+    SchemasDescribed, intent_dictionary, metadata_stream, needs_a_profile, output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -103,6 +103,13 @@ pub enum Rewrite {
     /// ISO 19005-2 and ISO 19005-4 section 6.2.3's tag and identifier rows, where the header alone
     /// fails them; no transform reads either field this reader draws by (`doc/adr/2021`).
     DestinationProfileRestated,
+    /// A PDF/A output intent identified as `Custom` and stating no destination profile names the
+    /// profile this conversion's own entry would name.
+    ///
+    /// ISO 19005-2 and ISO 19005-4 section 6.2.3's first sentence; the entry is this verb's own
+    /// construction lacking its profile, and the page was drawn as though no intent were stated
+    /// (`doc/adr/2035`).
+    DestinationProfileSupplied,
     /// The catalog's `/OutputIntents` gains a PDF/A entry naming a destination profile.
     ///
     /// **The one rewrite of this verb that changes what the file *means*** rather than only what
@@ -1016,6 +1023,19 @@ pub enum Rewrite {
     /// moves, and a press holding a halftone of that name screens with the dictionary's own
     /// parameters instead, which is [`super::Loss::HalftoneName`] (`doc/adr/1965`).
     HalftoneNameRemoved,
+    /// A graphics state whose `HT` names a halftone of a type other than 1 or 5 states Table 57's
+    /// `Default`, and the halftone leaves the file.
+    ///
+    /// ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5 admit types 1 and 5 alone; nothing a
+    /// screen shows moves, and a press screens with its own halftone, which is
+    /// [`super::Loss::Halftone`] (`doc/adr/2034`).
+    HalftoneWrittenDefault,
+    /// A graphics state's `HTP` is removed: an entry neither ISO 32000-1 nor ISO 32000-2 defines,
+    /// which ISO 19005-2 section 6.2.5 forbids (`doc/adr/2035`).
+    HalftonePhaseRemoved,
+    /// A graphics state's `HTO` is removed, which ISO 19005-4 section 6.2.5 forbids; a press places
+    /// its screen at its own origin, which is [`super::Loss::Halftone`] (`doc/adr/2034`).
+    HalftoneOriginRemoved,
     /// Every graphics state that set overprint mode 1 for an `ICCBased` CMYK mark painted with
     /// overprinting on states mode 0, where none of them governs a `DeviceCMYK` mark.
     ///
@@ -1092,6 +1112,10 @@ impl Rewrite {
                 "the destination profile every output intent names has its header restated as \
                  what its own bytes are - the ICC edition its tags are written in, or the digest \
                  of the profile as its Profile ID - every tag and every colour kept"
+            }
+            Self::DestinationProfileSupplied => {
+                "a PDF/A output intent identified as Custom and stating no destination profile \
+                 names the profile this conversion's own output intent would name, its Info kept"
             }
             Self::OutputIntent => {
                 "the catalog states a PDF/A output intent whose destination profile says what \
@@ -1394,6 +1418,14 @@ impl Rewrite {
             Self::HalftoneNameRemoved => {
                 "a halftone's HalftoneName is removed and every parameter it defines is kept"
             }
+            Self::HalftoneWrittenDefault => {
+                "a graphics state naming a halftone of a type other than 1 or 5 sets Default, the \
+                 halftone in effect at the start of the page, and the halftone leaves the file"
+            }
+            Self::HalftonePhaseRemoved => {
+                "a graphics state's HTP, which the base standard does not define, is removed"
+            }
+            Self::HalftoneOriginRemoved => "a graphics state's halftone origin HTO is removed",
             Self::OverprintModeRestated => {
                 "a graphics state that set overprint mode 1 for ICCBased CMYK marks states mode \
                  0, in a file where no DeviceCMYK mark is painted under it with overprinting on"
@@ -1451,6 +1483,7 @@ impl Rewrite {
             Self::PresentationSteps => "presentation-steps",
             Self::DestinationProfileReplaced => "destination-profile-replaced",
             Self::DestinationProfileRestated => "destination-profile-restated",
+            Self::DestinationProfileSupplied => "destination-profile-supplied",
             Self::OutputIntent => "output-intent",
             Self::IdentificationSchema => "identification-schema",
             Self::DefaultCmyk => "default-cmyk",
@@ -1518,6 +1551,9 @@ impl Rewrite {
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
             Self::TransferFunctionRemoved => "transfer-function-removed",
             Self::HalftoneNameRemoved => "halftone-name-removed",
+            Self::HalftoneWrittenDefault => "halftone-written-default",
+            Self::HalftonePhaseRemoved => "halftone-phase-removed",
+            Self::HalftoneOriginRemoved => "halftone-origin-removed",
             Self::OverprintModeRestated => "overprint-mode-restated",
             Self::OverprintModeZeroed => "overprint-mode-zeroed",
             Self::ProfileTextSupplied => "profile-text-supplied",
@@ -1554,71 +1590,7 @@ pub(super) fn convert(
 ) -> Result<Converted, Refusal> {
     let root = crate::optimize::catalog_of(document)?;
     let sites = Sites::of(document, root, wanted);
-    let rewriter = Rewriter {
-        document,
-        target,
-        wanted,
-        sites,
-        remedies,
-        added: prepared.added(),
-        intent: prepared.intent.as_ref().ok(),
-        metadata: prepared.metadata.as_ref().ok(),
-        default_cmyk: prepared.default_cmyk.as_ref().ok(),
-        to_unicode: prepared.to_unicode.as_ref().ok(),
-        fresh: prepared.fresh.as_ref().ok(),
-        amended: prepared.amended.as_ref().ok(),
-        described: prepared.described.as_ref().ok(),
-        cleaned: prepared.properties.as_ref().ok(),
-        respelled: prepared.respelled.as_ref().ok(),
-        appearances: prepared.appearances.as_ref().ok(),
-        forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
-        hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
-        reference_xobjects: prepared.reference_xobjects.as_ref().ok(),
-        transcodes: prepared.transcodes.as_ref().ok(),
-        shipped_cmaps: prepared.shipped_cmaps.as_ref().ok(),
-        extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
-        automatic_states: prepared.automatic_states.as_ref().ok(),
-        form: prepared.form.as_ref().ok().copied(),
-        xfa: prepared.xfa.as_ref().ok().copied(),
-        field_appearances: prepared.field_appearances.as_ref().ok(),
-        embedded_files: prepared.embedded_files.as_ref().ok(),
-        substitutes: prepared.substitutes.as_ref().ok(),
-        metrics: prepared.metrics.as_ref().ok(),
-        rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
-        transfers: prepared.owed.transfers.as_ref().ok(),
-        blend_modes: prepared.owed.blend_modes.as_ref().ok(),
-        halftone_names: prepared.owed.halftone_names.as_ref().ok(),
-        replaced_destination: prepared.replaced_destination.as_ref().ok(),
-        restated_destination: prepared.restated_destination.as_ref().ok(),
-        overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
-        profile_alternates: prepared
-            .owed
-            .profile_alternates
-            .as_ref()
-            .ok()
-            .map(|alternates| &alternates.at),
-        appearance_states: prepared.owed.appearance_states.as_ref().ok(),
-        orders: prepared.owed.orders.as_ref().ok(),
-        page_resources: prepared.owed.page_resources.as_ref().ok(),
-        descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
-        cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
-        packet_headers: prepared.owed.packet_headers.as_ref().ok(),
-        symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
-        standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
-        standard_route: prepared.owed.standard_route.as_ref().ok(),
-        type3_notdef: prepared.owed.type3_notdef.as_ref().ok(),
-        shared_profile: prepared.owed.shared_profile.as_ref().ok(),
-        colorants: prepared.owed.colorants.as_ref().ok(),
-        specifications: prepared.owed.specifications.as_ref().ok(),
-        signatures: Some(&prepared.signatures),
-        foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
-        preserved: prepared.preserved.as_ref().ok(),
-        attached: prepared.attached.as_ref().ok(),
-        actions: prepared.actions.as_ref().ok(),
-        hexadecimal: prepared.hexadecimal.as_ref().ok(),
-        external_data: prepared.external_data.as_ref().ok(),
-        boundaries: prepared.boundaries.as_ref().ok(),
-    };
+    let rewriter = Rewriter::of(document, target, wanted, sites, remedies, prepared);
     let mut applied = BTreeMap::new();
 
     let mut assembly = Assembly::new(vec![document]);
@@ -1657,6 +1629,89 @@ pub(super) fn convert(
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     count_what_has_no_place(wanted, prepared, &mut applied);
     Ok(Converted { bytes, applied })
+}
+
+impl<'a> Rewriter<'a> {
+    /// The rewriter for one conversion: what was wanted, and each preparation's result where it
+    /// succeeded.
+    fn of(
+        document: &'a Document,
+        target: Target,
+        wanted: &'a BTreeSet<Rewrite>,
+        sites: Sites,
+        remedies: &'a super::remedies::Remedies,
+        prepared: &'a Prepared,
+    ) -> Self {
+        Self {
+            document,
+            target,
+            wanted,
+            sites,
+            remedies,
+            added: prepared.added(),
+            intent: prepared.intent.as_ref().ok(),
+            metadata: prepared.metadata.as_ref().ok(),
+            default_cmyk: prepared.default_cmyk.as_ref().ok(),
+            to_unicode: prepared.to_unicode.as_ref().ok(),
+            fresh: prepared.fresh.as_ref().ok(),
+            amended: prepared.amended.as_ref().ok(),
+            described: prepared.described.as_ref().ok(),
+            cleaned: prepared.properties.as_ref().ok(),
+            respelled: prepared.respelled.as_ref().ok(),
+            appearances: prepared.appearances.as_ref().ok(),
+            forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
+            hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
+            reference_xobjects: prepared.reference_xobjects.as_ref().ok(),
+            transcodes: prepared.transcodes.as_ref().ok(),
+            shipped_cmaps: prepared.shipped_cmaps.as_ref().ok(),
+            extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
+            automatic_states: prepared.automatic_states.as_ref().ok(),
+            form: prepared.form.as_ref().ok().copied(),
+            xfa: prepared.xfa.as_ref().ok().copied(),
+            field_appearances: prepared.field_appearances.as_ref().ok(),
+            embedded_files: prepared.embedded_files.as_ref().ok(),
+            substitutes: prepared.substitutes.as_ref().ok(),
+            metrics: prepared.metrics.as_ref().ok(),
+            rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
+            transfers: prepared.owed.transfers.as_ref().ok(),
+            blend_modes: prepared.owed.blend_modes.as_ref().ok(),
+            halftone_names: prepared.owed.halftone_names.as_ref().ok(),
+            halftone_defaults: prepared.owed.halftone_defaults.as_ref().ok(),
+            halftone_phases: prepared.owed.halftone_phases.as_ref().ok(),
+            halftone_origins: prepared.owed.halftone_origins.as_ref().ok(),
+            supplied_destination: prepared.supplied_destination.as_ref().ok(),
+            replaced_destination: prepared.replaced_destination.as_ref().ok(),
+            restated_destination: prepared.restated_destination.as_ref().ok(),
+            overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
+            profile_alternates: prepared
+                .owed
+                .profile_alternates
+                .as_ref()
+                .ok()
+                .map(|alternates| &alternates.at),
+            appearance_states: prepared.owed.appearance_states.as_ref().ok(),
+            orders: prepared.owed.orders.as_ref().ok(),
+            page_resources: prepared.owed.page_resources.as_ref().ok(),
+            descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
+            cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
+            packet_headers: prepared.owed.packet_headers.as_ref().ok(),
+            symbolic_encodings: prepared.owed.symbolic_encodings.as_ref().ok(),
+            standard_encodings: prepared.owed.standard_encodings.as_ref().ok(),
+            standard_route: prepared.owed.standard_route.as_ref().ok(),
+            type3_notdef: prepared.owed.type3_notdef.as_ref().ok(),
+            shared_profile: prepared.owed.shared_profile.as_ref().ok(),
+            colorants: prepared.owed.colorants.as_ref().ok(),
+            specifications: prepared.owed.specifications.as_ref().ok(),
+            signatures: Some(&prepared.signatures),
+            foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
+            preserved: prepared.preserved.as_ref().ok(),
+            attached: prepared.attached.as_ref().ok(),
+            actions: prepared.actions.as_ref().ok(),
+            hexadecimal: prepared.hexadecimal.as_ref().ok(),
+            external_data: prepared.external_data.as_ref().ok(),
+            boundaries: prepared.boundaries.as_ref().ok(),
+        }
+    }
 }
 
 /// §14.3.3's document information dictionary, carried into the output or left out of it.
@@ -1722,7 +1777,11 @@ fn count_what_has_no_place(
         Rewrite::IdentificationSchema,
         Rewrite::EncryptionRemoved,
     ] {
-        if wanted.contains(&whole) {
+        // No entry is appended where the producer's own was completed instead (`doc/adr/2035`).
+        let completed_instead = whole == Rewrite::OutputIntent
+            && wanted.contains(&Rewrite::DestinationProfileSupplied)
+            && prepared.supplied_destination.is_ok();
+        if wanted.contains(&whole) && !completed_instead {
             applied.insert(whole, 1);
         }
     }
@@ -2441,6 +2500,15 @@ struct Rewriter<'a> {
     blend_modes: Option<&'a sites::Sites>,
     /// The halftones whose `HalftoneName` goes.
     halftone_names: Option<&'a sites::Sites>,
+    /// The graphics states whose `HT` is written `Default` (`doc/adr/2034`).
+    halftone_defaults: Option<&'a sites::Sites>,
+    /// The graphics states whose `HTP` goes (`doc/adr/2035`).
+    halftone_phases: Option<&'a sites::Sites>,
+    /// The graphics states whose `HTO` goes (`doc/adr/2034`).
+    halftone_origins: Option<&'a sites::Sites>,
+    /// The PDF/A output intents given the profile this conversion's own entry names
+    /// (`doc/adr/2035`).
+    supplied_destination: Option<&'a super::prepare::SuppliedDestination>,
     /// The destination profile written over one this reader does not draw through.
     replaced_destination: Option<&'a super::prepare::ReplacedDestination>,
     /// The destination profile whose header is restated, where it is (`doc/adr/2021`).
@@ -2717,6 +2785,58 @@ impl Rewriter<'_> {
         changed.then_some(out)
     }
 
+    /// A graphics state's halftone entries ISO 19005 section 6.2.5 forbids, and a PDF/A output
+    /// intent's missing profile (`doc/adr/2034`, `doc/adr/2035`).
+    fn halftone_and_intent_entries(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        // Table 57's name for the device's own halftone, where the state named a threshold one
+        // (`doc/adr/2034`).
+        if self.wants(Rewrite::HalftoneWrittenDefault)
+            && self
+                .halftone_defaults
+                .is_some_and(|sites| sites.at.contains(&id))
+        {
+            out.insert(
+                Name::new(&b"HT"[..]),
+                Object::Name(Name::new(&b"Default"[..])),
+            );
+            count(applied, Rewrite::HalftoneWrittenDefault);
+            changed = true;
+        }
+        for (rewrite, sites, key) in [
+            (Rewrite::HalftonePhaseRemoved, self.halftone_phases, "HTP"),
+            (Rewrite::HalftoneOriginRemoved, self.halftone_origins, "HTO"),
+        ] {
+            if self.wants(rewrite)
+                && sites.is_some_and(|sites| sites.at.contains(&id))
+                && out.remove(key).is_some()
+            {
+                count(applied, rewrite);
+                changed = true;
+            }
+        }
+        // A PDF/A entry written as its own object, given the profile its construction names
+        // (`doc/adr/2035`).
+        if self.wants(Rewrite::DestinationProfileSupplied)
+            && let Some(supplied) = self
+                .supplied_destination
+                .filter(|supplied| supplied.at.contains(&id))
+        {
+            out.insert(
+                Name::new(&b"DestOutputProfile"[..]),
+                Object::Reference(supplied.destination),
+            );
+            count(applied, Rewrite::DestinationProfileSupplied);
+            changed = true;
+        }
+        changed
+    }
+
     /// `doc/pdf-a-mitigations.md` section 13.3's rewrites, each at the objects its own
     /// preparation found.
     ///
@@ -2782,6 +2902,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::HalftoneNameRemoved);
             changed = true;
         }
+        changed |= self.halftone_and_intent_entries(id, out, applied);
         // One change under either of its two rewrites, as for the transfer functions above: the
         // decision says what it costs, and the states it reaches are the same (`doc/adr/1978`).
         for rewrite in [Rewrite::OverprintModeRestated, Rewrite::OverprintModeZeroed] {
@@ -4096,6 +4217,98 @@ impl Rewriter<'_> {
         true
     }
 
+    /// ISO 19005 section 6.2.3's `OutputIntents` array: the entries the source holds corrected or
+    /// completed, and a PDF/A entry appended where none is.
+    fn write_output_intents(
+        &self,
+        catalog: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        // ISO 19005 section 6.2.3's array, which two rewrites write: one corrects the entries
+        // the source holds and one appends a PDF/A entry, and a document wanting both gets one
+        // array with both done to it rather than two writers overwriting each other.
+        let corrected = self
+            .wants(Rewrite::SharedDestinationProfile)
+            .then(|| {
+                self.shared_profile
+                    .and_then(|shared| shared.entries.clone())
+            })
+            .flatten();
+        if let Some(entries) = &corrected
+            && !self.wants(Rewrite::OutputIntent)
+        {
+            catalog.insert(
+                Name::new(&b"OutputIntents"[..]),
+                Object::Array(entries.clone()),
+            );
+            count(applied, Rewrite::SharedDestinationProfile);
+            changed = true;
+        }
+        // A PDF/A entry stating no profile is given the one this conversion's own entry would
+        // name, and is then that entry: one written in the array is completed here, and no second
+        // entry is appended beside it (`doc/adr/2035`).
+        let supplied = self
+            .supplied_destination
+            .filter(|_| self.wants(Rewrite::DestinationProfileSupplied));
+        let mut completed = 0_usize;
+        let entries = supplied
+            .filter(|supplied| supplied.in_catalog)
+            .map(|supplied| {
+                corrected
+                    .clone()
+                    .unwrap_or_else(|| output_intent_entries(self.document, catalog))
+                    .into_iter()
+                    .map(|entry| match entry {
+                        Object::Dictionary(mut dict) if needs_a_profile(self.document, &dict) => {
+                            dict.insert(
+                                Name::new(&b"DestOutputProfile"[..]),
+                                Object::Reference(supplied.destination),
+                            );
+                            completed = completed.saturating_add(1);
+                            Object::Dictionary(dict)
+                        }
+                        other => other,
+                    })
+                    .collect::<Vec<_>>()
+            });
+        for _ in 0..completed {
+            count(applied, Rewrite::DestinationProfileSupplied);
+        }
+        if let Some(entries) = &entries
+            && !self.wants(Rewrite::OutputIntent)
+        {
+            if corrected.is_some() {
+                count(applied, Rewrite::SharedDestinationProfile);
+            }
+            catalog.insert(
+                Name::new(&b"OutputIntents"[..]),
+                Object::Array(entries.clone()),
+            );
+            changed = true;
+        }
+        if self.wants(Rewrite::OutputIntent)
+            && let Some(intent) = self.intent
+        {
+            // Written as a direct array whatever the source stated it as: an array object the
+            // source held indirectly is not carried, because nothing in the rewritten catalog
+            // refers to it any more. Its entries are — a reference among them is renumbered like
+            // any other reference this verb rewrites.
+            let mut entries = entries
+                .or_else(|| corrected.clone())
+                .unwrap_or_else(|| output_intent_entries(self.document, catalog));
+            if corrected.is_some() {
+                count(applied, Rewrite::SharedDestinationProfile);
+            }
+            if supplied.is_none() {
+                entries.push(Object::Dictionary(intent_dictionary(intent)));
+            }
+            catalog.insert(Name::new(&b"OutputIntents"[..]), Object::Array(entries));
+            changed = true;
+        }
+        changed
+    }
+
     fn rewrite_catalog(
         &self,
         catalog: &mut Dictionary,
@@ -4128,43 +4341,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::CatalogVersion);
             changed = true;
         }
-        // ISO 19005 section 6.2.3's array, which two rewrites write: one corrects the entries
-        // the source holds and one appends a PDF/A entry, and a document wanting both gets one
-        // array with both done to it rather than two writers overwriting each other.
-        let corrected = self
-            .wants(Rewrite::SharedDestinationProfile)
-            .then(|| {
-                self.shared_profile
-                    .and_then(|shared| shared.entries.clone())
-            })
-            .flatten();
-        if let Some(entries) = &corrected
-            && !self.wants(Rewrite::OutputIntent)
-        {
-            catalog.insert(
-                Name::new(&b"OutputIntents"[..]),
-                Object::Array(entries.clone()),
-            );
-            count(applied, Rewrite::SharedDestinationProfile);
-            changed = true;
-        }
-        if self.wants(Rewrite::OutputIntent)
-            && let Some(intent) = self.intent
-        {
-            // Written as a direct array whatever the source stated it as: an array object the
-            // source held indirectly is not carried, because nothing in the rewritten catalog
-            // refers to it any more. Its entries are — a reference among them is renumbered like
-            // any other reference this verb rewrites.
-            let mut entries = corrected
-                .clone()
-                .unwrap_or_else(|| output_intent_entries(self.document, catalog));
-            if corrected.is_some() {
-                count(applied, Rewrite::SharedDestinationProfile);
-            }
-            entries.push(Object::Dictionary(intent_dictionary(intent)));
-            catalog.insert(Name::new(&b"OutputIntents"[..]), Object::Array(entries));
-            changed = true;
-        }
+        changed |= self.write_output_intents(catalog, applied);
         if self.wants_metadata()
             && let Some(metadata) = self.metadata
             && metadata.written.is_some()

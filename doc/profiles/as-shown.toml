@@ -254,6 +254,16 @@ remedy = "stop"
 [site."graphics/no-halftone-name"]
 remedy = "discard"
 
+# A halftone of a type other than 1 or 5 is a whole threshold screen: the graphics states naming it
+# set Default, the device's own halftone, and a part 4 graphics state's halftone origin goes. The
+# window halftones nothing, so nothing it showed moves (doc/adr/2034).
+
+[site."graphics/halftone-type-is-one-or-five"]
+remedy = "discard"
+
+[site."graphics/no-halftone-origin-in-a-graphics-state"]
+remedy = "discard"
+
 # ---------------------------------------------------------------------------------------------
 # Overprint mode. ISO 32000-2 8.6.7 applies mode 1 to DeviceCMYK marks painted with overprinting
 # on, and the window composites by it only inside a group blending in four components - a case the

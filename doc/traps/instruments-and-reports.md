@@ -1682,10 +1682,19 @@ success for what it skipped. The export's figures were taken on a tree that lack
 files until the arms' comparison was re-read. Inside an export, `patch -p1` applies what it is given;
 either way, every path the patch names is diffed against HEAD before a figure is believed.
 
-### 207. `bounded.sh` reads no standard input for its command
+### 207. A detached run reads no standard input
 
 Round 1596's first census, fed the file list through a pipe into `tools/bounded.sh`, reported 0 of 0
-files and read as clean; the wrapper runs its command with its own standard input, and the pipe's
-bytes went nowhere. The census was re-run with the list as a file argument and found what it was
-looking for. A command under the wrapper takes its input from arguments or files, and a probe that
-can report "nothing found" is first shown something it must find.
+files and read as clean: the wrapper then ran its command in a background list that bash gives
+`/dev/null`, and round 1604 made it pass the caller's input through (ADR 2044). The detached start
+`tools/wait.sh --start` reads `/dev/null` by design (ADR 2025), so a pipe into a run started that way
+still reaches nothing. A run long enough to need the wait takes its input from a file argument, and a
+probe that can report "nothing found" is first shown something it must find.
+
+### 208. A response's parallel waits run one after another
+
+Round 1598 obeyed trap 204 to the letter — one wait a call, each under the harness's timeout — and
+issued three of them as parallel tool calls in one response; the harness ran them in sequence, and
+the model sent nothing for 354 s. The cache survived by luck (ADR 2039 counted every such gap a hit).
+A wait is a thing a response does once: the call returns, the model reads it, and the next wait is
+the next response's. The same arithmetic that bounds one call bounds the response.

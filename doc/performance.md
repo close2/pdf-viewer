@@ -334,7 +334,12 @@ list is built once only after the line lane maps and culls on the device (`doc/t
 1.25× step sent no line byte and its transfer fell from 29–47 ms to 1–2, while `encode: recording` rose
 60–80 ms in most processes with the same instruction count, and the window's step, writing every line
 the view no longer culls, rose by 100 ms — so it is not in the tree, and `zoom_frame`'s
-`ZOOM_FRAME_DUMP` is what compares two builds' frames byte by byte when it comes back.
+`ZOOM_FRAME_DUMP` is what compares two builds' frames byte by byte when it comes back. **The walk's
+rise was false sharing on its own stack** (ADR 2036): the line makers read the `line_at` closure's
+captured slice and the view out of the walk's frame on every line, and the build's frame put a slot the
+walk writes on every line beside them — about forty cycles a line, by where the stack stood, which is
+why a duration could not attribute it and the processor's own counters, sampled per instruction, did.
+The answer returns with the build.
 
 ### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
 

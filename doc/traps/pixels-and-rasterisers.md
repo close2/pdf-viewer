@@ -661,3 +661,13 @@ pictures — all nine drawn by the device, none refused, because under `Cpu` the
 only tiles the atlas cannot hold and a 512 px picture fits. The refusal appeared once "the atlas has
 no room" was planted beside it. A count of asks is not a count of refusals; the planted call's own
 answer is printed first, and the plant is extended until that answer is the refusal the test wants.
+
+### 210. A walk that slows with equal instruction counts is sharing a cache line
+
+Round 1593's encode walk ran 90 or 180 ms between two builds with every deterministic counter
+equal, and round 1600 found the same binary fast or slow depending only on where the main thread's
+stack sat: the three line makers read two things out of the walk's frame on every one of 4.4 million
+lines, and three stack positions in four put one of the walk's own per-line slots on the same cache
+line (ADR 2036). A hunk-by-hunk bisection would have blamed whichever hunk last moved the frame. The
+machine has no `perf`; two small `perf_event_open` tools, kept beside the patches, sampled the
+instruction pointer per cycle, and sample counts do not move with the machine's load as durations do.

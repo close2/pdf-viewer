@@ -285,6 +285,14 @@ impl Device {
         self.residency.in_use()
     }
 
+    /// What the compute lane's segment arena holds on the device: its live segments, the
+    /// holes released outlines left, never more than the live bytes, and its buffer's size
+    /// (viewer ADR 2037).
+    #[must_use]
+    pub fn segment_arena_bytes(&self) -> crate::compute::ArenaBytes {
+        self.segment_arena.bytes()
+    }
+
     /// Which lane makes coverage bytes for the frames after this call.
     #[must_use]
     pub fn coverage(&self) -> Coverage {

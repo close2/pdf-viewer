@@ -274,6 +274,12 @@ printf '  tier 1 every round, tier 2 by doc/todo/02 section 2'"'"'s map, tier 3 
 printf '  the merge runs all three tiers once per batch, so no round of a batch owes the whole sequence (ADR 1638)\n'
 printf '  a command that can run past 240 s: tools/wait.sh --start <log> -- <command>, then tools/wait.sh <log>\n'
 printf '  under a harness timeout of 270 000 ms, re-issued while it exits 75 — a longer wait loses the prompt cache (ADR 1977)\n'
+# Tier 1's two crate-wide checks, spelled out because they read a file the round added, a test file
+# above all, which `rustfmt` on the files it edited and `cargo test` do not (doc/todo/02 section 0,
+# item 3).
+printf '  tier 1 for each crate you touched, which reads the files you added as well as the ones you edited:\n'
+printf '    cargo fmt --check -p <crate>\n'
+printf '    RUSTFLAGS="-D warnings" cargo clippy -p <crate> --all-targets\n'
 
 # ---------------------------------------------------------------- the reading
 

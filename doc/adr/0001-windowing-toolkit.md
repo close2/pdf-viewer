@@ -1,6 +1,8 @@
 # ADR 0001 — Windowing toolkit: winit rather than Qt
 
-Status: accepted, 2026-07-26. Supersedes the initial Qt/KDE choice.
+Status: accepted, 2026-07-26. Supersedes the initial Qt/KDE choice. **Superseded by ADR 2048**
+(2026-10-19, the owner's `doc/questions/A287`): the reference stays winit, its own graph names no
+toolkit, and native hosts join it on one boundary.
 
 ## Context
 

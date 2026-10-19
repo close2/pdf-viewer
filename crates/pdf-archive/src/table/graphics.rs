@@ -1197,6 +1197,66 @@ fn is_halftone(document: &Document, dict: &Dictionary) -> bool {
     states(document, dict, "HalftoneType") || states_name(document, dict, "Type", b"Halftone")
 }
 
+/// Whether a dictionary the walk reached is a halftone, by its entries and by where it stands.
+///
+/// ISO 32000-2 §8.4.5 makes every entry of a resource dictionary's `ExtGState` table a graphics
+/// state parameter dictionary, and a graphics state reaches a halftone only through its `HT`
+/// entry (Table 57, §10.6.5). So an entry of that table is a graphics state whatever keys it
+/// states, and is judged a halftone too only where an `HT` entry or a type 5 halftone's colourant
+/// names the same object — `named`, from [`named_as_halftones`] (`doc/adr/2034`).
+fn is_halftone_site(document: &Document, site: &Site<'_>, named: &BTreeSet<ObjectId>) -> bool {
+    is_halftone(document, site.dict)
+        && (site.position != Position::GraphicsState || named.contains(&site.id))
+}
+
+/// Every cross-referenced object a graphics state's `HT` entry or a type 5 halftone's colourant
+/// entry names by reference: the two routes ISO 32000-2 §10.6.5 and §10.6.5.6 give to a
+/// halftone.
+fn named_as_halftones(exam: &Examination<'_>) -> BTreeSet<ObjectId> {
+    let mut named = BTreeSet::new();
+    for (_, object) in exam.objects() {
+        collect_halftone_references(exam.document, object, 0, &mut named);
+    }
+    named
+}
+
+/// One object's contribution to [`named_as_halftones`], its direct dictionaries included.
+fn collect_halftone_references(
+    document: &Document,
+    object: &Object,
+    depth: usize,
+    named: &mut BTreeSet<ObjectId>,
+) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    let dict = match object {
+        Object::Array(items) => {
+            for item in items {
+                collect_halftone_references(document, item, deeper, named);
+            }
+            return;
+        }
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return,
+    };
+    if let Some(reference) = dict.get("HT").and_then(Object::as_reference) {
+        named.insert(reference);
+    }
+    let type_five = is_halftone(document, dict)
+        && document.get_key(dict, "HalftoneType").as_integer() == Some(5);
+    for (_, value) in dict.iter() {
+        // Every reference a type 5 halftone holds is a component, `Default` among them: Table 132's
+        // other entries are a name, an integer and a string.
+        if type_five && let Some(reference) = value.as_reference() {
+            named.insert(reference);
+        }
+        collect_halftone_references(document, value, deeper, named);
+    }
+}
+
 /// The output intent dictionaries one `OutputIntents` array holds.
 fn output_intents(document: &Document, holder: &Dictionary) -> Vec<(Where, Dictionary)> {
     let Object::Array(entries) = document.get_key(holder, "OutputIntents") else {
@@ -2657,8 +2717,9 @@ fn second_transfer_function_is_default(exam: &Examination<'_>, findings: &mut Fi
 /// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn halftone_type_is_one_or_five(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    let named = named_as_halftones(exam);
     for_each_dictionary(exam, |site| {
-        if !is_halftone(document, site.dict) {
+        if !is_halftone_site(document, site, &named) {
             return;
         }
         let stated = document.get_key(site.dict, "HalftoneType").as_integer();
@@ -2674,8 +2735,9 @@ fn halftone_type_is_one_or_five(exam: &Examination<'_>, findings: &mut Findings)
 /// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5.
 fn no_halftone_name(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    let named = named_as_halftones(exam);
     for_each_dictionary(exam, |site| {
-        if is_halftone(document, site.dict) && states(document, site.dict, "HalftoneName") {
+        if is_halftone_site(document, site, &named) && states(document, site.dict, "HalftoneName") {
             findings.record(
                 Where::object(site.id).named("HalftoneName"),
                 "a halftone states a HalftoneName",
@@ -2738,8 +2800,9 @@ const TYPE_FIVE_NON_COLOURANT_KEYS: [&[u8]; 4] =
 /// `crate::errata`'s issue #314 withdrew this provision from part 4.
 fn halftone_transfer_function_only_where_required(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
+    let named = named_as_halftones(exam);
     for_each_dictionary(exam, |site| {
-        if is_halftone(document, site.dict)
+        if is_halftone_site(document, site, &named)
             && document.get_key(site.dict, "HalftoneType").as_integer() == Some(5)
         {
             for (key, value) in site.dict.iter() {
@@ -4788,8 +4851,8 @@ mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
     use super::{
-        BLEND_MODES, IccEdition, Position, Site, equivalent, icc, is_halftone,
-        missing_required_tags, profile_header,
+        BLEND_MODES, IccEdition, Position, Site, equivalent, halftone_type_is_one_or_five, icc,
+        is_halftone, missing_required_tags, profile_header,
     };
     use crate::finding::Findings;
     use crate::table::requirements;
@@ -4855,6 +4918,40 @@ mod tests {
         assert!(is_halftone(&document, &by_entry));
         assert!(is_halftone(&document, &by_type));
         assert!(!is_halftone(&document, &neither));
+    }
+
+    /// An entry of an `ExtGState` table is a graphics state whatever keys it states, and a
+    /// halftone too only where an `HT` entry names the same object (`doc/adr/2034`): the shape of
+    /// veraPDF's `6-2-5-t03-fail-a`, whose resources name two threshold halftones as graphics
+    /// states and a third through `HT`.
+    #[test]
+    fn a_graphics_state_stating_halftone_keys_is_not_a_halftone() {
+        let of = |state: &str, fifth: &str, sixth: &str| {
+            document_of(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] \
+                 /Resources << /ExtGState << /GS0 4 0 R /GS1 5 0 R >> >> >>",
+                state,
+                fifth,
+                sixth,
+            ])
+        };
+        let threshold = "<< /Type /Halftone /HalftoneType 10 /Xsquare 5 /Ysquare 5 >>";
+        let spot = "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 45 \
+                    /SpotFunction /Round >>";
+        let only_a_state = of("<< /Type /ExtGState >>", threshold, spot);
+        assert_eq!(found(&only_a_state, halftone_type_is_one_or_five), 0);
+        let through_ht = of("<< /Type /ExtGState /HT 6 0 R >>", spot, threshold);
+        assert_eq!(found(&through_ht, halftone_type_is_one_or_five), 1);
+        let both = of("<< /Type /ExtGState /HT 5 0 R >>", threshold, spot);
+        assert_eq!(found(&both, halftone_type_is_one_or_five), 1);
+        let component = of(
+            "<< /Type /ExtGState /HT 6 0 R >>",
+            threshold,
+            "<< /Type /Halftone /HalftoneType 5 /Default 5 0 R >>",
+        );
+        assert_eq!(found(&component, halftone_type_is_one_or_five), 1);
     }
 
     /// The three signatures the destination profile rule turns on.

@@ -16,7 +16,12 @@
 //! ZOOM_FRAME_DIGEST=1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_RESIDENT=1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_DUMP=<dir> cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_ARENA=1 cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_ARENA` prints what the compute lane's segment arena holds after each frame** —
+//! its live bytes, the holes released outlines left, its buffer and its compactions — so that a
+//! session's sequence says whether the arena stays inside the bound ADR 2037 states for it.
 //!
 //! **`ZOOM_FRAME_DUMP` writes each frame's bytes into a directory**, `<n>-<width>x<height>.rgba`, the
 //! last round's, under either backend — so two builds' frames, or a device frame and the CPU
@@ -218,6 +223,7 @@ fn main() {
         .unwrap_or(3);
     let instrument = variable("ZOOM_FRAME_ENCODE_PHASES").is_some_and(|on| on != "0");
     let digest = variable("ZOOM_FRAME_DIGEST").is_some_and(|on| on != "0");
+    let arena = variable("ZOOM_FRAME_ARENA").is_some_and(|on| on != "0");
     // The one knob a *deterministic* run needs: callgrind counts instructions across every
     // thread raster's geometry phase spawns, so an attribution of the walk this example is
     // about is read from a single-threaded arm. Named like the corpus gate's own two knobs
@@ -329,6 +335,18 @@ fn main() {
                     target.width,
                     target.height,
                     backend.last_frame().scene_kept
+                );
+            }
+            if arena {
+                let held = backend.segment_arena_bytes();
+                println!(
+                    "arena {}x{}: live {} holes {} device {} compactions {}",
+                    target.width,
+                    target.height,
+                    held.live,
+                    held.holes,
+                    held.device,
+                    held.compactions
                 );
             }
             let sample = Sample::of(
