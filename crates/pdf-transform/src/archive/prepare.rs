@@ -660,6 +660,12 @@ pub(super) struct Metadata {
 /// does not have its packet read, which is what keeps `doc/adr/0947`'s first rule true of this
 /// slice as well.
 pub(super) struct Prepared {
+    /// The destination profile written over one this reader does not draw through, or why none
+    /// is (`doc/adr/2007`).
+    ///
+    /// Prepared **before** the intent, which then names the profile written rather than the one
+    /// it replaces.
+    pub(super) replaced_destination: Result<ReplacedDestination, Because>,
     /// The output intent to add, or why one cannot be.
     pub(super) intent: Result<Intent, Because>,
     /// The `/DefaultCMYK` to write, or why one cannot be.
@@ -881,10 +887,11 @@ impl Prepared {
         let mut failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
         // An unreadable profile's alternate route writes device colour the input did not use, and
-        // ISO 19005-2 section 6.2.4.3 licenses it through an output intent: so the intent is
+        // section 6.2.4.3 of either part licenses it through an output intent: so the intent is
         // prepared as the input's own device rows would have asked for it (`doc/adr/1990`).
-        if failed.contains(super::icc::SITE)
-            && let Ok(alternates) = super::icc::Alternates::of(document)
+        let reading = super::icc::Reading::of(plan.target);
+        if failed.contains(reading.site())
+            && let Ok(alternates) = super::icc::Alternates::of(document, reading)
         {
             for family in alternates.families {
                 failed.insert(match family {
@@ -898,13 +905,31 @@ impl Prepared {
         let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
         let mut spare = Spare::of(document);
         let catalog = document.catalog().ok();
-        let intent = match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
-            (true, Some(catalog)) => prepare_intent(plan, document, catalog, &failed, &mut spare),
+        let replaced_destination = match (
+            wanted(Rewrite::DestinationProfileReplaced),
+            catalog.as_ref(),
+        ) {
+            (true, Some(catalog)) => replaced_destination(plan, document, catalog),
             (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        let intent = match (
+            &replaced_destination,
+            wanted(Rewrite::OutputIntent),
+            catalog.as_ref(),
+        ) {
+            // The intent names the profile every entry already names, and that object is the one
+            // this conversion writes: so it is what the report names and what any entry added
+            // beside them must name too.
+            (Ok(replaced), _, _) => Ok(replaced.intent()),
+            (Err(_), true, Some(catalog)) => {
+                prepare_intent(plan, document, catalog, &failed, &mut spare)
+            }
+            (Err(_), true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
             // Nothing failed that an output intent answers, so nothing is prepared and the
             // reason is never read: `decide` consults this only for a requirement `wanted`
             // has already found in the table.
-            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+            (Err(_), false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
         // The `DeviceCMYK` sentence offers two licences and the output intent is the better one,
         // so the default is prepared only where the profile in hand cannot answer the clause —
@@ -1286,6 +1311,7 @@ impl Prepared {
             transfers,
         };
         Self {
+            replaced_destination,
             intent,
             default_cmyk,
             metadata,
@@ -1334,6 +1360,9 @@ impl Prepared {
     pub(super) fn obstacle(&self, rewrite: Rewrite) -> Option<Because> {
         match rewrite {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
+            Rewrite::DestinationProfileReplaced => {
+                self.replaced_destination.as_ref().err().copied()
+            }
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
@@ -1603,7 +1632,7 @@ impl Owed {
                 super::overprint::zeroing(document, survey)
             }),
             profile_alternates: asked(wanted(Rewrite::ProfileAlternateWritten), || {
-                super::icc::Alternates::of(document)
+                super::icc::Alternates::of(document, super::icc::Reading::of(plan.target))
             }),
             transfers,
             packet_headers,
@@ -1885,6 +1914,134 @@ fn prepare_intent(
         destination,
         written: Some(profile_stream(&bytes, family)),
         family,
+        reported: DestinationProfile {
+            source,
+            space: stated.space_name(),
+            describes: stated.description,
+            copyright: stated.copyright,
+        },
+    })
+}
+
+/// A destination profile this reader does not draw through, and the profile written in its place.
+///
+/// ISO 19005-2 and ISO 19005-4 section 6.2.3 ask for an output or a monitor profile over grey,
+/// RGB or CMYK. §14.11.5 makes an output intent "for informational purposes only" and leaves a
+/// processor "free to disregard it", and this reader disregards one whose profile it cannot parse
+/// (`pdf_model`'s selection takes the first *usable* entry): such a page was drawn as though the
+/// file stated no intent. Writing the profile a file stating none would be given, at the object
+/// every entry names, therefore states the page as it was shown — the same statement the
+/// `OutputIntent` rewrite makes for a file with no array at all (`doc/adr/0948`, `doc/adr/2007`).
+///
+/// Only an RGB slot is answered. A `/N 4` profile replaced by a CMYK one would put every
+/// `DeviceCMYK` colour through that profile where this reader drew §10.4.2.5's conversion, and no
+/// grey profile is shipped; a profile this reader *does* draw through is refused, since any
+/// replacement moves the colours drawn through it and restating its class would be a claim about
+/// a device nobody made.
+#[derive(Debug)]
+pub(super) struct ReplacedDestination {
+    /// The profile stream every entry of the catalog's array names, in the source's numbering.
+    pub(super) at: ObjectId,
+    /// The stream written there.
+    pub(super) written: Object,
+    /// What the report says about the profile written.
+    reported: DestinationProfile,
+}
+
+impl ReplacedDestination {
+    /// The output intent this replacement leaves the document with.
+    fn intent(&self) -> Intent {
+        Intent {
+            destination: self.at,
+            written: None,
+            family: DeviceFamily::Rgb,
+            reported: self.reported.clone(),
+        }
+    }
+}
+
+/// Why a destination profile this reader draws through is not replaced.
+const DESTINATION_DRAWN_THROUGH: &str = "the destination profile this file's own output intent \
+     carries is not one ISO 19005 section 6.2.3 admits - an output or a monitor profile over \
+     grey, RGB or CMYK - and this reader draws the page's device colour through it all the same. \
+     Replacing it would move every colour drawn through it, and restating its class or colour \
+     space would be a claim about a device nobody made, so the requirement is refused \
+     (doc/adr/2007)";
+
+/// Why an unreadable destination profile outside an RGB slot is not replaced.
+const DESTINATION_NOT_RGB: &str = "the destination profile this file's own output intent carries \
+     is not one this reader can draw through, so the page was drawn as though no intent were \
+     stated - but its stream states no /N of 3, and the profile a file stating no intent would \
+     be given for it is not one this program can write without moving a colour: a CMYK profile \
+     would put every DeviceCMYK colour through it where this reader drew ISO 32000-2 10.4.2.5's \
+     conversion, and no grey profile is shipped (doc/adr/2007)";
+
+/// Why a destination profile not named alike by every entry, or named from a page, is not
+/// replaced.
+const DESTINATION_NOT_ONE_OBJECT: &str = "the output intents in this file do not name one \
+     destination profile object from the document catalog alone - an entry names another, names \
+     its profile directly rather than by reference, or a page states an OutputIntents array of \
+     its own - so replacing the profile at one object would leave the requirement failing at \
+     another (doc/adr/2007)";
+
+/// The replacement, where every condition [`ReplacedDestination`] states holds.
+fn replaced_destination(
+    plan: &ArchivePlan,
+    document: &Document,
+    catalog: &Dictionary,
+) -> Result<ReplacedDestination, Because> {
+    let not_one = Because::NotBuiltYet(DESTINATION_NOT_ONE_OBJECT);
+    let mut named = BTreeSet::new();
+    for entry in output_intent_entries(document, catalog) {
+        let entry = document.resolve(&entry);
+        let Some(dict) = entry.as_dict() else {
+            continue;
+        };
+        match dict.get("DestOutputProfile") {
+            None => {}
+            Some(Object::Reference(id)) => {
+                named.insert(*id);
+            }
+            Some(_) => return Err(not_one),
+        }
+    }
+    let pages = pdf_model::Pages::new(document);
+    if pages
+        .every()
+        .into_iter()
+        .flatten()
+        .any(|page| page.dict.get("OutputIntents").is_some())
+    {
+        return Err(not_one);
+    }
+    let mut named = named.into_iter();
+    let (Some(at), None) = (named.next(), named.next()) else {
+        return Err(not_one);
+    };
+    let Object::Stream(stream) = document.get(at) else {
+        return Err(not_one);
+    };
+    let drawn_through = document
+        .decoded_stream_data(&stream)
+        .is_some_and(|data| pdf_model::icc::Profile::parse(&data).is_some());
+    if drawn_through {
+        return Err(Because::NotBuiltYet(DESTINATION_DRAWN_THROUGH));
+    }
+    if document.get_key(&stream.dict, "N").as_integer() != Some(3) {
+        return Err(Because::NotBuiltYet(DESTINATION_NOT_RGB));
+    }
+    let (source, bytes) = match &plan.profile {
+        Some(supplied) => (ProfileSource::Supplied, supplied.to_vec()),
+        None => (ProfileSource::Shipped, SRGB.to_vec()),
+    };
+    let wrong = Because::NotBuiltYet(NO_USABLE_PROFILE);
+    let stated = Identification::read(&bytes).ok_or(wrong)?;
+    if family_of(&stated) != Some(DeviceFamily::Rgb) {
+        return Err(Because::NotBuiltYet(DESTINATION_NOT_RGB));
+    }
+    Ok(ReplacedDestination {
+        at,
+        written: profile_stream(&bytes, DeviceFamily::Rgb),
         reported: DestinationProfile {
             source,
             space: stated.space_name(),

@@ -29,8 +29,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
+use super::ViewState;
 use super::script_model::{AnnotationChange, AnnotationReach, AnnotationState};
-use super::{Update, ViewState};
+use super::writing::Update;
 
 /// The subtypes a script's `getAnnots` answers: the seventeen Adobe's "Annotation types" page
 /// lists, which are §12.5.6's markup annotations and the two this program's reader edits beside

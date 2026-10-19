@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entry 1 is split (ADR 2004); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 and 2 are split (ADRs 2004, 2018); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -20,19 +20,16 @@ One `impl` of the census's largest block, over a hundred methods, now one module
 `search`, `geometry`, `accessibility`, `answers`, `media`, `scripts`, `anticipation`; the root keeps
 the state, the identities, the bounds and the one routing function.
 
-## 2. `ViewState` (`crates/pdf-model/src/view.rs`, with `view/scripts.rs`)
+## 2. Built — `ViewState` (`crates/pdf-model/src/view.rs`, with `view/scripts.rs`), ADR 2018
 
-The second block, and the second type by methods once its files are summed. Concerns, in the order
-its method list reads: the display settings a window states (magnification, audience, purpose, paper,
-separation simulation, modification time); optional content (`reapply_usage`, the snapshot and its
-restore); annotations a person places (`place_annotations`, `add_markup`, `add_free_text`, the note
-text); attachments (`attach`, `detach`, `attachments`); fields (`set_field`, `caret_at`,
-`field_selection`, `clear_field`); the save (`save` and the seven `write_*` that feed it); pages
-appended from templates (`append_templates`, `supply_named_pages`); and actions performed
-(`perform`, `hide`, `reset_form`). Split: `view/settings.rs`, `view/optional_content.rs`,
-`view/markup.rs`, `view/attachments.rs`, `view/fields.rs`, `view/writing.rs`, `view/pages.rs`,
-`view/actions.rs`; `view/scripts.rs` stays. The fields touch most others, so they are the module to
-cut last.
+The second block, and the second type by methods once its files are summed. `view.rs` is now the
+root — the state, the types a host names, the constructor, the re-exports and the tests — and ten
+modules each hold an `impl ViewState` for one concern: `settings`, `optional_content`, `annotations`,
+`markup`, `attachments`, `fields`, `field_tree`, `writing`, `pages`, `actions`. The `view/script_*.rs`
+files and `scripts.rs` stay as they were. The entry named eight modules; the field-tree walk
+(`field_tree`) and the reading of an annotation (`annotations`) are the two it did not, and the
+fields did not have to be cut last: they call the others through `pub(super)` and no field was
+widened.
 
 ## 3. `Walk` (`crates/pdf-transform/src/redact.rs`)
 
@@ -114,7 +111,7 @@ splitting only if the vocabulary does.
 
 ## Found, not fixed
 
-- None in the code moved by entry 1; the move changed no line of behaviour.
+- None in the code moved by entries 1 and 2; the moves changed no line of behaviour.
 - `raster/crates/raster-gpu/src/device/render.rs:451` did not compile at one moment of this round
   (`missing field uploads in initializer of Counters`) while a sibling slot was editing the crate;
   not this round's, noted so the merge reads it as a mid-edit and not a regression.

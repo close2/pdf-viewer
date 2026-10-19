@@ -188,6 +188,7 @@ impl Host {
         let Some(mut confined) = self.confined.take() else {
             return;
         };
+        self.sent = Some(Instant::now());
         let exchanging: Exchanging = Loading::start_reporting(move |progress| {
             // The worker relays how far a page has got inside the exchange, whatever the command
             // (ADR 1811); this thread is the one waiting on it now.

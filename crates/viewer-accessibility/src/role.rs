@@ -1,10 +1,15 @@
-//! §14.8.4's forty-one standard structure types, onto AccessKit's roles.
+//! §14.8.4's forty-one standard structure types, and the eleven only the PDF 1.7 namespace
+//! defines, onto AccessKit's roles.
 //!
 //! # Two vocabularies, and what one says that the other cannot
 //!
 //! ISO 32000-2 §14.8.4 names forty-one structure types across five tables; `accesskit::Role` has
 //! about two hundred, drawn from ARIA, from the `DPub` module and from three desktop platforms'
-//! own trees. Most of the forty-one land on one exactly. The rest are recorded here rather than
+//! own trees. §14.8.6.1 makes PDF 1.7's namespace the default one, so the eleven types Annex M lists
+//! as defined there and not in PDF 2.0's — ISO 32000-1's `Art`, `BlockQuote`, `TOC`, `TOCI`,
+//! `Index`, `Private`, `Quote`, `Note`, `Reference`, `BibEntry` and `Code` — are standard too, and
+//! are the commonest names in the corpus's tagged documents that once crossed as undefined (ADR
+//! 2014). Most of the fifty-two land on one exactly. The rest are recorded here rather than
 //! defaulted to [`accesskit::Role::Unknown`], because a mapping that quietly loses a distinction
 //! is worse than one that says which distinction it lost:
 //!
@@ -22,6 +27,11 @@
 //! | `Warichu` | `Group` | no warichu role |
 //! | `LBody` | `GenericContainer` | no list-item-body role; a list item's content belongs to the item, which is what the platform filter does with this one |
 //! | `TH` scoped `Both` | `ColumnHeader`, described | AccessKit splits header cells by axis and has no role for a cell that describes both. See below |
+//! | `TOC` | `DocToc` | the `DPub` table-of-contents landmark, which a nested `TOC` is too: ISO 32000-1 Table 333 makes the nesting the hierarchy, and AccessKit has no sub-contents role |
+//! | `TOCI` | `ListItem` | no contents-entry role; an entry is one member of a list of them |
+//! | `Quote`, `Reference` | `Label` | no inline quotation role (`Blockquote` is `BlockQuote`'s, a grouping of paragraphs), and no role for a citation inside the document — `DocNoteRef` and `DocBiblioRef` each name one kind, and a contents entry's `Reference` is neither |
+//! | `Note` | `DocFootnote` | as `FENote`: ISO 32000-1 Table 338 makes it explanatory text such as a footnote or an endnote |
+//! | `Private` | `GenericContainer`, not spoken | its descendants are still read. ISO 32000-1 Table 333 says neither it nor they are to be interpreted, and leaving them out is `viewer-core`'s walk; no corpus document states one |
 //! | `Figure` | `Image` | `Role::Figure` exists and becomes an AT-SPI `Panel`, which says nothing; a `Figure` is graphical content that §14.8.4.8.5 says "should have either an `Alt` entry or an `ActualText` entry", which is an image with alternative text |
 //! | anything else | `Group`, described | §14.8.4.1 requires a tagged document's types to be standard or role mapped to standard ones, so a name arriving here is a defect in the *document*. The name is put in the node's description rather than dropped |
 //!
@@ -139,8 +149,10 @@ pub struct Mapping {
     pub unmapped: Option<String>,
     /// Whether a label may be put on the node.
     ///
-    /// `false` for `Artifact` alone: §14.8.2.2 makes an artifact content that is on the page and
-    /// is not the document's, and speaking it is what tagging exists to avoid.
+    /// `false` for `Artifact`: §14.8.2.2 makes an artifact content that is on the page and is not
+    /// the document's, and speaking it is what tagging exists to avoid. And for the PDF 1.7
+    /// namespace's `Private`, whose ISO 32000-1 Table 333 entry says neither it nor any of its
+    /// descendants is to be interpreted or exported (ADR 2014).
     pub speaks: bool,
     /// What the platform's vocabulary could not carry, in words a person is meant to hear.
     ///
@@ -260,8 +272,22 @@ pub fn map(
         StandardType::Figure => (Role::Image, None),
         StandardType::Formula => (Role::Math, None),
         StandardType::Artifact => (Role::GenericContainer, None),
+        // The eleven the PDF 1.7 namespace alone defines: ISO 32000-1's Table 333, grouping
+        // level, then its Table 338, inline level (ADR 2014).
+        StandardType::Article => (Role::Article, None),
+        StandardType::BlockQuote => (Role::Blockquote, None),
+        StandardType::TableOfContents => (Role::DocToc, None),
+        StandardType::TableOfContentsItem => (Role::ListItem, None),
+        StandardType::Index => (Role::DocIndex, None),
+        StandardType::Private => (Role::GenericContainer, None),
+        StandardType::Quote | StandardType::Reference => (Role::Label, None),
+        StandardType::Note => (Role::DocFootnote, None),
+        StandardType::BibliographyEntry => (Role::DocBiblioEntry, None),
+        StandardType::Code => (Role::Code, None),
     };
-    let speaks = standard != StandardType::Artifact;
+    // `Private` is not spoken either, for ISO 32000-1 Table 333's reason, which is `Artifact`'s in
+    // other words: neither the element nor any of its descendants is to be interpreted or exported.
+    let speaks = !matches!(standard, StandardType::Artifact | StandardType::Private);
     Mapping {
         // A node the platform would filter out takes its label with it, so a type that has
         // something to say may not have one. `Artifact` is not promoted, because its text is
@@ -463,6 +489,32 @@ mod tests {
                 Role::Unknown,
                 "{name} landed on Unknown, which is the default this mapping exists to avoid"
             );
+        }
+    }
+
+    /// The eleven types Annex M lists as the PDF 1.7 namespace's alone are standard too, because
+    /// §14.8.6.1 makes that namespace the default — so each maps, none is described as undefined,
+    /// and `Private` is withheld as `Artifact` is (ADR 2014).
+    #[test]
+    fn every_type_only_the_pdf_1_7_namespace_defines_maps() {
+        let expected = [
+            ("Art", Role::Article),
+            ("BlockQuote", Role::Blockquote),
+            ("TOC", Role::DocToc),
+            ("TOCI", Role::ListItem),
+            ("Index", Role::DocIndex),
+            ("Private", Role::GenericContainer),
+            ("Quote", Role::Label),
+            ("Note", Role::DocFootnote),
+            ("Reference", Role::Label),
+            ("BibEntry", Role::DocBiblioEntry),
+            ("Code", Role::Code),
+        ];
+        for (name, role) in expected {
+            let mapping = map(name, true, false, None, None);
+            assert_eq!(mapping.unmapped, None, "{name} is standard");
+            assert_eq!(mapping.role, role, "{name}");
+            assert_eq!(mapping.speaks, name != "Private", "{name}");
         }
     }
 

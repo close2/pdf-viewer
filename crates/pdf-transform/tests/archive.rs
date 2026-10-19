@@ -10268,6 +10268,123 @@ fn a_second_transfer_function_that_is_a_function_is_the_transfer_functions_loss(
     assert_eq!(removed[0].state, ObjectId::new(6, 0));
 }
 
+/// A part 2 page whose graphics state's current halftone is object 7, stating `halftone`, with
+/// `extra` objects after it, and which paints under the state.
+fn a_halftone_with_a_transfer_function(halftone: &str, extra: &[&str]) -> Vec<u8> {
+    let mut objects = vec![
+        "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+        halftone.to_owned(),
+    ];
+    objects.extend(extra.iter().map(|object| (*object).to_owned()));
+    Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects,
+        contents: Some((String::new(), b"/G0 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// A type 1 halftone stating `function` as its `TransferFunction`.
+fn a_screen_with(function: &str) -> String {
+    format!(
+        "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 45 /SpotFunction /Round \
+         /TransferFunction {function} >>"
+    )
+}
+
+#[test]
+fn a_halftones_identity_transfer_function_goes_as_a_statement_and_nothing_moves() {
+    // ISO 19005-2 section 6.2.5 admits the entry only where ISO 32000-2 10.6.5.6 requires it, and
+    // a current halftone that is not a type 5 one's component never needs it. Its Identity
+    // overrode a /TR this file does not state, so the colour drawn is the same (`doc/adr/2007`).
+    let row = "graphics/halftone-transfer-function-only-where-required";
+    let source = a_halftone_with_a_transfer_function(&a_screen_with("/Identity"), &[]);
+    let (report, output) = to_part_two(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::IdentityTransferFunctionRemoved,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(!String::from_utf8_lossy(&output).contains("TransferFunction"));
+    // The page's DeviceRGB asks part 2 for an output intent, which the conversion adds, and its
+    // shipped sRGB profile draws within a part of a 255th of what was drawn without one: that is
+    // the intent's own statement (`doc/adr/0948`), not this removal's.
+    assert_drawn_within(&drawn(&source), &drawn(&output), 1.0 / 255.0);
+}
+
+#[test]
+fn a_halftones_transfer_function_that_is_a_function_is_the_transfer_functions_loss() {
+    // §10.5's second bullet is drawn here, so removing the function moves the colour it adjusted:
+    // the loss ADR 1964 states, the function kept in xmpMM:History first (`doc/adr/2007`).
+    let row = "graphics/halftone-transfer-function-only-where-required";
+    let source = a_halftone_with_a_transfer_function(
+        &a_screen_with("8 0 R"),
+        &["<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>"],
+    );
+    let (report, output) = to_part_two(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::TransferFunction,
+            ..
+        }
+    ));
+    assert!(output.is_none());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::TransferFunction);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::TransferFunction,
+            rewrite: Rewrite::TransferFunctionRemoved,
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        text.contains("halftone 7 0 R: /TransferFunction 8 0 R, where 8 0 obj"),
+        "the history keeps what the function said"
+    );
+    let removed = &conversion(&report).removed_transfer_functions;
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].state, ObjectId::new(7, 0));
+    // The inverting function was drawn, so the page is not what it was: that is the loss.
+    assert_ne!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_type_five_component_lacking_the_function_it_needs_is_refused() {
+    // §10.6.5.6 requires a TransferFunction of a component for a nonstandard colourant, and what
+    // it would be is the producer's: nothing here supplies one (`doc/adr/2007`).
+    let row = "graphics/halftone-transfer-function-only-where-required";
+    let source = a_halftone_with_a_transfer_function(
+        "<< /Type /Halftone /HalftoneType 5 /Default 8 0 R /Spot 9 0 R >>",
+        &[
+            "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 45 /SpotFunction /Round >>",
+            "<< /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 15 /SpotFunction /Round >>",
+        ],
+    );
+    let (report, output) = to_part_two(&source);
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(sentence.contains("nonstandard colourant"), "{sentence}");
+    assert!(output.is_none());
+}
+
 /// A page whose graphics state selects `halftone`, an object of its own.
 fn a_halftone(halftone: &str) -> Vec<u8> {
     Conforming {
@@ -11239,6 +11356,11 @@ fn the_listing_names_the_jpx_transcode() {
 /// A part 2 page filling through an `ICCBased` space whose profile is `profile`, its stream
 /// dictionary stating `alternate` besides `/N 3`.
 fn an_icc_space(profile: &[u8], alternate: &str) -> Vec<u8> {
+    an_icc_space_on(Conforming::part_two(), profile, alternate)
+}
+
+/// [`an_icc_space`] on the fixture `base` builds, so that one page serves either part.
+fn an_icc_space_on(base: Conforming, profile: &[u8], alternate: &str) -> Vec<u8> {
     let mut hex = String::new();
     for byte in profile {
         let _ = write!(hex, "{byte:02X}");
@@ -11258,7 +11380,7 @@ fn an_icc_space(profile: &[u8], alternate: &str) -> Vec<u8> {
             String::new(),
             b"/C0 cs 0.2 0.4 0.6 scn 10 10 50 50 re f".to_vec(),
         )),
-        ..Conforming::part_two()
+        ..base
     }
     .build()
 }
@@ -11461,6 +11583,202 @@ fn a_device_alternate_for_an_unreadable_profile_is_written_under_an_output_inten
     // through it comes back within a part of a 255th of what it was: the intent's own statement
     // (`doc/adr/0948`), not this rewrite's, and the same for every DeviceRGB file it is added to.
     assert_drawn_within(&drawn(&source), &drawn(&output), 1.0 / 255.0);
+}
+
+// ISO 19005-4 section 6.2.4.2's tag row holds a profile to the ICC edition its own header names
+// (`doc/adr/2006`), so a part 4 fixture's profile states one this tree holds: 2.2.0 is the version
+// ICC.1:1998-09 is consistent with, and the shipped sRGB profile states 2.0.0, which names none.
+
+/// The row as the shipped `as-shown` profile states it for part 4.
+const PROFILE_TEXT_ROW_FOUR: &str = "[site.\"graphics/icc-profiles-carry-the-tags-their-version-requires\"]\n\
+     remedy = \"supply\"\n\
+     copyright = \"This profile stated no copyright information.\"\n";
+
+/// `profile` restated as version `major`.`minor`.0, the header's bytes 8 and 9 (ICC.1 section
+/// 6.1.3), with the identity a profile's own bytes give it cleared since they changed.
+fn stating_version(mut profile: Vec<u8>, major: u8, minor: u8) -> Vec<u8> {
+    profile[8] = major;
+    profile[9] = minor << 4;
+    profile[84..100].fill(0);
+    profile
+}
+
+#[test]
+fn under_part_four_a_profile_lacking_only_its_copyright_is_given_the_operators_text() {
+    let row = "graphics/icc-profiles-carry-the-tags-their-version-requires";
+    let target = Target::Four(Flavour::Plain);
+    for (major, minor) in [(2, 2), (4, 0)] {
+        let profile = stating_version(srgb_without_a_copyright(), major, minor);
+        let source = an_icc_space_on(Conforming::default(), &profile, "");
+        let (refused, nothing) = to_part_four(&source);
+        assert!(
+            matches!(decision(&refused, row), Decision::Refused(_)),
+            "{:?}",
+            decision(&refused, row)
+        );
+        assert!(nothing.is_none());
+        let (report, output) =
+            convert_with_plan(&source, &plan_from(PROFILE_TEXT_ROW_FOUR, target));
+        let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+            panic!("the supply answers the site: {:?}", decision(&report, row));
+        };
+        assert_eq!(rewrite, Rewrite::ProfileTextSupplied);
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        assert_eq!(drawn(&source), drawn(&output));
+    }
+}
+
+#[test]
+fn under_part_four_a_profile_this_reader_cannot_draw_through_is_written_as_its_alternate() {
+    let row = "graphics/icc-profiles-carry-the-tags-their-version-requires";
+    let alternate = "/Alternate [/CalRGB << /WhitePoint [0.9505 1 1.089] >>]";
+    let profile = stating_version(a_profile_with_no_transform(), 2, 2);
+    let source = an_icc_space_on(Conforming::default(), &profile, alternate);
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::ProfileAlternateWritten,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_profile_naming_a_version_no_held_text_is_for_is_not_this_rows_under_part_four() {
+    // Part 4 holds the profile to the edition its header names, and 2.0.0 names none this tree
+    // holds: the row's reading passes it over, so the conversion has nothing here to answer.
+    let row = "graphics/icc-profiles-carry-the-tags-their-version-requires";
+    let source = an_icc_space_on(Conforming::default(), &srgb_without_a_copyright(), "");
+    assert!(
+        holds(&source, Target::Four(Flavour::Plain))
+            .failures()
+            .all(|failed| failed.id != row)
+    );
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 and ISO 19005-4 section 6.2.3's class and colour-space row: a destination profile
+// this reader does not draw through, written as the one a file stating no intent gets
+// (`doc/adr/2007`).
+// --------------------------------------------------------------------------------------------
+
+/// A part 2 page painting in `DeviceRGB` under a PDF/A output intent whose destination profile is
+/// `profile`, its stream stating `/N n`.
+fn an_output_intent_over(profile: &[u8], n: u8) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in profile {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    Conforming {
+        catalog: "/OutputIntents [<< /Type /OutputIntent /S /GTS_PDFA1 \
+                  /OutputConditionIdentifier (Producer's own) /DestOutputProfile 6 0 R >>]"
+            .to_owned(),
+        objects: vec![format!(
+            "<< /N {n} /Filter /ASCIIHexDecode /Length {} >> stream\n{hex}\nendstream",
+            hex.len()
+        )],
+        contents: Some((String::new(), b"0 0.4 0.6 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// A profile header stating a colour space neither part admits for a destination profile, and
+/// nothing this reader can draw through.
+fn a_destination_profile_over_no_admitted_space() -> Vec<u8> {
+    let mut profile = a_profile_with_no_transform();
+    profile[16..20].copy_from_slice(b"YYY ");
+    profile
+}
+
+#[test]
+fn a_destination_profile_this_reader_cannot_draw_through_is_written_as_srgb() {
+    let row = "graphics/destination-profile-class-and-colour-space";
+    let source = an_output_intent_over(&a_destination_profile_over_no_admitted_space(), 3);
+    let (report, output) = to_part_two(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DestinationProfileReplaced,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    // The producer's identification stays, beside the profile written at the same object.
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    let intents = document.get_key(&catalog, "OutputIntents");
+    let [entry] = intents.as_array().expect("an array") else {
+        panic!("one entry, the producer's");
+    };
+    let entry = document.resolve(entry);
+    let identifier = document.get_key(
+        entry.as_dict().expect("a dictionary"),
+        "OutputConditionIdentifier",
+    );
+    assert_eq!(
+        identifier.as_string().map(<[u8]>::to_vec),
+        Some(b"Producer's own".to_vec())
+    );
+    assert!(conversion(&report).profile.is_some(), "the report names it");
+    // This reader drew the source as though no intent were stated, and draws the output through
+    // the shipped sRGB profile: within a part of a 255th, the intent's own statement.
+    assert_drawn_within(&drawn(&source), &drawn(&output), 1.0 / 255.0);
+}
+
+#[test]
+fn a_destination_profile_this_reader_draws_through_stays_refused() {
+    // An input-class profile is drawn through all the same, so replacing it would move the
+    // colours, and calling it a display profile would be a claim nobody made (`doc/adr/2007`).
+    let row = "graphics/destination-profile-class-and-colour-space";
+    let mut profile = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    profile[12..16].copy_from_slice(b"scnr");
+    let (report, output) = to_part_two(&an_output_intent_over(&profile, 3));
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(
+        sentence.contains("draws the page's device colour"),
+        "{sentence}"
+    );
+    assert!(output.is_none());
+}
+
+#[test]
+fn an_unreadable_destination_profile_outside_an_rgb_slot_stays_refused() {
+    let row = "graphics/destination-profile-class-and-colour-space";
+    let (report, output) = to_part_two(&an_output_intent_over(
+        &a_destination_profile_over_no_admitted_space(),
+        4,
+    ));
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(sentence.contains("10.4.2.5"), "{sentence}");
+    assert!(output.is_none());
 }
 
 /// Two display lists alike in every word and within `tolerance` in every number.

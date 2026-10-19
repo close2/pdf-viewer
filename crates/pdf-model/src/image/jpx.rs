@@ -49,18 +49,13 @@ pub(super) fn decode_jpx(
         // Under the page's output intent, as [`colour_space`] parses every other image's:
         // the codestream's colour specification is what §7.4.9 lets `/ColorSpace` override,
         // and a `/DeviceCMYK` stated here means what it means on this page.
-        let intent = painting.into.output_intent();
         Some(
-            crate::colour::ColourSpace::parse_under(
-                document,
-                &declared,
-                resources,
-                crate::colour::Reading::new(intent.as_ref())
-                    .under_separations(painting.into.separations()),
-            )
-            .ok_or_else(|| ImageError::UnsupportedColourSpace {
-                space: space_name(&declared),
-            })?,
+            painting
+                .into
+                .parse_space(document, &declared, resources)
+                .ok_or_else(|| ImageError::UnsupportedColourSpace {
+                    space: space_name(&declared),
+                })?,
         )
     };
     let indices = matches!(

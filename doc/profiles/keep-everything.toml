@@ -193,9 +193,9 @@ description = "This profile stated no description; this text was supplied when i
 copyright = "This profile stated no copyright information; this text was supplied when it was archived."
 
 [site."graphics/icc-profiles-carry-the-tags-their-version-requires"]
-remedy = "preserve"
-via = "alternate"
-keep-rejected = "attach"
+remedy = "supply"          # the part 4 row, the same answer (ADR 2006)
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
 
 [site."graphics/icc-profiles-conform-to-the-base-standard"]
 remedy = "preserve"

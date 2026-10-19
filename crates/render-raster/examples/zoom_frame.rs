@@ -133,7 +133,7 @@ fn ms(span: std::time::Duration) -> f64 {
 
 impl Sample {
     fn of(
-        cost: FrameCost,
+        cost: &FrameCost,
         counters: raster_gpu::Counters,
         phases: &[(&'static str, std::time::Duration)],
     ) -> Self {
@@ -169,7 +169,7 @@ impl Sample {
                 Some(raster_gpu::EncodeSource::Encoded) | None => "",
             },
             repacked: cost.atlas_repacked,
-            split: counters.uploads,
+            split: cost.streams,
             lanes: counters.lanes,
             phases: phases
                 .iter()
@@ -310,7 +310,7 @@ fn main() {
                 );
             }
             let sample = Sample::of(
-                backend.last_frame(),
+                &backend.last_frame(),
                 backend.last_counters(),
                 backend.last_phases(),
             );

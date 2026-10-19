@@ -158,6 +158,12 @@ remedy = "supply"
 description = "This profile stated no description; this text was supplied when it was archived."
 copyright = "This profile stated no copyright information; this text was supplied when it was archived."
 
+# The same answer under part 4, which holds a profile to the edition its own header names (ADR 2006).
+[site."graphics/icc-profiles-carry-the-tags-their-version-requires"]
+remedy = "supply"
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
+
 # A configuration of the file's optional content that states no Name is given a label: the clause
 # requires one, nothing in the file is it, and the wording is this profile's, said in the report
 # and in xmpMM:History as the operator's rather than the producer's (ADR 1952). No page changes:

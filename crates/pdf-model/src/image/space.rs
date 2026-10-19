@@ -321,17 +321,13 @@ pub(super) fn colour_space(
     // parsed with no intent would make an image in `DeviceCMYK`, on a page carrying one, the
     // assumed press's cyan beside a fill that was the intent's (ADR 1001, ADR 1008). The intent
     // travels in `into` because that is what the interpreter already hands every route that
-    // converts after it.
-    let intent = into.output_intent();
-    let resolved = crate::colour::ColourSpace::parse_under(
-        document,
-        &space,
-        resources,
-        crate::colour::Reading::new(intent.as_ref()).under_separations(into.separations()),
-    )
-    .ok_or_else(|| ImageError::UnsupportedColourSpace {
-        space: String::from_utf8_lossy(&family).into_owned(),
-    })?;
+    // converts after it, and so does §11.7.2's redefinition of `DeviceCMYK` inside a group
+    // (ADR 2012).
+    let resolved = into
+        .parse_space(document, &space, resources)
+        .ok_or_else(|| ImageError::UnsupportedColourSpace {
+            space: String::from_utf8_lossy(&family).into_owned(),
+        })?;
     Ok(ColourSpace::reduced(resolved, into.target().clone()))
 }
 

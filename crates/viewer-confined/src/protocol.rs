@@ -59,7 +59,7 @@ pub(crate) mod windowed;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF15";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF16";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -94,12 +94,20 @@ pub(crate) const FRAME_ANSWER: u8 = 4;
 /// transport does not carry gets a sentence back and keeps its worker, exactly as a malformed
 /// image keeps `pdf-sandbox`'s.
 pub(crate) const FRAME_REFUSAL: u8 = 5;
+/// Frame kind: how a page past the bound whose marks cross is to cross from its next frame on,
+/// from the host, which prices the two routes (ADR 2017, `doc/questions/A477`).
+///
+/// A frame of its own rather than a command, because it is not `viewer-core`'s vocabulary: the
+/// viewer asks for a page and is answered `Listed` either way, and which of the two forms crosses
+/// is a question between this process and its host alone.
+pub(crate) const FRAME_ROUTE: u8 = 6;
 
 /// Frame payload: the pixels the confined process drew.
 const PAYLOAD_RASTER: u8 = 0;
 /// Frame payload: the marks, for a host that draws them itself (ADR 0607).
 const PAYLOAD_LIST: u8 = 1;
-/// Frame payload discriminant: a window of a page past the bound, drawn here (ADR 1986).
+/// Frame payload discriminant: a window of a page whose marks cannot cross, drawn here (ADRs 1986,
+/// 2016).
 const PAYLOAD_WINDOW: u8 = 2;
 
 /// A restriction level byte that is not a level: this document departs from the window in nothing
@@ -125,6 +133,11 @@ const NO_DEPARTURE: u8 = 4;
 struct Crossed {
     /// Which request produced it. See [`Marks::record`].
     token: viewer_core::RenderToken,
+    /// Which document, so a window the host asks for of it can say a refusal about it.
+    document: DocumentId,
+    /// The marks that were encoded, which a window the host asks for is drawn from (ADR 2017):
+    /// the viewer holds the same list, so this is a reference and not a copy.
+    list: std::sync::Arc<pdf_render::DisplayList>,
     /// What [`display_list::encode`] wrote.
     bytes: Vec<u8>,
     /// The target the list was measured against, which the host draws it at.
@@ -154,6 +167,10 @@ pub(crate) enum Carries {
     Marks,
     /// The pixels, so the page is rasterised and the viewer holds what came back.
     Pixels,
+    /// The windows of a page past the bound whose marks would cross, which this store now holds
+    /// because the host asked for them in place of the marks ([`Route::Window`], ADR 2017). As
+    /// with [`Self::Marks`] no raster of the page is drawn.
+    Window,
 }
 
 /// One page of [`Answer::Frame`], from whichever of the two places holds it.
@@ -168,7 +185,7 @@ enum Placed<'a> {
     Pixels(&'a viewer_core::FrameView<'a>),
     /// The marks this store is holding, and where the viewer puts the page they are of.
     Marks(&'a Crossed),
-    /// The window this store drew of a page past the bound whose marks cannot cross (ADR 1986).
+    /// The window this store drew of a page whose marks cannot cross (ADRs 1986, 2016).
     Window(&'a windowed::Windowed, windowed::Window, &'a Raster),
 }
 
@@ -181,9 +198,14 @@ enum Placed<'a> {
 #[derive(Debug, Default)]
 pub(crate) struct Marks {
     by_page: std::collections::BTreeMap<usize, Crossed>,
-    /// The pages past the bound whose marks cannot cross, drawn here as the window shows them
-    /// (ADR 1986). A page is in one of the two maps or in neither.
+    /// The pages whose marks cannot cross drawn here as the window shows them: past the bound,
+    /// and under it where the toolkit windows' rule holds (`windowed`'s module comment, ADRs 1986,
+    /// 2016). A page is in one of the two maps or in neither.
     windows: std::collections::BTreeMap<usize, windowed::Windowed>,
+    /// The pages past the bound whose marks cross that the host asked to cross as windows, and
+    /// the document each is of (ADR 2017). Forgotten with the page when it leaves the
+    /// arrangement, so a page that comes back is priced again.
+    routed: std::collections::BTreeMap<usize, DocumentId>,
 }
 
 impl Marks {
@@ -217,6 +239,15 @@ impl Marks {
             self.forget(request.page, request.token);
             return Carries::Pixels;
         };
+        // A page the host asked for as windows is held as windows, and nothing is encoded; asked
+        // for under the bound, it is forgotten, as the host forgets a page it no longer prices.
+        if self.routed.get(&request.page) == Some(&request.document) {
+            if past_the_bound(request.target) {
+                self.hold_window(request, origin);
+                return Carries::Window;
+            }
+            self.routed.remove(&request.page);
+        }
         // **What a page may claim in this process is a page's pixels at the bound, whichever form
         // it crosses in**: a page past `MAX_PIXELS` is asked for only by a window that draws it from
         // its marks (ADR 1944), and its list crosses where it is no larger than the raster
@@ -231,6 +262,8 @@ impl Marks {
                     request.page,
                     Crossed {
                         token: request.token,
+                        document: request.document,
+                        list: std::sync::Arc::clone(&request.list),
                         bytes,
                         target: request.target,
                         origin,
@@ -272,9 +305,9 @@ impl Marks {
                 .is_some_and(|held| held.token > token)
     }
 
-    /// Records that a page past the bound whose marks cannot cross is drawn here as the window
-    /// shows it, from `request`'s list, with no window drawn yet — [`Self::windows_owed`] names
-    /// the first (ADR 1986).
+    /// Records that a page whose marks cannot cross is drawn here as the window shows it, from
+    /// `request`'s list, with no window drawn yet — [`Self::windows_owed`] names the first (ADRs
+    /// 1986, 2016).
     pub(crate) fn hold_window(&mut self, request: &viewer_core::RenderRequest, origin: (f32, f32)) {
         if self.newer(request.page, request.token) {
             return;
@@ -293,8 +326,8 @@ impl Marks {
         );
     }
 
-    /// Every window owed where the viewport `viewport` shows a part of a page past the bound that
-    /// the last window drawn of it does not hold: the page, its marks, its target and the window.
+    /// Every window owed where the viewport `viewport` shows a part of a page drawn as windows
+    /// that the last window drawn of it does not hold: the page, its marks, its target and the window.
     pub(crate) fn windows_owed(
         &self,
         viewport: (u32, u32),
@@ -317,6 +350,55 @@ impl Marks {
                 })
             })
             .collect()
+    }
+
+    /// Takes in how the host asked `page` to cross (ADR 2017): as windows, from the next command
+    /// on, or as its marks again from its next render.
+    pub(crate) fn route(&mut self, page: usize, route: crate::Route) {
+        match route {
+            crate::Route::Window => {
+                let document = self
+                    .by_page
+                    .get(&page)
+                    .map(|crossed| crossed.document)
+                    .or_else(|| self.windows.get(&page).map(|held| held.document));
+                if let Some(document) = document {
+                    self.routed.insert(page, document);
+                }
+            }
+            crate::Route::Marks => {
+                self.routed.remove(&page);
+            }
+        }
+    }
+
+    /// Moves every page the host asked for as windows out of the marks and into the windows,
+    /// with no window drawn yet: the caller draws [`Self::windows_owed`] next, in the same command,
+    /// so the frame after it holds the window where the one before held the marks.
+    pub(crate) fn take_routed(&mut self) {
+        let asked: Vec<usize> = self
+            .by_page
+            .iter()
+            .filter(|(page, crossed)| {
+                self.routed.get(page) == Some(&crossed.document) && past_the_bound(crossed.target)
+            })
+            .map(|(page, _)| *page)
+            .collect();
+        for page in asked {
+            if let Some(crossed) = self.by_page.remove(&page) {
+                self.windows.insert(
+                    page,
+                    windowed::Windowed {
+                        token: crossed.token,
+                        document: crossed.document,
+                        list: crossed.list,
+                        target: crossed.target,
+                        origin: crossed.origin,
+                        drawn: None,
+                    },
+                );
+            }
+        }
     }
 
     /// The window drawn for `page`, kept until the next one replaces it.
@@ -373,7 +455,43 @@ impl Marks {
             }
             None => false,
         });
+        self.routed.retain(|page, _| origin(*page).is_some());
     }
+}
+
+/// Whether a target's whole raster would be past [`viewer_core::MAX_PIXELS`].
+fn past_the_bound(target: pdf_render::TargetSpec) -> bool {
+    u64::from(target.width).saturating_mul(u64::from(target.height)) > viewer_core::MAX_PIXELS
+}
+
+/// Encodes how the host asks a page to cross ([`FRAME_ROUTE`], ADR 2017): its index, then `0`
+/// for its marks and `1` for its windows.
+pub(crate) fn encode_route(page: usize, route: crate::Route) -> Vec<u8> {
+    let mut writer = Writer::new();
+    writer.usize(page).u8(match route {
+        crate::Route::Marks => 0,
+        crate::Route::Window => 1,
+    });
+    writer.finish()
+}
+
+/// Reads how the host asks a page to cross.
+pub(crate) fn decode_route(bytes: &[u8]) -> Result<(usize, crate::Route), ProtocolError> {
+    let what = "a page's route";
+    let mut reader = Reader::new(bytes);
+    let page = reader.usize("a page index")?;
+    let route = match reader.u8(what)? {
+        0 => crate::Route::Marks,
+        1 => crate::Route::Window,
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what,
+                value: other.into(),
+            });
+        }
+    };
+    reader.end(what)?;
+    Ok((page, route))
 }
 
 /// A message this transport deliberately does not carry, and why.
@@ -1043,7 +1161,7 @@ pub(crate) fn parse_frame_header(header: [u8; FRAME_HEADER_LEN]) -> Option<(u8, 
     let (kind, length) = confined_transport::frame::parse_header(header)?;
     if !matches!(
         kind,
-        FRAME_COMMAND | FRAME_QUERY | FRAME_EVENTS | FRAME_ANSWER | FRAME_REFUSAL
+        FRAME_COMMAND | FRAME_QUERY | FRAME_EVENTS | FRAME_ANSWER | FRAME_REFUSAL | FRAME_ROUTE
     ) {
         return None;
     }
@@ -4322,7 +4440,8 @@ pub(crate) struct HeldLists {
     by_page: std::collections::BTreeMap<usize, (Vec<u8>, std::sync::Arc<pdf_render::DisplayList>)>,
     /// Whether the host this is held for said it draws a page past [`viewer_core::MAX_PIXELS`] from
     /// its marks, at the size of its window ([`Command::Oversize`]), which is what admits a list
-    /// whose target is past the bound ([`decode_list_payload`], ADR 1944).
+    /// whose target is past the bound ([`decode_list_payload`], ADR 1944) and a window the worker
+    /// drew of any page ([`decode_window_payload`], ADR 2016).
     past_the_bound: bool,
 }
 
@@ -4433,21 +4552,24 @@ fn read_target(
     })
 }
 
-/// Reads a window of a page past the bound, drawn by the worker (ADR 1986).
+/// Reads a window of a page, drawn by the worker (ADRs 1986, 2016).
 ///
-/// **Only past the bound and only for a host that said it draws such a page**: a page under it
-/// crosses whole, as its pixels or its marks, so a window of one is nothing an honest worker
-/// sends. The window must be a part of its target and hold a pixel; its samples are checked
-/// against the bytes sent as every raster's are, so the allocation is the sender's to pay for.
+/// **Only for a host that said it places one** ([`Command::Oversize`]): the worker draws a window
+/// of a page past the bound, and of a page under it where the toolkit windows' rule held, only for
+/// such a host, so a window sent to any other is nothing an honest worker sends. The rule's share
+/// of commands is a question of the list, which only the worker holds of a page that crosses as
+/// pixels, so it is not asked again here; what a window could cost this side is its pixels, and
+/// those are checked against the bytes sent as every raster's are, so the allocation is the
+/// sender's to pay for. The window must be a part of its target and hold a pixel.
 fn decode_window_payload(
     reader: &mut Reader<'_>,
     held: &HeldLists,
 ) -> Result<crate::Payload, ProtocolError> {
     let target = read_target(reader, held)?;
-    if u64::from(target.width).saturating_mul(u64::from(target.height)) <= viewer_core::MAX_PIXELS {
+    if !held.past_the_bound {
         return Err(ProtocolError::Unbuildable {
             what: "a window of a page",
-            why: "a page under the bound crosses whole, so no worker sends a window of it",
+            why: "a window crosses only to a host that said it places one",
         });
     }
     let corner = (
@@ -4789,6 +4911,7 @@ pub(crate) fn decode_answer_reusing(
             let mut listed = Vec::new();
             for _ in 0..count {
                 let page = reader.usize("a page index")?;
+                let before = reader.remaining();
                 let payload = match reader.u8("a frame payload")? {
                     PAYLOAD_RASTER => crate::Payload::Raster(decode_raster_payload(&mut reader)?),
                     PAYLOAD_LIST => {
@@ -4803,9 +4926,11 @@ pub(crate) fn decode_answer_reusing(
                         });
                     }
                 };
+                let bytes = before.saturating_sub(reader.remaining());
                 frames.push(crate::Framed {
                     page,
                     payload,
+                    bytes,
                     origin: reader.point("an origin")?,
                 });
             }
@@ -7430,8 +7555,74 @@ mod tests {
         assert!(marks.windows_owed(viewport).is_empty());
     }
 
-    /// A window is refused where no honest worker could have sent it: of a page under the bound,
-    /// or not a part of its page (ADR 1986).
+    /// **A page the host asked for as windows is not encoded again** (ADR 2017): its next render
+    /// is held as windows without the list's encoding, which on the owner's witness is 0.6 s a
+    /// notch (ADR 1986 §1); and asked back, its next render crosses as its marks.
+    #[test]
+    fn a_page_asked_for_as_windows_is_held_as_windows_at_its_next_render() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf"),
+        )
+        .expect("the committed note is readable");
+        let mut viewer = viewer_core::Viewer::new(800, 1000, 1.0);
+        let mut request = viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            })
+            .find_map(|event| match event {
+                Event::NeedsRender(request) => Some(request),
+                _ => None,
+            })
+            .expect("opening a document asks for its first page");
+        request.target.width = 40_000;
+        request.target.height = 50_000;
+        let mut marks = Marks::default();
+        let origin = Some((-1000.0, -1000.0));
+        assert_eq!(marks.decide(&request, origin), Carries::Marks);
+        marks.route(request.page, crate::Route::Window);
+        assert_eq!(marks.decide(&request, origin), Carries::Window);
+        assert!(marks.by_page.is_empty() && marks.windows.contains_key(&request.page));
+        marks.route(request.page, crate::Route::Marks);
+        assert_eq!(marks.decide(&request, origin), Carries::Marks);
+        assert!(marks.windows.is_empty());
+        // A page that leaves the arrangement is forgotten with the asking.
+        marks.route(request.page, crate::Route::Window);
+        marks.place(|_| None);
+        assert!(marks.routed.is_empty());
+    }
+
+    /// A route crosses as the page and the route, and nothing else does (ADR 2017).
+    #[test]
+    fn a_route_crosses_as_its_page_and_its_route_and_nothing_else_does() {
+        for route in [crate::Route::Marks, crate::Route::Window] {
+            assert_eq!(
+                decode_route(&encode_route(7, route)).expect("a route decodes"),
+                (7, route)
+            );
+        }
+        let mut unknown = encode_route(7, crate::Route::Window);
+        if let Some(last) = unknown.last_mut() {
+            *last = 2;
+        }
+        assert!(matches!(
+            decode_route(&unknown),
+            Err(ProtocolError::Unrecognised { value: 2, .. })
+        ));
+        let mut long = encode_route(7, crate::Route::Marks);
+        long.push(0);
+        assert!(matches!(
+            decode_route(&long),
+            Err(ProtocolError::Trailing { .. })
+        ));
+        let header = confined_transport::frame::header(FRAME_ROUTE, 9);
+        assert_eq!(parse_frame_header(header), Some((FRAME_ROUTE, 9)));
+    }
+
+    /// A window is refused where no honest worker could have sent it: to a host that places none,
+    /// or not a part of its page (ADRs 1986, 2016).
     #[test]
     fn a_window_no_worker_could_have_drawn_is_refused() {
         let frame = |width: u32, height: u32, corner: (u32, u32), size: (u32, u32)| {
@@ -7450,12 +7641,27 @@ mod tests {
             writer.point((0.0, 0.0));
             writer.finish()
         };
+        // A host that never said it places a window refuses one of a page under the bound, and
+        // reads it once it has (ADR 2016).
         let mut told = HeldLists::default();
+        let refused = decode_answer_reusing(&frame(100, 100, (0, 0), (4, 4)), &mut told)
+            .expect_err("a window to a host that places none");
+        assert!(
+            matches!(refused, ProtocolError::Unbuildable { what, .. } if what == "a window of a page"),
+            "a window to a host that places none was refused as {refused}"
+        );
         told.told(&Command::Oversize(viewer_core::Oversize::Listed));
         let past = 1 << 20;
         assert!(decode_answer_reusing(&frame(past, past, (5, 5), (4, 4)), &mut told).is_ok());
+        assert!(decode_answer_reusing(&frame(100, 100, (0, 0), (4, 4)), &mut told).is_ok());
         for (width, height, corner, size, why) in [
-            (100, 100, (0, 0), (4, 4), "a page under the bound"),
+            (
+                100,
+                100,
+                (98, 0),
+                (4, 4),
+                "a window across a small page's edge",
+            ),
             (
                 past,
                 past,

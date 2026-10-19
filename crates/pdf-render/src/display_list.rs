@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 
+#[cfg(not(miri))]
 use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 
 use crate::geom::{Path, Point, Rect, Size, Transform};
@@ -874,8 +875,15 @@ impl std::fmt::Debug for DisplayList {
 
 /// How many commands a list holds before it is let go of on every core rather than on the thread
 /// that drops it.
+#[cfg(not(miri))]
 const LET_GO_ON_THE_POOL: usize = 1 << 16;
 
+// Not under Miri: the pool's work-stealing reaches crossbeam-epoch 0.9.20, whose
+// `Local::register` widens a pointer taken from a reference to an eight-byte list entry into the
+// whole `Local` that holds it, and Stacked Borrows forbids a retag outside the tag's range — the
+// dependency's unsafe, not this tree's (ADRs 0450, 2010). Without this impl the interpreter drops
+// the commands where the list is, as any list under the bound is dropped, and no test reads which.
+#[cfg(not(miri))]
 impl Drop for DisplayList {
     /// A long list's commands let go of on every core, in no order — what dropping one is, a
     /// reference count given back per path and per paint, each a cache line of its own, has no

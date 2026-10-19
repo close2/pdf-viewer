@@ -33,6 +33,10 @@
 #                  the end is tools/bounded.sh's own closing line.
 #   --stop <log>   send TERM to the process group <log>.pid names, and say whether it went.
 #
+# A wait's options may stand before its log or after it — `tools/wait.sh <log> --wall 30` waits as
+# `tools/wait.sh --wall 30 <log>` does — because a wait that printed this text and exited was read
+# as a wait that had been made (ADR 2011). Anything but one log is refused with a sentence.
+#
 # Exit status: the command's own once it has ended; 75 (EX_TEMPFAIL) when the wall came first and
 # the command is still running — re-issue `tools/wait.sh <log>`; 70 when the process group is gone
 # without its end line (it was killed); 64 for a usage error. The verdict line is the last line
@@ -63,18 +67,29 @@ refuse() {
     exit 64
 }
 
+needs_value() {
+    [ "$1" -ge 2 ] || refuse "$2 needs a value after it"
+}
+
+# A word that is not an option is the log to wait for, wherever it stands; after --start's log it
+# is the command's first word instead, as it always was.
+logs=()
 while [ $# -gt 0 ]; do
     case $1 in
-        --start) [ $# -ge 2 ] || usage; start_log=$2; shift 2 ;;
-        --stop) [ $# -ge 2 ] || usage; stop_log=$2; shift 2 ;;
-        --wall) [ $# -ge 2 ] || usage; wall=$2; shift 2 ;;
-        --tail) [ $# -ge 2 ] || usage; tail_lines=$2; shift 2 ;;
-        --until) [ $# -ge 2 ] || usage; until_ere=$2; shift 2 ;;
+        --start) needs_value $# "$1"; start_log=$2; shift 2 ;;
+        --stop) needs_value $# "$1"; stop_log=$2; shift 2 ;;
+        --wall) needs_value $# "$1"; wall=$2; shift 2 ;;
+        --tail) needs_value $# "$1"; tail_lines=$2; shift 2 ;;
+        --until) needs_value $# "$1"; until_ere=$2; shift 2 ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
         -h|--help) usage ;;
         -*) refuse "no such option: $1" ;;
-        *) break ;;
+        *)
+            [ -n "$start_log" ] && break
+            logs+=("$1")
+            shift
+            ;;
     esac
 done
 
@@ -246,6 +261,18 @@ self_test() {
     out=$(bash "$me" --start "$scratch/a.log" -- true 2>&1); status=$?
     check "a log that exists already is refused" 64 "$status" "$out" 'exists already'
 
+    out=$(bash "$me" "$scratch/a.log" --wall 5 --tail 1); status=$?
+    check "a log before its options is waited for as one after them" 0 "$status" "$out" \
+        'a\.log ended'
+
+    out=$(bash "$me" "$scratch/a.log" "$scratch/b.log" 2>&1); status=$?
+    check "two logs are refused with a sentence, not the usage text" 64 "$status" "$out" \
+        '^wait: one wait takes one log'
+
+    out=$(bash "$me" "$scratch/a.log" --wall 2>&1); status=$?
+    check "an option missing its value is refused by name" 64 "$status" "$out" \
+        '^wait: --wall needs a value'
+
     out=$(bash "$me" --wall 600 "$scratch/a.log" 2>&1); status=$?
     check "a wall past the cache's lifetime is refused" 64 "$status" "$out" 'outside 1\.\.270'
 
@@ -287,11 +314,14 @@ self_test() {
 if [ -n "$self_test" ]; then
     self_test
 elif [ -n "$stop_log" ]; then
+    [ ${#logs[@]} -eq 0 ] || refuse "--stop $stop_log takes no second log (${logs[0]})"
     stop "$stop_log"
 elif [ -n "$start_log" ]; then
+    [ ${#logs[@]} -eq 0 ] || refuse "--start $start_log names its own log, so ${logs[0]} is one too many"
     start "$start_log" "$@"
     wait_for "$start_log"
 else
-    [ $# -eq 1 ] || usage
-    wait_for "$1"
+    [ $# -eq 0 ] || refuse "a command after -- is --start's: tools/wait.sh --start <log> -- <command>"
+    [ ${#logs[@]} -eq 1 ] || refuse "one wait takes one log, not ${#logs[@]}: tools/wait.sh [--wall S] [--tail N] [--until ERE] <log>, the options before the log or after it"
+    wait_for "${logs[0]}"
 fi

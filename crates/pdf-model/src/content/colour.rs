@@ -157,8 +157,52 @@ impl Interpreter<'_> {
         // press beside a fill drawn through the document's own (ADR 1008).
         Conversion::new(self.compositing.clone(), rendering)
             .under_output_intent(self.output_intent.as_ref())
+            .within_cmyk_group(self.cmyk_group.as_ref())
             .under_separations(self.separations())
             .beside(self.spots_beside.clone())
+    }
+
+    /// What an operator's colour space is read under here: the page's §14.11.5 intent, §11.7.2's
+    /// redefinition of `DeviceCMYK` in the group being painted, and §10.8.3's simulation. One
+    /// construction for `cs` and for `g`, `rg` and `k`, so that the two routes ADR 1001 makes one
+    /// colour cannot be read under two readings.
+    fn reading(&self) -> Reading<'_> {
+        Reading::new(self.output_intent.as_ref())
+            .within_cmyk_group(self.cmyk_group.as_ref())
+            .under_separations(self.separations())
+    }
+
+    /// The profile identity of [`Interpreter::cmyk_group`], which [`Interpreter::icc_spaces`] is
+    /// keyed by beside the object: an `ICCBased` space whose profile does not parse is its
+    /// `/Alternate`, and an alternate of `/DeviceCMYK` is redefined inside such a group, so the
+    /// one object read inside and outside it can be two spaces (ADR 2012).
+    pub(super) fn cmyk_group_identity(&self) -> Option<u128> {
+        self.cmyk_group
+            .as_ref()
+            .and_then(ColourSpace::profile_identity)
+    }
+
+    /// A page or group `/CS` entry parsed against no resource dictionary, as
+    /// `transparency::press_for_entry` parses it, remembered in [`Interpreter::icc_spaces`] where
+    /// it is `[/ICCBased <stream>]` and its profile parsed: a group is painted at each of its
+    /// `Do`s, and a profile is what costs to read (ADR 1813). Only a parsed profile is
+    /// remembered, because it alone is the same space under every reading.
+    pub(super) fn blending_space_of(&mut self, entry: &Object) -> Option<ColourSpace> {
+        let stated = Stated::of(entry);
+        let key = stated.map(|stated| (stated.id(), self.cmyk_group_identity()));
+        if let Some(key) = key
+            && let Some(space @ ColourSpace::Icc { .. }) = self.icc_spaces.get(&key)
+        {
+            return Some(space.clone());
+        }
+        let space = ColourSpace::parse(self.document, entry, &Dictionary::new());
+        if let (Some(stated), Some(key), Some(parsed @ ColourSpace::Icc { .. })) =
+            (stated, key, space.as_ref())
+            && stated.is_icc_based(self.document)
+        {
+            self.icc_spaces.insert(key, parsed.clone());
+        }
+        space
     }
 
     /// §10.8.3's separation simulation as the reader of this interpretation asked for it.
@@ -291,7 +335,7 @@ impl Interpreter<'_> {
             .as_ref()
             .and_then(Stated::of);
         if let Some(id) = stated.map(Stated::id)
-            && let Some(space) = self.icc_spaces.get(&id)
+            && let Some(space) = self.icc_spaces.get(&(id, self.cmyk_group_identity()))
         {
             let space = space.clone();
             let initial = space.initial_colour();
@@ -303,12 +347,13 @@ impl Interpreter<'_> {
             self.document,
             &Object::Name(name.clone()),
             resources,
-            Reading::new(self.output_intent.as_ref()).under_separations(self.separations()),
+            self.reading(),
         );
         if let (Some(stated), Some(parsed)) = (stated, space.as_ref())
             && stated.is_icc_based(self.document)
         {
-            self.icc_spaces.insert(stated.id(), parsed.clone());
+            self.icc_spaces
+                .insert((stated.id(), self.cmyk_group_identity()), parsed.clone());
         }
         // §8.6.8's initial colour is the *selected* family's, which a default or an output
         // intent standing in for a device family does not change: `initial_colour_of` says why.
@@ -465,20 +510,16 @@ impl Interpreter<'_> {
     /// intent (ADR 1001).
     pub(super) fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
-        ColourSpace::parse_under(
-            self.document,
-            &named,
-            resources,
-            Reading::new(self.output_intent.as_ref()).under_separations(self.separations()),
+        ColourSpace::parse_under(self.document, &named, resources, self.reading()).unwrap_or(
+            match name {
+                // A family name always resolves, so this arm answers only a caller naming
+                // something that is not one — a device space rather than a panic, for a name
+                // this function is never handed.
+                "DeviceGray" => ColourSpace::Gray,
+                "DeviceCMYK" => ColourSpace::Cmyk,
+                _ => ColourSpace::Rgb,
+            },
         )
-        .unwrap_or(match name {
-            // A family name always resolves, so this arm answers only a caller naming
-            // something that is not one — a device space rather than a panic, for a name
-            // this function is never handed.
-            "DeviceGray" => ColourSpace::Gray,
-            "DeviceCMYK" => ColourSpace::Cmyk,
-            _ => ColourSpace::Rgb,
-        })
     }
 }
 

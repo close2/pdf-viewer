@@ -325,6 +325,11 @@ line lane is the step's stream almost alone, and it does not grow with the magni
 sheet does; on a page of photographs the step's stream is the finer level of each image, sent once.
 **A replay of an unchanged view sends none of its instances** (ADR 1993): the streams stay on the
 device beside the retained encode, so what a replay still sends is what its view decided.
+**The window's trace says the same per frame** (ADR 2009): `FrameCost::streams` carries the split, and
+each frame line that sent anything ends in `| sent …` under the `crossed:` line's names. **What a
+step sends is a function of the view through the host's cull** (ADR 2008): in the window the line
+lane's admitted set moves by a quarter at a 1.25× step on the owner's drawing, which is why the op
+list is built once only after the line lane maps and culls on the device (`doc/todo/75` items 2–3).
 
 ### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
 

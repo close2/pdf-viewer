@@ -64,7 +64,8 @@ pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
 pub use crate::table::fonts::{cmap_is_predefined, fonts_naming_an_undefined_cmap, type3_encoding};
 pub use crate::table::graphics::{
-    IccTagShortfall, icc_tag_shortfall, reference_xobjects, same_parameter,
+    IccTagShortfall, icc_tag_shortfall, icc_version_tag_shortfall, reference_xobjects,
+    same_parameter,
 };
 pub use crate::table::interaction::{
     ActionHolder, ActionSite, AdditionalActions, ExtraAppearances, ForbiddenFlags,

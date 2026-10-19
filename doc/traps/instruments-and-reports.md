@@ -1629,3 +1629,29 @@ the gate exited 0 with every figure "not judged": it reads whether to judge from
 `release/deps` was not in it. The second hold ran the copy from `<scratch>/release/deps/` and judged
 33 of 33. A gate that can decline to judge says so in its output; a reader of a green exit looks for
 that sentence before believing the green.
+
+### 201. A Miri log names the first site, not the last
+
+CI's nightly log stopped at `display_list.rs:890`, the pooled drop; guarding it let Miri run on to
+`reach::tests::the_share_a_window_keeps_of_a_short_list_is_its_selection_counted`, a test that had come
+in with ADR 1994 after the failed run and reached rayon through `MarkBounds::measure`. Round 1587 gave
+it the `cfg_attr(miri, ignore = …)` its neighbours carry and ran CI's whole line — `cargo +nightly miri
+test -p pdf-render -p pdf-syntax --lib` — to exit 0, 2 841 s of it (ADR 2010). The interpreter reports
+one site per run; the job is judged by the run, not by the site.
+
+### 202. `rustfmt` on a root formats the children too
+
+Round 1585 ran `rustfmt` on `pdf-archive`'s `lib.rs` and found it had reached `table/document_level.rs`,
+a file a sibling was editing in the same worktree; the sibling's changes were content and survived,
+but the next time they may not. `rustfmt` follows `mod` declarations, so a root file is the whole
+crate. Scoped formatting means one file at a time, the files one owns, and a `git status` afterwards
+that shows no file one did not mean to touch.
+
+### 203. An ordered list's later item is priced after the ones before it
+
+Batch ninety-three's brief sent round 1586 to build `doc/todo/75` item 3 on the strength of "only
+9 474 of 4 408 406 commands change with the view"; that remainder is what item 2 leaves, and item 2 was
+not built. Today 40 of a line instance's 60 bytes are the device's, and a 1.25× step culls a quarter
+of the admitted lines, so every step is the whole walk (ADR 2008). A figure quoted from a list is read
+with the item that produced it; the orchestrator writes the brief's premise from the list's sentence,
+not from the number beside it.

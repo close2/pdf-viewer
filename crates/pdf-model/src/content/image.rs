@@ -51,6 +51,7 @@ impl Interpreter<'_> {
         // gives: Table 87's `/ColorSpace` is parsed in `crate::image`, after this point.
         Conversion::new(self.compositing.clone(), state.rendering_under(intent))
             .under_output_intent(self.output_intent.as_ref())
+            .within_cmyk_group(self.cmyk_group.as_ref())
             .beside(self.spots_beside.clone())
     }
 

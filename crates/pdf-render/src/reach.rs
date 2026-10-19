@@ -532,6 +532,11 @@ mod tests {
         assert_eq!(culled.copied().commands(), &list.commands()[3..6]);
     }
 
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
     #[test]
     fn the_share_a_window_keeps_of_a_short_list_is_its_selection_counted() {
         let list = row_of(10);

@@ -327,6 +327,26 @@ impl UploadSplit {
     pub fn host_written(&self) -> u64 {
         self.total().saturating_sub(self.compute_device_only)
     }
+
+    /// Each share of `self` plus the same share of `other`: two frames' streams, for a caller
+    /// that drew two and reports their sum (a page and its chrome, one call).
+    #[must_use]
+    pub fn saturating_add(&self, other: &Self) -> Self {
+        Self {
+            rect_instances: self.rect_instances.saturating_add(other.rect_instances),
+            quad_instances: self.quad_instances.saturating_add(other.quad_instances),
+            line_instances: self.line_instances.saturating_add(other.line_instances),
+            scratch_sheet: self.scratch_sheet.saturating_add(other.scratch_sheet),
+            atlas_rows: self.atlas_rows.saturating_add(other.atlas_rows),
+            compute_records: self.compute_records.saturating_add(other.compute_records),
+            arena_growth: self.arena_growth.saturating_add(other.arena_growth),
+            compute_device_only: self
+                .compute_device_only
+                .saturating_add(other.compute_device_only),
+            winding: self.winding.saturating_add(other.winding),
+            paint: self.paint.saturating_add(other.paint),
+        }
+    }
 }
 
 /// What this frame did, in counts (section 8 of the brief).
@@ -607,5 +627,34 @@ impl Frame {
             Payload::Raster(raster) => Ok(raster),
             Payload::None => Err(RenderError::NotAReadbackFrame),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UploadSplit;
+
+    /// Two frames' streams add share by share, so the sum's total is the two totals' sum and a
+    /// host that reports a page and its chrome as one call says which stream each byte took.
+    #[test]
+    fn two_frames_streams_add_share_by_share() {
+        let page = UploadSplit {
+            line_instances: 600,
+            scratch_sheet: 40,
+            compute_device_only: 9,
+            ..UploadSplit::default()
+        };
+        let chrome = UploadSplit {
+            quad_instances: 96,
+            atlas_rows: 128,
+            compute_device_only: 1,
+            ..UploadSplit::default()
+        };
+        let both = page.saturating_add(&chrome);
+        assert_eq!(both.total(), page.total().saturating_add(chrome.total()));
+        assert_eq!(both.line_instances, 600);
+        assert_eq!(both.quad_instances, 96);
+        assert_eq!(both.compute_device_only, 10);
+        assert_eq!(both.host_written(), 864);
     }
 }

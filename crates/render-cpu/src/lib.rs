@@ -1,20 +1,27 @@
 //! CPU rasteriser backend; the correctness oracle for the GPU backend.
 //!
-//! Implements [`pdf_render::Rasterizer`] on the CPU using `tiny-skia`. This backend
-//! has three jobs, and the second and third are why it exists first:
+//! Implements [`pdf_render::Rasterizer`] on the CPU, over its own scan converter with
+//! `tiny-skia` beneath it. Page one goes to the graphics device by default (`CLAUDE.md`
+//! principle 2), and this backend has the jobs that principle leaves it:
 //!
-//! 1. It renders when no usable GPU is present.
-//! 2. It is the **reference** against which `render-gpu` is validated. Both backends
-//!    consume the same [`pdf_render::DisplayList`], so any difference between their
-//!    outputs is a backend defect rather than a difference in how the document was
-//!    interpreted — a far tighter test than comparing against another PDF viewer,
-//!    where antialiasing and colour handling differ for legitimate reasons.
-//! 3. It draws a frame the device refuses, said out loud, and a page past what a frame was
-//!    budgeted to be where it is predicted the faster lane (ADR 1831).
+//! 1. It is the **reference** against which the device backends, `render-raster` and
+//!    `render-gpu`, are validated. Every backend consumes the same
+//!    [`pdf_render::DisplayList`], so any difference between their outputs is a backend
+//!    defect rather than a difference in how the document was interpreted — a far tighter
+//!    test than comparing against another PDF viewer, where antialiasing and colour handling
+//!    differ for legitimate reasons.
+//! 2. It draws a frame the device refuses — a coverage or budget refusal, not a swapchain
+//!    state — said out loud.
+//! 3. It draws a page past what a frame was budgeted to be where it is predicted the faster
+//!    lane, page one included (ADR 1831); never a frame drawn only to cover the device's
+//!    bring-up.
 //!
-//! Correctness therefore outranks speed in this crate. Where the two conflict, this
-//! backend takes the clearer construction and leaves optimisation to `render-gpu`.
-//! See `doc/adr/0002-cpu-rasteriser-first.md`.
+//! A window started with `--cpu` makes no device and draws every frame here, which is a
+//! person's diagnostic and the answer to a driver that will not load (ADR 0221).
+//!
+//! Correctness outranks speed in this crate: where the two conflict, this backend takes the
+//! clearer construction, because every cross-backend comparison rests on it. See
+//! `doc/adr/0002-cpu-rasteriser-first.md`.
 //!
 //! # Where each part is
 //!

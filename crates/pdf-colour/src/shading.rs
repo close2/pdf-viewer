@@ -20,7 +20,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
-use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
+use crate::colour::{ColourSpace, Compositing, Conversion, Separations};
 use crate::function::{Function, Value};
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
@@ -101,6 +101,11 @@ impl<'a> Colouring<'a> {
     }
 }
 
+/// What a [`Cache`]'s parsed colour spaces are keyed by: the space's object, the identities of
+/// the output intent's profile and of §11.7.2's redefining group's, §10.8.3's preference, and
+/// the index of the resources' `/ColorSpace` entry — [`Cache::spaces`] says why each.
+type SpaceKey = (ObjectId, Option<u128>, Option<u128>, Separations, usize);
+
 /// Shadings already built, keyed by the object that states them.
 ///
 /// # Why this exists, with the measurement that asked for it
@@ -166,11 +171,14 @@ pub struct Cache {
     ///
     /// Keyed by the output intent's identity as well, because the space a
     /// `/DeviceCMYK` reference parses to depends on §14.11.5's intent (ADR 1008). One
-    /// interpretation has one intent, so the second half of the key never varies within a
+    /// interpretation has one intent, so the second part of the key never varies within a
     /// cache's life; it is there so that the table is exact by construction rather than by
-    /// that argument. And by the resources' `/ColorSpace` entry, for the reason the type's own
-    /// documentation gives: a reference to `/DeviceRGB` is remapped by the dictionary in force.
-    spaces: BTreeMap<(ObjectId, Option<u128>, Separations, usize), ColourSpace>,
+    /// that argument. The third part does vary: §11.7.2 redefines `/DeviceCMYK` inside a group
+    /// whose blending space is an `ICCBased` CMYK one, so one shading painted inside and outside
+    /// such a group is two spaces (ADR 2012). And by the resources' `/ColorSpace` entry, for
+    /// the reason the type's own documentation gives: a reference to `/DeviceRGB` is remapped by
+    /// the dictionary in force.
+    spaces: BTreeMap<SpaceKey, ColourSpace>,
     /// Every `/Function` group stated by reference, parsed once for the cache's life; see
     /// [`Parsed`].
     functions: Parsed,
@@ -430,24 +438,23 @@ impl Cache {
     ) -> Option<ColourSpace> {
         let dict = dictionary_of(document, object)?;
         let id = dict.get("ColorSpace")?.as_reference()?;
-        let intent = into.output_intent();
         // §10.8.3's preference is in the key because it decides what a `DeviceN` space means:
         // two interpretations of one page under the two answers are two spaces (ADR 1229).
         let key = (
             id,
-            intent.as_ref().and_then(ColourSpace::profile_identity),
+            into.output_intent()
+                .as_ref()
+                .and_then(ColourSpace::profile_identity),
+            into.cmyk_group()
+                .as_ref()
+                .and_then(ColourSpace::profile_identity),
             into.separations(),
             colour_spaces,
         );
         if let Some(space) = self.spaces.get(&key) {
             return Some(space.clone());
         }
-        let space = ColourSpace::parse_under(
-            document,
-            &Object::Reference(id),
-            resources,
-            Reading::new(intent.as_ref()).under_separations(into.separations()),
-        )?;
+        let space = into.parse_space(document, &Object::Reference(id), resources)?;
         self.spaces.insert(key, space.clone());
         Some(space)
     }
@@ -572,16 +579,12 @@ fn kind_of(
     let space = if let Some(space) = space {
         space
     } else {
-        let intent = colouring.into.output_intent();
-        ColourSpace::parse_under(
-            document,
-            &document.get_key(&dict, "ColorSpace"),
-            resources,
-            Reading::new(intent.as_ref()).under_separations(colouring.into.separations()),
-        )
-        .ok_or_else(|| ShadingError::Malformed {
-            detail: "unsupported /ColorSpace".to_owned(),
-        })?
+        colouring
+            .into
+            .parse_space(document, &document.get_key(&dict, "ColorSpace"), resources)
+            .ok_or_else(|| ShadingError::Malformed {
+                detail: "unsupported /ColorSpace".to_owned(),
+            })?
     };
 
     let mut truncated = None;

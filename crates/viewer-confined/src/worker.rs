@@ -417,6 +417,18 @@ fn answer(
                 Err(error) => refuse(&error.to_string()),
             }
         }
+        // How the host asks a page past the bound to cross, which is recorded and nothing else:
+        // the next command moves it, so this answers at once whatever the page costs (ADR 2017).
+        protocol::FRAME_ROUTE => match protocol::decode_route(&payload) {
+            Ok((page, route)) => {
+                marks.route(page, route);
+                match protocol::encode_events(&[]) {
+                    Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
+                    Err(uncarried) => refuse(&uncarried.to_string()),
+                }
+            }
+            Err(error) => refuse(&error.to_string()),
+        },
         // A frame a host has no business sending: the three the *worker* produces.
         _ => refuse("that frame is one this side sends, not one it reads"),
     }
@@ -478,8 +490,9 @@ fn perform(
                     let rendered = match marks.decide(&request, origin) {
                         // **The render that does not happen.** The host is being handed this
                         // page's own display list, so pixels of it would be drawn, held and
-                        // thrown away.
-                        protocol::Carries::Marks => Rendered::Listed,
+                        // thrown away — or, for a page past the bound the host asked for as
+                        // windows, its window is drawn after this command (ADR 2017).
+                        protocol::Carries::Marks | protocol::Carries::Window => Rendered::Listed,
                         // A page past the bound whose marks cannot cross is drawn here as the
                         // window shows it, after this command, and crosses as that window: its
                         // raster would be the allocation the ceiling kills (ADR 1986).
@@ -498,20 +511,16 @@ fn perform(
                                 ))
                             }
                         }
+                        // And a page under it is drawn here as the window shows it where the
+                        // toolkit windows would draw it so, for a host that places a window
+                        // (ADRs 1994, 2016); every other page is drawn whole.
                         protocol::Carries::Pixels => {
-                            // The page drawn while it was read, finished from where its read
-                            // ended; a drawing that cannot become the page is drawn whole.
-                            let finished =
-                                ahead.and_then(|underway| underway.finish(&request.list).ok());
-                            match finished.map_or_else(
-                                || rasterizer.rasterize(&request.list, request.target),
-                                Ok,
-                            ) {
-                                Ok(raster) => Rendered::Raster(raster),
-                                // Named rather than swallowed: a viewer that silently showed the
-                                // previous page when a render failed would be telling a person
-                                // something false.
-                                Err(error) => Rendered::Failed(error.to_string()),
+                            match origin.filter(|_| turning.draws_a_window_of(&request)) {
+                                Some(origin) => {
+                                    marks.hold_window(&request, origin);
+                                    Rendered::Listed
+                                }
+                                None => drawn_whole(rasterizer, &request, ahead),
                             }
                         }
                     };
@@ -540,6 +549,9 @@ fn perform(
     // the pages this store holds, because those are the ones the viewer keeps no pixels of.
     // Both questions are a borrow of state the viewer already has and cost no interpretation.
     marks.place(|page| placement(viewer, page));
+    // A page the host asked for as windows since the last command leaves the marks here, and its
+    // first window is among those drawn next (ADR 2017).
+    marks.take_routed();
     // **And the windows the viewport now owes**, drawn here after the command that moved it — a
     // zoom's first, a scroll's past the margin — so that the frame the host asks for next is of
     // the view as it stands (ADR 1986).
@@ -550,6 +562,22 @@ fn perform(
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
+    }
+}
+
+/// A page drawn whole: the page drawn while it was read, finished from where its read ended, or a
+/// drawing that cannot become the page drawn from the start.
+fn drawn_whole(
+    rasterizer: &mut CpuRasterizer,
+    request: &viewer_core::RenderRequest,
+    ahead: Option<render_cpu::Underway>,
+) -> Rendered {
+    let finished = ahead.and_then(|underway| underway.finish(&request.list).ok());
+    match finished.map_or_else(|| rasterizer.rasterize(&request.list, request.target), Ok) {
+        Ok(raster) => Rendered::Raster(raster),
+        // Named rather than swallowed: a viewer that silently showed the previous page when a
+        // render failed would be telling a person something false.
+        Err(error) => Rendered::Failed(error.to_string()),
     }
 }
 
@@ -597,21 +625,45 @@ fn draw_windows(
 struct Turning {
     /// The viewport the last `Command::Resize` stated, in device pixels, and its scale.
     viewport: Option<((u32, u32), f32)>,
+    /// Whether the host said it places a window of a page (`Command::Oversize`'s `Listed`), which
+    /// is what admits a window of a page under the bound on its side of the pipe (ADR 2016).
+    places_windows: bool,
     /// The page drawn while it was read, with the hand-over that names the list it was drawn from.
     drawn: Option<(pdf_model::progress::Parts, render_cpu::Underway)>,
 }
 
 impl Turning {
-    /// Takes in what a command says about the window: a resize's viewport.
+    /// Takes in what a command says about the window: a resize's viewport, and whether the host
+    /// places a window of a page.
     fn told(&mut self, command: &Command) {
-        if let Command::Resize {
-            width,
-            height,
-            scale,
-        } = command
-        {
-            self.viewport = Some(((*width, *height), *scale));
+        match command {
+            Command::Resize {
+                width,
+                height,
+                scale,
+            } => self.viewport = Some(((*width, *height), *scale)),
+            Command::Oversize(oversize) => {
+                self.places_windows = matches!(oversize, viewer_core::Oversize::Listed);
+            }
+            _ => {}
         }
+    }
+
+    /// Whether `request`, a page under the bound that crosses as pixels, is drawn here as the
+    /// window shows it: for a host that places a window, behind a viewport, where the toolkit
+    /// windows' rule holds ([`protocol::windowed::worth_a_window`], ADR 2016). The question is
+    /// asked once for the request, at the viewport it was asked under, as theirs is.
+    fn draws_a_window_of(&self, request: &viewer_core::RenderRequest) -> bool {
+        self.places_windows
+            && self.viewport.is_some_and(|((width, height), _)| {
+                width > 0
+                    && height > 0
+                    && protocol::windowed::worth_a_window(
+                        &request.list,
+                        request.target,
+                        (width, height),
+                    )
+            })
     }
 
     /// Handles a page turn with the page it brings on read on this thread and drawn beside it,

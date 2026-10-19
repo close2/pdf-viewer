@@ -1503,6 +1503,28 @@ fn a_page_whose_marks_cannot_cross() -> Vec<u8> {
           /Matrix [612 0 0 792 0 0] /Function 6 0 R >>",
         function.as_bytes(),
     ];
+    assembled(&objects)
+}
+
+/// A page of 612 × 792 points drawing a red square of 200 points at its middle, whose marks cross.
+fn a_page_whose_marks_cross() -> Vec<u8> {
+    let contents = "1 0 0 rg 206 296 200 200 re f\n";
+    let page_contents = format!(
+        "<< /Length {} >>\nstream\n{contents}endstream",
+        contents.len()
+    );
+    let objects: [&[u8]; 4] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+        page_contents.as_bytes(),
+    ];
+    assembled(&objects)
+}
+
+/// A file of `objects`, numbered from 1 in order, with its cross-reference table and a trailer
+/// whose root is the first.
+fn assembled(objects: &[&[u8]]) -> Vec<u8> {
     let mut out = b"%PDF-2.0\n".to_vec();
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {
@@ -1512,14 +1534,156 @@ fn a_page_whose_marks_cannot_cross() -> Vec<u8> {
         out.extend_from_slice(b"\nendobj\n");
     }
     let xref = out.len();
-    out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+    let size = objects.len().saturating_add(1);
+    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
     for offset in offsets {
         out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
     }
     out.extend_from_slice(
-        format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
     );
     out
+}
+
+/// A confined viewer at [`VIEWPORT`], told `oversize`, with `bytes` open.
+fn opened_at_the_viewport(bytes: Vec<u8>, oversize: viewer_core::Oversize) -> Confined {
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    for command in [
+        Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        },
+        Command::Oversize(oversize),
+        Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        },
+    ] {
+        confined.handle(&command).expect("the command crosses");
+    }
+    confined
+}
+
+/// The one page a single-page arrangement's frame carries.
+fn the_page(confined: &mut Confined) -> viewer_confined::Framed {
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds a frame for the page on the screen");
+    };
+    let [shown]: [viewer_confined::Framed; 1] = frames
+        .try_into()
+        .unwrap_or_else(|frames| panic!("one page crosses: {frames:?}"));
+    shown
+}
+
+/// **A page under the bound that crosses as pixels is drawn as its window where the toolkit
+/// windows would draw it so** (ADRs 1994, 2016): the shading page at four times its size is 2 448 ×
+/// 3 168 pixels, under the bound, and its largest window at this viewport, 750 × 1 050, is a tenth
+/// of it, so it crosses as that window and not as the page. At its own size the window would hold
+/// the whole page, and it crosses as its raster; and so it does at four times for a host that never
+/// said it places a window.
+#[test]
+fn a_page_under_the_bound_whose_window_is_a_tenth_of_it_crosses_as_its_window() {
+    let zoom = |confined: &mut Confined, scale: f32| {
+        confined
+            .handle(&Command::Zoom {
+                zoom: Zoom::Scale(scale),
+                at: None,
+            })
+            .expect("a zoom crosses");
+    };
+    let mut confined = opened_at_the_viewport(
+        a_page_whose_marks_cannot_cross(),
+        viewer_core::Oversize::Listed,
+    );
+    zoom(&mut confined, 1.0);
+    let whole = the_page(&mut confined);
+    assert!(
+        matches!(whole.payload, viewer_confined::Payload::Raster(_)),
+        "at its own size the page crosses whole: {whole:?}"
+    );
+    zoom(&mut confined, 4.0);
+    let shown = the_page(&mut confined);
+    let viewer_confined::Payload::Window { target, raster, .. } = &shown.payload else {
+        panic!("at four times its size the page crosses as its window: {shown:?}");
+    };
+    assert!(u64::from(target.width) * u64::from(target.height) <= viewer_core::MAX_PIXELS);
+    assert!(
+        raster.width <= 751 && raster.height <= 1051,
+        "a window of {}x{}",
+        raster.width,
+        raster.height
+    );
+    let mut refusing = opened_at_the_viewport(
+        a_page_whose_marks_cannot_cross(),
+        viewer_core::Oversize::Refused,
+    );
+    zoom(&mut refusing, 4.0);
+    let whole = the_page(&mut refusing);
+    assert!(
+        matches!(whole.payload, viewer_confined::Payload::Raster(_)),
+        "to a host that places no window the page crosses whole: {whole:?}"
+    );
+}
+
+/// **A page past the bound whose marks cross takes the route its host asks for** (ADR 2017,
+/// `doc/questions/A477`): its marks, until the host asks for its window; then the window, from the
+/// next command, with nothing encoded; and its marks again from its next render once asked.
+#[test]
+fn a_page_past_the_bound_whose_marks_cross_takes_the_route_its_host_asks_for() {
+    let mut confined =
+        opened_at_the_viewport(a_page_whose_marks_cross(), viewer_core::Oversize::Listed);
+    let zoom = |confined: &mut Confined, scale: f32| {
+        confined
+            .handle(&Command::Zoom {
+                zoom: Zoom::Scale(scale),
+                at: None,
+            })
+            .expect("a zoom crosses");
+    };
+    zoom(&mut confined, 32.0);
+    let listed = the_page(&mut confined);
+    assert!(
+        matches!(&listed.payload, viewer_confined::Payload::List { target, .. }
+            if u64::from(target.width) * u64::from(target.height) > viewer_core::MAX_PIXELS),
+        "the page crosses as its marks: {listed:?}"
+    );
+    assert!(listed.bytes > 0, "what crossed is counted");
+    confined
+        .route(0, viewer_confined::Route::Window)
+        .expect("a route crosses");
+    // Asking moves nothing: the frame is the marks until a command is performed.
+    assert!(matches!(
+        the_page(&mut confined).payload,
+        viewer_confined::Payload::List { .. }
+    ));
+    confined
+        .handle(&Command::Scroll { dx: 0.0, dy: 10.0 })
+        .expect("a scroll crosses");
+    let windowed = the_page(&mut confined);
+    let viewer_confined::Payload::Window { raster, .. } = &windowed.payload else {
+        panic!("after the next command the page crosses as its window: {windowed:?}");
+    };
+    assert!(raster.width <= 751 && raster.height <= 1051);
+    // A notch keeps it a window, and draws it again at the new size.
+    zoom(&mut confined, 33.0);
+    assert!(matches!(
+        the_page(&mut confined).payload,
+        viewer_confined::Payload::Window { .. }
+    ));
+    confined
+        .route(0, viewer_confined::Route::Marks)
+        .expect("a route crosses");
+    zoom(&mut confined, 34.0);
+    assert!(
+        matches!(
+            the_page(&mut confined).payload,
+            viewer_confined::Payload::List { .. }
+        ),
+        "asked back, its next render crosses as its marks"
+    );
 }
 
 /// A page past the bound whose marks cannot cross is drawn by the worker as the window shows it

@@ -1722,6 +1722,11 @@ pub struct Conversion {
     /// caches keyed on a conversion — `shading::Cache`, `image::RasterCache` — need an
     /// identity to compare, which [`crate::icc::Profile::identity`] is.
     output_intent: Option<Arc<crate::icc::Profile>>,
+    /// The profile of the `ICCBased` CMYK blending space §11.7.2 redefines `DeviceCMYK` to be
+    /// inside the group being painted, carried for the output intent's reason: it decides what
+    /// `/DeviceCMYK` *means* where an image's, a shading's or a mesh's space is parsed
+    /// ([`Reading::within_cmyk_group`], ADR 2012).
+    cmyk_group: Option<Arc<crate::icc::Profile>>,
     /// §10.4.2.4's black generation and undercolour removal, where the graphics state states a
     /// function.
     ///
@@ -1756,6 +1761,7 @@ type ConversionKey<'a> = (
     &'a Compositing,
     Rendering,
     Option<u128>,
+    Option<u128>,
     Option<usize>,
     Separations,
     &'a DeviceSpots,
@@ -1770,6 +1776,7 @@ impl Conversion {
             self.output_intent
                 .as_ref()
                 .map(|profile| profile.identity()),
+            self.cmyk_group.as_ref().map(|profile| profile.identity()),
             self.black_generation
                 .as_ref()
                 .map(BlackGeneration::identity),
@@ -1791,6 +1798,7 @@ impl Conversion {
             into,
             rendering,
             output_intent: None,
+            cmyk_group: None,
             black_generation: None,
             separations: Separations::Alternate,
             spots: DeviceSpots(None),
@@ -1825,6 +1833,27 @@ impl Conversion {
         })
     }
 
+    /// The same conversion inside a group whose `ICCBased` CMYK blending space §11.7.2
+    /// redefines `DeviceCMYK` to be, or outside every such group; a space of any other variant
+    /// redefines nothing and is not carried. `pdf_model::content` is the only caller.
+    #[must_use]
+    pub fn within_cmyk_group(mut self, space: Option<&ColourSpace>) -> Self {
+        self.cmyk_group = match space {
+            Some(ColourSpace::Icc { profile }) => Some(Arc::clone(profile)),
+            Some(_) | None => None,
+        };
+        self
+    }
+
+    /// The space §11.7.2 redefines `DeviceCMYK` to be for this conversion's colours, if any:
+    /// the argument [`Reading::within_cmyk_group`] takes. A refcount, not a copy.
+    #[must_use]
+    pub fn cmyk_group(&self) -> Option<ColourSpace> {
+        self.cmyk_group.as_ref().map(|profile| ColourSpace::Icc {
+            profile: Arc::clone(profile),
+        })
+    }
+
     /// A conversion onto the device with compensation on.
     ///
     /// The pair a caller wants where the question is the *colour space* rather than the state:
@@ -1850,6 +1879,7 @@ impl Conversion {
             into,
             rendering: self.rendering,
             output_intent: self.output_intent.clone(),
+            cmyk_group: self.cmyk_group.clone(),
             black_generation: self.black_generation.clone(),
             separations: self.separations,
             spots: self.spots.clone(),
@@ -1897,6 +1927,31 @@ impl Conversion {
     pub fn beside(mut self, spots: DeviceSpots) -> Self {
         self.spots = spots;
         self
+    }
+
+    /// Parses a colour space as this conversion's page reads it: under its output intent,
+    /// §11.7.2's redefinition of `DeviceCMYK` and §10.8.3's preference.
+    ///
+    /// The one reading for every route that parses a space after the interpreter has handed the
+    /// work over — an image's, a shading's, a mesh's — so that a part of it cannot be left out at
+    /// one of them (ADRs 1008, 1229, 2012).
+    #[must_use]
+    pub fn parse_space(
+        &self,
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+    ) -> Option<ColourSpace> {
+        let intent = self.output_intent();
+        let cmyk_group = self.cmyk_group();
+        ColourSpace::parse_under(
+            document,
+            object,
+            resources,
+            Reading::new(intent.as_ref())
+                .within_cmyk_group(cmyk_group.as_ref())
+                .under_separations(self.separations),
+        )
     }
 
     /// §10.4.2.4's pair this conversion carries, if the state stated one.
@@ -2282,8 +2337,9 @@ pub enum Separations {
     Simulated,
 }
 
-/// What a colour space is read *under*: the page's output intent, and whether §10.8.3's
-/// separation simulation is in force.
+/// What a colour space is read *under*: the page's output intent, the space §11.7.2 redefines
+/// `DeviceCMYK` to be inside the group being painted, and whether §10.8.3's separation
+/// simulation is in force.
 ///
 /// The two travel together for [`Conversion`]'s reason one level down — a colour space is
 /// parsed at four places in this tree (an operator's `cs`, an image's `/ColorSpace`, a
@@ -2295,6 +2351,9 @@ pub struct Reading<'a> {
     /// The space §14.11.5's `/DestOutputProfile` describes for this page, where the document
     /// states one this tree reads.
     intent: Option<&'a ColourSpace>,
+    /// The `ICCBased` CMYK blending space of the nearest isolated group or page that states one,
+    /// which `DeviceCMYK` is inside it. See [`Reading::within_cmyk_group`].
+    cmyk_group: Option<&'a ColourSpace>,
     /// Whether §10.8.3's simulation is in force.
     separations: Separations,
 }
@@ -2305,8 +2364,37 @@ impl<'a> Reading<'a> {
     pub fn new(intent: Option<&'a ColourSpace>) -> Self {
         Self {
             intent,
+            cmyk_group: None,
             separations: Separations::Alternate,
         }
+    }
+
+    /// The same reading inside a group whose blending colour space `DeviceCMYK` is redefined to,
+    /// or outside every such group.
+    ///
+    /// ISO 32000-2 §11.7.2:
+    ///
+    /// > If an isolated transparency group or page has an ICCBased 'CMYK' colour space ,
+    /// > DeviceCMYK shall be redefined within the transparency group to be the same as the
+    /// > blending colour space and references to the process colourants Cyan , Magenta , Yellow
+    /// > and Black are defined to be references to the corresponding colourants in the blending
+    /// > colour space, even where the actual or simulated output device is not CMYK.
+    ///
+    /// `space` is that blending space, which `pdf_model::content` finds for the group being
+    /// painted, nearest first. It outranks §14.11.5's intent — informational, "and PDF
+    /// processors are free to disregard it" — and is outranked by §8.6.5.6's default, which the
+    /// same clause names as what takes a device colour out of the device rules: "unless remapped
+    /// to default CIE-based colour spaces". ADR 2012.
+    #[must_use]
+    pub fn within_cmyk_group(mut self, space: Option<&'a ColourSpace>) -> Self {
+        self.cmyk_group = space;
+        self
+    }
+
+    /// The space §11.7.2 redefines `DeviceCMYK` to be under this reading, if any.
+    #[must_use]
+    pub fn cmyk_group(&self) -> Option<&'a ColourSpace> {
+        self.cmyk_group
     }
 
     /// The same reading with `separations` deciding §10.8.3.
@@ -3197,7 +3285,7 @@ impl ColourSpace {
         Self::parse_at(document, entry, resources, reading, depth.saturating_add(1))
     }
 
-    /// What a device colour space family means on this page: three sources, in the order
+    /// What a device colour space family means on this page: four sources, in the order
     /// the standard puts them, and `None` for a name that is not a family.
     ///
     /// Choosing a device space is a request to use the *default* space standing in for it,
@@ -3209,7 +3297,10 @@ impl ColourSpace {
     /// names as the only thing in a PDF that can, and it stands in for the family with the same
     /// number of components; §14.11.5 makes the intent informational and this tree chooses to
     /// respect it, so a `/DefaultCMYK` — a `shall` about the current operation — outranks it.
-    /// Failing both, the device space itself — where §8.6.4.4 states no conversion,
+    /// Between the two, for `DeviceCMYK` alone, §11.7.2's redefinition inside an isolated group
+    /// or page whose blending space is an `ICCBased` CMYK one ([`Reading::within_cmyk_group`]),
+    /// which is a `shall` about the group and so outranks the intent too (ADR 2012).
+    /// Failing all three, the device space itself — where §8.6.4.4 states no conversion,
     /// §10.4.2.5 states one and §10.4.2.1 ranks it below §10.3's ICC route, so what happens
     /// then is this processor's own choice between two answers the standard has already
     /// ordered, documented at [`CMYK_CORNERS`].
@@ -3229,6 +3320,13 @@ impl ColourSpace {
         let (default, device) = Self::family_named(family)?;
         if let Some(space) = Self::named_default(document, default, resources, reading, depth) {
             return Some(space);
+        }
+        // §11.7.2's redefinition, a `shall` about the group the operation is in, before the
+        // intent's informational description of the device (ADR 2012).
+        if matches!(device, Self::Cmyk)
+            && let Some(group) = reading.cmyk_group
+        {
+            return Some(group.clone());
         }
         if let Some(intent) = reading.intent
             && intent.components() == device.components()

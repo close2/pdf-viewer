@@ -18,7 +18,8 @@
 //! in PDF". That dependence on the processor is what the archive rule removes. This reader makes
 //! the conversion only on a page or group compositing in a press, and such a mark is refused
 //! below; everywhere else it converts each colour to the screen and the mode reaches no
-//! `ICCBased` mark (`pdf_model`'s `content::colour::cmyk_tints` gives one no tints).
+//! `ICCBased` mark (`pdf_model`'s `ProcessTints::on` gives one tints only on a press whose
+//! profile it states, ADR 1996).
 //!
 //! The graphics state that set the mode is the one lever: no operator sets it (§8.4.4's Table 56
 //! has none), so writing `/OPM 0` there settles every mark it governed, and a mode can only fall,

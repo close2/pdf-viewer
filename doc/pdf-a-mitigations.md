@@ -532,7 +532,18 @@ all six · 4f/4e-and-4 for the third · the second **built in session 966**, the
 #### `graphics/destination-profile-class-and-colour-space`
 #### `graphics/destination-profile-carries-the-tags-its-class-requires`
 #### `graphics/destination-profile-states-a-correct-profile-id`
-all six · today `not-built-yet`
+all six · the first **built** where this reader does not draw through the profile (ADR 2007), the
+other two `not-built-yet`
+
+- **What is built** — a statement, not the `discard` below. ISO 32000-2 §14.11.5 leaves a
+  processor free to disregard an output intent, and this reader disregards one whose profile it
+  cannot parse, so the page was drawn as though no intent were stated. Where every catalog entry
+  names that one object and its stream states `/N 3`, the profile a file stating no intent is
+  given (shipped sRGB, or `--output-intent-profile` where it is RGB) is written at that object; the
+  entry's own identification is kept and the report names the profile. A profile this reader does
+  draw through, an `/N` other than 3, two objects, an inline profile and a page-level array are
+  each refused by name. Isartor `6-2-2-t02-fail-a` and veraPDF `6-2-2-t03-fail-b`,
+  `6-2-3-t01-fail-b` and `6-2-3-t03-fail-b` convert to 2b, pages identical, veraPDF compliant.
 
 - **Mitigation** — `discard` **plus** `preserve`, and the pairing is the answer. The profile the
   document carries is not one ISO 19005 admits, and this converter cannot repair an ICC profile
@@ -596,7 +607,9 @@ profile
 #### `graphics/icc-profiles-claim-a-permitted-edition` (PDF/A-2)
 #### `graphics/icc-profiles-carry-the-tags-their-version-requires` (part 4)
 #### `graphics/icc-profiles-conform-to-the-base-standard` (part 4)
-ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · today `not-built-yet`
+ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · the part 4 tag row **built** as the part 2 one is
+(ADR 2006: the edition its header names, the same three answers — the operator's text, the
+Table 65 alternate, a refusal), the other two `not-built-yet`
 
 - **Mitigation** — **`preserve`, on a route the limits document treats as a loss and the base
   standard actually states.** An `ICCBased` space carries an `/Alternate`, and Table 65 says of it:
@@ -763,7 +776,10 @@ operator's to authorise by name. **`/TR2` built the same way** (ADR 1978 section
 row): a `TR2` other than `Default` is written Table 57's `Default`, the function in effect at the
 start of the page — a statement where every function the file states is `Identity`, the loss
 `transfer-function` with the function kept in `xmpMM:History` where one is not. The third row
-today `not-built-yet`
+**built** the same way (ADR 2007): a halftone's `TransferFunction` where §10.6.5.6 requires none
+is removed, `Identity` as a statement wherever it stands and a function as the loss
+`transfer-function`, kept in `xmpMM:History`; a component lacking a required function is refused.
+Part 4 no longer states the rule (PDF Association issue #314)
 
 - **Mitigation** — `discard`, with the limits document's section 4.8 evidence attached: render the
   page both ways, show whether anything changed, and remove the function only with that shown. Add a

@@ -2599,6 +2599,116 @@ pub(super) fn page_press(document: &Document, page: &Page, presses: &Presses) ->
     )
 }
 
+/// The `ICCBased` CMYK space §11.7.2 redefines `DeviceCMYK` to be inside a page or an isolated
+/// group whose `/CS` parsed as `parsed`, or `None` where that entry states none and the
+/// redefinition in force outside the group is the one inside it.
+///
+/// > If an isolated transparency group or page has an ICCBased 'CMYK' colour space ,
+/// > DeviceCMYK shall be redefined within the transparency group to be the same as the
+/// > blending colour space
+///
+/// Two entries state such a space. A four-component `ICCBased` one does outright. A
+/// `/DeviceCMYK` one does where Table 145's remapping makes it one — "Device colour spaces
+/// shall be subject to remapping according to the DefaultGray , DefaultRGB , and DefaultCMYK
+/// entries in the ColorSpace subdictionary of the current resource dictionary" — through a
+/// `/DefaultCMYK` in `resources`, read as [`named_press`] reads *current*; Annex P puts that
+/// remapping before any search of the ancestors.
+///
+/// Every other entry states none, and the ancestors decide, by two sentences of the same
+/// clause. A `/DeviceCMYK` group unremapped is the first: "If the colour space of the
+/// transparency group is a device colour space, and some ancestor of the group has a CIE-based
+/// colour space with the same number of colourants, then the colour space of this group shall be
+/// the CIE-based space of the nearest such ancestor." A group of another count — an `ICCBased`
+/// RGB one, say — is the fifth: a graphics object's device space, where "the current group or an
+/// ancestor of the current group is defined with a CIE-based colour space with the same number
+/// of colourants", is "for compositing purposes only" that of "the nearest such ancestor", so a
+/// `k` inside an RGB group inside a CMYK one is still the CMYK group's. ADR 2012.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §11.7.2 and Table 145 verbatim, and a quotation is not marked up"
+)]
+///
+/// `parse` reads the entry as `ColourSpace::parse` does against no resources, and is asked only
+/// where [`may_state_four_components`] holds — so a group or page of an RGB or grey profile, the
+/// commonest blending spaces there are, has no profile read for this question.
+fn stated_cmyk_group(
+    document: &Document,
+    entry: &Object,
+    resources: &Dictionary,
+    parse: impl FnOnce(&Object) -> Option<ColourSpace>,
+) -> Option<ColourSpace> {
+    if !may_state_four_components(document, entry) {
+        return None;
+    }
+    match parse(entry)? {
+        space @ ColourSpace::Icc { .. } if space.components() == 4 => Some(space),
+        ColourSpace::Cmyk => match ColourSpace::parse(
+            document,
+            &Object::Name(Name::new(b"DeviceCMYK".to_vec())),
+            resources,
+        ) {
+            Some(space @ ColourSpace::Icc { .. }) if space.components() == 4 => Some(space),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a page or group `/CS` entry can be a space of four components, read off the entry
+/// without its profile: a device CMYK family by name or in an array, `CalCMYK` — which §8.6.5.1
+/// has a reader render as `DeviceCMYK` — or an `ICCBased` array whose stream's `/N`, which
+/// Table 65 requires, is 4 or is not stated.
+fn may_state_four_components(document: &Document, entry: &Object) -> bool {
+    let entry = document.resolve(entry);
+    if let Some(name) = entry.as_name() {
+        return matches!(name.as_bytes(), b"DeviceCMYK" | b"CMYK");
+    }
+    let Some(items) = entry.as_array() else {
+        return false;
+    };
+    let family = items.first().map(|family| document.resolve(family));
+    match family
+        .as_ref()
+        .and_then(Object::as_name)
+        .map(Name::as_bytes)
+    {
+        Some(b"DeviceCMYK" | b"CMYK" | b"CalCMYK") => true,
+        Some(b"ICCBased") => items
+            .get(1)
+            .map(|stream| document.resolve(stream))
+            .as_ref()
+            .and_then(Object::as_stream)
+            .is_some_and(|stream| {
+                document
+                    .get_key(&stream.dict, "N")
+                    .as_integer()
+                    .is_none_or(|count| count == 4)
+            }),
+        _ => false,
+    }
+}
+
+/// The space §11.7.2 redefines `DeviceCMYK` to be on `page`, from §11.4.7's page group, which
+/// "is effectively isolated regardless of the I value" (Table 145) and has no ancestor: the
+/// starting value of `Interpreter::cmyk_group`. [`stated_cmyk_group`] says which entries
+/// state one.
+pub(super) fn page_cmyk_group(document: &Document, page: &Page) -> Option<ColourSpace> {
+    let attributes = document.get_key(&page.dict, "Group");
+    let attributes = attributes.as_dict()?;
+    // §8.10.3 Table 94's `/S`, as [`page_blending_space`] reads it.
+    if document
+        .get_key(attributes, "S")
+        .as_name()
+        .is_none_or(|name| name.as_bytes() != b"Transparency")
+    {
+        return None;
+    }
+    let entry = document.get_key(attributes, "CS");
+    stated_cmyk_group(document, &entry, &page.resources, |entry| {
+        ColourSpace::parse(document, entry, &Dictionary::new())
+    })
+}
+
 /// The press a group or page `/CS` entry names, resolved against `resources`.
 ///
 /// The tail of [`page_press`], split out because a *group's* `/CS` asks the same question one
@@ -2699,6 +2809,11 @@ fn press_or_beyond(
         PagePress::In,
     )
 }
+
+/// What [`Interpreter::enter_mask_compositing`] replaces for a soft mask's group and
+/// [`Interpreter::leave_mask_compositing`] puts back: the compositing, the spot colourants beside
+/// it, and §11.7.2's redefinition of `DeviceCMYK`.
+type MaskScope = (Compositing, crate::colour::DeviceSpots, Option<ColourSpace>);
 
 /// What one run of a transparency group's content produced.
 ///
@@ -3275,27 +3390,41 @@ impl<'a> Interpreter<'a> {
     /// §11.7.3: "spot colours shall not be available in a transparency group XObject that is used
     /// to define a soft mask; the alternate colour space shall always be substituted in that
     /// case" — and hands back what was in force, for [`Interpreter::leave_mask_compositing`].
+    ///
+    /// And §11.7.2's redefinition of `DeviceCMYK`, which the same `/CS` decides and only it: the
+    /// group is one "that has no parent group or page from which to inherit" (Table 145), so
+    /// nothing outside it redefines anything inside ([`stated_cmyk_group`], ADR 2012).
+    /// `resources` is the dictionary the group's content is read against.
     #[expect(
         clippy::doc_markdown,
         reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
     )]
     fn enter_mask_compositing(
         &mut self,
-        compositing: Compositing,
-    ) -> (Compositing, crate::colour::DeviceSpots) {
+        request: &crate::soft_mask::SoftMaskRequest,
+        resources: &Dictionary,
+    ) -> MaskScope {
+        let stated = match self.transparency_group(&request.group.dict) {
+            Some(group) => {
+                let document = self.document;
+                stated_cmyk_group(document, &group.colour_space, resources, |entry| {
+                    self.blending_space_of(entry)
+                })
+            }
+            None => None,
+        };
         (
-            std::mem::replace(&mut self.compositing, compositing),
+            std::mem::replace(&mut self.compositing, request.compositing.clone()),
             std::mem::take(&mut self.spots_beside),
+            std::mem::replace(&mut self.cmyk_group, stated),
         )
     }
 
     /// Restores what [`Interpreter::enter_mask_compositing`] handed back.
-    fn leave_mask_compositing(
-        &mut self,
-        (compositing, spots): (Compositing, crate::colour::DeviceSpots),
-    ) {
+    fn leave_mask_compositing(&mut self, (compositing, spots, cmyk_group): MaskScope) {
         self.compositing = compositing;
         self.spots_beside = spots;
+        self.cmyk_group = cmyk_group;
     }
 
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
@@ -3420,7 +3549,7 @@ impl<'a> Interpreter<'a> {
         // than set once.
         // And no spot colourant reaches a mask's group, whatever it composites in (§11.7.3, ADR
         // 1329): `Interpreter::spots_beside`.
-        let saved_compositing = self.enter_mask_compositing(request.compositing.clone());
+        let saved_compositing = self.enter_mask_compositing(request, &group_resources);
         // And §11.6.6's blending space stops being a departure in here, which is ADR 0220's
         // finding rather than a simplification: a mask group whose space is subtractive is
         // painted in the ink §10.4.2.3 weighs, that weighting is linear in the components, and
@@ -3902,6 +4031,7 @@ impl<'a> Interpreter<'a> {
         changed: bool,
     ) -> GroupRun {
         let (inner, outer) = states;
+        let cmyk_outside = self.enter_cmyk_group(group, resources);
         let mark = self.list.command_count();
         // §11.7.5.2's fifth condition: "[t]he foregoing four conditions were also true at the
         // time the `Do` operator was invoked for the group containing the object, as well as
@@ -4011,6 +4141,7 @@ impl<'a> Interpreter<'a> {
             self.nested_space_departed = saved_departed;
         }
         self.opaque_ancestry = outer_ancestry;
+        self.cmyk_group = cmyk_outside;
         // The enclosing record comes back as it was: whether this group's readings join it is
         // a question about what the group *became*, which `run_transparency_group` answers
         // once the command is built.
@@ -4063,6 +4194,33 @@ impl<'a> Interpreter<'a> {
             knockout: matches!(self.document.get_key(group, "K"), Object::Boolean(true)),
             colour_space: self.document.get_key(group, "CS"),
         })
+    }
+
+    /// Puts §11.7.2's redefinition of `DeviceCMYK` in force for `group`'s content, and answers the
+    /// one in force outside it, for the caller to put back after.
+    ///
+    /// [`Interpreter::group_commands`] holds it across every run of the group's content — the
+    /// press's, the black half's and a rerun in the parent's space alike, since the redefinition
+    /// is the colour's meaning and not the raster's. An isolated group stating an `ICCBased` CMYK
+    /// space ([`stated_cmyk_group`]) redefines `DeviceCMYK`, and any other group keeps the one
+    /// outside. ADR 2012.
+    fn enter_cmyk_group(
+        &mut self,
+        group: &TransparencyGroup,
+        resources: &Dictionary,
+    ) -> Option<ColourSpace> {
+        let stated = if group.isolated {
+            let document = self.document;
+            stated_cmyk_group(document, &group.colour_space, resources, |entry| {
+                self.blending_space_of(entry)
+            })
+        } else {
+            None
+        };
+        match stated {
+            Some(space) => self.cmyk_group.replace(space),
+            None => self.cmyk_group.clone(),
+        }
     }
 
     /// The group an imported page is composited as (ISO 32000-2 §11.4.7, §8.10.4).

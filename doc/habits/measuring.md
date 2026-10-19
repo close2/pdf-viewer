@@ -1139,3 +1139,46 @@ had printed on its first line. A sentence about where a measurement was taken is
 line, and `doc/environment.md`'s rule follows from it — what is measurable headless is measured
 headless, and the owner's loop is for what a display alone can show.
 
+## 114. A script that rewrites a file by line number inserts nothing mid-pass, and slices by line
+
+Round 1591's visibility fixer took line numbers from one scan and inserted `use` lines earlier in the
+same pass, so every later number pointed one line off and `pub(super)` landed on the wrong items; its
+import script sliced a module's header and body by character offset and truncated two files before
+the arms caught it. A rewrite over a file is one pass that collects, then one pass that writes from
+the bottom up — or it re-reads the file between passes — and it cuts at line boundaries, never at
+offsets, so that the diff it leaves is the diff it meant.
+
+## 115. A guard whose effect a later step redoes is tested where it acts
+
+Round 1590's route check in `decide` could be planted out without any end-to-end test noticing,
+because `take_routed` at the end of each command re-converted the page and the window still arrived.
+A guard that a later stage would make good anyway is invisible from the outside; its test sits at the
+store it guards, where the planted-out guard changes what the store holds. Trap 13's plant is run at
+the layer that the guard changes, not at the window.
+
+## 116. The census's next site is read over the veraPDF corpus unfiltered
+
+`archive_unbuilt`'s `run` filter keeps only the rows at least one document fails, so over pdf.js and
+the corpora "the next `not-built-yet` site" can be absent without saying so — round 1585 found no
+such site there at 2b and ranked over `doc/veraPDF-corpus` instead, where nine and three documents
+reached the two it built. A brief that asks for "the next site" names the corpus the ranking is
+taken over, and a round re-ranks over the veraPDF corpus before concluding that none is left.
+
+
+## 117. A scratch measurement over the specifications' pages is capped or declared `--long`
+
+Round 1589's first census looped over every page of the specifications under `doc/` and paid the
+whole structure walk on each; it held the second lock lane for 1 074 s and a sibling's clock hold
+waited 682 s of that. A measurement a round writes for itself is sized before it is queued — the
+first five pages of each document answered the same question in a tenth of the time — and one that
+must walk everything says `--long`, so the lock knows what it was given.
+
+## 118. A scope added to the interpreter sits where every run of a group's content passes
+
+Round 1588 held a group's blending space as a scope so that a device colour inside it could be
+redefined (§11.7.2); its first placement was on the press-only path, and a group that gives up its
+press reruns its content in the parent's space, where the colour's meaning has to hold as well. The
+scope moved to `group_commands`, which every run passes — the press run, the black half and the rerun
+alike — and the tests that plant it out are written for the rerun too. A new piece of interpreter
+state is placed by listing the runs a group's content can take, not the one the round is thinking of.
+

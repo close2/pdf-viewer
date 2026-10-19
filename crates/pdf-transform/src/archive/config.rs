@@ -523,11 +523,13 @@ pub enum Supplied {
         /// The operator's wording, holding `{n}` exactly where the number goes.
         template: String,
     },
-    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`: the text a profile's
-    /// missing description or copyright tag is given.
+    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, and its part 4
+    /// counterpart `…-their-version-requires`: the text a profile's missing description or
+    /// copyright tag is given.
     ///
-    /// ISO 19005-2 section 6.2.4.2 holds an `ICCBased` space's profile to the tags an ICC edition
-    /// requires, and ICC.1:1998-09 requires a `desc` and a `cprt` of every class. Neither is read
+    /// Section 6.2.4.2 of either part holds an `ICCBased` space's profile to the tags an ICC
+    /// edition requires — part 2 any of four, part 4 the one its header names (`doc/adr/2006`) —
+    /// and every held edition requires a `desc` and a `cprt` of every class. Neither is read
     /// by a colour transform, so a profile this reader draws through and that lacks only one of
     /// them is answered by writing it in — but its words are not in the file, so they are the
     /// operator's (`doc/adr/1979`, `doc/adr/1990`). A profile lacking a tag whose key the row does
@@ -1099,12 +1101,13 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// configuration states none of, which `doc/pdf-a-mitigations.md` section 12 makes the operator's
 /// to write (`doc/adr/1952`), and the text an ICC profile's missing description or copyright tag
 /// states (`doc/adr/1990`).
-const SUPPLIABLE: [&str; 6] = [
+const SUPPLIABLE: [&str; 7] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
     "fonts/embedded-cmap-states-its-own-write-mode",
     "optional-content/configuration-names",
     super::icc::SITE,
+    super::icc::SITE_FOUR,
     super::roles::SITE,
 ];
 
@@ -2036,7 +2039,7 @@ fn supplied(row: &Row) -> Option<Supply> {
         super::roles::SITE => Supplied::RoleMap {
             by_type: row.role_map.clone(),
         },
-        super::icc::SITE => {
+        super::icc::SITE | super::icc::SITE_FOUR => {
             let (description, copyright) = row.profile_text.clone();
             if description.is_none() && copyright.is_none() {
                 return None;

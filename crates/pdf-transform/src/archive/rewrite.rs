@@ -88,6 +88,14 @@ pub enum Rewrite {
     AlternatePresentations,
     /// Every page's `/PresSteps` is removed.
     PresentationSteps,
+    /// The destination profile every output intent names, where this reader does not draw
+    /// through it, is written as the profile a file stating no intent is given.
+    ///
+    /// ISO 19005-2 and ISO 19005-4 section 6.2.3's class and colour-space row. §14.11.5 lets a
+    /// processor disregard an output intent, and this reader disregards one it cannot parse, so
+    /// the page was drawn as though no intent were stated; the profile the `OutputIntent` rewrite
+    /// would write is written at the object every entry already names (`doc/adr/2007`).
+    DestinationProfileReplaced,
     /// The catalog's `/OutputIntents` gains a PDF/A entry naming a destination profile.
     ///
     /// **The one rewrite of this verb that changes what the file *means*** rather than only what
@@ -982,13 +990,16 @@ pub enum Rewrite {
     /// and after each `gs`, and removing the entry leaves every colour where it was on this
     /// reader's device, whose initial transfer function §8.4.1's Table 52 leaves device dependent
     /// and which is the identity here (`doc/adr/1952` section 3). A `/TR2 /Identity` is written as
-    /// Table 57's `Default`, that same initial function, by the same reasoning (`doc/adr/1978`).
+    /// Table 57's `Default`, that same initial function, by the same reasoning (`doc/adr/1978`),
+    /// and a halftone's `TransferFunction /Identity` where §10.6.5.6 requires none is removed,
+    /// since the identity it overrode the graphics state's function with is what every graphics
+    /// state then states (`doc/adr/2007`).
     IdentityTransferFunctionRemoved,
     /// Every graphics state stating `/TR` loses the entry, where one of them states a function
     /// other than the identity — each such function first written into `xmpMM:History`.
     ///
     /// The same removal as [`Self::IdentityTransferFunctionRemoved`] over the same graphics
-    /// states, and a different rewrite because it costs [`super::Loss::TransferFunction`]: §10.5's
+    /// states and halftones, and a different rewrite because it costs [`super::Loss::TransferFunction`]: §10.5's
     /// function is drawn, so the colours it adjusted move (`doc/adr/1964`).
     TransferFunctionRemoved,
     /// A halftone stating `HalftoneName` loses the entry, keeping the parameters it defines.
@@ -1066,6 +1077,10 @@ impl Rewrite {
                 "the name dictionary's /AlternatePresentations is removed"
             }
             Self::PresentationSteps => "a page's /PresSteps is removed",
+            Self::DestinationProfileReplaced => {
+                "the destination profile every output intent names, which this reader could not \
+                 draw through, is written as the profile a file stating no intent is given"
+            }
             Self::OutputIntent => {
                 "the catalog states a PDF/A output intent whose destination profile says what \
                  this file's device colours mean"
@@ -1355,12 +1370,13 @@ impl Rewrite {
             }
             Self::IdentityTransferFunctionRemoved => {
                 "a graphics state's TR entry naming the identity is removed and a TR2 naming it \
-                 is written Default, in a file whose graphics states state no other transfer \
-                 function"
+                 is written Default, and a halftone's TransferFunction naming it is removed where \
+                 none is required, in a file that states no other transfer function"
             }
             Self::TransferFunctionRemoved => {
-                "every graphics state's TR entry is removed and every TR2 is written Default, and \
-                 each function other than the identity is first written into the file's own \
+                "every graphics state's TR entry is removed, every TR2 is written Default and \
+                 every halftone's TransferFunction is removed where none is required, and each \
+                 function other than the identity is first written into the file's own \
                  xmpMM:History"
             }
             Self::HalftoneNameRemoved => {
@@ -1421,6 +1437,7 @@ impl Rewrite {
             Self::RequirementsDictionary => "requirements-dictionary",
             Self::AlternatePresentations => "alternate-presentations",
             Self::PresentationSteps => "presentation-steps",
+            Self::DestinationProfileReplaced => "destination-profile-replaced",
             Self::OutputIntent => "output-intent",
             Self::IdentificationSchema => "identification-schema",
             Self::DefaultCmyk => "default-cmyk",
@@ -1558,6 +1575,7 @@ pub(super) fn convert(
         transfers: prepared.owed.transfers.as_ref().ok(),
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
         halftone_names: prepared.owed.halftone_names.as_ref().ok(),
+        replaced_destination: prepared.replaced_destination.as_ref().ok(),
         overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
         profile_alternates: prepared
             .owed
@@ -2409,6 +2427,8 @@ struct Rewriter<'a> {
     blend_modes: Option<&'a sites::Sites>,
     /// The halftones whose `HalftoneName` goes.
     halftone_names: Option<&'a sites::Sites>,
+    /// The destination profile written over one this reader does not draw through.
+    replaced_destination: Option<&'a super::prepare::ReplacedDestination>,
     /// The graphics states whose overprint mode becomes 0.
     overprint_modes: Option<&'a super::overprint::OverprintModes>,
     /// The space each unreadable ICC profile's `ICCBased` arrays are written as, by profile.
@@ -2707,6 +2727,17 @@ impl Rewriter<'_> {
                     .transfers
                     .is_some_and(|functions| functions.at.contains(&id))
                 && out.remove("TR").is_some()
+            {
+                count(applied, rewrite);
+                changed = true;
+            }
+            // §10.6.5.6 requires a halftone's own function only of a type 5 component for a
+            // nonstandard colourant, and these are the halftones stating one elsewhere.
+            if self.wants(rewrite)
+                && self
+                    .transfers
+                    .is_some_and(|functions| functions.halftones.contains(&id))
+                && out.remove("TransferFunction").is_some()
             {
                 count(applied, rewrite);
                 changed = true;
@@ -4500,6 +4531,16 @@ impl Rewriter<'_> {
         if self.wants(Rewrite::PostScriptXObject) && self.subtype_is(&stream.dict, b"PS") {
             count(applied, Rewrite::PostScriptXObject);
             return Rewritten::Dropped;
+        }
+        // The destination profile this reader could not draw through, written as the profile a
+        // file stating no intent is given, at the object every entry names (`doc/adr/2007`).
+        if self.wants(Rewrite::DestinationProfileReplaced)
+            && let Some(replaced) = self
+                .replaced_destination
+                .filter(|replaced| replaced.at == id)
+        {
+            count(applied, Rewrite::DestinationProfileReplaced);
+            return Rewritten::Changed(replaced.written.clone());
         }
         // The attachment a tool derived: a whole new stream rather than a dictionary edit, because
         // its bytes, its `/Length`, its `/Subtype` and its `/Params` all change together. The

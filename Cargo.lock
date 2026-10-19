@@ -5756,6 +5756,7 @@ dependencies = [
  "rustix 1.1.4",
  "thiserror 2.0.21",
  "viewer-core",
+ "viewer-host",
 ]
 
 [[package]]

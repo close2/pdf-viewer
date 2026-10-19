@@ -33,7 +33,7 @@
 //! next one at another magnification — and for the page drawn whole, after a notch back to a size
 //! drawn whole, until that frame lands (ADR 1930).
 
-use pdf_render::{Raster, TargetSpec, Transform};
+use pdf_render::{DisplayList, Raster, TargetSpec, Transform};
 use viewer_core::{DocumentId, FrameView, PageGeometry, RenderRequest, RenderToken};
 
 use crate::drawing::{Finished, Partial};
@@ -109,16 +109,23 @@ const KEPT: f64 = 0.875;
 #[must_use]
 pub fn oversized(request: &RenderRequest, viewport: (u32, u32)) -> bool {
     let target = request.target;
+    u64::from(target.width).saturating_mul(u64::from(target.height)) > viewer_core::MAX_PIXELS
+        || worth_a_window(&request.list, target, viewport)
+}
+
+/// Whether the largest window a viewport `viewport` device pixels across draws of `target`,
+/// centred on it, is part of it and either at most half its area or keeps at most `KEPT` of
+/// `list`'s commands — [`oversized`]'s rule for a page under the bound, which the confined worker
+/// states again for a page that crosses its pipe as pixels, because that process links no host
+/// crate (ADRs 1871, 2016).
+#[must_use]
+pub fn worth_a_window(list: &DisplayList, target: TargetSpec, viewport: (u32, u32)) -> bool {
     let area = |width: u32, height: u32| u64::from(width).saturating_mul(u64::from(height));
     let page = area(target.width, target.height);
-    if page > viewer_core::MAX_PIXELS {
-        return true;
-    }
     let window = largest_centred(target, viewport);
     let kept = area(window.width, window.height);
     kept < page
-        && (kept.saturating_mul(2) <= page
-            || request.list.share_reaching(window.target_of(target)) <= KEPT)
+        && (kept.saturating_mul(2) <= page || list.share_reaching(window.target_of(target)) <= KEPT)
 }
 
 /// The largest window a viewport `viewport` device pixels across is drawn as, centred on `target`

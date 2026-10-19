@@ -491,10 +491,11 @@ impl Remedies {
 }
 
 impl Remedies {
-    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, answered by the
-    /// operator's text for the tags a profile lacks.
+    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` and its part 4
+    /// counterpart, answered by the operator's text for the tags a profile lacks.
     ///
-    /// ISO 19005-2 section 6.2.4.2. The population is every `ICCBased` profile the requirement's
+    /// ISO 19005-2 and ISO 19005-4 section 6.2.4.2, each by its own reading of which edition a
+    /// profile is held to ([`super::icc::Reading`], `doc/adr/2006`). The population is every `ICCBased` profile the requirement's
     /// own reading finds short, and the site is answered only where every one of them is a profile
     /// this reader draws through that lacks nothing but `desc` and `cprt`, and the operator stated
     /// a text for each tag missing — anything else keeps the refusal [`super::icc`] names. No
@@ -506,7 +507,10 @@ impl Remedies {
         site: &'static str,
         texts: super::icc::Texts<'_>,
     ) {
-        let short = super::icc::ShortProfiles::of(document);
+        let Some(reading) = super::icc::Reading::of_site(site) else {
+            return;
+        };
+        let short = super::icc::ShortProfiles::of(document, reading);
         if short.supply_obstacle().is_some() {
             return;
         }

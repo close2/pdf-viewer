@@ -231,6 +231,25 @@ impl Screen {
         self.device
     }
 
+    /// The window's extent in device pixels.
+    #[must_use]
+    pub(crate) fn extent(&self) -> (u32, u32) {
+        self.extent
+    }
+
+    /// How many commands of marks the device draws for this screen: the price a device frame is
+    /// divided by (ADR 2017).
+    #[must_use]
+    pub(crate) fn device_commands(&self) -> usize {
+        self.slots
+            .iter()
+            .map(|slot| match &slot.content {
+                Content::Marks(list, _) => list.commands().len(),
+                _ => 0,
+            })
+            .sum()
+    }
+
     /// The window grew or shrank; the next [`Self::compose`] fills the new extent.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.extent = (width, height);
@@ -262,10 +281,12 @@ impl Screen {
         let previous = std::mem::take(&mut self.slots);
         let mut kept: Vec<Option<Slot>> = previous.into_iter().map(Some).collect();
         for framed in frames {
+            // The bytes that crossed price the crossing (`pricing`) and place nothing.
             let Framed {
                 page,
                 payload,
                 origin,
+                bytes: _,
             } = framed;
             let before = kept
                 .iter_mut()
@@ -986,6 +1007,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin,
             }]
         };
@@ -1068,6 +1090,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin: (-1000.0, -1000.0),
             }],
             &mut drawing,
@@ -1101,6 +1124,7 @@ mod tests {
             vec![Framed {
                 page: 0,
                 payload: Payload::Raster(a_raster(10, 10, [1, 2, 3, 255])),
+                bytes: 0,
                 origin: (5.0, 7.0),
             }],
             &mut drawing,
@@ -1125,11 +1149,13 @@ mod tests {
                 Framed {
                     page: 0,
                     payload: Payload::Raster(a_raster(10, 10, [9, 9, 9, 255])),
+                    bytes: 0,
                     origin: (-5.0, -5.0),
                 },
                 Framed {
                     page: 1,
                     payload: Payload::Raster(a_raster(10, 10, [7, 7, 7, 255])),
+                    bytes: 0,
                     origin: (15.0, 15.0),
                 },
             ],
@@ -1160,6 +1186,7 @@ mod tests {
             vec![Framed {
                 page: 0,
                 payload: Payload::List { list, target },
+                bytes: 0,
                 origin: (2.0, 2.0),
             }],
             &mut drawing,
@@ -1188,6 +1215,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target: new,
                 },
+                bytes: 0,
                 origin: (0.0, 0.0),
             }],
             &mut drawing,
@@ -1236,6 +1264,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin,
             }]
         };
@@ -1279,6 +1308,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin: (0.0, 0.0),
             }],
             &mut drawing,
@@ -1288,6 +1318,7 @@ mod tests {
             vec![Framed {
                 page: 1,
                 payload: Payload::Raster(a_raster(4, 4, [8, 8, 8, 255])),
+                bytes: 0,
                 origin: (0.0, 0.0),
             }],
             &mut drawing,
@@ -1341,6 +1372,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin: (0.0, 0.0),
             }]
         };
@@ -1398,6 +1430,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin: (0.0, 0.0),
             }]
         };
@@ -1449,6 +1482,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin: (2.4, 3.6),
             }],
             &mut drawing,
@@ -1485,6 +1519,7 @@ mod tests {
             vec![Framed {
                 page: 0,
                 payload: Payload::Raster(a_raster(4, 4, colour)),
+                bytes: 0,
                 origin: (0.0, 0.0),
             }]
         };
@@ -1525,6 +1560,7 @@ mod tests {
                     list: Arc::clone(&list),
                     target,
                 },
+                bytes: 0,
                 origin,
             }]
         };

@@ -351,9 +351,9 @@ fn structure_tree_root(exam: &Examination<'_>, findings: &mut Findings) {
 /// leniency: they are ISO 32000-1's own, the base document part 2 names, and ISO 32000-2
 /// §14.8.6.1 makes that namespace the default one — an element stating no `/NS` is in it, and
 /// Annex M lists what it holds beyond PDF 2.0's (`Art`, `BlockQuote`, `TOC`, `TOCI`, `Index`,
-/// `Private`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`). `pdf_model::structure`'s
-/// `StandardType` is PDF 2.0's vocabulary, so [`standard_structure_element`] adds them (ADR 1990
-/// section 7).
+/// `Private`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`). `Tree::standard_role` reads an
+/// element's name in the vocabulary of the namespace it ends in, so it answers both this and the
+/// leniency above itself (ADR 1990 section 7, ADR 2014).
 fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Some(tree) = Tree::of(document) else {
@@ -375,41 +375,19 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
     }
 }
 
-/// The structure types ISO 32000-2 Annex M lists as defined in the standard structure namespace
-/// for PDF 1.7 and not in the one for PDF 2.0.
-const PDF_1_7_ONLY: [&str; 11] = [
-    "Art",
-    "BlockQuote",
-    "TOC",
-    "TOCI",
-    "Index",
-    "Private",
-    "Quote",
-    "Note",
-    "Reference",
-    "BibEntry",
-    "Code",
-];
-
 /// Whether a structure type name is standard in either standard structure namespace, as
 /// `role_map_terminates_at_a_standard_type` reads one for an element in the default namespace.
 #[must_use]
 pub fn standard_structure_type(name: &str) -> bool {
-    StandardType::read(name).is_some() || PDF_1_7_ONLY.contains(&name)
+    StandardType::read(name).is_some()
 }
 
-/// Whether an element's type, after its role mapping, is a standard one: §14.8.4's PDF 2.0
-/// vocabulary through `pdf_model`, or — for an element stating no namespace, which §14.8.6.1 puts
-/// in the default PDF 1.7 one — a type Annex M lists for that namespace alone.
+/// Whether an element's type, after its role mapping, is a standard one, in the namespace it ends
+/// in: `pdf_model`'s reading, which puts an element stating no namespace in §14.8.6.1's default PDF
+/// 1.7 one and reads a PDF 2.0 type stating none as PDF 2.0's.
 #[must_use]
 pub fn standard_structure_element(tree: &Tree, document: &Document, element: &Dictionary) -> bool {
-    if tree.standard_role(document, element).is_some() {
-        return true;
-    }
-    element.get("NS").is_none()
-        && tree
-            .role(document, element)
-            .is_some_and(|role| PDF_1_7_ONLY.contains(&role.as_str()))
+    tree.standard_role(document, element).is_some()
 }
 
 /// ISO 19005-2 section 6.7.4, which is one `shall` inside a subclause of recommendations.

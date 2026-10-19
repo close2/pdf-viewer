@@ -9,11 +9,15 @@
 //!
 //! # State
 //!
-//! **M1.** A device (headless and surface-attached), the three targets of the brief's
-//! brief section 2.4, analytically-covered axis-aligned rectangles, timestamped and truthful
-//! frames, and the startup split of brief section 7. The requirements are in
-//! `raster/doc/RENDER_LIBRARY.md`, the order of work in `raster/doc/PLAN.md`, and `raster/doc/adr/0003`
-//! says what a module may contain before the milestone that fills it.
+//! The scene's whole vocabulary is drawn — rectangles, fills and strokes over uploaded outlines,
+//! one-segment lines, images, clips, masks and groups — on a device that is headless or
+//! surface-attached, into the three targets of the brief's section 2.4. Each mark's coverage comes
+//! from the lane [`gpu::frame::LaneCounts`] counts it in (an analytic rectangle or line, a tile
+//! of the glyph atlas, a tile of the frame's sheet, an image quad), the sheet filled by the
+//! processor or the device as [`gpu::startup::Coverage`] chooses; a frame that does not change is
+//! replayed as a [`RetainedScene`]. The requirements are `raster/doc/RENDER_LIBRARY.md` and the
+//! decisions `raster/doc/adr/`; what the viewer draws through this library is the workspace's
+//! `doc/state-of-play.md`.
 //!
 //! # The shape of the API
 //!
@@ -52,10 +56,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! (M2 replaces the rectangle-only vocabulary with `fill`/`stroke` over uploaded
-//! outlines — the brief's section 2.2 — at which point this example grows an
-//! `upload_outline` call.)
 //!
 //! # Two promises worth reading before the rest
 //!

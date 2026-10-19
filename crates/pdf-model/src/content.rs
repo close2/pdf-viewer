@@ -39,7 +39,7 @@ use overprint::ProcessTints;
 use pattern::{PatternInitial, PatternPaint};
 use run::narrow;
 use text::Coverage;
-use transparency::{PagePress, Readings, page_blending_space, page_press};
+use transparency::{PagePress, Readings, page_blending_space, page_cmyk_group, page_press};
 
 pub(crate) use ext_gstate::resources_blend;
 
@@ -1502,6 +1502,7 @@ impl<'a> Interpreter<'a> {
             structural_annotations: Vec::new(),
             stream_structures: BTreeMap::new(),
             output_intent: output_intent_space(document, Some(&page.dict)),
+            cmyk_group: page_cmyk_group(document, page),
             optional_content: state.optional_content().cloned(),
             view: Cow::Borrowed(state),
             delegated,
@@ -1577,6 +1578,7 @@ impl<'a> Interpreter<'a> {
             structure: _,
             tagged: _,
             output_intent: _,
+            cmyk_group: _,
             optional_content: _,
             delegated: _,
             blending: _,
@@ -2754,7 +2756,11 @@ struct Interpreter<'a> {
     /// shading fills each preceded by its own `cs`, and 95% of its 380 G interpretation
     /// instructions were inside `ColourSpace::parse_at` — 78% of the page in `zlib` and 17%
     /// in `icc::Profile::parse` — for one profile it read 1053 times.
-    icc_spaces: BTreeMap<ObjectId, ColourSpace>,
+    ///
+    /// Keyed by [`Interpreter::cmyk_group`]'s profile as well, for the one case the stream does
+    /// not decide: a profile that does not parse is its `/Alternate`, which §11.7.2 can redefine
+    /// (`Interpreter::cmyk_group_identity`).
+    icc_spaces: BTreeMap<(ObjectId, Option<u128>), ColourSpace>,
     /// §11.6.5.2's soft masks already read for the device to place (§10.7.4).
     ///
     /// The same argument as [`Self::shadings`], and the same shape: a page draws one
@@ -2792,6 +2798,14 @@ struct Interpreter<'a> {
     /// can say how its device colours are calibrated, so it is what a device space means
     /// when nothing nearer to hand says otherwise.
     output_intent: Option<ColourSpace>,
+    /// The `ICCBased` CMYK blending space §11.7.2 redefines `DeviceCMYK` to be where the
+    /// content now being run is painted, nearest isolated group or page first, or `None` where
+    /// no such group or page encloses it.
+    ///
+    /// A scope rather than a value: `Interpreter::group_commands` and
+    /// `Interpreter::enter_mask_compositing` replace it for a group's runs and it is put back
+    /// after, and it starts at the page's own group's (`transparency::page_cmyk_group`). ADR 2012.
+    cmyk_group: Option<ColourSpace>,
     /// The page's text, accumulated as the glyphs are placed.
     text: String,
     /// §14.9's accessibility spans over [`Self::text`], pushed as each section closes.

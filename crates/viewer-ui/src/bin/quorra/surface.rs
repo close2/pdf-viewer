@@ -599,7 +599,7 @@ impl App {
     fn said_idle_work(
         &self,
         sharpened: Option<std::time::Duration>,
-        built_ahead: Option<render_raster::FrameCost>,
+        built_ahead: Option<&render_raster::FrameCost>,
     ) {
         if let Some(took) = sharpened {
             // Rule 3's sentence for ADR 0699: the page on the window just became the 2×
@@ -641,7 +641,7 @@ impl App {
         let landed = window.collect();
         let sharpened = window.sharpened();
         let built_ahead = window.built_ahead();
-        self.said_idle_work(sharpened, built_ahead);
+        self.said_idle_work(sharpened, built_ahead.as_ref());
         let Some(landed) = landed else {
             return;
         };

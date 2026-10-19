@@ -587,8 +587,8 @@ pub struct Conversion {
     /// intersection with the media box. Empty for every conversion whose pages met the limit
     /// (`doc/adr/1210`).
     pub removed_boundaries: Vec<super::RemovedBoundary>,
-    /// Every graphics state whose transfer function other than the identity this conversion
-    /// removed, with what the function said.
+    /// Every graphics state or halftone whose transfer function other than the identity this
+    /// conversion removed, with what the function said (`doc/adr/1964`, `doc/adr/2007`).
     ///
     /// ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5, answered by
     /// [`super::Loss::TransferFunction`]: ISO 32000-2 §10.5's function is drawn, so the colours it

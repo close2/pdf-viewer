@@ -3627,13 +3627,27 @@ PY2
 # notch waited for until its frame or its window lands, until a notch says `window … rasterised`:
 # the window must be less than the page it is of, and the photograph taken then must hold the red
 # block at the size the magnification gives it, 60 points of that page. HEAD's windows draw every such page whole and never say a window (the
-# control). `quorra` draws a window-sized frame and is
-# not offered.
+# control). `quorra-confined` is judged as the toolkits: the page's list is larger than its pixels, so
+# it crosses as pixels, and its worker draws the window where the toolkits' rule holds and says so in
+# the frame, which the window prints as `crossed as the window shows it` (ADR 2016). `quorra` draws a
+# window-sized frame and is not offered.
+# zoom_framed N: whether a zoom has gone to the confined worker since line N and a frame crossed
+# after it.
+zoom_framed() {
+    local from
+    from=$(tail -n "+$(($1 + 1))" "$LOG" | grep -n -- '-> Zoom' | tail -1 | cut -d: -f1)
+    [ -n "$from" ] && tail -n "+$(($1 + from))" "$LOG" | grep -q "frame: [0-9]* page"
+}
 zoomed_window() {
     local step=82-zoomed-window file="$FIXTURES/drive-band.pdf" traced=$LAUNCH_TRACE mark first notch box whole of
-    if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+    local landed='window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised' asked='asked as the window shows it'
+    if [ "$WINDOW" = quorra ]; then
         verdict "$step" "not offered" "this window draws a window-sized frame, not a page raster"
         return
+    fi
+    if [ "$WINDOW" = quorra-confined ]; then
+        landed='crossed as the window shows it, [0-9]*x[0-9]* at [0-9]*,[0-9]*'
+        asked='crossed as the window shows it'
     fi
     [ -s "$file" ] || python3 - "$file" <<'PY2'
 import sys, zlib, pikepdf
@@ -3653,23 +3667,32 @@ PY2
     local X Y WIDTH HEIGHT
     eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
     xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    # With no window manager the confined window takes the keyboard only when given it, as
+    # `zoom_past` gives it.
+    [ "$WINDOW" = quorra-confined ] && xdotool windowfocus --sync "$(main_window)" 2>/dev/null
     first=$(lines)
     for notch in 1 2 3 4 5 6 7 8; do
         mark=$(lines)
         xdotool key equal
-        wait_for 30 said_since "$mark" "rasterised"
-        said_since "$mark" "window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised" && break
+        if [ "$WINDOW" = quorra-confined ]; then
+            # Its frame follows the notch's command; a notch held while the worker drew the last
+            # is sent when it is free (ADR 1827), so the frame after it is waited for.
+            wait_for 60 zoom_framed "$mark"
+        else
+            wait_for 30 said_since "$mark" "rasterised"
+        fi
+        said_since "$mark" "$landed" && break
         sleep 0.5
     done
-    if ! said_since "$mark" "window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised"; then
-        verdict "$step" wrong "no window was drawn after $notch notches: $(tail -n "+$((first + 1))" "$LOG" | grep -oE 'rasterised [0-9]+x[0-9]+' | tail -1)"
+    if ! said_since "$mark" "$landed"; then
+        verdict "$step" wrong "no window was drawn after $notch notches: $(tail -n "+$((first + 1))" "$LOG" | grep -oE 'rasterised [0-9]+x[0-9]+|frame: [0-9]+ page.*' | tail -1)"
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
         return
     fi
     sleep 0.7
     xdotool key shift; sleep 0.5
     shot "$step"
-    of=$(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -oE 'asked as the window shows it, [0-9]+x[0-9]+ at [0-9]+,[0-9]+ of [0-9]+x[0-9]+')
+    of=$(tail -n "+$((mark + 1))" "$LOG" | grep -m1 -oE "$asked, [0-9]+x[0-9]+ at [0-9]+,[0-9]+ of [0-9]+x[0-9]+")
     whole=$(tail -n "+$((first + 1))" "$LOG" | grep -oE 'page 1 rasterised [0-9]+x[0-9]+' | grep -oE '[0-9]+x[0-9]+$' | tail -1)
     box=$(magick "$OUT/shots/$WINDOW/$step.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
     if python3 - "$of" "${whole:-0x0}" "$box" <<'PY2'

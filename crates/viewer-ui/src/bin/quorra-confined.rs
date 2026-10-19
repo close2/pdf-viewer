@@ -88,6 +88,8 @@
 mod device;
 #[path = "quorra-confined/exchange.rs"]
 mod exchange;
+#[path = "quorra-confined/pricing.rs"]
+mod pricing;
 #[path = "quorra-confined/screen.rs"]
 mod screen;
 #[path = "quorra-confined/typing.rs"]
@@ -291,6 +293,10 @@ struct Host {
     waiting: Option<Waiting>,
     /// How long the act being done now was held, for the trace line of the command it sends.
     held_for: Option<Duration>,
+    /// When the last command went to the worker, which times the frame it causes (ADR 2017).
+    sent: Option<Instant>,
+    /// What this window has measured of a page past the bound's two routes (ADR 2017).
+    pricing: pricing::Pricing,
     /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
     /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
     /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
@@ -412,6 +418,8 @@ impl Host {
             held: VecDeque::new(),
             waiting: None,
             held_for: None,
+            sent: None,
+            pricing: pricing::Pricing::default(),
             drawing: Drawing::new(),
             screen: if processor {
                 Screen::new()
@@ -937,10 +945,10 @@ impl Host {
                     eprintln!("refused by the document's restrictions: {note}");
                 }
             }
-            // The other two of `CLAUDE.md`'s four levels (ADR 0814). This window makes no edit
-            // and sets no level, so neither arrives; both are answered all the same, in the
-            // direction that obeys, so that a level added to this window later cannot behave
-            // like another one in silence.
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). This window sets no level,
+            // so each operation stands at the default, `off`, and neither arrives; both are
+            // answered all the same, in the direction that obeys, so that a level added to this
+            // window later cannot behave like another one in silence.
             Event::Warned { notes, .. } => {
                 eprintln!("note: {}", viewer_host::warned(&notes));
             }
@@ -960,11 +968,12 @@ impl Host {
                     );
                 }
             }
-            // And the third, for the reason the two arms above give: this window makes no edit
-            // and has no copy gesture, so no operation of its can be restricted and no question
-            // can arrive. The other three windows put the question on a dialogue of their own
-            // (ADR 1145); what this one owes is that a level never behaves like another in
-            // silence, which `viewer_host::unanswerable` is the sentence for.
+            // And the third, for the reason the arms above give. Two of this window's operations
+            // can be restricted — a click that toggles a check box fills a field, and one on a
+            // rendition hands its clip over (ADR 1987) — but it sets no level, so both stand at
+            // `off` and no question arrives. The other three windows put the question on a
+            // dialogue of their own (ADR 1145); what this one owes is that a level never behaves
+            // like another in silence, which `viewer_host::unanswerable` is the sentence for.
             Event::Asking {
                 document, notes, ..
             } => {
@@ -1064,6 +1073,7 @@ impl Host {
         if self.stopped.is_some() {
             return;
         }
+        let began = self.sent.take().unwrap_or_else(Instant::now);
         let asked = match self.confined.as_mut() {
             Some(confined) => confined.query(Query::Frame),
             None => return,
@@ -1081,6 +1091,36 @@ impl Host {
                             .count()
                     ),
                 );
+                // A window the worker drew, said in the toolkit windows' words for the one they
+                // ask for, so a drive judges the three alike (ADR 2016).
+                for framed in &frames {
+                    if let Payload::Window {
+                        target,
+                        corner,
+                        raster,
+                    } = &framed.payload
+                    {
+                        self.trace.say(
+                            Topic::Frames,
+                            format_args!(
+                                "page {} crossed as the window shows it, {}x{} at {},{} of {}x{}",
+                                framed.page.saturating_add(1),
+                                raster.width,
+                                raster.height,
+                                corner.0,
+                                corner.1,
+                                target.width,
+                                target.height
+                            ),
+                        );
+                    }
+                }
+                if self.screen.draws_on_the_device() {
+                    let forecasts =
+                        self.pricing
+                            .frame(&frames, began.elapsed(), self.screen.extent());
+                    self.route(&forecasts);
+                }
                 self.screen.take(frames, &mut self.drawing);
                 self.refused_since_take = false;
                 // A frame crossed, so where the reader is now is where a resume goes back to —
@@ -1097,6 +1137,50 @@ impl Host {
             // No document is focused — before the open, or after a failed one.
             Ok(_) => {}
             Err(problem) => self.died(&problem),
+        }
+    }
+
+    /// Says each priced page's route, and asks the worker for the one that changed (ADR 2017):
+    /// `quorra`'s `device chosen` and `processor chosen` lines, with the worker's window as the
+    /// processor (ADR 1886).
+    fn route(&mut self, forecasts: &[pricing::Forecast]) {
+        for forecast in forecasts {
+            let (chosen, past) = match forecast.chosen {
+                viewer_confined::Route::Window => ("window", "the device's past the warning"),
+                viewer_confined::Route::Marks => {
+                    ("device", "the device's inside the warning or the smaller")
+                }
+            };
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} {chosen} chosen: device {:.1} ms with the crossing (measured), window \
+                     {:.1} ms ({}); {past}",
+                    forecast.page.saturating_add(1),
+                    forecast.device.as_secs_f64() * 1e3,
+                    forecast.window.as_secs_f64() * 1e3,
+                    if forecast.window_measured {
+                        "measured"
+                    } else {
+                        "seed"
+                    },
+                ),
+            );
+            if !forecast.changed {
+                continue;
+            }
+            let Some(confined) = self.confined.as_mut() else {
+                return;
+            };
+            match confined.route(forecast.page, forecast.chosen) {
+                Ok(()) => self.pricing.asked(forecast.page, forecast.chosen),
+                // The page keeps the route it had, which draws it; the sentence says why the
+                // quicker one was not taken.
+                Err(problem) => eprintln!(
+                    "page {}: the worker did not take the {chosen} route: {problem}",
+                    forecast.page.saturating_add(1)
+                ),
+            }
         }
     }
 
@@ -1254,6 +1338,8 @@ impl Host {
         if !self.refused_since_take && self.on_the_processor.take().is_some() {
             self.retitle();
         }
+        self.pricing
+            .device_drew(landed.cost.total, self.screen.device_commands());
         self.trace.say(
             Topic::Frames,
             format_args!(

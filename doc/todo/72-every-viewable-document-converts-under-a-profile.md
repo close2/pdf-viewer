@@ -36,7 +36,9 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    one (Table 33), so removing one *inside* such a section changes nothing a conforming reader
    draws; outside, what the page means is this reader's tolerance. Argue the first half.
 3. `fonts/embedded-programs-define-every-glyph-shown` (fence) — a shown code the program has no
-   glyph for. ADR 1943's route may reach a glyph for some; re-count after it before anything else.
+   glyph for: 29 pdf.js and corpora documents at 2b, 22 of the veraPDF corpus. The row asks
+   `pdf_font`'s own `glyph_index`, which carries ADR 1943's step, so every code it counts is one
+   that route already failed to reach; it cannot move the count further.
 4. `graphics/no-transfer-function-in-a-graphics-state` — **built**: every `/TR` `Identity` is a
    statement (26 of 27 documents; ADR 1952 section 3), any other function the loss
    `transfer-function`, kept in `xmpMM:History` before it goes. Both shipped profiles say `stop`:
@@ -64,7 +66,9 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    1990): a profile drawn through that lacks only `desc` or `cprt` takes the operator's
    `description`/`copyright` (three shipped profiles state both; `issue14814.pdf` converts to 2b,
    pages identical), and one not drawn through is written as its Table 65 alternate with the
-   output intent its device space needs (`435321.pdf`, refused elsewhere). Left: its part 4 row.
+   output intent its device space needs (`435321.pdf`, refused elsewhere). Its part 4 row
+   (`…-their-version-requires`) — **built** (ADR 2006): the same three answers, the profile held
+   to the edition its header names; no corpus document reaches it, fixtures are its witnesses.
    The XMP edition (ADR 1991): part 2 identifies the XMP Specification only as its September 2005
    edition, so a predefined namespace's undefined name needs a container; `102952.pdf`'s 2b
    output now passes veraPDF. Then
@@ -79,6 +83,15 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
     and `logical-structure/role-map-terminates-at-a-standard-type` — **built as a `supply`** (ADR
     1990 section 6): the operator's `role-map` table; the eleven PDF 1.7 namespace types are
     standard (section 7), which the census's 2a count measured as unmapped.
+
+**Over the veraPDF corpus** no pdf.js or `doc/corpora` document reaches a `not-built-yet` site
+at 2b, so that corpus ranks them: `graphics/destination-profile-class-and-colour-space` (9) —
+**built** where this reader does not draw through the profile and the slot is RGB (ADR 2007; four
+witnesses convert, two drawn-through ones stay refused) — and
+`graphics/halftone-transfer-function-only-where-required` (3) — **built** as `/TR`'s third row
+(ADR 2007; its witnesses are PDF 2.0 files, refused at 2b by their header). Next:
+`…-carries-the-tags-its-class-requires` and `…-states-a-correct-profile-id` (2 each, one witness
+failing both), `graphics/halftone-type-is-one-or-five` (2).
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

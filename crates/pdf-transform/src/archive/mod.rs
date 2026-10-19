@@ -1000,7 +1000,9 @@ fn apply_the_decisions(
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
     // and now two rewrites: the output intent names it as its destination profile, and the
     // `/DefaultCMYK` names the same object as its alternate space.
-    if (wanted.contains(&Rewrite::OutputIntent) || wanted.contains(&Rewrite::DefaultCmyk))
+    if (wanted.contains(&Rewrite::OutputIntent)
+        || wanted.contains(&Rewrite::DefaultCmyk)
+        || wanted.contains(&Rewrite::DestinationProfileReplaced))
         && let Ok(intent) = &prepared.intent
     {
         conversion.profile = Some(intent.reported.clone());
@@ -1157,9 +1159,7 @@ fn apply_the_decisions(
     if wanted.contains(&Rewrite::TransferFunctionRemoved)
         && let Ok(functions) = &prepared.owed.transfers
     {
-        conversion
-            .removed_transfer_functions
-            .clone_from(&functions.stated);
+        conversion.removed_transfer_functions = functions.removed();
     }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.

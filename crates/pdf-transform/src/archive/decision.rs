@@ -537,11 +537,11 @@ impl Loss {
                  it unchanged because the rule does not bind there"
             }
             Self::TransferFunction => {
-                "a graphics state's transfer function other than the identity is removed, so the \
-                 colours ISO 32000-2 \u{a7}10.5 had it adjust for one output device are drawn \
-                 without that adjustment. The function itself is written into the output's own \
-                 xmpMM:History first, in the file's own syntax with its data decoded, and the \
-                 report names every graphics state it went from"
+                "a graphics state's or a halftone's transfer function other than the identity is \
+                 removed, so the colours ISO 32000-2 \u{a7}10.5 had it adjust for one output \
+                 device are drawn without that adjustment. The function itself is written into \
+                 the output's own xmpMM:History first, in the file's own syntax with its data \
+                 decoded, and the report names every graphics state or halftone it went from"
             }
             Self::HalftoneName => {
                 "a halftone's HalftoneName is removed and the screen its own entries define is \
@@ -1720,6 +1720,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // is also what refuses a document failing in the shape the standard leaves unanswered.
     // -----------------------------------------------------------------------------------------
 
+    // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: a destination profile of a class or a
+    // colour space neither part admits, where this reader does not draw through it and the slot is
+    // RGB; `super::prepare::ReplacedDestination` names each other case's refusal (`doc/adr/2007`).
+    Remedy {
+        requirement: "graphics/destination-profile-class-and-colour-space",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileReplaced,
+            DESTINATION_REPLACED_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5. Stated where every `/TR` is the
     // identity (`doc/adr/1952` section 3), and a loss where one is not (`doc/adr/1964`):
     // `answer_of` routes on what `super::transfer` found, as `CONDITIONAL` says.
@@ -1739,6 +1750,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
             None,
             Rewrite::IdentityTransferFunctionRemoved,
             SECOND_IDENTITY_REINTERPRETS,
+        ),
+    },
+    // A halftone's `TransferFunction` where §10.6.5.6 requires none: the same removal's two
+    // answers, its `Identity` free wherever it stands (`doc/adr/2007`).
+    Remedy {
+        requirement: "graphics/halftone-transfer-function-only-where-required",
+        answer: Answer::Stated(
+            None,
+            Rewrite::IdentityTransferFunctionRemoved,
+            HALFTONE_IDENTITY_REINTERPRETS,
         ),
     },
     // ISO 19005-2 section 6.2.6, which part 4 does not state.
@@ -1782,6 +1803,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // transform tag is refused; `super::icc` says which (`doc/adr/1979`, `doc/adr/1990`).
     Remedy {
         requirement: "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
+        answer: Answer::Stated(
+            None,
+            Rewrite::ProfileAlternateWritten,
+            PROFILE_ALTERNATE_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-4 section 6.2.4.2's tag row, which holds a profile to the edition its own header
+    // names: the same three answers, read by the part's own text (`doc/adr/2006`).
+    Remedy {
+        requirement: "graphics/icc-profiles-carry-the-tags-their-version-requires",
         answer: Answer::Stated(
             None,
             Rewrite::ProfileAlternateWritten,
@@ -2020,6 +2051,10 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     ),
     (
         "graphics/second-transfer-function-is-default",
+        Conditional::PerDocument(Loss::TransferFunction),
+    ),
+    (
+        "graphics/halftone-transfer-function-only-where-required",
         Conditional::PerDocument(Loss::TransferFunction),
     ),
     (
@@ -2599,19 +2634,11 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
     ),
     (
-        "graphics/destination-profile-class-and-colour-space",
-        Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
-    ),
-    (
         "graphics/destination-profile-states-a-correct-profile-id",
         Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
     ),
-    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: an `ICCBased` space's own. The
-    // part 2 tag row is answered in `REMEDIES` (`doc/adr/1990`).
-    (
-        "graphics/icc-profiles-carry-the-tags-their-version-requires",
-        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
-    ),
+    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: an `ICCBased` space's own. Both
+    // parts' tag rows are answered in `REMEDIES` (`doc/adr/1990`, `doc/adr/2006`).
     (
         "graphics/icc-profiles-claim-a-permitted-edition",
         Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
@@ -3019,6 +3046,26 @@ const SECOND_IDENTITY_REINTERPRETS: &str = "a graphics state in this file states
      whose own default is not the identity, the producer's reset to the identity no longer \
      happens. The report names every graphics state rewritten";
 
+/// What writing a profile over an unreadable destination profile asserts (`doc/adr/2007`).
+const DESTINATION_REPLACED_REINTERPRETS: &str = "the destination profile this file's own output \
+     intent names is not an output or a monitor profile over grey, RGB or CMYK, and this reader \
+     cannot draw through it, so it drew the page as though no intent were stated - which ISO \
+     32000-2 14.11.5 permits, the intent being for informational purposes only. The profile a \
+     file stating no intent would be given is written at the object every entry names, so the \
+     device colours are stated as this reader showed them. What changes is for a processor that \
+     could read the producer's profile, and the producer's own identification of the output \
+     condition is kept beside a profile it did not choose. The report names the profile written";
+
+/// What removing a halftone's `TransferFunction /Identity` asserts (`doc/adr/2007`).
+const HALFTONE_IDENTITY_REINTERPRETS: &str = "a halftone in this file states TransferFunction \
+     Identity where ISO 32000-2 10.6.5.6 requires none, which ISO 19005 forbids, and no graphics \
+     state or halftone in it states any other transfer function, so the entry is removed. By \
+     ISO 32000-2 10.5 it overrode the graphics state's transfer function with the identity, and \
+     this conversion leaves no transfer function in any graphics state, so on this reader's \
+     device every colour is drawn where it was. On a device whose own default is not the \
+     identity, the producer's reset to the identity for that colourant no longer happens. The \
+     report names every halftone rewritten";
+
 /// Why JPEG 2000 samples are not re-encoded.
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
      bit depth and the channel count are stated in the codestream's own SIZ marker, and the \
@@ -3091,7 +3138,7 @@ const OVERPRINT_MODE_REINTERPRETS: &str = "a graphics state in this file sets ov
 
 /// What writing an unreadable profile's alternate asserts (`doc/adr/1990`).
 const PROFILE_ALTERNATE_REINTERPRETS: &str = "an ICCBased colour space in this file carries a \
-     profile short of the tags ISO 19005-2 section 6.2.4.2's ICC editions require, and this reader \
+     profile short of the tags the ICC edition section 6.2.4.2 holds it to requires, and this reader \
      cannot draw through it, so it drew the space in ISO 32000-2 8.6.5.5's Table 65 alternate - \
      the Alternate entry, or the device space of N - which that table makes the space used where \
      the profile is not supported. That alternate is written where the ICCBased array was, so \

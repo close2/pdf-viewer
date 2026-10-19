@@ -198,6 +198,15 @@ pub struct FrameCost {
     pub commands_culled: u32,
     /// Bytes raster scheduled for transfer to the device this frame.
     pub bytes_uploaded: u64,
+    /// [`Self::bytes_uploaded`] divided by the stream each byte crossed in — the line lane's
+    /// instances, the coverage sheet, the glyph atlas's rows, the compute lane's records and the
+    /// rest (raster's [`raster_gpu::UploadSplit`], ADR 1992), so a window's trace can say
+    /// what a frame sent rather than only how much. The shares sum to [`Self::bytes_uploaded`].
+    ///
+    /// **Carried by value, and a host passes the cost by reference where clippy's by-value bound
+    /// asks** (ADR 2009): the share is eighty bytes, and `Copy` is what lets a host keep
+    /// the last frame's cost beside its next without an allocation.
+    pub streams: raster_gpu::UploadSplit,
     /// Whether the device repacked its glyph atlas after this frame, throwing every tile's
     /// placement away.
     ///
@@ -686,6 +695,7 @@ impl FrameCost {
         self.commands = counters.commands;
         self.commands_culled = counters.commands_culled;
         self.bytes_uploaded = counters.bytes_uploaded;
+        self.streams = counters.uploads;
         self.atlas_repacked = counters.atlas_repacked;
         self.atlas_working_set_bytes = counters.atlas_working_set_bytes;
     }
@@ -714,6 +724,7 @@ impl FrameCost {
         self.commands = self.commands.saturating_add(other.commands);
         self.commands_culled = self.commands_culled.saturating_add(other.commands_culled);
         self.bytes_uploaded = self.bytes_uploaded.saturating_add(other.bytes_uploaded);
+        self.streams = self.streams.saturating_add(&other.streams);
         self.atlas_repacked |= other.atlas_repacked;
         self.atlas_working_set_bytes = self
             .atlas_working_set_bytes

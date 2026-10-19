@@ -1,12 +1,21 @@
-//! An `ICCBased` space whose profile lacks a tag ISO 19005-2 section 6.2.4.2's editions require,
-//! answered by what this reader drew through it (`doc/adr/1979`, `doc/adr/1990`).
+//! An `ICCBased` space whose profile lacks a tag its ICC edition requires, answered by what this
+//! reader drew through it (`doc/adr/1979`, `doc/adr/1990`, `doc/adr/2006`).
+//!
+//! # Two parts, two readings, one set of answers
+//!
+//! Both parts ask in section 6.2.4.2 for a profile that carries what an ICC edition requires, and
+//! they choose the edition differently. ISO 19005-2 names four and a profile need satisfy one —
+//! `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, read for one profile by
+//! `pdf_archive::icc_tag_shortfall`. ISO 19005-4 defers to ISO 32000-2 §8.6.5.5, which holds a
+//! profile to the version its own header names — `graphics/icc-profiles-carry-the-tags-their-
+//! version-requires`, read by `pdf_archive::icc_version_tag_shortfall`. [`Reading`] is the choice
+//! between the two; everything after it is the same, because what a converter may do about a short
+//! profile depends on what this reader drew rather than on which text found the tag missing.
 //!
 //! # Three kinds of profile, and three answers
 //!
-//! The row is `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, and
-//! `pdf_archive::icc_tag_shortfall` is its reading of one profile. What the converter may do about
-//! a short profile is decided by whether this reader draws through it, which
-//! `pdf_model::icc::Profile::parse` answers:
+//! What the converter may do about a short profile is decided by whether this reader draws through
+//! it, which `pdf_model::icc::Profile::parse` answers:
 //!
 //! - **Drawn through, short only of text tags.** `desc` and `cprt` are text no transform reads, so
 //!   writing them in moves no colour — but what they say is not in the file. A `supply`: the
@@ -27,6 +36,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::DeviceFamily;
+use pdf_archive::{IccTagShortfall, Part, Target};
 use pdf_model::icc::{Profile, computed_id, stated_id};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -35,8 +45,55 @@ use pdf_syntax::serialize::flate_encode;
 use super::decision::Because;
 use super::sites::MAX_ENTRY_DEPTH;
 
-/// The requirement this file answers.
+/// The part 2 requirement this file answers.
 pub(super) const SITE: &str = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+
+/// The part 4 requirement this file answers, by the same three answers (`doc/adr/2006`).
+pub(super) const SITE_FOUR: &str = "graphics/icc-profiles-carry-the-tags-their-version-requires";
+
+/// Which text a profile's tags are held to: the part's own choice of ICC edition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Reading {
+    /// ISO 19005-2 section 6.2.4.2: any of the editions the part names will do.
+    PermittedEdition,
+    /// ISO 19005-4 section 6.2.4.2, through ISO 32000-2 §8.6.5.5: the edition the header names.
+    OwnVersion,
+}
+
+impl Reading {
+    /// The reading a target's part states.
+    pub(super) const fn of(target: Target) -> Self {
+        match target.part() {
+            Part::Two => Self::PermittedEdition,
+            Part::Four => Self::OwnVersion,
+        }
+    }
+
+    /// The reading a requirement is, where it is one of the two this file answers.
+    pub(super) fn of_site(site: &str) -> Option<Self> {
+        match site {
+            SITE => Some(Self::PermittedEdition),
+            SITE_FOUR => Some(Self::OwnVersion),
+            _ => None,
+        }
+    }
+
+    /// The requirement the validator reports this reading's failures under.
+    pub(super) const fn site(self) -> &'static str {
+        match self {
+            Self::PermittedEdition => SITE,
+            Self::OwnVersion => SITE_FOUR,
+        }
+    }
+
+    /// The tags this reading finds missing from one profile, by the row's own function.
+    fn shortfall(self, data: &[u8]) -> Option<IccTagShortfall> {
+        match self {
+            Self::PermittedEdition => pdf_archive::icc_tag_shortfall(data),
+            Self::OwnVersion => pdf_archive::icc_version_tag_shortfall(data),
+        }
+    }
+}
 
 /// Why a profile short of a transform tag is not answered.
 const TRANSFORM_TAG_MISSING: &str = "an ICCBased colour space's profile is short of a tag its \
@@ -75,7 +132,8 @@ const NO_INTENT_FOR_THE_ALTERNATE: &str = "an ICCBased profile this reader does 
      falls back on a device space, and writing that space puts device colour in the output where \
      the input had a managed space. ISO 19005-2 section 6.2.4.3 licenses DeviceRGB and DeviceCMYK \
      only through a PDF/A output intent of their own family, and the intent this conversion \
-     holds or would write is of another, or none could be prepared (doc/adr/1990)";
+     holds or would write is of another, or none could be prepared (doc/adr/1990); ISO 19005-4 \
+     section 6.2.4.3 states the same licence";
 
 /// Why a failure this walk did not find is not answered.
 const NOT_REACHED: &str = "the requirement failed at an ICCBased profile this conversion's walk \
@@ -87,7 +145,7 @@ const NOT_REACHED: &str = "the requirement failed at an ICCBased profile this co
 #[derive(Debug, Default)]
 pub(super) struct ShortProfiles {
     /// Profiles this reader draws through that lack only text tags.
-    pub(super) text_only: BTreeMap<ObjectId, pdf_archive::IccTagShortfall>,
+    pub(super) text_only: BTreeMap<ObjectId, IccTagShortfall>,
     /// Profiles this reader does not draw through, with the space Table 65 draws instead.
     pub(super) unreadable: BTreeMap<ObjectId, Object>,
     /// Whether a profile this reader draws through lacks a tag its transform needs.
@@ -99,12 +157,12 @@ pub(super) struct ShortProfiles {
 }
 
 impl ShortProfiles {
-    /// Every `ICCBased` array in the file, its profile read once.
-    pub(super) fn of(document: &Document) -> Self {
+    /// Every `ICCBased` array in the file, its profile read once and judged by `reading`.
+    pub(super) fn of(document: &Document, reading: Reading) -> Self {
         let mut out = Self::default();
         for number in document.xref().object_numbers() {
             let object = document.get(ObjectId::new(number, 0));
-            out.visit(document, &object, None, 0);
+            out.visit(document, reading, &object, None, 0);
         }
         out
     }
@@ -156,7 +214,14 @@ impl ShortProfiles {
     }
 
     /// One value, `key` being the dictionary entry it is the value of.
-    fn visit(&mut self, document: &Document, object: &Object, key: Option<&[u8]>, depth: usize) {
+    fn visit(
+        &mut self,
+        document: &Document,
+        reading: Reading,
+        object: &Object,
+        key: Option<&[u8]>,
+        depth: usize,
+    ) {
         if depth >= MAX_ENTRY_DEPTH {
             return;
         }
@@ -165,20 +230,20 @@ impl ShortProfiles {
             Object::Array(items) => {
                 if let Some(at) = icc_profile_of(document, items) {
                     let in_default = key.is_some_and(is_default_space_key);
-                    self.judge(document, at, in_default);
+                    self.judge(document, reading, at, in_default);
                 }
                 for item in items {
-                    self.visit(document, item, None, deeper);
+                    self.visit(document, reading, item, None, deeper);
                 }
             }
             Object::Dictionary(dict) => {
                 for (name, value) in dict.iter() {
-                    self.visit(document, value, Some(name.as_bytes()), deeper);
+                    self.visit(document, reading, value, Some(name.as_bytes()), deeper);
                 }
             }
             Object::Stream(stream) => {
                 for (name, value) in stream.dict.iter() {
-                    self.visit(document, value, Some(name.as_bytes()), deeper);
+                    self.visit(document, reading, value, Some(name.as_bytes()), deeper);
                 }
             }
             _ => {}
@@ -190,14 +255,14 @@ impl ShortProfiles {
     /// *Drawn through* is `pdf_model::colour`'s own condition for an `ICCBased` space: the stream
     /// decodes whole and the profile parses. A profile decoded only as far as its damage is drawn
     /// in its alternate there, so it is an unreadable one here too.
-    fn judge(&mut self, document: &Document, at: ObjectId, in_default: bool) {
+    fn judge(&mut self, document: &Document, reading: Reading, at: ObjectId, in_default: bool) {
         let Object::Stream(stream) = document.get(at) else {
             return;
         };
         let Ok(decoded) = document.decoded_stream_data_reported(&stream) else {
             return;
         };
-        let Some(shortfall) = pdf_archive::icc_tag_shortfall(&decoded.data) else {
+        let Some(shortfall) = reading.shortfall(&decoded.data) else {
             return;
         };
         if decoded.damage.is_some() || Profile::parse(&decoded.data).is_none() {
@@ -258,9 +323,9 @@ pub(super) struct Alternates {
 }
 
 impl Alternates {
-    /// The alternate route over this document, or why it cannot be taken.
-    pub(super) fn of(document: &Document) -> Result<Self, Because> {
-        let short = ShortProfiles::of(document);
+    /// The alternate route over this document under `reading`, or why it cannot be taken.
+    pub(super) fn of(document: &Document, reading: Reading) -> Result<Self, Because> {
+        let short = ShortProfiles::of(document, reading);
         if let Some(because) = short.alternate_obstacle() {
             return Err(because);
         }
@@ -409,7 +474,7 @@ pub(super) struct Texts<'a> {
 pub(super) fn supplied_profile(
     stream: &Stream,
     data: &[u8],
-    shortfall: &pdf_archive::IccTagShortfall,
+    shortfall: &IccTagShortfall,
     texts: Texts<'_>,
 ) -> Option<Object> {
     let version_2 = *data.get(8)? < 4;

@@ -102,7 +102,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use pdf_model::Pages;
-use pdf_model::structure::{Child, MarkInfo, Tree};
+use pdf_model::structure::{Child, MarkInfo, StandardNamespace, StandardType, Tree};
 use pdf_syntax::{Document, Limits, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use viewer_core::{
@@ -375,6 +375,28 @@ struct Census {
     /// `Sect` among them is published as a region a person can be taken to by that name.
     titled: usize,
     titled_roles: std::collections::BTreeMap<String, usize>,
+    /// Elements a host is told no standard structure namespace defines, by the name that reaches
+    /// it, and the tagged pages that carry at least one.
+    ///
+    /// `viewer-accessibility` reads [`AccessibilityNode::role`] with `StandardType::read`, and a
+    /// name it cannot read crosses as a group described by that name — §14.8.4.1's defect in the
+    /// document, said rather than guessed at. Counted by name, so that a change to either
+    /// namespace's vocabulary shows which names it moved (ADR 2014). **Printed and not
+    /// ratcheted**: a fall here is a capability and a rise is a defect class, and which one a
+    /// change is depends on the names, which a floor or a ceiling cannot see.
+    undefined_roles: std::collections::BTreeMap<String, usize>,
+    pages_with_undefined_roles: usize,
+    /// Elements the namespace they end in does not define, by the name they end at, over each
+    /// tagged document's whole tree once.
+    ///
+    /// `Tree::standard_role`'s `None` where `Tree::role` answers. §14.8.6.1 places an element
+    /// stating no namespace in the PDF 1.7 one, so a PDF 1.7 type written without `/NS` is not
+    /// counted here (ADR 2014).
+    outside_their_namespace: std::collections::BTreeMap<String, usize>,
+    /// PDF 2.0 types stating no namespace, by name: elements whose file breaks Errata Collection
+    /// 3's sentence for §14.8.6.1 and which `Tree::standard_role` reads as PDF 2.0's by choice (ADR
+    /// 2014). Counted so that the choice is a number someone can see move.
+    read_as_pdf_2_0: std::collections::BTreeMap<String, usize>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -457,6 +479,21 @@ impl Census {
             let entry = self.titled_roles.entry(role).or_default();
             *entry = entry.saturating_add(count);
         }
+        for (role, count) in from.undefined_roles {
+            let entry = self.undefined_roles.entry(role).or_default();
+            *entry = entry.saturating_add(count);
+        }
+        self.pages_with_undefined_roles = self
+            .pages_with_undefined_roles
+            .saturating_add(from.pages_with_undefined_roles);
+        for (role, count) in from.outside_their_namespace {
+            let entry = self.outside_their_namespace.entry(role).or_default();
+            *entry = entry.saturating_add(count);
+        }
+        for (role, count) in from.read_as_pdf_2_0 {
+            let entry = self.read_as_pdf_2_0.entry(role).or_default();
+            *entry = entry.saturating_add(count);
+        }
         self.panicked.extend(from.panicked);
     }
 
@@ -503,6 +540,49 @@ impl Census {
         for node in nodes.iter().filter(|node| node.titled) {
             self.titled = self.titled.saturating_add(1);
             let entry = self.titled_roles.entry(node.role.clone()).or_default();
+            *entry = entry.saturating_add(1);
+        }
+    }
+
+    /// Counts the page's elements whose name no standard structure namespace defines.
+    ///
+    /// An element stating no `/S` crosses with an empty name and is not counted: Table 355 makes
+    /// the entry required, and an absent type is a different defect from an undefined one.
+    fn undefined(&mut self, nodes: &[AccessibilityNode]) {
+        let mut any = false;
+        for node in nodes
+            .iter()
+            .filter(|node| !node.role.is_empty() && StandardType::read(&node.role).is_none())
+        {
+            any = true;
+            let entry = self.undefined_roles.entry(node.role.clone()).or_default();
+            *entry = entry.saturating_add(1);
+        }
+        if any {
+            self.pages_with_undefined_roles = self.pages_with_undefined_roles.saturating_add(1);
+        }
+    }
+
+    /// Counts the document's elements whose mapped type the namespace they end in does not define.
+    fn outside_namespace(&mut self, document: &Document, tree: &Tree) {
+        for (_, child) in tree.walk(document).items {
+            let Child::Element(element) = child else {
+                continue;
+            };
+            let Some(role) = tree.role(document, &element) else {
+                continue;
+            };
+            let counted = match tree.standard_role(document, &element) {
+                None => &mut self.outside_their_namespace,
+                Some(kind)
+                    if !kind.defined_in(StandardNamespace::Pdf1_7)
+                        && !tree.in_pdf_2_0_namespace(document, &element) =>
+                {
+                    &mut self.read_as_pdf_2_0
+                }
+                Some(_) => continue,
+            };
+            let entry = counted.entry(role).or_default();
             *entry = entry.saturating_add(1);
         }
     }
@@ -594,6 +674,7 @@ impl Census {
     /// A count with no sentence beside it is the silence this class was added to break.
     fn carried(&mut self, nodes: &[AccessibilityNode], where_: &str, reports: &[String]) {
         self.nodes = self.nodes.saturating_add(nodes.len());
+        self.undefined(nodes);
         // Where each element is, asked of `viewer_core::places` rather than composed here: this
         // census exists to say what a screen reader is told, and a second copy of the precedence
         // would be pricing a program the hosts do not run.
@@ -811,8 +892,9 @@ fn examine(path: &Path) -> Census {
         }
     };
     let tree = Tree::of(&document);
-    if tree.is_some() {
+    if let Some(tree) = &tree {
         census.with_structure = 1;
+        census.outside_namespace(&document, tree);
     }
     let marked = MarkInfo::read(&document).marked;
     if marked {
@@ -1246,6 +1328,37 @@ fn report_tagging(census: &Census) {
         "elements named by their /T: {} ({:?})",
         census.titled, census.titled_roles
     );
+    println!(
+        "elements a host is told no standard namespace defines: {} on {} tagged pages",
+        census.undefined_roles.values().sum::<usize>(),
+        census.pages_with_undefined_roles
+    );
+    print_names(&census.undefined_roles);
+    println!(
+        "elements their namespace does not define, over each tagged document's tree: {}",
+        census.outside_their_namespace.values().sum::<usize>()
+    );
+    print_names(&census.outside_their_namespace);
+    println!(
+        "PDF 2.0 types stating no namespace, read as PDF 2.0's: {}",
+        census.read_as_pdf_2_0.values().sum::<usize>()
+    );
+    print_names(&census.read_as_pdf_2_0);
+}
+
+/// Prints a count by name, the commonest first, [`WITNESSES`] of them.
+fn print_names(counts: &std::collections::BTreeMap<String, usize>) {
+    let mut ranked: Vec<(&String, &usize)> = counts.iter().collect();
+    ranked.sort_by(|left, right| right.1.cmp(left.1).then_with(|| left.0.cmp(right.0)));
+    for (name, count) in ranked.iter().take(WITNESSES) {
+        println!("    {name}: {count}");
+    }
+    if ranked.len() > WITNESSES {
+        println!(
+            "    … and {} more names",
+            ranked.len().saturating_sub(WITNESSES)
+        );
+    }
 }
 
 /// Fails the gate if this build cannot reach the sandboxed image decoder.

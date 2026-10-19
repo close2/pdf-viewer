@@ -43,6 +43,24 @@
 //! `Default` under the same two answers: the name `Identity` is the initial function on this
 //! reader's device and the statement is free, and a function is the same loss, recorded the same
 //! way before it goes (`doc/adr/1978` section 6).
+//!
+//! # A halftone's `TransferFunction`, which the same subclause admits only where required
+//!
+//! ISO 19005-2 and ISO 19005-4 section 6.2.5 admit the entry only where ISO 32000-2 requires it,
+//! and §10.6.5.6 requires it only of a type 5 halftone's component for a nonprimary or nonstandard
+//! colourant. §10.5's second bullet is drawn here as its first is — "[a] transfer function
+//! specified in a halftone dictionary shall override the corresponding one specified by the current
+//! transfer function parameter in the graphics state" — so the same two answers apply, with one
+//! difference in the first (`doc/adr/2007`):
+//!
+//! - **`Identity` is free wherever it stands.** It overrides `/TR` with the identity for its
+//!   component, and a conversion that completes has removed every `/TR` and written every `/TR2`
+//!   `Default` — the identity on this reader's device — so the component is drawn through the
+//!   identity before and after.
+//! - **A function** is the loss `transfer-function`, kept in `xmpMM:History` before it goes.
+//!
+//! A component that omits a `TransferFunction` it is required to state is refused: what the
+//! function would be is the producer's, and nothing in the file says it.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Write as _;
@@ -58,6 +76,22 @@ const SITE: &str = "graphics/no-transfer-function-in-a-graphics-state";
 
 /// The `/TR2` requirement beside it, answered by the same two answers.
 const SECOND: &str = "graphics/second-transfer-function-is-default";
+
+/// The halftone requirement beside both, answered by the same two answers (`doc/adr/2007`).
+const HALFTONE: &str = "graphics/halftone-transfer-function-only-where-required";
+
+/// Why a halftone's transfer function is not removed.
+const HALFTONE_NOT_REACHED: &str = "a halftone in this file states a TransferFunction where ISO \
+     32000-2 10.6.5.6 requires none, and this conversion cannot reach every halftone that does: \
+     the validator's list was shortened, or the halftone or the type 5 halftone holding it is \
+     written inside another object or as a stream. Removing the entries it can reach would \
+     leave the requirement failing at the others, so none is removed (doc/adr/2007)";
+
+/// Why a component lacking the function it is required to state is not answered.
+const HALFTONE_FUNCTION_MISSING: &str = "a type 5 halftone in this file has a component for a \
+     nonstandard colourant that states no TransferFunction, which ISO 32000-2 10.6.5.6 requires \
+     of it. What that function would be is the producer's, and nothing in the file states it, \
+     so the requirement is refused (doc/adr/2007)";
 
 /// Why a graphics state's transfer function is not removed at all.
 const STATE_NOT_REACHED: &str = "a graphics state in this file states a transfer function \
@@ -87,13 +121,15 @@ const MOST_BYTES: usize = 16_384;
 /// The objects the record states, across every graphics state.
 const MOST_OBJECTS: usize = 64;
 
-/// One graphics state whose transfer function this conversion removed, with what it said.
+/// One graphics state or halftone whose transfer function this conversion removed, with what it
+/// said.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemovedTransferFunction {
-    /// The graphics state parameter dictionary, in the source's numbering.
+    /// The graphics state parameter dictionary, or the halftone, in the source's numbering.
     pub state: ObjectId,
-    /// Its `/TR` as stated, then every object that reaches, in ISO 32000-2 clause 7's syntax:
-    /// `/TR 8 0 R, where 8 0 obj << … >>`, a stream's data decoded and in hexadecimal.
+    /// Its `/TR` or `/TransferFunction` as stated, then every object that reaches, in ISO 32000-2
+    /// clause 7's syntax: `/TR 8 0 R, where 8 0 obj << … >>`, a stream's data decoded and in
+    /// hexadecimal.
     pub statement: String,
 }
 
@@ -109,12 +145,25 @@ pub(super) struct TransferFunctions {
     pub(super) second: BTreeSet<ObjectId>,
     /// The ones whose `/TR` is not the name `Identity`, each with its statement.
     pub(super) stated: Vec<RemovedTransferFunction>,
+    /// Every halftone whose `TransferFunction` goes.
+    pub(super) halftones: BTreeSet<ObjectId>,
+    /// The ones whose `TransferFunction` is not the name `Identity`, each with its statement.
+    pub(super) halftones_stated: Vec<RemovedTransferFunction>,
 }
 
 impl TransferFunctions {
-    /// Whether the removal moves no colour: every `/TR` the file states is the identity.
+    /// Whether the removal moves no colour: every function the file states is the identity.
     pub(super) fn costs_nothing(&self) -> bool {
-        self.stated.is_empty()
+        self.stated.is_empty() && self.halftones_stated.is_empty()
+    }
+
+    /// Every removed function's record, the graphics states' then the halftones'.
+    pub(super) fn removed(&self) -> Vec<RemovedTransferFunction> {
+        self.stated
+            .iter()
+            .chain(&self.halftones_stated)
+            .cloned()
+            .collect()
     }
 
     /// The `xmpMM:History` parameters keeping every function the removal takes, where it takes one.
@@ -128,10 +177,24 @@ impl TransferFunctions {
             self.citation,
             self.stated.len()
         );
+        if !self.halftones_stated.is_empty() {
+            let _ = write!(
+                out,
+                ", and by {} halftone(s) where ISO 32000-2 10.6.5.6 requires none",
+                self.halftones_stated.len()
+            );
+        }
         for removed in &self.stated {
             let _ = write!(
                 out,
                 "; graphics state {} {} R: {}",
+                removed.state.number, removed.state.generation, removed.statement
+            );
+        }
+        for removed in &self.halftones_stated {
+            let _ = write!(
+                out,
+                "; halftone {} {} R: {}",
                 removed.state.number, removed.state.generation, removed.statement
             );
         }
@@ -157,6 +220,10 @@ pub(super) fn removal(
         let key = match judgement.id {
             SITE => "TR",
             SECOND => "TR2",
+            HALFTONE => {
+                halftone_removal(document, judgement, &mut out, &mut budget)?;
+                continue;
+            }
             _ => continue,
         };
         let Outcome::Failed { places, total } = &judgement.outcome else {
@@ -187,6 +254,55 @@ pub(super) fn removal(
         }
     }
     Ok(out)
+}
+
+/// The halftones the halftone requirement names, each one's `TransferFunction` to go.
+///
+/// A finding names a type 5 halftone and the colourant whose component states the entry, or a
+/// graphics state whose current halftone does; either way the halftone that states it must be a
+/// dictionary object of its own, which is what the rewrite reaches. A component that *omits* the
+/// entry it is required to state is the other half of the requirement, and is refused.
+fn halftone_removal(
+    document: &Document,
+    judgement: &pdf_archive::Judgement,
+    out: &mut TransferFunctions,
+    budget: &mut Budget,
+) -> Result<(), Because> {
+    let refused = Because::NotBuiltYet(HALFTONE_NOT_REACHED);
+    let Outcome::Failed { places, total } = &judgement.outcome else {
+        return Ok(());
+    };
+    if places.len() != *total {
+        return Err(refused);
+    }
+    if out.citation.is_empty() {
+        out.citation.clone_from(&judgement.citation);
+    }
+    for finding in places {
+        let holder_id = finding.place.object.ok_or(refused)?;
+        let holder = document.get(holder_id);
+        let holder = holder.as_dict().ok_or(refused)?;
+        let key = finding.place.name.as_deref().ok_or(refused)?;
+        // The finding's key is `HT` on a graphics state, and a colourant's name on a type 5
+        // halftone: in both, the value is the halftone that states the entry.
+        let at = holder
+            .get(key)
+            .and_then(Object::as_reference)
+            .ok_or(refused)?;
+        let object = document.get(at);
+        let halftone = object.as_dict().ok_or(refused)?;
+        let Some(value) = halftone.get("TransferFunction") else {
+            return Err(Because::NotBuiltYet(HALFTONE_FUNCTION_MISSING));
+        };
+        if !matches!(value, Object::Name(name) if name.as_bytes() == b"Identity") {
+            out.halftones_stated.push(RemovedTransferFunction {
+                state: at,
+                statement: statement(document, "TransferFunction", value, budget)?,
+            });
+        }
+        out.halftones.insert(at);
+    }
+    Ok(())
 }
 
 /// What the record has spent of its two bounds.
@@ -296,6 +412,8 @@ mod tests {
             citation: "ISO 19005-2 section 6.2.5".to_owned(),
             at: BTreeSet::from([ObjectId::new(9, 0), ObjectId::new(10, 0)]),
             second: BTreeSet::new(),
+            halftones: BTreeSet::new(),
+            halftones_stated: Vec::new(),
             stated: vec![RemovedTransferFunction {
                 state: ObjectId::new(10, 0),
                 statement: "/TR 11 0 R, where 11 0 obj << /FunctionType 2 >>".to_owned(),
@@ -318,6 +436,8 @@ mod tests {
             at: BTreeSet::from([ObjectId::new(9, 0)]),
             second: BTreeSet::new(),
             stated: Vec::new(),
+            halftones: BTreeSet::from([ObjectId::new(12, 0)]),
+            halftones_stated: Vec::new(),
         };
         assert!(functions.costs_nothing());
         assert_eq!(functions.history(), None);

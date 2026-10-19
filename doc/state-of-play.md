@@ -56,11 +56,15 @@ right-to-left, cursive one is joined by the Unicode Character Database's own tab
 (ADR 1425), a `CFF ` one subset as a bare CID-keyed program under `/FontFile3` (ADR 1449), an
 accented character in it composed into the outline it draws (ADR 1486), whole
 where its licence forbids subsetting (ADR 1438); in memory a `CFF ` face is described as the
-`CIDFontType0` Table 124 puts it under (ADR 1450). A font the document did not embed, other than
+`CIDFontType0` Table 124 puts it under (ADR 1450); a `/DA`'s font is loaded once an interpretation
+for every layout that names it (ADR 1956), and a `/DR` font named by reference once for its layout
+and the appearance's `Tf` alike (ADR 1974). A font the document did not embed, other than
 one of the standard 14 the tree compiles in and answers first (ADR 1483), is stood in for by a
 machine face ranked by its descriptor — Table 120's weight, slope and width against each
 face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
-for a page's font and an interface's label alike (ADR 1441). **Three rasterisers behind one display list**: `render-cpu` is the correctness
+for a page's font and an interface's label alike (ADR 1441). A non-symbolic TrueType font's code
+that none of §9.6.5.4's steps reaches is drawn through the glyph the (3, 1) subtable gives the one
+character its `/ToUnicode` states for it (ADR 1943). **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
@@ -89,7 +93,7 @@ geometry (ADR 1435), an isolated group that composites in a blending colour spac
 as a frame of its own on the same device and placed back as device pixels, which §11.4.5 makes
 exact (ADR 1471), and a target past the adapter's side limit drawn in tiles and stitched (ADR
 1472), a frame's budget being the largest buffer the adapter can make rather than a fixed figure
-(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835), §8.5.3.2's round dot among them as that line at length zero (ADR 1857), every one-segment stroke a line at every view with its width resolved per placement, so a page of lines keeps its scene across a zoom and a step only re-encodes it, its lines' closed forms made on other threads ahead of the walk (ADRs 1877, 1878, 1884), a replay of an unchanged view reading its instance streams from the device rather than sending them again (ADR 1993), and an offscreen frame drawn from the marks that reach it as a window's is (ADR 1858) — its strokes, fills, clips and images each drawn as the set the clause defines rather
+(ADR 1823), and the same thin stroke the processor paints in closed form drawn as the device's own line primitive, its area per pixel computed in the shader and its budget counted per mark (ADR 1835), §8.5.3.2's round dot among them as that line at length zero (ADR 1857), every one-segment stroke a line at every view with its width resolved per placement, so a page of lines keeps its scene across a zoom and a step only re-encodes it, its lines' closed forms made on other threads ahead of the walk (ADRs 1877, 1878, 1884), a replay of an unchanged view reading its instance streams from the device rather than sending them again (ADR 1993), the op list built once only after the line lane maps on the device because the host's cull ties it to the view (ADR 2008), and each frame's cost carrying the stream every byte crossed in, said at the end of the trace's frame line (ADR 2009), and an offscreen frame drawn from the marks that reach it as a window's is (ADR 1858) — its strokes, fills, clips and images each drawn as the set the clause defines rather
 than as a sample of it, a clip meeting a mark's coverage as §10.7.4's intersection, and every
 frame the same bytes at every thread count, which the corpus gate holds by drawing each page again
 at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each construction (ADRs
@@ -276,7 +280,11 @@ while the script is held in its worker and what it does once answered applied la
 `this.pageNum` a page turn the window makes (ADR 1640), `app.setInterval` and `app.setTimeOut`
 counted down in the ticks every window sends only while a document holds one, a due tick waiting
 in `quorra` for the frame the last one asked for (ADR 1957), a script the view state does not run
-said once and with its own reason at every event a host raises (ADRs 1950, 1975), the global `xfa`
+said once and with its own reason at every event a host raises (ADRs 1950, 1975), and a press on an
+annotation `/Annots` holds as a dictionary or on a widget no form makes a field saying the sentence
+the page's open says, at every level (ADR 1970 §3), a member the surface refuses a function that
+throws when called where Adobe's reference makes it a method and a property that throws when read
+where it makes it one, so a script that asks `typeof` first reads the surface (ADR 1957 §2), the global `xfa`
 absent rather than refused, because the form a script acts on here is the Acrobat form (ADR 1989), and `app.beep` a
 sound GTK and Qt play and `quorra` refuses by name (ADR 1702), `getField("name.N")` one widget of a
 field whose widget members are its own and whose value is the field's (ADR 1664),
@@ -568,7 +576,9 @@ receives, which is §11.7.4.3's NOTE 2 and the equivalence §8.6.7's own EXAMPLE
 An `ICCBased` CMYK colour on a press sampled from its own profile is in the first bullet too: this
 reader passes its values through, and §8.6.5.7 attaches the device space's semantics, the mode
 first, to that conversion — which also gives a `k` its mode on a page whose output intent is the
-press (ADR 1996).
+press (ADR 1996). Inside an isolated group or page whose blending space is an `ICCBased` CMYK one,
+`DeviceCMYK` *is* that space, as §11.7.2 redefines it — after §8.6.5.6's default and before the
+output intent — so a `k` there is the group's colour and keeps its mode under any intent (ADR 2012).
 A pair that is a direct element of a knockout group takes the implicit group too, with §11.4.6's
 NOTE 6 deciding which of that group's two initial backdrops it composites onto rather than refusing
 the position (ADR 1265). **§11.4.6's knockout groups are drawn by `render-cpu`, isolated or
@@ -717,12 +727,18 @@ page's own pixels go up at a whole device pixel, a transition's faces being that
 the effect ends on the page without a seam (ADR 1865); a page drawn whole of which the window shows
 less than half the rows — a tall page a few notches into a wide window, a neighbour scrolled mostly
 out of a column — has those rows drawn first, a look over the stand-in, and the page whole after as
-the frame (ADRs 1868, 1930); a page zoomed until its largest window keeps at most seven eighths of its commands or half its pixels (ADR 1994), or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its commands culled from bounds kept per magnification and drawn as a selection of the page's own list rather than a copy (ADR 1980), a whole page's cull answered by the bounds' edges (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), and from the window its worker draws where the marks cannot cross (ADR 1986), and its three workers close every descriptor they inherited before reading a byte (ADR 1945); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
+the frame (ADRs 1868, 1930); a page zoomed until its largest window keeps at most seven eighths of its commands or half its pixels (ADR 1994), or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its commands culled from bounds kept per magnification and drawn as a selection of the page's own list rather than a copy (ADR 1980), a whole page's cull answered by the bounds' edges and a list of 65 536 commands or more let go of on the pool (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), and from the window its worker draws where the marks cannot cross (ADR 1986) — under the bound too wherever the toolkits' rule holds (ADR 2016) — and a page past the bound whose marks cross takes the route the window prices with the crossing counted, its marks or its worker's window (ADR 2017), and its three workers close every descriptor they inherited before reading a byte (ADR 1945); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A pipeline the device's
+compiler refuses is captured and kept** — the render lane's by kind and format, the compute lane's
+four as one outcome, a generated function shader's by its key — so a frame that needs it is refused
+in the adapter's words without a second compile, the title taking the refusal's first line, and
+every other frame stays on the device (ADRs 1929, 1962); the image and line lanes write their
+polygons' corners by constant indices, which DX12's FXC compiles (ADR 1928). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
 magnification — nor, where the adapter refused the compute lane's pipelines, for any frame of that
 coverage while the window's device lives (ADR 1968), nor for a retained page's picture of that lane
 (ADR 1984), and a refusal the retained layer heard first is told to the window once so both memories agree (ADR 2000) — the processor's draw is taken back at the first notch of zoom that leaves it, and past
-`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADR 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The
+`WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADR 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871), each
+finished frame and look waking the window's loop rather than waiting for its next tick (ADR 1936). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar of all three, on one line
@@ -772,8 +788,8 @@ pass.
   display lists because a process holding a graphics device cannot be confined at all, an
   unchanged page's `Arc` identity survives the pipe so a host-side cache still hits, and the
   decoder refuses a raster target past what a render request is held to, admitting a page past it
-  as its marks or as the window its worker drew only for a host that said it draws such a page
-  (ADRs 1944, 1986). **A draw is stoppable on
+  as its marks only for a host that said it draws such a page, and a window its worker drew of any
+  page only for such a host (ADRs 1944, 1986, 2016). **A draw is stoppable on
   both sides of the pipe**: a `Canceller` ends the worker, because a cancel a hostile document can
   decline is not one, and on the host's side `pdf_render::Interrupt` is raised between commands by
   the policy `viewer_host::drawing` gives all three windows — a draw is abandoned exactly where
@@ -1109,7 +1125,9 @@ the token has to parse, be covered by the signer's own digest attribute, verify,
 supplied anchor, with each token's path validated at the next one's stated time, and what a token
 merely claims is reported as a claim (ADR 1071).
 
-**And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types onto
+**And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types — and the
+eleven of Annex M that §14.8.6.1's default PDF 1.7 namespace alone defines, `TOCI`, `Note` and `Code`
+among them, each read in the namespace its element ends in (ADR 2014) — onto
 `accesskit::Role`, and `accesskit_unix` puts the result on AT-SPI — where a real client walks it
 off the bus, `Frame` → `DocumentFrame` → the page named by §12.4.2's own label → §14.7's elements,
 with §14.9.3's `/Alt` where the document states one, a table cell announced with **the headers that

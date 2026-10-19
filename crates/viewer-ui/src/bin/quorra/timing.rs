@@ -415,7 +415,7 @@ impl FrameLog {
             Topic::Frames,
             format_args!(
                 "frame p{}{column} {}cmd {outcome} {:.1} | present {:.2} | host {:.1} scene {:.1} \
-                 device {:.1}{source} settle {:.1}{unusual} | {} up, {} culled",
+                 device {:.1}{source} settle {:.1}{unusual} | {} up, {} culled{}",
                 stages.page,
                 stages.commands,
                 ms(stages.total),
@@ -426,6 +426,7 @@ impl FrameLog {
                 ms(stages.gpu.settle),
                 stages.gpu.uploads,
                 stages.gpu.commands_culled,
+                sent(&stages.gpu.streams),
             ),
         );
     }
@@ -482,6 +483,15 @@ impl FrameLog {
             (
                 "up",
                 "resources handed to the device; culled: commands that reached no pixel",
+            ),
+            (
+                "sent",
+                "the bytes raster scheduled for the device this frame, by the stream each \
+                 crossed in, in bytes and only the streams that sent any: line instances, \
+                 coverage quads, rectangles, the coverage sheet, glyph atlas rows, the compute \
+                 lane's records and arena, winding, images — and after a semicolon the compute \
+                 lane's device-side allocations, which the budget charges and no host write \
+                 fills (ADRs 1992, 2009). Absent on a frame that sent nothing",
             ),
             (
                 "approximated",
@@ -796,6 +806,37 @@ fn percent(part: usize, whole: usize) -> f64 {
     part as f64 * 100.0 / whole as f64
 }
 
+/// A frame's `sent` column: the shares of raster's `bytes_uploaded` by the stream each byte
+/// crossed in, under the names `render-raster`'s `zoom_frame` prints on its `crossed:` line (ADR
+/// 1992), and only the shares that are not zero, so a replayed frame keeps its line short.
+///
+/// The compute lane's device-only allocations come after a semicolon, apart, because the budget
+/// counts them and no host write fills them: read beside the others, they would be read as a
+/// transfer (`raster_gpu::UploadSplit::compute_device_only`).
+fn sent(streams: &raster_gpu::UploadSplit) -> String {
+    let shares = [
+        ("line", streams.line_instances),
+        ("quad", streams.quad_instances),
+        ("rect", streams.rect_instances),
+        ("sheet", streams.scratch_sheet),
+        ("atlas", streams.atlas_rows),
+        ("records", streams.compute_records),
+        ("arena", streams.arena_growth),
+        ("winding", streams.winding),
+        ("paint", streams.paint),
+    ];
+    let mut column = String::new();
+    for (name, bytes) in shares.into_iter().filter(|&(_, bytes)| bytes > 0) {
+        let lead = if column.is_empty() { " | sent" } else { "," };
+        column = format!("{column}{lead} {name} {bytes}");
+    }
+    if streams.compute_device_only > 0 {
+        let lead = if column.is_empty() { " | sent" } else { ";" };
+        column = format!("{column}{lead} device-only {}", streams.compute_device_only);
+    }
+    column
+}
+
 /// The value `numerator/denominator` of the way through a sorted sample, by nearest rank.
 ///
 /// Integer arithmetic throughout: the workspace forbids unchecked arithmetic, and a percentile
@@ -816,4 +857,38 @@ fn at_rank<T: Copy + Default>(sorted: &[T], numerator: usize, denominator: usize
         .saturating_sub(1)
         .min(sorted.len().saturating_sub(1));
     sorted.get(index).copied().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sent;
+
+    /// A frame that sent nothing keeps its line as it was: the column is absent, not a zero.
+    #[test]
+    fn a_frame_that_sent_nothing_has_no_sent_column() {
+        assert_eq!(sent(&raster_gpu::UploadSplit::default()), "");
+    }
+
+    /// Only the streams that sent bytes are named, in the order `zoom_frame`'s `crossed:` line
+    /// names them, and the compute lane's device-only share stands apart after a semicolon,
+    /// because no host write fills it (ADR 1992).
+    #[test]
+    fn the_sent_column_names_the_streams_that_sent_and_the_device_only_share_apart() {
+        let streams = raster_gpu::UploadSplit {
+            line_instances: 263_935_920,
+            scratch_sheet: 15_091_345,
+            compute_records: 553_600,
+            compute_device_only: 24_555_660,
+            ..raster_gpu::UploadSplit::default()
+        };
+        assert_eq!(
+            sent(&streams),
+            " | sent line 263935920, sheet 15091345, records 553600; device-only 24555660"
+        );
+        let only_device = raster_gpu::UploadSplit {
+            compute_device_only: 7,
+            ..raster_gpu::UploadSplit::default()
+        };
+        assert_eq!(sent(&only_device), " | sent device-only 7");
+    }
 }

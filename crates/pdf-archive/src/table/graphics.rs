@@ -1829,6 +1829,29 @@ pub fn icc_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
     })
 }
 
+/// What ISO 19005-4 section 6.2.4.2's tag row finds missing from one profile, or `None` where the
+/// profile carries every tag its own edition requires, names an edition this crate does not hold,
+/// or is not a profile at all.
+///
+/// The reading `icc_profiles_carry_the_tags_their_version_requires` reports, answered for one
+/// profile's bytes as [`icc_tag_shortfall`] is for part 2's (ADR 2006). Here the header's version
+/// selects the one text the profile is held to, so the list is that edition's; the flags name the
+/// two text tags whatever edition asked for them, since every held edition names them alike.
+#[must_use]
+pub fn icc_version_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
+    let (class, _) = profile_header(data)?;
+    let edition = IccEdition::of(icc::Identification::read(data)?.version)?;
+    let missing = missing_required_tags(edition, data, class);
+    if missing.is_empty() {
+        return None;
+    }
+    Some(IccTagShortfall {
+        description: missing.contains(&DESCRIPTION_TAG),
+        copyright: missing.contains(&COPYRIGHT_TAG),
+        missing,
+    })
+}
+
 /// ICC.1:1998-09 section 6.4.30's tag, as a finding names it.
 const DESCRIPTION_TAG: &str = "profileDescriptionTag";
 

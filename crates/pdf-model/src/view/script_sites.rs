@@ -618,7 +618,12 @@ impl ViewState {
             resolved.as_dict().is_some_and(|annotation| {
                 let view = self.annotation_of(entry.as_reference());
                 crate::annotation::interacts(document, annotation, view)
-                    && super::rectangle_covers(document, annotation, f64::from(x), f64::from(y))
+                    && super::annotations::rectangle_covers(
+                        document,
+                        annotation,
+                        f64::from(x),
+                        f64::from(y),
+                    )
             })
         });
         let Some(pressed) = pressed else {

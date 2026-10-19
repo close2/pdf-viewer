@@ -1,5 +1,5 @@
 //! The raster backend: [`Rasterizer`] over the document renderer this viewer's
-//! brief commissioned (`doc/RENDER_LIBRARY.md`, built at `../render-lib`).
+//! brief commissioned (`doc/RENDER_LIBRARY.md`, built in this workspace under `raster/`).
 //!
 //! This crate is the bridge the brief's integration notes said would live on this
 //! side: the display list's vocabulary maps onto raster's scene almost one-to-one —

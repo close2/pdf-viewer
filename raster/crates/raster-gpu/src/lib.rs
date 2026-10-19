@@ -26,8 +26,13 @@
 //!
 //! # State
 //!
-//! All nine milestones are implemented; `raster/doc/PLAN.md`'s "Where we are" is the current
-//! state and `raster/doc/adr/` the decisions behind it.
+//! Every command of the scene is drawn, each through one lane of [`LaneCounts`] — the analytic
+//! rectangle and line lanes, the glyph atlas, the frame's coverage sheet, the image quad — with the
+//! sheet's coverage made by the processor's scan converter, the device's winding passes or its
+//! compute dispatch as [`Coverage`] chooses; a frame that does not change is replayed as a
+//! [`RetainedScene`], and a [`Presenter`] detached from its device presents while the device
+//! renders. `raster/doc/adr/` holds the decisions behind each, and the workspace's
+//! `doc/state-of-play.md` what the viewer draws through them.
 
 #![forbid(unsafe_code)]
 // The warm-up thread's closure is `Send` only through wgpu's dispatch types (`pipeline/warm.rs`),

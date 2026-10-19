@@ -42,6 +42,10 @@ corpus-classes.workspace = true
 # `examples/confined_page` writes the raster it was handed, so that a person can look at the page
 # a confined process drew rather than at a count of its dark pixels.
 png.workspace = true
+# `protocol::windowed` states `viewer_host::oversize`'s window and bound again, because the worker
+# links no host crate (ADR 1871); its tests hold the two statements equal (ADR 2016). A test may
+# link what the worker may not.
+viewer-host.workspace = true
 
 # `pdf-view-worker`'s first statement closes the descriptors it inherited, by number, which only
 # `libc::close_range` can say (ADR 1945).

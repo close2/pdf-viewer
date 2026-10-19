@@ -784,6 +784,11 @@ fn press_page(group: &str, intents: &str, content: &str) -> Vec<u8> {
         press.len() + 1,
         other.len() + 1,
     );
+    assemble(&body)
+}
+
+/// A PDF of the numbered objects `body` holds, one `endobj` each, object 1 the catalog.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -920,4 +925,210 @@ fn a_separation_reverting_to_the_presss_own_profile_takes_the_mode() {
     let named = interpret(press_page(PRESS_GROUP, "", "0.9 0 0 1 k 0 0 40 40 re f"));
     assert_eq!(centre(&overprinting), centre(&named));
     assert!(overprinting.display_list.overprints());
+}
+
+/// An output intent whose destination profile is [`press_page`]'s object 6, `/Other`'s.
+const OTHER_INTENT: &str = "/OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX \
+                            /OutputConditionIdentifier (Other) /DestOutputProfile 6 0 R >>]";
+
+/// `DeviceCMYK` inside a page group of an `ICCBased` CMYK space is that space, whatever the
+/// output intent describes.
+///
+/// ISO 32000-2 §11.7.2: "If an isolated transparency group or page has an ICCBased 'CMYK' colour
+/// space , DeviceCMYK shall be redefined within the transparency group to be the same as the
+/// blending colour space". The page's intent is `/Other`'s profile and its group `/Press`'s, so a
+/// `k` is `/Press`'s colour — the `scn` naming it — and not `/Other`'s, which is what §14.11.5's
+/// intent alone would make it and what the third page paints. ADR 2012.
+#[test]
+fn device_cmyk_on_an_iccbased_cmyk_page_group_is_that_groups_space() {
+    let fill = |paint: &str| centre(&interpret(press_page(PRESS_GROUP, OTHER_INTENT, paint)));
+    let device = fill("0.9 0 0 1 k 0 0 40 40 re f");
+    assert_eq!(device, fill("/Press cs 0.9 0 0 1 scn 0 0 40 40 re f"));
+    assert_ne!(device, fill("/Other cs 0.9 0 0 1 scn 0 0 40 40 re f"));
+}
+
+/// The redefinition carries `DeviceCMYK`'s overprint mode with it.
+///
+/// §11.7.2 again: "Nevertheless for graphics objects that are specified in DeviceCMYK , the full
+/// semantics of DeviceCMYK shall still apply, including overprinting." A `k` redefined to the
+/// press's own space is that press's four values, so Table 146's first row applies and `0 0 0 1`
+/// then `0.9 0 0 0` under `OP true, OPM 1` is `0.9 0 0 1` (§11.7.4.3's first bullet) — on a page
+/// whose intent is another profile, which is ADR 1996 §4's case. ADR 2012.
+#[test]
+fn a_redefined_device_cmyk_keeps_its_overprint_mode() {
+    let page = |paint: &str| interpret(press_page(PRESS_GROUP, OTHER_INTENT, paint));
+    let overprinting = page(&over("/GS gs", "0 0 0 1", "0.9 0 0 0"));
+    let erasing = page(&over("", "0 0 0 1", "0.9 0 0 0"));
+    assert_eq!(
+        centre(&overprinting),
+        centre(&page("/Press cs 0.9 0 0 1 scn 0 0 40 40 re f"))
+    );
+    assert_ne!(centre(&overprinting), centre(&erasing));
+    assert!(overprinting.display_list.overprints());
+}
+
+/// A page under `/Other`'s output intent and no page group, drawing a form `/Outer` whose group
+/// is `<< /S /Transparency {outer_group} >>` and whose content is `outer`; `/Outer` may draw a
+/// second form `/Inner` of group `inner_group` and content `inner`. Both forms state `/Press` and
+/// `/Other` as [`press_page`] does, and `/Outer` adds `outer_spaces` to its `/ColorSpace`.
+fn form_page(
+    (outer_group, outer_spaces, outer): (&str, &str, &str),
+    (inner_group, inner): (&str, &str),
+) -> Vec<u8> {
+    let (press, other) = (press_profile(0), press_profile(1));
+    let spaces = "/Press [/ICCBased 5 0 R] /Other [/ICCBased 6 0 R]";
+    let page = "/Outer Do";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {OTHER_INTENT} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+         /Resources << /XObject << /Outer 7 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{press}\nendstream\n\
+         endobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{other}\nendstream\n\
+         endobj\n\
+         7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+         /Group << /S /Transparency {outer_group} >> \
+         /Resources << /ColorSpace << {spaces} {outer_spaces} >> /XObject << /Inner 8 0 R >> >> \
+         /Length {} >>\nstream\n{outer}\nendstream\nendobj\n\
+         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+         /Group << /S /Transparency {inner_group} >> /Resources << /ColorSpace << {spaces} >> >> \
+         /Length {} >>\nstream\n{inner}\nendstream\nendobj\n",
+        page.len() + 1,
+        press.len() + 1,
+        other.len() + 1,
+        outer.len() + 1,
+        inner.len() + 1,
+    );
+    assemble(&body)
+}
+
+/// An isolated group stating `/Press`'s space, as [`form_page`]'s `/Outer` takes it.
+const ISOLATED_PRESS: &str = "/I true /CS [/ICCBased 5 0 R]";
+
+/// The three ways of filling the page in `0.9 0 0 1`: `k`, and an `scn` in each profile.
+const FILLS: [&str; 3] = [
+    "0.9 0 0 1 k 0 0 40 40 re f",
+    "/Press cs 0.9 0 0 1 scn 0 0 40 40 re f",
+    "/Other cs 0.9 0 0 1 scn 0 0 40 40 re f",
+];
+
+/// The centre pixel of each of [`FILLS`] painted by `paint`.
+fn three_fills(paint: impl Fn(&str) -> Vec<u8>) -> [(u8, u8, u8); 3] {
+    FILLS.map(|fill| centre(&interpret(paint(fill))))
+}
+
+/// The redefinition is the isolated group's, inside a page that states nothing, and it holds
+/// in whichever space the group ends up composited in.
+///
+/// One opaque `Normal` fill composites the same in any space, so this tree draws such a group
+/// in the parent's space rather than in its own press — and the `k` is still `/Press`'s colour
+/// there, because §11.7.2 redefines what `DeviceCMYK` *is* "within the transparency group", not
+/// how the group's raster is held. ADR 2012.
+#[test]
+fn device_cmyk_inside_an_isolated_iccbased_cmyk_group_is_the_groups_space() {
+    let [device, press, other] =
+        three_fills(|fill| form_page((ISOLATED_PRESS, "", fill), ("", "")));
+    assert_eq!(device, press);
+    assert_ne!(device, other);
+}
+
+/// A group that is not isolated redefines nothing: §11.6.6's "[f]or non-isolated groups, or if
+/// no group colour space is specified, the group colour space shall be inherited from the parent
+/// group or page", and §11.7.2's sentence is about "an isolated transparency group or page". The
+/// page states no group, so a `k` is the output intent's colour, `/Other`'s.
+#[test]
+fn a_group_that_is_not_isolated_redefines_nothing() {
+    let [device, press, other] =
+        three_fills(|fill| form_page(("/CS [/ICCBased 5 0 R]", "", fill), ("", "")));
+    assert_eq!(device, other);
+    assert_ne!(device, press);
+}
+
+/// An isolated group of another component count inside a CMYK one leaves `DeviceCMYK` the CMYK
+/// group's.
+///
+/// §11.7.2: where "the current group or an ancestor of the current group is defined with a
+/// CIE-based colour space with the same number of colourants, then, for compositing purposes
+/// only, the colour space of the graphics object shall be the CIE-based space of the nearest
+/// such ancestor". The `/DeviceRGB` group has three components, so the nearest ancestor of four
+/// is `/Outer`'s. ADR 2012.
+#[test]
+fn a_group_of_another_count_inside_keeps_the_ancestors_redefinition() {
+    let [device, press, other] = three_fills(|fill| {
+        form_page(
+            (ISOLATED_PRESS, "", "/Inner Do"),
+            ("/I true /CS /DeviceRGB", fill),
+        )
+    });
+    assert_eq!(device, press);
+    assert_ne!(device, other);
+}
+
+/// §8.6.5.6's default outranks the redefinition: a `/DefaultCMYK` in the group's own resources
+/// is "used as the colour space for the operation currently being performed", and §11.7.2 names
+/// the remapped device colour as the one its device rules do not reach — "unless remapped to
+/// default CIE-based colour spaces". So a `k` under `/DefaultCMYK` of `/Other`'s profile is
+/// `/Other`'s colour inside `/Press`'s group. ADR 2012.
+#[test]
+fn a_default_colour_space_outranks_the_redefinition() {
+    let [device, press, other] = three_fills(|fill| {
+        form_page(
+            (ISOLATED_PRESS, "/DefaultCMYK [/ICCBased 6 0 R]", fill),
+            ("", ""),
+        )
+    });
+    assert_eq!(device, other);
+    assert_ne!(device, press);
+}
+
+/// A page under `/Other`'s output intent painting blue through a `/Luminosity` soft mask whose
+/// group states `/Press`'s space and paints `mask` (Table 144, §11.6.5.1). The group's resources
+/// state `/Press` and `/Other` as [`press_page`] does.
+fn mask_page(mask: &str) -> Vec<u8> {
+    let (press, other) = (press_profile(0), press_profile(1));
+    let page = "/Mask gs 0 0 1 rg 0 0 40 40 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {OTHER_INTENT} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+         /Resources << /ExtGState << /Mask << /SMask << /S /Luminosity /G 7 0 R >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{press}\nendstream\n\
+         endobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{other}\nendstream\n\
+         endobj\n\
+         7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+         /Group << /S /Transparency /CS [/ICCBased 5 0 R] >> \
+         /Resources << /ColorSpace << /Press [/ICCBased 5 0 R] /Other [/ICCBased 6 0 R] >> >> \
+         /Length {} >>\nstream\n{mask}\nendstream\nendobj\n",
+        page.len() + 1,
+        press.len() + 1,
+        other.len() + 1,
+        mask.len() + 1,
+    );
+    assemble(&body)
+}
+
+/// A soft mask's group redefines `DeviceCMYK` by its own `/CS`, and the luminosity is that space's.
+///
+/// §11.6.5.1's group is a transparency group, so §11.7.2's sentence holds inside it; Table 145
+/// makes it one "that has no parent group or page from which to inherit", so its `/CS` is the
+/// whole answer. A `k` in the mask's group is `/Press`'s colour, and the page painted through the
+/// mask is the one painted through a mask of that colour named in `/Press`. ADR 2012.
+///
+/// The fixture's profiles state no `B2A` table, so this reader has no press for the mask's group
+/// and takes its luminosity on device RGB, saying so; the colour each fill converts from is what
+/// the assertions read, and that is decided before the departure.
+#[test]
+fn a_soft_masks_group_redefines_device_cmyk_by_its_own_space() {
+    let [device, press, other] = FILLS.map(|fill| {
+        let document = Document::open(mask_page(fill)).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        centre(&pdf_model::interpret(&document, &page))
+    });
+    assert_eq!(device, press);
+    assert_ne!(device, other);
 }

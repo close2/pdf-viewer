@@ -481,15 +481,33 @@ impl Tree {
     /// "directly or transitively" into one is the third, and is the loop. A namespace dictionary
     /// stating no `/NS` of its own answers `None` too: Table 356 makes the entry required, so the
     /// alternative is to treat a document's broken namespace as the standard one.
+    ///
+    /// **The name is read in the vocabulary of the namespace it ends in**, because §14.8.6.1 makes
+    /// each standard structure namespace a schema of its own and the default one PDF 1.7's: "[w]hen
+    /// a namespace is not explicitly specified for a given structure element or attribute, it shall
+    /// be assumed to be within this default standard structure namespace". So a `Note`, a `TOCI` or
+    /// a `Code` stating no `/NS` is a standard type, and so is one stating the PDF 1.7 namespace;
+    /// an element stating PDF 2.0's is read in PDF 2.0's vocabulary alone, where a `Note` is a name
+    /// nobody defined.
+    ///
+    /// **A PDF 2.0 type stating no namespace is read as PDF 2.0's, and that is a choice** (ADR
+    /// 2014). Errata Collection 3 makes the type an element with no stated namespace ends at one the
+    /// default namespace shall define (ADR 0253), so an `Em` or an `Artifact` with no `/NS` is a
+    /// file breaking a `shall`, and what a reader does with it the standard does not say. The name
+    /// is defined by exactly one standard structure namespace and the file stated no other, so it is
+    /// read as that one's — which keeps an `Artifact` element's content out of a copy and an `H7`
+    /// a heading. An *explicit* namespace is a statement and is held to: an `Em` stating the PDF
+    /// 1.7 namespace is not a type.
     #[must_use]
     pub fn standard_role(&self, document: &Document, element: &Dictionary) -> Option<StandardType> {
         let (name, namespace) = self.resolved(document, element)?;
-        if let Some(space) = namespace
-            && !Namespace::read(document, &space).is_some_and(|space| space.is_standard())
-        {
-            return None;
+        match namespace {
+            Some(space) => {
+                StandardType::read_in(&name, Namespace::read(document, &space)?.standard()?)
+            }
+            None => StandardType::read_in(&name, StandardNamespace::Pdf1_7)
+                .or_else(|| StandardType::read_in(&name, StandardNamespace::Pdf2_0)),
         }
-        StandardType::read(&name)
     }
 
     /// The namespace name an element is in, §14.8.6.1's default where it states none.
@@ -3448,6 +3466,9 @@ impl MarkInfo {
 ///
 /// The four categories §14.8.4.1 divides them into are [`Category`], and three types are in more
 /// than one: see [`Self::category`].
+///
+/// The last eleven are the PDF 1.7 namespace's alone, which Annex M lists and §14.8.6.1 makes the
+/// default: which namespace defines which type is [`Self::defined_in`] (ADR 2014).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StandardType {
     /// `Document`: "[e]ncloses a logical document".
@@ -3544,6 +3565,56 @@ pub enum StandardType {
     /// the structure tree" — the *element* form, as against the marked-content one this crate
     /// reads in [`Artifact`].
     Artifact,
+    /// `Art` (PDF 1.7 namespace only): an article, a self-contained body of text making one
+    /// narrative or exposition (ISO 32000-1 Table 333).
+    Article,
+    /// `BlockQuote` (PDF 1.7 namespace only): one or more paragraphs attributed to someone other
+    /// than the author of the text around them (ISO 32000-1 Table 333).
+    BlockQuote,
+    /// `TOC` (PDF 1.7 namespace only): a table of contents, a list of `TOCI` entries and of nested
+    /// `TOC`s (ISO 32000-1 Table 333).
+    TableOfContents,
+    /// `TOCI` (PDF 1.7 namespace only): one member of a table of contents (ISO 32000-1 Table 333).
+    TableOfContentsItem,
+    /// `Index` (PDF 1.7 namespace only): entries of identifying text with `Reference` elements to
+    /// where the text occurs in the body (ISO 32000-1 Table 333).
+    Index,
+    /// `Private` (PDF 1.7 namespace only): content private to the application that produced it,
+    /// which ISO 32000-1 Table 333 says shall not be interpreted or exported, nor shall any of its
+    /// descendants.
+    Private,
+    /// `Quote` (PDF 1.7 namespace only): an inline portion of text attributed to someone other
+    /// than the author of the text around it (ISO 32000-1 Table 338).
+    Quote,
+    /// `Note` (PDF 1.7 namespace only): explanatory text such as a footnote or an endnote, referred
+    /// to from the body (ISO 32000-1 Table 338) — PDF 2.0's `FENote` is its successor.
+    Note,
+    /// `Reference` (PDF 1.7 namespace only): a citation to content elsewhere in the document (ISO
+    /// 32000-1 Table 338).
+    Reference,
+    /// `BibEntry` (PDF 1.7 namespace only): a reference identifying the external source of cited
+    /// content (ISO 32000-1 Table 338).
+    BibliographyEntry,
+    /// `Code` (PDF 1.7 namespace only): a fragment of computer program text (ISO 32000-1 Table
+    /// 338).
+    Code,
+}
+
+/// §14.8.6.1's two standard structure namespaces, each of which defines a vocabulary of
+/// [`StandardType`]s.
+///
+/// Annex M lists how the two differ: eleven types PDF 1.7's namespace defines and PDF 2.0's does
+/// not, and nine the other way round, counting `Hn` above `H6` as one. The rest are in both, "but
+/// are often defined differently", and this reader reads each by the subclause of ISO 32000-2
+/// that defines it — the PDF 1.7 namespace is ISO 32000-1's clause 14.8, which §14.8.6.1 names as
+/// that namespace's schema, and only the eleven of its own are read from there (ADR 2014).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandardNamespace {
+    /// [`DEFAULT_STANDARD_NAMESPACE`], the standard structure namespace for PDF 1.7, which an
+    /// element stating no namespace is in.
+    Pdf1_7,
+    /// [`STANDARD_NAMESPACE_2_0`], the standard structure namespace for PDF 2.0.
+    Pdf2_0,
 }
 
 /// §14.8.4.1's four categories of standard structure type.
@@ -3592,7 +3663,11 @@ impl Category {
 }
 
 impl StandardType {
-    /// Reads one of §14.8.4's names, or `None` for anything the clause does not define.
+    /// Reads a name either standard structure namespace defines, or `None` for one neither does.
+    ///
+    /// The reading for a caller holding a name and not the namespace it ended in — an
+    /// accessibility host is handed the mapped name alone (ADR 0214). [`Tree::standard_role`] is
+    /// the reading that knows the namespace, and [`Self::read_in`] is the one it asks (ADR 2014).
     ///
     /// `None` is a finding rather than a default: §14.8.4.1 requires every element of a tagged
     /// document to be a standard type or role mapped to one, so a name that arrives here
@@ -3600,6 +3675,49 @@ impl StandardType {
     /// to say, and cannot if the reader has invented a type for it.
     #[must_use]
     pub fn read(name: &str) -> Option<Self> {
+        Self::named(name)
+    }
+
+    /// Reads a name in one standard structure namespace, or `None` for one it does not define.
+    ///
+    /// §14.8.6.1 makes the vocabulary a namespace's: "[t]his schema is called the standard
+    /// structure namespace for PDF 2.0", and the PDF 1.7 one is ISO 32000-1's clause 14.8. So a
+    /// `Note` is a type in the default namespace and a name nobody defined in PDF 2.0's, and an
+    /// `Em` the other way round — Annex M's two lists, which [`Self::defined_in`] holds.
+    #[must_use]
+    pub fn read_in(name: &str, space: StandardNamespace) -> Option<Self> {
+        Self::named(name).filter(|kind| kind.defined_in(space))
+    }
+
+    /// Whether a standard structure namespace defines this type.
+    ///
+    /// Annex M: the PDF 1.7 namespace lacks the nine of [`Self::since_pdf_2_0`], and the PDF 2.0
+    /// one lacks the eleven "defined in the standard structure namespace for PDF 1.7, but not in
+    /// the standard structure namespace for PDF 2.0" — `Art`, `BlockQuote`, `TOC`, `TOCI`,
+    /// `Index`, `Private`, `Quote`, `Note`, `Reference`, `BibEntry` and `Code`.
+    #[must_use]
+    pub fn defined_in(&self, space: StandardNamespace) -> bool {
+        match space {
+            StandardNamespace::Pdf1_7 => !self.since_pdf_2_0(),
+            StandardNamespace::Pdf2_0 => !matches!(
+                self,
+                Self::Article
+                    | Self::BlockQuote
+                    | Self::TableOfContents
+                    | Self::TableOfContentsItem
+                    | Self::Index
+                    | Self::Private
+                    | Self::Quote
+                    | Self::Note
+                    | Self::Reference
+                    | Self::BibliographyEntry
+                    | Self::Code
+            ),
+        }
+    }
+
+    /// Every name of both vocabularies, before either namespace is asked about it.
+    fn named(name: &str) -> Option<Self> {
         // `Hn` before the table, because the table cannot hold an unbounded family: the clause
         // makes `n` "a sequence of digits representing an unsigned integer greater than or equal
         // to 1", so `H2` and `H17` are both standard and neither is a name anybody enumerated.
@@ -3654,6 +3772,17 @@ impl StandardType {
             "Figure" => Self::Figure,
             "Formula" => Self::Formula,
             "Artifact" => Self::Artifact,
+            "Art" => Self::Article,
+            "BlockQuote" => Self::BlockQuote,
+            "TOC" => Self::TableOfContents,
+            "TOCI" => Self::TableOfContentsItem,
+            "Index" => Self::Index,
+            "Private" => Self::Private,
+            "Quote" => Self::Quote,
+            "Note" => Self::Note,
+            "Reference" => Self::Reference,
+            "BibEntry" => Self::BibliographyEntry,
+            "Code" => Self::Code,
             _ => return None,
         })
     }
@@ -3663,12 +3792,25 @@ impl StandardType {
     /// [`Category::Contextual`] where the clause gives two or three — `Figure`, `Formula`,
     /// `Link`, `Annot`, `Form`, `Title`, `FENote`, `Caption`, `L` and `Artifact` — and
     /// [`Category::of`] is the rule that settles it.
+    ///
+    /// The eleven types of the PDF 1.7 namespace alone take the category ISO 32000-1's clause
+    /// 14.8.4 gives them, which is that namespace's schema: grouping for the six of its Table 333
+    /// and inline for the five of its Table 338.
     #[must_use]
     pub fn category(&self) -> Category {
         match self {
             Self::Document | Self::DocumentFragment => Category::Document,
             Self::Part | Self::Section | Self::Division | Self::Aside | Self::NonStructural => {
                 Category::Grouping
+            }
+            Self::Article
+            | Self::BlockQuote
+            | Self::TableOfContents
+            | Self::TableOfContentsItem
+            | Self::Index
+            | Self::Private => Category::Grouping,
+            Self::Quote | Self::Note | Self::Reference | Self::BibliographyEntry | Self::Code => {
+                Category::Inline
             }
             Self::Paragraph | Self::Heading(_) | Self::UnnumberedHeading | Self::Table => {
                 Category::Block
@@ -3706,25 +3848,30 @@ impl StandardType {
         }
     }
 
-    /// Whether this type was introduced in PDF 2.0.
+    /// Whether this type was introduced in PDF 2.0, which is Annex M's list of the types "only
+    /// defined in the standard structure namespace for PDF 2.0".
     ///
-    /// Which matters for §14.8.6.1's two standard namespaces: a document in the *default*
-    /// namespace — `http://iso.org/pdf/ssn`, PDF 1.7's — cannot mean one of these by it, and
-    /// Annex M is where the standard lists the difference. A consumer that cares which
-    /// vocabulary a name came from needs both this and [`Tree::namespace`].
+    /// Which matters for §14.8.6.1's two standard namespaces: an element in the *default*
+    /// namespace — `http://iso.org/pdf/ssn`, PDF 1.7's — cannot mean one of these by it, which is
+    /// [`Self::defined_in`]'s answer and [`Tree::standard_role`]'s. A heading is one of them past
+    /// level six, which the list writes as `H n` with `n` above 6: ISO 32000-1's Table 334 stops
+    /// at `H6`.
     #[must_use]
     pub fn since_pdf_2_0(&self) -> bool {
-        matches!(
-            self,
-            Self::DocumentFragment
-                | Self::Aside
-                | Self::Title
-                | Self::FootnoteOrEndnote
-                | Self::SubBlock
-                | Self::Emphasis
-                | Self::Strong
-                | Self::Artifact
-        )
+        match self {
+            Self::Heading(level) => *level > 6,
+            other => matches!(
+                other,
+                Self::DocumentFragment
+                    | Self::Aside
+                    | Self::Title
+                    | Self::FootnoteOrEndnote
+                    | Self::SubBlock
+                    | Self::Emphasis
+                    | Self::Strong
+                    | Self::Artifact
+            ),
+        }
     }
 }
 
@@ -4460,7 +4607,20 @@ impl Namespace {
     /// foreign namespace's `Table` from a table.
     #[must_use]
     pub fn is_standard(&self) -> bool {
-        self.name == DEFAULT_STANDARD_NAMESPACE || self.name == STANDARD_NAMESPACE_2_0
+        self.standard().is_some()
+    }
+
+    /// Which of §14.8.6.1's two standard structure namespaces this is, or `None` for any other.
+    ///
+    /// The name is compared whole, because a namespace name "is instead used for uniqueness" (NOTE
+    /// 1 of §14.7.4.2) and two strings that differ name two namespaces.
+    #[must_use]
+    pub fn standard(&self) -> Option<StandardNamespace> {
+        match self.name.as_str() {
+            DEFAULT_STANDARD_NAMESPACE => Some(StandardNamespace::Pdf1_7),
+            STANDARD_NAMESPACE_2_0 => Some(StandardNamespace::Pdf2_0),
+            _ => None,
+        }
     }
 }
 
@@ -5205,12 +5365,12 @@ const GRANDFATHERED: [&str; 26] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, CellFacts,
-        CellPlacement, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
-        MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType, TableGrid, TableStack, Tree,
-        WritingMode, actual_text, allocation_rectangle, alternate_description,
-        annotation_languages, annotation_rectangles, language, list_predecessors,
-        outside_sequences, table_cell_rectangles, well_formed_language_tag,
+        Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, Boundary,
+        Category, CellFacts, CellPlacement, Checked, Child, FieldRole, HeaderScope,
+        ListContinuation, ListEntry, MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType,
+        TableGrid, TableStack, Tree, WritingMode, actual_text, allocation_rectangle,
+        alternate_description, annotation_languages, annotation_rectangles, language,
+        list_predecessors, outside_sequences, table_cell_rectangles, well_formed_language_tag,
     };
     use pdf_syntax::{Dictionary, Document, Object};
     use std::collections::BTreeSet;
@@ -6099,6 +6259,157 @@ mod tests {
             tree.standard_role(&doc, &element),
             None,
             "and it is not §14.8.4's table, because it is not in a standard structure namespace"
+        );
+    }
+
+    /// §14.8.6.1's default, applied to what a name means: an element stating no namespace is in
+    /// PDF 1.7's, so its `Note` is that namespace's type — and its `Em`, which the namespace does
+    /// not define, is read as the one standard namespace's that does (ADR 2014).
+    ///
+    /// > When a namespace is not explicitly specified for a given structure element or attribute,
+    /// > it shall be assumed to be within this default standard structure namespace.
+    ///
+    /// The fixture states each name three ways — no `/NS`, the PDF 1.7 namespace named, and the
+    /// PDF 2.0 one named — so the answer is shown to follow the namespace and not the name; and a
+    /// root `/RoleMap` takes a document's own `/Footnote` to `/Note`, which leaves it in the
+    /// default namespace as §14.8.6.2 says a single-name mapping does.
+    #[test]
+    fn a_name_is_read_in_the_vocabulary_of_the_namespace_it_ends_in() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R 10 0 R 11 0 R 12 0 R] \
+             /Namespaces [13 0 R 14 0 R] /RoleMap << /Footnote /Note >> >>",
+            "<< /Type /StructElem /S /Note >>",
+            "<< /Type /StructElem /S /Note /NS 13 0 R >>",
+            "<< /Type /StructElem /S /Note /NS 14 0 R >>",
+            "<< /Type /StructElem /S /Em >>",
+            "<< /Type /StructElem /S /Em /NS 13 0 R >>",
+            "<< /Type /StructElem /S /Em /NS 14 0 R >>",
+            "<< /Type /StructElem /S /Footnote >>",
+            "<< /Type /StructElem /S /H7 >>",
+            "<< /Type /Namespace /NS (http://iso.org/pdf/ssn) >>",
+            "<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let roles: Vec<Option<StandardType>> = tree
+            .children(&doc, None)
+            .iter()
+            .map(|child| match child {
+                Child::Element(element) => tree.standard_role(&doc, element),
+                other => panic!("an element: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            roles,
+            [
+                Some(StandardType::Note),
+                Some(StandardType::Note),
+                None,
+                Some(StandardType::Emphasis),
+                None,
+                Some(StandardType::Emphasis),
+                Some(StandardType::Note),
+                Some(StandardType::Heading(7)),
+            ],
+            "an explicit namespace is held to, no namespace reads either, and the mapped Footnote \
+             is the default's Note"
+        );
+        assert_eq!(
+            StandardType::read("Note"),
+            Some(StandardType::Note),
+            "and a name read with no namespace beside it is either vocabulary's"
+        );
+        assert_eq!(StandardType::read("Em"), Some(StandardType::Emphasis));
+    }
+
+    /// Annex M's two lists, whole: eleven types only the PDF 1.7 namespace defines and nine only
+    /// the PDF 2.0 one does, counting `Hn` past six as one. The rest of either vocabulary is in
+    /// both, which is the annex's sentence between its two lists.
+    #[test]
+    fn annex_m_says_which_namespace_defines_which_type() {
+        use super::StandardNamespace::{Pdf1_7, Pdf2_0};
+
+        for name in [
+            "Art",
+            "BlockQuote",
+            "TOC",
+            "TOCI",
+            "Index",
+            "Private",
+            "Quote",
+            "Note",
+            "Reference",
+            "BibEntry",
+            "Code",
+        ] {
+            assert!(
+                StandardType::read_in(name, Pdf1_7).is_some(),
+                "{name} is PDF 1.7's"
+            );
+            assert_eq!(
+                StandardType::read_in(name, Pdf2_0),
+                None,
+                "{name} is not PDF 2.0's"
+            );
+        }
+        for name in [
+            "DocumentFragment",
+            "Aside",
+            "H7",
+            "H17",
+            "Title",
+            "FENote",
+            "Sub",
+            "Em",
+            "Strong",
+            "Artifact",
+        ] {
+            assert!(
+                StandardType::read_in(name, Pdf2_0).is_some(),
+                "{name} is PDF 2.0's"
+            );
+            assert_eq!(
+                StandardType::read_in(name, Pdf1_7),
+                None,
+                "{name} is not PDF 1.7's"
+            );
+        }
+        for name in ["H6", "H", "P", "Sect", "Table", "Link", "Figure", "Formula"] {
+            assert!(
+                StandardType::read_in(name, Pdf1_7).is_some()
+                    && StandardType::read_in(name, Pdf2_0).is_some(),
+                "{name} is in both"
+            );
+        }
+    }
+
+    /// The PDF 1.7 types end with the boundary ISO 32000-1's category gives them: the six of its
+    /// Table 333 are grouping elements and end a block, the five of its Table 338 are inline and
+    /// end nothing. Before §14.8.6.1's default was read, every one of them ended with nothing and
+    /// took its parent's category, which is the reading for a name no namespace defines (ADR 2014).
+    #[test]
+    fn a_pdf_1_7_type_ends_with_its_own_categorys_boundary() {
+        for (name, ends_with) in [
+            ("TOCI", Boundary::Block),
+            ("TOC", Boundary::Block),
+            ("Art", Boundary::Block),
+            ("BlockQuote", Boundary::Block),
+            ("Note", Boundary::Flow),
+            ("Reference", Boundary::Flow),
+            ("Code", Boundary::Flow),
+        ] {
+            let kind = StandardType::read(name).unwrap_or_else(|| panic!("{name} is standard"));
+            assert_eq!(
+                Boundary::ending(Some(&kind), Some(Category::Grouping)).0,
+                ends_with,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            StandardType::read("Note").map(|kind| kind.category()),
+            Some(Category::Inline)
         );
     }
 

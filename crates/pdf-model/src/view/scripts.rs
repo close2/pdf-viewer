@@ -1285,7 +1285,8 @@ impl ViewState {
         let scripted = widgets
             .first()
             .map_or(&[][..], |widget| self.scripted(*widget));
-        let Some(entry) = super::chosen(document, widgets.first().copied(), scripted, &indices)
+        let Some(entry) =
+            super::fields::chosen(document, widgets.first().copied(), scripted, &indices)
         else {
             self.report(format!(
                 "{field}: a script set currentValueIndices, and the field is not a choice field \
@@ -1705,7 +1706,7 @@ impl ViewState {
                     Ok(Keyed::Accepted { .. }) => Verdict::Stands,
                     Ok(Keyed::Rejected { .. }) => Verdict::Rejected,
                     Err(refusal) => {
-                        let name = super::field_name_of(document, first);
+                        let name = super::fields::field_name_of(document, first);
                         self.report(format!(
                             "{name}: the field's keystroke script {} did not run: {refusal}",
                             call.function.name()
@@ -1769,7 +1770,7 @@ impl ViewState {
                 if let Some(option) = options.iter().position(|option| option.label == text) {
                     Selected::Chooses(option)
                 } else {
-                    let name = super::field_name_of(document, first);
+                    let name = super::fields::field_name_of(document, first);
                     self.report(format!(
                         "{name}: the field's keystroke script changed the selection to \"{text}\", \
                          which no option of /Opt shows, so the selection stands as made"
@@ -2350,7 +2351,7 @@ impl Typed {
         let field = crate::appearance::Field::read(document, widget, super::FieldValue::Stored);
         match field.kind {
             Some(crate::appearance::FieldKind::Text) => {
-                let mut fits = super::accepted(document, taking, text);
+                let mut fits = super::fields::accepted(document, taking, text);
                 let limit = field
                     .ancestry
                     .iter()

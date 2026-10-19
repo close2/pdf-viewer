@@ -383,6 +383,9 @@ pub struct Framed {
     pub page: usize,
     /// The pixels, or the marks that make them — see [`Payload`].
     pub payload: Payload,
+    /// How many bytes of the frame the payload took: what crossed the pipe for this page, which a
+    /// host that prices the crossing reads per byte (ADR 2017).
+    pub bytes: usize,
     /// Where the page's top-left corner sits in the viewport, in device pixels.
     ///
     /// The same number for either payload: it is where the *page* goes, and a host that
@@ -432,12 +435,14 @@ pub enum Payload {
         /// trap 12a is a doc comment that claimed the display list's space *was* the raster's.
         target: pdf_render::TargetSpec,
     },
-    /// A window of a page past [`viewer_core::MAX_PIXELS`] whose marks cannot cross, drawn in the
-    /// confined process: the part of `target` the viewport shows with a margin round it (ADR 1986).
+    /// A window of a page whose marks cannot cross, drawn in the confined process: the part of
+    /// `target` the viewport shows with a margin round it (ADRs 1986, 2016).
     ///
     /// The page that needs it is one the list format refuses ([`Uncodable`]) or one whose list is
-    /// past the gibibyte a page's pixels may claim, at a target no raster of which may be
-    /// allocated. **The worker states the window rather than the host asking for one**, so the
+    /// larger than its pixels, at a target past [`viewer_core::MAX_PIXELS`], no raster of which
+    /// may be allocated, or under it where the toolkit windows would draw it as a window — its
+    /// largest window leaving out an eighth of its commands or half its pixels (ADR 1994). **The
+    /// worker states the window rather than the host asking for one**, so the
     /// host places what it is given at `corner` and needs no agreement with the worker about the
     /// margin; a scroll that leaves the window is drawn again in the command that scrolled.
     Window {
@@ -448,6 +453,22 @@ pub enum Payload {
         /// The window's pixels, `raster.width` × `raster.height` of `target` from `corner`.
         raster: Raster,
     },
+}
+
+/// How a page past [`viewer_core::MAX_PIXELS`] whose marks cross is to cross, which the host
+/// chooses by price ([`Confined::route`], ADR 2017).
+///
+/// **The host chooses because the host waits.** A page past the bound whose marks cross is drawn
+/// by the host's device from its marks, and every frame of it carries the marks across the pipe;
+/// or it is drawn by the worker as the window shows it, and only the window's pixels cross. Which
+/// is the quicker is the device's frame and the crossing against the processor's window, and the
+/// host is where all three are measured (`doc/questions/A477`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The page's marks, which the host's device draws at the window's size (ADR 1944).
+    Marks,
+    /// The worker's window of it, drawn on its processor (ADR 1986).
+    Window,
 }
 
 /// One page's sentences about what it could not draw, as they crossed the confinement.
@@ -871,6 +892,26 @@ impl Confined {
         )?;
         match kind {
             protocol::FRAME_EVENTS => protocol::decode_events(&payload).map_err(Into::into),
+            protocol::FRAME_REFUSAL => Err(refusal(&payload)),
+            _ => Err(ConfinedError::UnrecognisedFrame),
+        }
+    }
+
+    /// Asks the confined process to send `page` as `route` from now on: as its windows from the
+    /// next command, or as its marks again from its next render (ADR 2017). It records the
+    /// asking and draws nothing, so it answers at once whatever the page costs; a page that is
+    /// not past the bound, or not held, is left as it is.
+    ///
+    /// # Errors
+    ///
+    /// See [`ConfinedError`].
+    pub fn route(&mut self, page: usize, route: Route) -> Result<(), ConfinedError> {
+        let payload = protocol::encode_route(page, route);
+        let (kind, payload) = self.host.exchange(protocol::FRAME_ROUTE, &payload, None)?;
+        match kind {
+            protocol::FRAME_EVENTS => protocol::decode_events(&payload)
+                .map(drop)
+                .map_err(Into::into),
             protocol::FRAME_REFUSAL => Err(refusal(&payload)),
             _ => Err(ConfinedError::UnrecognisedFrame),
         }

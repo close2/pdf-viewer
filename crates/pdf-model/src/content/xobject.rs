@@ -318,7 +318,8 @@ struct ImportedFrame<'a> {
     document: &'a pdf_syntax::Document,
     across: Option<&'a super::FontCache>,
     fonts: std::collections::BTreeMap<super::FontKey, Option<super::Font>>,
-    icc_spaces: std::collections::BTreeMap<pdf_syntax::ObjectId, super::ColourSpace>,
+    icc_spaces:
+        std::collections::BTreeMap<(pdf_syntax::ObjectId, Option<u128>), super::ColourSpace>,
     shadings: crate::shading::Cache,
     resource_tables:
         std::cell::RefCell<std::collections::BTreeMap<pdf_syntax::ObjectId, Dictionary>>,
