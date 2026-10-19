@@ -216,12 +216,20 @@ fn a_frame_the_device_refused_before_is_drawn_on_the_processor_without_asking_it
     assert!(!pages.is_empty(), "the document shows a page");
     let link = spawn(renderer, idle(0, 2), None);
     let mut asked = job(&pages, size);
-    asked.known_refusal = Some("frame refused: remembered".to_owned());
+    asked.known_refusal = Some(Known {
+        said: "frame refused: remembered".to_owned(),
+        of: Kept::Frame,
+    });
     link.jobs.send(asked).expect("the thread is running");
     let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
         panic!("the first answer is the frame asked for");
     };
     assert_eq!(done.fell_back.as_deref(), Some("frame refused: remembered"));
+    assert_eq!(
+        done.known,
+        Some(Kept::Frame),
+        "and says why it was not asked"
+    );
     assert!(done.device_tried.is_none(), "the device was not asked");
     assert!(done.processor_drew.is_some(), "the processor drew it");
     assert!(
@@ -229,7 +237,7 @@ fn a_frame_the_device_refused_before_is_drawn_on_the_processor_without_asking_it
         "{:?}",
         done.refused
     );
-    assert!(!done.refused_now, "nothing new was learned");
+    assert!(done.refused_now.is_none(), "nothing new was learned");
     match link.done.recv_timeout(Duration::from_secs(3)) {
         Err(_) => {}
         Ok(Finished::Sharp(_)) => panic!("a view the device refused was sharpened by it"),
@@ -299,7 +307,12 @@ fn an_interrupt_raised_before_the_processor_starts_abandons_the_frame() {
     let pages = arrangement(&viewer, &mut requests, size);
     let link = spawn(renderer, idle(0, 1), None);
     let mut asked = job(&pages, size);
-    asked.known_refusal = Some("frame refused: remembered".to_owned());
+    // The lane's refusal, which the job's own coverage was refused under (ADR 1968): the frame
+    // is answered as one of the frame's own is.
+    asked.known_refusal = Some(Known {
+        said: "frame refused: remembered".to_owned(),
+        of: Kept::Lane(raster_gpu::Coverage::Compute),
+    });
     asked.interrupt.raise();
     link.jobs.send(asked).expect("the thread is running");
     let Ok(Finished::Frame(done)) = link.done.recv_timeout(Duration::from_mins(2)) else {
@@ -310,6 +323,8 @@ fn an_interrupt_raised_before_the_processor_starts_abandons_the_frame() {
         done.processor_drew.is_none(),
         "the processor was not started"
     );
+    assert!(done.device_tried.is_none(), "nor was the device asked");
+    assert_eq!(done.known, Some(Kept::Lane(raster_gpu::Coverage::Compute)));
 }
 
 /// **A frame that waited behind other work is charged only its own drawing** (ADR 1289).

@@ -30,14 +30,20 @@ const DOCUMENT: DocumentId = DocumentId(1);
 /// A one-page tagged document: `content` as the page's stream, `structure` as objects 10 onwards
 /// with object 10 the `/StructTreeRoot`.
 fn tagged(content: &str, structure: &str) -> Vec<u8> {
+    tagged_page(content, "", structure)
+}
+
+/// [`tagged`], with `page` spliced into the page dictionary — an `/Annots` array.
+fn tagged_page(content: &str, page: &str, structure: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 10 0 R \
          /MarkInfo << /Marked true >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] \
-         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /StructParents 0 >>\nendobj\n\
+         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /StructParents 0 {page} >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
-         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding << /Differences [173 /softhyphen] >> >>\nendobj\n\
          {structure}",
         content.len() + 1,
     );
@@ -226,7 +232,7 @@ fn text_nothing_reaches_keeps_the_copy_in_page_order() {
 /// and pressed copy asked for the running head, and the page order gives it to them.
 #[test]
 fn the_structure_states_the_pieces_and_what_lies_between_them() {
-    use pdf_model::structure::{Boundary, Tree};
+    use pdf_model::structure::{Boundary, ContentSpans, Tree};
 
     let document = pdf_syntax::Document::open(tagged(PAGE, &structure("", "")))
         .expect("the fixture is a valid file");
@@ -242,8 +248,7 @@ fn the_structure_states_the_pieces_and_what_lies_between_them() {
         .logical_range(
             &document,
             page,
-            &interpretation.marked,
-            &interpretation.artifacts,
+            ContentSpans::of(&interpretation),
             0..text.len(),
         )
         .expect("every byte is reached or declared an artifact");
@@ -274,10 +279,95 @@ fn the_structure_states_the_pieces_and_what_lies_between_them() {
         tree.logical_range(
             &document,
             page,
-            &interpretation.marked,
-            &interpretation.artifacts,
+            ContentSpans::of(&interpretation),
             head..head + "Running head".len(),
         ),
         None
+    );
+}
+
+/// [`PAGE`] with a text field between its two paragraphs, which the tree names by §14.7.5.3's
+/// object reference `times` times over: a `P` holding a `Form` whose `/K` is the `OBJR`, and the
+/// widget's `/StructParent` keyed to that `Form` (Table 359).
+fn with_a_field(times: usize) -> Vec<u8> {
+    let reference = "<< /Type /OBJR /Obj 25 0 R /Pg 3 0 R >> ".repeat(times);
+    let appearance = "BT /F1 12 Tf 2 5 Td (Field value.) Tj ET";
+    let structure = structure(
+        "",
+        &format!(
+            "24 0 obj\n<< /Type /StructElem /S /Form /P 26 0 R /K [{reference}] >>\nendobj\n\
+             25 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (f) /V (Field value.) \
+             /Rect [20 100 200 120] /F 4 /P 3 0 R /StructParent 1 /AP << /N 27 0 R >> >>\n\
+             endobj\n\
+             26 0 obj\n<< /Type /StructElem /S /P /P 11 0 R /K [24 0 R] >>\nendobj\n\
+             27 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 180 20] \
+             /Resources << /Font << /F1 5 0 R >> >> /Length {} >>\nstream\n{appearance}\n\
+             endstream\nendobj\n",
+            appearance.len() + 1
+        ),
+    )
+    .replace("/K [13 0 R 15 0 R", "/K [13 0 R 26 0 R 15 0 R")
+    .replace("22 0 R]] >>", "22 0 R] 1 24 0 R] >>");
+    tagged_page(PAGE, "/Annots [25 0 R]", &structure)
+}
+
+/// §14.8.2.5.2: an annotation "is not interleaved within the page's content stream", and "[t]he
+/// position of an annotation in the logical content order is determined from the document's
+/// logical structure".
+///
+/// The field's value reads back after everything the page's stream drew, and the copy puts it
+/// where the tree's object reference does: between the two paragraphs, a block of its own because
+/// its `P` is one. Without the object's span nothing would account for those bytes, and the copy
+/// would be in page order (ADR 1970).
+#[test]
+fn an_annotation_the_tree_names_is_copied_where_the_tree_names_it() {
+    let (logical, page_order) = copy_all(with_a_field(1));
+    assert!(
+        page_order.trim_end().ends_with("Field value."),
+        "the appearance reads back after the page's content: {page_order:?}"
+    );
+    assert_eq!(
+        logical.as_deref(),
+        Some("First paragraph.\nField value.\nSecond paragraph.\nA1\tB1\nA2\tB2"),
+        "page order was {page_order:?}"
+    );
+}
+
+/// Table 358's NOTE 2: "if it is rendered multiple times on the same page, just a single object
+/// reference suffices to identify all of them" — so a second reference to the same annotation
+/// names the same content, and the copy holds it once.
+#[test]
+fn an_annotation_named_twice_is_copied_once() {
+    let (logical, _) = copy_all(with_a_field(2));
+    assert_eq!(
+        logical.as_deref(),
+        Some("First paragraph.\nField value.\nSecond paragraph.\nA1\tB1\nA2\tB2")
+    );
+}
+
+/// §14.8.2.3's soft hyphen at a line's end, in both of a copy's orders: the break after it is the
+/// incidental division and goes, the character is what the producer mapped and stays, so the
+/// pasted word is the word a search finds (ADR 1971). The paragraph is one element whose content
+/// the stream divided across two lines; code 173 is the `/Differences` array's `softhyphen`, which
+/// the Adobe Glyph List names U+00AD — Annex D's own route for it.
+#[test]
+fn a_word_a_soft_hyphen_divided_is_copied_whole_in_both_orders() {
+    let page = format!(
+        "{PAGE} BT /F1 12 Tf 20 100 Td /P << /MCID 7 >> BDC (Transparen\\255) Tj 0 -14 Td \
+         (cy matters.) Tj EMC ET"
+    );
+    let structure = structure(
+        "23 0 R",
+        "23 0 obj\n<< /Type /StructElem /S /P /P 11 0 R /Pg 3 0 R /K 7 >>\nendobj\n",
+    )
+    .replace("22 0 R]] >>", "22 0 R 23 0 R]] >>");
+    let (logical, page_order) = copy_all(tagged(&page, &structure));
+    assert!(
+        page_order.ends_with("Transparen\u{ad}cy matters."),
+        "{page_order:?}"
+    );
+    assert_eq!(
+        logical.as_deref(),
+        Some("First paragraph.\nSecond paragraph.\nA1\tB1\nA2\tB2\nTransparen\u{ad}cy matters.")
     );
 }

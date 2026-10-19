@@ -589,6 +589,9 @@ pub(crate) struct Overlays {
     /// reader's own policy rather than anything about the document, and what is under it is still
     /// the document.
     menu: Option<pdf_render::DisplayList>,
+    /// ISO 19005's conversion being chosen, beside the menu and for its reason: a card of the
+    /// reader's own choices, over a document that is still the document (ADR 1966).
+    archive: Option<pdf_render::DisplayList>,
     /// `CLAUDE.md`'s question, over the menu: the core is holding an operation until it is
     /// answered, and a person who opened the menu while one stood would be answering nothing.
     question: Option<pdf_render::DisplayList>,
@@ -621,6 +624,7 @@ impl Overlays {
             documents: app.documents_list(width),
             about: app.about_list(width, height),
             menu: app.menu_list(width, height),
+            archive: app.archive_list(width, height),
             question: app.question_list(width, height),
             password: app.password_list(width, height),
             refusal: app.refusal_list(width, height),
@@ -649,6 +653,7 @@ impl Overlays {
             self.find.as_ref(),
             self.about.as_ref(),
             self.menu.as_ref(),
+            self.archive.as_ref(),
             self.question.as_ref(),
             self.password.as_ref(),
             self.refusal.as_ref(),

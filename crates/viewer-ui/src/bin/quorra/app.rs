@@ -443,8 +443,14 @@ pub(crate) struct App {
     /// §12.7.6.2's submissions on the wire, each on a thread of its own, and the answers that have
     /// come back — collected when the thread wakes this loop (ADR 1291).
     pub(crate) submitter: viewer_host::submit::Submitter,
-    /// The conversion `--archive` chose, which the archive key asks for (ADR 1954).
+    /// The conversion `--archive` chose, or the person chose on [`Self::archive_card`], which
+    /// the archive key asks for (ADRs 1954, 1966).
     pub(crate) archive: Option<viewer_core::Archiving>,
+    /// The card the archive key puts up where nothing was chosen yet (ADR 1966).
+    pub(crate) archive_card: viewer_ui::chrome::ArchiveCard,
+    /// The password each open document was opened with, which a conversion opens the file again
+    /// with (ADR 1967).
+    pub(crate) kept: viewer_host::password::Kept,
     /// The conversions running, each on an `archive` thread of its own that wakes this loop when
     /// it is done — collected where a server's answer is (ADR 1954).
     pub(crate) converter: viewer_host::archiving::Converter,
@@ -1020,6 +1026,7 @@ impl App {
                 self.unpark(parked);
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
+                self.kept.forget(closing);
                 self.restrip();
                 self.dispatch(Command::Close(closing));
                 self.dispatch(Command::Focus(focused));

@@ -212,7 +212,12 @@ static void convert_to_pdfa(quorra_viewer *viewer)
         printf("archive: no profile list\n");
         return;
     }
-    printf("archive: %zu profile(s), the second %s\n", profiles, name);
+    char sentence[256];
+    if (quorra_archive_profile_sentence(1, sentence, sizeof sentence, &needed) != QUORRA_OK) {
+        printf("archive: no sentence for %s\n", name);
+        return;
+    }
+    printf("archive: %zu profile(s), the second %s: %s\n", profiles, name, sentence);
     quorra_events *events = NULL;
     if (quorra_archive(viewer, "2b", name, &events) != QUORRA_OK) {
         printf("archive: refused\n");

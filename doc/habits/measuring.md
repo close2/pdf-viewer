@@ -1047,3 +1047,32 @@ together they pushed both past clippy's hundred-line limit, which the second rou
 with the features; an arm that carries its body makes the match the longest function in the
 window. An arm is `Event::X(it) => self.x(it)`, and the body is the method's, where it can be read
 on its own and tested on its own.
+
+## 104. A command that can outlive the prompt cache is waited for in calls of four minutes
+
+Batch ninety's census of 48 rounds found 85 % of everything the rounds wrote to the prompt cache
+written by the 4 % of requests that followed a gap over five minutes, and the gaps were the rounds'
+own wait-loops — `timeout 590 bash -c 'until grep -q "^bounded: exit" …'` — written to the Bash
+tool's ten-minute ceiling, every one of which outlived the cache. A command that can run past 240 s
+is started with `tools/wait.sh --start <log> -- <command>` and waited for with `tools/wait.sh <log>`
+in a call whose harness timeout is 270 000 ms, re-issued on its exit 75; no loop of a round's own
+waits longer than 240 s. ADR 1976 has the census and the price, ADR 1977 the rule.
+
+## 105. A residue an ADR leaves has its premise checked in the file's bytes before it is built on
+
+ADR 1948 §4 said two documents copied in page order because an annotation the tree claims by object
+reference reached the readback without its id. Round 1567 built that placement and then found,
+with `mutool show`, that neither document holds an object reference: one has an untagged caption,
+the other no `/MarkInfo` at all, and both are the ADR's own "text nothing claims", kept in page
+order by decision. The placement was right to build and two other pages gained by it, but the
+hypothesis "58 → 60" was never possible. A residue is a claim about files; the first hour of a round
+that takes one up opens the files and reads the objects the claim names.
+
+## 106. A dialogue a drive step answers puts the keyboard on its list
+
+Round 1565's archive chooser is a card in `quorra`, a drop-down over a list in GTK and a combo box
+over a list in Qt. The drive answers each the same way — Down, then Enter — and that is possible only
+because every one of the three puts the keyboard focus on its list when it opens. A dialogue whose
+focus lands elsewhere makes the drive's step toolkit-specific, and a step that differs by toolkit is
+a step that goes untested in one of them.
+

@@ -945,6 +945,8 @@ int32_t quorra_printed_report(const quorra_viewer *viewer, size_t index, char *o
 /* ISO 19005 (PDF/A): the profiles this library ships, by name — the command line's --profile list. */
 int32_t quorra_archive_profiles(size_t *count);
 int32_t quorra_archive_profile(size_t index, char *out, size_t cap, size_t *needed);
+/* One shipped profile's sentence about itself, which the windows offer beside its name. */
+int32_t quorra_archive_profile_sentence(size_t index, char *out, size_t cap, size_t *needed);
 /* Asks for the focused document as ISO 19005 at `target` (2b, 2u, 2a, 4, 4f, 4e) under a shipped
  * profile. Table 22's bit 11 is asked at the reader's level; where it is granted the conversion
  * runs on the calling thread before this returns (inside quorra_answer at the ask level).

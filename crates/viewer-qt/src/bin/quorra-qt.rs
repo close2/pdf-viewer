@@ -364,7 +364,7 @@ mod tests {
 
     /// The word this window's refusal names has to be a word this program takes.
     ///
-    /// The same test `quorra-gtk` carries, and the same defect behind it: `Host::react`
+    /// The same test `quorra-gtk` carries, and the same defect behind it: `NativeWindow::react`
     /// answered `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` while
     /// `arguments` answered that word with *"is not an option this program has"* and exit 1. Two
     /// hosts wrote the sentence independently and both got it wrong the same way, which is what a

@@ -79,7 +79,12 @@ fn crates_saying(needle: &str) -> BTreeSet<String> {
 #[test]
 fn a_host_that_arms_the_documents_report_also_asks_for_it() {
     let arming = crates_saying("report_due.opened()");
-    let asking = crates_saying("report_due.after_a_frame()");
+    let mut asking = crates_saying("report_due.after_a_frame()");
+    // A toolkit window asks through `NativeWindow::answered`, which is this crate's, so every
+    // crate implementing the trait asks where this one does (ADR 1972).
+    if asking.remove("viewer-host") {
+        asking.extend(crates_saying("impl NativeWindow for"));
+    }
     assert!(
         !arming.is_empty(),
         "some host arms the report, or this sweep is measuring nothing"

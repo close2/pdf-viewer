@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use viewer_core::{Answer, Command, Query};
+use viewer_core::{Answer, Query};
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
@@ -49,8 +49,8 @@ impl Host {
         let held = self.playing.is_some()
             || self.state.oversized.shows(self.state.documents.focused())
             || matches!(self.state.viewer.query(Query::Frame), Answer::Frame(frames) if !frames.is_empty());
-        if !self.presented && held {
-            self.presented = true;
+        if !self.state.presented && held {
+            self.state.presented = true;
             self.state.read_look = None;
             self.state.trace.say(
                 Topic::Launch,
@@ -67,132 +67,6 @@ impl Host {
         // tree on AT-SPI. This is the one moment in this host that is on the far side of a paint,
         // which is exactly what `CLAUDE.md`'s startup rule asks of it (ADR 0623).
         self.attend();
-    }
-
-    /// Takes whatever the drawing thread has finished and answers the viewer for it.
-    ///
-    /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why
-    /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
-    /// page as answered for and stop the scheduler ever asking again, which freezes a page this
-    /// window merely chose not to finish drawing.
-    ///
-    /// **Before the first frame this waits, and after it this only asks** — ADR 0678, and the same
-    /// three lines as `viewer-gtk`'s because the rule is `viewer_host::Drawing`'s rather than a
-    /// toolkit's. A window with nothing on the screen has no frame to spoil and no input to lose,
-    /// and `viewer_host::drawing::SETTLE` bounds the whole of what it may spend. The measurement
-    /// that put it there is GTK's — Qt's own launch was not the one that lost 44 ms — and it is
-    /// here for levelness and because a `QTimer` is no more dispatchable than a `glib` one while a
-    /// toolkit is inside its own first frame.
-    pub(super) fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
-        let drawn = if self.presented {
-            self.state.drawing.collect()
-        } else {
-            self.state.drawing.settle(viewer_host::drawing::SETTLE)
-        };
-        for finished in drawn {
-            self.state.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} {} {}x{} in {:?}, waited {:?}",
-                    finished.request.page.saturating_add(1),
-                    if finished.outcome.is_some() {
-                        "rasterised"
-                    } else {
-                        "abandoned after"
-                    },
-                    finished.request.target.width,
-                    finished.request.target.height,
-                    finished.cost,
-                    finished.waited
-                ),
-            );
-            let Some(rendered) = finished.outcome else {
-                continue;
-            };
-            // The page's own frame, so the window that stood in for it since a notch back is let
-            // go (ADR 1930).
-            self.state.oversized.answered_whole(&finished.request);
-            if let viewer_core::Rendered::Raster(raster) = &rendered {
-                let began = std::time::Instant::now();
-                if self.state.retained.landed(&finished.request, raster) {
-                    self.state.trace.say(
-                        Topic::Frames,
-                        format_args!(
-                            "page {} retained, {} held, in {:?}",
-                            finished.request.page.saturating_add(1),
-                            self.state.retained.len(),
-                            began.elapsed()
-                        ),
-                    );
-                }
-            }
-            queue.push_back(Command::RenderReady {
-                token: finished.request.token,
-                rendered,
-            });
-            self.answered(&finished.request, queue);
-        }
-        self.take_the_windows(queue);
-        self.mind_a_long_draw();
-    }
-
-    /// What follows the viewer's being answered for `request`, by its whole frame or by the first
-    /// window drawn of it (ADR 1930).
-    fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
-        // The reader has their page, so the document may now be asked what it says about
-        // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
-        // rule both follow. ADR 1044.
-        if self.state.showing.report_due.after_a_frame() {
-            queue.push_back(Command::Report);
-            // And its open sequence, after the first present and never in front of it (ADR
-            // 1602).
-            queue.push_back(Command::Presented);
-        }
-        // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
-        // size, which is known now and not before; the window asks `place_window` with its
-        // own extents (ADR 1429).
-        if self.presenting.owes_placing() {
-            self.update.placement = true;
-        }
-        // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
-        // so this is where an armed one can begin. Only while a presentation is running,
-        // because taking the face costs a whole-viewport rasterisation.
-        self.face_arrived(request);
-    }
-
-    /// Takes the windows the drawing has finished, and answers the viewer for the first of each
-    /// request — the host took its list (ADR 1892).
-    fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
-        for (finished, window) in self.state.drawing.windows() {
-            self.state.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
-                    finished.request.page.saturating_add(1),
-                    window.width,
-                    window.height,
-                    window.x,
-                    window.y,
-                    if finished.outcome.is_some() {
-                        "rasterised"
-                    } else {
-                        "abandoned"
-                    },
-                    finished.cost,
-                    finished.waited
-                ),
-            );
-            self.update.frame = true;
-            if finished.outcome.is_none() {
-                self.state.oversized.abandoned(&finished.request, window);
-                continue;
-            }
-            let request = finished.request.clone();
-            if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
-                queue.push_back(Command::RenderReady { token, rendered });
-                self.answered(&request, queue);
-            }
-        }
     }
 
     /// How long the window should wait before asking the drawing thread again, in milliseconds.
@@ -225,7 +99,7 @@ impl Host {
             (interval, false) => interval,
         };
         // And for a document still opening past `WARN`, at the bar's own tick (ADR 1811).
-        let interval = match (interval, self.awaiting.is_some()) {
+        let interval = match (interval, self.state.awaiting.is_some()) {
             (Some(interval), true) => Some(interval.min(viewer_host::loading::TICK)),
             (None, true) => Some(viewer_host::loading::TICK),
             (interval, false) => interval,
@@ -242,7 +116,7 @@ impl Host {
     /// second, and rebuilding this window's `QImage` at that rate would copy megabytes for a
     /// picture that has not changed.
     pub(crate) fn drawing_pump(&mut self) {
-        if self.awaiting.is_some() {
+        if self.state.awaiting.is_some() {
             self.mind_the_opening();
         }
         self.take_the_answers();

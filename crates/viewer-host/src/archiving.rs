@@ -35,7 +35,7 @@ use pdf_transform::archive::{ArchivePlan, Conversion, UNTRUSTED_INPUT_WARNING};
 use pdf_transform::profiles::{self, Contribution};
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, Level, MemorySinks, Plan, Policy, Report, Source};
-use viewer_core::{Archiving, Command, DocumentId};
+use viewer_core::{Archiving, Command, DocumentId, Secret};
 
 /// The word that chooses a window's conversion: `--archive <target>:<profile>`.
 pub const ARCHIVE: &str = "--archive";
@@ -88,24 +88,208 @@ pub fn chosen(value: &str) -> Result<Archiving, String> {
     })
 }
 
-/// The command a window's archive key sends, or the sentence it says where nothing was chosen.
+/// What a window's archive key does: convert as chosen, or put the choice in front of the person.
+#[derive(Debug)]
+pub enum Pressed {
+    /// A target and a profile were chosen — by `--archive`, or by an earlier [`Choosing`] in this
+    /// window — and this is the command that asks for the conversion.
+    Convert(Command),
+    /// Nothing was chosen yet: the window offers the six targets and the shipped profiles, and
+    /// the person's choice is [`Choosing::chosen`] (ADR 1966).
+    Choose(Choosing),
+}
+
+/// The archive key, pressed with `chosen` as the window holds it.
 ///
 /// **No default target**, for `quorra-transform archive`'s reason: which part and level a
 /// document has to reach is the one thing this program cannot work out for a person, so a key
-/// pressed with nothing chosen says how to choose rather than guessing.
-///
-/// # Errors
-///
-/// That sentence, naming the word and the profiles.
-pub fn command(chosen: Option<&Archiving>) -> Result<Command, String> {
-    chosen.cloned().map(Command::Archive).ok_or_else(|| {
-        format!(
-            "no conversion was chosen: start the window with {ARCHIVE} <target>:<profile>, as in \
-             {ARCHIVE} 2b:as-if-printed; the profiles are {}",
-            profiles::names()
-        )
-    })
+/// pressed with nothing chosen asks rather than guessing — with the card or dialogue
+/// [`Choosing`] describes, where a person reads each profile's own sentence before choosing it.
+#[must_use]
+pub fn pressed(chosen: Option<&Archiving>) -> Pressed {
+    match chosen {
+        Some(asked) => Pressed::Convert(Command::Archive(asked.clone())),
+        None => Pressed::Choose(Choosing::new()),
+    }
 }
+
+/// One shipped profile as a window offers it: the name a person chooses, and the one sentence
+/// the profile's file states about itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offered {
+    /// The `[profile] name`, which is the word `--archive` and `--profile` take.
+    pub name: &'static str,
+    /// The `[profile] sentence`, or the sentence saying why there is none to show.
+    pub sentence: String,
+}
+
+/// Every shipped profile, in [`profiles::SHIPPED`]'s order, each with its sentence.
+///
+/// Read from the profiles' own text each time rather than written beside their names here, so
+/// that what a window offers is what `doc/profiles/` says and nothing else (ADR 1966). A profile
+/// whose text does not read is still offered, with the reason in place of its sentence, because
+/// choosing it is how a person reaches the conversion's own refusal of it.
+#[must_use]
+pub fn offered() -> Vec<Offered> {
+    profiles::SHIPPED
+        .iter()
+        .map(|shipped| Offered {
+            name: shipped.name,
+            sentence: match shipped.sentence() {
+                Ok(Some(sentence)) => sentence,
+                Ok(None) => "(the profile states no sentence about itself)".to_owned(),
+                Err(error) => format!("(the profile does not read: {error})"),
+            },
+        })
+        .collect()
+}
+
+/// What the chooser is called, in all three windows: its card's first line and the dialogues'
+/// title.
+pub const CHOOSING_TITLE: &str = "Convert to ISO 19005 (PDF/A)";
+
+/// What the chooser says under its title: what a profile is (ADR 1942), so that nobody reads
+/// one as an instruction.
+pub const CHOOSING: &str =
+    "A profile is the least a conversion may lose, never an instruction to lose it.";
+
+/// A target and a profile being chosen after launch: one of [`Target::ALL`] and one of
+/// [`offered`], each moved through by the keyboard or set by a press, until the person
+/// confirms (ADR 1966).
+///
+/// **The state is the window's and the lists are this module's**, the shape
+/// [`crate::Restrictions`] has: `quorra`'s card, the GTK dialogue and the Qt dialogue each draw
+/// these two lists and send back two indices, so three windows offer one list in one order. The
+/// keyboard starts on the first of each — PDF/A-2b and `refuse-any-loss`, the profile that
+/// loses nothing — and nothing converts until the person confirms.
+#[derive(Debug, Clone)]
+pub struct Choosing {
+    /// Which of [`Target::ALL`] is chosen.
+    target: usize,
+    /// Which of [`Self::profiles`] is chosen.
+    profile: usize,
+    /// The profiles, read when the choice began.
+    profiles: Vec<Offered>,
+}
+
+impl Default for Choosing {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Choosing {
+    /// The choice as it begins: the first target and the first profile.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            target: 0,
+            profile: 0,
+            profiles: offered(),
+        }
+    }
+
+    /// The targets, in the order offered.
+    #[must_use]
+    pub const fn targets(&self) -> &'static [Target] {
+        &Target::ALL
+    }
+
+    /// The profiles, in the order offered.
+    #[must_use]
+    pub fn profiles(&self) -> &[Offered] {
+        &self.profiles
+    }
+
+    /// Which target is chosen, as an index into [`Self::targets`].
+    #[must_use]
+    pub const fn target_index(&self) -> usize {
+        self.target
+    }
+
+    /// Which profile is chosen, as an index into [`Self::profiles`].
+    #[must_use]
+    pub const fn profile_index(&self) -> usize {
+        self.profile
+    }
+
+    /// Chooses the target at `index`; answers whether that changed anything. An index past the
+    /// list chooses nothing.
+    pub fn set_target(&mut self, index: usize) -> bool {
+        let changed = index < Target::ALL.len() && index != self.target;
+        if changed {
+            self.target = index;
+        }
+        changed
+    }
+
+    /// Chooses the profile at `index`; answers whether that changed anything. An index past the
+    /// list chooses nothing.
+    pub fn set_profile(&mut self, index: usize) -> bool {
+        let changed = index < self.profiles.len() && index != self.profile;
+        if changed {
+            self.profile = index;
+        }
+        changed
+    }
+
+    /// Moves the target by `by` places, stopping at either end rather than wrapping — what every
+    /// other list in these windows does; answers whether it moved.
+    pub fn move_target(&mut self, by: isize) -> bool {
+        self.set_target(moved(self.target, by, Target::ALL.len()))
+    }
+
+    /// Moves the profile by `by` places, stopping at either end; answers whether it moved.
+    pub fn move_profile(&mut self, by: isize) -> bool {
+        self.set_profile(moved(self.profile, by, self.profiles.len()))
+    }
+
+    /// What the person chose, as `--archive` would have said it.
+    #[must_use]
+    pub fn chosen(&self) -> Archiving {
+        Archiving {
+            target: Target::ALL
+                .get(self.target)
+                .copied()
+                .unwrap_or(Target::ALL[0]),
+            profile: self
+                .profiles
+                .get(self.profile)
+                .map_or(profiles::SHIPPED[0].name, |offered| offered.name)
+                .to_owned(),
+        }
+    }
+}
+
+/// `at` moved by `by` within `0..len`, held at the ends.
+fn moved(at: usize, by: isize, len: usize) -> usize {
+    at.saturating_add_signed(by).min(len.saturating_sub(1))
+}
+
+/// What a window says once a person has chosen: what it converts to, and that the choice holds
+/// for the rest of the window's life — the next press of the key converts without asking.
+#[must_use]
+pub fn remembered(asked: &Archiving) -> String {
+    format!(
+        "chose {} under the profile {:?}; Shift+A converts to it from now on in this window, as \
+         {ARCHIVE} {}:{} would have",
+        asked.target,
+        asked.profile,
+        target_word(asked.target),
+        asked.profile
+    )
+}
+
+/// The word `--archive` names a target by: `2b`, `4f`.
+fn target_word(target: Target) -> String {
+    target
+        .to_string()
+        .to_ascii_lowercase()
+        .replace("pdf/a-", "")
+}
+
+/// What a window says where the chooser was closed without a choice.
+pub const NOT_CHOSEN: &str = "nothing was converted: no target and profile were chosen";
 
 /// Where a converted file is written: beside the document, its target in the name.
 ///
@@ -139,15 +323,25 @@ pub struct Converted {
     pub json: Option<String>,
 }
 
-/// Converts `bytes` as `asked` says, on the calling thread.
+/// Converts `bytes` as `asked` says, on the calling thread, opened with `password` where the
+/// window holds the one the document opened with ([`crate::password::Kept`], ADR 1967).
 ///
 /// The level is off because the reader's level was asked already: [`viewer_core::Event::Archiving`]
 /// is the grant, and arrives only once `viewer-core` asked Table 22's bit 11 at that level.
 #[must_use]
-pub fn convert(document: DocumentId, bytes: pdf_syntax::FileBytes, asked: Archiving) -> Converted {
+pub fn convert(
+    document: DocumentId,
+    bytes: pdf_syntax::FileBytes,
+    asked: Archiving,
+    password: Option<Secret>,
+) -> Converted {
     let mut lines = Vec::new();
+    let source = match password {
+        Some(password) => Source::with_password(bytes, password),
+        None => Source::new(bytes),
+    };
     let (written, json) = match planned(&asked, &mut lines) {
-        Some((plan, profile)) => match passes(plan, bytes, &mut lines) {
+        Some((plan, profile)) => match passes(plan, source, &mut lines) {
             Some((report, sinks)) => said(&report, sinks, profile, &mut lines),
             None => (None, None),
         },
@@ -245,10 +439,10 @@ fn planned(asked: &Archiving, lines: &mut Vec<String>) -> Option<(ArchivePlan, &
 /// last line says why.
 fn passes(
     mut plan: ArchivePlan,
-    bytes: pdf_syntax::FileBytes,
+    source: Source,
     lines: &mut Vec<String>,
 ) -> Option<(Report, MemorySinks)> {
-    let sources = [Source::new(bytes)];
+    let sources = [source];
     let policy = Policy {
         restrictions: Level::Off,
     };
@@ -412,7 +606,8 @@ impl Converter {
         }
     }
 
-    /// Starts one conversion on an `archive` thread of its own, of the document read from `path`.
+    /// Starts one conversion on an `archive` thread of its own, of the document read from `path`,
+    /// opened with `password` where the document needed one (ADR 1967).
     ///
     /// `wake` is called on that thread once the result is on the channel, for a window whose loop
     /// can be woken from another thread; a window that polls passes nothing.
@@ -426,13 +621,14 @@ impl Converter {
         path: PathBuf,
         bytes: pdf_syntax::FileBytes,
         asked: Archiving,
+        password: Option<Secret>,
         wake: Option<Box<dyn Fn() + Send>>,
     ) -> Result<(), String> {
         let sender = self.sender.clone();
         std::thread::Builder::new()
             .name("archive".to_owned())
             .spawn(move || {
-                let converted = convert(document, bytes, asked);
+                let converted = convert(document, bytes, asked, password);
                 // A window that has closed has no receiver, and a result nobody can read is one
                 // nobody is owed: the discard is the window's absence rather than a lost error.
                 let _ = sender.send((path, converted));
@@ -481,10 +677,46 @@ mod tests {
         assert!(wrong.contains("2b:as-if-printed"), "{wrong}");
     }
 
+    /// With nothing chosen the key offers the six targets and every shipped profile with the
+    /// sentence its file states; with something chosen it converts without asking.
     #[test]
-    fn nothing_chosen_says_how_to_choose() {
-        let said = command(None).expect_err("no default target");
-        assert!(said.contains("--archive 2b:as-if-printed"), "{said}");
+    fn nothing_chosen_offers_the_choice_and_a_choice_converts() {
+        let Pressed::Choose(mut choosing) = pressed(None) else {
+            panic!("no default target: the key asks")
+        };
+        assert_eq!(choosing.targets(), &Target::ALL);
+        let names: Vec<&str> = choosing
+            .profiles()
+            .iter()
+            .map(|offered| offered.name)
+            .collect();
+        let shipped: Vec<&str> = profiles::SHIPPED
+            .iter()
+            .map(|shipped| shipped.name)
+            .collect();
+        assert_eq!(names, shipped);
+        assert_eq!(
+            choosing.profiles()[1].sentence,
+            "Discard what printing would not have carried; touch nothing it would."
+        );
+        assert_eq!(choosing.chosen().profile, "refuse-any-loss");
+        assert!(!choosing.move_profile(-1), "held at the top, never wrapped");
+        assert!(choosing.move_profile(1));
+        assert!(choosing.move_target(5));
+        assert!(!choosing.set_target(6), "past the list chooses nothing");
+        let asked = choosing.chosen();
+        assert_eq!(
+            asked,
+            chosen("4e:as-if-printed").expect("the same choice, typed")
+        );
+        assert!(
+            remembered(&asked).contains("--archive 4e:as-if-printed"),
+            "{}",
+            remembered(&asked)
+        );
+        assert!(
+            matches!(pressed(Some(&asked)), Pressed::Convert(Command::Archive(again)) if again == asked)
+        );
     }
 
     #[test]
@@ -509,7 +741,7 @@ mod tests {
     #[test]
     fn a_file_that_does_not_open_is_said_and_writes_nothing() {
         let asked = chosen("2b:as-if-printed").expect("chosen");
-        let converted = convert(DocumentId(1), b"not a pdf".to_vec().into(), asked);
+        let converted = convert(DocumentId(1), b"not a pdf".to_vec().into(), asked, None);
         assert!(converted.written.is_none());
         assert!(
             converted
@@ -527,7 +759,7 @@ mod tests {
     fn a_small_document_converts_and_the_json_names_the_profile() {
         let bytes = test_document();
         let asked = chosen("2b:as-if-printed").expect("chosen");
-        let converted = convert(DocumentId(1), bytes.into(), asked);
+        let converted = convert(DocumentId(1), bytes.into(), asked, None);
         assert!(converted.written.is_some(), "{:#?}", converted.lines);
         let json = converted.json.expect("a report");
         assert!(json.contains("\"profile\": \"as-if-printed\""), "{json}");
@@ -536,6 +768,92 @@ mod tests {
             "{:?}",
             converted.lines
         );
+    }
+
+    /// A document behind §7.6.4.1's user password converts with the password the window kept,
+    /// and is refused at the open without it — which is the whole of what the window owes it
+    /// (ADR 1967). What the conversion then does about the encryption is the converter's.
+    #[test]
+    fn an_encrypted_document_converts_under_the_password_it_opened_with() {
+        let bytes = encrypted(&test_document(), "user");
+        let asked = chosen("2b:as-if-printed").expect("chosen");
+        let refused = convert(DocumentId(1), bytes.clone().into(), asked.clone(), None);
+        assert!(refused.written.is_none());
+        assert!(
+            refused
+                .lines
+                .iter()
+                .any(|line| line.starts_with("cannot convert") && line.contains("password")),
+            "{:?}",
+            refused.lines
+        );
+        let opened = convert(
+            DocumentId(1),
+            bytes.into(),
+            asked,
+            Some(Secret::from("user".to_owned())),
+        );
+        // Past the open: the report reaches ISO 19005-2 section 6.1.3's site, which only a file
+        // that was decrypted can be judged at.
+        assert!(
+            !opened
+                .lines
+                .iter()
+                .any(|line| line.starts_with("cannot convert")),
+            "{:?}",
+            opened.lines
+        );
+        assert!(
+            opened
+                .lines
+                .iter()
+                .any(|line| line.contains("file-structure/no-encryption")),
+            "{:?}",
+            opened.lines
+        );
+        assert!(opened.json.is_some(), "{:?}", opened.lines);
+    }
+
+    /// `plain` under §7.6.4's standard security handler, with `user` as its user password.
+    fn encrypted(plain: &[u8], user: &str) -> Vec<u8> {
+        use pdf_syntax::serialize::{
+            Access, Assembly, Entropy, Form, Options, Protection, serialize_encrypted,
+        };
+        /// A fixed source, so the file is a function of the test.
+        struct Counting(u8);
+        impl Entropy for Counting {
+            fn fill(&mut self, out: &mut [u8]) -> bool {
+                for byte in out.iter_mut() {
+                    *byte = self.0;
+                    self.0 = self.0.wrapping_add(1);
+                }
+                true
+            }
+        }
+        let source = pdf_syntax::Document::open(plain.to_vec()).expect("the plain file opens");
+        let mut assembly = Assembly::new(vec![&source]);
+        for number in 1..=4 {
+            assembly
+                .copy(0, pdf_syntax::object::ObjectId::new(number, 0))
+                .expect("the assembly takes the object");
+        }
+        assembly.set_root(pdf_syntax::object::ObjectId::new(1, 0));
+        let mut out = Vec::new();
+        serialize_encrypted(
+            &assembly,
+            pdf_syntax::Version { major: 1, minor: 7 },
+            Options::new(Form::Table),
+            &Protection {
+                user_password: user,
+                owner_password: "owner",
+                access: Access::ALL,
+                encrypt_metadata: true,
+            },
+            &mut Counting(0),
+            &mut out,
+        )
+        .expect("the file is written");
+        out
     }
 
     /// One page with one filled rectangle, its cross-reference table at the offsets it states:

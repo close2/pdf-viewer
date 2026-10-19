@@ -133,7 +133,7 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
         open.view
             .run_annotation_scripts(&open.document, id, Trigger::Up)
     });
-    let scripted = ran.is_some_and(|ran| ran.handed > 0);
+    let scripted = ran.is_some_and(|ran| ran.answered());
     if ran.is_some_and(|ran| ran.changed) {
         open.stale();
     }
@@ -152,6 +152,21 @@ pub(crate) fn activate(open: &mut Open, page: usize, x: f32, y: f32) -> Outcome 
         }),
         "this link",
     )
+}
+
+/// Says why a press did nothing, where it landed on an annotation no event or field reaches: one
+/// written into `/Annots` as a dictionary (Table 31) or a widget no interactive form makes a field
+/// (§12.7.3, Table 224).
+///
+/// The sentence is the one the page's open says where a runner was supplied, and the view state
+/// keeps it once, so a reader whose level runs no scripts hears it at the press and one whose level
+/// runs them has heard it already (ADR 1970).
+pub(crate) fn say_unreachable(open: &mut Open, page: usize, at: (f32, f32)) {
+    let Some(dict) = open.placed_page(page).map(|object| object.dict.clone()) else {
+        return;
+    };
+    open.view
+        .report_unreachable_press(&open.document, &dict, page, at);
 }
 
 /// Activates an object the *host* named, which is §12.3.3's outline item and nothing else yet.
@@ -233,7 +248,7 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     if ran.changed {
         open.stale();
     }
-    let actions = handed_over(actions, ran.handed > 0);
+    let actions = handed_over(actions, ran.answered());
     // **No position.** §12.6.4.8's `/IsMap` "applies only to actions triggered by the user's
     // clicking an annotation; it shall be ignored for actions associated with outline items" —
     // so the clause itself says what a caller with no cursor position does here.

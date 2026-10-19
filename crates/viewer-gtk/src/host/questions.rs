@@ -9,7 +9,7 @@ use viewer_core::{Command, DocumentId};
 use viewer_host::native_window::NativeWindow;
 
 use super::window::named;
-use super::{Answered, DOCUMENT, Host, with};
+use super::{Answered, Host, with};
 
 impl Host {
     /// `CLAUDE.md`'s *ask* level over what a document asserts, as a window a person answers.
@@ -345,7 +345,7 @@ impl Host {
             let password = taken_from(&typed);
             done.set(true);
             dialogue.close();
-            with(&me, |host| host.supply_password(document, password));
+            with(&me, |host| host.password_supplied(document, password));
         });
         let me = self.me.clone();
         let dialogue = dialog.clone();
@@ -354,7 +354,7 @@ impl Host {
             let password = taken_from(typed);
             done.set(true);
             dialogue.close();
-            with(&me, |host| host.supply_password(document, password));
+            with(&me, |host| host.password_supplied(document, password));
         });
         // Escape is the platform's own way out of a modal window, and closing it without typing has
         // to be a *decline* rather than silence — trap 5, in a window a person walked away from.
@@ -387,30 +387,6 @@ impl Host {
         });
         dialog.add_controller(keys);
         dialog.present();
-    }
-
-    /// §7.6.4.1: a person typed a password, or dismissed the prompt with nothing in it.
-    ///
-    /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
-    fn supply_password(&mut self, document: DocumentId, password: viewer_core::Secret) {
-        match viewer_host::password::supplied(password) {
-            // The document the prompt was about, from its own bytes: one on its way to a tab —
-            // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
-            // or the first, which is the only other document a prompt is put about (ADR 1332).
-            viewer_host::Supplied::Open(secret) if self.state.arrivals.is(document) => {
-                self.open_arriving(Some(secret));
-            }
-            viewer_host::Supplied::Open(secret) if document == DOCUMENT => {
-                self.open_document(Some(secret));
-            }
-            viewer_host::Supplied::Open(_) => {
-                self.say(&viewer_host::documents::not_asked(document));
-            }
-            viewer_host::Supplied::Cancelled => {
-                self.say(viewer_host::password::CANCELLED);
-                self.cancelled(document);
-            }
-        }
     }
 }
 

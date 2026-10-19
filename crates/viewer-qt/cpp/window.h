@@ -559,6 +559,11 @@ private:
     /// same directory, and a build without it keeps the preview and says the window has no
     /// printer (ADR 1203).
     void runThePrintDialogue();
+    /// ISO 19005's conversion chosen after launch: the six targets in a combo box over the shipped
+    /// profiles in a list, each with its sentence, all of them the Rust side's words. The list has
+    /// the keyboard, so the arrows move through the profiles and Enter converts, as on `quorra`'s
+    /// card; closing it answers with a negative index, which chooses nothing (ADR 1966).
+    void chooseAnArchive();
     /// Puts one sentence in the status bar, with the tooltip a clipped `QLabel` needs.
     ///
     /// The window's own sentences — "the print job was sent" — rather than the viewer's, which

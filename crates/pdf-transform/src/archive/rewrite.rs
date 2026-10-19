@@ -980,9 +980,23 @@ pub enum Rewrite {
     /// here, so a real function changes what is shown and is not this rewrite's; but where every
     /// `/TR` the file states is the name `Identity`, the function in force is the identity before
     /// and after each `gs`, and removing the entry leaves every colour where it was on this
-    /// reader's device, whose initial transfer function Table 53 leaves device dependent and
-    /// which is the identity here (`doc/adr/1952` section 3).
+    /// reader's device, whose initial transfer function §8.4.1's Table 52 leaves device dependent
+    /// and which is the identity here (`doc/adr/1952` section 3).
     IdentityTransferFunctionRemoved,
+    /// Every graphics state stating `/TR` loses the entry, where one of them states a function
+    /// other than the identity — each such function first written into `xmpMM:History`.
+    ///
+    /// The same removal as [`Self::IdentityTransferFunctionRemoved`] over the same graphics
+    /// states, and a different rewrite because it costs [`super::Loss::TransferFunction`]: §10.5's
+    /// function is drawn, so the colours it adjusted move (`doc/adr/1964`).
+    TransferFunctionRemoved,
+    /// A halftone stating `HalftoneName` loses the entry, keeping the parameters it defines.
+    ///
+    /// ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5 forbid the key, and ISO 32000-2
+    /// §10.6.5.1 makes it a pointer into a marking device's own halftones: nothing a screen shows
+    /// moves, and a press holding a halftone of that name screens with the dictionary's own
+    /// parameters instead, which is [`super::Loss::HalftoneName`] (`doc/adr/1965`).
+    HalftoneNameRemoved,
 }
 
 impl Rewrite {
@@ -1308,6 +1322,13 @@ impl Rewrite {
                 "a graphics state's TR entry naming the identity is removed, in a file whose \
                  graphics states state no other transfer function"
             }
+            Self::TransferFunctionRemoved => {
+                "every graphics state's TR entry is removed, and each function other than the \
+                 identity is first written into the file's own xmpMM:History"
+            }
+            Self::HalftoneNameRemoved => {
+                "a halftone's HalftoneName is removed and every parameter it defines is kept"
+            }
             Self::ShippedCMapEmbedded => {
                 "a composite font naming a CMap the base standard does not predefine names a \
                  stream holding Adobe's published program for it, byte for byte, so the same \
@@ -1407,6 +1428,8 @@ impl Rewrite {
             Self::FilterNamesSpelledOut => "filter-names-spelled-out",
             Self::ConfigurationNamed => "configuration-named",
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
+            Self::TransferFunctionRemoved => "transfer-function-removed",
+            Self::HalftoneNameRemoved => "halftone-name-removed",
         }
     }
 }
@@ -1469,8 +1492,9 @@ pub(super) fn convert(
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
         rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
-        identity_transfers: prepared.owed.identity_transfers.as_ref().ok(),
+        transfers: prepared.owed.transfers.as_ref().ok(),
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
+        halftone_names: prepared.owed.halftone_names.as_ref().ok(),
         appearance_states: prepared.owed.appearance_states.as_ref().ok(),
         orders: prepared.owed.orders.as_ref().ok(),
         page_resources: prepared.owed.page_resources.as_ref().ok(),
@@ -2309,10 +2333,12 @@ struct Rewriter<'a> {
     metrics: Option<&'a Metrics>,
     /// The graphics states and images whose rendering intent is restated.
     rendering_intents: Option<&'a sites::Sites>,
-    /// The graphics states whose `/TR /Identity` goes.
-    identity_transfers: Option<&'a sites::Sites>,
+    /// The graphics states whose `/TR` goes.
+    transfers: Option<&'a super::transfer::TransferFunctions>,
     /// The dictionaries whose `/BM` array is restated.
     blend_modes: Option<&'a sites::Sites>,
+    /// The halftones whose `HalftoneName` goes.
+    halftone_names: Option<&'a sites::Sites>,
     /// The stream each annotation's normal appearance collapses to.
     appearance_states: Option<&'a AppearanceStates>,
     /// The `/Order` arrays completed, and where each goes.
@@ -2584,16 +2610,32 @@ impl Rewriter<'_> {
     ) -> bool {
         let mut changed = false;
         changed |= self.restate_rendering_intent(id, out, applied);
-        if self.wants(Rewrite::IdentityTransferFunctionRemoved)
-            && self
-                .identity_transfers
-                .is_some_and(|sites| sites.at.contains(&id))
-            && out.remove("TR").is_some()
-        {
-            count(applied, Rewrite::IdentityTransferFunctionRemoved);
-            changed = true;
+        // One removal under either of its two rewrites: which one the decision took is what
+        // the removal costs, and the objects it reaches are the same (`doc/adr/1964`).
+        for rewrite in [
+            Rewrite::IdentityTransferFunctionRemoved,
+            Rewrite::TransferFunctionRemoved,
+        ] {
+            if self.wants(rewrite)
+                && self
+                    .transfers
+                    .is_some_and(|functions| functions.at.contains(&id))
+                && out.remove("TR").is_some()
+            {
+                count(applied, rewrite);
+                changed = true;
+            }
         }
         changed |= self.restate_blend_mode(id, out, applied);
+        if self.wants(Rewrite::HalftoneNameRemoved)
+            && self
+                .halftone_names
+                .is_some_and(|sites| sites.at.contains(&id))
+            && out.remove("HalftoneName").is_some()
+        {
+            count(applied, Rewrite::HalftoneNameRemoved);
+            changed = true;
+        }
         changed |= self.collapse_appearance_states(id, out, applied);
         changed |= self.reduce_appearance_dictionary(id, out, applied);
         changed |= self.complete_order(id, out, applied);

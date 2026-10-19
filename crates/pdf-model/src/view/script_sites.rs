@@ -43,11 +43,12 @@ const MAX_CHAIN: usize = 256;
 
 /// What a host's request to run an event's scripts did (ADR 1762).
 ///
-/// The two answers a host acts on separately: whether the runner was handed the event's scripts,
-/// so that the action path's refusal of the same chain's ECMAScript actions is not said as well
-/// (ADR 1752), and whether what a page draws may have changed, so that the page is interpreted
-/// again only then — a cursor crossing a widget whose `/E` script only logs or asks a question
-/// changes nothing a page draws.
+/// The two answers a host acts on separately: whether the view state answered for the event's
+/// scripts — handed them to the runner, or said why it did not — so that the action path's
+/// refusal of the same chain's ECMAScript actions is not said as well (ADRs 1752, 1975), and
+/// whether what a page draws may have changed, so that the page is interpreted again only then — a
+/// cursor crossing a widget whose `/E` script only logs or asks a question changes nothing a page
+/// draws.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ScriptsRan {
     /// How many scripts the runner was handed: 0 where the level is `off`, where the chain holds
@@ -58,6 +59,21 @@ pub struct ScriptsRan {
     ///
     /// [`ScriptEdit::redraws`]: super::ScriptEdit::redraws
     pub changed: bool,
+    /// How many of the chain's ECMAScript actions the view state did not hand over and said so,
+    /// each with its reason: a text this program will not read (ADR 1950), or an event raised
+    /// before the open sequence (ADR 1750). 0 where the level is `off`, because then nothing is
+    /// said here and the action path's refusal is the one sentence.
+    pub said: usize,
+}
+
+impl ScriptsRan {
+    /// Whether the view state answered for the event's ECMAScript actions, by handing them to the
+    /// runner or by saying why it did not — what a host drops the action path's refusal of the
+    /// same actions on, so that a script is said once and with its own reason (ADRs 1752, 1975).
+    #[must_use]
+    pub fn answered(&self) -> bool {
+        self.handed > 0 || self.said > 0
+    }
 }
 
 /// One sequence's tally while it runs.
@@ -71,6 +87,8 @@ struct Ran {
     calculate: bool,
     /// Whether what a page draws may have changed.
     drawn: bool,
+    /// ECMAScript actions not handed over, each said with its reason ([`ScriptsRan::said`]).
+    said: usize,
 }
 
 impl Ran {
@@ -88,6 +106,7 @@ impl Ran {
         self.values |= other.values;
         self.calculate |= other.calculate;
         self.drawn |= other.drawn;
+        self.said = self.said.saturating_add(other.said);
     }
 }
 
@@ -225,10 +244,15 @@ impl ViewState {
             return ScriptsRan::default();
         }
         if !self.scripting.opened {
-            if trigger == PageTrigger::Close {
-                self.before_open(held, &format!("page {}'s close", page.saturating_add(1)));
-            }
-            return ScriptsRan::default();
+            let said = if trigger == PageTrigger::Close {
+                self.before_open(held, &format!("page {}'s close", page.saturating_add(1)))
+            } else {
+                0
+            };
+            return ScriptsRan {
+                said,
+                ..ScriptsRan::default()
+            };
         }
         // The page turned to or from, and no other (ADR 1653 section 4).
         let table = super::field_table_on_page(document, page);
@@ -269,7 +293,7 @@ impl ViewState {
         } = annotation_chain(document, &dictionary, trigger)
             .map(|entry| chain(document, &entry))
             .unwrap_or_default();
-        self.report_unread(
+        let said = self.report_unread(
             &format!(
                 "the /{} event of the annotation of object {}",
                 trigger.key(),
@@ -278,10 +302,13 @@ impl ViewState {
             &unread,
         );
         if scripts.is_empty() {
-            return ScriptsRan::default();
+            return ScriptsRan {
+                said,
+                ..ScriptsRan::default()
+            };
         }
         if !self.scripting.opened {
-            self.before_open(
+            let before = self.before_open(
                 scripts.len(),
                 &format!(
                     "the /{} event of the annotation of object {}",
@@ -289,11 +316,16 @@ impl ViewState {
                     annotation.number
                 ),
             );
-            return ScriptsRan::default();
+            return ScriptsRan {
+                said: said.saturating_add(before),
+                ..ScriptsRan::default()
+            };
         }
         let table = super::widgets_by_field_name(document);
         let page = page_of(document, annotation, &dictionary);
-        let ran = self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+        let mut ran =
+            self.annotation_scripts(document, &table, annotation, &scripts, trigger, page);
+        ran.said = ran.said.saturating_add(said);
         self.finish(document, &table, ran)
     }
 
@@ -335,16 +367,25 @@ impl ViewState {
             _ => String::new(),
         };
         let subject = format!("the outline item {title:?}");
-        self.report_unread(&subject, &unread);
+        let said = self.report_unread(&subject, &unread);
         if scripts.is_empty() {
-            return ScriptsRan::default();
+            return ScriptsRan {
+                said,
+                ..ScriptsRan::default()
+            };
         }
         if !self.scripting.opened {
-            self.before_open(scripts.len(), &subject);
-            return ScriptsRan::default();
+            let before = self.before_open(scripts.len(), &subject);
+            return ScriptsRan {
+                said: said.saturating_add(before),
+                ..ScriptsRan::default()
+            };
         }
         let table = super::widgets_by_field_name(document);
-        let mut ran = Ran::default();
+        let mut ran = Ran {
+            said,
+            ..Ran::default()
+        };
         for script in &scripts {
             let event = ScriptEvent {
                 label: &title,
@@ -381,6 +422,7 @@ impl ViewState {
         ScriptsRan {
             handed: ran.handed,
             changed: ran.drawn,
+            said: ran.said,
         }
     }
 
@@ -499,15 +541,17 @@ impl ViewState {
     /// functions for use by other scripts in the document", so a script run before it would meet a
     /// library that does not exist yet, and a person would read the `ReferenceError` as the
     /// form's. A host runs the sequence after its first present (RFC 0008 section 6.6), so only a
-    /// host that raises an event before it, or never presents, reaches this.
-    fn before_open(&mut self, scripts: usize, subject: &str) {
-        if scripts == 0 {
-            return;
+    /// host that raises an event before it, or never presents, reaches this. Answers how many
+    /// scripts it said were not run ([`ScriptsRan::said`]).
+    fn before_open(&mut self, scripts: usize, subject: &str) -> usize {
+        if scripts > 0 {
+            self.report(format!(
+                "{subject} holds {scripts} script(s), and none was run: the document's open \
+                 sequence, which defines the functions its scripts call, has not run yet (ADR \
+                 1750)"
+            ));
         }
-        self.report(format!(
-            "{subject} holds {scripts} script(s), and none was run: the document's open sequence, \
-             which defines the functions its scripts call, has not run yet (ADR 1750)"
-        ));
+        scripts
     }
 
     /// Says each ECMAScript action of a chain whose text is not run, with why, once per document
@@ -515,11 +559,13 @@ impl ViewState {
     ///
     /// A host drops the action path's refusal of a chain's scripts where the level lets them run
     /// (ADR 1752), so a script this program will not read would otherwise go unsaid, or be said
-    /// with Tier 0's reason (trap 5).
-    fn report_unread(&mut self, subject: &str, unread: &[String]) {
+    /// with Tier 0's reason (trap 5) — or said twice, the second time with that reason, where the
+    /// host is not told: so this answers how many it said ([`ScriptsRan::said`], ADR 1975).
+    fn report_unread(&mut self, subject: &str, unread: &[String]) -> usize {
         for why in unread {
             self.report(format!("{subject} holds {why}, and it was not run"));
         }
+        unread.len()
     }
 
     /// Says, once a page, what of its `/Annots` no script reaches, each under the sentence the file
@@ -533,57 +579,62 @@ impl ViewState {
     /// returns and nothing wider: a root `/Fields` merely omits is recovered from the page (ADR
     /// 1653) and is not said here.
     fn report_unreachable(&mut self, document: &Document, page_dict: &Dictionary, page: usize) {
+        let unreachable = Unreachable::on(document, page_dict, page);
+        if let Some(sentence) = unreachable.direct {
+            self.report(sentence);
+        }
+        if let Some(sentence) = unreachable.fieldless {
+            self.report(sentence);
+        }
+    }
+
+    /// Says, for a press at a point of a page in default user space, the sentence the page's open
+    /// says (`report_unreachable`), where what the press landed on is one of the two it names: an
+    /// annotation written into `/Annots` as a dictionary, or a widget no interactive form makes a
+    /// field.
+    ///
+    /// The page's open says it only where a runner was supplied, and a press on either does
+    /// nothing whatever the level — no event of the first is run, and the second is no field to
+    /// fill — so a reader whose level runs no scripts would otherwise press and hear nothing
+    /// (trap 5). The sentence is the open's own, so it is said once a document between the two:
+    /// [`Self::script_reports`] keeps each sentence once (ADR 1970).
+    ///
+    /// The annotation pressed is the topmost one whose `/Rect` covers the point and that §12.5.3's
+    /// flags let interact, which is [`super::annotation_at`]'s choice for the annotations it can
+    /// name.
+    pub fn report_unreachable_press(
+        &mut self,
+        document: &Document,
+        page_dict: &Dictionary,
+        page: usize,
+        (x, y): (f32, f32),
+    ) {
         let annotations = document.get_key(page_dict, "Annots");
         let Some(entries) = annotations.as_array() else {
             return;
         };
-        let number = page.saturating_add(1);
-        let direct = entries
-            .iter()
-            .filter(|entry| matches!(entry, Object::Dictionary(_)))
-            .count();
-        if direct > 0 {
-            self.report(format!(
-                "page {number}'s /Annots holds {direct} annotation(s) written into the array as \
-                 dictionaries, where Table 31 says it \"shall contain indirect references to all \
-                 annotations associated with the page\"; no script reaches them and none of their \
-                 events is run"
-            ));
-        }
-        let widgets = entries
-            .iter()
-            .filter(|entry| {
-                let resolved = document.resolve(entry);
-                resolved.as_dict().is_some_and(|annotation| {
-                    document
-                        .get_key(annotation, "Subtype")
-                        .as_name()
-                        .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
-                })
+        let pressed = entries.iter().rev().find(|entry| {
+            let resolved = document.resolve(entry);
+            resolved.as_dict().is_some_and(|annotation| {
+                let view = self.annotation_of(entry.as_reference());
+                crate::annotation::interacts(document, annotation, view)
+                    && super::rectangle_covers(document, annotation, f64::from(x), f64::from(y))
             })
-            .count();
-        if widgets == 0 {
+        });
+        let Some(pressed) = pressed else {
             return;
+        };
+        let unreachable = Unreachable::on(document, page_dict, page);
+        let sentence = if matches!(pressed, Object::Dictionary(_)) {
+            unreachable.direct
+        } else if is_widget(document, pressed) {
+            unreachable.fieldless
+        } else {
+            None
+        };
+        if let Some(sentence) = sentence {
+            self.report(sentence);
         }
-        let Ok(catalog) = document.catalog() else {
-            return;
-        };
-        let form = document.get_key(&catalog, "AcroForm");
-        let missing = match form.as_dict() {
-            None => {
-                "the catalog names no interactive form dictionary, which §12.7.3 says \"shall be \
-                 referenced from the AcroForm entry in the document catalog dictionary\""
-            }
-            Some(form) if document.get_key(form, "Fields").as_array().is_none() => {
-                "the interactive form states no /Fields, which Table 224 makes Required: \"An \
-                 array of references to the document's root fields\""
-            }
-            Some(_) => return,
-        };
-        self.report(format!(
-            "page {number} holds {widgets} widget annotation(s), and {missing}; none of them is a \
-             field, so no script reaches one as a field"
-        ));
     }
 
     /// The page's scripts and its annotations' for one of Table 198's events.
@@ -603,7 +654,7 @@ impl ViewState {
             unread,
             ..
         } = page_entry_scripts(document, &found.dict, trigger);
-        self.report_unread(
+        let said = self.report_unread(
             &format!(
                 "page {}'s {} chain",
                 page.saturating_add(1),
@@ -614,7 +665,10 @@ impl ViewState {
         if trigger == PageTrigger::Open {
             self.report_unreachable(document, &found.dict, page);
         }
-        let mut total = Ran::default();
+        let mut total = Ran {
+            said,
+            ..Ran::default()
+        };
         let run_page = |view: &mut Self| {
             let mut ran = Ran::default();
             for script in &page_scripts {
@@ -653,14 +707,14 @@ impl ViewState {
                 } = annotation_chain(document, &dictionary, each)
                     .map(|entry| chain(document, &entry))
                     .unwrap_or_default();
-                self.report_unread(
+                total.said = total.said.saturating_add(self.report_unread(
                     &format!(
                         "the /{} event of the annotation of object {}",
                         each.key(),
                         annotation.number
                     ),
                     &unread,
-                );
+                ));
                 if scripts.is_empty() {
                     continue;
                 }
@@ -785,6 +839,80 @@ fn page_turn_scripts(document: &Document, page: usize, trigger: PageTrigger) -> 
             })
         })
         .fold(own, usize::saturating_add)
+}
+
+/// What of one page's `/Annots` no script reaches, as the sentence each says
+/// ([`ViewState::report_unreachable`]).
+struct Unreachable {
+    /// Table 31's sentence, where the array holds an annotation written as a dictionary.
+    direct: Option<String>,
+    /// §12.7.3's or Table 224's, where the page holds widgets and no form makes them fields.
+    fieldless: Option<String>,
+}
+
+impl Unreachable {
+    /// The two sentences for page `page` (from zero) of `document`.
+    fn on(document: &Document, page_dict: &Dictionary, page: usize) -> Self {
+        let mut unreachable = Self {
+            direct: None,
+            fieldless: None,
+        };
+        let annotations = document.get_key(page_dict, "Annots");
+        let Some(entries) = annotations.as_array() else {
+            return unreachable;
+        };
+        let number = page.saturating_add(1);
+        let direct = entries
+            .iter()
+            .filter(|entry| matches!(entry, Object::Dictionary(_)))
+            .count();
+        if direct > 0 {
+            unreachable.direct = Some(format!(
+                "page {number}'s /Annots holds {direct} annotation(s) written into the array as \
+                 dictionaries, where Table 31 says it \"shall contain indirect references to all \
+                 annotations associated with the page\"; no script reaches them and none of their \
+                 events is run"
+            ));
+        }
+        let widgets = entries
+            .iter()
+            .filter(|entry| is_widget(document, entry))
+            .count();
+        if widgets == 0 {
+            return unreachable;
+        }
+        let Ok(catalog) = document.catalog() else {
+            return unreachable;
+        };
+        let form = document.get_key(&catalog, "AcroForm");
+        let missing = match form.as_dict() {
+            None => {
+                "the catalog names no interactive form dictionary, which §12.7.3 says \"shall be \
+                 referenced from the AcroForm entry in the document catalog dictionary\""
+            }
+            Some(form) if document.get_key(form, "Fields").as_array().is_none() => {
+                "the interactive form states no /Fields, which Table 224 makes Required: \"An \
+                 array of references to the document's root fields\""
+            }
+            Some(_) => return unreachable,
+        };
+        unreachable.fieldless = Some(format!(
+            "page {number} holds {widgets} widget annotation(s), and {missing}; none of them is a \
+             field, so no script reaches one as a field"
+        ));
+        unreachable
+    }
+}
+
+/// Whether an entry of `/Annots` is a widget annotation (§12.5.6.19).
+fn is_widget(document: &Document, entry: &Object) -> bool {
+    let resolved = document.resolve(entry);
+    resolved.as_dict().is_some_and(|annotation| {
+        document
+            .get_key(annotation, "Subtype")
+            .as_name()
+            .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+    })
 }
 
 /// The annotations a page's `/Annots` lists, by object.

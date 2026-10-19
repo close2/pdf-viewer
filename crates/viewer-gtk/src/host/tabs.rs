@@ -253,6 +253,7 @@ impl Host {
                 self.hold_the_view(self.state.documents.focused_index());
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
+                self.state.kept.forget(closing);
                 self.pump(VecDeque::from([
                     Command::Close(closing),
                     Command::Focus(focused),
@@ -274,7 +275,8 @@ impl Host {
     /// Left and Right into a change of document, and in a presentation those are the keys that
     /// turn the page (ADR 1303).
     pub(super) fn show_the_tabs(&self) {
-        let shown = self.presenting.chrome().other_windows && !self.state.documents.is_alone();
+        let shown =
+            self.state.presenting.chrome().other_windows && !self.state.documents.is_alone();
         self.ui.documents.set_show_tabs(shown);
     }
 }

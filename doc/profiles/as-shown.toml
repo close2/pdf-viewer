@@ -220,9 +220,28 @@ unmapped = "discard"
 remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
+# Transfer functions. The window applied ISO 32000-2 10.5's function to every colour drawn under
+# it, so removing one moves what was shown, and baking it into the colours instead would rewrite
+# every colour, image and shading under it - content, behind ADR 0816's fence. A file whose every
+# TR is Identity converts with nothing moved; any other function stops (doc/adr/1964).
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/no-transfer-function-in-a-graphics-state"]
+remedy = "stop"
+
+# ---------------------------------------------------------------------------------------------
+# Halftones. ISO 32000-2 10.6.1 needs no halftoning on a device that shows continuous tone, and the
+# window is one, so a halftone's HalftoneName - a pointer into a press's own halftones - decided
+# nothing the window showed. It goes, and the screen the dictionary defines stays (doc/adr/1965).
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/no-halftone-name"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
 # What this profile deliberately leaves at `stop`, because the window WOULD have shown it:
 #
-#   graphics/no-transfer-function-in-a-graphics-state  ISO 32000-2 10.5's transfer functions
+#   graphics/no-transfer-function-in-a-graphics-state  above: 10.5's transfer functions
 #                                  decide what a screen shows (CLAUDE.md, clause 10)
 #   graphics/rendering-intent-*    decides the colour shown
 #   graphics/destination-profile-* the output intent states what the colours mean

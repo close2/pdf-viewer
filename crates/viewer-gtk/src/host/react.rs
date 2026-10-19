@@ -6,7 +6,6 @@ use gtk4::prelude::*;
 use viewer_core::{Answer, Command, DocumentId, Event, Query};
 
 use viewer_host::native_window::NativeWindow;
-use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
 use super::stand_in::{Pictures, place};
@@ -98,7 +97,12 @@ impl Host {
     }
 
     /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
-    fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
+    pub(super) fn opened(
+        &mut self,
+        document: DocumentId,
+        pages: usize,
+        queue: &mut VecDeque<Command>,
+    ) {
         self.state
             .trace
             .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
@@ -140,7 +144,7 @@ impl Host {
     /// A document on its way to a tab of its own counts its own prompts, because the count in this
     /// window's fields is the one in front's; `viewer_host::documents::may_ask_about` says which
     /// documents a prompt may be put about at all (ADR 1332).
-    fn password_required(&mut self, document: DocumentId) {
+    pub(super) fn password_required(&mut self, document: DocumentId) {
         if !viewer_host::documents::may_ask_about(&mut self.state.arrivals, document, DOCUMENT) {
             self.say(&viewer_host::documents::not_asked(document));
             return;
@@ -157,182 +161,6 @@ impl Host {
                 self.say(viewer_host::password::EXHAUSTED);
                 self.cancelled(document);
             }
-        }
-    }
-
-    /// Does what one event asks.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per variant of `viewer_core::Event`, and the count is that enum's: the \
-                  match is exhaustive so that an event added to the vocabulary fails to compile \
-                  here, and each arm that does more than one thing already calls a method (ADR \
-                  1920 section 3)"
-    )]
-    pub(super) fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
-        match event {
-            Event::Opened { document, pages } => self.opened(document, pages, queue),
-            Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
-            // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
-            // is a window, and a window is a host's — which is the whole reason this event exists
-            // rather than a refusal. How many times to ask is `viewer_host::password`'s, because
-            // the clause states no number and three hosts held three copies of the same three.
-            //
-            // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
-            // A document on its way to a tab of its own counts its own prompts, because the count in
-            // this window's fields is the one in front's.
-            Event::PasswordRequired { document } => self.password_required(document),
-            // Two events with nothing to do here, for two different reasons. A close drops
-            // everything derived from the document and this host opens one document and never
-            // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
-            // repaint at the end of every pump has already been scheduled by the time this
-            // arrives.
-            // A file held for a §12.7.8 named page's password is read and put down again, and the
-            // name it was asked under is closed so this window stops holding it (ADR 1335).
-            Event::Closed(document) if self.state.arrivals.is(document) => self.given_up(document),
-            Event::Closed(_) | Event::Damage(_) => {}
-            Event::PageChanged {
-                index,
-                label,
-                of,
-                section,
-                ..
-            } => self.turned(index, label.as_deref(), of, section.as_deref()),
-            // **Handed to the drawing thread rather than drawn here** (ADR 0668): `rasterize` on
-            // the toolkit's own thread would let a page written to draw for 27.6 s take the window
-            // with it — no repaint, no key, and no thread from which `pdf_render::Interrupt` could
-            // be raised. What comes back arrives in `take_the_drawn`.
-            // The rows the window shows are drawn first, and the rest of the page after (ADR 1868).
-            // A page zoomed past its window is held, and drawn as the window shows it
-            // once the commands are run (ADRs 1892, 1930).
-            Event::NeedsRender(request) => {
-                self.state.retained.asked(&request);
-                if !self.state.oversized.asked(&request, self.state.viewport) {
-                    let seen = self.seen_of(&request);
-                    self.state.drawing.ask_showing(request, seen);
-                }
-            }
-            // §12.6.4.8: resolved against this document's own location where the action left it
-            // partial, then opened, declined or put to the person by the one policy three windows
-            // share — `CLAUDE.md`'s four levels over the act of starting another program on a
-            // string the *document* chose (ADRs 1079, 1155). What this arm owns is the dialogue.
-            Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::resolve_uri(Some(&self.state.showing.path), &uri);
-                match viewer_host::link(&uri, self.links) {
-                    viewer_host::Link::Say(note) => self.say(&note),
-                    viewer_host::Link::Ask(words) => self.ask_whether_to_open(uri, &words),
-                }
-            }
-            // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
-            // `viewer_host::may_submit`'s one answer rather than this window's (ADRs 1062, 1291).
-            Event::Submit {
-                document,
-                submission,
-            } => self.submit(document, *submission),
-            Event::NeedsFile {
-                document,
-                purpose,
-                name,
-                beside,
-            } => self.needs_file(document, purpose, name, beside, queue),
-            Event::SignaturePoliciesPublished { document, policies } => {
-                self.fetch_policies(document, policies);
-            }
-            // §12.4.4.1: played since this host was given a clock, and named where it is not.
-            //
-            // A transition outside a presentation is not drawn at all — there is no clock to draw
-            // it on — and a style `viewer_core::transition` does not shape is refused before two
-            // pages are rasterised for it. Both are said rather than swallowed, because a person
-            // who asked for a slide show is owed the difference.
-            Event::Transition { transition, .. } => self.arm_transition(transition),
-            Event::Extracted {
-                document,
-                asked,
-                name,
-                bytes,
-                fragment,
-            } => self.extracted(document, asked, &name, bytes, fragment),
-            Event::Saved { bytes, .. } => self.write_saved(&bytes),
-            Event::Dirty { dirty, .. } => {
-                self.state.showing.dirty = dirty;
-                self.retitle();
-            }
-            Event::Searched {
-                found,
-                remaining,
-                wrapped,
-                ..
-            } => self.searched(found, remaining, wrapped),
-            Event::Reported { page, notes, .. } => self.reported(page, &notes),
-            // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
-            // be possible to turn them off. The sentence is `viewer_host::refused` rather than this
-            // host's own because it names the word the argument parser takes (ADR 0604).
-            Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
-            // The other two of `CLAUDE.md`'s four levels (ADR 0814). *Warn* is a sentence after an
-            // edit that went ahead. *Ask* is the question this window puts, in the modal shape
-            // §7.6.4.1's password already had (ADR 1145).
-            Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
-            // §7.6.4.2's bit 3 granted. The dialogue is opened *after* the grant and from outside
-            // this borrow, because `GtkPrintOperation::run` turns the main loop and every
-            // callback it raises comes back through `with` (ADR 1180).
-            Event::Printing {
-                pages, fidelity, ..
-            } => self.open_the_print_dialogue(pages, fidelity),
-            // Table 22's bit 11 granted: the conversion runs on a thread of its own (ADR 1954).
-            granted @ Event::Archiving { .. } => self.convert(granted),
-            Event::Copied {
-                logical,
-                page_order,
-                ..
-            } => {
-                if let Some(copied) = viewer_host::copied(logical, &page_order) {
-                    self.ui.chrome.clipboard().set_text(&copied.text);
-                    self.say(&format!(
-                        "copied {} characters in {}",
-                        copied.text.chars().count(),
-                        copied.order
-                    ));
-                }
-            }
-            Event::Asking {
-                document,
-                operation,
-                notes,
-            } => self.ask_whether_to_proceed(document, operation, &notes),
-            Event::AskingToRunScripts {
-                document,
-                script,
-                first_line,
-            } => self.ask_whether_to_run_scripts(document, &script, &first_line),
-            Event::ScriptAsking { document, question } => {
-                self.ask_for_a_script(document, &question);
-            }
-            // The question's wait ran out and the runner answered it as a closed dialogue does, so
-            // the dialogue comes down without answering again (ADR 1643).
-            Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
-            // `app.beep`: the display's one system sound, whichever of the five was asked for
-            // (ADR 1702).
-            Event::Beep { document, sound } => self.beep(document, sound),
-            // This window's console is its log, so the request is said (ADR 1771).
-            Event::Console { document, request } => self.say(&viewer_host::script_timers::console(
-                &self.state.documents.label_of(document),
-                request,
-            )),
-            // §13.2.4.2's clip handed over: no player is started yet, and the window says so
-            // (ADR 1961).
-            Event::Media {
-                document,
-                content_type,
-                media,
-            } => self.say(&viewer_host::handed_media(
-                &self.state.documents.label_of(document),
-                content_type.as_deref(),
-                &media,
-            )),
-            // §7.11.4's list moved under the files tab: a file attached this sitting is in it
-            // before anything is saved, and one detached is out of it. The tab is rebuilt from
-            // the same answer it was built from, which is the only thing a window may do here
-            // this round — display the list it already shows.
-            Event::AttachmentsChanged { .. } => self.rebuild_panel(Tab::Files),
         }
     }
 
@@ -388,8 +216,8 @@ impl Host {
                     ),
                 );
             }
-            if !self.presented && held > 0 {
-                self.presented = true;
+            if !self.state.presented && held > 0 {
+                self.state.presented = true;
                 self.state.read_look = None;
                 self.state.trace.say(
                     Topic::Launch,
@@ -423,38 +251,8 @@ impl Host {
         // allocation before the document is even open. `Bridge::new` spawns a thread and connects
         // to the session bus, which is exactly what `CLAUDE.md`'s startup section forbids in front
         // of page one (ADR 0623, and ADR 0214 for the rule).
-        if self.presented {
+        if self.state.presented {
             self.attend();
         }
-    }
-
-    /// A page turn: the title bar, and what the pages now on the screen could not draw.
-    ///
-    /// §12.4.2: "[p]age labels and page indices need not coincide". Both are shown, because a
-    /// label alone cannot say "of 320".
-    fn turned(&mut self, index: usize, label: Option<&str>, of: usize, section: Option<&str>) {
-        let page = match label {
-            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-            None => format!("page {} of {of}", index.saturating_add(1)),
-        };
-        self.state.showing.caption = match section {
-            Some(section) if !section.is_empty() => format!("{page} — {section}"),
-            _ => page,
-        };
-        self.retitle();
-        self.restate();
-    }
-
-    /// Says again what the pages now on the screen could not draw.
-    ///
-    /// **`Query::Reports` is where a host that cleared its status bar finds it again**, and under
-    /// Table 29's continuous arrangements it is the only way to be right: the events came page by
-    /// page as each was interpreted, and a scroll that brings a page back does not interpret it
-    /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
-    pub(super) fn restate(&self) {
-        let Answer::Reports(pages) = self.state.viewer.query(Query::Reports) else {
-            return;
-        };
-        self.say(&viewer_host::status::on_screen(&pages));
     }
 }

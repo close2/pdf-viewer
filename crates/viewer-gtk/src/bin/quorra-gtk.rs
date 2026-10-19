@@ -356,7 +356,7 @@ mod tests {
 
     /// The word this window's refusal names has to be a word this program takes.
     ///
-    /// **Written against the defect rather than for the feature.** `Host::react` answers
+    /// **Written against the defect rather than for the feature.** `NativeWindow::react` answers
     /// `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions`, and an
     /// `arguments` that answered that same word with *"is not an option this program has"* and exit
     /// 1 would make `CLAUDE.md`'s "it shall always be possible to turn them off" false while the

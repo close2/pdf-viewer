@@ -2460,6 +2460,10 @@ void MainWindow::applyUpdates()
         // received the key unwind first.
         QTimer::singleShot(0, this, [this] { runThePrintDialogue(); });
     }
+    if (update.archive_dialogue) {
+        // Queued for `update.password`'s reason below: the dialogue runs a nested event loop.
+        QTimer::singleShot(0, this, [this] { chooseAnArchive(); });
+    }
     if (update.question) {
         // Queued for `update.password`'s reason one line down: a modal dialogue runs a nested
         // event loop and starting one while the host is held is exactly the nesting `busy_`
@@ -3354,6 +3358,60 @@ void MainWindow::askAQuestion()
     const bool answered = dialog.exec() == QDialog::Accepted;
     Busy guard(busy_);
     host_->answer_question(answered);
+    applyUpdates();
+}
+
+void MainWindow::chooseAnArchive()
+{
+    if (busy_) {
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(text(host_->archive_title()));
+    dialog.setModal(true);
+    auto* column = new QVBoxLayout(&dialog);
+    auto* about = new QLabel(text(host_->archive_about()), &dialog);
+    about->setWordWrap(true);
+    column->addWidget(about);
+    auto* form = new QFormLayout;
+    auto* target = new QComboBox(&dialog);
+    for (const rust::String& named : host_->archive_targets()) {
+        target->addItem(text(named));
+    }
+    form->addRow(QStringLiteral("Target"), target);
+    column->addLayout(form);
+    auto* profiles = new QListWidget(&dialog);
+    const rust::Vec<rust::String> names = host_->archive_profiles();
+    const rust::Vec<rust::String> sentences = host_->archive_sentences();
+    for (std::size_t index = 0; index < names.size(); ++index) {
+        const QString sentence = index < sentences.size() ? text(sentences[index]) : QString();
+        profiles->addItem(text(names[index]) + QStringLiteral("\n") + sentence);
+    }
+    profiles->setCurrentRow(0);
+    // Every profile in view at once, its sentence wrapped rather than scrolled sideways: the
+    // sentences are what a person chooses by, and a list that hid five of six would offer one.
+    profiles->setWordWrap(true);
+    profiles->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    int tall = 2 * profiles->frameWidth();
+    for (int row = 0; row < profiles->count(); ++row) {
+        tall += profiles->sizeHintForRow(row);
+    }
+    profiles->setMinimumHeight(tall);
+    column->addWidget(profiles);
+    auto* buttons = new QDialogButtonBox(&dialog);
+    QPushButton* convert = buttons->addButton(QStringLiteral("Convert"), QDialogButtonBox::AcceptRole);
+    buttons->addButton(QDialogButtonBox::Cancel);
+    convert->setDefault(true);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    // Enter on a profile is the convert button, whichever widget had the keyboard.
+    connect(profiles, &QListWidget::itemActivated, &dialog, &QDialog::accept);
+    column->addWidget(buttons);
+    dialog.resize(560, dialog.sizeHint().height());
+    profiles->setFocus();
+    const bool chosen = dialog.exec() == QDialog::Accepted;
+    Busy guard(busy_);
+    host_->archive_answer(chosen ? target->currentIndex() : -1, chosen ? profiles->currentRow() : -1);
     applyUpdates();
 }
 

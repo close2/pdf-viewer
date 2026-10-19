@@ -509,6 +509,12 @@ profiles are `pdf_transform::profiles`'s compiled-in list, a profile's tools go 
 shared executor, the run is on a thread of its own, and the file lands beside the document. The
 confined window's wire refuses both as `Uncarried`; the C ABI gained seven entry points and
 `QUORRA_EVENT_ARCHIVING`; every window gained `--archive <target>:<profile>` and Shift+A. ADR 1954.
+Where nothing was chosen, Shift+A puts up `viewer_host::archiving::Choosing` — the six targets and
+the shipped profiles, each with its own `[profile] sentence` — as `quorra`'s card, a GTK dialogue
+or a Qt one, and the choice is kept for the window's life (ADR 1966); nothing crosses the boundary
+for it, because which target a window holds is the window's. A document opened with §7.6.4.1's
+password converts under it: the core still keeps none, and `viewer_host::password::Kept` lends the
+host's own copy to the conversion (ADR 1967).
 
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121

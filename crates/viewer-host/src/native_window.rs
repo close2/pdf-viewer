@@ -16,11 +16,15 @@
 //! next drain. Everything else a moved method needs is a field of
 //! [`WindowState`], which is why a field is here: a method both hosts share reads it.
 //!
+//! **The event match is here too**, once and exhaustive: [`NativeWindow::react`] hands each event
+//! to one method, a provided one where both toolkits answer alike and a required one where the
+//! answer is a toolkit's — a dialogue, a clipboard, a panel. So the required methods past the
+//! first six are exactly the events a toolkit answers its own way, and an event added to the
+//! vocabulary fails to compile here, then in both hosts if its answer is theirs (ADR 1972).
+//!
 //! What is *not* here is as deliberate. The widgets, the controls placed over the page, the
 //! popups, §14.7's tree and the loop's own `run` stay each host's: `run` publishes what changed to
-//! the accessibility bridge, whose crate this one does not depend on, and the event match it
-//! feeds is exhaustive in each host so that an event added to the vocabulary fails to compile in
-//! both (ADR 1920 §3).
+//! the accessibility bridge, whose crate this one does not depend on (ADR 1920 §3).
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -205,12 +209,30 @@ pub struct WindowState {
     pub ahead: Option<crate::Ahead>,
     /// The last look at page one as it was read, shown until the page has a frame of its own.
     pub read_look: Option<crate::loading::Look>,
+    /// The document opening on its own thread, until the first allocation joins it — or, where
+    /// it is not ready inside `crate::drawing::WARN`, until the tick that finds it ready (ADR
+    /// 1811).
+    pub anticipated: Option<crate::Loading<(Viewer, Vec<Event>)>>,
+    /// The latest viewport the window was given while the document was still opening, which the
+    /// join tells the core rather than the first one.
+    pub awaiting: Option<Command>,
+    /// Whether the first frame has been reported, so that the launch line is printed once.
+    pub presented: bool,
+    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
+    ///
+    /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence the window
+    /// is obeying is [`crate::Presenting`]'s; what is a toolkit's is how its window goes full
+    /// screen and which widget each of Table 147's three flags names.
+    pub presenting: crate::Presenting,
     /// §12.7.6.2's submissions on the wire, each on a `submit-form` thread of its own, and the
     /// answers that have come back — looked at on the toolkit's loop while one is out (ADR 1291).
     pub submitter: crate::submit::Submitter,
-    /// The conversion to ISO 19005 `--archive` chose, which the archive key asks for; `None`
-    /// where the window was started without one (ADR 1954).
+    /// The conversion to ISO 19005 `--archive` chose, or the person chose in the window, which
+    /// the archive key asks for; `None` until one is chosen (ADRs 1954, 1966).
     pub archive: Option<viewer_core::Archiving>,
+    /// The password each open document was opened with, which a conversion opens the file again
+    /// with (ADR 1967).
+    pub kept: crate::password::Kept,
     /// The conversions running, each on an `archive` thread of its own, looked for on the timer
     /// that looks for a server's answers (ADR 1954).
     pub converter: crate::archiving::Converter,
@@ -251,8 +273,13 @@ impl WindowState {
             extent: None,
             ahead: Some(ahead),
             read_look: None,
+            anticipated: None,
+            awaiting: None,
+            presented: false,
+            presenting: crate::Presenting::default(),
             submitter: crate::submit::Submitter::new(),
             archive: None,
+            kept: crate::password::Kept::new(),
             converter: crate::archiving::Converter::new(),
         }
     }
@@ -261,6 +288,15 @@ impl WindowState {
     #[must_use]
     pub fn archiving(self, archive: Option<viewer_core::Archiving>) -> Self {
         Self { archive, ..self }
+    }
+
+    /// The same state, with the document opening on its own thread (ADR 1811).
+    #[must_use]
+    pub fn opening(self, anticipated: crate::Loading<(Viewer, Vec<Event>)>) -> Self {
+        Self {
+            anticipated: Some(anticipated),
+            ..self
+        }
     }
 
     /// Whether anything this window runs on a thread of its own is still out, so that the
@@ -273,11 +309,12 @@ impl WindowState {
 
 /// A native window: what its toolkit does, and — provided — what both toolkit hosts do alike.
 ///
-/// The required methods are the three things a toolkit does differently inside the shared
-/// methods — what is said, how a command reaches the loop, and how the page area is asked to be
-/// drawn again — the deferral of the next open, and the borrow of the [`WindowState`]. Every
-/// provided method was written twice, nearly or exactly alike, before it was written here (ADR 1908
-/// §3, ADR 1920).
+/// The first six required methods are the three things a toolkit does differently inside the
+/// shared methods — what is said, how a command reaches the loop, and how the page area is asked
+/// to be drawn again — the deferral of the next open, and the borrow of the [`WindowState`]. The
+/// rest are what [`Self::react`] hands to a toolkit, because each answers the event its own way
+/// (ADR 1972). Every provided method was written twice, nearly or exactly alike, before it was
+/// written here (ADR 1908 §3, ADR 1920).
 pub trait NativeWindow {
     /// The toolkit-free half of this window's state.
     fn state(&self) -> &WindowState;
@@ -296,6 +333,682 @@ pub trait NativeWindow {
 
     /// Has the page area drawn again from what the window now holds.
     fn repaint(&mut self);
+
+    /// Puts the caption in the title bar, from [`Showing::caption`] and the document's name.
+    fn retitle(&mut self);
+
+    /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
+    fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>);
+
+    /// §7.6.4.1's prompt, for the document in front or for one on its way to a tab.
+    ///
+    /// §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt is a
+    /// window, and a window is a host's — which is the whole reason this event exists rather than
+    /// a refusal. How many times to ask is `crate::password`'s, because the clause states no
+    /// number and three hosts held three copies of the same three. A document on its way to a tab
+    /// of its own counts its own prompts, because the count in the window's fields is the one in
+    /// front's.
+    fn password_required(&mut self, document: DocumentId);
+
+    /// §12.6.4.8's URI, resolved against this document's own location where the action left it
+    /// partial, then opened, declined or put to the person by the one policy three windows share
+    /// — `CLAUDE.md`'s four levels over the act of starting another program on a string the
+    /// *document* chose (ADRs 1079, 1155). What the toolkit owns is the dialogue.
+    fn follow_the_link(&mut self, uri: &str);
+
+    /// §12.7.6.2's submission, composed by `viewer-core`; whether this machine transmits it is
+    /// `crate::may_submit`'s one answer rather than the window's (ADRs 1062, 1291).
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission);
+
+    /// A file the document named and the core cannot read for itself.
+    ///
+    /// Three of the five purposes are asked at one of four levels and §12.7.6.4's own file is
+    /// not, and the difference is what each does: an import puts another file's *values* into
+    /// the document being read, while a remote go-to, a thread in another file and a named page
+    /// each make this program parse a second PDF — which is the act a person may want to be
+    /// asked about. `crate::under_remote_documents` is the division, written once rather than in
+    /// each of three windows (ADRs 1227, 1239). An import named by an absolute URI is fetched
+    /// rather than read, under the level a submission is sent at (ADR 1527).
+    fn needs_file(
+        &mut self,
+        document: DocumentId,
+        purpose: Purpose,
+        name: String,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    );
+
+    /// A signature policy's published copy, under the level the menu holds — the one answer
+    /// `crate::policy::may_fetch_signature_policy` gives (ADR 1738). Declined, it is said;
+    /// fetched, its answer is looked for as a submission's is and a bound PDF opens beside.
+    fn fetch_policy(&mut self, document: DocumentId, policy: crate::PublishedPolicy);
+
+    /// §7.11.4's file, or §O.2.1's, taken out of the document: written, or opened beside it.
+    fn extracted(
+        &mut self,
+        document: DocumentId,
+        asked: viewer_core::Extraction,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    );
+
+    /// §7.6.4.2's bit 3 granted: the print this toolkit offers, with the fidelity the core
+    /// decided (ADR 1180).
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity);
+
+    /// Text a copy produced, put where this toolkit's clipboard is.
+    fn to_clipboard(&mut self, text: String);
+
+    /// Arms whatever looks for a thread's answer on this toolkit's loop, where nothing was being
+    /// looked for until now: a server's, or a conversion's report (ADRs 1291, 1954).
+    fn look_for_answers(&mut self);
+
+    /// `CLAUDE.md`'s *ask* level over an operation the document restricts.
+    fn ask_whether_to_proceed(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    );
+
+    /// RFC 0008 section 6.3's one question per document before its scripts run (ADR 1616).
+    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str);
+
+    /// RFC 0008 section 4.2's `app.alert` and `app.response`, in a dialogue of its own (ADR 1628).
+    fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion);
+
+    /// A script's question whose wait ran out, taken down without answering it again (ADR 1643).
+    fn withdraw_script_question(&mut self, document: DocumentId);
+
+    /// `app.beep`: the display's one system sound, whichever of the five was asked for (ADR 1702).
+    fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound);
+
+    /// §7.11.4's list moved: the panel that shows it is built again from the same answer.
+    fn attachments_changed(&mut self);
+
+    /// The bar a page still being read showed, handed over to the page being drawn (ADR 1825):
+    /// while a draw is shown as it stands the bar carries how much of the page's drawing there is,
+    /// and it goes when the page lands.
+    fn show_the_drawing(&mut self);
+
+    /// Obeys Table 147's `/FitWindow` and `/CenterWindow` at a frame, while
+    /// [`crate::Presenting::place`] says it is owed (ADR 1429).
+    fn fit_the_window(&mut self);
+
+    /// Table 147's `/CenterWindow`, asked for by the document opening in front: obeyed where the
+    /// toolkit can place its own window, and said where it cannot (trap 5, ADR 1429).
+    fn asked_to_centre(&mut self);
+
+    /// Shows the document opening in front the way Table 29's `/PageMode` asks, with the chrome
+    /// [`WindowState::presenting`] now says it may have.
+    fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode);
+
+    /// Runs a queue of commands the way [`Self::dispatch`] runs one: until nothing is left, then
+    /// the window is refreshed.
+    fn drain(&mut self, queue: VecDeque<Command>);
+
+    /// §7.6.4.1: opens the document, with a password where one has been supplied.
+    fn open_document(&mut self, password: Option<viewer_core::Secret>);
+
+    /// Reads what page one does not need beside it, on a thread of its own: §12.3.3's outline and
+    /// §7.7.3's page tree, placed, which the open no longer reads (ADRs 1543, 1553).
+    fn prepare(&mut self);
+
+    /// Puts how far page one has got on the status line, while the document is still opening.
+    fn show_the_opening(&mut self);
+
+    /// Takes down the bar a document still opening put up, answering whether there was one to
+    /// take down.
+    fn take_down_the_bar(&mut self) -> bool;
+
+    /// Does what one event asks.
+    ///
+    /// **One match for both toolkit windows, and exhaustive**, so that an event added to the
+    /// vocabulary fails to compile here, once; where its answer is a toolkit's, the method this
+    /// arm calls is a required one and both hosts then fail until each supplies it. Every arm is
+    /// one line handing the event to a method (habit 103), and the clause each answers is cited
+    /// at the method (ADR 1972).
+    fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
+        match event {
+            Event::Opened { document, pages } => self.opened(document, pages, queue),
+            Event::OpenFailed { document, reason } => self.open_failed(document, &reason),
+            Event::PasswordRequired { document } => self.password_required(document),
+            // A file held for a §12.7.8 named page's password is read and put down again, and the
+            // name it was asked under is closed so the window stops holding it (ADR 1335).
+            Event::Closed(document) if self.state().arrivals.is(document) => {
+                self.given_up(document);
+            }
+            // Two events with nothing to do here, for two different reasons. A close drops
+            // everything derived from the document, and the tab it had is taken down by the
+            // window's own `close_document`, which asked for it; damage is what a tier-1 host
+            // repaints from `Query::Frame`, and the repaint at the end of every pump has already
+            // been scheduled by the time this arrives.
+            Event::Closed(_) | Event::Damage(_) => {}
+            Event::PageChanged {
+                index,
+                label,
+                of,
+                section,
+                ..
+            } => self.turned(index, label.as_deref(), of, section.as_deref()),
+            Event::NeedsRender(request) => self.needs_render(request),
+            Event::OpenUri { uri, .. } => self.follow_the_link(&uri),
+            Event::Submit {
+                document,
+                submission,
+            } => self.submit(document, *submission),
+            Event::NeedsFile {
+                document,
+                purpose,
+                name,
+                beside,
+            } => self.needs_file(document, purpose, name, beside, queue),
+            Event::SignaturePoliciesPublished { document, policies } => {
+                self.fetch_policies(document, policies);
+            }
+            // §12.4.4.1: played since the window was given a clock, and named where it is not.
+            Event::Transition { transition, .. } => self.arm_transition(transition),
+            Event::Extracted {
+                document,
+                asked,
+                name,
+                bytes,
+                fragment,
+            } => self.extracted(document, asked, &name, bytes, fragment),
+            Event::Saved { bytes, .. } => self.write_saved(&bytes),
+            Event::Dirty { dirty, .. } => self.dirtied(dirty),
+            Event::Searched {
+                found,
+                remaining,
+                wrapped,
+                ..
+            } => self.searched(found, remaining, wrapped),
+            Event::Reported { page, notes, .. } => self.reported(page, &notes),
+            Event::Refused { notes, .. } => self.refused(&notes),
+            Event::Warned { notes, .. } => self.warned(&notes),
+            Event::Printing {
+                pages, fidelity, ..
+            } => self.print(pages, fidelity),
+            // Table 22's bit 11 granted: the conversion runs on a thread of its own (ADR 1954).
+            granted @ Event::Archiving { .. } => self.convert(granted),
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => self.copied(logical, &page_order),
+            Event::Asking {
+                document,
+                operation,
+                notes,
+            } => self.ask_whether_to_proceed(document, operation, &notes),
+            Event::AskingToRunScripts {
+                document,
+                script,
+                first_line,
+            } => self.ask_whether_to_run_scripts(document, &script, &first_line),
+            Event::ScriptAsking { document, question } => self.ask_for_a_script(document, question),
+            Event::ScriptQuestionWithdrawn { document } => self.withdraw_script_question(document),
+            Event::Beep { document, sound } => self.beep(document, sound),
+            Event::Console { document, request } => self.console(document, request),
+            Event::Media {
+                document,
+                content_type,
+                media,
+            } => self.media(document, content_type.as_deref(), &media),
+            Event::AttachmentsChanged { .. } => self.attachments_changed(),
+        }
+    }
+
+    /// A page turn: the title bar, and what the pages now on the screen could not draw.
+    ///
+    /// §12.4.2: "Page labels and page indices need not coincide". Both are shown, because a
+    /// label alone cannot say "of 320".
+    fn turned(&mut self, index: usize, label: Option<&str>, of: usize, section: Option<&str>) {
+        self.state_mut().showing.caption = crate::documents::caption(index, label, of, section);
+        self.retitle();
+        self.restate();
+    }
+
+    /// Says again what the pages now on the screen could not draw.
+    ///
+    /// **`Query::Reports` is where a host that cleared its status bar finds it again**, and under
+    /// Table 29's continuous arrangements it is the only way to be right: the events came page by
+    /// page as each was interpreted, and a scroll that brings a page back does not interpret it
+    /// again. The wording is `crate::status`'s, so that three hosts say one sentence.
+    fn restate(&mut self) {
+        let Answer::Reports(pages) = self.state().viewer.query(Query::Reports) else {
+            return;
+        };
+        self.say(&crate::status::on_screen(&pages));
+    }
+
+    /// A page the core asks to have drawn, **handed to the drawing thread rather than drawn on the
+    /// toolkit's** (ADR 0668): `rasterize` inside the toolkit's loop would let a page written to
+    /// draw for 27.6 s take the window with it — no repaint, no key, and no thread from which
+    /// `pdf_render::Interrupt` could be raised. What comes back arrives in the toolkit's
+    /// `take_the_drawn`.
+    ///
+    /// The rows the window shows are drawn first, and the rest of the page after (ADR 1868). A
+    /// page zoomed past its window is held, and drawn as the window shows it once the commands are
+    /// run (ADRs 1892, 1930).
+    fn needs_render(&mut self, request: viewer_core::RenderRequest) {
+        self.state_mut().retained.asked(&request);
+        let viewport = self.state().viewport;
+        if !self.state_mut().oversized.asked(&request, viewport) {
+            let seen = self.seen_of(&request);
+            self.state_mut().drawing.ask_showing(request, seen);
+        }
+    }
+
+    /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
+    /// sent at and opened beside only where a copy is the one the signer signed (ADR 1738): each
+    /// one asked of [`Self::fetch_policy`].
+    fn fetch_policies(&mut self, document: DocumentId, policies: Vec<crate::PublishedPolicy>) {
+        for policy in policies {
+            self.fetch_policy(document, policy);
+        }
+    }
+
+    /// Table 22's bit 11 granted: the conversion starts on a thread of its own, and its report
+    /// is looked for on the toolkit's loop, armed here where nothing was being looked for (ADR
+    /// 1954).
+    fn convert(&mut self, granted: Event) {
+        let first = !self.state().looking();
+        self.start_archiving(granted);
+        if first && self.state().looking() {
+            self.look_for_answers();
+        }
+    }
+
+    /// Whether the document has changes a save would write, in the title bar's mark.
+    fn dirtied(&mut self, dirty: bool) {
+        self.state_mut().showing.dirty = dirty;
+        self.retitle();
+    }
+
+    /// `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always be
+    /// possible to turn them off. The sentence is `crate::refused` rather than a window's own
+    /// because it names the word the argument parser takes (ADR 0604).
+    fn refused(&mut self, notes: &[String]) {
+        self.say(&crate::refused(notes));
+    }
+
+    /// The *warn* level of `CLAUDE.md`'s four (ADR 0814): a sentence after an edit that went
+    /// ahead. *Ask* is [`Self::ask_whether_to_proceed`], in the modal shape §7.6.4.1's password
+    /// already had (ADR 1145).
+    fn warned(&mut self, notes: &[String]) {
+        self.say(&crate::warned(notes));
+    }
+
+    /// What a copy produced, on the clipboard, and how much of it in which order.
+    fn copied(&mut self, logical: Option<String>, page_order: &str) {
+        if let Some(copied) = crate::copied(logical, page_order) {
+            self.say(&format!(
+                "copied {} characters in {}",
+                copied.text.chars().count(),
+                copied.order
+            ));
+            self.to_clipboard(copied.text);
+        }
+    }
+
+    /// A script's console request: this window's console is its log, so it is said (ADR 1771).
+    fn console(&mut self, document: DocumentId, request: pdf_model::view::ConsoleRequest) {
+        let said =
+            crate::script_timers::console(&self.state().documents.label_of(document), request);
+        self.say(&said);
+    }
+
+    /// §13.2.4.2's clip handed over: no player is started yet, and the window says so (ADR 1961).
+    fn media(
+        &mut self,
+        document: DocumentId,
+        content_type: Option<&str>,
+        media: &viewer_core::Media,
+    ) {
+        let said = crate::handed_media(
+            &self.state().documents.label_of(document),
+            content_type,
+            media,
+        );
+        self.say(&said);
+    }
+
+    /// Takes whatever the drawing thread has finished and answers the viewer for it.
+    ///
+    /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why
+    /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
+    /// page as answered for and stop the scheduler ever asking again, which freezes a page this
+    /// window merely chose not to finish drawing.
+    ///
+    /// **Before the first frame this waits, and after it this only asks** — ADR 0678. A poll
+    /// cannot be dispatched while the toolkit's loop is inside its own first frame, and that frame
+    /// is the expensive one, so page one used to wait the whole of it out for an answer that was
+    /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
+    /// no input to lose, and `crate::drawing::SETTLE` bounds the whole of what it may spend.
+    fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
+        let drawn = if self.state().presented {
+            self.state_mut().drawing.collect()
+        } else {
+            self.state_mut().drawing.settle(crate::drawing::SETTLE)
+        };
+        // A draw that ended takes the bar it was showing with it.
+        if !drawn.is_empty() {
+            self.show_the_drawing();
+        }
+        for finished in drawn {
+            self.state().trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} {} {}x{} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned after"
+                    },
+                    finished.request.target.width,
+                    finished.request.target.height,
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            let Some(rendered) = finished.outcome else {
+                continue;
+            };
+            // The page's own frame, so the window that stood in for it since a notch back is let
+            // go (ADR 1930).
+            self.state_mut().oversized.answered_whole(&finished.request);
+            if let viewer_core::Rendered::Raster(raster) = &rendered {
+                let began = std::time::Instant::now();
+                if self.state_mut().retained.landed(&finished.request, raster) {
+                    self.state().trace.say(
+                        Topic::Frames,
+                        format_args!(
+                            "page {} retained, {} held, in {:?}",
+                            finished.request.page.saturating_add(1),
+                            self.state().retained.len(),
+                            began.elapsed()
+                        ),
+                    );
+                }
+            }
+            queue.push_back(Command::RenderReady {
+                token: finished.request.token,
+                rendered,
+            });
+            self.answered(&finished.request, queue);
+        }
+        self.take_the_windows(queue);
+        self.mind_a_long_draw();
+    }
+
+    /// What follows the viewer's being answered for `request`, by its whole frame or by the first
+    /// window drawn of it (ADR 1930).
+    fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
+        // The reader has their page, so the document may now be asked what it says about
+        // itself — §12.8's signatures above all, whose answer digests the signed part of the
+        // file. Once per opened document; `crate::report::Due` is the rule. ADR 1044.
+        if self.state_mut().showing.report_due.after_a_frame() {
+            queue.push_back(Command::Report);
+            // And its open sequence, at the same moment and for the same reason: after the
+            // first present, never in front of it (ADR 1602).
+            queue.push_back(Command::Presented);
+        }
+        // Table 147's `/FitWindow` and `/CenterWindow` are about the first displayed page's
+        // size, which is known now and not before (ADR 1429).
+        if self.state().presenting.owes_placing() {
+            self.fit_the_window();
+        }
+        // §12.4.4.1: the page a transition moves *to* is the one whose list has just
+        // arrived, so this is where an armed one can begin. The face is kept whether or not
+        // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
+        // §12.6.4.15's transition needs a page to move *from* and states no mode (ADR 1216).
+        self.face_arrived(request);
+    }
+
+    /// Takes the windows the drawing has finished, and answers the viewer for the first of each
+    /// request — the host took its list (ADR 1892).
+    fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
+        let windows = self.state_mut().drawing.windows();
+        // A window that lands after its request was answered is a scroll's, and nothing else
+        // repaints for it: the look that found it does, as a glimpse is repainted for. A window
+        // abandoned changes no picture, so it asks for none (ADR 1972).
+        let repaint = windows
+            .iter()
+            .any(|(finished, _)| finished.outcome.is_some());
+        for (finished, window) in windows {
+            self.state().trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    window.width,
+                    window.height,
+                    window.x,
+                    window.y,
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned"
+                    },
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            if finished.outcome.is_none() {
+                self.state_mut()
+                    .oversized
+                    .abandoned(&finished.request, window);
+                continue;
+            }
+            let request = finished.request.clone();
+            if let Some((token, rendered)) = self.state_mut().oversized.landed(finished, window) {
+                queue.push_back(Command::RenderReady { token, rendered });
+                self.answered(&request, queue);
+            }
+        }
+        if repaint {
+            self.repaint();
+        }
+    }
+
+    /// Puts §12.7.6.2's request on a `submit-form` thread of its own, and the answer is looked
+    /// for on the toolkit's loop, at `crate::submit::LOOK`, while one is out.
+    fn send_form(
+        &mut self,
+        document: DocumentId,
+        submission: pdf_model::submission::Submission,
+        warned: Option<String>,
+    ) {
+        self.say(&crate::policy::submission_note(&submission, None));
+        let first = !self.state().looking();
+        if let Err(sentence) = self
+            .state_mut()
+            .submitter
+            .send(document, submission, warned, None)
+        {
+            self.say(&sentence);
+            return;
+        }
+        if first {
+            self.look_for_answers();
+        }
+    }
+
+    /// Puts a policy's GET on a `fetch-policy` thread of its own, looked for as a submission's
+    /// answer is.
+    fn start_policy_fetch(
+        &mut self,
+        document: DocumentId,
+        policy: crate::PublishedPolicy,
+        warned: Option<String>,
+    ) {
+        self.say(&crate::policy::policy_fetch_note(&policy));
+        let first = !self.state().looking();
+        if let Err(sentence) = self
+            .state_mut()
+            .submitter
+            .fetch_policy(document, policy, warned, None)
+        {
+            self.say(&sentence);
+            return;
+        }
+        if first {
+            self.look_for_answers();
+        }
+    }
+
+    /// Table 29's two display entries, and §12.2's chrome flags with them.
+    ///
+    /// `/PageLayout` is the *viewer's* to apply — it read the catalog when the document opened —
+    /// and what the window needs from it is the value `l` cycles from, so that the first press
+    /// moves off what the document asked for rather than back onto it. `/PageMode` is "how the
+    /// document shall be displayed when opened", which is a panel for three of its six names,
+    /// nothing for `UseNone`, and since ADR 0470 a full-screen window for `FullScreen`.
+    ///
+    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
+    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
+    /// is not displayed: the window's full screen, presentation and panel stay the front
+    /// document's, so a presentation running when a second document arrives keeps its full screen
+    /// (ADR 1303).
+    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
+        let Answer::Opening(opening) = self.state().viewer.query(Query::Opening) else {
+            return;
+        };
+        self.state_mut().showing.layout = opening.layout;
+        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+            self.say(&format!(
+                "this document opens in the {:?} page layout (§7.7.2)",
+                opening.layout
+            ));
+        }
+        if !in_front {
+            return;
+        }
+        if let Answer::Preferences(preferences) = self.state().viewer.query(Query::Preferences) {
+            self.state_mut().presenting = crate::Presenting::opening(opening, &preferences);
+            // Trap 5: a document asking for something and getting silence. Two of Table 147's
+            // three flags name widgets the window hides on request, and the third names one it
+            // keeps on purpose — the menu holding this reader's own restriction levels
+            // (`crate::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
+            if preferences.hide_menubar {
+                self.say(crate::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
+            }
+            if preferences.center_window {
+                self.asked_to_centre();
+            }
+            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
+            // the other two windows take too. The metadata stream is read only for a document
+            // that asks, so a document that does not costs its opening nothing here.
+            let titled = if preferences.display_doc_title {
+                match self.state().viewer.query(Query::Properties) {
+                    Answer::Properties {
+                        information,
+                        metadata,
+                    } => crate::documents::document_title(&information, metadata.as_ref()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            self.state_mut().showing.titled = titled;
+            self.retitle();
+        }
+        // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start a
+        // second pump under the first. `queue` is what that parameter is for.
+        if self.state().presenting.full_screen() {
+            self.start_the_clock();
+            let mode = self.state().presenting.mode();
+            queue.push_back(Command::Present(mode));
+        }
+        self.show_the_page_mode(opening.mode);
+    }
+
+    /// One look at a document still opening: joins it where it is ready, and otherwise moves the
+    /// bar. Answers whether to look again.
+    fn mind_the_opening(&mut self) -> bool {
+        if !self
+            .state()
+            .anticipated
+            .as_ref()
+            .is_some_and(crate::Loading::ended)
+        {
+            self.show_the_opening();
+            self.show_the_read();
+            return self.state().anticipated.is_some();
+        }
+        // A bar that never went up is not taken down with a sentence: a page read between
+        // `GLIMPSE_AFTER` and `WARN` was shown as it was read and said nothing (ADR 1811).
+        if self.take_down_the_bar() {
+            self.say(crate::loading::READ);
+        }
+        if let Some(resize) = self.state_mut().awaiting.take() {
+            self.take_the_opening(resize);
+        }
+        false
+    }
+
+    /// Takes in the document the opening thread opened, and tells it its viewport.
+    fn take_the_opening(&mut self, resize: Command) {
+        // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
+        // is finished from that drawing rather than drawn (ADR 1855).
+        if let Some(ahead) = self.state_mut().ahead.take() {
+            self.state_mut().drawing.draw_ahead(ahead);
+        }
+        let joined = self
+            .state_mut()
+            .anticipated
+            .take()
+            .map(crate::Loading::join);
+        let Some(Ok((viewer, opened))) = joined else {
+            if joined.is_some() {
+                eprintln!("the thread opening the document panicked; opening it here instead");
+            }
+            self.dispatch(resize);
+            self.open_document(None);
+            return;
+        };
+        self.state_mut().viewer = viewer;
+        self.state().trace.say(
+            Topic::Launch,
+            format_args!("document joined, {} event(s)", opened.len()),
+        );
+        // Asked before the open's events are answered, so that the panels built from them do not
+        // read the outline on this thread first (ADR 1553).
+        self.prepare();
+        let resized: Vec<Event> = self.state_mut().viewer.handle(resize).collect();
+        let mut queue = VecDeque::new();
+        for event in opened.into_iter().chain(resized) {
+            self.react(event, &mut queue);
+        }
+        self.drain(queue);
+    }
+
+    /// §7.6.4.1: a person typed a password, or dismissed the prompt with nothing in it.
+    ///
+    /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
+    fn password_supplied(&mut self, document: DocumentId, password: viewer_core::Secret) {
+        match crate::password::supplied(password) {
+            // The document the prompt was about, from its own bytes: one on its way to a tab —
+            // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
+            // or the first, which is the only other document a prompt is put about (ADR 1332).
+            crate::Supplied::Open(secret) if self.state().arrivals.is(document) => {
+                self.open_arriving(Some(secret));
+            }
+            crate::Supplied::Open(secret) if document == DOCUMENT => {
+                self.open_document(Some(secret));
+            }
+            crate::Supplied::Open(_) => {
+                self.say(&crate::documents::not_asked(document));
+            }
+            crate::Supplied::Cancelled => {
+                self.say(crate::password::CANCELLED);
+                self.cancelled(document);
+            }
+        }
+    }
 
     /// Puts page one up as it stands while it is read, where a newer look at it has been drawn
     /// since the last (ADRs 1855, 1867), for the window to show until the page has a frame of its
@@ -802,12 +1515,25 @@ pub trait NativeWindow {
         self.take_the_conversions();
     }
 
-    /// The archive key: the conversion `--archive` chose, or the sentence saying how to choose.
+    /// The archive key: the conversion chosen already, or the choice put in front of the person
+    /// (ADR 1966).
     fn ask_to_archive(&mut self) {
-        match crate::archiving::command(self.state().archive.as_ref()) {
-            Ok(command) => self.dispatch(command),
-            Err(sentence) => self.say(&sentence),
+        match crate::archiving::pressed(self.state().archive.as_ref()) {
+            crate::archiving::Pressed::Convert(command) => self.dispatch(command),
+            crate::archiving::Pressed::Choose(choosing) => self.offer_to_archive(choosing),
         }
+    }
+
+    /// Puts the six targets and the shipped profiles in front of the person, in this toolkit's
+    /// dialogue; the answer is [`Self::archive_chosen`], or nothing where it was closed.
+    fn offer_to_archive(&mut self, choosing: crate::archiving::Choosing);
+
+    /// The person chose a target and a profile: the window keeps the choice for its life, says
+    /// so, and asks for the conversion (ADR 1966).
+    fn archive_chosen(&mut self, asked: viewer_core::Archiving) {
+        self.say(&crate::archiving::remembered(&asked));
+        self.state_mut().archive = Some(asked.clone());
+        self.dispatch(Command::Archive(asked));
     }
 
     /// `Event::Archiving`, the grant: the conversion starts on a thread of its own, looked for on
@@ -824,10 +1550,11 @@ pub trait NativeWindow {
         };
         self.say(&crate::archiving::starting(&asked));
         let path = self.state().showing.path.clone();
+        let password = self.state().kept.lend(document);
         if let Err(sentence) = self
             .state_mut()
             .converter
-            .start(document, path, bytes, asked, None)
+            .start(document, path, bytes, asked, password, None)
         {
             self.say(&sentence);
         }
@@ -947,6 +1674,9 @@ pub trait NativeWindow {
         }) else {
             return;
         };
+        if let Some(password) = &password {
+            self.state_mut().kept.keep(id, password);
+        }
         match bytes {
             Ok(bytes) => self.dispatch(Command::Open {
                 id,
@@ -972,6 +1702,7 @@ pub trait NativeWindow {
     /// [`Self::given_up`], for §7.6.4.1's prompt cancelled or out of attempts: a file a document
     /// named is declined to the core as well, where the next arrival starts (ADR 1345).
     fn cancelled(&mut self, id: DocumentId) {
+        self.state_mut().kept.forget(id);
         if self.state_mut().arrivals.cancel(id) || id == DOCUMENT {
             self.later_open_the_next();
         }

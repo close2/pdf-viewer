@@ -19,7 +19,7 @@ impl Host {
     /// are one act is a documented choice, argued in `viewer_host::presentation`; what crosses the
     /// boundary is `Command::Present`, which has existed since ADR 0316 and needed no change.
     pub(super) fn present_or_stop(&mut self) {
-        if self.presenting.toggle() {
+        if self.state.presenting.toggle() {
             self.start_the_clock();
             self.dispatch(Command::Present(PresentationMode::On));
             self.say(
@@ -32,7 +32,7 @@ impl Host {
             // §12.2: "[t]he document's page mode, specifying how to display the document on
             // exiting full-screen mode". `None` is Table 147's own condition unmet, and then what
             // goes back is what the reader had — a choice rather than a reading (ADR 0470).
-            if let Some(mode) = self.presenting.on_exit() {
+            if let Some(mode) = self.state.presenting.on_exit() {
                 self.say(&format!("§12.2's /NonFullScreenPageMode asks for {mode:?}"));
                 self.show_page_mode(mode);
             } else {

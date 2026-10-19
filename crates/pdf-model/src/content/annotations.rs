@@ -15,7 +15,7 @@ use pdf_syntax::{Dictionary, Object, ObjectId};
 use crate::page::Page;
 
 use super::ext_gstate::blend_mode;
-use super::report::{ContentStream, Unsupported};
+use super::report::{ContentStream, ObjectSpan, Unsupported};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -188,7 +188,10 @@ impl Interpreter<'_> {
                     && self.text.len() > before
                     && tree.claims_object(self.document, dict)
                 {
-                    self.structural_annotations.push(before..self.text.len());
+                    self.structural_annotations.push(ObjectSpan {
+                        object: id,
+                        range: before..self.text.len(),
+                    });
                 }
                 // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
                 // clause calls it a *highlighting* mode, and what it highlights is whatever

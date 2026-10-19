@@ -67,15 +67,15 @@ impl Host {
             return;
         }
         // A document still opening past `WARN` is told the window's size when it is taken in.
-        if self.awaiting.is_some() {
-            self.awaiting = Some(resize);
+        if self.state.awaiting.is_some() {
+            self.state.awaiting = Some(resize);
             return;
         }
         self.dispatch(resize);
         // A window asked to fit the first displayed page is measured again once it has taken
         // the size it was asked for, because a frame is not always drawn for a viewport the page
         // already fits the width of (ADR 1429).
-        if self.presenting.owes_placing() {
+        if self.state.presenting.owes_placing() {
             self.fit_the_window();
         }
     }
@@ -95,7 +95,7 @@ impl Host {
         // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
         // from which its looks are what the window shows (ADR 1855).
         let drawing_ahead = self.state.ahead.is_some();
-        if self.anticipated.as_ref().is_some_and(|opening| {
+        if self.state.anticipated.as_ref().is_some_and(|opening| {
             !if drawing_ahead {
                 opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
             } else {
@@ -105,7 +105,7 @@ impl Host {
             self.state
                 .trace
                 .say(Topic::Launch, format_args!("document still opening"));
-            self.awaiting = Some(resize);
+            self.state.awaiting = Some(resize);
             self.show_the_opening();
             let me = self.me.clone();
             glib::timeout_add_local(viewer_host::loading::TICK, move || {
@@ -127,34 +127,20 @@ impl Host {
         self.take_the_opening(resize);
     }
 
-    /// One look at a document still opening: joins it where it is ready, and otherwise moves the
-    /// bar. Answers whether to look again.
-    fn mind_the_opening(&mut self) -> bool {
-        if !self
-            .anticipated
-            .as_ref()
-            .is_some_and(viewer_host::Loading::ended)
-        {
-            self.show_the_opening();
-            self.show_the_read();
-            return self.anticipated.is_some();
-        }
-        // A bar that never went up is not taken down with a sentence: a page read between
-        // `GLIMPSE_AFTER` and `WARN` was shown as it was read and said nothing (ADR 1811).
-        if self.ui.loading.is_visible() {
+    /// Hides GTK's own bar where a document still opening put it up, and answers whether it was.
+    pub(super) fn take_down_the_bar(&mut self) -> bool {
+        let up = self.ui.loading.is_visible();
+        if up {
             self.ui.loading.set_visible(false);
-            self.say(viewer_host::loading::READ);
         }
-        if let Some(resize) = self.awaiting.take() {
-            self.take_the_opening(resize);
-        }
-        false
+        up
     }
 
     /// Puts how far page one has got on the status bar: the sentence on the label, the share on
     /// GTK's own bar beside it.
-    fn show_the_opening(&mut self) {
+    pub(super) fn show_the_opening(&mut self) {
         let Some(reading) = self
+            .state
             .anticipated
             .as_ref()
             .and_then(viewer_host::Loading::showing)
@@ -177,45 +163,13 @@ impl Host {
         self.ui.loading.set_visible(true);
     }
 
-    /// Takes in the document the opening thread opened, and tells it its viewport.
-    fn take_the_opening(&mut self, resize: Command) {
-        // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
-        // is finished from that drawing rather than drawn (ADR 1855).
-        if let Some(ahead) = self.state.ahead.take() {
-            self.state.drawing.draw_ahead(ahead);
-        }
-        let joined = self.anticipated.take().map(viewer_host::Loading::join);
-        let Some(Ok((viewer, opened))) = joined else {
-            if joined.is_some() {
-                eprintln!("the thread opening the document panicked; opening it here instead");
-            }
-            self.dispatch(resize);
-            self.open_document(None);
-            return;
-        };
-        self.state.viewer = viewer;
-        self.state.trace.say(
-            Topic::Launch,
-            format_args!("document joined, {} event(s)", opened.len()),
-        );
-        // Asked before the open's events are answered, so that the panel built from them does not
-        // read the outline on this thread first (ADR 1553).
-        self.prepare();
-        let resized: Vec<Event> = self.state.viewer.handle(resize).collect();
-        let mut queue = VecDeque::new();
-        for event in opened.into_iter().chain(resized) {
-            self.react(event, &mut queue);
-        }
-        self.pump(queue);
-    }
-
     /// Reads what page one does not need beside it: §12.3.3's outline and §7.7.3's page tree,
     /// placed, which the open no longer reads (ADRs 1543, 1553).
     ///
     /// The thread holds a handle to the immutable file and nothing of the core's, and GTK's main
     /// loop looks for its answer at [`viewer_host::drawing::POLL`] — the interval chosen for a
     /// page's own latency, here for the caption's — and stops looking once it has one.
-    fn prepare(&mut self) {
+    pub(super) fn prepare(&mut self) {
         let Some(preparation) = self.state.viewer.preparation() else {
             return;
         };
@@ -278,6 +232,9 @@ impl Host {
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
     pub(super) fn open_document(&mut self, password: Option<viewer_core::Secret>) {
+        if let Some(password) = &password {
+            self.state.kept.keep(DOCUMENT, password);
+        }
         self.pump(opening_commands(
             self.restrictions.window(),
             self.widget_appearances,

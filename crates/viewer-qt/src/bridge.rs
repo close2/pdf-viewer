@@ -602,6 +602,11 @@ pub mod ffi {
         /// one. What it holds is `print_job`'s answers, and the job is driven from C++ through
         /// `print_paper`, `print_page` and `print_finish` (ADR 1203).
         print_dialogue: bool,
+        /// ISO 19005's conversion is to be chosen: the archive key was pressed with nothing
+        /// chosen yet. A flag for `print_dialogue`'s reason; what it holds is `archive_targets`,
+        /// `archive_profiles` and `archive_sentences`, and what comes back is `archive_answer`
+        /// (ADR 1966).
+        archive_dialogue: bool,
         /// The third-party notices should be put on the screen.
         ///
         /// `?`, and the same shape again. The *text* is `viewer_host::NOTICE`, shared with the
@@ -899,6 +904,19 @@ pub mod ffi {
         fn print_reports(self: &Host) -> Vec<String>;
         /// The end of the operation — §8.11.4.5's revert. Harmless where none is running.
         fn print_finish(self: &mut Host);
+
+        /// The archive dialogue's title (ADR 1966).
+        fn archive_title(self: &Host) -> String;
+        /// What it says under the title: what a profile is.
+        fn archive_about(self: &Host) -> String;
+        /// The six targets, in the order offered.
+        fn archive_targets(self: &Host) -> Vec<String>;
+        /// The shipped profiles' names, in the order offered.
+        fn archive_profiles(self: &Host) -> Vec<String>;
+        /// Each profile's one sentence about itself, beside its name.
+        fn archive_sentences(self: &Host) -> Vec<String>;
+        /// The indices the person chose, or a negative one for a dialogue closed without a choice.
+        fn archive_answer(self: &mut Host, target: i32, profile: i32);
 
         /// What has changed since this was last called, which also clears it.
         fn take_update(self: &mut Host) -> QtUpdate;

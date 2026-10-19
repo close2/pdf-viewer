@@ -1,7 +1,7 @@
 # 70 — Doom in a PDF: what a document that runs a program asks of this viewer
 
-Status: **open** — the evaluation is ADR 1950; items 1–5 are built (ADRs 1950, 1956, 1957), and
-item 6 is a decision.
+Status: **open** — the evaluation is ADR 1950; items 1–5 are built (ADRs 1950, 1956, 1957, 1974,
+1975), and item 6 is a decision.
 Priority: the owner's, 2026-10-15: "find out, what still needs to be implemented to get it working"
 — and fix what is wrong on its own terms on the way.
 Witness: `/home/cl/projects/pdf-viewer/tmp/doom.pdf`, the owner's, **not in the repository**
@@ -16,14 +16,16 @@ Each item below is argued and priced in ADR 1950 section 5; this file is the ord
 
 ## 1. Built — a script this program will not read is said, with why (ADR 1950 section 3)
 
-Left: at Table 197's events and an outline item a host still says Tier 0's sentence beside it,
-because `ScriptsRan` does not carry what the view state said (`viewer_core::interact::handed_over`).
+At Table 197's events and an outline item `ScriptsRan::said` carries what the view state said, and
+a host drops Tier 0's sentence on `ScriptsRan::answered`, so the script is said once (ADR 1975).
 
 ## 2. Built — variable text's `/DA` font loaded once per interpretation (ADR 1956)
 
 `variable_text::LayoutFonts`, held by the interpreter and passed to every layout: 603 loads become 6
 on the framebuffer witness, and interpreting it 2 199 M → 954 M instructions. No digest of the six
-arms moved. Left: the interpreter's own `Tf` loads the same `/DR` font once more an interpretation.
+arms moved. The appearance's `Tf` reads the layout's font out of the interpreter's `FontCache`, so
+a face is loaded once an interpretation for both, and not again where the cache outlives it, as an
+open document's does (ADR 1974): 6 → 3 loads on the witness at three ticks.
 
 ## 3. Built — a timer that cannot starve the window (ADR 1957)
 
@@ -41,7 +43,10 @@ with scripts off, a person's press on such a widget is still unsaid.
 
 ## 5. Built — a refused method refused at its call, not at its name (ADR 1957 section 2)
 
-`crate::surface::Member` on every row; `typeof print` answers `function`, and the call throws.
+`crate::surface::Member` on every row; `typeof print` answers `function`, and the call throws. None
+of the eight property rows is a method in Adobe's reference (ADR 1975 section 2). Left: the
+reference's XFA page asks `typeof xfa == "object"` to tell an Acrobat form, "The xfa object is
+undefined in an Acrobat form", and here that read throws.
 
 ## 6. Running the document — a decision, not recommended
 

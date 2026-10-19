@@ -693,6 +693,22 @@ pub struct Interpretation {
     /// spans in the structure's order, and it is a *different* string from [`Self::text`] on
     /// exactly the pages where the two orders do not coincide.
     pub marked: Vec<MarkedSpan>,
+    /// §14.7.5.3's object content items over [`Self::text`]: each annotation the structure tree
+    /// claims, with the range its appearance stream read back.
+    ///
+    /// The other half of [`Self::marked`]. An appearance stream carries no `/MCID`, so an
+    /// annotation's text reaches the structure only as a whole object, by §14.7.5.3's object
+    /// reference and Table 359's `/StructParent`; [`crate::structure::Tree::logical_range`] places
+    /// it where the tree's `OBJR` names it, which is §14.8.2.5.2's rule — "[t]he position of an
+    /// annotation in the logical content order is determined from the document's logical
+    /// structure" (ADR 1970). One entry per annotation whose appearance read back anything, in
+    /// `/Annots` order.
+    ///
+    /// Empty on a document whose `/MarkInfo` does not state `/Marked true`, because the claim is
+    /// asked of the tree the interpreter keeps for §14.8.2.2.2's artifacts by absence, and that is
+    /// held only for a document making §14.8.1's claim. A copy off such a page whose fields the
+    /// tree names stays in page order, which is the complete answer rather than a short one.
+    pub objects: Vec<ObjectSpan>,
     /// §14.13.5's associated files, each with the range of [`Self::text`] its section covered.
     ///
     /// One entry per file per `/AF`-tagged marked-content sequence. The clause's own example is
@@ -977,6 +993,25 @@ pub fn named_sequences(spans: &[MarkedSpan], mcid: i64, stm: Option<ObjectId>) -
         .first()
         .is_some_and(|first| carried.iter().all(|span| span.stream == first.stream));
     if one_stream { carried } else { Vec::new() }
+}
+
+/// One §14.7.5.3 object content item's extent in a page's readback: an annotation the structure
+/// tree claims, and what its appearance stream read back.
+///
+/// [`MarkedSpan`]'s counterpart for the other kind of content item §14.7.5.1.1 names — "complete
+/// PDF objects such as annotations and `XObjects`". A form `XObject` drawn by `Do` is not one of
+/// these: its text is inside the page's own marked-content sequences or its own, and §14.7.5.3's
+/// NOTE 1 sends a part of a stream to §14.7.5.2.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectSpan {
+    /// The annotation's object, which is what Table 358's `/Obj` names.
+    ///
+    /// `None` for an annotation dictionary written directly in `/Annots`: Table 358 makes `/Obj`
+    /// "an indirect reference", so no object reference can name it, and its range is kept only
+    /// so that §14.8.2.2.2's artifact by absence does not take it.
+    pub object: Option<ObjectId>,
+    /// Where its appearance's text sits in [`Interpretation::text`], in bytes.
+    pub range: std::ops::Range<usize>,
 }
 
 /// One §14.7.5.2 marked-content sequence's extent in a page's readback, and on the page.

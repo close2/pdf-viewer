@@ -1,7 +1,6 @@
 //! The window: its widgets built once, the title, the status sentences, Table 29's catalog entries, and the chrome layer drawn over the page.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::path::Path;
 use std::rc::{Rc, Weak};
 
@@ -91,73 +90,6 @@ impl Host {
         )));
     }
 
-    /// Table 29's two display entries, and §12.2's chrome flags with them.
-    ///
-    /// `/PageLayout` is the *viewer's* to apply — it read the catalog when the document opened —
-    /// and what this host needs from it is the value `l` cycles from, so that the first press
-    /// moves off what the document asked for rather than back onto it. `/PageMode` is "how the
-    /// document shall be displayed when opened", which is a panel for three of its six names,
-    /// nothing for `UseNone`, and since ADR 0470 a full-screen window for `FullScreen`.
-    ///
-    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
-    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
-    /// is not displayed: the window's full screen, presentation and panel stay the front
-    /// document's, so a presentation running when a second document arrives keeps its full screen
-    /// (ADR 1303).
-    pub(super) fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
-        let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
-            return;
-        };
-        self.state.showing.layout = opening.layout;
-        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
-            self.say(&format!(
-                "this document opens in the {:?} page layout (§7.7.2)",
-                opening.layout
-            ));
-        }
-        if !in_front {
-            return;
-        }
-        if let Answer::Preferences(preferences) = self.state.viewer.query(Query::Preferences) {
-            self.presenting = viewer_host::Presenting::opening(opening, &preferences);
-            // Trap 5: a document asking for something and getting silence. Two of Table 147's
-            // three flags name widgets this window hides on request, and the third names one it
-            // keeps on purpose — the menu holding this reader's own restriction levels
-            // (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
-            if preferences.hide_menubar {
-                self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
-            }
-            // Table 147's `/CenterWindow` has no call to reach in GTK 4, which gives a program no
-            // way to place its own top-level window; said rather than dropped (trap 5, ADR 1429).
-            if preferences.center_window {
-                self.say(NO_POSITION_TO_SET);
-            }
-            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
-            // the other two windows take too. The metadata stream is read only for a document
-            // that asks, so a document that does not costs its opening nothing here.
-            self.state.showing.titled = if preferences.display_doc_title {
-                match self.state.viewer.query(Query::Properties) {
-                    Answer::Properties {
-                        information,
-                        metadata,
-                    } => viewer_host::documents::document_title(&information, metadata.as_ref()),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            self.retitle();
-        }
-        // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start a
-        // second `pump` under the first. `queue` is what that parameter is for.
-        if self.presenting.full_screen() {
-            self.start_the_clock();
-            queue.push_back(Command::Present(self.presenting.mode()));
-        }
-        self.show_page_mode(opening.mode);
-        self.apply_chrome();
-    }
-
     /// Shows the document the way one of Table 29's six page modes asks for.
     ///
     /// Two callers and one mapping, which is the point: the document opening, where §7.7.2 states
@@ -194,7 +126,7 @@ impl Host {
     /// itself — and it is reported rather than ignored when a document asks for it
     /// (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
     pub(super) fn apply_chrome(&mut self) {
-        let chrome = self.presenting.chrome();
+        let chrome = self.state.presenting.chrome();
         for button in &self.ui.tool_buttons {
             button.set_visible(chrome.tool_bar);
         }
@@ -230,7 +162,7 @@ impl Host {
         // and the page jumped as the resize finally landed (ADR 1316).
         let window = self.ui.window.clone();
         glib::idle_add_local_once(move || window.queue_resize());
-        if self.presenting.full_screen() {
+        if self.state.presenting.full_screen() {
             self.ui.window.set_decorated(false);
             self.ui.window.fullscreen();
         } else {

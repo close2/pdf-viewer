@@ -141,6 +141,7 @@ mod config;
 mod decision;
 mod external;
 mod fonts;
+mod halftones;
 mod hexadecimal;
 mod in_place;
 mod jpeg2000;
@@ -156,6 +157,7 @@ mod tagged;
 mod to_unicode;
 mod toml;
 mod transcode;
+mod transfer;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -192,6 +194,7 @@ pub use report::{
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
 pub use transcode::TranscodedImage;
+pub use transfer::RemovedTransferFunction;
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
 
@@ -585,6 +588,7 @@ fn decide_every_failure(
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
+        removed_transfer_functions: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
         proxied_references: Vec::new(),
@@ -1132,6 +1136,16 @@ fn apply_the_decisions(
     {
         conversion.removed_boundaries.clone_from(&removals.done);
     }
+    // `doc/adr/1964`: a removed transfer function leaves nothing on the page to notice, so each
+    // graphics state it went from is named with what it said — the same statement the output's
+    // own `xmpMM:History` keeps.
+    if wanted.contains(&Rewrite::TransferFunctionRemoved)
+        && let Ok(functions) = &prepared.owed.transfers
+    {
+        conversion
+            .removed_transfer_functions
+            .clone_from(&functions.stated);
+    }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.
     if wanted.contains(&Rewrite::PropertyOutsideItsSchema)
@@ -1269,7 +1283,11 @@ fn rewrites_wanted(
         .any(|row| row.outcome == DerivedOutcome::Attached)
         || !conversion.supplied.is_empty()
         || !conversion.preserved.is_empty();
-    if omit_identification || departed || configured {
+    // A transfer function other than the identity is written into `xmpMM:History` before it
+    // goes, and that record is a condition of the removal, so the packet is written whenever the
+    // removal is (`doc/adr/1964`).
+    let recorded_removal = wanted.contains(&Rewrite::TransferFunctionRemoved);
+    if omit_identification || departed || configured || recorded_removal {
         wanted.insert(Rewrite::IdentificationSchema);
     }
     // The pages themselves are a rewrite of the page tree rather than of the requirement the

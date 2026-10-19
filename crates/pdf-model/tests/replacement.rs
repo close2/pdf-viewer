@@ -203,6 +203,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         artifacts,
         inferred_separators,
         marked,
+        objects,
         associated_files,
         language,
         text_layer,
@@ -245,6 +246,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         "inferred separators, {where_}"
     );
     assert_eq!(marked, &whole.marked, "§14.7.5.2's spans, {where_}");
+    assert_eq!(objects, &whole.objects, "§14.7.5.3's spans, {where_}");
     // §14.13.5's attachments state no `PartialEq` — an embedded file is bytes and a specification
     // — so the comparison is of what they print, which is total over the same fields.
     assert_eq!(

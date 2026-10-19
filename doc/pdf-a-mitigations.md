@@ -725,8 +725,13 @@ transfer function can change the page and removing a halftone cannot.
 #### `graphics/no-transfer-function-in-a-graphics-state`
 #### `graphics/second-transfer-function-is-default`
 #### `graphics/halftone-transfer-function-only-where-required`
-all six · today `not-built-yet`, except **`/TR` where every one the file states is `Identity`**
-(ADR 1952 section 3, `Stated`: removed, nothing drawn moves on this reader's device)
+all six · `/TR` **built** (the first row): where every `/TR` the file states is `Identity` it is
+removed as a statement and nothing drawn moves on this reader's device (ADR 1952 section 3); where
+one is a function it is removed as the loss `transfer-function`, each function first written into
+the output's own `xmpMM:History` in clause 7's syntax with its data decoded and named in the report
+(ADR 1964). Both shipped profiles answer it `stop` — a printer applies the function as a screen
+does, and the witness `issue6931_reduced.pdf` is a negative without it — so the loss is the
+operator's to authorise by name. The other two rows today `not-built-yet`
 
 - **Mitigation** — `discard`, with the limits document's section 4.8 evidence attached: render the
   page both ways, show whether anything changed, and remove the function only with that shown. Add a
@@ -747,7 +752,10 @@ all six · today `not-built-yet`, except **`/TR` where every one the file states
 #### `graphics/no-halftone-name`
 #### `graphics/no-halftone-phase-in-a-graphics-state` (part 2, `/HTP`)
 #### `graphics/no-halftone-origin-in-a-graphics-state` (part 4, `/HTO`)
-today `not-built-yet`
+today `not-built-yet`, except **`HalftoneName`**, built as the loss `halftone-name` (ADR 1965): the
+key goes from a halftone that states a `HalftoneType`, every parameter it defines kept, and one that
+is only a name stays refused. `as-shown` answers it `discard` (the window does not halftone);
+`as-if-printed` leaves it at `stop`
 
 - **Mitigation** — `discard`: remove the key or the halftone. Nothing this renderer draws changes,
   which is what makes the loss narrow and nameable — what changes is what a **press** does with the

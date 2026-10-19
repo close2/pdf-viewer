@@ -33,7 +33,7 @@ impl Host {
         let Some(stated) = key_pressed(key) else {
             return false;
         };
-        let mode = if self.presenting.full_screen() {
+        let mode = if self.state.presenting.full_screen() {
             viewer_host::Mode::Presenting
         } else {
             viewer_host::Mode::Reading

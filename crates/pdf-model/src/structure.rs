@@ -2105,10 +2105,10 @@ impl Tree {
     /// case a reader might expect otherwise that "[a]rtifacts not contained within an Artifact
     /// structure element are not considered part of the logical content order".
     ///
-    /// Annotations are in [`Self::logical_order`] and not here: an annotation's text is its own
-    /// (§12.5.6's `/Contents`, a field's value) rather than a range of the page's readback, and
-    /// splicing it into this string would make the result neither the page's text nor the
-    /// document's.
+    /// Annotations are in [`Self::logical_order`] and not here. This is the page's *content
+    /// streams* in the other order, which is what `tests/logical_order.rs` compares with the
+    /// order they were shown in; an appearance's readback has no stream order on the page to be
+    /// compared with, and [`Self::logical_range`] is where it is placed (ADR 1970).
     ///
     /// Equal to `interpretation.text` on a page whose two orders coincide, which the clause
     /// says they *should* — and `tests/logical_order.rs` measures how often they do.
@@ -2154,7 +2154,7 @@ impl Tree {
     /// > Logical content order -the ordering for semantic purposes -shall be defined by a
     /// > depth-first traversal of the document's logical structure hierarch y.
     ///
-    /// Each piece is one marked-content sequence's share of the range, in the traversal's order,
+    /// Each piece is one content item's share of the range, in the traversal's order,
     /// with the [`Boundary`] the structure puts between it and the piece before — so a consumer
     /// joining them knows where a paragraph ended and where a table cell did, which the readback's
     /// own separators cannot say (they are inferred from where glyphs landed, in the order they
@@ -2185,6 +2185,21 @@ impl Tree {
     /// is artifacts and nothing else: a person who dragged across a page number and pressed copy
     /// asked for the page number.
     ///
+    /// # Annotations are placed where the tree names them
+    ///
+    /// An annotation's appearance reads back into the page's text after the page's own content,
+    /// and it carries no `/MCID`, so the only statement of where it belongs is the tree's object
+    /// reference. §14.8.2.5.2 makes that the rule:
+    ///
+    /// > The position of an annotation in the logical content order is determined from the
+    /// > document's logical structure.
+    ///
+    /// So an `OBJR` naming one of `objects` gives that annotation's text a piece at its place in
+    /// the traversal, once however often the tree names it — Table 358's NOTE 2: "if it is
+    /// rendered multiple times on the same page, just a single object reference suffices". Bytes of
+    /// it that a marked-content sequence already covers are that sequence's, because §14.7.5.3's
+    /// NOTE 1 sends a part of an object's stream to §14.7.5.2 (ADR 1970).
+    ///
     /// Takes the readback and its spans rather than a whole [`crate::Interpretation`], because
     /// the one caller that has a selection keeps those and not the interpretation — the same
     /// shape [`crate::accessibility::nodes`] takes and for the same reason.
@@ -2193,8 +2208,7 @@ impl Tree {
         &self,
         document: &Document,
         page: ObjectId,
-        marked: &[crate::content::MarkedSpan],
-        artifacts: &[crate::content::ArtifactSpan],
+        spans: ContentSpans<'_>,
         range: std::ops::Range<usize>,
     ) -> Option<Vec<LogicalPiece>> {
         /// One element the traversal is inside.
@@ -2207,44 +2221,27 @@ impl Tree {
         if range.is_empty() {
             return None;
         }
+        let ContentSpans {
+            marked,
+            artifacts,
+            objects,
+        } = spans;
         let walk = self.walk(document);
         if walk.truncated {
             return None;
         }
-        // Which bytes of the range are accounted for. A `BDC` inside a `BDC` gives two spans over
-        // one byte, so this is a set rather than a running total: counting would report full
-        // coverage for a range half of which was covered twice.
-        let mut covered = vec![false; range.len()];
-        let mut cover = |from: usize, to: usize| {
-            for byte in covered
-                .get_mut(from.saturating_sub(range.start)..to.saturating_sub(range.start))
-                .unwrap_or_default()
-            {
-                *byte = true;
-            }
-        };
-        for artifact in artifacts
-            .iter()
-            .filter(|artifact| artifact.found == crate::content::ArtifactSource::Declared)
-        {
-            let (from, to) = (
-                artifact.range.start.max(range.start),
-                artifact.range.end.min(range.end),
-            );
-            if from < to {
-                cover(from, to);
-            }
-        }
+        let mut accounted = Accounted::new(range.clone(), artifacts);
         let mut pieces: Vec<LogicalPiece> = Vec::new();
         let mut open: Vec<Open> = Vec::new();
         let mut between = Boundary::Flow;
+        let mut placed_objects: BTreeSet<ObjectId> = BTreeSet::new();
         for (depth, child) in walk.items {
             // The walk is depth-first and states depths, so an element has ended when an item no
             // deeper than it arrives; what it ends with is owed to the next piece.
             while let Some(top) = open.pop_if(|top| top.depth >= depth) {
                 between = between.max(top.ends_with);
             }
-            match child {
+            let item: Vec<std::ops::Range<usize>> = match child {
                 Child::Element(element) => {
                     let parent = open.last();
                     let kind = self.standard_role(document, &element);
@@ -2257,41 +2254,53 @@ impl Tree {
                         artifact: kind == Some(StandardType::Artifact)
                             || parent.is_some_and(|parent| parent.artifact),
                     });
+                    continue;
                 }
+                // §14.7.5.2's identifier and the stream it is unique within; see
+                // [`Self::logical_text`].
                 Child::MarkedContent {
                     mcid,
                     stream,
                     page: at,
                     ..
                 } if at.is_none_or(|at| at == page) => {
-                    let artifact = open.last().is_some_and(|parent| parent.artifact);
-                    // §14.7.5.2's identifier and the stream it is unique within; see
-                    // [`Self::logical_text`].
-                    for span in crate::content::named_sequences(marked, mcid, stream) {
-                        let from = span.range.start.max(range.start);
-                        let to = span.range.end.min(range.end);
-                        if from >= to {
-                            continue;
-                        }
-                        cover(from, to);
-                        if artifact {
-                            continue;
-                        }
-                        pieces.push(LogicalPiece {
-                            range: from..to,
-                            after: if pieces.is_empty() {
-                                Boundary::Flow
-                            } else {
-                                between
-                            },
-                        });
-                        between = Boundary::Flow;
-                    }
+                    crate::content::named_sequences(marked, mcid, stream)
+                        .into_iter()
+                        .map(|span| span.range.clone())
+                        .collect()
                 }
-                Child::MarkedContent { .. } | Child::Object { .. } => {}
+                // §14.8.2.5.2's annotation, at the place the tree names it, once.
+                Child::Object { object, page: at }
+                    if at.is_none_or(|at| at == page) && placed_objects.insert(object) =>
+                {
+                    objects
+                        .iter()
+                        .filter(|span| span.object == Some(object))
+                        .flat_map(|span| outside_sequences(span.range.clone(), marked))
+                        .collect()
+                }
+                Child::MarkedContent { .. } | Child::Object { .. } => continue,
+            };
+            let artifact = open.last().is_some_and(|parent| parent.artifact);
+            for span in item {
+                let Some(share) = accounted.cover(&span) else {
+                    continue;
+                };
+                if artifact {
+                    continue;
+                }
+                pieces.push(LogicalPiece {
+                    range: share,
+                    after: if pieces.is_empty() {
+                        Boundary::Flow
+                    } else {
+                        between
+                    },
+                });
+                between = Boundary::Flow;
             }
         }
-        (covered.iter().all(|seen| *seen) && !pieces.is_empty()).then_some(pieces)
+        (accounted.whole() && !pieces.is_empty()).then_some(pieces)
     }
 
     /// One level of [`Self::walk`].
@@ -2412,7 +2421,121 @@ pub struct Reading<T> {
 /// [`Tree::walk`]'s answer: every element and content item, with the depth it was found at.
 pub type Walk = Reading<(usize, Child)>;
 
-/// One marked-content sequence's share of a range of a page's readback, in §14.8.2.5.1's logical
+/// The spans of one page's readback that [`Tree::logical_range`] orders: the three routes by which
+/// a byte of [`crate::Interpretation::text`] is accounted for.
+///
+/// One struct rather than three slices because they are always asked together and are one
+/// interpretation's: a caller holding a [`crate::Interpretation`] passes
+/// [`ContentSpans::of`], and one that kept the spans and not the interpretation names them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ContentSpans<'a> {
+    /// §14.7.5.2's marked-content sequences: [`crate::Interpretation::marked`].
+    pub marked: &'a [crate::content::MarkedSpan],
+    /// §14.8.2.2's declared artifacts: [`crate::Interpretation::artifacts`]. Those found by
+    /// absence are ignored, because they are this reader's inference (ADR 1948).
+    pub artifacts: &'a [crate::content::ArtifactSpan],
+    /// §14.7.5.3's annotations the tree claims: [`crate::Interpretation::objects`].
+    pub objects: &'a [crate::content::ObjectSpan],
+}
+
+impl<'a> ContentSpans<'a> {
+    /// All three of one interpretation's spans.
+    #[must_use]
+    pub fn of(interpretation: &'a crate::Interpretation) -> Self {
+        Self {
+            marked: &interpretation.marked,
+            artifacts: &interpretation.artifacts,
+            objects: &interpretation.objects,
+        }
+    }
+}
+
+/// Which bytes of a range of the readback [`Tree::logical_range`] has accounted for.
+///
+/// A set rather than a running total, because a `BDC` inside a `BDC` gives two spans over one
+/// byte: counting would report full coverage for a range half of which was covered twice.
+struct Accounted {
+    /// The range asked about.
+    range: std::ops::Range<usize>,
+    /// One flag per byte of it.
+    bytes: Vec<bool>,
+}
+
+impl Accounted {
+    /// Nothing accounted for yet but §14.8.2.2's declared artifacts, which are the producer's
+    /// statement of what they are (ADR 1948).
+    fn new(range: std::ops::Range<usize>, artifacts: &[crate::content::ArtifactSpan]) -> Self {
+        let mut accounted = Self {
+            bytes: vec![false; range.len()],
+            range,
+        };
+        for artifact in artifacts
+            .iter()
+            .filter(|artifact| artifact.found == crate::content::ArtifactSource::Declared)
+        {
+            accounted.cover(&artifact.range);
+        }
+        accounted
+    }
+
+    /// Marks the part of `span` inside the range, and answers that part — `None` where there is
+    /// none.
+    fn cover(&mut self, span: &std::ops::Range<usize>) -> Option<std::ops::Range<usize>> {
+        let (from, to) = (
+            span.start.max(self.range.start),
+            span.end.min(self.range.end),
+        );
+        if from >= to {
+            return None;
+        }
+        for byte in self
+            .bytes
+            .get_mut(from.saturating_sub(self.range.start)..to.saturating_sub(self.range.start))
+            .unwrap_or_default()
+        {
+            *byte = true;
+        }
+        Some(from..to)
+    }
+
+    /// Whether every byte of the range is accounted for.
+    fn whole(&self) -> bool {
+        self.bytes.iter().all(|seen| *seen)
+    }
+}
+
+/// The parts of `range` that no marked-content sequence covers, in order.
+///
+/// An annotation's range is its whole appearance's readback, and a sequence inside that appearance
+/// is §14.7.5.2's content item rather than the object's: §14.7.5.3's NOTE 1 says that where "the
+/// referenced content forms only part of the object's content stream, it is instead handled as a
+/// marked -content sequence". Taking those bytes out is what keeps an annotation the tree names
+/// both ways from being copied twice.
+fn outside_sequences(
+    range: std::ops::Range<usize>,
+    marked: &[crate::content::MarkedSpan],
+) -> Vec<std::ops::Range<usize>> {
+    let mut inside: Vec<std::ops::Range<usize>> = marked
+        .iter()
+        .map(|span| span.range.start.max(range.start)..span.range.end.min(range.end))
+        .filter(|part| part.start < part.end)
+        .collect();
+    inside.sort_by_key(|part| part.start);
+    let mut out = Vec::new();
+    let mut at = range.start;
+    for part in inside {
+        if part.start > at {
+            out.push(at..part.start);
+        }
+        at = at.max(part.end);
+    }
+    if at < range.end {
+        out.push(at..range.end);
+    }
+    out
+}
+
+/// One content item's share of a range of a page's readback, in §14.8.2.5.1's logical
 /// content order: [`Tree::logical_range`]'s answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogicalPiece {
@@ -5087,10 +5210,36 @@ mod tests {
         MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType, TableGrid, TableStack, Tree,
         WritingMode, actual_text, allocation_rectangle, alternate_description,
         annotation_languages, annotation_rectangles, language, list_predecessors,
-        table_cell_rectangles, well_formed_language_tag,
+        outside_sequences, table_cell_rectangles, well_formed_language_tag,
     };
     use pdf_syntax::{Dictionary, Document, Object};
     use std::collections::BTreeSet;
+
+    /// §14.7.5.3's NOTE 1, at the one place it decides anything: the bytes of an annotation's
+    /// readback that a marked-content sequence inside its appearance covers are that sequence's,
+    /// so the object's own pieces are what is left — in order, and none where the sequences
+    /// cover it all (ADR 1970).
+    #[test]
+    fn an_object_gives_up_the_bytes_its_sequences_cover() {
+        let span = |range: std::ops::Range<usize>| crate::content::MarkedSpan {
+            mcid: 0,
+            stream: crate::content::ContentStream::Page,
+            range,
+            drawn: None,
+            enclosed_a_refusal: false,
+        };
+        assert_eq!(outside_sequences(10..30, &[]), vec![10..30]);
+        assert_eq!(
+            outside_sequences(
+                10..30,
+                &[span(25..40), span(0..12), span(15..18), span(16..20)]
+            ),
+            vec![12..15, 20..25],
+            "unordered and overlapping sequences, and two that reach past either end"
+        );
+        assert_eq!(outside_sequences(10..30, &[span(5..35)]), Vec::new());
+        assert_eq!(outside_sequences(10..30, &[span(30..40)]), vec![10..30]);
+    }
 
     /// RFC 5646 section 2.1's grammar, one production at a time, in both directions.
     ///

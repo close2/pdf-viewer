@@ -148,6 +148,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         artifacts,
         inferred_separators,
         marked,
+        objects,
         associated_files,
         language,
         text_layer,
@@ -190,6 +191,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         "inferred separators",
     );
     differs(marked == &whole.marked, "§14.7.5.2's spans");
+    differs(objects == &whole.objects, "§14.7.5.3's spans");
     differs(
         format!("{associated_files:?}") == format!("{:?}", whole.associated_files),
         "§14.13.5's associated files",

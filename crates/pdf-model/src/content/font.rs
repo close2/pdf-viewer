@@ -428,6 +428,43 @@ impl FontCache {
             },
         );
     }
+
+    /// The glyph program a load of the font dictionary that object `font` is left here, for
+    /// §12.7.4.3's layouts, which ask the cache the interpreter's `Tf` asks (ADR 1974).
+    ///
+    /// A layout reads a `/DA` font out of `/DR`, and the appearance it writes names the same
+    /// object in its own `/Resources`, so without this the font was loaded once for the layout
+    /// and once more for the stream's `Tf`. A Type 3 font is not a program a layout can set text
+    /// in, so it answers nothing.
+    pub(crate) fn program(
+        &self,
+        document: &Document,
+        font: ObjectId,
+    ) -> Option<Arc<pdf_font::LoadedFont>> {
+        match self.get(document, &FontKey::Referenced(font))? {
+            Font::Program(program) => Some(program),
+            Font::Type3(_) => None,
+        }
+    }
+
+    /// Keeps a glyph program a layout loaded out of object `font`, for the `Tf` that names it
+    /// next and for the next interpretation (ADR 1974).
+    ///
+    /// The same entry `Interpreter::load_font` would keep from the same dictionary:
+    /// `pdf_font::LoadedFont::load` is a function of the document and the dictionary, and the
+    /// label it also takes words only its errors. A metrics-only font is not kept, for the reason
+    /// `load_font` gives.
+    pub(crate) fn keep_program(
+        &self,
+        document: &Document,
+        font: ObjectId,
+        program: &Arc<pdf_font::LoadedFont>,
+    ) {
+        let program = Font::Program(Arc::clone(program));
+        if !program.is_metrics_only() {
+            self.keep(document, FontKey::Referenced(font), &program);
+        }
+    }
 }
 
 impl Kept {

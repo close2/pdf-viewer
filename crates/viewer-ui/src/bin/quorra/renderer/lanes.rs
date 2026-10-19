@@ -336,12 +336,31 @@ impl Costs {
 /// slowly. The other choice — the whole transform — would ask the device again at every pan of a
 /// refused page and pay the attempt each time, which is the cost this exists to remove.
 ///
-/// Only a refusal that is a fact about the frame is kept ([`remembered`]); a device lost or a
-/// pipeline missing says nothing about the page and is asked again, as it always was.
+/// Only a refusal that is a fact about the frame or about a lane is kept ([`remembered`]); a
+/// device lost says nothing about either and is asked again, as it always was.
+///
+/// **A lane the adapter refused is kept apart from the frames, and for the device's life** (ADR
+/// 1968). The compute lane's four pipelines are built or refused together on the first frame that
+/// takes the lane, and raster keeps the answer (ADR 1962), so every later frame of that coverage
+/// would be the scene encoded only to hear the same words. Those frames go to the processor without
+/// the device being asked, whatever their pages and magnification, and age out of nothing: the
+/// window's device is the render thread's, which lives as long as the window.
 #[derive(Debug, Default)]
 pub(super) struct Refusals {
     /// Newest first, at most [`Self::KEPT`].
     held: Vec<Refused>,
+    /// The coverage lanes the adapter refused, with what it said — at most one entry per
+    /// [`raster_gpu::Coverage`], never aged.
+    lanes: Vec<(raster_gpu::Coverage, String)>,
+}
+
+/// What a refusal the window keeps is a fact about (ADRs 1821, 1968).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kept {
+    /// These pages at this magnification.
+    Frame,
+    /// Every frame drawn under this coverage lane on this device.
+    Lane(raster_gpu::Coverage),
 }
 
 /// One frame the device refused: which pictures, at which magnification, and what it said.
@@ -368,17 +387,31 @@ impl Refusals {
         ))
     }
 
-    /// What the device said when it refused exactly these pages at exactly this magnification.
-    pub(super) fn said(&self, pages: &[crate::stale::Placed]) -> Option<&str> {
+    /// What the device said when it refused this frame's coverage lane, or exactly these pages at
+    /// exactly this magnification, and which of the two it was. A frame with no page asks nothing
+    /// of a lane, so it is never refused.
+    pub(super) fn said(
+        &self,
+        pages: &[crate::stale::Placed],
+        coverage: raster_gpu::Coverage,
+    ) -> Option<(&str, Kept)> {
         let (pictures, linear) = Self::key(pages)?;
+        if let Some((lane, said)) = self.lanes.iter().find(|(lane, _)| *lane == coverage) {
+            return Some((said.as_str(), Kept::Lane(*lane)));
+        }
         self.held
             .iter()
             .find(|held| held.linear == linear && held.pictures == pictures)
-            .map(|held| held.said.as_str())
+            .map(|held| (held.said.as_str(), Kept::Frame))
     }
 
-    /// Keeps a refusal, newest first.
-    pub(super) fn remember(&mut self, pages: &[crate::stale::Placed], said: &str) {
+    /// Keeps a refusal: a lane's for the device's life, a frame's newest first.
+    pub(super) fn remember(&mut self, pages: &[crate::stale::Placed], said: &str, kept: Kept) {
+        if let Kept::Lane(coverage) = kept {
+            self.lanes.retain(|(lane, _)| *lane != coverage);
+            self.lanes.push((coverage, said.to_owned()));
+            return;
+        }
         let Some((pictures, linear)) = Self::key(pages) else {
             return;
         };
@@ -396,35 +429,67 @@ impl Refusals {
     }
 }
 
-/// Whether a refusal is a fact about the frame — its pages at its magnification — rather than
-/// about the device.
+/// What a refusal heard on a frame drawn under `coverage` is a fact about, where it is a fact
+/// about anything this window can keep (ADRs 1821, 1968).
 ///
-/// The budgets and the limits are: raster prices what the frame asks for against what it states
-/// it will hold, and the same frame is priced the same way next time. So is what the display list
-/// itself carries — a value the scene boundary refuses, a clip or a soft mask it does not define, a
-/// paint this backend cannot draw — because the list is the same list. A device lost, a readback
-/// failed, a pipeline still missing or an allocation the machine could not make at that moment is
-/// none of these, and a page refused for one of those is asked again.
-pub(super) fn remembered(problem: &QuorraRasterError) -> bool {
-    use raster_gpu::RenderError;
+/// **The frame** — its pages at its magnification — for the budgets and the limits: raster prices
+/// what the frame asks for against what it states it will hold, and the same frame is priced the
+/// same way next time. So is what the display list itself carries — a value the scene boundary
+/// refuses, a clip or a soft mask it does not define, a paint this backend cannot draw — because the
+/// list is the same list. And so is a render pipeline, a shader module or a generated §7.10.5
+/// program the adapter would not build: raster keeps each refusal for the device's life and refuses
+/// in the same words every frame that needs it (ADRs 1929, 1962), and the same frame needs the same
+/// ones.
+///
+/// **The lane** for the compute lane's pipelines: they are built or refused together by the first
+/// frame that takes the lane, so the refusal is the answer to every frame of that coverage. A
+/// refused compute *module* arrives as `PipelineProblem::Shader`, under a label that names the
+/// module and not its lane, so it is kept by the frame: one encode per frame rather than one per
+/// device, and never a frame sent to the processor that did not need to be.
+///
+/// A device lost, a readback failed, or an allocation the machine could not make at that moment
+/// is a fact about neither, and a page refused for one of those is asked again.
+pub(super) fn remembered(
+    problem: &QuorraRasterError,
+    coverage: raster_gpu::Coverage,
+) -> Option<Kept> {
+    use raster_gpu::{PipelineProblem, RenderError};
     match problem {
-        QuorraRasterError::Render(refusal) => matches!(
-            refusal,
+        QuorraRasterError::Render(RenderError::PipelineUnavailable {
+            reason: PipelineProblem::ComputePipeline { .. },
+        }) => Some(Kept::Lane(coverage)),
+        QuorraRasterError::Render(
             RenderError::FrameBudgetExceeded { .. }
-                | RenderError::ScratchExhausted { .. }
-                | RenderError::OutlineConversionBudgetExceeded { .. }
-                | RenderError::TargetTooLarge { .. }
-                | RenderError::ViewportTransformTooLarge { .. }
-        ),
-        QuorraRasterError::Scene(_)
+            | RenderError::ScratchExhausted { .. }
+            | RenderError::OutlineConversionBudgetExceeded { .. }
+            | RenderError::TargetTooLarge { .. }
+            | RenderError::ViewportTransformTooLarge { .. }
+            | RenderError::PipelineUnavailable { .. },
+        )
+        | QuorraRasterError::Scene(_)
         | QuorraRasterError::UnknownClip(_)
         | QuorraRasterError::CyclicClip(_)
         | QuorraRasterError::UnknownSoftMask(_)
         | QuorraRasterError::Unsupported(_)
-        | QuorraRasterError::Target(_) => true,
+        | QuorraRasterError::Target(_) => Some(Kept::Frame),
         // The device, an allocation, and whatever `render-raster` adds later: asked again until
         // somebody argues that the new one is a fact about the frame.
-        _ => false,
+        _ => None,
+    }
+}
+
+/// The lane the processor's picture of a frame goes back to the device through, where the adapter
+/// refused the frame's own (ADR 1968).
+///
+/// The compute lane's pipelines are the only lane refusal kept, and two lanes reach them: `Compute`
+/// always, and `Cpu` where raster's compute assist sends the compute lane the tiles the atlas will
+/// not hold (ADR 0090). `Cpu` is the exact lane and draws the chrome's text from the atlas, so it
+/// takes a refused `Compute` lane's picture; `Gpu` sends nothing to the compute lane, so it takes a
+/// refused `Cpu` lane's.
+pub(super) fn upload_lane(refused: raster_gpu::Coverage) -> raster_gpu::Coverage {
+    match refused {
+        raster_gpu::Coverage::Cpu => raster_gpu::Coverage::Gpu,
+        raster_gpu::Coverage::Gpu | raster_gpu::Coverage::Compute => raster_gpu::Coverage::Cpu,
     }
 }
 
@@ -434,6 +499,9 @@ mod tests {
     use std::sync::Arc;
 
     use pdf_render::{DisplayList, TargetSpec, Transform};
+
+    const CPU: raster_gpu::Coverage = raster_gpu::Coverage::Cpu;
+    const COMPUTE: raster_gpu::Coverage = raster_gpu::Coverage::Compute;
 
     /// A page of `page`'s number in document 1, placed at `magnification` and shifted right by
     /// `pan` device pixels — the two things a view change does to one page.
@@ -457,23 +525,23 @@ mod tests {
     #[test]
     fn a_refusal_is_remembered_by_its_pages_and_magnification() {
         let mut refusals = Refusals::default();
-        refusals.remember(&placed(0, 1.0, 0.0), "frame refused: too much");
+        refusals.remember(&placed(0, 1.0, 0.0), "frame refused: too much", Kept::Frame);
         assert_eq!(
-            refusals.said(&placed(0, 1.0, 120.0)),
-            Some("frame refused: too much"),
+            refusals.said(&placed(0, 1.0, 120.0), CPU),
+            Some(("frame refused: too much", Kept::Frame)),
             "a pan of the refused page is not asked again"
         );
         assert_eq!(
-            refusals.said(&placed(0, 1.25, 0.0)),
+            refusals.said(&placed(0, 1.25, 0.0), CPU),
             None,
             "a notch of zoom is asked"
         );
         assert_eq!(
-            refusals.said(&placed(1, 1.0, 0.0)),
+            refusals.said(&placed(1, 1.0, 0.0), CPU),
             None,
             "another page is asked"
         );
-        assert_eq!(refusals.said(&[]), None, "no page is never refused");
+        assert_eq!(refusals.said(&[], CPU), None, "no page is never refused");
     }
 
     /// The memory is bounded, newest first, and the same refusal learned twice is one entry.
@@ -486,16 +554,16 @@ mod tests {
                 reason = "a step count far below f32's exact integer range"
             )]
             let magnification = 1.0 + step as f32 / 8.0;
-            refusals.remember(&placed(0, magnification, 0.0), "refused");
-            refusals.remember(&placed(0, magnification, 0.0), "refused");
+            refusals.remember(&placed(0, magnification, 0.0), "refused", Kept::Frame);
+            refusals.remember(&placed(0, magnification, 0.0), "refused", Kept::Frame);
         }
         assert_eq!(refusals.held.len(), Refusals::KEPT);
         assert_eq!(
-            refusals.said(&placed(0, 1.0, 0.0)),
+            refusals.said(&placed(0, 1.0, 0.0), CPU),
             None,
             "the oldest aged out"
         );
-        assert!(refusals.said(&placed(0, 1.125, 0.0)).is_some());
+        assert!(refusals.said(&placed(0, 1.125, 0.0), CPU).is_some());
     }
 
     /// The owner's drawing, before anything has been measured: the device's seed for a frame that
@@ -672,24 +740,116 @@ mod tests {
         assert!(!costs.forecast(&pictures(1), commands).0.scene_kept);
     }
 
-    /// Only a refusal that is a fact about the frame is kept: the budget is, a lost device is not.
+    /// Only a refusal that is a fact about the frame or the lane is kept: the budget and a refused
+    /// render pipeline are the frame's, the compute lane's pipelines are the lane's, a lost device
+    /// is neither (ADR 1968).
     #[test]
-    fn only_a_refusal_about_the_frame_is_remembered() {
-        assert!(remembered(&QuorraRasterError::Render(
-            raster_gpu::RenderError::FrameBudgetExceeded {
-                needed: 423_206_976,
-                budget: 268_435_456,
-            }
-        )));
-        assert!(!remembered(&QuorraRasterError::Render(
-            raster_gpu::RenderError::DeviceLost {
-                detail: "gone".to_owned(),
-            }
-        )));
-        assert!(!remembered(&QuorraRasterError::Allocation {
-            width: 1,
-            height: 1,
-        }));
+    fn only_a_refusal_about_the_frame_or_the_lane_is_remembered() {
+        use raster_gpu::{PipelineProblem, RenderError};
+        let refused =
+            |reason| QuorraRasterError::Render(RenderError::PipelineUnavailable { reason });
+        assert_eq!(
+            remembered(
+                &QuorraRasterError::Render(RenderError::FrameBudgetExceeded {
+                    needed: 423_206_976,
+                    budget: 268_435_456,
+                }),
+                CPU
+            ),
+            Some(Kept::Frame)
+        );
+        assert_eq!(
+            remembered(
+                &refused(PipelineProblem::ComputePipeline {
+                    pipeline: "raster compute count",
+                    detail: "no entry point".to_owned(),
+                }),
+                COMPUTE
+            ),
+            Some(Kept::Lane(COMPUTE)),
+            "the compute lane's pipelines answer every frame of the lane"
+        );
+        assert_eq!(
+            remembered(
+                &refused(PipelineProblem::Pipeline {
+                    pipeline: "raster image quad",
+                    format: raster_gpu::wgpu::TextureFormat::Rgba8Unorm,
+                    detail: "no entry point".to_owned(),
+                }),
+                CPU
+            ),
+            Some(Kept::Frame),
+            "a render pipeline answers the frames that need it"
+        );
+        assert_eq!(
+            remembered(
+                &refused(PipelineProblem::Shader {
+                    shader: "raster compute scan",
+                    detail: "does not parse".to_owned(),
+                }),
+                COMPUTE
+            ),
+            Some(Kept::Frame),
+            "a module is named by its label, not by its lane"
+        );
+        assert_eq!(
+            remembered(
+                &QuorraRasterError::Render(RenderError::DeviceLost {
+                    detail: "gone".to_owned(),
+                }),
+                CPU
+            ),
+            None
+        );
+        assert_eq!(
+            remembered(
+                &QuorraRasterError::Allocation {
+                    width: 1,
+                    height: 1,
+                },
+                CPU
+            ),
+            None
+        );
+    }
+
+    /// **A refused lane answers every frame of its coverage, at any page and magnification, and
+    /// for the device's life** (ADR 1968): no number of frame refusals ages it out, and a frame of
+    /// another coverage is still asked.
+    #[test]
+    fn a_refused_lane_answers_every_frame_of_its_coverage_for_the_device_s_life() {
+        let mut refusals = Refusals::default();
+        let said = "frame refused: a pipeline this frame needs could not be built";
+        refusals.remember(&placed(0, 1.0, 0.0), said, Kept::Lane(COMPUTE));
+        for step in 0..=Refusals::KEPT {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a step count far below f32's exact integer range"
+            )]
+            let magnification = 1.0 + step as f32 / 8.0;
+            refusals.remember(&placed(1, magnification, 0.0), "refused", Kept::Frame);
+        }
+        assert_eq!(
+            refusals.said(&placed(7, 3.5, 40.0), COMPUTE),
+            Some((said, Kept::Lane(COMPUTE))),
+            "another page at another magnification is not asked"
+        );
+        assert_eq!(
+            refusals.said(&placed(7, 3.5, 40.0), CPU),
+            None,
+            "a frame of another coverage is"
+        );
+        assert_eq!(refusals.said(&[], COMPUTE), None, "no page asks nothing");
+        refusals.remember(&placed(2, 1.0, 0.0), said, Kept::Lane(COMPUTE));
+        assert_eq!(refusals.lanes.len(), 1, "a lane is one entry");
+    }
+
+    /// The processor's picture of a frame whose lane was refused goes back through a lane that
+    /// does not reach the compute lane's pipelines (ADR 1968).
+    #[test]
+    fn a_refused_lane_s_picture_goes_back_through_another() {
+        assert_eq!(upload_lane(COMPUTE), CPU);
+        assert_eq!(upload_lane(CPU), raster_gpu::Coverage::Gpu);
     }
 
     /// **The build ahead is asked where the device would draw the next frame from it, and only

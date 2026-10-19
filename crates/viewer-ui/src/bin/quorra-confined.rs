@@ -788,13 +788,14 @@ impl Host {
             } => {
                 self.page = index;
                 let name = self.name();
-                let page = match label {
+                let page = match label.as_deref().map(viewer_host::documents::one_line) {
                     Some(label) => format!("page {label} ({} of {of})", index.saturating_add(1)),
                     None => format!("page {} of {of}", index.saturating_add(1)),
                 };
                 // §12.3.3's section, which the worker reads beside page one and says again once
-                // it has (ADR 1553): the caption the other three windows show.
-                self.heading = match section {
+                // it has (ADR 1553): the caption the other three windows show, on one line as
+                // theirs is (ADR 1973).
+                self.heading = match section.as_deref().map(viewer_host::documents::one_line) {
                     Some(section) if !section.is_empty() => format!("{name} — {page} — {section}"),
                     _ => format!("{name} — {page}"),
                 };
@@ -1232,7 +1233,13 @@ impl Host {
                  the processor"
             );
             self.refused_since_take = true;
-            let said = format!("drawn on the processor: the graphics device refused ({why})");
+            // **A title is one line**, and `wgpu` writes a refused pipeline as a chain of causes,
+            // one per line: the title takes the first, which names what was refused, and the
+            // terminal above keeps all of it (ADR 1962).
+            let said = format!(
+                "drawn on the processor: the graphics device refused ({})",
+                why.lines().next().unwrap_or(&why)
+            );
             if self.on_the_processor.as_ref() != Some(&said) {
                 self.on_the_processor = Some(said);
                 self.retitle();

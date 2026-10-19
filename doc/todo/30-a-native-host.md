@@ -243,8 +243,9 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `dbus-launch` pipes reach a sandbox worker started inside GLib's spawn, and GLib waits for their
   end of file for ever. Closing them takes one `unsafe` call, which is `doc/questions/Q430`;
   the drive's step 84 says `wrong` until it is answered.
-- **ISO 19005's conversion is chosen at launch only** (`--archive <target>:<profile>`, Shift+A,
-  ADR 1954): no window has a menu or card that chooses the target and the profile after it starts.
+- **ISO 19005's conversion is chosen once per window** (`--archive <target>:<profile>`, or the
+  card or dialogue Shift+A puts up where nothing was chosen, ADRs 1954, 1966): a window that has
+  chosen converts to that choice for its life, and choosing again needs a new window.
 - **`quorra` shows what would print and has no printer of its own** (ADR 1180 section 6), where
   `quorra-gtk` prints through `GtkPrintOperation` and `quorra-qt` through a `QPrinter`.
 - **§12.5.6.6's free-text drag is refused by name in the two native windows**, because authoring

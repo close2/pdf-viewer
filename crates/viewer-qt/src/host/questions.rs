@@ -5,12 +5,12 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use viewer_core::{Command, DocumentId, Event, Purpose};
+use viewer_core::{Command, DocumentId, Purpose};
 use viewer_host::native_window::NativeWindow;
 
 use crate::bridge::ffi::QtScriptEntry;
 
-use super::{DOCUMENT, Host};
+use super::Host;
 
 /// What the one outstanding question is about, at `CLAUDE.md`'s *ask* level.
 ///
@@ -87,24 +87,7 @@ impl Host {
     /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
     pub(crate) fn supply_password(&mut self, password: &str) {
         let document = self.prompting;
-        match viewer_host::password::supplied(password.to_owned().into()) {
-            // The document the prompt was about, from its own bytes: one on its way to a tab —
-            // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
-            // or the first, which is the only other document a prompt is put about (ADR 1332).
-            viewer_host::Supplied::Open(secret) if self.state.arrivals.is(document) => {
-                self.open_arriving(Some(secret));
-            }
-            viewer_host::Supplied::Open(secret) if document == DOCUMENT => {
-                self.open_document(Some(secret));
-            }
-            viewer_host::Supplied::Open(_) => {
-                self.say(&viewer_host::documents::not_asked(document));
-            }
-            viewer_host::Supplied::Cancelled => {
-                self.say(viewer_host::password::CANCELLED);
-                self.cancelled(document);
-            }
-        }
+        self.password_supplied(document, password.to_owned().into());
     }
 
     /// §7.6.4.1: what the prompt says, worded by [`viewer_host::password`] for all three hosts.
@@ -122,35 +105,49 @@ impl Host {
         self.update.question = true;
     }
 
-    /// The two questions the viewer puts, in the one dialogue: `CLAUDE.md`'s *ask* level over an
-    /// operation the document restricts, held as [`Pending::Restricted`], and RFC 0008 section
-    /// 6.3's one question per document before its scripts run, held as [`Pending::Scripts`] (ADR
-    /// 1616). Any other event asks nothing.
-    pub(super) fn ask(&mut self, asking: &Event) {
-        match asking {
-            Event::Asking {
+    /// `CLAUDE.md`'s *ask* level over an operation the document restricts, in the one dialogue,
+    /// held as [`Pending::Restricted`]: the words are `viewer_host::restriction`'s and the dialogue
+    /// is C++'s, because Rust does not call a Qt object (ADR 1145).
+    pub(super) fn ask_whether_to_proceed(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    ) {
+        self.put_the_question(
+            Pending::Restricted {
                 document,
                 operation,
-                notes,
-            } => self.put_the_question(
-                Pending::Restricted {
-                    document: *document,
-                    operation: *operation,
-                },
-                &viewer_host::asked(*operation, notes),
-            ),
-            Event::AskingToRunScripts {
-                document,
-                script,
-                first_line,
-            } => self.put_the_question(
-                Pending::Scripts {
-                    document: *document,
-                },
-                &viewer_host::asked_to_run_scripts(script, first_line),
-            ),
-            _ => {}
-        }
+            },
+            &viewer_host::asked(operation, notes),
+        );
+    }
+
+    /// RFC 0008 section 6.3's one question per document before its scripts run, in the one
+    /// dialogue, held as [`Pending::Scripts`] (ADR 1616).
+    pub(super) fn ask_whether_to_run_scripts(
+        &mut self,
+        document: DocumentId,
+        script: &str,
+        first_line: &str,
+    ) {
+        self.put_the_question(
+            Pending::Scripts { document },
+            &viewer_host::asked_to_run_scripts(script, first_line),
+        );
+    }
+
+    /// RFC 0008 section 4.2's `app.alert` and `app.response`: a dialogue of its own, since its
+    /// buttons are the script's and an entry may stand under its text (ADR 1628).
+    pub(super) fn ask_for_a_script(
+        &mut self,
+        document: DocumentId,
+        question: viewer_core::ScriptQuestion,
+    ) {
+        let name = self.state.documents.label_of(document);
+        self.say(&viewer_host::script_asks::put(&name, &question));
+        self.script_question = Some((document, name, question));
+        self.update.script_question = true;
     }
 
     /// What the question's window is called, by what the question is about.

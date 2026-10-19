@@ -50,7 +50,7 @@ impl Host {
         if frames.is_empty()
             && !self.state.oversized.shows(focused)
             && self.state.drawing.partial().is_none()
-            && (self.anticipated.is_some() || self.state.drawing.interval().is_some())
+            && (self.state.anticipated.is_some() || self.state.drawing.interval().is_some())
             && let Some(look) = self.state.read_look.as_ref()
         {
             return vec![look.placed()];

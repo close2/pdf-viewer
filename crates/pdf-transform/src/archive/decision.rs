@@ -318,11 +318,36 @@ pub enum Loss {
     /// **No mark on any page moves.** The attachment was never drawn; what changes is that the
     /// archive no longer carries it.
     EmbeddedFile,
+    /// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: a graphics state's transfer
+    /// function other than the identity, removed.
+    ///
+    /// ISO 32000-2 §10.5's function is applied by this reader, so the colours drawn under the
+    /// state move once it is gone. §8.4.1's Table 52 makes it a function "to compensate for
+    /// nonlinear response in a particular output device", and §10.5 says a page description meant
+    /// to be device-independent should not define one — but a file that does may depend on it for
+    /// what its page shows on paper as on a screen: `issue6931_reduced.pdf`'s logo is a near-black
+    /// negative without its function. So no shipped profile authorises it; an operator does.
+    ///
+    /// **What is not lost is the function itself**: each one is written into the output's own
+    /// `xmpMM:History`, in clause 7's syntax and its data decoded, before it goes, and the report
+    /// names every graphics state it went from (`doc/adr/1964`). A file whose every `/TR` is the
+    /// name `Identity` costs nothing here and is not asked.
+    TransferFunction,
+    /// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: a halftone's `HalftoneName`,
+    /// removed.
+    ///
+    /// ISO 32000-2 §10.6.5.1 makes the name a pointer into a marking device's own halftones, which
+    /// such a device "may" use in place of the dictionary's parameters. **Nothing a screen shows
+    /// moves** — §10.6.1 says halftoning is not required on a device that reproduces continuous
+    /// tone, and this reader is one — so what is lost is the instruction to a press: one holding
+    /// a halftone of that name screens with the dictionary's own parameters instead. A halftone
+    /// that is only a name is refused rather than removed (`doc/adr/1965`).
+    HalftoneName,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 19] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -340,6 +365,8 @@ impl Loss {
         Self::FieldAppearances,
         Self::XfaForm,
         Self::EmbeddedFile,
+        Self::TransferFunction,
+        Self::HalftoneName,
     ];
 
     /// The word a caller authorises it by.
@@ -363,6 +390,8 @@ impl Loss {
             Self::FieldAppearances => "field-appearances",
             Self::XfaForm => "xfa-form",
             Self::EmbeddedFile => "embedded-file",
+            Self::TransferFunction => "transfer-function",
+            Self::HalftoneName => "halftone-name",
         }
     }
 
@@ -493,6 +522,19 @@ impl Loss {
                  tool makes a conforming PDF of it instead, and a PDF/A-4f or -4e target keeps \
                  it unchanged because the rule does not bind there"
             }
+            Self::TransferFunction => {
+                "a graphics state's transfer function other than the identity is removed, so the \
+                 colours ISO 32000-2 \u{a7}10.5 had it adjust for one output device are drawn \
+                 without that adjustment. The function itself is written into the output's own \
+                 xmpMM:History first, in the file's own syntax with its data decoded, and the \
+                 report names every graphics state it went from"
+            }
+            Self::HalftoneName => {
+                "a halftone's HalftoneName is removed and the screen its own entries define is \
+                 kept, so a press holding a halftone of that name screens the page with the \
+                 file's parameters instead of its own. Nothing on a screen moves: ISO 32000-2 \
+                 \u{a7}10.6.1 needs no halftoning on a device that shows continuous tone"
+            }
         }
     }
 
@@ -550,6 +592,10 @@ pub struct Authorisations {
     pub xfa_form: bool,
     /// Whether [`Loss::EmbeddedFile`] was authorised.
     pub embedded_file: bool,
+    /// Whether [`Loss::TransferFunction`] was authorised.
+    pub transfer_function: bool,
+    /// Whether [`Loss::HalftoneName`] was authorised.
+    pub halftone_name: bool,
 }
 
 impl Authorisations {
@@ -574,6 +620,8 @@ impl Authorisations {
             Loss::FieldAppearances => self.field_appearances,
             Loss::XfaForm => self.xfa_form,
             Loss::EmbeddedFile => self.embedded_file,
+            Loss::TransferFunction => self.transfer_function,
+            Loss::HalftoneName => self.halftone_name,
         }
     }
 
@@ -597,6 +645,8 @@ impl Authorisations {
             Loss::FieldAppearances => self.field_appearances = true,
             Loss::XfaForm => self.xfa_form = true,
             Loss::EmbeddedFile => self.embedded_file = true,
+            Loss::TransferFunction => self.transfer_function = true,
+            Loss::HalftoneName => self.halftone_name = true,
         }
     }
 }
@@ -988,7 +1038,7 @@ const RENDERING_INTENT_REINTERPRETS: &str = "a rendering intent this file states
 /// What removing an identity transfer function asserts (`doc/adr/1952` section 3).
 const IDENTITY_TRANSFER_REINTERPRETS: &str = "a graphics state in this file states TR \
      Identity, which ISO 19005 forbids, and no graphics state in it states any other transfer \
-     function, so the entry is removed. ISO 32000-2 8.4.1's Table 53 leaves the initial transfer \
+     function, so the entry is removed. ISO 32000-2 8.4.1's Table 52 leaves the initial transfer \
      function device dependent; on this reader's device it is the identity, so every colour is \
      drawn where it was. On a device whose own default is not the identity, the producer's \
      reset to the identity no longer happens. The report names every graphics state rewritten";
@@ -1645,8 +1695,9 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // is also what refuses a document failing in the shape the standard leaves unanswered.
     // -----------------------------------------------------------------------------------------
 
-    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5 — the identity half (`doc/adr/1952`
-    // section 3). A real transfer function is refused by `super::sites` with its own sentence.
+    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5. Stated where every `/TR` is the
+    // identity (`doc/adr/1952` section 3), and a loss where one is not (`doc/adr/1964`):
+    // `answer_of` routes on what `super::transfer` found, as `CONDITIONAL` says.
     Remedy {
         requirement: "graphics/no-transfer-function-in-a-graphics-state",
         answer: Answer::Stated(
@@ -1672,6 +1723,12 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "graphics/annotation-blend-modes-are-defined",
         answer: Answer::Stated(None, Rewrite::BlendModeNormal, BLEND_MODE_REINTERPRETS),
+    },
+    // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5: a halftone's device pointer, whose
+    // removal moves nothing on a screen and changes what a press does (`doc/adr/1965`).
+    Remedy {
+        requirement: "graphics/no-halftone-name",
+        answer: Answer::Loses(Loss::HalftoneName, Rewrite::HalftoneNameRemoved),
     },
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
     Remedy {
@@ -1898,6 +1955,10 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
         "forms/need-appearances-absent-or-false",
         Conditional::PerConfiguration(Loss::FieldAppearances),
+    ),
+    (
+        "graphics/no-transfer-function-in-a-graphics-state",
+        Conditional::PerDocument(Loss::TransferFunction),
     ),
 ];
 
@@ -2520,10 +2581,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
     ),
     (
-        "graphics/no-halftone-name",
-        Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
-    ),
-    (
         "graphics/no-halftone-origin-in-a-graphics-state",
         Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
     ),
@@ -2889,8 +2946,8 @@ const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its des
 /// The pair with [`TRANSFER_FUNCTION_NOT_REMOVED`], and they are deliberately two sentences:
 /// `CLAUDE.md` records §10.6's halftones as inapplicable on the standard's own condition and
 /// §10.5's transfer functions as emphatically not, so what removing each costs is different.
-const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or 5, without a \
-     HalftoneName, and forbids a halftone phase or origin key in a graphics state. Removing one \
+const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or 5, and \
+     forbids a halftone phase or origin key in a graphics state. Removing one \
      changes nothing this renderer draws — CLAUDE.md records §10.6's halftones as inapplicable \
      on the standard's own condition, because a halftone describes how a marking device renders \
      continuous tone — and it does change what a press does with the file, which is exactly what \
@@ -3305,6 +3362,23 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                         reinterprets,
                     },
                     Decision::Refused,
+                ),
+            }
+        }
+        // ISO 19005-2 section 6.2.5's transfer functions, whose cost is a fact about the file:
+        // removing `/TR /Identity` moves nothing on this reader's device and is a statement, and
+        // removing any other function moves the colours it adjusted (`doc/adr/1964`).
+        Answer::Stated(_, Rewrite::IdentityTransferFunctionRemoved, reinterprets) => {
+            match &prepared.owed.transfers {
+                Err(because) => Decision::Refused(*because),
+                Ok(functions) if functions.costs_nothing() => Decision::Stated {
+                    rewrite: Rewrite::IdentityTransferFunctionRemoved,
+                    reinterprets,
+                },
+                Ok(_) => answer_of(
+                    Answer::Loses(Loss::TransferFunction, Rewrite::TransferFunctionRemoved),
+                    authorised,
+                    prepared,
                 ),
             }
         }

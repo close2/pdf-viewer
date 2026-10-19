@@ -694,3 +694,58 @@ fn an_executed_outline_item_is_activated_as_a_click_activates_it() {
         "the item's go-to turned the page: {events:?}"
     );
 }
+
+/// A press on what no event or field reaches says why it did nothing, at the level that runs no
+/// scripts too: Table 31's sentence on an annotation written into `/Annots` as a dictionary, and
+/// §12.7.3's on a widget in a document whose catalog names no interactive form — each once, and
+/// nothing at all for a press beside both (ADR 1970).
+#[test]
+fn a_press_on_what_nothing_reaches_says_why_once() {
+    let bodies = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Annots [4 0 R \
+         << /Type /Annot /Subtype /Square /F 4 /Rect [100 300 300 350] >>] >>"
+            .to_owned(),
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /F 4 /P 3 0 R \
+         /Rect [100 100 300 150] >>"
+            .to_owned(),
+    ];
+    // Off, and then a level that runs scripts, where the page's open has said both already.
+    for runs in [false, true] {
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        let mut events = Vec::new();
+        if runs {
+            let handed = Handed::default();
+            events.extend(
+                viewer.handle(Command::Scripts(Scripting::Run(Arc::new(Recorders(
+                    handed,
+                ))))),
+            );
+        }
+        events.extend(viewer.handle(Command::Open {
+            id: DOCUMENT,
+            bytes: written(&bodies).into(),
+            password: None,
+            fragment: None,
+        }));
+        events.extend(viewer.handle(Command::Presented));
+        let (widget, direct, beside) = (
+            on_widget(&viewer),
+            on_rect(&viewer, [100.0, 300.0, 300.0, 350.0]),
+            beside_widget(&viewer),
+        );
+        for at in [beside, widget, widget, direct, direct] {
+            events.extend(point(&mut viewer, at, PointerAction::Pressed));
+            events.extend(point(&mut viewer, at, PointerAction::Released));
+        }
+        let said = said(&events);
+        let about = |needle: &str| said.iter().filter(|line| line.contains(needle)).count();
+        assert_eq!(
+            about("names no interactive form dictionary"),
+            1,
+            "runs {runs}: {said:#?}"
+        );
+        assert_eq!(about("Table 31 says"), 1, "runs {runs}: {said:#?}");
+    }
+}

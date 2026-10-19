@@ -1412,8 +1412,8 @@ impl Interpreter<'_> {
         for (range, _) in &mut self.associated {
             span(range);
         }
-        for range in &mut self.structural_annotations {
-            span(range);
+        for object in &mut self.structural_annotations {
+            span(&mut object.range);
         }
     }
 

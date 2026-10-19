@@ -9,8 +9,11 @@ can and cannot open a window on, and where the build lands.
 Every rule below is an incident with an argument, and the argument is in the section the rule
 names; a round reads this block, and opens the section only where a line bites (ADR 1639).
 
-- **One heavy walk on the machine at a time**, or two on the lock's two lanes, in the foreground, and
-  you wait in it: `ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 12 -- <command>`,
+- **One heavy walk on the machine at a time**, or two on the lock's two lanes, and you wait for it
+  — in calls of at most 240 s, so the prompt cache outlives the wait: a walk that can run longer is
+  started as `tools/wait.sh --start <log> -- <the line below>` and waited for with `tools/wait.sh
+  <log>` under a harness timeout of 270 000 ms, re-issued while it exits 75, and no wait-loop of a
+  round's own runs past 240 s (ADRs 1976, 1977): `ulimit -u 8192; tools/bounded.sh --lock --round <session> --tree 12 -- <command>`,
   which runs a locked command at the four rayon threads every lane's ceiling was measured at, a caller's
   own `RAYON_NUM_THREADS` kept (ADR 1766);
   a walk that stays under 6 GiB says `--tree 6` and may run beside another, and a run whose verdict is

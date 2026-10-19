@@ -50,7 +50,10 @@ use pdf_syntax::ObjectId;
 
 use viewer_core::Layer;
 
+mod archive;
 mod rich;
+
+pub use archive::{ArchiveCard, ArchivePress};
 
 /// How wide the panel is, in logical pixels.
 ///

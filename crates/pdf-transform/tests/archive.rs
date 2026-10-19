@@ -784,6 +784,8 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -932,6 +934,8 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1007,6 +1011,8 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1297,18 +1303,15 @@ fn a_postscript_xobject_no_page_invokes_is_exempt_rather_than_dropped() {
 
 #[test]
 fn a_requirement_this_converter_cannot_meet_refuses_by_name_and_writes_nothing() {
-    // ISO 19005-4 section 6.2.5 forbids a transfer function in a graphics state.
-    // doc/pdf-a-conversion-limits.md section 4.8 says why removing one is not mechanical — a
-    // transfer function decides what a *screen* shows, and an inverting one is a photographic
-    // negative — so this converter does not remove one that is not the identity
-    // (`doc/adr/1952` section 3), and says which requirement it could not meet rather than
-    // writing a file that claims to have met it.
+    // ISO 19005-4 section 6.2.2 forbids an operator the base standard does not define. What a
+    // page means with one is this reader's tolerance rather than the standard's, and removing it
+    // edits the producer's content stream — ADR 0816's fence — so this converter says which
+    // requirement it could not meet rather than writing a file that claims to have met it.
     let source = Conforming {
-        objects: vec![
-            "<< /Type /ExtGState /TR 7 0 R >>".to_owned(),
-            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
-        ],
-        resources: "/ExtGState << /Gs0 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"0 0 1 rg nonsense 10 10 50 50 re f".to_vec(),
+        )),
         ..Conforming::default()
     }
     .build();
@@ -1316,8 +1319,8 @@ fn a_requirement_this_converter_cannot_meet_refuses_by_name_and_writes_nothing()
     assert!(output.is_none(), "no file is written");
     assert_eq!(report.exit(false, false), Exit::Refused);
     assert!(matches!(
-        decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
-        Decision::Refused(Because::NotBuiltYet(_))
+        decision(&report, "graphics/only-operators-the-base-standard-defines"),
+        Decision::Refused(_)
     ));
     let declined = report
         .refused
@@ -1326,11 +1329,11 @@ fn a_requirement_this_converter_cannot_meet_refuses_by_name_and_writes_nothing()
     assert!(
         declined
             .subject
-            .contains("graphics/no-transfer-function-in-a-graphics-state"),
+            .contains("graphics/only-operators-the-base-standard-defines"),
         "and it names the requirement and its clause: {}",
         declined.subject
     );
-    assert!(declined.subject.contains("ISO 19005-4 section 6.2.5"));
+    assert!(declined.subject.contains("ISO 19005-4 section 6.2.2"));
 }
 
 #[test]
@@ -3454,6 +3457,8 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -4245,6 +4250,8 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4293,6 +4300,8 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4339,6 +4348,8 @@ fn two_specifications_marked_best_stay_refused() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4378,6 +4389,8 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -6322,6 +6335,8 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7564,6 +7579,8 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -7880,6 +7897,8 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7912,6 +7931,8 @@ fn every_loss() -> Authorisations {
         field_appearances: false,
         xfa_form: false,
         embedded_file: false,
+        transfer_function: false,
+        halftone_name: false,
     }
 }
 
@@ -10069,10 +10090,9 @@ fn an_identity_transfer_function_goes_where_the_file_states_no_other() {
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
 }
 
-#[test]
-fn a_transfer_function_that_is_not_the_identity_stays_refused() {
-    // §10.5's function is drawn, so removing one would move the colours a reader saw.
-    let source = Conforming {
+/// A page with two graphics states, one stating `/TR /Identity` and one an inverting function.
+fn a_real_transfer_function() -> Vec<u8> {
+    Conforming {
         resources: "/ExtGState << /G0 6 0 R /G1 7 0 R >>".to_owned(),
         objects: vec![
             "<< /Type /ExtGState /TR /Identity >>".to_owned(),
@@ -10085,10 +10105,155 @@ fn a_transfer_function_that_is_not_the_identity_stays_refused() {
         )),
         ..Conforming::default()
     }
-    .build();
-    let (report, output) = to_part_four(&source);
+    .build()
+}
+
+#[test]
+fn a_transfer_function_that_is_not_the_identity_is_a_loss_nobody_authorised() {
+    // §10.5's function is drawn, so removing one moves the colours a reader saw: the caller is
+    // asked, and a caller who said nothing is refused (`doc/adr/1964`).
+    let (report, output) = to_part_four(&a_real_transfer_function());
     assert!(matches!(
         decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
+        Decision::Unauthorised {
+            loss: Loss::TransferFunction,
+            rewrite: Rewrite::TransferFunctionRemoved,
+        }
+    ));
+    assert!(output.is_none());
+}
+
+#[test]
+fn an_authorised_transfer_function_goes_and_what_it_said_stays_in_the_history() {
+    // ISO 19005-2 and ISO 19005-4 section 6.2.5, answered by the loss: every `/TR` goes, and the
+    // one that is not the identity is written into `xmpMM:History` first and named in the report
+    // (`doc/adr/1964`).
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::TransferFunction);
+    let (report, output) = convert(
+        &a_real_transfer_function(),
+        Target::Four(Flavour::Plain),
+        authorised,
+    );
+    assert!(matches!(
+        decision(&report, "graphics/no-transfer-function-in-a-graphics-state"),
+        Decision::Authorised {
+            loss: Loss::TransferFunction,
+            rewrite: Rewrite::TransferFunctionRemoved,
+        }
+    ));
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    let outside_the_history: String = text
+        .split("<stEvt:parameters>")
+        .enumerate()
+        .map(|(index, part)| {
+            if index == 0 {
+                part
+            } else {
+                part.split_once("</stEvt:parameters>")
+                    .map_or("", |(_, after)| after)
+            }
+        })
+        .collect();
+    assert!(
+        !outside_the_history.contains("/TR"),
+        "no graphics state states a transfer function"
+    );
+    assert!(
+        text.contains(
+            "graphics state 7 0 R: /TR 8 0 R, where 8 0 obj &lt;&lt; /C0 [1] /C1 [0] \
+             /Domain [0 1] /FunctionType 2 /N 1 &gt;&gt;"
+        ),
+        "the history keeps what the function said: {}",
+        text.split("<stEvt:parameters>")
+            .skip(1)
+            .map(|rest| rest.split("</stEvt:parameters>").next().unwrap_or(rest))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    );
+    let removed = &conversion(&report).removed_transfer_functions;
+    assert_eq!(
+        removed.len(),
+        1,
+        "the identity state is removed but costs nothing"
+    );
+    assert_eq!(removed[0].state, ObjectId::new(7, 0));
+}
+
+/// A page whose graphics state selects `halftone`, an object of its own.
+fn a_halftone(halftone: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /HT 7 0 R >>".to_owned(),
+            halftone.to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// The type 1 halftone Acrobat Distiller writes, naming the device's `Default`.
+const DISTILLER_HALFTONE: &str = "<< /Type /Halftone /HalftoneType 1 /HalftoneName (Default) \
+     /Frequency 60 /Angle 45 /SpotFunction /Round >>";
+
+#[test]
+fn a_halftone_name_is_a_loss_and_once_authorised_goes_with_its_screen_kept() {
+    // ISO 19005-2 and ISO 19005-4 section 6.2.5 forbid the key; ISO 32000-2 §10.6.5.1 makes it a
+    // pointer a press may follow, so removing it costs what a press does and nothing a screen
+    // shows (`doc/adr/1965`).
+    let row = "graphics/no-halftone-name";
+    let (report, output) = to_part_four(&a_halftone(DISTILLER_HALFTONE));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::HalftoneName,
+            ..
+        }
+    ));
+    assert!(output.is_none());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::HalftoneName);
+    let (report, output) = convert(
+        &a_halftone(DISTILLER_HALFTONE),
+        Target::Four(Flavour::Plain),
+        authorised,
+    );
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::HalftoneName,
+            rewrite: Rewrite::HalftoneNameRemoved,
+        }
+    ));
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(!text.contains("HalftoneName"));
+    assert!(
+        text.contains("/SpotFunction /Round"),
+        "the screen it defines stays"
+    );
+}
+
+#[test]
+fn a_halftone_that_is_only_a_name_stays_refused() {
+    // Without the name it would define no halftone at all (§10.6.5.1), and the default halftone
+    // is a graphics state's entry rather than this removal's to write.
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::HalftoneName);
+    let (report, output) = convert(
+        &a_halftone("<< /Type /Halftone /HalftoneName (Default) >>"),
+        Target::Four(Flavour::Plain),
+        authorised,
+    );
+    assert!(matches!(
+        decision(&report, "graphics/no-halftone-name"),
         Decision::Refused(Because::NotBuiltYet(_))
     ));
     assert!(output.is_none());

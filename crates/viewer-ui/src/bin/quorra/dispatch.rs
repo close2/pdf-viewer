@@ -218,7 +218,11 @@ impl App {
             })
         });
         let path = self.path.clone();
-        if let Err(sentence) = self.converter.start(document, path, bytes, asked, wake) {
+        let password = self.kept.lend(document);
+        if let Err(sentence) = self
+            .converter
+            .start(document, path, bytes, asked, password, wake)
+        {
             println!("note: {sentence}");
         }
     }
@@ -763,14 +767,7 @@ impl App {
         of: usize,
         section: Option<&str>,
     ) {
-        let page = match label {
-            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-            None => format!("page {} of {of}", index.saturating_add(1)),
-        };
-        self.caption = match section {
-            Some(section) if !section.is_empty() => format!("{page} — {section}"),
-            _ => page,
-        };
+        self.caption = viewer_host::documents::caption(index, label, of, section);
         self.retitle();
     }
 
@@ -1241,6 +1238,57 @@ impl App {
         }
     }
 
+    /// ISO 19005's card: a press on a target or a profile chooses it (ADR 1966), answered on the
+    /// press for the menu's reason, and the release taken and dropped because the card is modal.
+    pub(crate) fn pressed_the_archive_card(
+        &mut self,
+        at: (f32, f32),
+        element: winit::event::ElementState,
+    ) {
+        let Some((width, height, scale)) = self.window() else {
+            return;
+        };
+        if element != winit::event::ElementState::Pressed {
+            return;
+        }
+        if self.archive_card.press(at, width, height, scale)
+            == viewer_ui::chrome::ArchivePress::Chose
+        {
+            self.redraw();
+        }
+    }
+
+    /// ISO 19005's card: the arrows move through the targets and the profiles, Enter converts to
+    /// what is chosen and keeps it for the window's life, Escape closes it having chosen nothing.
+    pub(crate) fn archive_key(&mut self, key: &winit::keyboard::Key<&str>) {
+        use winit::keyboard::{Key, NamedKey};
+        let moved = match key {
+            Key::Named(NamedKey::Escape) => {
+                self.archive_card.take();
+                println!("note: {}", viewer_host::archiving::NOT_CHOSEN);
+                true
+            }
+            Key::Named(NamedKey::ArrowLeft) => self.archive_card.move_target(-1),
+            Key::Named(NamedKey::ArrowRight) => self.archive_card.move_target(1),
+            Key::Named(NamedKey::ArrowUp) => self.archive_card.move_profile(-1),
+            Key::Named(NamedKey::ArrowDown) => self.archive_card.move_profile(1),
+            Key::Named(NamedKey::Enter) => {
+                if let Some(choosing) = self.archive_card.take() {
+                    let asked = choosing.chosen();
+                    println!("note: {}", viewer_host::archiving::remembered(&asked));
+                    self.archive = Some(asked.clone());
+                    self.dispatch(Command::Archive(asked));
+                }
+                true
+            }
+            // A key with no meaning here. Taken anyway, because the card is modal.
+            _ => false,
+        };
+        if moved {
+            self.redraw();
+        }
+    }
+
     /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
     ///
     /// The menu stays up, which is what a person setting three levels at once needs, and its rows
@@ -1301,6 +1349,7 @@ impl App {
             println!("note: {}", viewer_host::documents::not_asked(document));
             return;
         }
+        self.kept.keep(document, &secret);
         // The file again, off the disk. An embedded file Annex O's `ef` opened is on its way to a
         // tab of its own and holds its bytes there (`viewer_host::Arriving::bytes`), so the one in
         // front always has a path. Trap 5: a file that has gone away between the first open and

@@ -521,6 +521,7 @@ impl Window {
                 drew,
                 fell_back: done.fell_back,
                 device_tried: done.device_tried,
+                known: done.known,
                 processor_drew: done.processor_drew,
                 chose: done.chose,
                 predicted,
@@ -553,6 +554,7 @@ impl Window {
             drew,
             fell_back: done.fell_back,
             device_tried: done.device_tried,
+            known: done.known,
             processor_drew: done.processor_drew,
             chose: done.chose,
             predicted,
@@ -596,10 +598,10 @@ impl Window {
                 (Some(_), None) => {}
             }
         }
-        if done.refused_now
+        if let Some(kept) = done.refused_now
             && let Some(said) = done.fell_back.as_deref()
         {
-            self.refusals.remember(&done.pages, said);
+            self.refusals.remember(&done.pages, said, kept);
             self.costs.refused(&done.pages);
         }
     }
@@ -637,7 +639,13 @@ impl Window {
         if !self.declined.is_empty() && !same_pages(&self.declined, &pages) {
             self.declined.clear();
         }
-        let known_refusal = self.refusals.said(&pages).map(str::to_owned);
+        let known_refusal = self
+            .refusals
+            .said(&pages, coverage)
+            .map(|(said, of)| super::Known {
+                said: said.to_owned(),
+                of,
+            });
         let (predicted, cheaper) = if known_refusal.is_none() && !pages.is_empty() {
             let (prediction, processor) = self.costs.forecast_for(&pages);
             (Some(prediction), processor.then_some(prediction))

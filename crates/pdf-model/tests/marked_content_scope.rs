@@ -279,8 +279,7 @@ fn a_logical_selection_covers_each_byte_once() {
             .logical_range(
                 &document,
                 PAGE,
-                &interpreted.marked,
-                &interpreted.artifacts,
+                pdf_model::structure::ContentSpans::of(&interpreted),
                 0..interpreted.text.len(),
             )
             .map(|pieces| {

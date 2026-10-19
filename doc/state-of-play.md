@@ -199,7 +199,9 @@ what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
 that text can leave the program** — every one of the four consumers puts it on the platform's own
 clipboard, in §14.8.2.5's logical content order — a line break at each block's end, a tab between
-table cells, declared artifacts left out (ADR 1948) — where every byte of the selection is reached by
+table cells, declared artifacts left out (ADR 1948), an annotation's text where the tree's object
+reference names it (ADR 1970), and a soft hyphen's line division undone in both orders with the
+character kept (ADR 1971) — where every byte of the selection is reached by
 the structure tree or declared an artifact, and in page content order otherwise, said out loud either way (ADR 0519) —
 with **§14.8.2.2.2 taken at its word, that content the structure tree does not include is an
 artifact even where nothing tagged it one**, so what a reader takes as text can have the page
@@ -273,7 +275,8 @@ while the script is held in its worker and what it does once answered applied la
 1628), an answer only ever the question's the window took (ADR 1641), and a script's write to
 `this.pageNum` a page turn the window makes (ADR 1640), `app.setInterval` and `app.setTimeOut`
 counted down in the ticks every window sends only while a document holds one, a due tick waiting
-in `quorra` for the frame the last one asked for (ADR 1957), and `app.beep` a
+in `quorra` for the frame the last one asked for (ADR 1957), a script the view state does not run
+said once and with its own reason at every event a host raises (ADRs 1950, 1975), and `app.beep` a
 sound GTK and Qt play and `quorra` refuses by name (ADR 1702), `getField("name.N")` one widget of a
 field whose widget members are its own and whose value is the field's (ADR 1664),
 `Field.style` a check box's glyph redrawn (ADR 1665), and `this.getAnnots` the document's markup
@@ -708,7 +711,8 @@ the effect ends on the page without a seam (ADR 1865); a page zoomed until the w
 than half of it has those rows drawn first, a look over the stand-in, and the page whole after as
 the frame (ADR 1868); a page zoomed until its largest window is half of it or less, or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its list culled from bounds kept per magnification and copied in place on the pool, a whole page's cull answered by the bounds' edges (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), and its three workers close every descriptor they inherited before reading a byte (ADR 1945); and page one is drawn while it is read, as in `quorra` (ADR 1867). **A page the graphics device
 refuses is paid once** in `quorra`: the device is not asked again for those pages at that
-magnification, the processor's draw is taken back at the first notch of zoom that leaves it, and past
+magnification — nor, where the adapter refused the compute lane's pipelines, for any frame of that
+coverage while the window's device lives (ADR 1968) — the processor's draw is taken back at the first notch of zoom that leaves it, and past
 `WARN` it is warned of and Escape stops it, as on `--cpu` (ADR 1821); the lane is chosen by each lane's last measured cost per command for the pages, a frame the device is predicted to draw within `WARN` staying on the device and the device asked once on pages the processor has drawn — a frame finished from its drawing ahead or taken back included — before the processor keeps them (ADR 1860), and the device priced by building its scene or by drawing the one it holds, whichever the frame does, every frame's lane said on the trace (ADR 1886), that scene built after a processor frame while nobody waits and a processor frame's upload drawn through a lane of its own so that it does not replace it (ADR 1898), and a processor draw is shown as it is built, its whole-page picture drawn on the processor too (ADR 1831; page one goes to the processor where it is the faster lane, which the owner ratified in `doc/questions/A393`); a processor window's stand-in is resampled on every core and a refusal holds for its view (ADR 1832). **Page one that reads for seconds is drawn while it is read** in `quorra`: the reader hands its list over in parts, the opening thread draws each into the first frame's target from half a second into the read and the window shows it, and the first frame is finished from it — drawn in as many even strips as the pool is wide, each batch of waiting parts in one pass on the pool and the rest of the list there once the read ends, the page drawn whole at those cuts byte for byte, and a mark across a cut ends it; the toolkit windows call the same `viewer_host::Ahead` (ADRs 1855, 1867, 1896). **A page turn is drawn while it is read** in `quorra`, on either surface, and in the toolkit windows (ADR 1886): the core leaves the turned page's read to the host (`Viewer::handle_unread`), the toolkit thread reads it beside a drawer and the frame is finished from that drawing; and `quorra --cpu` draws page one while it is read and shows its composer's frames as they are built (ADR 1871). The confined worker draws a turn beside its read too, with the two types the arrangement is made of rather than `viewer-host`, which a confined process does not link; its launch still reads page one before the window has a size (ADR 1871 §4). **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
@@ -898,7 +902,9 @@ reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded in
 (ADRs 1400, 1412), a reference XObject's proxy kept and a named CMap embedded (ADRs 1285, 1286),
 a TrueType code's glyph named in the encoding where only a reader's choice reached it and a Type 3
 `.notdef` renamed (ADR 1942), and a filter named by its inline-image abbreviation named in full
-(ADR 1952). The validator enumerates a page tree in one walk, so a ten-thousand-page `/Kids` array
+(ADR 1952). A graphics state's transfer function other than the identity, and a halftone's
+`HalftoneName`, go only as losses a person authorises — the function first written into the
+output's own `xmpMM:History` (ADRs 1964, 1965). The validator enumerates a page tree in one walk, so a ten-thousand-page `/Kids` array
 costs it a second rather than minutes (ADR 1953).
 [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) is the catalogue of each, with its clause. A
 refusal is a question answered in advance: a configuration names each refusal site and its remedy,
@@ -906,10 +912,12 @@ refusal is a question answered in advance: a configuration names each refusal si
 profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012) — each a lower
 bound on what may be lost, never an instruction to lose it, `as-if-printed` and `as-shown` among them,
 named with `--profile` (ADR 1942). **It is `quorra-transform archive`, a library verb, and Shift+A in
-`quorra`, `quorra-gtk` and `quorra-qt`** started with `--archive <target>:<profile>`: the core asks
-Table 22's bit 11 and grants the file, the window converts it on a thread of its own through the same
-profiles and executor, says the report per site and writes the file beside the document; `quorra_archive`
-in the C ABI (ADR 1954).
+`quorra`, `quorra-gtk` and `quorra-qt`**, the target and profile chosen with `--archive
+<target>:<profile>` or on the card or dialogue Shift+A puts up, which offers each profile with its own
+sentence and is kept for the window's life (ADR 1966): the core asks Table 22's bit 11 and grants the
+file, the window converts it on a thread of its own through the same profiles and executor — under
+the password a protected document opened with (ADR 1967) — says the report per site and writes the
+file beside the document; `quorra_archive` in the C ABI (ADR 1954).
 
 **And it applies a redaction.** §12.5.6.23's `/Redact` annotation names a region — `/QuadPoints`
 else `/Rect`, and *within* is bounding-box intersection, a documented choice — and `redact` writes a

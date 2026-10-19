@@ -487,7 +487,12 @@ why = "the other end of that claim at two hundred times its pages — 1023 of th
 [[document]]
 path = "doc/pdf.js/test/pdfs/bug1815476.pdf"
 pages = 1
-cold_open_ms = 0.32 .. 0.50
+# **The cold open is this file's rule over three runs of HEAD's export in one clock hold on
+# 2026-10-15** (ADR 1969), at a one-minute load of 1.4 to 2.6: 0.447, 0.413 and 0.466 ms, so 0.413 ×
+# 0.85 to 0.466 × 1.20. The same hold's three runs of another export, whose open is the same code,
+# read 0.452, 0.413 and 0.492. A cold open past the ceiling while the row's instructions, bytes and
+# calls sit in their bands is judged by habit 101 and does not move the band.
+cold_open_ms = 0.35 .. 0.56
 # **The warm open is 0.23 .. 0.35, and what read twice it was the idle clock** (trap 110). Ten
 # runs at a one-minute load of 1.54 to 1.68, each the minimum of nine pinned children, interleaved
 # with ten whose children first kept their cores busy for 30 ms: warm cores read 0.288 to 0.307 ms
@@ -580,8 +585,12 @@ pages = 1
 # **The row that bands the script stage** (ADR 1620): 5 642 bytes, one page, a form whose Table 32
 # name tree holds one script, `0;`, so the open sequence starts the worker and its first run is
 # the realm and the engine and nothing of a document's library. Six runs on 2026-10-07 at a
-# one-minute load of 1.1 to 11.5; every band is this file's rule over them.
-cold_open_ms = 0.13 .. 0.27
+# one-minute load of 1.1 to 11.5; every band but the cold open's is this file's rule over them.
+# **The cold open is the rule over three runs of HEAD's export in one clock hold on 2026-10-15**
+# (ADR 1969), at a one-minute load of 1.4 to 2.6: 0.176, 0.231 and 0.183 ms. The same hold's three
+# runs of another export, whose open is the same code, read 0.407, 0.176 and 0.205: a second mode
+# the rule over three quiet runs does not band, judged by habit 101 where it reads.
+cold_open_ms = 0.14 .. 0.28
 warm_open_ms = 0.08 .. 0.14
 first_page_ms = 22.4 .. 33.0
 turn_ms = none

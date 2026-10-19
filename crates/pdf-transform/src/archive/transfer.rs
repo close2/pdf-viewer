@@ -1,0 +1,295 @@
+//! The transfer functions ISO 19005's graphics states may not state, removed, and what each said.
+//!
+//! # Two answers, decided by what the file states
+//!
+//! ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5 forbid a graphics state's `/TR`
+//! entry. ISO 32000-2 §10.5 is drawn by this reader (`doc/todo/13`), so what removing the entry
+//! costs is a fact about the file rather than about the requirement:
+//!
+//! - **Every `/TR` the file states is the name `Identity`.** §8.4.5's Table 57: "The name
+//!   Identity may be used to represent the Identity function." The function in force is then the
+//!   identity before and after every `gs`, and removing the entry moves no colour on this
+//!   reader's device, whose initial transfer function §8.4.1's Table 52 leaves device dependent
+//!   and which is the identity here — a statement, not a loss (`doc/adr/1952` section 3).
+//! - **Any other value** is a function this reader applies, so removing it moves the colours a
+//!   reader saw, and the removal is [`super::Loss::TransferFunction`], which the caller
+//!   authorises. §10.5 recommends against the entry,
+//!
+//! > Because transfer functions produce device-dependent effects, a page description that is
+//! > intended to be device-independent should not define a current transfer function in the
+//! > graphics state, or define TransferFunction in any halftone dictionaries.
+//!
+//! and a file that defines one all the same may depend on it for what its page shows, on a
+//! printer as on a screen: the corpus's one witness draws its logo as a near-black negative
+//! without it. So neither shipped profile authorises the loss (`doc/adr/1964`).
+//!
+//! # What is kept when the function goes
+//!
+//! **The function itself is data** (`doc/pdf-a-mitigations.md` section 4.3), so the removal
+//! writes it into the output's own `xmpMM:History` before it goes: each graphics state's `/TR`
+//! as stated, and every object it reaches written in clause 7's syntax, a stream's data decoded
+//! and in hexadecimal. A reader of the archive can rebuild what the producer specified though
+//! the archive no longer applies it. The record is a condition of the removal: a packet that will
+//! not take it withdraws the removal (`doc/adr/1964`).
+//!
+//! Baking the function into the colours instead would rewrite every colour operand, image sample
+//! and shading drawn under the state — content, behind ADR 0816's fence — so it is not offered.
+
+use std::collections::{BTreeSet, VecDeque};
+use std::fmt::Write as _;
+
+use pdf_archive::Outcome;
+use pdf_syntax::Document;
+use pdf_syntax::object::{Object, ObjectId};
+
+use super::decision::Because;
+
+/// The requirement this module answers, by the identifier the validator reports it under.
+const SITE: &str = "graphics/no-transfer-function-in-a-graphics-state";
+
+/// Why a graphics state's transfer function is not removed at all.
+const STATE_NOT_REACHED: &str = "a graphics state in this file states a transfer function \
+     where this conversion cannot reach every graphics state that does: the validator's list of \
+     them was shortened, or one is written inside another object rather than as an object of \
+     its own. Removing the entries it can reach would leave the requirement failing at the \
+     others, so none is removed";
+
+/// Why a function whose data cannot be decoded is not removed.
+const FUNCTION_NOT_DECODED: &str = "a transfer function in this file is a stream whose data this \
+     tree cannot decode, so the statement of it the removal has to keep in the file's own \
+     xmpMM:History cannot be written, and the function is not removed either (doc/adr/1964)";
+
+/// Why a function past the record's bound is not removed.
+const FUNCTION_PAST_THE_BOUND: &str = "the transfer functions this file states are larger than \
+     the statement this conversion writes into xmpMM:History before removing them (16 384 bytes \
+     of decoded data across 64 objects), so they are not removed rather than removed without \
+     their record (doc/adr/1964)";
+
+/// The decoded stream data the record holds, across every function it states.
+///
+/// A bound rather than a reading (principle 3): the record is text in the metadata packet, two
+/// characters a byte. A 256-entry eight-bit sampled function, the shape the corpus's one witness
+/// states three times, is 256 bytes, so this holds sixty-four of them.
+const MOST_BYTES: usize = 16_384;
+
+/// The objects the record states, across every graphics state.
+const MOST_OBJECTS: usize = 64;
+
+/// One graphics state whose transfer function this conversion removed, with what it said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedTransferFunction {
+    /// The graphics state parameter dictionary, in the source's numbering.
+    pub state: ObjectId,
+    /// Its `/TR` as stated, then every object that reaches, in ISO 32000-2 clause 7's syntax:
+    /// `/TR 8 0 R, where 8 0 obj << … >>`, a stream's data decoded and in hexadecimal.
+    pub statement: String,
+}
+
+/// The graphics states whose `/TR` goes, and which of them stated a function other than the
+/// identity.
+#[derive(Debug, Default)]
+pub(super) struct TransferFunctions {
+    /// The requirement's clause, as the validator cited it for the target asked for.
+    pub(super) citation: String,
+    /// Every graphics state stating `/TR`.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// The ones whose `/TR` is not the name `Identity`, each with its statement.
+    pub(super) stated: Vec<RemovedTransferFunction>,
+}
+
+impl TransferFunctions {
+    /// Whether the removal moves no colour: every `/TR` the file states is the identity.
+    pub(super) fn costs_nothing(&self) -> bool {
+        self.stated.is_empty()
+    }
+
+    /// The `xmpMM:History` parameters keeping every function the removal takes, where it takes one.
+    pub(super) fn history(&self) -> Option<String> {
+        if self.costs_nothing() {
+            return None;
+        }
+        let mut out = format!(
+            "{}: the transfer function stated by {} graphics state(s) removed; ISO \
+             32000-2 10.5's function each applied is kept here as data",
+            self.citation,
+            self.stated.len()
+        );
+        for removed in &self.stated {
+            let _ = write!(
+                out,
+                "; graphics state {} {} R: {}",
+                removed.state.number, removed.state.generation, removed.statement
+            );
+        }
+        Some(out)
+    }
+}
+
+/// Every graphics state stating `/TR`, and the statement of each one that is not the identity.
+///
+/// The findings are the whole population — every graphics state stating the key fails the
+/// requirement — so a list the validator shortened leaves the site refused rather than answered
+/// for the part of it this can see; so does a finding naming an object that is not itself the
+/// graphics state, a dictionary written inside another object being one this rewrite does not
+/// reach (`doc/adr/1952`).
+pub(super) fn removal(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<TransferFunctions, Because> {
+    let refused = Because::NotBuiltYet(STATE_NOT_REACHED);
+    let mut out = TransferFunctions::default();
+    let mut budget = Budget::default();
+    for judgement in input.failures() {
+        if judgement.id != SITE {
+            continue;
+        }
+        let Outcome::Failed { places, total } = &judgement.outcome else {
+            continue;
+        };
+        if places.len() != *total {
+            return Err(refused);
+        }
+        out.citation.clone_from(&judgement.citation);
+        for finding in places {
+            let id = finding.place.object.ok_or(refused)?;
+            let object = document.get(id);
+            let state = object.as_dict().ok_or(refused)?;
+            let tr = state.get("TR").ok_or(refused)?;
+            if !matches!(tr, Object::Name(name) if name.as_bytes() == b"Identity") {
+                out.stated.push(RemovedTransferFunction {
+                    state: id,
+                    statement: statement(document, tr, &mut budget)?,
+                });
+            }
+            out.at.insert(id);
+        }
+    }
+    Ok(out)
+}
+
+/// What the record has spent of its two bounds.
+#[derive(Debug, Default)]
+struct Budget {
+    /// Decoded stream bytes written.
+    bytes: usize,
+    /// Objects written.
+    objects: usize,
+}
+
+/// `/TR` as the graphics state states it, then every object it reaches, once each.
+///
+/// Breadth first from the value, so the record reads in the order a reader resolves it: a
+/// stitching function's own entry before the functions it stitches. A reference already written
+/// is not written twice, which is also what ends a cycle.
+fn statement(document: &Document, tr: &Object, budget: &mut Budget) -> Result<String, Because> {
+    let mut out = format!("/TR {}", written(tr));
+    let mut queue = VecDeque::new();
+    let mut seen = BTreeSet::new();
+    references(tr, &mut queue);
+    while let Some(id) = queue.pop_front() {
+        if !seen.insert(id) {
+            continue;
+        }
+        budget.objects = budget.objects.saturating_add(1);
+        if budget.objects > MOST_OBJECTS {
+            return Err(Because::NotBuiltYet(FUNCTION_PAST_THE_BOUND));
+        }
+        let object = document.get(id);
+        references(&object, &mut queue);
+        let separator = if seen.len() == 1 { ", where" } else { "," };
+        let _ = write!(out, "{separator} {} {} obj ", id.number, id.generation);
+        if let Object::Stream(stream) = &object {
+            let data = document
+                .decoded_stream_data(stream)
+                .ok_or(Because::NotBuiltYet(FUNCTION_NOT_DECODED))?;
+            budget.bytes = budget.bytes.saturating_add(data.len());
+            if budget.bytes > MOST_BYTES {
+                return Err(Because::NotBuiltYet(FUNCTION_PAST_THE_BOUND));
+            }
+            // The entries that say how the data was stored rather than what it is: the data
+            // below is decoded, so they would describe bytes the record does not hold.
+            let mut dict = stream.dict.clone();
+            for container in ["Length", "Filter", "DecodeParms", "DL"] {
+                dict.remove(container);
+            }
+            out.push_str(&written(&Object::Dictionary(dict)));
+            out.push_str(" decoded data <");
+            for byte in data.iter() {
+                let _ = write!(out, "{byte:02X}");
+            }
+            out.push('>');
+        } else {
+            out.push_str(&written(&object));
+        }
+    }
+    Ok(out)
+}
+
+/// Every reference one value holds, without following any, appended to `queue`.
+fn references(value: &Object, queue: &mut VecDeque<ObjectId>) {
+    match value {
+        Object::Reference(id) => queue.push_back(*id),
+        Object::Array(items) => {
+            for item in items {
+                references(item, queue);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_, item) in dict.iter() {
+                references(item, queue);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, item) in stream.dict.iter() {
+                references(item, queue);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// One value in clause 7's syntax, as `pdf_syntax::write` puts it in a file.
+///
+/// That writer escapes every name and writes every string in hexadecimal, so its output is
+/// ASCII; the lossy conversion is the type's, and replaces nothing.
+fn written(value: &Object) -> String {
+    let mut bytes = Vec::new();
+    pdf_syntax::write::object(value, &mut bytes);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_record_names_each_removed_state_and_what_its_function_said() {
+        let functions = TransferFunctions {
+            citation: "ISO 19005-2 section 6.2.5".to_owned(),
+            at: BTreeSet::from([ObjectId::new(9, 0), ObjectId::new(10, 0)]),
+            stated: vec![RemovedTransferFunction {
+                state: ObjectId::new(10, 0),
+                statement: "/TR 11 0 R, where 11 0 obj << /FunctionType 2 >>".to_owned(),
+            }],
+        };
+        let history = functions
+            .history()
+            .expect("a function other than the identity is recorded");
+        assert!(history.starts_with("ISO 19005-2 section 6.2.5: "));
+        assert!(history.contains("by 1 graphics state(s)"));
+        assert!(history.ends_with(
+            "; graphics state 10 0 R: /TR 11 0 R, where 11 0 obj << /FunctionType 2 >>"
+        ));
+    }
+
+    #[test]
+    fn an_identity_only_removal_records_nothing() {
+        let functions = TransferFunctions {
+            citation: "ISO 19005-2 section 6.2.5".to_owned(),
+            at: BTreeSet::from([ObjectId::new(9, 0)]),
+            stated: Vec::new(),
+        };
+        assert!(functions.costs_nothing());
+        assert_eq!(functions.history(), None);
+    }
+}

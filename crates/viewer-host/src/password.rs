@@ -45,7 +45,7 @@
 //! program, a title bar and a way to try another file — which is the whole difference between this
 //! and what `viewer-ui` did.
 
-use viewer_core::Secret;
+use viewer_core::{DocumentId, Secret};
 
 /// How many times §7.6.4.1's password is asked for before a host stops asking.
 ///
@@ -220,10 +220,88 @@ pub enum Supplied {
     Cancelled,
 }
 
+/// The password each open document was opened with, kept by the window for the one operation
+/// that opens the file again: a conversion to ISO 19005 (ADR 1967).
+///
+/// **The one copy of a [`Secret`] this program keeps, and why it is kept.** `viewer-core` keeps
+/// no password: [`viewer_core::Command::Open`] carries one and drops it with the command. A
+/// conversion is `pdf_transform`'s, run by the host on the bytes the document was opened from,
+/// and it opens them again — so a document that needed §7.6.4.1's password needs it a second
+/// time, and asking the person again for a password they gave this window a minute ago is a
+/// prompt with no new information in it. So the window keeps what it sent, for as long as that
+/// document is open in it, and nothing else reads it:
+///
+/// - **kept as a [`Secret`]**, so it prints as its length and its buffer is cleared when it goes;
+/// - **per document** ([`DocumentId`]), so a password given for one tab never opens another;
+/// - **forgotten when its document closes** ([`Self::forget`]), and with the window;
+/// - **lent as a copy** ([`Self::lend`]) to the conversion's thread, whose `Source` drops it when
+///   the conversion ends.
+///
+/// What this costs is written down rather than hidden: a password that opened a document is in
+/// this process's memory while the document is open, where before it was there only while the
+/// open was being tried. The decrypted document and its file encryption key are in the same
+/// memory for the same time, and either reads the file without the password; what the password
+/// adds is itself, which a person may have used elsewhere.
+#[derive(Debug, Default)]
+pub struct Kept {
+    /// Each document's password, by the name the window opened it under.
+    by_document: std::collections::BTreeMap<DocumentId, Secret>,
+}
+
+impl Kept {
+    /// A window that has kept nothing.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Keeps a copy of the password `document` is being opened with, replacing an earlier one —
+    /// a second attempt's password is the one that opens it, where any does.
+    pub fn keep(&mut self, document: DocumentId, password: &Secret) {
+        self.by_document.insert(document, copy(password));
+    }
+
+    /// A copy of the password `document` was opened with, for a conversion to open the file
+    /// with; `None` where it opened without one.
+    #[must_use]
+    pub fn lend(&self, document: DocumentId) -> Option<Secret> {
+        self.by_document.get(&document).map(copy)
+    }
+
+    /// The document has closed: its password goes, and its buffer is cleared.
+    pub fn forget(&mut self, document: DocumentId) {
+        self.by_document.remove(&document);
+    }
+}
+
+/// A second [`Secret`] with the same characters, in a buffer of its own reserved as
+/// [`Secret::new`] reserves one, so that copying it does not leave a reallocation behind.
+fn copy(password: &Secret) -> Secret {
+    let mut copied = Secret::new();
+    copied.push_str(password.reveal());
+    copied
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ATTEMPTS, Ask, Asking, Supplied, supplied};
-    use viewer_core::Secret;
+    use super::{ATTEMPTS, Ask, Asking, Kept, Supplied, supplied};
+    use viewer_core::{DocumentId, Secret};
+
+    /// A kept password is lent per document, replaced by a later attempt, and gone once its
+    /// document closes.
+    #[test]
+    fn a_kept_password_is_lent_for_its_own_document_until_it_closes() {
+        let mut kept = Kept::new();
+        assert!(kept.lend(DocumentId(1)).is_none(), "nothing was kept");
+        kept.keep(DocumentId(1), &Secret::from("first".to_owned()));
+        kept.keep(DocumentId(1), &Secret::from("second".to_owned()));
+        let lent = kept.lend(DocumentId(1)).expect("kept");
+        assert_eq!(lent.reveal(), "second");
+        assert!(kept.lend(DocumentId(2)).is_none(), "never another tab's");
+        assert!(!format!("{kept:?}").contains("second"), "it does not print");
+        kept.forget(DocumentId(1));
+        assert!(kept.lend(DocumentId(1)).is_none());
+    }
 
     /// [`Ask::ALL`] is the list three hosts are held to, so it has to be the whole enumeration.
     ///

@@ -36,7 +36,7 @@ impl Host {
     pub(crate) fn faces_wait(&self) -> i32 {
         let poll = i32::try_from(viewer_host::drawing::POLL.as_millis()).unwrap_or(i32::MAX);
         let waiting = self.faces.found() > self.faces_taken;
-        if waiting && self.presented {
+        if waiting && self.state.presented {
             return 0;
         }
         if waiting || self.faces.searching() {
@@ -53,7 +53,7 @@ impl Host {
     /// `QFontDatabase::addApplicationFontFromData` and sets the strip and the panels in by the
     /// family it registers (ADRs 1406, 1418).
     pub(crate) fn take_face(&mut self) -> Vec<u8> {
-        if !self.presented {
+        if !self.state.presented {
             return Vec::new();
         }
         let Some(bytes) = self.faces.face(self.faces_taken) else {

@@ -467,6 +467,8 @@ fn main() {
         remote_documents,
         submitter: viewer_host::submit::Submitter::new(),
         archive,
+        archive_card: viewer_ui::chrome::ArchiveCard::default(),
+        kept: viewer_host::password::Kept::new(),
         converter: viewer_host::archiving::Converter::new(),
         asked: None,
         script_wait: None,

@@ -215,6 +215,19 @@ pub(super) const DECRYPTED_ACTION: &str = "converted";
 /// argument for the act being contemplated by the standard rather than merely not forbidden.
 pub(super) const SUBSTITUTED_FONTS_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it removes a transfer function.
+///
+/// `doc/adr/1964`: §10.5's function is data, so what the producer specified goes into the file
+/// before the archive stops applying it. The word is `converted`, like every other recorded
+/// action here.
+pub(super) const TRANSFER_REMOVED_ACTION: &str = "converted";
+
+/// Why a transfer function was not removed even though the removal was authorised.
+const NO_PLACE_TO_RECORD_A_TRANSFER: &str = "removing a transfer function other than the \
+     identity writes what it said into this file's own xmpMM:History first, and this document's \
+     XMP packet will not take that entry — so the function stays and no file is written \
+     (doc/adr/1964)";
+
 /// How many substituted fonts the `xmpMM:History` entry names before it stops listing them.
 const MOST_FONTS_NAMED: usize = 8;
 
@@ -1110,6 +1123,16 @@ impl Prepared {
             .as_ref()
             .map(|moved| moved.supplements.clone())
             .unwrap_or_default();
+        // ISO 19005-2 section 6.2.5's transfer functions, prepared before the packet: a function
+        // other than the identity is written into its `xmpMM:History` before it goes, and the
+        // record is a condition of the removal (`doc/adr/1964`).
+        let transfers = asked(wanted(Rewrite::IdentityTransferFunctionRemoved), || {
+            super::transfer::removal(document, input)
+        });
+        let transfer_history = transfers
+            .as_ref()
+            .ok()
+            .and_then(super::transfer::TransferFunctions::history);
         let now = xmp::instant(std::time::SystemTime::now());
         let metadata = the_packet(
             plan.target,
@@ -1127,6 +1150,7 @@ impl Prepared {
                 protection: provenance.protection,
                 preserved: preserved_history.as_deref(),
                 attached: attached_history.as_deref(),
+                transfers: transfer_history.as_deref(),
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
@@ -1152,6 +1176,15 @@ impl Prepared {
         // entry part of the permission to append a page at all, so a packet that will not take it
         // withdraws the pages rather than leaving them unrecorded.
         let preserved = unless_recorded(preserved, recorded_it, NO_PLACE_TO_RECORD_A_PRESERVATION);
+        // And for a transfer function: what it said is the one trace of it the archive keeps, so
+        // a packet that will not take the record withdraws the removal (`doc/adr/1964`). An
+        // identity-only removal records nothing and needs nothing taken.
+        let transfers = match transfers {
+            Ok(functions) if !functions.costs_nothing() && !recorded_it => {
+                Err(Because::NotBuiltYet(NO_PLACE_TO_RECORD_A_TRANSFER))
+            }
+            transfers => transfers,
+        };
         // The fonts are the validator's own findings rather than a walk of this converter's:
         // the clause has four exemptions and reading them belongs to `pdf_archive`, so the set of
         // fonts that need a CMap is the set it named. A findings list is capped, and a document
@@ -1235,6 +1268,7 @@ impl Prepared {
         let already = Already {
             packet_headers: headers,
             survey: survey.as_ref(),
+            transfers,
         };
         Self {
             intent,
@@ -1307,8 +1341,9 @@ impl Prepared {
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
-            Rewrite::IdentityTransferFunctionRemoved => {
-                self.owed.identity_transfers.as_ref().err().copied()
+            Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
+            Rewrite::IdentityTransferFunctionRemoved | Rewrite::TransferFunctionRemoved => {
+                self.owed.transfers.as_ref().err().copied()
             }
             Rewrite::PacketHeaderAttributes => self.owed.packet_headers.as_ref().err().copied(),
             Rewrite::SymbolicTrueTypeEncodingRemoved => {
@@ -1485,8 +1520,10 @@ pub(super) struct Owed {
     pub(super) foreign_handlers: Result<ForeignHandlers, Because>,
     /// Whether every non-standard filter name is an abbreviation spelled out, or why not.
     pub(super) filter_names: Result<(), Because>,
-    /// The graphics states whose `/TR /Identity` goes, or why none do.
-    pub(super) identity_transfers: Result<Sites, Because>,
+    /// The halftones whose `HalftoneName` goes, or why none do.
+    pub(super) halftone_names: Result<Sites, Because>,
+    /// The graphics states whose `/TR` goes, or why none do.
+    pub(super) transfers: Result<super::transfer::TransferFunctions, Because>,
 }
 
 impl Owed {
@@ -1503,6 +1540,7 @@ impl Owed {
         let Already {
             packet_headers,
             survey,
+            transfers,
         } = already;
         Self {
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
@@ -1529,9 +1567,10 @@ impl Owed {
             filter_names: asked(wanted(Rewrite::FilterNamesSpelledOut), || {
                 sites::abbreviated_filters(input)
             }),
-            identity_transfers: asked(wanted(Rewrite::IdentityTransferFunctionRemoved), || {
-                sites::identity_transfer_functions(document, input)
+            halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {
+                super::halftones::removal(document, input)
             }),
+            transfers,
             packet_headers,
             symbolic_encodings: asked(wanted(Rewrite::SymbolicTrueTypeEncodingRemoved), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
@@ -1609,6 +1648,8 @@ pub(super) struct Already<'a> {
     packet_headers: Result<Headers, Because>,
     /// The one content-stream survey, where any preparation asked for one.
     survey: Option<&'a Survey>,
+    /// The transfer functions removed, prepared before the packet that records them.
+    transfers: Result<super::transfer::TransferFunctions, Because>,
 }
 
 /// The rewrites whose preparation reads what the pages drew.
@@ -3947,6 +3988,8 @@ struct Recording<'a> {
     preserved: Option<&'a str>,
     /// What an attachment preserved, where anything was attached (`doc/adr/1270`).
     attached: Option<&'a str>,
+    /// What every removed transfer function other than the identity said (`doc/adr/1964`).
+    transfers: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -4127,6 +4170,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: PRESERVED_ACTION,
                 parameters: preserved,
+                when,
+            });
+        }
+        if let Some(transfers) = recording.transfers {
+            events.push(xmp::Event {
+                action: TRANSFER_REMOVED_ACTION,
+                parameters: transfers,
                 when,
             });
         }

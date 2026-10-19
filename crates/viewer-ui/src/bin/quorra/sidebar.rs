@@ -69,6 +69,13 @@ impl App {
         self.menu.draw(chrome, width, height, scale)
     }
 
+    /// ISO 19005's conversion being chosen, where the archive key put the card up (ADR 1966).
+    pub(crate) fn archive_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.archive_card.draw(chrome, width, height, scale)
+    }
+
     /// Why there is no document at all, where there is none.
     ///
     /// Beside the password card for the same reason it is: both are chrome this host draws over a

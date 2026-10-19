@@ -11,6 +11,16 @@ use viewer_host::native_window::NativeWindow;
 use super::{Host, with};
 
 impl Host {
+    /// §12.6.4.8's URI, resolved against this document's location and then opened, declined or put
+    /// to the person at the level `--links=` set; the question is this window's dialogue.
+    pub(super) fn follow_the_link(&mut self, uri: &str) {
+        let uri = viewer_host::resolve_uri(Some(&self.state.showing.path), uri);
+        match viewer_host::link(&uri, self.links) {
+            viewer_host::Link::Say(note) => self.say(&note),
+            viewer_host::Link::Ask(words) => self.ask_whether_to_open(uri, &words),
+        }
+    }
+
     /// A file a *document* named, routed by which policy decides it.
     ///
     /// Three of the five purposes are asked at one of four levels and §12.7.6.4's own file is
@@ -203,23 +213,14 @@ impl Host {
         }
     }
 
-    /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
-    /// sent at and opened beside only where a copy is the one the signer signed (ADR 1738): each
-    /// one asked of [`Self::fetch_policy`].
-    pub(super) fn fetch_policies(
-        &mut self,
-        document: DocumentId,
-        policies: Vec<viewer_host::PublishedPolicy>,
-    ) {
-        for policy in policies {
-            self.fetch_policy(document, policy);
-        }
-    }
-
     /// A signature policy's published copy, under the level the menu holds — the one answer
     /// `viewer_host::policy::may_fetch_signature_policy` gives (ADR 1738). Declined, it is said;
     /// fetched, its answer is looked for as a submission's is and a bound PDF opens beside.
-    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+    pub(super) fn fetch_policy(
+        &mut self,
+        document: DocumentId,
+        policy: viewer_host::PublishedPolicy,
+    ) {
         use viewer_host::policy::{
             asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
         };
@@ -251,29 +252,6 @@ impl Host {
         }
     }
 
-    /// Puts a policy's GET on a `fetch-policy` thread of its own, looked for as a submission's
-    /// answer is.
-    fn start_policy_fetch(
-        &mut self,
-        document: DocumentId,
-        policy: viewer_host::PublishedPolicy,
-        warned: Option<String>,
-    ) {
-        self.say(&viewer_host::policy::policy_fetch_note(&policy));
-        let first = !self.state.looking();
-        if let Err(sentence) = self
-            .state
-            .submitter
-            .fetch_policy(document, policy, warned, None)
-        {
-            self.say(&sentence);
-            return;
-        }
-        if first {
-            self.look_for_answers();
-        }
-    }
-
     /// Puts the GET on a `fetch-import` thread of its own, looked for as a submission's answer is.
     fn start_fetch(&mut self, document: DocumentId, url: String, warned: Option<String>) {
         self.say(&viewer_host::fetch_note(&url, None));
@@ -283,40 +261,6 @@ impl Host {
             return;
         }
         if first {
-            self.look_for_answers();
-        }
-    }
-
-    /// Puts the request on a `submit-form` thread of its own and looks for the answer on GTK's
-    /// main loop, at `viewer_host::submit::LOOK`, while one is out.
-    fn send_form(
-        &mut self,
-        document: DocumentId,
-        submission: pdf_model::submission::Submission,
-        warned: Option<String>,
-    ) {
-        self.say(&viewer_host::policy::submission_note(&submission, None));
-        let first = !self.state.looking();
-        if let Err(sentence) = self
-            .state
-            .submitter
-            .send(document, submission, warned, None)
-        {
-            self.say(&sentence);
-            return;
-        }
-        if first {
-            self.look_for_answers();
-        }
-    }
-
-    /// `Event::Archiving`: the conversion starts on a thread of its own, and its report is looked
-    /// for on the timer a server's answer is, armed here where nothing was being looked for
-    /// (ADR 1954).
-    pub(super) fn convert(&mut self, granted: viewer_core::Event) {
-        let first = !self.state.looking();
-        self.start_archiving(granted);
-        if first && self.state.looking() {
             self.look_for_answers();
         }
     }

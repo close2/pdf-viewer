@@ -4188,6 +4188,85 @@ out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(o
 open(sys.argv[1], "wb").write(out)
 PY
 }
+# Keys for the chooser Shift+A puts up with nothing chosen (ADR 1966): `quorra`'s card is drawn in
+# the main window, and the two toolkit dialogues are windows of their own, which `key` would leave.
+to_the_chooser() {
+    if [ "$WINDOW" = quorra ]; then key "$@"; return; fi
+    local dialog
+    sleep 1
+    dialog=$(xdotool search --onlyvisible --pid "$APP" 2>/dev/null | tail -1)
+    xdotool windowraise "$dialog" 2>/dev/null
+    xdotool windowfocus --sync "$dialog" 2>/dev/null; xdotool key --delay 300 "$@"; sleep 1.2
+}
+# The conversion chosen in the window rather than at launch (ADR 1966): Shift+A with nothing chosen
+# puts up the targets and the profiles, Down moves from `refuse-any-loss` to `as-if-printed` at
+# PDF/A-2b, Enter converts and says the choice is kept — and a second Shift+A converts with no
+# chooser, because the window kept it.
+archive_chosen() {
+    local copy written mark said
+    copy="$OUT/$WINDOW-chosen-drive-archive.pdf"
+    written="${copy%.pdf}.pdfa-2b.pdf"
+    cp "$FIXTURES/drive-archive.pdf" "$copy"
+    rm -f "$written"
+    launch "$copy"
+    mark=$(lines)
+    coordinates
+    click $PAGE
+    key shift+a
+    wait_for 10 said_since "$mark" "Convert to ISO 19005 (PDF/A): A profile is"
+    shot 88-archive-choosing
+    to_the_chooser Down Return
+    wait_for 120 said_since "$mark" "under the profile \"as-if-printed\": wrote\|no PDF/A-2b file was written"
+    said=$(tail -n "+$((mark + 1))" "$LOG" | grep -o "converted to PDF/A-2b under the profile \"as-if-printed\": wrote [0-9]* bytes" | head -1)
+    if said_since "$mark" "chose PDF/A-2b under the profile \"as-if-printed\"" && [ -f "$written" ] &&
+        grep -aq 'pdfaid:part' "$written" && [ -n "$said" ]; then
+        verdict 88-archive-chosen works "chosen on the chooser, $said"
+    else
+        verdict 88-archive-chosen wrong "${said:-no verdict line}: $LOG"
+    fi
+    mark=$(lines)
+    rm -f "$written"
+    key shift+a
+    wait_for 120 said_since "$mark" "under the profile \"as-if-printed\": wrote\|no PDF/A-2b file was written"
+    if ! said_since "$mark" "Convert to ISO 19005 (PDF/A):" && [ -f "$written" ]; then
+        verdict 88-archive-kept works "the second Shift+A converted with no chooser"
+    else
+        verdict 88-archive-kept wrong "the choice was not kept: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# A document behind §7.6.4.1's password converts under the password its prompt was given (ADR
+# 1967): the conversion gets past the open — the drive's fixture is then refused by name for its
+# standard 14 font, as `drive.pdf` is — where before it stopped at the password.
+archive_with_a_password() {
+    local copy mark prompt said px py
+    copy="$OUT/$WINDOW-drive-password.pdf"
+    cp "$FIXTURES/drive-password.pdf" "$copy"
+    rm -f "${copy%.pdf}.pdfa-2b.pdf"
+    LAUNCHED=a_window launch "$copy" --archive 2b:as-if-printed
+    sleep 1
+    prompt=$(xdotool search --onlyvisible --pid "$APP" | tail -1)
+    xdotool windowraise "$prompt" 2>/dev/null
+    [ "$WINDOW" = quorra-qt ] && { read -r px py <<< "$(xdotool getwindowgeometry --shell "$prompt" | awk -F= '/^[XY]=/{printf "%s ", $2}')"; xdotool mousemove $((px + 240)) $((py + 60)) click 1; }
+    xdotool windowfocus --sync "$prompt" 2>/dev/null; xdotool type --delay 300 drive; xdotool key Return
+    wait_for 10 title_has "page 1 of 1"
+    mark=$(lines)
+    coordinates
+    click $PAGE
+    key shift+a
+    wait_for 120 said_since "$mark" "under the profile \"as-if-printed\": wrote\|no PDF/A-2b file was written"
+    shot 88-archive-password
+    said=$(tail -n "+$((mark + 1))" "$LOG" | grep -o "refused: [a-z-]*/[a-z0-9/-]*\|converted to PDF/A-2b under the profile \"as-if-printed\": wrote [0-9]* bytes" | head -1)
+    # ISO 19005-2 section 6.1.3's site is judged only on a file that was decrypted.
+    if said_since "$mark" "cannot convert" || ! said_since "$mark" "file-structure/no-encryption"; then
+        verdict 88-archive-password wrong "the conversion stopped before the report: $LOG"
+    elif [ -n "$said" ]; then
+        verdict 88-archive-password works "opened with the kept password; $said"
+    else
+        verdict 88-archive-password wrong "no verdict line: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 archive_converted() {
     local file copy written mark sites said step
     for file in "$FIXTURES/drive.pdf" "$FIXTURES/drive-archive.pdf"; do
@@ -4232,6 +4311,9 @@ archive_converted() {
         fi
         kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
     done
+    [ "$WINDOW" = quorra-confined ] && return
+    archive_chosen
+    archive_with_a_password
 }
 
 CLOCK=${EPOCHREALTIME/[.,]/}   # the drive's clock starts with the first window, after the fixtures

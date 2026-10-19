@@ -399,6 +399,51 @@ pub fn document_title(
         .map(str::to_owned)
 }
 
+/// What a window's title bar says about the page in front: §12.4.2's label beside the index, and
+/// §12.3.3's section covering the page after both.
+///
+/// §12.4.2: "Page labels and page indices need not coincide". Both are shown, because a label
+/// alone cannot say "of 320". The section is after the page because it is context for a position
+/// rather than the position itself. Each is put on one line ([`one_line`]), because both are the
+/// document's own text strings and a title bar is one line. One function for the three windows
+/// that show this caption, so that the rule is not three rules (ADR 1973).
+#[must_use]
+pub fn caption(index: usize, label: Option<&str>, of: usize, section: Option<&str>) -> String {
+    let page = match label.map(one_line) {
+        Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
+        None => format!("page {} of {of}", index.saturating_add(1)),
+    };
+    match section.map(one_line) {
+        Some(section) if !section.is_empty() => format!("{page} — {section}"),
+        _ => page,
+    }
+}
+
+/// A document's text string as one line of a window's title: each line break, with the white
+/// space on either side of it, becomes one space, and text with no break is returned as it is.
+///
+/// A text string may hold a line break — §12.3.3's outline titles do in published documents, an
+/// item laid out on two lines in the document's own contents — and a title bar has one line, so a
+/// break there either cuts the title or is drawn as a box. The breaks are Unicode's mandatory
+/// ones (UAX #14's classes BK, CR, LF and NL): LF, VT, FF, CR, NEL, LINE SEPARATOR and PARAGRAPH
+/// SEPARATOR. What no clause states, and is a choice: that the words after the break are kept
+/// rather than dropped, because a section named on two lines is named by both (ADR 1973).
+#[must_use]
+pub fn one_line(text: &str) -> std::borrow::Cow<'_, str> {
+    const BREAKS: [char; 7] = [
+        '\n', '\u{0B}', '\u{0C}', '\r', '\u{85}', '\u{2028}', '\u{2029}',
+    ];
+    if !text.contains(BREAKS) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let lines: Vec<&str> = text
+        .split(BREAKS)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    std::borrow::Cow::Owned(lines.join(" "))
+}
+
 /// A document named on a command line or chosen by a person: the file, and Annex O's fragment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Named {
@@ -793,6 +838,29 @@ pub fn closed(label: &str, open: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// An outline title laid out on two lines, as `PDF20_AN001-BPC.pdf` states one, is one line of
+    /// a caption with both its halves, and a title with no break is the caption it always was
+    /// (ADR 1973).
+    #[test]
+    fn a_caption_is_one_line_whatever_the_outline_title_holds() {
+        assert_eq!(
+            super::caption(
+                2,
+                None,
+                9,
+                Some("PDF 2.0 Application Note 001:  \n Black Point Compensation")
+            ),
+            "page 3 of 9 — PDF 2.0 Application Note 001: Black Point Compensation"
+        );
+        assert_eq!(
+            super::caption(0, Some("i"), 320, Some("Preface  and  more")),
+            "i — page 1 of 320 — Preface  and  more",
+            "a title with no break keeps its own spacing"
+        );
+        assert_eq!(super::caption(0, None, 1, Some("\r\n")), "page 1 of 1");
+        assert_eq!(super::one_line("a\u{2028}b\r\nc\u{85}d"), "a b c d");
+    }
+
     use super::{Close, Documents, closed, label, opened_beside};
     use viewer_core::DocumentId;
 

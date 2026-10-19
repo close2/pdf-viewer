@@ -423,6 +423,9 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                if self.archive_card.shown() {
+                    return self.pressed_the_archive_card(at, element);
+                }
                 if element == ElementState::Pressed && self.pressed_the_strip(at) {
                     return;
                 }
@@ -582,6 +585,11 @@ impl App {
         // toolkit: the keys that move between its entries are the keys that move between pages.
         if self.menu.shown {
             self.menu_key(key);
+            return;
+        }
+        // And the archive card, for the menu's reason (ADR 1966).
+        if self.archive_card.shown() {
+            self.archive_key(key);
             return;
         }
         // **The find bar takes every key while it is open**, for the same reason and in the same
@@ -753,11 +761,19 @@ impl App {
             }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
             // ISO 19005's conversion: the target and profile are this window's, chosen by
-            // `--archive`, and a window with none chosen says how to choose (ADR 1954).
+            // `--archive` or on the card this key puts up where none was (ADRs 1954, 1966).
             viewer_host::WindowAct::Archive => {
-                match viewer_host::archiving::command(self.archive.as_ref()) {
-                    Ok(command) => self.dispatch(command),
-                    Err(sentence) => println!("note: {sentence}"),
+                match viewer_host::archiving::pressed(self.archive.as_ref()) {
+                    viewer_host::archiving::Pressed::Convert(command) => self.dispatch(command),
+                    viewer_host::archiving::Pressed::Choose(choosing) => {
+                        self.archive_card.show(choosing);
+                        println!(
+                            "note: {}: {}",
+                            viewer_host::archiving::CHOOSING_TITLE,
+                            viewer_host::archiving::CHOOSING
+                        );
+                        self.redraw();
+                    }
                 }
             }
             // §10.8.3: the state is this window's, because it is a preference a person toggles

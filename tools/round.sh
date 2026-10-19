@@ -257,6 +257,8 @@ if [ -z "${ROUND_SESSION:-}" ] && [ -n "$assigned_by" ]; then
 fi
 printf '  tier 1 every round, tier 2 by doc/todo/02 section 2'"'"'s map, tier 3 at the merge (ADR 1036);\n'
 printf '  the merge runs all three tiers once per batch, so no round of a batch owes the whole sequence (ADR 1638)\n'
+printf '  a command that can run past 240 s: tools/wait.sh --start <log> -- <command>, then tools/wait.sh <log>\n'
+printf '  under a harness timeout of 270 000 ms, re-issued while it exits 75 — a longer wait loses the prompt cache (ADR 1977)\n'
 
 # ---------------------------------------------------------------- the reading
 

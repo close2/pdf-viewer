@@ -218,10 +218,24 @@ unmapped = "discard"
 remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
+# Transfer functions. Printing WOULD have carried one: ISO 32000-2 8.4.1's Table 52 has a reader
+# initialise the transfer to a device dependent value, and a graphics state's TR replaces that
+# value on a printer exactly as on a screen. The corpus's one witness, issue6931_reduced.pdf, draws
+# its logo as a near-black negative without its function. So the yardstick says stop. A file whose
+# every TR is Identity converts with nothing moved; an operator who accepts the loss says
+# --authorise transfer-function, and the converter writes each function into the output's own
+# xmpMM:History before removing it (doc/adr/1964).
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/no-transfer-function-in-a-graphics-state"]
+remedy = "stop"
+
+# ---------------------------------------------------------------------------------------------
 # What this profile deliberately leaves at `stop`, because printing WOULD have carried it:
 #
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
 #   halftone-*                     a press applies these; an archived print master is kept for it
+#                                  (TR above)
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
 #   fonts/*                        a printed page carried glyphs; every font refusal stays.

@@ -189,6 +189,7 @@ impl Host {
                 self.restrictions.depart(self.state.showing.departures);
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
+                self.state.kept.forget(closing);
                 self.documents_moved = true;
                 self.pump(vec![Command::Close(closing), Command::Focus(focused)]);
                 self.update.title = true;

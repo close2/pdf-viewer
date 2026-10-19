@@ -125,6 +125,9 @@ impl App {
         }) else {
             return;
         };
+        if let Some(password) = &password {
+            self.kept.keep(id, password);
+        }
         match bytes {
             Ok(bytes) => self.dispatch(Command::Open {
                 id,
@@ -151,6 +154,7 @@ impl App {
     /// [`Self::given_up`], for §7.6.4.1's prompt cancelled or out of attempts: a file a document
     /// named is declined to the core as well, where the next arrival starts (ADR 1345).
     pub(crate) fn cancelled(&mut self, id: viewer_core::DocumentId) {
+        self.kept.forget(id);
         if self.arrivals.cancel(id) || id == crate::DOCUMENT {
             self.arrival_due = true;
         }

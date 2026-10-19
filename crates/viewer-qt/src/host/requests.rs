@@ -36,24 +36,6 @@ impl Host {
         }
     }
 
-    /// Puts the request on a `submit-form` thread of its own. The answer is looked for on the
-    /// drawing timer, which [`Host::drawing_wait`] keeps running while one is out.
-    pub(super) fn send_form(
-        &mut self,
-        document: DocumentId,
-        submission: pdf_model::submission::Submission,
-        warned: Option<String>,
-    ) {
-        self.say(&viewer_host::policy::submission_note(&submission, None));
-        if let Err(sentence) = self
-            .state
-            .submitter
-            .send(document, submission, warned, None)
-        {
-            self.say(&sentence);
-        }
-    }
-
     /// Table Annex O.4's `fdf` naming an absolute URI, under the level the menu holds — the one
     /// answer `viewer_host::may_fetch_import` gives (ADR 1527). A refusal is said and supplied as
     /// `None`, so the core says the import declined; a fetch arrives as `Command::Respond` by
@@ -80,26 +62,17 @@ impl Host {
         }
     }
 
-    /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
-    /// sent at and opened beside only where a copy is the one the signer signed (ADR 1738): each
-    /// one asked of [`Self::fetch_policy`].
-    pub(super) fn fetch_policies(
-        &mut self,
-        document: DocumentId,
-        policies: Vec<viewer_host::PublishedPolicy>,
-    ) {
-        for policy in policies {
-            self.fetch_policy(document, policy);
-        }
-    }
-
     /// A signature policy's published copy, under the level the menu holds — the one answer
     /// `viewer_host::policy::may_fetch_signature_policy` gives (ADR 1738).
     ///
     /// **One question at a time**, because this window has one dialogue: a policy that would be
     /// asked about while another question waits is declined with that reason rather than put in
     /// its place, which would leave the first unanswered and unsaid.
-    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+    pub(super) fn fetch_policy(
+        &mut self,
+        document: DocumentId,
+        policy: viewer_host::PublishedPolicy,
+    ) {
         use viewer_host::policy::{
             asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
         };
@@ -130,24 +103,6 @@ impl Host {
         }
     }
 
-    /// Puts a policy's GET on a `fetch-policy` thread of its own; the answer is looked for on the
-    /// drawing timer, as a submission's is.
-    pub(super) fn start_policy_fetch(
-        &mut self,
-        document: DocumentId,
-        policy: viewer_host::PublishedPolicy,
-        warned: Option<String>,
-    ) {
-        self.say(&viewer_host::policy::policy_fetch_note(&policy));
-        if let Err(sentence) = self
-            .state
-            .submitter
-            .fetch_policy(document, policy, warned, None)
-        {
-            self.say(&sentence);
-        }
-    }
-
     /// Puts the GET on a `fetch-import` thread of its own; the answer is looked for on the drawing
     /// timer, as a submission's is.
     pub(super) fn start_fetch(
@@ -169,6 +124,26 @@ impl Host {
         match viewer_host::link(&uri, self.links) {
             viewer_host::Link::Say(note) => self.say(&note),
             viewer_host::Link::Ask(words) => self.put_the_question(Pending::Link { uri }, &words),
+        }
+    }
+
+    /// A file a *document* named, routed by which policy decides it: a second PDF to parse under
+    /// the remote-documents level, an import named by an absolute URI fetched under the level a
+    /// submission is sent at (ADR 1527), and any other import read (ADRs 1227, 1239).
+    pub(super) fn needs_file(
+        &mut self,
+        document: DocumentId,
+        purpose: Purpose,
+        name: String,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
+        if viewer_host::under_remote_documents(purpose) {
+            self.remote(purpose, &name, beside, queue);
+        } else if purpose == Purpose::ImportData && viewer_host::import_is_fetched(&name) {
+            self.fetch_import(document, name, queue);
+        } else {
+            self.import(purpose, &name, queue);
         }
     }
 

@@ -1315,6 +1315,9 @@ impl Viewer {
             PointerAction::Pressed => {
                 // `/D`: "a mouse button is pressed inside the annotation's active area".
                 raised.extend(over.map(|annotation| (annotation, Trigger::Down)));
+                if let Some((page, at)) = point {
+                    interact::say_unreachable(open, page, at);
+                }
                 open.pressed = under;
                 open.pressed_on = over;
                 // Table 197's `/Bl` and `/Fo`, in the clause's own order, which is `/X` and
@@ -1503,7 +1506,7 @@ impl Viewer {
                     if ran.changed {
                         open.stale();
                     }
-                    ran.handed > 0
+                    ran.answered()
                 }
                 // `page_events` hands these four to the runner with the page's own, whenever
                 // there is one, and the open sequence hands them over for the page an open shows.
@@ -2478,7 +2481,8 @@ impl Viewer {
         let Some(selected) = self.selected(open) else {
             return;
         };
-        let page_order = selected.text.into_owned();
+        // §14.8.2.3's divisions undone as the logical copy undoes them (ADR 1971).
+        let page_order = crate::select::rejoined(&selected.text).into_owned();
         if page_order.is_empty() {
             return;
         }
@@ -3335,8 +3339,11 @@ impl Viewer {
             let pieces = tree.logical_range(
                 &open.document,
                 page,
-                &interpreted.marked,
-                &interpreted.artifacts,
+                pdf_model::structure::ContentSpans {
+                    marked: &interpreted.marked,
+                    artifacts: &interpreted.artifacts,
+                    objects: &interpreted.objects,
+                },
                 range.0..range.1,
             )?;
             ordered.push(crate::select::logical_copy(&interpreted.text, &pieces));
@@ -4184,6 +4191,7 @@ impl Viewer {
                 placed: interpretation.text_layer,
                 marked: interpretation.marked,
                 artifacts: interpretation.artifacts,
+                objects: interpretation.objects,
                 described: interpretation.described,
                 language: interpretation.language,
                 view_dependent: interpretation.view_dependent,

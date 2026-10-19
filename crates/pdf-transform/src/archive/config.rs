@@ -1087,6 +1087,9 @@ const SUPPLIABLE: [&str; 4] = [
 pub struct Configuration {
     /// The profile's own name, where the file is a shipped profile (`[profile] name`).
     pub name: Option<String>,
+    /// The profile's one sentence about itself (`[profile] sentence`), which is what a window
+    /// offering the profile says beside its name (ADR 1966).
+    pub sentence: Option<String>,
     /// Every site the file named that answers this target, with the remedy it chose and its keys.
     ///
     /// One row per site: a qualified row wins its site over the unqualified default, whichever
@@ -1162,6 +1165,7 @@ impl Configuration {
             .map(|requirement| requirement.id)
             .collect();
         let mut name = None;
+        let mut sentence = None;
         let mut sites: Vec<Row> = Vec::new();
         let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut seen_sites: BTreeSet<String> = BTreeSet::new();
@@ -1171,6 +1175,10 @@ impl Configuration {
             match tbl.path.first().map(String::as_str) {
                 Some("profile") => {
                     name = tbl.get("name").and_then(Value::as_text).map(str::to_owned);
+                    sentence = tbl
+                        .get("sentence")
+                        .and_then(Value::as_text)
+                        .map(str::to_owned);
                     // `doc/pdf-a-mitigations.md` section 14's ninth finding: a `default` may only be
                     // `stop` — today's behaviour, stated deliberately so `refuse-any-loss` is not
                     // the empty file. A default of anything else would authorise a loss for every
@@ -1234,6 +1242,7 @@ impl Configuration {
         check_rows(&sites, &tools, target)?;
         Ok(Self {
             name,
+            sentence,
             sites,
             tools,
             departures,

@@ -29,7 +29,7 @@ impl Host {
         // A page that can be drawn while it is read is waited for no longer than `GLIMPSE_AFTER`,
         // from which its looks are what the window shows (ADR 1855).
         let drawing_ahead = self.state.ahead.is_some();
-        if self.anticipated.as_ref().is_some_and(|opening| {
+        if self.state.anticipated.as_ref().is_some_and(|opening| {
             !if drawing_ahead {
                 opening.wait_within(viewer_host::drawing::GLIMPSE_AFTER)
             } else {
@@ -39,39 +39,18 @@ impl Host {
             self.state
                 .trace
                 .say(Topic::Launch, format_args!("document still opening"));
-            self.awaiting = Some(resize);
+            self.state.awaiting = Some(resize);
             self.show_the_opening();
             return;
         }
         self.take_the_opening(resize);
     }
 
-    /// One look at a document still opening: joins it where it is ready, and otherwise moves the
-    /// bar.
-    pub(super) fn mind_the_opening(&mut self) {
-        if !self
-            .anticipated
-            .as_ref()
-            .is_some_and(viewer_host::Loading::ended)
-        {
-            self.show_the_opening();
-            self.show_the_read();
-            return;
-        }
-        // A bar that never went up is not taken down with a sentence: a page read between
-        // `GLIMPSE_AFTER` and `WARN` was shown as it was read and said nothing (ADR 1811).
-        if self.bar_said {
-            self.say(viewer_host::loading::READ);
-        }
-        if let Some(resize) = self.awaiting.take() {
-            self.take_the_opening(resize);
-        }
-    }
-
     /// Puts how far page one has got on the status bar: the sentence on the label, and the share
     /// [`Self::loading_permille`] hands Qt's own bar.
-    fn show_the_opening(&mut self) {
+    pub(super) fn show_the_opening(&mut self) {
         let Some(reading) = self
+            .state
             .anticipated
             .as_ref()
             .and_then(viewer_host::Loading::showing)
@@ -97,7 +76,7 @@ impl Host {
     /// showed the page being read hands over to the page being drawn, and goes when it lands
     /// (ADR 1825).
     pub(crate) fn loading_permille(&self) -> i32 {
-        if self.awaiting.is_none() {
+        if self.state.awaiting.is_none() {
             return self.state.drawing.partial().map_or(-1, |partial| {
                 #[expect(
                     clippy::cast_possible_truncation,
@@ -108,6 +87,7 @@ impl Host {
             });
         }
         let showing = self
+            .state
             .anticipated
             .as_ref()
             .and_then(viewer_host::Loading::showing);
@@ -122,44 +102,12 @@ impl Host {
         })
     }
 
-    /// Takes in the document the opening thread opened, and tells it its viewport.
-    fn take_the_opening(&mut self, resize: Command) {
-        // Page one as it was drawn while it was read goes to the drawing, whose first frame of it
-        // is finished from that drawing rather than drawn (ADR 1855).
-        if let Some(ahead) = self.state.ahead.take() {
-            self.state.drawing.draw_ahead(ahead);
-        }
-        let joined = self.anticipated.take().map(viewer_host::Loading::join);
-        let Some(Ok((viewer, opened))) = joined else {
-            if joined.is_some() {
-                eprintln!("the thread opening the document panicked; opening it here instead");
-            }
-            self.dispatch(resize);
-            self.open_document(None);
-            return;
-        };
-        self.state.viewer = viewer;
-        self.state.trace.say(
-            Topic::Launch,
-            format_args!("document joined, {} event(s)", opened.len()),
-        );
-        // Asked before the open's events are answered, so that the panels built from them do not
-        // read the outline on this thread first (ADR 1553).
-        self.prepare();
-        let resized: Vec<Event> = self.state.viewer.handle(resize).collect();
-        let mut queue = VecDeque::new();
-        for event in opened.into_iter().chain(resized) {
-            self.react(event, &mut queue);
-        }
-        self.drain(queue);
-    }
-
     /// Reads what page one does not need beside it: §12.3.3's outline and §7.7.3's page tree,
     /// placed, which the open no longer reads (ADRs 1543, 1553).
     ///
     /// The thread holds a handle to the immutable file and nothing of the core's. Its answer is
     /// looked for on the drawing timer, which [`Host::drawing_wait`] keeps running until it lands.
-    fn prepare(&mut self) {
+    pub(super) fn prepare(&mut self) {
         self.preparing = self.state.viewer.preparation().map(|preparation| {
             let (send, answer) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
@@ -207,6 +155,9 @@ impl Host {
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
     pub(super) fn open_document(&mut self, password: Option<viewer_core::Secret>) {
+        if let Some(password) = &password {
+            self.state.kept.keep(DOCUMENT, password);
+        }
         self.drain(opening_commands(
             self.restrictions.window(),
             self.widget_appearances,

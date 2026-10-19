@@ -8,7 +8,7 @@ use std::time::Instant;
 use pdf_render::{DisplayList, TargetSpec};
 use render_raster::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 
-use super::lanes::remembered;
+use super::lanes::{Kept, remembered, upload_lane};
 use super::processor::processor_half;
 use super::{Done, Finished, Job, Pair, Prepared};
 
@@ -70,12 +70,14 @@ pub(super) fn draw(
     let mut finished_ahead = false;
     let mut abandoned = false;
     // **A refusal already known is not asked again** (ADR 1821): the device's attempt is the
-    // whole scene built and priced before it says no, and it would say the same thing. **Nor is a
-    // frame the processor was predicted to draw faster** (ADR 1831).
-    let (fell_back, refused_now) = if let Some(said) = known_refusal {
-        (Some(said), false)
+    // whole scene built and priced before it says no, and it would say the same thing — of these
+    // pages at this magnification, or of every frame of a lane the adapter refused (ADR 1968).
+    // **Nor is a frame the processor was predicted to draw faster** (ADR 1831).
+    let known = known_refusal.as_ref().map(|known| known.of);
+    let (fell_back, refused_now) = if let Some(known) = known_refusal {
+        (Some(known.said), None)
     } else if cheaper.is_some() || drawn_ahead {
-        (None, false)
+        (None, None)
     } else {
         let asked = Instant::now();
         match renderer.render(frame, into) {
@@ -86,14 +88,21 @@ pub(super) fn draw(
                 ) {
                     device_drew = Some(asked.elapsed());
                 }
-                (None, false)
+                (None, None)
             }
             Err(problem) => {
                 device_tried = Some(asked.elapsed());
-                (Some(problem.to_string()), remembered(&problem))
+                (Some(problem.to_string()), remembered(&problem, coverage))
             }
         }
     };
+    // **The processor's picture goes back through the device under a lane the adapter did not
+    // refuse** (ADR 1968). It is one image and the window's chrome, and under the refused lane the
+    // chrome is refused with it: the window's chrome missing, and the page said to be undrawable
+    // although it was drawn, at every frame.
+    if let Some(Kept::Lane(refused)) = known.or(refused_now) {
+        renderer.set_coverage(upload_lane(refused));
+    }
     if fell_back.is_some() || cheaper.is_some() || drawn_ahead {
         let drawn = processor_half(
             renderer,
@@ -122,6 +131,7 @@ pub(super) fn draw(
         },
         fell_back,
         refused_now,
+        known,
         device_tried,
         processor_drew,
         device_drew,

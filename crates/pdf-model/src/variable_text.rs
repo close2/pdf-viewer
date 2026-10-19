@@ -226,6 +226,9 @@ pub(crate) struct LayoutFonts<'d> {
     document: &'d Document,
     /// The fonts, in the order they were first asked for.
     kept: std::cell::RefCell<Vec<KeptFont>>,
+    /// The interpreter's cache of the same document's fonts, where a layout is the
+    /// interpreter's, which a `/DR` font named by reference is asked of and kept in (ADR 1974).
+    across: Option<&'d crate::content::FontCache>,
 }
 
 /// One font a [`LayoutFonts`] holds: the key it was loaded from, and what the load answered.
@@ -249,10 +252,27 @@ impl<'d> LayoutFonts<'d> {
         Self {
             document,
             kept: std::cell::RefCell::new(Vec::new()),
+            across: None,
         }
     }
 
-    /// The font `dict` loads, from an earlier layout where one loaded it.
+    /// No font loaded yet, for the layouts of one interpretation of `document`, beside the
+    /// interpreter's own cache of its fonts.
+    ///
+    /// **A field's font is loaded once for the layout and the appearance's `Tf` together**: the
+    /// stream a layout writes names the `/DR` font in its own `/Resources`, so the interpreter's
+    /// `Tf` asks `across` for the object the layout asked it for (ADR 1974). Where `across`
+    /// outlives the interpretation, as an open document's does, the next interpretation's layouts
+    /// find the font there too.
+    pub(crate) fn sharing(document: &'d Document, across: &'d crate::content::FontCache) -> Self {
+        Self {
+            across: Some(across),
+            ..Self::new(document)
+        }
+    }
+
+    /// The font `dict` loads, from an earlier layout where one loaded it, or from the
+    /// interpreter's cache where `/DR` names it by reference as object `reference`.
     ///
     /// # Errors
     ///
@@ -261,6 +281,7 @@ impl<'d> LayoutFonts<'d> {
         &self,
         document: &Document,
         dict: &Dictionary,
+        reference: Option<pdf_syntax::ObjectId>,
         label: &str,
     ) -> Result<std::sync::Arc<pdf_font::LoadedFont>, String> {
         let load = || {
@@ -268,6 +289,9 @@ impl<'d> LayoutFonts<'d> {
                 .map(std::sync::Arc::new)
                 .map_err(|error| error.to_string())
         };
+        // Checked before `across` is asked as well as before `kept`: an imported page's layouts
+        // are handed this interpreter's cache, and `FontCache` empties itself when asked about
+        // another document than the one it holds (§8.10.4, ADR 0710).
         if !std::ptr::eq(document, self.document) {
             return load();
         }
@@ -278,7 +302,19 @@ impl<'d> LayoutFonts<'d> {
         {
             return found.loaded.clone();
         }
-        let loaded = load();
+        let loaded = match self.across.zip(reference) {
+            Some((across, object)) => across.program(document, object).map_or_else(
+                || {
+                    let loaded = load();
+                    if let Ok(program) = &loaded {
+                        across.keep_program(document, object, program);
+                    }
+                    loaded
+                },
+                Ok,
+            ),
+            None => load(),
+        };
         if kept.len() < Self::KEPT {
             kept.push(KeptFont {
                 dict: dict.clone(),
@@ -531,16 +567,26 @@ pub(crate) fn resolve_font(
     resources: &Dictionary,
     name: &pdf_syntax::Name,
 ) -> (Dictionary, Resolution) {
+    let (dict, resolution, _) = resolve_font_object(document, resources, name);
+    (dict, resolution)
+}
+
+/// [`resolve_font`], with the object `/DR` names the font by where it names one by reference —
+/// the key the interpreter's `crate::content::FontCache` keeps a font under (ADR 1974).
+fn resolve_font_object(
+    document: &Document,
+    resources: &Dictionary,
+    name: &pdf_syntax::Name,
+) -> (Dictionary, Resolution, Option<pdf_syntax::ObjectId>) {
     let fonts = document.get_key(resources, "Font");
-    let entry = fonts
-        .as_dict()
-        .and_then(|fonts| fonts.get_by_name(name))
-        .map(|font| document.resolve(font));
+    let stated = fonts.as_dict().and_then(|fonts| fonts.get_by_name(name));
+    let reference = stated.and_then(Object::as_reference);
+    let entry = stated.map(|font| document.resolve(font));
     // §9.6.2.2's fourteen and [`STANDARD_ABBREVIATIONS`]'s fourteen are all ASCII, so a name
     // that is not text is not one of them and `as_str` refusing is the right answer rather than
     // a lossy one. It is the *lookup* above that §7.3.5 binds, and that one is bytes.
     let text = name.as_str();
-    match entry.as_ref().and_then(|font| font.as_dict()) {
+    let (dict, resolution) = match entry.as_ref().and_then(|font| font.as_dict()) {
         Some(dict) => (dict.clone(), Resolution::Named),
         // A name that *conventionally* denotes one of §9.6.2.2's fourteen is not a stand-in
         // for reporting purposes: this binary carries that font program, so the value is drawn
@@ -558,7 +604,9 @@ pub(crate) fn resolve_font(
             ),
             None => (substituted_font(name), Resolution::StoodIn),
         },
-    }
+    };
+    let reference = reference.filter(|_| resolution == Resolution::Named);
+    (dict, resolution, reference)
 }
 
 /// Where a `/DA`'s font came from, which decides two different things.
@@ -660,13 +708,13 @@ fn set_in(
     ),
     Owed,
 > {
-    let (dict, resolution) = resolve_font(document, request.resources, font_name);
+    let (dict, resolution, reference) = resolve_font_object(document, request.resources, font_name);
     // The label `FontError` puts in its message, which is §7.3.5's text exception rather than a
     // lookup — so it is the escaped form, which names the name exactly.
     let label = font_name.escaped();
     let font = request
         .fonts
-        .load(document, &dict, &label)
+        .load(document, &dict, reference, &label)
         .map_err(Owed::FontUnusable)?;
     // **The whole layout below is horizontal**, and §9.7.5.1 makes the writing mode decide
     // "which metrics shall be used when glyphs are painted from that font". A field's text

@@ -18,7 +18,7 @@ impl Host {
     ///
     /// [`QtUpdate::window`]: crate::bridge::ffi::QtUpdate::window
     pub(super) fn present_or_stop(&mut self) {
-        if self.presenting.toggle() {
+        if self.state.presenting.toggle() {
             self.start_the_clock();
             self.dispatch(Command::Present(PresentationMode::On));
             self.say(
@@ -31,7 +31,7 @@ impl Host {
             // §12.2: "[t]he document's page mode, specifying how to display the document on
             // exiting full-screen mode". `None` is Table 147's own condition unmet, and then what
             // goes back is what the reader had — a choice rather than a reading (ADR 0470).
-            match self.presenting.on_exit() {
+            match self.state.presenting.on_exit() {
                 Some(mode) => {
                     self.say(&format!("§12.2's /NonFullScreenPageMode asks for {mode:?}"));
                 }

@@ -587,6 +587,14 @@ pub struct Conversion {
     /// intersection with the media box. Empty for every conversion whose pages met the limit
     /// (`doc/adr/1210`).
     pub removed_boundaries: Vec<super::RemovedBoundary>,
+    /// Every graphics state whose transfer function other than the identity this conversion
+    /// removed, with what the function said.
+    ///
+    /// ISO 19005-2 section 6.2.5 and ISO 19005-4 section 6.2.5, answered by
+    /// [`super::Loss::TransferFunction`]: ISO 32000-2 §10.5's function is drawn, so the colours it
+    /// adjusted move, and each row's statement is the one the output's own `xmpMM:History` keeps.
+    /// Empty for every conversion whose `/TR` entries were all `Identity` (`doc/adr/1964`).
+    pub removed_transfer_functions: Vec<super::RemovedTransferFunction>,
     /// Every annotation this conversion kept on its page and showed, rather than removing it.
     ///
     /// ISO 19005-2 section 6.3.2's other future, reached by `preserve` at the flag site: the page
@@ -768,6 +776,15 @@ impl Conversion {
                     self.removed_boundaries
                         .iter()
                         .map(boundary_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_transfer_functions".to_owned(),
+                Value::Array(
+                    self.removed_transfer_functions
+                        .iter()
+                        .map(transfer_to_json)
                         .collect(),
                 ),
             ),
@@ -1562,6 +1579,23 @@ fn boundary_to_json(removed: &super::RemovedBoundary) -> Value {
         (
             "costs_nothing".to_owned(),
             Value::Bool(removed.costs_nothing()),
+        ),
+    ])
+}
+
+/// One removed transfer function: the graphics state it went from and what it said.
+fn transfer_to_json(removed: &super::RemovedTransferFunction) -> Value {
+    Value::Object(vec![
+        (
+            "state".to_owned(),
+            Value::text(format!(
+                "{} {}",
+                removed.state.number, removed.state.generation
+            )),
+        ),
+        (
+            "statement".to_owned(),
+            Value::text(removed.statement.clone()),
         ),
     ])
 }

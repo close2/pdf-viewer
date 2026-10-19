@@ -216,19 +216,23 @@ fn joins(run: [f32; 8], quad: [f32; 8]) -> bool {
 /// Whitespace either side of a boundary is the readback's separator for a neighbour the logical
 /// order no longer puts there — inferred from where the glyphs landed in the order they were
 /// drawn — so it gives way to the boundary's own, and the copy neither starts nor ends on it.
+///
+/// A word a line division split is rejoined by [`rejoined`], within a piece and across two a
+/// boundary does not divide; a block's or a cell's end stands, because the structure stated it.
 pub(crate) fn logical_copy(text: &str, pieces: &[pdf_model::structure::LogicalPiece]) -> String {
     use pdf_model::structure::Boundary;
 
     let mut out = String::new();
     for piece in pieces {
-        let mut own = text.get(piece.range.clone()).unwrap_or_default();
+        let rejoined_piece = rejoined(text.get(piece.range.clone()).unwrap_or_default());
+        let mut own: &str = &rejoined_piece;
         let between = match piece.after {
             _ if out.is_empty() => None,
             Boundary::Flow => None,
             Boundary::Cell => Some('\t'),
             Boundary::Block => Some('\n'),
         };
-        if out.is_empty() || between.is_some() {
+        if out.is_empty() || between.is_some() || out.ends_with(SOFT_HYPHEN) {
             own = own.trim_start();
         }
         if let Some(between) = between {
@@ -239,6 +243,37 @@ pub(crate) fn logical_copy(text: &str, pieces: &[pdf_model::structure::LogicalPi
     }
     out.truncate(out.trim_end().len());
     out
+}
+
+/// A copy's text with §14.8.2.3's incidental divisions undone: the whitespace after each soft
+/// hyphen taken out, and the soft hyphen kept.
+///
+/// > In tagged PDF, the visible hyphen that is introduced through the incidental division of a
+/// > word at the end of a line but which would not be present otherwise, may be represented as a
+/// > soft hyphen , mapped to the Unicode value U+00AD
+///
+/// The clause says what the character marks and nothing about what a processor does with it, so
+/// this is a choice (ADR 1971), and it is the one [`find`] already makes: the break after the
+/// character is the division, not the text, so the copy and the search see one word. **The
+/// character itself is kept**, because it is what §9.10.2's mapping produced and the Unicode
+/// Standard says what it means wherever it is pasted: U+00AD is a format character (`Cf` in
+/// `UnicodeData.txt`) and a line-break opportunity (`BA` in UAX #14), shown as a hyphen only where a
+/// line does break there. So the pasted word reads whole, and a program that reflows it may divide
+/// it again at the place the producer marked. NOTE 1's hard hyphen U+002D is untouched.
+pub(crate) fn rejoined(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains(SOFT_HYPHEN) {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut after_soft_hyphen = false;
+    for character in text.chars() {
+        if after_soft_hyphen && character.is_whitespace() {
+            continue;
+        }
+        after_soft_hyphen = character == SOFT_HYPHEN;
+        out.push(character);
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// Where a string occurs in the page's readback, as ranges of it.
@@ -615,7 +650,8 @@ const SOFT_HYPHEN: char = '\u{00ad}';
 /// producer went to the trouble of stating.
 ///
 /// **The readback keeps the character.** Nothing here rewrites `Interpretation::text`; the fold is
-/// the searcher's, so a caller copying the same range still gets what §9.10.2's mapping produced.
+/// the searcher's, and a copy of the same range takes out the same break and keeps the character
+/// ([`rejoined`], ADR 1971), so what is pasted and what is found are one word.
 ///
 /// **The needle is not folded**, which is what lets a person who types a soft hyphen still mean
 /// one: the skip below is declined whenever the needle wants that character next.
@@ -683,6 +719,15 @@ fn matches_at(
         } else {
             let have = page.next()?;
             wanted.next_if_eq(&have)?;
+            // A soft hyphen the needle states — pasted from a copy, which keeps it — is still
+            // followed on the page by the break its division introduced, which [`rejoined`] took
+            // out of the copy; so it is skipped here too, unless the needle asks for a separator
+            // or has ended (ADR 1971).
+            if have == SOFT_HYPHEN && wanted.peek().is_some_and(|want| !want.is_whitespace()) {
+                while page.peek().is_some_and(char::is_whitespace) {
+                    page.next();
+                }
+            }
         }
         started = true;
         if wanted.peek().is_none() {
@@ -836,7 +881,7 @@ fn lowered(letter: char, spare: &mut Vec<char>, into: &mut Vec<char>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Order, find as find_ordered, quads_for};
+    use super::{Order, find as find_ordered, logical_copy, quads_for, rejoined};
     use pdf_model::content::Placed;
 
     /// [`super::find`] over a page whose glyph positions decided nothing.
@@ -951,6 +996,65 @@ mod tests {
             find("red\u{ad}\ngreen", "redgreenblue"),
             vec![],
             "folding joins what the division split, and invents nothing"
+        );
+        assert_eq!(
+            find("transparen\u{ad}\ncy group", "transparen\u{ad}cy"),
+            vec![(0, 15)],
+            "a word pasted from a copy, which keeps the character and not the break, finds the \
+             page it was copied from (ADR 1971)"
+        );
+        assert_eq!(
+            find("soft\u{ad}\nly", "soft\u{ad}"),
+            vec![(0, 6)],
+            "a needle ending on the character takes no break after it"
+        );
+    }
+
+    /// §14.8.2.3's division, undone in a copy as [`find`] undoes it in a search: the break after
+    /// a soft hyphen goes and the character stays (ADR 1971). The calibration is the hard hyphen,
+    /// which keeps its break, and a structure's own block end, which a division does not cross.
+    #[test]
+    fn a_copy_rejoins_what_a_soft_hyphen_divided() {
+        use pdf_model::structure::{Boundary, LogicalPiece};
+
+        assert_eq!(
+            rejoined("transparen\u{ad}\ncy group"),
+            "transparen\u{ad}cy group"
+        );
+        assert_eq!(
+            rejoined("well-\nknown"),
+            "well-\nknown",
+            "NOTE 1's hard hyphen"
+        );
+        assert!(
+            matches!(rejoined("no division"), std::borrow::Cow::Borrowed(_)),
+            "a text with no soft hyphen is not copied again"
+        );
+        let text = "Trans\u{ad}\nparency Next";
+        let piece = |range: std::ops::Range<usize>, after| LogicalPiece { range, after };
+        let split = text.find("parency").unwrap_or_default();
+        let next = text.find("Next").unwrap_or_default();
+        assert_eq!(
+            logical_copy(
+                text,
+                &[
+                    piece(0..split, Boundary::Flow),
+                    piece(split..next, Boundary::Flow)
+                ]
+            ),
+            "Trans\u{ad}parency",
+            "a division across two pieces of one block"
+        );
+        assert_eq!(
+            logical_copy(
+                text,
+                &[
+                    piece(0..split, Boundary::Flow),
+                    piece(next..text.len(), Boundary::Block)
+                ]
+            ),
+            "Trans\u{ad}\nNext",
+            "a block's end stands"
         );
     }
 

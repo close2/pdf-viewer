@@ -34,6 +34,10 @@ reads the section below it only where a line here sends it (ADR 1639).
    is a time (ADR 1684), `--long` for a campaign or a census whose length is its own choice, which
    holds the second lane only (ADR 1756). Walks are granted in the order they asked, and a run
    stopped while it queues still leaves its line, `lane=-` (ADR 1790).
+   **A command that can run past 240 s is waited for in calls of at most 240 s**: `tools/wait.sh
+   --start <log> -- <command>`, then `tools/wait.sh <log>` with a harness timeout of 270 000 ms,
+   re-issued while it exits 75 — a longer call outlives the five-minute prompt cache, and the next
+   request writes the whole context again (ADRs 1976, 1977).
    **A round's clock figures are one hold**: count instructions while exploring, then take every arm and figure the verdict needs, the launch gate with them, interleaved in one `--clock` hold (habit 87) — a waiting clock run stops every grant of the first lane, and of the second once it has the first (ADRs 1863, 1869).
    Tier 3 is the merge's. **A figure a gate already holds is read from the gate's band, ratchet or
    held list, not re-measured**; a round re-measures what its change can move.

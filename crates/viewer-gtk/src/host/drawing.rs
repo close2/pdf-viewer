@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use viewer_core::{Answer, Command, Query};
+use viewer_core::{Answer, Query};
 
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
@@ -12,142 +12,6 @@ use viewer_host::trace::Topic;
 use super::{Host, with};
 
 impl Host {
-    /// Takes whatever the drawing thread has finished and answers the viewer for it.
-    ///
-    /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why
-    /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
-    /// page as answered for and stop the scheduler ever asking again, which freezes a page this
-    /// window merely chose not to finish drawing.
-    ///
-    /// **Before the first frame this waits, and after it this only asks** — ADR 0678. A poll
-    /// cannot be dispatched while GTK's main loop is inside its own first frame, and that frame is
-    /// the expensive one, so page one used to wait the whole of it out for an answer that was
-    /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
-    /// no input to lose, and `viewer_host::drawing::SETTLE` bounds the whole of what it may spend.
-    pub(super) fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
-        let drawn = if self.presented {
-            self.state.drawing.collect()
-        } else {
-            self.state.drawing.settle(viewer_host::drawing::SETTLE)
-        };
-        // A draw that ended takes the bar it was showing with it.
-        if !drawn.is_empty() {
-            self.show_the_drawing();
-        }
-        for finished in drawn {
-            self.state.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} {} {}x{} in {:?}, waited {:?}",
-                    finished.request.page.saturating_add(1),
-                    if finished.outcome.is_some() {
-                        "rasterised"
-                    } else {
-                        "abandoned after"
-                    },
-                    finished.request.target.width,
-                    finished.request.target.height,
-                    finished.cost,
-                    finished.waited
-                ),
-            );
-            let Some(rendered) = finished.outcome else {
-                continue;
-            };
-            // The page's own frame, so the window that stood in for it since a notch back is let
-            // go (ADR 1930).
-            self.state.oversized.answered_whole(&finished.request);
-            if let viewer_core::Rendered::Raster(raster) = &rendered {
-                let began = std::time::Instant::now();
-                if self.state.retained.landed(&finished.request, raster) {
-                    self.state.trace.say(
-                        Topic::Frames,
-                        format_args!(
-                            "page {} retained, {} held, in {:?}",
-                            finished.request.page.saturating_add(1),
-                            self.state.retained.len(),
-                            began.elapsed()
-                        ),
-                    );
-                }
-            }
-            queue.push_back(Command::RenderReady {
-                token: finished.request.token,
-                rendered,
-            });
-            self.answered(&finished.request, queue);
-        }
-        self.take_the_windows(queue);
-        self.mind_a_long_draw();
-    }
-
-    /// What follows the viewer's being answered for `request`, by its whole frame or by the first
-    /// window drawn of it (ADR 1930).
-    fn answered(&mut self, request: &viewer_core::RenderRequest, queue: &mut VecDeque<Command>) {
-        // The reader has their page, so the document may now be asked what it says about
-        // itself — §12.8's signatures above all, whose answer digests the signed part of the
-        // file. Once per opened document; `viewer_host::report::Due` is the rule. ADR 1044.
-        if self.state.showing.report_due.after_a_frame() {
-            queue.push_back(Command::Report);
-            // And its open sequence, at the same moment and for the same reason: after the
-            // first present, never in front of it (ADR 1602).
-            queue.push_back(Command::Presented);
-        }
-        // Table 147's `/FitWindow` is about the first displayed page's size, which is known
-        // now and not before (ADR 1429).
-        if self.presenting.owes_placing() {
-            self.fit_the_window();
-        }
-        // §12.4.4.1: the page a transition moves *to* is the one whose list has just
-        // arrived, so this is where an armed one can begin. The face is kept whether or not
-        // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
-        // §12.6.4.15's transition needs a page to move *from* and states no mode (ADR 1216).
-        self.face_arrived(request);
-    }
-
-    /// Takes the windows the drawing has finished, and answers the viewer for the first of each
-    /// request — the host took its list (ADR 1892).
-    fn take_the_windows(&mut self, queue: &mut VecDeque<Command>) {
-        let windows = self.state.drawing.windows();
-        // A window that lands after its request was answered is a scroll's, and nothing else
-        // repaints for it: the look that found it does, as a glimpse is repainted for.
-        let repaint = windows
-            .iter()
-            .any(|(finished, _)| finished.outcome.is_some());
-        for (finished, window) in windows {
-            self.state.trace.say(
-                Topic::Frames,
-                format_args!(
-                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
-                    finished.request.page.saturating_add(1),
-                    window.width,
-                    window.height,
-                    window.x,
-                    window.y,
-                    if finished.outcome.is_some() {
-                        "rasterised"
-                    } else {
-                        "abandoned"
-                    },
-                    finished.cost,
-                    finished.waited
-                ),
-            );
-            if finished.outcome.is_none() {
-                self.state.oversized.abandoned(&finished.request, window);
-                continue;
-            }
-            let request = finished.request.clone();
-            if let Some((token, rendered)) = self.state.oversized.landed(finished, window) {
-                queue.push_back(Command::RenderReady { token, rendered });
-                self.answered(&request, queue);
-            }
-        }
-        if repaint {
-            self.refresh();
-        }
-    }
-
     /// Obeys Table 147's `/FitWindow` at a frame of a document opened in front, while
     /// [`viewer_host::Presenting::place`] says it is owed: the window keeps its chrome and the
     /// page's viewport becomes the size of the page it shows ([`viewer_host::fitted`]), held to
@@ -163,13 +27,13 @@ impl Host {
             Answer::View(viewing) => viewing.page,
             _ => 0,
         };
-        let Some(placing) = self.presenting.place(page) else {
+        let Some(placing) = self.state.presenting.place(page) else {
             return;
         };
         let geometry = match self.state.viewer.query(Query::PageGeometry(page)) {
             Answer::Geometry(geometry) if placing.fit => geometry,
             _ => {
-                self.presenting.placed();
+                self.state.presenting.placed();
                 return;
             }
         };
@@ -202,7 +66,7 @@ impl Host {
             )
         });
         if (width - window.0).abs() <= 1.0 && (height - window.1).abs() <= 1.0 {
-            self.presenting.placed();
+            self.state.presenting.placed();
             return;
         }
         #[expect(
@@ -281,13 +145,13 @@ impl Host {
     /// The bar a page still being read showed, handed over to the page being drawn (ADR 1825):
     /// while a draw is shown as it stands the bar carries how much of the page's drawing there is,
     /// and it goes when the page lands. The bar of a document still opening is that opening's.
-    fn show_the_drawing(&mut self) {
+    pub(super) fn show_the_drawing(&mut self) {
         match self.state.drawing.partial() {
             Some(partial) => {
                 self.ui.loading.set_fraction(partial.fraction());
                 self.ui.loading.set_visible(true);
             }
-            None if self.awaiting.is_none() && self.ui.loading.is_visible() => {
+            None if self.state.awaiting.is_none() && self.ui.loading.is_visible() => {
                 self.ui.loading.set_visible(false);
             }
             None => {}

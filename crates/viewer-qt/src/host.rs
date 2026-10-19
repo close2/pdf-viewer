@@ -37,6 +37,7 @@
 //! of this machine, [`saving`] §7.5.6's update and §7.11.4's files, and [`printing`] RFC 0004's
 //! print path.
 
+mod archiving;
 mod drawing;
 mod faces;
 mod find;
@@ -63,7 +64,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, DocumentId, Event, FormField, Viewer};
+use viewer_core::{Command, DocumentId, FormField, Viewer};
 use viewer_host::native_window::{DOCUMENT, NativeWindow, Showing, WindowState};
 use viewer_host::panel::Tab;
 use viewer_host::trace::{Topic, Trace};
@@ -254,6 +255,9 @@ pub struct Host {
     /// `None` where none is running. Read once rather than queried per dialogue field, because
     /// every one of §12.2's Table 147 entries is a statement about the moment the dialogue opens.
     print: Option<PrintJob>,
+    /// ISO 19005's conversion being chosen, for the dialogue `QtUpdate::archive_dialogue`
+    /// announced; `None` where none is (ADR 1966).
+    archive_choice: Option<viewer_host::archiving::Choosing>,
     /// The page the print job last asked for, rasterised and waiting for the C++ side.
     ///
     /// One at a time, for `viewer_ffi::Session`'s reason: an A4 page at 300 dots per inch is 35
@@ -296,15 +300,6 @@ pub struct Host {
     keys_told: pdf_model::view::Keys,
     /// What has changed since the C++ side last asked.
     update: QtUpdate,
-    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
-    ///
-    /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence this window
-    /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is Qt's is
-    /// `QWidget::showFullScreen` and which widget each of Table 147's three flags names — and
-    /// that half is in `cpp/window.cpp`, because the widgets are.
-    presenting: viewer_host::Presenting,
-    /// Whether the first frame has been reported, so that the launch line is printed once.
-    presented: bool,
     /// §14.7's tree on AT-SPI, brought up after the first frame and never before it (ADR 0623).
     pub(crate) accessibility: Option<viewer_accessibility::Bridge>,
     /// The page and viewport last published to it, so that a tree is not rebuilt per frame.
@@ -350,13 +345,6 @@ pub struct Host {
     /// `frame_pixels` hands the C++ side a borrowed slice and a transition frame has to be
     /// somewhere for that borrow to point at.
     playing: Option<pdf_render::Raster>,
-    /// The document opening on its own thread, until the first resize joins it (ADR 1539) — or,
-    /// where it is not ready inside `viewer_host::drawing::WARN`, until the drawing timer's look
-    /// that finds it ready (ADR 1811).
-    anticipated: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
-    /// The latest viewport the window was given while the document was still opening, which the
-    /// join tells the core rather than the first one.
-    awaiting: Option<Command>,
     /// Whether the bar of a document still opening past `WARN` has been said on the terminal,
     /// which it is once, the moment it goes up.
     bar_said: bool,
@@ -418,6 +406,7 @@ fn nothing_changed() -> QtUpdate {
         find_bar: false,
         notices: false,
         print_dialogue: false,
+        archive_dialogue: false,
         documents: false,
         choose_document: false,
         placement: false,
@@ -527,7 +516,9 @@ impl Host {
             (viewer, events)
         });
         Ok(Self {
-            state: WindowState::new(path, bytes, fragment, trace, ahead).archiving(archive),
+            state: WindowState::new(path, bytes, fragment, trace, ahead)
+                .archiving(archive)
+                .opening(anticipated),
             // No thread and nothing read until a label holds a character the compiled-in face
             // lacks, and then off this thread (ADR 1406).
             faces: viewer_host::machine_faces::MachineFaces::new(),
@@ -548,6 +539,7 @@ impl Host {
             panel_shown: true,
             printing: false,
             print: None,
+            archive_choice: None,
             printed: None,
             question: None,
             script_question: None,
@@ -561,7 +553,6 @@ impl Host {
             over_link: false,
             keys_told: pdf_model::view::Keys::default(),
             update: nothing_changed(),
-            presented: false,
             accessibility: None,
             spoken: None,
             window_at: None,
@@ -573,13 +564,10 @@ impl Host {
             fit_magnification: None,
             script_ticker: viewer_host::script_timers::Ticker::default(),
             playing: None,
-            anticipated: Some(anticipated),
-            awaiting: None,
             bar_said: false,
             preparing: None,
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
-            presenting: viewer_host::Presenting::default(),
             clipboard: String::new(),
         })
     }
@@ -614,5 +602,144 @@ impl NativeWindow for Host {
 
     fn repaint(&mut self) {
         self.update.frame = true;
+    }
+
+    fn offer_to_archive(&mut self, choosing: viewer_host::archiving::Choosing) {
+        self.offer_the_archive_choice(choosing);
+    }
+
+    fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
+        Self::opened(self, document, pages, queue);
+    }
+
+    fn password_required(&mut self, document: DocumentId) {
+        Self::password_required(self, document);
+    }
+
+    fn follow_the_link(&mut self, uri: &str) {
+        Self::follow_the_link(self, uri);
+    }
+
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
+        Self::submit(self, document, submission);
+    }
+
+    fn needs_file(
+        &mut self,
+        document: DocumentId,
+        purpose: viewer_core::Purpose,
+        name: String,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
+        Self::needs_file(self, document, purpose, name, beside, queue);
+    }
+
+    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+        Self::fetch_policy(self, document, policy);
+    }
+
+    fn extracted(
+        &mut self,
+        document: DocumentId,
+        asked: viewer_core::Extraction,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
+        Self::extracted(self, document, asked, name, bytes, fragment);
+    }
+
+    fn ask_whether_to_proceed(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    ) {
+        Self::ask_whether_to_proceed(self, document, operation, notes);
+    }
+
+    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
+        Self::ask_whether_to_run_scripts(self, document, script, first_line);
+    }
+
+    fn withdraw_script_question(&mut self, document: DocumentId) {
+        Self::withdraw_script_question(self, document);
+    }
+
+    fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound) {
+        Self::beep(self, document, sound);
+    }
+
+    fn retitle(&mut self) {
+        self.update.title = true;
+    }
+
+    /// Nothing to push: the C++ side reads the bar from [`Host::loading_permille`] whenever it
+    /// reads the status line, and a draw that has ended has no share to show (ADR 1825).
+    fn show_the_drawing(&mut self) {}
+
+    /// A flag: the window asks `place_window` with its own extents, which Rust does not know, and
+    /// obeys `/CenterWindow` there too (ADR 1429).
+    fn fit_the_window(&mut self) {
+        self.update.placement = true;
+    }
+
+    /// Nothing here: `place_window` centres the window at the frame that fits it, where its own
+    /// extents are known (ADR 1429).
+    fn asked_to_centre(&mut self) {}
+
+    /// The window's chrome and panel are the C++ side's, read from [`Host::chrome`] on the flag,
+    /// and full screen is said here, where `viewer-gtk` says it as it shows the mode.
+    fn show_the_page_mode(&mut self, _mode: pdf_model::viewer_preferences::PageMode) {
+        if self.state.presenting.full_screen() {
+            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+        }
+        self.update.window = true;
+    }
+
+    fn drain(&mut self, queue: VecDeque<Command>) {
+        Self::drain(self, queue);
+    }
+
+    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
+        Self::open_document(self, password);
+    }
+
+    fn prepare(&mut self) {
+        Self::prepare(self);
+    }
+
+    fn show_the_opening(&mut self) {
+        Self::show_the_opening(self);
+    }
+
+    /// The bar is the C++ side's, drawn from [`Host::loading_permille`], which has nothing to show
+    /// once the document is joined; what is this side's is whether it was ever said.
+    fn take_down_the_bar(&mut self) -> bool {
+        self.bar_said
+    }
+
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
+        self.showing_what_would_print(pages, fidelity);
+    }
+
+    /// A flag for the C++ side, which owns the clipboard, because Rust never calls a Qt object.
+    fn to_clipboard(&mut self, text: String) {
+        self.clipboard = text;
+        self.update.clipboard = true;
+    }
+
+    /// Nothing to arm: the timer [`Host::drawing_wait`] sets looks for a server's answer and a
+    /// conversion's report whenever one is out (ADRs 1291, 1954).
+    fn look_for_answers(&mut self) {}
+
+    fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {
+        Self::ask_for_a_script(self, document, question);
+    }
+
+    /// Every panel is rebuilt from the answers they were built from, the files tab's among them.
+    fn attachments_changed(&mut self) {
+        self.build_panels();
     }
 }

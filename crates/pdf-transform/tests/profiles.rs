@@ -81,6 +81,31 @@ fn refuse_any_loss_authorises_nothing() {
 }
 
 #[test]
+fn no_shipped_profile_authorises_removing_a_transfer_function() {
+    // `doc/adr/1964`: a graphics state's `/TR` replaces the device's initial transfer (ISO 32000-2
+    // §8.4.1's Table 52) on a printer as on a screen, so both yardsticks say printing and the
+    // window carried it, and the one corpus witness turns to a negative without it. The loss is
+    // the operator's to authorise, by name. Both parts state the requirement, so the answer is the
+    // same at every target.
+    let loss = pdf_transform::archive::Loss::TransferFunction;
+    for name in PROFILES {
+        for target in TARGETS {
+            let config = Configuration::read(&profile(name), target).expect("it loads");
+            assert!(
+                !config.authorisations(target).grants(loss),
+                "{name} at {target}"
+            );
+        }
+    }
+    let mut authorised = pdf_transform::archive::Authorisations::default();
+    authorised.authorise(loss);
+    assert!(
+        authorised.grants(loss),
+        "and an operator's --authorise reaches it"
+    );
+}
+
+#[test]
 fn every_profile_declaring_a_tool_carries_the_warning_the_owner_asked_for() {
     // **`doc/questions/A56`, as a property of the shipped files rather than as a habit.** Of the
     // options put, the owner chose *no offer in the first version, warn at the configuration

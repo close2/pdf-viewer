@@ -1569,3 +1569,36 @@ The round had already copied its own binaries into `scratchpad/r1560/bin-new` fo
 rule is that every drive does, and that a release build into the shared target is announced in the
 lock's log line. The export (`tools/batch.sh export`) exists for the same reason and is the better
 tool: it builds under a target of its own.
+
+### 192. The harness's scratchpad is shared by every round of the batch
+
+Round 1564 wrote its `tools/round.sh` output to the harness's session scratchpad and, minutes later,
+read round 1569's: the six rounds of a batch are subagents of one parent and the harness gives them
+one scratch directory. The worktree's `scratchpad/r<session>/` exists so that a round's files are its
+own; a path outside it is shared with five others whatever its name says.
+
+### 193. A shared worktree's diff is nobody's patch
+
+Round 1568 had to export HEAD plus its own change for a drive while round 1565 was editing the same
+`host.rs` files and `native_window.rs`. `git diff` interleaves both. The round filtered `-U0` hunks
+by the sibling's markers, applied them to HEAD in a private index and diffed at `-U3`; two things bit
+on the way — a replacing hunk split in half, and a pure insertion whose new-side line number still
+counted hunks that had been dropped, so the forwarders landed one line past the impl's closing
+brace (ADR 1972). A patch assembled from a shared tree is read back line by line before it is built.
+
+### 194. A wrapper killed after its grant leaves its child under the lock
+
+Round 1566 killed its own queued wrapper seconds after lane 2 was granted. The wrapper died, the
+lock's line wrote `hold=13.3s exit=143`, and the child kept building for about four minutes under a
+lane the lock now believed free, so a sibling's walk could have been granted the same lane over it.
+A wrapper is a process group; `kill -- -<pgid>` takes the child with it, and only before the grant
+is there nothing of the child to take. After the grant, the cheap thing is to wait.
+
+### 195. `python3 -I` writes a `__pycache__` the workspace reads as a crate
+
+Round 1570's one-off script imported `tools/cache-census.py` under `python3 -I`, and for six minutes
+every cargo command in the shared worktree failed on a crate called `__pycache__`. `-I` isolates the
+interpreter from the environment, `PYTHONDONTWRITEBYTECODE` included, so the bytecode cache the
+environment forbids is written anyway. `-B` forbids it on the command line, where `-I` cannot undo it;
+the census's usage line says `python3 -I -B`, and so does every script under `tools/` that another
+script may import.

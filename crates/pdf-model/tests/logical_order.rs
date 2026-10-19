@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::structure::Tree;
+use pdf_model::structure::{ContentSpans, Tree};
 use pdf_syntax::{Document, Object, ObjectId};
 
 /// The pdf.js corpus, or `None` when the submodule is not checked out.
@@ -84,6 +84,8 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
     let mut copied_in_order = 0usize;
     let mut copied_past_artifacts = 0usize;
     let mut with_declared_artifacts = 0usize;
+    let mut annotations_only = 0usize;
+    let mut annotations_only_copied = 0usize;
     for path in &files {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -101,6 +103,32 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
         tagged = tagged.saturating_add(1);
         let interpretation = pdf_model::interpret(&document, &page);
         if interpretation.marked.is_empty() {
+            // A page whose only content items are §14.7.5.3's annotations: a form whose labels
+            // are declared artifacts and whose fields' values are what the tree names. Copied in
+            // the tree's order where every byte is named or declared (ADR 1970).
+            if !interpretation.objects.is_empty() {
+                annotations_only = annotations_only.saturating_add(1);
+                let copied = tree
+                    .logical_range(
+                        &document,
+                        id,
+                        ContentSpans::of(&interpretation),
+                        0..interpretation.text.len(),
+                    )
+                    .is_some();
+                annotations_only_copied =
+                    annotations_only_copied.saturating_add(usize::from(copied));
+                // The control: the same question with the annotations withheld must refuse.
+                let withheld = ContentSpans {
+                    objects: &[],
+                    ..ContentSpans::of(&interpretation)
+                };
+                assert!(
+                    tree.logical_range(&document, id, withheld, 0..interpretation.text.len())
+                        .is_none(),
+                    "a field's value no route names keeps the copy in page order"
+                );
+            }
             continue;
         }
         with_items = with_items.saturating_add(1);
@@ -127,16 +155,18 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
             .any(|span| span.found == pdf_model::content::ArtifactSource::Declared);
         with_declared_artifacts = with_declared_artifacts.saturating_add(usize::from(declared));
         let reached_only = tree
-            .logical_range(&document, id, &interpretation.marked, &[], whole.clone())
-            .is_some();
-        let past_artifacts = tree
             .logical_range(
                 &document,
                 id,
-                &interpretation.marked,
-                &interpretation.artifacts,
-                whole,
+                ContentSpans {
+                    marked: &interpretation.marked,
+                    ..ContentSpans::default()
+                },
+                whole.clone(),
             )
+            .is_some();
+        let past_artifacts = tree
+            .logical_range(&document, id, ContentSpans::of(&interpretation), whole)
             .is_some();
         copied_in_order = copied_in_order.saturating_add(usize::from(reached_only));
         copied_past_artifacts = copied_past_artifacts.saturating_add(usize::from(past_artifacts));
@@ -214,6 +244,10 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
          {with_declared_artifacts} pages declare one"
     );
     println!(
+        "  {annotations_only} pages whose only content items are annotations; \
+         {annotations_only_copied} of them copy whole in logical order"
+    );
+    println!(
         "  {inferred_on_tagged} separators inferred from position on tagged pages; \
          {tagged_pages_needing_none} of {with_items} pages needed none"
     );
@@ -252,6 +286,17 @@ fn the_two_orders_of_a_tagged_page_mostly_coincide() {
     assert_eq!(
         copied_past_artifacts, 58,
         "whole pages the tree reaches or the producer declared an artifact"
+    );
+    // `annotation-text-widget.pdf` and `annotation-choice-widget.pdf`: their labels are declared
+    // artifacts and their fields' values are named by the tree's object references alone, so a
+    // copy answered page order until §14.8.2.5.2's annotations were placed (ADR 1970).
+    assert_eq!(
+        annotations_only, 2,
+        "pages whose content items are annotations"
+    );
+    assert_eq!(
+        annotations_only_copied, 2,
+        "of them, pages a select-all copies in the tree's order"
     );
 }
 
@@ -319,13 +364,7 @@ fn logical_bytes(
     interpretation: &pdf_model::Interpretation,
     range: std::ops::Range<usize>,
 ) -> Option<String> {
-    let pieces = tree.logical_range(
-        document,
-        page,
-        &interpretation.marked,
-        &interpretation.artifacts,
-        range,
-    )?;
+    let pieces = tree.logical_range(document, page, ContentSpans::of(interpretation), range)?;
     Some(
         pieces
             .iter()

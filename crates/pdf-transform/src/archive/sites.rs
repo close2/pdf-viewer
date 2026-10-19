@@ -146,54 +146,6 @@ pub(super) fn abbreviated_filters(input: &pdf_archive::Report) -> Result<(), Bec
     Ok(())
 }
 
-/// Why a graphics state's transfer function is not removed.
-const TRANSFER_FUNCTION_IS_DRAWN: &str = "a graphics state in this file states a transfer \
-     function other than the identity, or states one where this conversion cannot reach every \
-     graphics state that does. ISO 32000-2 10.5's function is applied to what this reader \
-     draws, so removing it would move the colours a reader saw; carrying it into the colours \
-     instead would rewrite every colour, image and shading the page paints under it, which is \
-     content. doc/adr/1952 section 3 says what each profile is to do with one; neither is built";
-
-/// The graphics states whose `/TR` is the name `Identity`, where no graphics state states another.
-///
-/// ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5. The findings are the whole population —
-/// every graphics state stating the key fails the requirement — so a list the validator shortened
-/// leaves the site refused rather than answered for the part of it this can see; so does a
-/// finding naming an object that is not itself the graphics state, a dictionary written inside
-/// another object being one this rewrite does not reach (`doc/adr/1952`).
-pub(super) fn identity_transfer_functions(
-    document: &Document,
-    input: &pdf_archive::Report,
-) -> Result<Sites, Because> {
-    let refused = Because::NotBuiltYet(TRANSFER_FUNCTION_IS_DRAWN);
-    let mut at = BTreeSet::new();
-    for judgement in input.failures() {
-        if judgement.id != "graphics/no-transfer-function-in-a-graphics-state" {
-            continue;
-        }
-        let Outcome::Failed { places, total } = &judgement.outcome else {
-            continue;
-        };
-        if places.len() != *total {
-            return Err(refused);
-        }
-        for finding in places {
-            let id = finding.place.object.ok_or(refused)?;
-            let object = document.get(id);
-            let state = object.as_dict().ok_or(refused)?;
-            let identity = matches!(
-                state.get("TR"),
-                Some(Object::Name(name)) if name.as_bytes() == b"Identity"
-            );
-            if !identity {
-                return Err(refused);
-            }
-            at.insert(id);
-        }
-    }
-    Ok(Sites { at })
-}
-
 /// Why a blend mode written as a bare name the standard does not define is not resolved.
 const BARE_BLEND_MODE: &str = "this file sets a blend mode ISO 32000-2 does not define, written \
      as a bare name. §8.4.1's Table 57 says what a reader takes from an *array* of names and \

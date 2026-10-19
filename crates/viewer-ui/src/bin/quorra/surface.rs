@@ -649,10 +649,7 @@ impl App {
         // refusals saves, the processor's draw is what the interrupt can shorten (ADR 1821).
         if let Some(problem) = &landed.fell_back {
             let tried = landed.device_tried.map_or_else(
-                || {
-                    "the device was not asked: it refused these pages at this magnification before"
-                        .to_owned()
-                },
+                || landed.not_asked().to_owned(),
                 |tried| format!("the device refused in {:.1} ms", tried.as_secs_f64() * 1e3),
             );
             let drew = match (landed.abandoned, landed.processor_drew) {

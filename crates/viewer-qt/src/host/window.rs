@@ -2,8 +2,6 @@
 //! and how large, which chrome Table 29 and §12.2 let it show, and the viewport's size (filed here
 //! by ADR 1908).
 
-use std::collections::VecDeque;
-
 use viewer_core::{Answer, Command, Query};
 use viewer_host::native_window::NativeWindow;
 use viewer_host::panel::Tab;
@@ -51,85 +49,24 @@ impl Host {
             return;
         }
         // A document still opening past `WARN` is told the window's size when it is taken in.
-        if self.awaiting.is_some() {
-            self.awaiting = Some(resize);
+        if self.state.awaiting.is_some() {
+            self.state.awaiting = Some(resize);
             return;
         }
         self.dispatch(resize);
         // A window asked to fit the first displayed page is measured again once it has taken
         // the size it was asked for, because a frame is not always drawn for a viewport the page
         // already fits the width of (ADR 1429).
-        if self.presenting.owes_placing() {
+        if self.state.presenting.owes_placing() {
             self.update.placement = true;
         }
     }
 
-    /// Table 29's two display entries, and ISO 32000-2 §12.2's chrome flags with them.
-    ///
-    /// `/PageLayout` is the viewer's to apply, and what this host needs from it is the value `l`
-    /// cycles from — see `viewer-gtk`, which does the same. `/PageMode` is "how the document shall
-    /// be displayed when opened", which since ADR 0470 includes a full-screen window for the one
-    /// name that used to get a note saying this program had no such thing.
-    ///
-    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
-    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
-    /// is not displayed: the window's full screen, presentation and panel stay the front
-    /// document's, so a presentation running when a second document arrives keeps its full screen
-    /// (ADR 1303).
-    pub(super) fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
-        let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
-            return;
-        };
-        self.state.showing.layout = opening.layout;
-        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
-            self.say(&format!(
-                "this document opens in the {:?} page layout (§7.7.2)",
-                opening.layout
-            ));
-        }
-        if !in_front {
-            return;
-        }
-        if let Answer::Preferences(preferences) = self.state.viewer.query(Query::Preferences) {
-            self.presenting = viewer_host::Presenting::opening(opening, &preferences);
-            // Trap 5: a document asking for something and getting silence. Two of Table 147's
-            // three flags name widgets this window hides on request, and the third names one it
-            // keeps on purpose — the menu holding this reader's own restriction levels
-            // (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
-            if preferences.hide_menubar {
-                self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
-            }
-            // §12.2's `/DisplayDocTitle`: the title bar shows the document's own title, by the rule
-            // the other two windows take too. The metadata stream is read only for a document
-            // that asks, so a document that does not costs its opening nothing here.
-            self.state.showing.titled = if preferences.display_doc_title {
-                match self.state.viewer.query(Query::Properties) {
-                    Answer::Properties {
-                        information,
-                        metadata,
-                    } => viewer_host::documents::document_title(&information, metadata.as_ref()),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            self.update.title = true;
-        }
-        if self.presenting.full_screen() {
-            self.start_the_clock();
-            // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start
-            // a second `pump` under the first.
-            queue.push_back(Command::Present(self.presenting.mode()));
-            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
-        }
-        self.update.window = true;
-    }
-
     /// Which pieces of chrome this window may show, and whether it is full screen.
     pub(crate) fn chrome(&self) -> QtChrome {
-        let chrome = self.presenting.chrome();
+        let chrome = self.state.presenting.chrome();
         QtChrome {
-            full_screen: self.presenting.full_screen(),
+            full_screen: self.state.presenting.full_screen(),
             menu_bar: chrome.menu_bar,
             tool_bar: chrome.tool_bar,
             window_ui: chrome.window_ui,
@@ -146,9 +83,9 @@ impl Host {
     /// nothing while it is not, because §12.2 states no page mode for a window that never left.
     /// `-1` where this host has no panel for the name.
     pub(crate) fn panel_wanted(&self) -> i32 {
-        let mode = if self.presenting.full_screen() {
+        let mode = if self.state.presenting.full_screen() {
             return -1;
-        } else if let Some(mode) = self.presenting.on_exit() {
+        } else if let Some(mode) = self.state.presenting.on_exit() {
             mode
         } else {
             let Answer::Opening(opening) = self.state.viewer.query(Query::Opening) else {
@@ -217,7 +154,7 @@ impl Host {
             Answer::View(viewing) => viewing.page,
             _ => 0,
         };
-        let Some(placing) = self.presenting.place(page) else {
+        let Some(placing) = self.state.presenting.place(page) else {
             return Vec::new();
         };
         #[expect(
@@ -258,7 +195,7 @@ impl Host {
                 return vec![1, whole(wanted.0), whole(wanted.1), 0, 0, 0];
             }
         }
-        self.presenting.placed();
+        self.state.presenting.placed();
         match screen {
             Some(screen) if placing.centre => {
                 let (x, y) = viewer_host::centred(
@@ -328,42 +265,5 @@ impl Host {
         println!("note: {what}");
         what.clone_into(&mut self.message);
         self.update.status = true;
-    }
-
-    /// A page turn: the title bar, and what the pages now on the screen could not draw.
-    ///
-    /// §12.4.2: "[p]age labels and page indices need not coincide". Both are shown, because a
-    /// label alone cannot say "of 320".
-    pub(super) fn turned(
-        &mut self,
-        index: usize,
-        label: Option<&str>,
-        of: usize,
-        section: Option<&str>,
-    ) {
-        let page = match label {
-            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-            None => format!("page {} of {of}", index.saturating_add(1)),
-        };
-        self.state.showing.caption = match section {
-            Some(section) if !section.is_empty() => format!("{page} — {section}"),
-            _ => page,
-        };
-        self.update.title = true;
-        self.restate();
-    }
-
-    /// Says again what the pages now on the screen could not draw.
-    ///
-    /// **`Query::Reports` is where a host that cleared its status bar finds it again**, and under
-    /// Table 29's continuous arrangements it is the only way to be right: the events came page by
-    /// page as each was interpreted, and a scroll that brings a page back does not interpret it
-    /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
-    pub(super) fn restate(&mut self) {
-        let said = match self.state.viewer.query(Query::Reports) {
-            Answer::Reports(pages) => viewer_host::status::on_screen(&pages),
-            _ => return,
-        };
-        self.say(&said);
     }
 }

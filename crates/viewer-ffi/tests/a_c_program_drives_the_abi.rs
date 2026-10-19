@@ -215,8 +215,10 @@ fn what_it_printed(said: &str) {
     for expected in [
         "abi 2 (header 2), 30 event kind(s) (header 30)",
         // ISO 19005's conversion asked for at the reader's default level, granted once, and its
-        // report's first line naming the profile the library listed second (ADR 1954).
-        "archive: 6 profile(s), the second as-if-printed",
+        // report's first line naming the profile the library listed second (ADR 1954), and that
+        // profile's own sentence as the windows offer it (ADR 1966).
+        "archive: 6 profile(s), the second as-if-printed: Discard what printing would not have \
+         carried; touch nothing it would.",
         "archive: 1 grant(s), ",
         "line(s), the first: converting to PDF/A-2b under the profile \"as-if-printed\"",
         "Opened says document 1 has 5 page(s)",

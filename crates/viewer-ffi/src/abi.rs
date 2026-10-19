@@ -1572,6 +1572,26 @@ pub unsafe extern "C" fn quorra_archive_profile(
     copy_out(shipped.name, out, cap, needed)
 }
 
+/// One shipped profile's sentence about itself, by index, as UTF-8 with a trailing NUL — what the
+/// windows offer beside the name when a person chooses (ADR 1966), so a C caller's chooser can say
+/// the same thing.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_archive_profile_sentence(
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(offered) = viewer_host::archiving::offered().into_iter().nth(index) else {
+        return Status::OutOfRange.code();
+    };
+    copy_out(&offered.sentence, out, cap, needed)
+}
+
 /// Asks for the focused document as ISO 19005 (PDF/A) at `target` — `2b`, `2u`, `2a`, `4`, `4f`
 /// or `4e` — under the shipped profile `profile`.
 ///

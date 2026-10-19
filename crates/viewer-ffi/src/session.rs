@@ -63,6 +63,9 @@ pub struct Session {
     /// Held for [`Self::printed`]'s reason: C's two-call idiom asks for the size and then for the
     /// bytes, and the report's lines are read one at a time (ADR 1954).
     archived: Option<viewer_host::archiving::Converted>,
+    /// The password each open document was opened with, which a conversion opens the file again
+    /// with — the library is a C caller's host, and keeps what a window keeps (ADR 1967).
+    kept: viewer_host::password::Kept,
 }
 
 /// One printed page, rasterised and waiting for the caller's buffer.
@@ -90,6 +93,7 @@ impl Session {
             departures: viewer_core::RestrictionOverride::NONE,
             printed: None,
             archived: None,
+            kept: viewer_host::password::Kept::new(),
         }
     }
 
@@ -114,6 +118,7 @@ impl Session {
                     *document,
                     bytes.clone(),
                     asked.clone(),
+                    self.kept.lend(*document),
                 ));
             }
         }
@@ -138,6 +143,10 @@ impl Session {
         // the core's `Open` does exactly this, and a mirror that did not would build the next
         // override on the last document's (ADR 1145).
         self.departures = viewer_core::RestrictionOverride::NONE;
+        match &password {
+            Some(password) => self.kept.keep(DocumentId(id), password),
+            None => self.kept.forget(DocumentId(id)),
+        }
         self.handle(Command::Open {
             id: DocumentId(id),
             bytes: bytes.into(),
@@ -149,6 +158,7 @@ impl Session {
     /// Closes a document and forgets everything derived from it.
     #[must_use]
     pub fn close(&mut self, id: u64) -> Events {
+        self.kept.forget(DocumentId(id));
         self.handle(Command::Close(DocumentId(id)))
     }
 

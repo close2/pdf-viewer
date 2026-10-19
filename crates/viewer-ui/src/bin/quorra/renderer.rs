@@ -120,6 +120,7 @@ use pdf_render::{DisplayList, Interrupt};
 use raster_gpu::wgpu;
 use render_raster::{FrameCost, QuorraWindowRenderer};
 
+use lanes::Kept;
 pub(crate) use lanes::Prediction;
 use sharp::Sharpened;
 pub(crate) use window::Window;
@@ -181,11 +182,12 @@ struct Job {
     coverage: raster_gpu::Coverage,
     /// The pair the event thread has finished with, for this frame to draw into.
     reuse: Option<Pair>,
-    /// What the device said when it last refused these pages at this magnification, where it has
-    /// — and then the device is not asked again, and the processor draws at once ([`Refusals`]).
+    /// What the device said when it last refused these pages at this magnification, or this
+    /// frame's coverage lane, where it has — and then the device is not asked again, and the
+    /// processor draws at once ([`Refusals`], ADR 1968).
     ///
     /// [`Refusals`]: lanes::Refusals
-    known_refusal: Option<String>,
+    known_refusal: Option<Known>,
     /// Where the window predicted the processor draws these pages faster than the device does —
     /// and then the device is not asked at all ([`Costs`], ADR 1831).
     ///
@@ -217,6 +219,14 @@ struct Job {
     build_ahead: Option<Duration>,
 }
 
+/// A refusal the window remembered, carried by the job it answers: what the device said, and what
+/// it is a fact about (ADRs 1821, 1968).
+#[derive(Debug)]
+struct Known {
+    said: String,
+    of: Kept,
+}
+
 /// One finished window frame, on its way back to the thread that will present it.
 #[derive(Debug)]
 struct Done {
@@ -226,13 +236,17 @@ struct Done {
     /// What the device refused, where the processor then drew the page instead — or was asked to
     /// and did not, where [`Self::abandoned`] says so.
     fell_back: Option<String>,
-    /// Whether the refusal in [`Self::fell_back`] was the device's answer to *this* frame and is a
-    /// fact about these pages at this magnification, which is what [`Refusals`] keeps. `false` for
-    /// a refusal the job already carried and for one that says nothing about the page (a device
-    /// lost, a pipeline missing), which is asked again next frame as it always was.
+    /// What the refusal in [`Self::fell_back`] is a fact about, where it was the device's answer to
+    /// *this* frame and is one [`Refusals`] keeps: these pages at this magnification, or the
+    /// frame's coverage lane (ADR 1968). `None` for a refusal the job already carried and for one
+    /// that says nothing about either (a device lost), which is asked again next frame as it
+    /// always was.
     ///
     /// [`Refusals`]: lanes::Refusals
-    refused_now: bool,
+    refused_now: Option<Kept>,
+    /// What the refusal the job carried was a fact about, where the device was not asked because
+    /// of it ([`Job::known_refusal`]).
+    known: Option<Kept>,
     /// How long the device was asked before it refused — the part of a refused frame nothing on
     /// this side can interrupt, and the part [`Refusals`] exists to stop paying twice.
     ///
@@ -374,8 +388,11 @@ pub(crate) struct Landed {
     pub(crate) drew: Duration,
     pub(crate) fell_back: Option<String>,
     /// How long the device was asked before it refused, where it was asked and refused — `None`
-    /// where it accepted, and where it was not asked because it had refused this frame before.
+    /// where it accepted, and where it was not asked because it had refused this frame or its
+    /// lane before ([`Self::not_asked`]).
     pub(crate) device_tried: Option<Duration>,
+    /// What the refusal that kept the device from being asked was a fact about, where one did.
+    pub(crate) known: Option<Kept>,
     /// How long the processor drew for, where it drew.
     pub(crate) processor_drew: Option<Duration>,
     /// Where the processor drew because it was predicted the faster lane, the prediction.
@@ -390,6 +407,21 @@ pub(crate) struct Landed {
     pub(crate) abandoned: bool,
     pub(crate) refused: Option<String>,
     pub(crate) function_refusals: Vec<String>,
+}
+
+impl Landed {
+    /// Why the device was not asked for a frame it refused, for the trace's line about the frame
+    /// (ADRs 1821, 1968).
+    pub(crate) fn not_asked(&self) -> &'static str {
+        match self.known {
+            Some(Kept::Lane(_)) => {
+                "the device was not asked: this adapter refused the pipelines of its coverage lane"
+            }
+            Some(Kept::Frame) | None => {
+                "the device was not asked: it refused these pages at this magnification before"
+            }
+        }
+    }
 }
 
 impl Done {

@@ -25,6 +25,24 @@ pub struct Shipped {
     pub text: &'static str,
 }
 
+impl Shipped {
+    /// The one sentence the profile states about itself, `[profile] sentence`, which is what a
+    /// window offering the profile says beside its name (ADR 1966).
+    ///
+    /// Read from [`Self::text`] rather than written beside [`Self::name`], so the sentence a person
+    /// is offered is the file's and cannot drift from it; `None` where the file states none.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError`] where the text does not read as a configuration, which `tests/profiles.rs`
+    /// holds no shipped profile to.
+    pub fn sentence(&self) -> Result<Option<String>, ConfigError> {
+        // The sentence is the same whichever target the profile is read for, and every shipped
+        // profile reads for all six, so the first target is as good as any.
+        Configuration::read(self.text, Target::ALL[0]).map(|config| config.sentence)
+    }
+}
+
 /// Every profile this program ships, in the order a person is offered them.
 pub const SHIPPED: [Shipped; 6] = [
     Shipped {
@@ -137,6 +155,19 @@ mod tests {
             let read = Contribution::read(shipped.text, Target::Two(pdf_archive::Level::B))
                 .expect("a shipped profile reads");
             assert_eq!(read.name.as_deref(), Some(shipped.name), "{}", shipped.name);
+        }
+    }
+
+    /// Every shipped profile states the one sentence a window offers beside its name.
+    #[test]
+    fn each_shipped_profile_states_its_sentence() {
+        for shipped in SHIPPED {
+            let sentence = shipped.sentence().expect("a shipped profile reads");
+            assert!(
+                sentence.is_some_and(|sentence| sentence.ends_with('.')),
+                "{}",
+                shipped.name
+            );
         }
     }
 

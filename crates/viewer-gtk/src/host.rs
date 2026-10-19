@@ -52,6 +52,7 @@ use crate::controls::Placed;
 use viewer_host::panel::{self, Miniatures};
 use viewer_host::trace::{Topic, Trace};
 
+mod archiving;
 mod drawing;
 mod find;
 mod forms;
@@ -480,8 +481,6 @@ pub struct Host {
     /// every motion event: `gdk_surface_set_cursor` is a round trip to the display server and a
     /// pointer moved across a page produces hundreds of them a second.
     over_link: bool,
-    /// Whether the first frame has been reported, so that the launch line is printed once.
-    presented: bool,
     /// §14.7's tree on AT-SPI, brought up after the first frame and never before it.
     ///
     /// **`None` until [`Host::attend`] has run once**, which is `CLAUDE.md`'s startup rule: the
@@ -555,12 +554,6 @@ pub struct Host {
     /// reader had rather than what the document last permitted. `o` is the key, in all three hosts
     /// since ADR 0526.
     panel_wanted: bool,
-    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
-    ///
-    /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence this window
-    /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is GTK's is
-    /// `GtkWindow::fullscreen` and which widget each of Table 147's three flags names.
-    presenting: viewer_host::Presenting,
     /// The one-shot waiting to turn the clock, so that it can be moved when the interval changes.
     ///
     /// One source at a time, removed and re-armed rather than repeating: a transition wants a
@@ -570,13 +563,6 @@ pub struct Host {
     /// When this window last told the core that time passed for a document's script timers, which
     /// [`Self::armed`] also wakes for while no presentation does (ADR 1702).
     script_ticker: viewer_host::script_timers::Ticker,
-    /// The document opening on [`Opening`]'s thread, until the first allocation joins it — or,
-    /// where it is not ready inside `viewer_host::drawing::WARN`, until the tick that finds it
-    /// ready (ADR 1811).
-    anticipated: Option<viewer_host::Loading<(Viewer, Vec<Event>)>>,
-    /// The latest viewport the window was given while the document was still opening, which the
-    /// join tells the core rather than the first one.
-    awaiting: Option<Command>,
     /// The launch document's outline and placed page tree, being read on a thread of their own
     /// from the join until they are handed back ([`viewer_core::Preparation`], ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
@@ -649,7 +635,9 @@ impl Host {
             let ui = build_window(app, path, me, &chrome);
             trace.say(Topic::Launch, format_args!("window built"));
             RefCell::new(Self {
-                state: WindowState::new(path, bytes, fragment, trace, ahead).archiving(archive),
+                state: WindowState::new(path, bytes, fragment, trace, ahead)
+                    .archiving(archive)
+                    .opening(thread),
                 pointer_at: None,
                 zoom_wheel: viewer_host::ZoomWheel::default(),
                 panels_due: false,
@@ -673,7 +661,6 @@ impl Host {
                 pressed_a_control: false,
                 dragging_a_control: false,
                 over_link: false,
-                presented: false,
                 accessibility: None,
                 spoken: None,
                 access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -689,11 +676,8 @@ impl Host {
                 panel_wanted: true,
                 // Table 147's and Table 29's own defaults, replaced by what the catalog states
                 // the moment the document opens.
-                presenting: viewer_host::Presenting::default(),
                 armed: None,
                 script_ticker: viewer_host::script_timers::Ticker::default(),
-                anticipated: Some(thread),
-                awaiting: None,
                 preparing: None,
             })
         })
@@ -733,6 +717,141 @@ impl NativeWindow for Host {
 
     fn repaint(&mut self) {
         self.refresh();
+    }
+
+    fn offer_to_archive(&mut self, choosing: viewer_host::archiving::Choosing) {
+        self.offer_the_archive_choice(choosing);
+    }
+
+    fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
+        Self::opened(self, document, pages, queue);
+    }
+
+    fn password_required(&mut self, document: DocumentId) {
+        Self::password_required(self, document);
+    }
+
+    fn follow_the_link(&mut self, uri: &str) {
+        Self::follow_the_link(self, uri);
+    }
+
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
+        Self::submit(self, document, submission);
+    }
+
+    fn needs_file(
+        &mut self,
+        document: DocumentId,
+        purpose: viewer_core::Purpose,
+        name: String,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
+        Self::needs_file(self, document, purpose, name, beside, queue);
+    }
+
+    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
+        Self::fetch_policy(self, document, policy);
+    }
+
+    fn extracted(
+        &mut self,
+        document: DocumentId,
+        asked: viewer_core::Extraction,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
+        Self::extracted(self, document, asked, name, bytes, fragment);
+    }
+
+    fn ask_whether_to_proceed(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    ) {
+        Self::ask_whether_to_proceed(self, document, operation, notes);
+    }
+
+    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
+        Self::ask_whether_to_run_scripts(self, document, script, first_line);
+    }
+
+    fn withdraw_script_question(&mut self, document: DocumentId) {
+        Self::withdraw_script_question(self, document);
+    }
+
+    fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound) {
+        Self::beep(self, document, sound);
+    }
+
+    fn retitle(&mut self) {
+        Self::retitle(self);
+    }
+
+    fn show_the_drawing(&mut self) {
+        Self::show_the_drawing(self);
+    }
+
+    fn fit_the_window(&mut self) {
+        Self::fit_the_window(self);
+    }
+
+    /// GTK 4 gives a program no way to place its own top-level window, so `/CenterWindow` is said
+    /// rather than dropped (trap 5, ADR 1429).
+    fn asked_to_centre(&mut self) {
+        self.say(window::NO_POSITION_TO_SET);
+    }
+
+    fn show_the_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
+        self.show_page_mode(mode);
+        self.apply_chrome();
+    }
+
+    fn drain(&mut self, queue: VecDeque<Command>) {
+        self.pump(queue);
+    }
+
+    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
+        Self::open_document(self, password);
+    }
+
+    fn prepare(&mut self) {
+        Self::prepare(self);
+    }
+
+    fn show_the_opening(&mut self) {
+        Self::show_the_opening(self);
+    }
+
+    fn take_down_the_bar(&mut self) -> bool {
+        Self::take_down_the_bar(self)
+    }
+
+    /// The dialogue is opened *after* the grant and from outside the borrow the core's answer was
+    /// read in, because `GtkPrintOperation::run` turns the main loop and every callback it raises
+    /// comes back through `with` (ADR 1180).
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
+        self.open_the_print_dialogue(pages, fidelity);
+    }
+
+    fn to_clipboard(&mut self, text: String) {
+        gtk4::prelude::WidgetExt::clipboard(&self.ui.chrome).set_text(&text);
+    }
+
+    fn look_for_answers(&mut self) {
+        Self::look_for_answers(self);
+    }
+
+    fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {
+        Self::ask_for_a_script(self, document, &question);
+    }
+
+    /// The files tab is rebuilt from the same answer it was built from: a file attached this
+    /// sitting is in it before anything is saved, and one detached is out of it.
+    fn attachments_changed(&mut self) {
+        self.rebuild_panel(panel::Tab::Files);
     }
 }
 

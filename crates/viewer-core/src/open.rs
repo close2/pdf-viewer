@@ -811,6 +811,9 @@ pub(crate) struct Interpreted {
     /// §14.8.2.2's artifact spans over that readback, which a copy in logical order leaves out
     /// (ADR 1948). Empty on every page that marks none, which is nearly all of them.
     pub(crate) artifacts: Vec<pdf_model::content::ArtifactSpan>,
+    /// §14.7.5.3's annotations the structure tree claims, with what each read back, which a copy
+    /// in logical order places where the tree names them (ADR 1970). Empty on every untagged page.
+    pub(crate) objects: Vec<pdf_model::content::ObjectSpan>,
     /// §14.9's `/Alt`, `/E` and `/Lang` spans, kept beside them for the same reason.
     pub(crate) described: Vec<pdf_model::accessibility::Described>,
     /// The catalog's `/Lang`, which §14.9.2.3 makes the document-wide default.

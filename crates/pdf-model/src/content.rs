@@ -66,8 +66,8 @@ pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
 pub use ledger::Ledger;
 pub use list_budget::MAX_LIST_BYTES;
 pub use report::{
-    ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed,
-    Shortfall, UnnamedCodes, Unsupported, named_sequences,
+    ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan,
+    ObjectSpan, Placed, Shortfall, UnnamedCodes, Unsupported, named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -1458,7 +1458,7 @@ impl<'a> Interpreter<'a> {
             reach_scanned: 0,
             list_budget: list_budget::ListBudget::default(),
             fonts: BTreeMap::new(),
-            layout_fonts: crate::variable_text::LayoutFonts::new(document),
+            layout_fonts: crate::variable_text::LayoutFonts::sharing(document, across),
             across: Some(across),
             references,
             text: String::new(),
@@ -1852,14 +1852,14 @@ struct Checkpoint {
     artifacts: Vec<ArtifactSpan>,
     /// See [`Interpretation::marked`].
     marked: Vec<MarkedSpan>,
-    /// §14.7.5.3's object content items on this page, as ranges of [`Self::text`].
+    /// §14.7.5.3's object content items on this page: [`Interpretation::objects`].
     ///
     /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
     /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
     /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
     /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
     /// value on a tagged form would be classified an artifact by absence.
-    structural_annotations: Vec<std::ops::Range<usize>>,
+    structural_annotations: Vec<ObjectSpan>,
     /// Marked-content sequences a malformed content stream left open, which the annotation pass
     /// would otherwise close on a stack that had not been opened.
     marking: Vec<marked::OpenSequence>,
@@ -2344,6 +2344,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         described: interpreter.described,
         artifacts,
         marked: interpreter.marked,
+        objects: interpreter.structural_annotations,
         inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
         language,
@@ -2383,14 +2384,14 @@ impl Interpreter<'_> {
 fn by_absence(
     text: &str,
     marked: &[MarkedSpan],
-    annotations: &[std::ops::Range<usize>],
+    annotations: &[ObjectSpan],
     artifacts: &mut Vec<ArtifactSpan>,
 ) {
     let included: Vec<std::ops::Range<usize>> = marked
         .iter()
         .map(|span| span.range.clone())
         .chain(artifacts.iter().map(|span| span.range.clone()))
-        .chain(annotations.iter().cloned())
+        .chain(annotations.iter().map(|span| span.range.clone()))
         .collect();
     artifacts.extend(
         crate::structure::artifacts_by_absence(text, &included)
@@ -2661,7 +2662,8 @@ struct Interpreter<'a> {
     /// It holds a *failure* as well as a font, which [`Self::across`] deliberately does not.
     fonts: BTreeMap<FontKey, Option<Font>>,
     /// The `/DA` fonts §12.7.4.3's layouts loaded for the annotations drawn so far, so that a
-    /// page of fields set in one face loads it once rather than once a field (ADR 1956).
+    /// page of fields set in one face loads it once rather than once a field (ADR 1956) — and
+    /// once for the appearance's `Tf` as well, which finds it in [`Self::across`] (ADR 1974).
     layout_fonts: crate::variable_text::LayoutFonts<'a>,
     /// Fonts loaded out of this document by an *earlier* interpretation, where the caller kept
     /// them (§9.6, ADR 0710).
@@ -2795,14 +2797,14 @@ struct Interpreter<'a> {
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.
     marked: Vec<MarkedSpan>,
-    /// §14.7.5.3's object content items on this page, as ranges of [`Self::text`].
+    /// §14.7.5.3's object content items on this page: [`Interpretation::objects`].
     ///
     /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
     /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
     /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
     /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
     /// value on a tagged form would be classified an artifact by absence.
-    structural_annotations: Vec<std::ops::Range<usize>>,
+    structural_annotations: Vec<ObjectSpan>,
     /// The structure tree, for a document that claims §14.8's rules apply to it.
     ///
     /// `Some` only where the catalog's `/MarkInfo` states `/Marked true` — §14.8.1 makes that "a

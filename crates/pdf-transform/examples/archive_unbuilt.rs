@@ -1,8 +1,11 @@
 //! Which refusal sites still read "not built yet", and how many documents reach each.
 //!
 //! ```sh
-//! cargo run --release -p pdf-transform --example archive_unbuilt -- <dir>...
+//! cargo run --release -p pdf-transform --example archive_unbuilt -- <dir>... [--who <site>]...
 //! ```
+//!
+//! `--who <site>`, which may repeat, names after the table every document failing that site at
+//! each target: the witnesses a round building the site's remedy renders before and after.
 //!
 //! `quorra-transform archive --remedy-sites` lists every site a configuration may answer and says
 //! which have no remedy built; it needs no document, which is its point. This adds the second
@@ -58,10 +61,18 @@ fn documents(directory: &Path, out: &mut Vec<PathBuf>) {
 
 fn main() {
     let mut paths = Vec::new();
-    for directory in std::env::args().skip(1) {
-        documents(Path::new(&directory), &mut paths);
+    let mut who: Vec<String> = Vec::new();
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--who" {
+            who.extend(args.next());
+        } else {
+            documents(Path::new(&arg), &mut paths);
+        }
     }
     paths.sort();
+    // Per site `--who` names and target, the documents failing it.
+    let mut witnesses: BTreeMap<(&str, String), Vec<&Path>> = BTreeMap::new();
 
     // Per target, the unbuilt sites and the documents failing each.
     let mut counts: BTreeMap<String, BTreeMap<&'static str, usize>> = BTreeMap::new();
@@ -89,6 +100,12 @@ fn main() {
                 if let Some(seen) = row.get_mut(failed.id) {
                     *seen = seen.saturating_add(1);
                 }
+                if who.iter().any(|site| site == failed.id) {
+                    witnesses
+                        .entry((failed.id, target.to_string()))
+                        .or_default()
+                        .push(path);
+                }
             }
         }
     }
@@ -115,6 +132,12 @@ fn main() {
         for (requirement, documents) in ranked {
             let kind = kinds.get(requirement).copied().unwrap_or("-");
             println!("  {documents:>5}  {kind:<16} {requirement}");
+        }
+    }
+    for ((site, target), paths) in &witnesses {
+        println!("\n{site} at {target}: {} document(s)", paths.len());
+        for path in paths {
+            println!("  {}", path.display());
         }
     }
 }

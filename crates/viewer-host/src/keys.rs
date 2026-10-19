@@ -349,12 +349,12 @@ pub enum WindowAct {
     /// (ADR 1180).
     Print,
     /// Convert the document to ISO 19005 (PDF/A) at the target and under the profile the window
-    /// was started with ([`crate::archiving`]).
+    /// holds ([`crate::archiving`]).
     ///
     /// **A window act rather than a [`Command`], for [`Self::Print`]'s reason turned round**:
     /// [`viewer_core::Command::Archive`] asks the policy, but the target and the profile are a
-    /// window's to hold — chosen by `--archive` — and a window with none chosen says how to
-    /// choose rather than sending a command it has nothing to fill with (ADR 1954).
+    /// window's to hold — chosen by `--archive`, or on the card or dialogue this key puts up where
+    /// none was chosen yet — rather than a command sent with nothing to fill it (ADRs 1954, 1966).
     Archive,
     /// Leave full screen, which is what Escape means while one is running.
     LeaveFullScreen,

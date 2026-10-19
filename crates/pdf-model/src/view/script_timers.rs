@@ -190,9 +190,11 @@ impl ViewState {
             self.recalculate_scripts(document, &table, "");
         }
         self.refresh_formatted(document, &table);
+        // A timer's expression is no action of a chain, so there is no refusal a host would say.
         ScriptsRan {
             handed,
             changed: drawn,
+            said: 0,
         }
     }
 
