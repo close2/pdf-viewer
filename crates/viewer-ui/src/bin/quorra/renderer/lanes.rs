@@ -493,7 +493,7 @@ pub(super) fn upload_lane(refused: raster_gpu::Coverage) -> raster_gpu::Coverage
     }
 }
 
-/// The coverage lanes the adapter refused, as the render thread knows them (ADRs 1968, 1984).
+/// The coverage lanes the adapter refused, as the render thread knows them (ADRs 1968, 1984, 2000).
 ///
 /// [`Refusals`] is the event thread's, and it reaches a frame as the job's [`Known`]; a retained
 /// picture is drawn while no job is in hand, so the render thread keeps the lanes it has heard of
@@ -502,23 +502,48 @@ pub(super) fn upload_lane(refused: raster_gpu::Coverage) -> raster_gpu::Coverage
 /// fact about another page, so it is not kept here. Never aged, for [`Refusals`]'s reason: the
 /// device is this thread's and lives as long as it does.
 ///
+/// **The window is told a lane the retained layer heard** (`Finished::Lane`), once, and this record
+/// answers a job asked before the window read it ([`Self::said`]): either way the device is asked
+/// once per window for a lane, whichever path heard the refusal first (ADR 2000).
+///
 /// [`Known`]: super::Known
 #[derive(Debug, Default)]
-pub(super) struct RefusedLanes(Vec<raster_gpu::Coverage>);
+pub(super) struct RefusedLanes(Vec<(raster_gpu::Coverage, String)>);
 
 impl RefusedLanes {
-    /// Keeps a refusal where it is a lane's.
-    pub(super) fn learn(&mut self, kept: Option<Kept>) {
-        if let Some(Kept::Lane(lane)) = kept
-            && !self.0.contains(&lane)
-        {
-            self.0.push(lane);
+    /// Keeps a refusal where it is a lane's, with what the adapter said; answers whether the lane
+    /// was new to this thread.
+    pub(super) fn learn(&mut self, kept: Option<Kept>, said: &str) -> bool {
+        let Some(Kept::Lane(lane)) = kept else {
+            return false;
+        };
+        if self.refused(lane) {
+            return false;
         }
+        self.0.push((lane, said.to_owned()));
+        true
     }
 
     /// Whether the adapter refused this lane's pipelines on this device.
     pub(super) fn refused(&self, lane: raster_gpu::Coverage) -> bool {
-        self.0.contains(&lane)
+        self.0.iter().any(|(refused, _)| *refused == lane)
+    }
+
+    /// What the adapter said when it refused this frame's coverage lane, where it did — the
+    /// answer [`Refusals::said`] gives for a lane, for a job asked before the window heard of it.
+    /// A frame with no page asks nothing of a lane, so it is never refused.
+    pub(super) fn said(
+        &self,
+        pages: &[crate::stale::Placed],
+        coverage: raster_gpu::Coverage,
+    ) -> Option<(&str, Kept)> {
+        if pages.is_empty() {
+            return None;
+        }
+        self.0
+            .iter()
+            .find(|(refused, _)| *refused == coverage)
+            .map(|(lane, said)| (said.as_str(), Kept::Lane(*lane)))
     }
 }
 
@@ -875,18 +900,18 @@ mod tests {
 
     /// **The render thread keeps a lane's refusal, from a frame or from its own ask, and nothing
     /// else** (ADR 1984): a refusal about a frame says nothing about another page, and a lane
-    /// heard twice is one lane.
+    /// heard twice is one lane, new once — the once the window is told (ADR 2000).
     #[test]
     fn the_render_thread_keeps_a_lane_s_refusal_and_not_a_frame_s() {
         use raster_gpu::{PipelineProblem, RenderError};
         let mut lanes = RefusedLanes::default();
-        lanes.learn(Some(Kept::Frame));
-        lanes.learn(None);
+        assert!(!lanes.learn(Some(Kept::Frame), "refused"));
+        assert!(!lanes.learn(None, "lost"));
         assert!(
             !lanes.refused(CPU) && !lanes.refused(COMPUTE),
             "nothing is a lane's"
         );
-        lanes.learn(Some(Kept::Lane(COMPUTE)));
+        assert!(lanes.learn(Some(Kept::Lane(COMPUTE)), "carried"));
         assert!(
             lanes.refused(COMPUTE),
             "a frame's carried refusal of its lane"
@@ -898,13 +923,43 @@ mod tests {
                 detail: "no entry point".to_owned(),
             },
         });
-        lanes.learn(remembered(&own, CPU));
-        lanes.learn(remembered(&own, CPU));
+        let said = own.to_string();
         assert!(
-            lanes.refused(CPU),
-            "the retained layer's own ask, sorted by the frames' rule"
+            lanes.learn(remembered(&own, CPU), &said),
+            "the retained layer's own ask, sorted by the frames' rule, is new and is told"
         );
+        assert!(
+            !lanes.learn(remembered(&own, CPU), &said),
+            "and heard again is not told again"
+        );
+        assert!(lanes.refused(CPU));
         assert_eq!(lanes.0.len(), 2, "a lane heard twice is one lane");
+    }
+
+    /// **A lane the retained layer heard answers the next frame of it, on either side of the
+    /// thread** (ADR 2000): the render thread's record answers a job asked before the window was
+    /// told, and the window, told, answers it at the ask as it does a lane a frame heard.
+    #[test]
+    fn a_lane_the_retained_layer_heard_answers_the_next_frame_on_either_side() {
+        let said = "frame refused: a pipeline this frame needs could not be built";
+        let mut lanes = RefusedLanes::default();
+        assert!(lanes.learn(Some(Kept::Lane(CPU)), said));
+        let page = placed(3, 0.5, 0.0);
+        assert_eq!(lanes.said(&page, CPU), Some((said, Kept::Lane(CPU))));
+        assert_eq!(lanes.said(&page, raster_gpu::Coverage::Gpu), None);
+        assert_eq!(lanes.said(&[], CPU), None, "no page asks nothing");
+        let mut refusals = Refusals::default();
+        assert_eq!(
+            refusals.said(&page, CPU),
+            None,
+            "the window before it is told"
+        );
+        refusals.remember(&[], said, Kept::Lane(CPU));
+        assert_eq!(
+            refusals.said(&page, CPU),
+            lanes.said(&page, CPU),
+            "and after: one answer on both sides"
+        );
     }
 
     /// The processor's picture of a frame whose lane was refused goes back through a lane that

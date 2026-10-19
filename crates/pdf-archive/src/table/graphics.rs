@@ -1560,10 +1560,10 @@ fn missing_required_tags(edition: IccEdition, data: &[u8], class: &[u8]) -> Vec<
     let matrix = || MATRIX_AND_CURVE_TAGS.iter().all(|signature| has(signature));
     let mut missing = Vec::new();
     if !has(b"desc") {
-        missing.push("profileDescriptionTag");
+        missing.push(DESCRIPTION_TAG);
     }
     if !has(b"cprt") {
-        missing.push("copyrightTag");
+        missing.push(COPYRIGHT_TAG);
     }
     // Required outright by the three ICC.1 editions and conditionally by ICC.2, whose section 8.2
     // asks for it only where the header's PCS field is not zero — a field this crate does not
@@ -1767,16 +1767,10 @@ fn icc_profiles_carry_the_tags_a_permitted_edition_requires(
         let Some(data) = document.decoded_stream_data(&stream) else {
             return;
         };
-        let Some((class, _)) = profile_header(&data) else {
+        let Some(shortfall) = icc_tag_shortfall(&data) else {
             return;
         };
-        let under_1998 = missing_required_tags(IccEdition::Nineteen98, &data, class);
-        if under_1998.is_empty()
-            || missing_required_tags(IccEdition::TwoThousand1, &data, class).is_empty()
-        {
-            return;
-        }
-        for missing in under_1998 {
+        for missing in shortfall.missing {
             findings.record(
                 Where::object(id).named("ICCBased"),
                 format!(
@@ -1788,6 +1782,58 @@ fn icc_profiles_carry_the_tags_a_permitted_edition_requires(
         }
     });
 }
+
+/// The tags ISO 19005-2 section 6.2.4.2's held editions find missing from one ICC profile.
+///
+/// The reading `icc_profiles_carry_the_tags_a_permitted_edition_requires` reports, answered for
+/// one profile's bytes so that a converter acts on exactly what the row found (ADR 1990).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IccTagShortfall {
+    /// Every tag ICC.1:1998-09's clause 6.3 asks of the profile's class and the profile lacks,
+    /// in the words a finding uses.
+    pub missing: Vec<&'static str>,
+    /// Whether the profileDescriptionTag (`desc`) is among them.
+    pub description: bool,
+    /// Whether the copyrightTag (`cprt`) is among them.
+    pub copyright: bool,
+}
+
+impl IccTagShortfall {
+    /// Whether every missing tag is one of the two text tags, which no colour transform reads.
+    #[must_use]
+    pub fn only_text(&self) -> bool {
+        self.missing
+            .iter()
+            .all(|tag| *tag == DESCRIPTION_TAG || *tag == COPYRIGHT_TAG)
+    }
+}
+
+/// What ISO 19005-2 section 6.2.4.2's tag row finds missing from one profile, or `None` where the
+/// profile satisfies one of the two held editions or is not a profile at all.
+///
+/// The clause is a disjunction, so a profile is short only where both ICC.1:1998-09 and
+/// ICC.1:2001-12 find a tag missing; the list given is the first edition's, which is the one the
+/// row's findings name.
+#[must_use]
+pub fn icc_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
+    let (class, _) = profile_header(data)?;
+    let missing = missing_required_tags(IccEdition::Nineteen98, data, class);
+    if missing.is_empty() || missing_required_tags(IccEdition::TwoThousand1, data, class).is_empty()
+    {
+        return None;
+    }
+    Some(IccTagShortfall {
+        description: missing.contains(&DESCRIPTION_TAG),
+        copyright: missing.contains(&COPYRIGHT_TAG),
+        missing,
+    })
+}
+
+/// ICC.1:1998-09 section 6.4.30's tag, as a finding names it.
+const DESCRIPTION_TAG: &str = "profileDescriptionTag";
+
+/// ICC.1:1998-09 section 6.4.11's tag, as a finding names it.
+const COPYRIGHT_TAG: &str = "copyrightTag";
 
 /// ISO 19005-4 section 6.2.4.2, by way of ISO 32000-2 §8.6.5.5's closing sentence.
 ///

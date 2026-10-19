@@ -18,17 +18,20 @@
 //! is constructed only after every fallible step has succeeded, so a failed frame
 //! cannot report itself drawn.
 
+use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
 use raster_scene::{MAX_COORDINATE, Scene};
 
-use super::Device;
 use super::bound::Bound;
 use super::damage::DamagePlan;
 use super::pending::{Submission, Submitted};
+use super::{Device, KeptInstances};
 use crate::encode::{self, Encoded};
 use crate::error::RenderError;
-use crate::frame::{Counters, EncodeSource, Frame, Payload, Raster, TimingProvenance, Timings};
+use crate::frame::{
+    Counters, EncodeSource, Frame, Payload, Raster, TimingProvenance, Timings, UploadSplit,
+};
 use crate::layers;
 use crate::readback;
 use crate::report::Report;
@@ -87,6 +90,7 @@ impl Device {
 
         let mut submission = self.submit_encoded(
             &encoded,
+            None,
             viewport,
             into,
             &damage,
@@ -151,7 +155,7 @@ impl Device {
         // Borrowed from `retained`, which is not `self`: the encode and the device it
         // draws through are two objects, so nothing here needs a clone.
         let generation = self.atlas.generation;
-        let (source, encoded) = retained.prepare(key, |scene, list| match list {
+        let (source, encoded, kept) = retained.prepare(key, |scene, list| match list {
             Some(list) => self.replay_scene(scene, viewport, list),
             None => self.encode_scene(scene, viewport),
         })?;
@@ -161,6 +165,7 @@ impl Device {
         let mut frame = self
             .submit_encoded(
                 encoded,
+                Some(kept),
                 viewport,
                 &into,
                 &damage,
@@ -273,6 +278,7 @@ impl Device {
     pub(super) fn submit_encoded<'t>(
         &mut self,
         encoded: &Encoded,
+        kept: Option<&OnceCell<KeptInstances>>,
         viewport: &Viewport<'_>,
         into: &Target<'t>,
         damage: &DamagePlan,
@@ -318,10 +324,11 @@ impl Device {
         // capacity grows to the scanned total and runs again, whole; a steady frame
         // pays this branch nothing but the read.
         let mut attempts = 0_u32;
+        let mut first_split: Option<UploadSplit> = None;
         let (upload_time, upload_bytes, upload_spans, compute_stamped, ran) = loop {
-            let mut upload = self.upload(encoded)?;
+            let mut upload = self.upload(encoded, kept)?;
             let upload_time = upload.time.saturating_add(paint_time);
-            let upload_bytes = upload.bytes.saturating_add(paint_bytes);
+            let upload_bytes = reported(&mut first_split, upload.split, paint_bytes);
             let upload_spans = std::mem::take(&mut upload.spans);
             let compute_stamped = upload.compute_stamped;
             let compute_run = upload.compute_run.take();
@@ -447,7 +454,12 @@ impl Device {
     /// nothing is computed a second way. `atlas_entries` is the one number taken from
     /// the device rather than the encode, because it is the atlas's state after this
     /// frame's tiles went in.
-    fn counters(&self, encoded: &Encoded, upload_bytes: u64, layer_textures: u32) -> Counters {
+    fn counters(
+        &self,
+        encoded: &Encoded,
+        upload_bytes: UploadSplit,
+        layer_textures: u32,
+    ) -> Counters {
         Counters {
             commands: encoded.commands,
             lanes: encoded.lanes,
@@ -468,7 +480,8 @@ impl Device {
             coverage: encoded.coverage,
             commands_culled: encoded.commands_culled,
             layers_culled: encoded.layers_culled,
-            bytes_uploaded: upload_bytes,
+            bytes_uploaded: upload_bytes.total(),
+            uploads: upload_bytes,
             layer_textures,
         }
     }
@@ -567,5 +580,21 @@ impl Device {
             Target::Surface => Err(RenderError::ZeroSizeTarget { target: "Surface" }),
             Target::Texture(_) => Err(RenderError::ZeroSizeTarget { target: "Texture" }),
         }
+    }
+}
+
+/// What a frame reports it sent: the instance shares of its first attempt (`first`, filled by
+/// that attempt) and every other share of its last, with the paint it made resident. A frame run again after a growth finds its
+/// retained instance streams already on the device (ADR 1993), so the shares its first attempt
+/// sent are the ones that crossed; the rest are the last attempt's, as every share was before the
+/// streams stayed.
+fn reported(first: &mut Option<UploadSplit>, last: UploadSplit, paint: u64) -> UploadSplit {
+    let first = *first.get_or_insert(last);
+    UploadSplit {
+        paint,
+        rect_instances: first.rect_instances,
+        quad_instances: first.quad_instances,
+        line_instances: first.line_instances,
+        ..last
     }
 }

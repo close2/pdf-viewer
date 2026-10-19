@@ -57,7 +57,7 @@ pub(crate) fn states_name(document: &Document, dict: &Dictionary, key: &str, nam
     name_of(document, dict, key).is_some_and(|value| value == name)
 }
 
-mod document_level;
+pub(crate) mod document_level;
 pub(crate) mod file_structure;
 
 pub use file_structure::EXTERNAL_DATA_KEYS;

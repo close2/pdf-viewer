@@ -187,6 +187,13 @@ pub static SHIFTS: &[Shift] = &[
                   14.13, and the rows that cite it bind PDF/A-4 alone",
     },
     Shift {
+        clause: "14.8.6.1",
+        earlier: Earlier::Absent,
+        subject: "the standard structure namespaces, which are PDF 2.0's; ISO 32000-1 has one \
+                  vocabulary and no namespaces, and the citation serves the part 2 role map row \
+                  only to say that ISO 32000-1's own types are the default namespace's (ADR 1990)",
+    },
+    Shift {
         clause: "Q.2",
         earlier: Earlier::Absent,
         subject: "the page-content step of Annex Q's transparency method; ISO 32000-1 has no \

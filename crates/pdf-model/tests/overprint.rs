@@ -679,3 +679,245 @@ fn a_pairs_group_takes_the_backdrop_its_enclosing_knockout_group_has() {
         "which are two pictures, or the fixture would be about neither"
     );
 }
+
+/// A v2 CMYK printer profile whose `A2B1` table is a four-ink absorption model at the sixteen
+/// corners of the cube, as the `ASCIIHexDecode` text a fixture can hold.
+///
+/// Positional, like `tests/transparency_groups.rs`'s fixture of the same press: a 128-byte
+/// header, one tag, then the `mft2` tag — sizes, identity matrix, input curves, CLUT, output
+/// curves. `variant` weakens the black ink by that many hundredths, which makes a *different*
+/// profile: other bytes, another `icc::Profile::identity`, another picture. Nothing below depends
+/// on the colours the model produces, only on two profiles being two.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "ICC's fixed-point encodings are the truncating casts of values the model keeps in \
+              range, and the CLUT's clamp says so"
+)]
+fn press_profile(variant: u8) -> String {
+    let mut header = vec![0u8; 128];
+    header[8] = 2;
+    header[12..16].copy_from_slice(b"prtr");
+    header[16..20].copy_from_slice(b"CMYK");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"mft2");
+    tag.extend_from_slice(&[0; 4]);
+    // Four input channels, three output channels, two grid points per axis, padding.
+    tag.extend_from_slice(&[4, 3, 2, 0]);
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    tag.extend_from_slice(&2u16.to_be_bytes());
+    for _ in 0..4 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    let black = 0.80 * (1.0 - f32::from(variant) / 100.0);
+    let absorb = [
+        [0.60f32, 0.10, 0.10, black],
+        [0.10, 0.60, 0.20, black],
+        [0.10, 0.20, 0.70, black],
+    ];
+    // The CLUT, with the last input varying fastest, which is ICC's own order.
+    for corner in 0..16usize {
+        let ink = |axis: usize| f32::from(u8::try_from((corner >> (3 - axis)) & 1).expect("a bit"));
+        let mut xyz = [0.964_2f32, 1.0, 0.824_9];
+        for (axis, row) in absorb.iter().enumerate() {
+            for (index, factor) in row.iter().enumerate() {
+                xyz[axis] *= 1.0 - factor * ink(index);
+            }
+        }
+        for value in xyz {
+            // `u1Fixed15`: 0x8000 is 1.0, the encoding XYZ takes in a lookup table.
+            let encoded = (value * 32768.0).clamp(0.0, 65535.0) as u16;
+            tag.extend_from_slice(&encoded.to_be_bytes());
+        }
+    }
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    let mut profile = header;
+    profile.extend_from_slice(&1u32.to_be_bytes());
+    profile.extend_from_slice(b"A2B1");
+    // 128 for the header, 4 for the count, 12 for the one tag's entry.
+    profile.extend_from_slice(&144u32.to_be_bytes());
+    profile.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+    profile.extend_from_slice(&tag);
+    let mut hex = String::new();
+    for byte in profile {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    hex
+}
+
+/// A one-page fixture compositing in a press, with two `ICCBased` CMYK spaces to paint in.
+///
+/// `group` is the page group's `/CS`; `intents` the catalog's `/OutputIntents`, if any. Object
+/// 5 is the profile `/Press` names and object 6 the other one `/Other` names (one hundredth of
+/// black apart, [`press_profile`]); `/Sep` is a `Separation` whose alternate is `/Press`'s space
+/// and whose full tint is `0.9 0 0 0` there. `/GS` turns overprinting on under mode 1. The page
+/// is 40 units square and rasterises one pixel per unit.
+fn press_page(group: &str, intents: &str, content: &str) -> Vec<u8> {
+    let (press, other) = (press_profile(0), press_profile(1));
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {intents} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+         /Group << /S /Transparency /CS {group} >> \
+         /Resources << /ExtGState << /GS << /OP true /op true /OPM 1 >> >> \
+         /ColorSpace << /Press [/ICCBased 5 0 R] /Other [/ICCBased 6 0 R] \
+         /Sep [/Separation /Spot [/ICCBased 5 0 R] << /FunctionType 2 /Domain [0 1] \
+         /C0 [0 0 0 0] /C1 [0.9 0 0 0] /N 1 >>] >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{press}\nendstream\n\
+         endobj\n\
+         6 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{other}\nendstream\n\
+         endobj\n",
+        content.len() + 1,
+        press.len() + 1,
+        other.len() + 1,
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The page group [`press_page`]'s `/Press` names.
+const PRESS_GROUP: &str = "[/ICCBased 5 0 R]";
+
+/// An output intent whose destination profile is [`press_page`]'s object 5.
+const PRESS_INTENT: &str = "/OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX \
+                            /OutputConditionIdentifier (Press) /DestOutputProfile 5 0 R >>]";
+
+/// Paints `backdrop` and then, under `/GS`, `source`, each `{set} {values} {operator}` over the
+/// whole page — [`over`] for a space the operator has to be told.
+fn over_in(set: &str, operator: &str, gs: &str, backdrop: &str, source: &str) -> String {
+    format!(
+        "{set} {backdrop} {operator} 0 0 40 40 re f {gs} {set} {source} {operator} 0 0 40 40 re f"
+    )
+}
+
+/// An `ICCBased` colour on a press sampled from its own profile is `DeviceCMYK` there, mode and all.
+///
+/// This reader performs §8.6.5.7's implicit conversion on such a page — the colour's four
+/// values go to the press unconverted — and the clause binds the device space's semantics to
+/// that conversion: "When this type of implicit conversion is done, all of the semantics of the
+/// device colour space shall also apply", the first being that "[t]he non-zero overprint mode
+/// ... shall determine the interpretation of colour component values in the space". §8.6.7
+/// names the case from its side: the mode applies when the current colour space "is DeviceCMYK
+/// (or is implicitly converted to DeviceCMYK ...)". So Table 146's first row decides, and the
+/// page after `0 0 0 1` then `0.9 0 0 0` under `OP true, OPM 1` is `0.9 0 0 1` in the same space
+/// (§11.7.4.3's first bullet, cyan from the source and the three zeros from the backdrop). The
+/// second assertion is what makes the first discriminate: with overprinting off the same two
+/// fills are the source colour in every component. ADR 1996.
+#[test]
+fn a_colour_in_the_presss_own_profile_keeps_the_backdrop_under_mode_one() {
+    let paint = |gs: &str| over_in("/Press cs", "scn", gs, "0 0 0 1", "0.9 0 0 0");
+    let overprinting = interpret(press_page(PRESS_GROUP, "", &paint("/GS gs")));
+    let named = interpret(press_page(
+        PRESS_GROUP,
+        "",
+        "/Press cs 0.9 0 0 1 scn 0 0 40 40 re f",
+    ));
+    let erasing = interpret(press_page(PRESS_GROUP, "", &paint("")));
+    assert_eq!(
+        centre(&overprinting),
+        centre(&named),
+        "the implicit conversion makes the page 0.9 0 0 1 in the press's own components"
+    );
+    assert_ne!(centre(&overprinting), centre(&erasing));
+    assert!(overprinting.display_list.overprints());
+}
+
+/// An `ICCBased` colour converted *into* a press of another profile keeps `C_s`.
+///
+/// No implicit conversion is done for it — the colour goes to the press through its own
+/// profile's connection space — so it is Table 146's "[a]ny process colour space (including
+/// other cases of DeviceCMYK )" row, whose `OP true, OPM 1` cell is `C_s`, and the page is what
+/// the same two fills paint with overprinting off. Both directions are stated: `/Other` on
+/// `/Press`'s page, and `/Press` on `/Other`'s, so that neither profile is the special one.
+#[test]
+fn a_colour_converted_into_another_profiles_press_is_the_source_colour() {
+    for (set, group) in [
+        ("/Other cs", PRESS_GROUP),
+        ("/Press cs", "[/ICCBased 6 0 R]"),
+    ] {
+        let paint = |gs: &str| over_in(set, "scn", gs, "0 0 0 1", "0.9 0 0 0");
+        let overprinting = interpret(press_page(group, "", &paint("/GS gs")));
+        let erasing = interpret(press_page(group, "", &paint("")));
+        assert_eq!(
+            centre(&overprinting),
+            centre(&erasing),
+            "{set} on a page group of {group}"
+        );
+        assert!(!overprinting.display_list.overprints(), "{set} on {group}");
+    }
+}
+
+/// `DeviceCMYK` drawn through the output intent's profile keeps the overprint mode it states.
+///
+/// A `k` is Table 146's first row in the file's own words: "DeviceCMYK , specified directly".
+/// On a page with an output intent this reader draws it through the intent's profile
+/// (`ColourSpace::device_family`, §14.11.5 and §8.6.5.7 NOTE 3), and a `/DeviceCMYK` page group
+/// on that page composites in the same profile (Annex P's order), so the colour reaches the
+/// press as its own four values — `DeviceCMYK` on the device the intent describes. The `scn` in
+/// `/Press`, whose profile is the intent's, is the same colour by the same route.
+#[test]
+fn device_cmyk_drawn_through_the_output_intent_keeps_its_mode() {
+    let named = centre(&interpret(press_page(
+        "/DeviceCMYK",
+        PRESS_INTENT,
+        "0.9 0 0 1 k 0 0 40 40 re f",
+    )));
+    for (set, operator) in [("", "k"), ("/Press cs", "scn")] {
+        let paint = |gs: &str| over_in(set, operator, gs, "0 0 0 1", "0.9 0 0 0");
+        let overprinting = interpret(press_page("/DeviceCMYK", PRESS_INTENT, &paint("/GS gs")));
+        let erasing = interpret(press_page("/DeviceCMYK", PRESS_INTENT, &paint("")));
+        assert_eq!(
+            centre(&overprinting),
+            named,
+            "{operator} on the intent's press"
+        );
+        assert_ne!(centre(&overprinting), centre(&erasing), "{operator}");
+    }
+}
+
+/// A `Separation` reverting to the press's own profile is that profile's colour under the mode.
+///
+/// §11.7.4.3's NOTE 2 makes the current colour space of a space that reverts "its alternate
+/// colour space", and here that alternate is the press's own `ICCBased` space, which the
+/// implicit conversion makes `DeviceCMYK`. `/Sep`'s full tint is `0.9 0 0 0` there, so the page
+/// is the first test's `0.9 0 0 1`.
+#[test]
+fn a_separation_reverting_to_the_presss_own_profile_takes_the_mode() {
+    let overprinting = interpret(press_page(
+        PRESS_GROUP,
+        "",
+        "0 0 0 1 k 0 0 40 40 re f /GS gs /Sep cs 1 scn 0 0 40 40 re f",
+    ));
+    let named = interpret(press_page(PRESS_GROUP, "", "0.9 0 0 1 k 0 0 40 40 re f"));
+    assert_eq!(centre(&overprinting), centre(&named));
+    assert!(overprinting.display_list.overprints());
+}

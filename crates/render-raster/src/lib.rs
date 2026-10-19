@@ -148,6 +148,8 @@ pub struct QuorraRasterizer {
     functions: FunctionPaints,
     /// See [`QuorraRasterizer::last_phases`]; filled rather than replaced, so it allocates once.
     phases: Vec<(&'static str, std::time::Duration)>,
+    /// See [`QuorraRasterizer::last_counters`].
+    counters: raster_gpu::Counters,
 }
 
 impl QuorraRasterizer {
@@ -203,6 +205,7 @@ impl QuorraRasterizer {
             residue: (0, 0),
             functions: FunctionPaints::default(),
             phases: Vec::new(),
+            counters: raster_gpu::Counters::default(),
         })
     }
 
@@ -277,6 +280,7 @@ impl QuorraRasterizer {
         // This path does not report the residue pair, and a pair left over from an earlier
         // `rasterize` would read as this frame's. Cleared rather than kept.
         self.residue = (0, 0);
+        self.counters = raster_gpu::Counters::default();
         let drawn = self.slot.render(
             &mut self.device,
             &mut self.caches,
@@ -290,13 +294,15 @@ impl QuorraRasterizer {
             },
         );
         self.last.total = began.elapsed();
+        let drawn = drawn?;
+        self.counters = drawn.counters();
         Ok(Raster {
             width: frame.width,
             height: frame.height,
             // Opaque throughout: the medium is the bottom of this scene, so straight and
             // premultiplied alpha are the same bytes and no imposition is owed.
             format: RasterFormat::Rgba8,
-            data: drawn?.into_raster()?.into_pixels(),
+            data: drawn.into_raster()?.into_pixels(),
         })
     }
 
@@ -305,6 +311,15 @@ impl QuorraRasterizer {
     #[must_use]
     pub fn last_frame(&self) -> FrameCost {
         self.last
+    }
+
+    /// raster's own counters of the frame [`Self::rasterize_frame`] last drew — which lane drew
+    /// each mark (`lanes`) and which stream each uploaded byte went to (`uploads`), the
+    /// denominators a zoom step's `encode` and `transfer` are read against (ADR 1992). Zero after a
+    /// refused frame, and not filled by [`Rasterizer::rasterize`], whose separations draw several.
+    #[must_use]
+    pub fn last_counters(&self) -> raster_gpu::Counters {
+        self.counters
     }
 
     /// The named spans raster measured inside the last frame — see

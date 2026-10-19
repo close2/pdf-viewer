@@ -2,8 +2,9 @@
 //! dialogue the C++ side opens (ADR 1966).
 //!
 //! What it offers is [`viewer_host::archiving::Choosing`] unchanged — the list `quorra`'s card and
-//! the GTK dialogue offer — handed across as words, and what comes back is two indices, which
-//! [`NativeWindow::archive_chosen`] turns into the window's choice for its life and a conversion.
+//! the GTK dialogue offer — handed across as words with the two indices it starts on, and what
+//! comes back is two indices, which [`NativeWindow::archive_chosen`] turns into the window's choice
+//! for its life and a conversion.
 
 use viewer_host::archiving::{CHOOSING, CHOOSING_TITLE, Choosing, NOT_CHOSEN};
 use viewer_host::native_window::NativeWindow;
@@ -73,6 +74,23 @@ impl Host {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// The target the dialogue starts on, as an index into [`Self::archive_targets`]: the held
+    /// choice's where the window holds one (ADR 2001), and the first where no choice is being made.
+    pub(crate) fn archive_target_start(&self) -> i32 {
+        self.archive_choice
+            .as_ref()
+            .and_then(|choosing| i32::try_from(choosing.target_index()).ok())
+            .unwrap_or(0)
+    }
+
+    /// The profile the dialogue starts on, as an index into [`Self::archive_profiles`].
+    pub(crate) fn archive_profile_start(&self) -> i32 {
+        self.archive_choice
+            .as_ref()
+            .and_then(|choosing| i32::try_from(choosing.profile_index()).ok())
+            .unwrap_or(0)
     }
 
     /// The person chose the target and the profile at these indices, or — either negative —

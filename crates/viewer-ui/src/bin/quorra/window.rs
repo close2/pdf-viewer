@@ -801,10 +801,12 @@ impl App {
         self.redraw();
     }
 
-    /// The card again in a window that has chosen: Enter makes what is chosen on it the window's,
-    /// and Escape leaves the choice the window held (ADR 1985).
+    /// The card again in a window that has chosen, on the choice the window holds (ADR 2001):
+    /// Enter makes what is chosen on it the window's, and Escape leaves the choice the window held
+    /// (ADR 1985).
     fn choose_the_archive_again(&mut self) {
-        self.show_the_archive_card(viewer_host::archiving::Choosing::new());
+        let choosing = viewer_host::archiving::Choosing::starting_on(self.archive.as_ref());
+        self.show_the_archive_card(choosing);
     }
 
     /// This window's display scale, or one where there is no window yet.

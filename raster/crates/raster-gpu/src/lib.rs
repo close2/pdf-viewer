@@ -74,6 +74,7 @@ pub use error::{
 };
 pub use frame::{
     Counters, CoverageSheet, EncodeSource, Frame, LaneCounts, Raster, TimingProvenance, Timings,
+    UploadSplit,
 };
 pub use present::{ForeignPresenter, Layer, PresentCost, Presenter};
 pub use report::{Report, ReportKind};

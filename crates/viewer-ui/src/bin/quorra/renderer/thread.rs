@@ -14,7 +14,7 @@ use super::device::{draw, prepare};
 use super::lanes::RefusedLanes;
 use super::retained::{Turn, retain_one};
 use super::sharp::{SHARP_STALL_BUDGET, draw_sharp, sharp_pass_affordable, sharp_pass_cost};
-use super::{Finished, Job, Link, same_pages};
+use super::{Finished, Job, Known, Link, same_pages};
 
 /// What the render thread does between jobs, as the window configured it.
 #[derive(Debug)]
@@ -109,7 +109,7 @@ fn draw_until_told_to_stop(
     let mut on_the_processor: Vec<crate::stale::Picture> = Vec::new();
     // The coverage lanes the adapter refused, learned from the frames and from the retained
     // layer's own ask, so that a retained picture of a refused lane is not asked of the device
-    // either (ADR 1984).
+    // either (ADR 1984), nor a frame of one asked before the window was told (ADR 2000).
     let mut refused_lanes = RefusedLanes::default();
     // What building the device's scene of the pages on hand is predicted to cost, where the last
     // frame was the processor's and the window asked for the build ([`Job::build_ahead`]).
@@ -138,9 +138,26 @@ fn draw_until_told_to_stop(
             }
             showing.clone_from(&job.pages);
             shown_size = (job.width, job.height);
+            // **A lane this thread heard refused answers a job the window asked before it was
+            // told** (ADR 2000): the retained layer's ask can hear the refusal while the job is on
+            // its way, and the device would be asked the lane again for nothing. Only a job the
+            // device would have been asked for: one predicted the processor's, or finished from the
+            // page drawn while it was read, is drawn as it was asked.
+            if job.known_refusal.is_none()
+                && job.cheaper.is_none()
+                && job.ahead.is_none()
+                && let Some((said, of)) = refused_lanes.said(&job.pages, job.coverage)
+            {
+                job.known_refusal = Some(Known {
+                    said: said.to_owned(),
+                    of,
+                });
+            }
             let asked_ahead = job.build_ahead.take();
             let finished = draw(&mut renderer, job, done, waker);
-            refused_lanes.learn(finished.known.or(finished.refused_now));
+            if let Some(said) = finished.fell_back.as_deref() {
+                refused_lanes.learn(finished.known.or(finished.refused_now), said);
+            }
             // Only after a frame the processor drew and the device was not asked: a refusal is the
             // device's answer for these pages, and a frame taken back is of a view nobody wants.
             build_ahead = asked_ahead.filter(|_| {

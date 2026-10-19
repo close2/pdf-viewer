@@ -60,10 +60,14 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    they govern no `DeviceCMYK` mark (`2018-Lee-Fatherinclusiveperinatal.pdf`, whose next refusal
    is a standard-14 font) and the loss `overprint-mode` where they do (`102952.pdf`, which
    converts to 2b under `as-shown`); a mark in a four-component blending space is refused.
-   `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` — **decided, not built**
-   (ADR 1979): `issue14814.pdf` lacks only `cprt`, which no colour reads, so the tag is a supply
-   of the operator's text; `435321.pdf`'s profile is unreadable and drawn through its
-   `/Alternate`, which the conversion writes as a statement. Then
+   `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` — **built** (ADRs 1979,
+   1990): a profile drawn through that lacks only `desc` or `cprt` takes the operator's
+   `description`/`copyright` (three shipped profiles state both; `issue14814.pdf` converts to 2b,
+   pages identical), and one not drawn through is written as its Table 65 alternate with the
+   output intent its device space needs (`435321.pdf`, refused elsewhere). Left: its part 4 row.
+   The XMP edition (ADR 1991): part 2 identifies the XMP Specification only as its September 2005
+   edition, so a predefined namespace's undefined name needs a container; `102952.pdf`'s 2b
+   output now passes veraPDF. Then
    `file-structure/bound-names-are-valid-utf8`,
    `fonts/symbolic-truetype-program-has-a-usable-cmap`, `fonts/cid-system-info-agrees-with-the-cmap`,
    `fonts/non-symbolic-truetype-program-maps-every-code`, `graphics/inline-image-interpolation-is-off`
@@ -72,7 +76,9 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
     `annotations/three-dimensional-only-in-engineering-files` (a retarget to 4f or 4e is the
     answer), `fonts/type3-glyph-procedures-state-their-width`, `fonts/actual-text-states-no-private-use`.
 11. Level A only: `logical-structure/structure-tree-root` (fence — auto-tagging; 2u is the answer)
-    and `logical-structure/role-map-terminates-at-a-standard-type` (catalogued as `supply`).
+    and `logical-structure/role-map-terminates-at-a-standard-type` — **built as a `supply`** (ADR
+    1990 section 6): the operator's `role-map` table; the eleven PDF 1.7 namespace types are
+    standard (section 7), which the census's 2a count measured as unmapped.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

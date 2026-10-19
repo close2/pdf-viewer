@@ -73,7 +73,7 @@
 
 use pdf_render::{BlendMode, Command, Overprint};
 
-use crate::colour::{Compositing, Plane};
+use crate::colour::{Compositing, Plane, Press};
 
 use super::{GraphicsState, Interpreter, KnockoutKind};
 
@@ -93,6 +93,66 @@ pub(super) enum FirstBullet {
     /// It applies and its group is built, around parts painted with §11.6.4.4's two constants
     /// at 1.0.
     Group,
+}
+
+/// §8.6.7's "tint value defined within the PDF file" for a colour Table 146's first row can
+/// reach, and the press on which that colour is `DeviceCMYK`.
+///
+/// Two spaces reach the row. `DeviceCMYK` itself is one wherever a run composites in four
+/// components. A four-component `ICCBased` space is the other, and only where the run's press
+/// was sampled from that same profile, because that is where this reader performs §8.6.5.7's
+/// implicit conversion — `pdf_colour::colour::ColourSpace::to_cmyk` hands such a colour's own
+/// four values to the press rather than converting them — and the clause attaches the device
+/// space's semantics to the conversion, not to the space:
+///
+/// > When this type of implicit conversion is done, all of the semantics of the device colour
+/// > space shall also apply, even though they do not apply to CIE-based spaces in general.
+///
+/// and the first of the semantics it lists is this module's:
+///
+/// > The non-zero overprint mode (see 8.6.7, "Overprint control") shall determine the
+/// > interpretation of colour component values in the space.
+///
+/// §8.6.7 names the same case from its side, "(or is implicitly converted to DeviceCMYK ...)".
+/// An `ICCBased` colour converted into a press of another profile is Table 146's "Any process
+/// colour space" row and keeps `C_s`. The profile is carried rather than decided when the colour
+/// is set, because the press is the group's and a colour set outside a form is painted inside
+/// it. `DeviceCMYK` on a page with an output intent is the second case too: this reader draws it
+/// through the intent's profile (`ColourSpace::device_family`), which is the press of that page's
+/// `/DeviceCMYK` group, so a `k` there keeps the mode it states (ADR 1996).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct ProcessTints {
+    /// The four values as the content stream stated them, or as the tint transform of a space
+    /// reverting to the alternate below gave them.
+    tints: [f32; 4],
+    /// `None` for `DeviceCMYK`; the `icc::Profile::identity` of the `ICCBased` space otherwise.
+    profile: Option<u128>,
+}
+
+impl ProcessTints {
+    /// Four tints stated in `DeviceCMYK`.
+    pub(super) const fn device(tints: [f32; 4]) -> Self {
+        Self {
+            tints,
+            profile: None,
+        }
+    }
+
+    /// Four values stated in the four-component `ICCBased` space of this profile identity.
+    pub(super) const fn in_profile(tints: [f32; 4], profile: u128) -> Self {
+        Self {
+            tints,
+            profile: Some(profile),
+        }
+    }
+
+    /// The tints where the colour is `DeviceCMYK` on `press`, and `None` where it is converted
+    /// into it.
+    pub(super) fn on(self, press: &Press) -> Option<[f32; 4]> {
+        self.profile
+            .is_none_or(|profile| press.is_of_profile(profile))
+            .then_some(self.tints)
+    }
 }
 
 /// Whether §11.7.4.3's last paragraph asks for an implicit group around an object whose parts
@@ -142,9 +202,10 @@ impl Interpreter<'_> {
     /// - The overprint parameter for this kind of painting operation is true (§11.7.4.3: the
     ///   mode "may be implicitly invoked whenever an elementary graphics object is painted
     ///   while overprinting is enabled").
-    /// - The current colour space is `DeviceCMYK` — stated as such, or a `Separation` or
-    ///   `DeviceN` reverting to a `DeviceCMYK` alternate, which §11.7.4.3's NOTE 2 makes the
-    ///   same thing. That is Table 146's first row and §8.6.7's "painting operations that use
+    /// - The current colour space is `DeviceCMYK` — stated as such, an `ICCBased` space the
+    ///   press was sampled from, which §8.6.5.7's implicit conversion makes it
+    ///   ([`ProcessTints`]), or a `Separation` or `DeviceN` reverting to either as its
+    ///   alternate, which §11.7.4.3's NOTE 2 makes the same thing. That is Table 146's first row and §8.6.7's "painting operations that use
     ///   the current colour in the graphics state when the current colour space is
     ///   DeviceCMYK"; `content::colour::cmyk_tints` is where the two routes meet. A pattern is
     ///   not such a colour: §8.6.7 excludes shadings outright, and a tiling pattern's cell
@@ -203,10 +264,11 @@ impl Interpreter<'_> {
     /// [`Interpreter::overprint_blend`]'s cold half: everything past the two tests above.
     #[inline(never)]
     fn special_overprint(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
-        let Compositing::Subtractive(half, _, spots) = &self.compositing else {
+        let Compositing::Subtractive(half, press, spots) = &self.compositing else {
             return self.spot_overprint_beside(state, stroking);
         };
         let half = *half;
+        let on_press = |tints: Option<ProcessTints>| tints.and_then(|tints| tints.on(press));
         if !spots.is_empty() {
             return self.spot_overprint(state, stroking);
         }
@@ -218,11 +280,11 @@ impl Interpreter<'_> {
         } else {
             state.overprint_filling
         };
-        let tints = if stroking {
+        let tints = on_press(if stroking {
             state.stroke_tints
         } else {
             state.fill_tints
-        };
+        });
         let patterned = if stroking {
             state.stroke_pattern.is_some()
         } else {
@@ -273,6 +335,7 @@ impl Interpreter<'_> {
         if !enabled || patterned {
             return state.blend;
         }
+        let tints = tints.and_then(|tints| tints.on(press));
         let Some(kept) = spots.overprint(*plane, press, space, tints, state.overprint_mode == 1)
         else {
             return state.blend;

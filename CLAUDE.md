@@ -107,7 +107,13 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
 - Untrusted input never reaches unsafe code. `#![forbid(unsafe_code)]` on every crate
   that touches PDF bytes; this is compiler-enforced, not a convention.
 - Multi-process sandbox: renderer runs unprivileged under seccomp-BPF + Landlock, with no
-  filesystem and no network access.
+  filesystem and no network access. **It may be *given* things, and that is not the same
+  sentence**: the broker — which already opens the document and passes it across as a descriptor
+  — may answer a description the renderer sends with a resource it opened itself. The renderer's
+  system-call set does not change, no host may change it, and the renderer can still name no path.
+  Every such port is off by default and turned on by a host, never by a document. Stated by the
+  project owner, who answered `doc/questions/Q24` with "yes, take the suggested wording"
+  (`doc/questions/A24`, `doc/todo/59`).
 - Memory safety is not enough. Explicit memory and time budgets guard against
   decompression bombs, xref cycles, and pathological content — Rust does not prevent
   resource exhaustion.

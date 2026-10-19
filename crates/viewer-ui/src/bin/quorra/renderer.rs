@@ -306,6 +306,13 @@ enum Finished {
     Read(Box<Partial>),
     /// The device's scene of the pages on hand, built while nothing was asked for (ADR 1898).
     Scene(Box<Prepared>),
+    /// A coverage lane the adapter refused, heard first by the retained layer's own ask: the
+    /// window keeps it as it keeps one a frame heard, so no frame of the lane asks the device
+    /// again (ADR 2000).
+    Lane {
+        lane: raster_gpu::Coverage,
+        said: String,
+    },
 }
 
 /// The device's scene of an arrangement, built while nobody waited for it (ADR 1898).

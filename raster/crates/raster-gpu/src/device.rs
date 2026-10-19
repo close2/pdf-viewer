@@ -90,6 +90,7 @@ pub use pending::PendingFrame;
 pub(crate) use rare::{
     SHADING_PARAMS_BYTES, SHADING_QUADS_PER_WINDOW, SHADING_WINDOW_BYTES, shading_params_bytes,
 };
+pub(crate) use staging::KeptInstances;
 
 /// What this adapter can actually do, discoverable before any frame (section 5 of the brief:
 /// a limit that must exist is discoverable, through this and `Scene::cost`).

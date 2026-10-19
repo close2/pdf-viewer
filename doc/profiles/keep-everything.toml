@@ -188,9 +188,9 @@ via = "alternate"          # Table 65's own fallback for a profile a processor c
 keep-rejected = "attach"
 
 [site."graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires"]
-remedy = "preserve"
-via = "alternate"
-keep-rejected = "attach"
+remedy = "supply"          # a missing text tag is written in and nothing is lost (ADR 1990)
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
 
 [site."graphics/icc-profiles-carry-the-tags-their-version-requires"]
 remedy = "preserve"
@@ -380,7 +380,7 @@ undeterminable = "stop"
 # ---------------------------------------------------------------------------------------------
 
 [site."logical-structure/role-map-terminates-at-a-standard-type"]
-remedy = "supply"          # NOT-YET-IN-FORMAT
+remedy = "supply"          # ADR 1990: each type the chain ends at gains the entry named here
 role-map = { }             # fill in with your own producer's types; an empty map stops
 unlisted = "stop"
 

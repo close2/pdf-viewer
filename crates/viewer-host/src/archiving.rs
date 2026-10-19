@@ -159,9 +159,10 @@ pub const CHOOSING: &str =
 ///
 /// **The state is the window's and the lists are this module's**, the shape
 /// [`crate::Restrictions`] has: `quorra`'s card, the GTK dialogue and the Qt dialogue each draw
-/// these two lists and send back two indices, so three windows offer one list in one order. The
-/// keyboard starts on the first of each — PDF/A-2b and `refuse-any-loss`, the profile that
-/// loses nothing — and nothing converts until the person confirms.
+/// these two lists and send back two indices, so three windows offer one list in one order. A
+/// first choice starts on the first of each — PDF/A-2b and `refuse-any-loss`, the profile that
+/// loses nothing — and a choice made again starts on the one the window holds (ADR 2001); nothing
+/// converts until the person confirms.
 #[derive(Debug, Clone)]
 pub struct Choosing {
     /// Which of [`Target::ALL`] is chosen.
@@ -187,6 +188,30 @@ impl Choosing {
             profile: 0,
             profiles: offered(),
         }
+    }
+
+    /// The choice as it begins again in a window that holds one: on the held target and profile,
+    /// so that Enter keeps what the window has and an arrow moves from it (ADR 2001). Where nothing
+    /// is held, or the held profile is not among those offered now, that half starts on the first.
+    #[must_use]
+    pub fn starting_on(held: Option<&Archiving>) -> Self {
+        let mut choosing = Self::new();
+        if let Some(held) = held {
+            if let Some(target) = Target::ALL
+                .iter()
+                .position(|offered| *offered == held.target)
+            {
+                choosing.set_target(target);
+            }
+            if let Some(profile) = choosing
+                .profiles
+                .iter()
+                .position(|offered| offered.name == held.profile)
+            {
+                choosing.set_profile(profile);
+            }
+        }
+        choosing
     }
 
     /// The targets, in the order offered.
@@ -719,6 +744,20 @@ mod tests {
         assert!(
             matches!(pressed(Some(&asked)), Pressed::Convert(Command::Archive(again)) if again == asked)
         );
+    }
+
+    /// The chooser put up again starts on the choice the window holds, so Enter keeps it; with
+    /// nothing held it starts where a first choice does (ADR 2001).
+    #[test]
+    fn a_choice_made_again_starts_on_the_one_held() {
+        let held = chosen("4e:as-if-printed").expect("a shipped profile");
+        let again = Choosing::starting_on(Some(&held));
+        assert_eq!(again.chosen(), held);
+        assert_eq!(again.target_index(), 5);
+        assert_eq!(again.profile_index(), 1);
+        let first = Choosing::starting_on(None);
+        assert_eq!((first.target_index(), first.profile_index()), (0, 0));
+        assert_eq!(first.chosen().profile, "refuse-any-loss");
     }
 
     #[test]

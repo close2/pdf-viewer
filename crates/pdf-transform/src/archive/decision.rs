@@ -1776,6 +1776,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
             OVERPRINT_MODE_REINTERPRETS,
         ),
     },
+    // ISO 19005-2 section 6.2.4.2's tag row, where every short profile is one this reader does
+    // not draw through: §8.6.5.5's Table 65 alternate is what the page showed. A profile it does
+    // draw through and that lacks only a text tag is the operator's `supply`, and one lacking a
+    // transform tag is refused; `super::icc` says which (`doc/adr/1979`, `doc/adr/1990`).
+    Remedy {
+        requirement: "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
+        answer: Answer::Stated(
+            None,
+            Rewrite::ProfileAlternateWritten,
+            PROFILE_ALTERNATE_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
     Remedy {
         requirement: "annotations/normal-appearance-shape",
@@ -2415,8 +2427,8 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::TheFence(THE_GLYPH_IS_NOT_IN_THE_PROGRAM),
     ),
     // ISO 19005-2 section 6.7.3.4 needs a judgement about what a producer's own structure type
-    // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask** and no
-    // interface exists to ask.
+    // *meant*, which `doc/pdf-a-conversion-limits.md` section 5.1 calls an **Ask**: the
+    // operator's `role-map` answers it in advance (`doc/adr/1990` section 6).
     (
         "logical-structure/role-map-terminates-at-a-standard-type",
         Because::NotBuiltYet(ROLE_MAP_NEEDS_A_JUDGEMENT),
@@ -2594,11 +2606,8 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/destination-profile-states-a-correct-profile-id",
         Because::NotBuiltYet(DESTINATION_PROFILE_NOT_REPLACED),
     ),
-    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: an `ICCBased` space's own.
-    (
-        "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires",
-        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
-    ),
+    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: an `ICCBased` space's own. The
+    // part 2 tag row is answered in `REMEDIES` (`doc/adr/1990`).
     (
         "graphics/icc-profiles-carry-the-tags-their-version-requires",
         Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
@@ -2765,9 +2774,11 @@ const ACTUAL_TEXT_IS_ON_THE_PAGE: &str = "an ActualText entry covers a span of a
 const ROLE_MAP_NEEDS_A_JUDGEMENT: &str = "mapping a non-standard structure type to the nearest \
      standard one is a statement about what the producer's own type meant, and this converter \
      does not guess it: Chapter to Sect is a guess that happens to be right and Sidebar to Note \
-     is one that may not be. It is a question for the document's owner, and the interface that \
-     asks it — the four levels doc/pdf-a-conversion-limits.md section 9.4 describes — is not \
-     built";
+     is one that may not be. It is a question for the document's owner: a configuration that \
+     answers this site with remedy = \"supply\" and a role-map table naming the standard type each \
+     of the producer's types means writes those entries into the role map (doc/adr/1990). A type \
+     the table does not name, an element in a namespace of its own, or a chain the producer's map \
+     already ends elsewhere stays refused";
 
 /// Why a document with no embedded file cannot be made PDF/A-4f.
 const FOUR_F_NEEDS_AN_EMBEDDED_FILE: &str = "ISO 19005-4 Annex A.2 makes an EmbeddedFiles key \
@@ -3077,6 +3088,16 @@ const OVERPRINT_MODE_REINTERPRETS: &str = "a graphics state in this file sets ov
      and overprinted no longer leaves the colour under the marks' zero components, which is the \
      dependence on the processor the requirement removes. The report names every graphics state \
      rewritten";
+
+/// What writing an unreadable profile's alternate asserts (`doc/adr/1990`).
+const PROFILE_ALTERNATE_REINTERPRETS: &str = "an ICCBased colour space in this file carries a \
+     profile short of the tags ISO 19005-2 section 6.2.4.2's ICC editions require, and this reader \
+     cannot draw through it, so it drew the space in ISO 32000-2 8.6.5.5's Table 65 alternate - \
+     the Alternate entry, or the device space of N - which that table makes the space used where \
+     the profile is not supported. That alternate is written where the ICCBased array was, so \
+     every colour is stated as this reader showed it. What changes is for a processor that could \
+     read the profile: its colours there were managed, and now they are the alternate's. The \
+     report counts every array rewritten";
 
 /// Why two `Separation` arrays of one name are not reconciled.
 const SEPARATIONS_NOT_RECONCILED: &str = "two Separation arrays here name the same colourant and \

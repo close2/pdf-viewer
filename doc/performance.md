@@ -316,6 +316,16 @@ rounds of misreading, both found in the five-hundred-and-fifty-second session (A
 the graphics device's own timestamps — is **0.07 %** of a zoom frame of that document. A viewer whose
 slow frame is 99.9 % host thread has no lever on the device at all.
 
+**And `bytes` has its streams now** (ADR 1992): the `crossed:` line divides it into the line lane's
+instances, the quads and rectangles, the coverage sheet, the atlas rows, the compute lane's records
+and arena growth, the winding lane and the paint made resident — and names apart the compute lane's
+`device-only` buffers, which the budget charges and no host write fills, so they are not read as a
+transfer. The `lanes:` line beside it says which marks made each stream. On the owner's drawing the
+line lane is the step's stream almost alone, and it does not grow with the magnification, where the
+sheet does; on a page of photographs the step's stream is the finer level of each image, sent once.
+**A replay of an unchanged view sends none of its instances** (ADR 1993): the streams stay on the
+device beside the retained encode, so what a replay still sends is what its view decided.
+
 ### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
 
 **A zoom step is not the frame a person meets most often**, and until session 1211 nothing here
@@ -661,8 +671,12 @@ the window shows it (ADR 1930), from the commands that reach the window, and tho
 their indices into the page's own list rather than copied (`pdf_render::Selection`, ADR 1980): on
 the witness at 1200 × 900, a window of 83 % of the page — 98 % of its commands — lands in 495–517 ms
 on four threads and 333–381 on twenty-four, 118–270 and 100–130 ms sooner than the copy let it, and
-ties the page drawn whole; one of 63 % is ahead of it. `viewer-host`'s `examples/window_against_whole`
-is the instrument, and prints each drawing's digest beside its clock.
+ties the page drawn whole; one of 63 % is ahead of it. **So the toolkit's bound is in commands**:
+`viewer_host::oversize` draws a page as its window where the window keeps at most seven eighths of
+the page's commands or half its pixels, the share estimated before the draw from a stride of 4 096
+commands in 80–580 µs on the toolkit's own thread (`DisplayList::share_reaching`, ADR 1994).
+`viewer-host`'s `examples/window_against_whole` is the instrument, and prints each drawing's digest
+beside its clock, and each window's commands kept beside the estimate.
 
 ## What a soft mask cost, and what naming one constant took off it
 

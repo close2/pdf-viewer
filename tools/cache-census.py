@@ -130,10 +130,13 @@ def main():
     edges = [0, 60, 180, 240, 270, 300, 330, 400, 600, math.inf]
     bucket_n, bucket_miss = Counter(), Counter()
     before = after = 0.0
+    newest = None
     for path in args.transcripts:
         lost_here = created_here = 0
         previous = None
         for request in requests(path):
+            if newest is None or request["send"] > newest[0]:
+                newest = (request["send"], request["stamp"])
             if since is not None and request["send"] < since:
                 previous = request
                 continue
@@ -170,6 +173,15 @@ def main():
                         total["polls"] += polls
             previous = request
         per_file.append((path.rsplit("/", 1)[-1], created_here, lost_here))
+
+    # A census that counted nothing prints a page of zeros that reads as "no gap lost the cache";
+    # it is a sentence about the arguments, so it is said as one and the exit is not 0 (trap 13).
+    if total["requests"] == 0:
+        held = f"the newest request they hold is stamped {newest[1]}" if newest else "they hold none"
+        window = f" at or after {args.since}" if args.since else ""
+        print(f"cache-census: no request counted in {len(args.transcripts)} transcripts{window}; "
+              f"{held}", file=sys.stderr)
+        return 2
 
     mega = 1e6
     share = 100 * total["gap created"] / max(1, total["created"])

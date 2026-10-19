@@ -249,6 +249,16 @@ section_superlatives() {
         env PYTHONDONTWRITEBYTECODE=1 python3 tools/superlatives.py --count
 }
 
+# Where one file, one type or one function carries too much: the four tables of
+# `tools/god-census.py` (files, impl blocks, types, functions), each at its default top. A reading
+# list for `doc/todo/74-the-god-classes.md`, never a gate; the census counts and the todo file
+# orders what it counts.
+section_gods() {
+    run "god-class census (largest files, impl blocks, types, functions)" \
+        '^[0-9]+ files|^[a-z].* by |^ +[0-9]+ ' \
+        env PYTHONDONTWRITEBYTECODE=1 python3 -I -B tools/god-census.py --top 5
+}
+
 # Whether the prose is true, as one answer: the eight sweeps that read what this tree writes about
 # itself, each run as its own section runs it, each reduced to the one line that is its count, and
 # each followed by the command that lists what it counted. No logic of its own — a round asked "is
@@ -1811,8 +1821,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives gods comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives gods comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -1850,6 +1860,7 @@ for section in $sections; do
     navigation) section_navigation ;;
     comments) section_comments ;;
     superlatives) section_superlatives ;;
+    gods) section_gods ;;
     prose) section_prose ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;

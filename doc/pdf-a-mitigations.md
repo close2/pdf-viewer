@@ -575,8 +575,25 @@ PDF/A-2 / part 4 targets · today `not-built-yet`
 
 ### 4.2 Colour spaces, colourants and overprint
 
-#### `graphics/icc-profiles-claim-a-permitted-edition` (PDF/A-2)
 #### `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (PDF/A-2)
+ISO 19005-2 6.2.4.2 · today **built**: `supply` for a missing text tag, `Stated` for an unreadable
+profile
+
+- **Mitigation** — decided by whether this reader draws through the profile (ADRs 1979, 1990). One
+  it draws through that lacks only `desc` or `cprt` is given the operator's text, written as the
+  ICC edition's own text type, every byte of the colour data kept: no transform reads either tag,
+  so no colour moves. One it does not draw through is written as its Table 65 alternate, which is
+  what the page showed; where that is a device space the conversion adds the output intent ISO
+  19005-2 6.2.4.3 needs for it. One it draws through that lacks a transform tag is refused, and so is
+  a file holding both kinds, an unreadable profile that is a `Default` space, and one stating no
+  space to fall back on.
+- **From a configuration** — `remedy = "supply"` with `description = "…"` and `copyright = "…"`,
+  each 7-bit ASCII. The operator needs one sentence: *the archive states this text as the profile's
+  description or copyright, on our authority*. The alternate route needs no configuration.
+- **Witnesses** — `issue14814.pdf` (no `cprt`) converts to 2b under `as-shown`, pages identical, and
+  veraPDF passes it; `435321.pdf` (two unreadable profiles) is answered here and refused elsewhere.
+
+#### `graphics/icc-profiles-claim-a-permitted-edition` (PDF/A-2)
 #### `graphics/icc-profiles-carry-the-tags-their-version-requires` (part 4)
 #### `graphics/icc-profiles-conform-to-the-base-standard` (part 4)
 ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · today `not-built-yet`
@@ -1844,6 +1861,11 @@ ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today **built**
   `pdfaExtension:schemas` once.
 - **By target** — part 4 states no extension schema requirement (confirmed **A**), which makes *use
   PDF/A-4* the cheapest answer for a document whose only fault is an undescribed schema.
+- **A predefined namespace's undefined name** is described the same way (ADR 1991): ISO 19005-2
+  identifies the XMP Specification only as its September 2005 edition, so
+  `xmpTPg:HasVisibleTransparency`, `xmpTPg:HasVisibleOverprint`, `xmpTPg:SwatchGroups` and
+  `xmpMM:OriginalDocumentID` use no predefined schema and need a container naming each; a cut made
+  under `undeterminable = "discard"` is named in the report's removed properties.
 - **From a configuration** — `remedy = "preserve"` (emit the container) with `undeterminable =
   "discard" | "stop"`. The operator needs to know that the container describes *shape*, not meaning,
   and that a property whose type nobody can tell will be dropped or will stop the run.
@@ -1943,7 +1965,7 @@ ISO 19005-2 6.7.3.3 · PDF/A-2a · today `the-fence`
   one thing Level A means.
 
 #### `logical-structure/role-map-terminates-at-a-standard-type`
-ISO 19005-2 6.7.3.4 · PDF/A-2a · today `not-built-yet`
+ISO 19005-2 6.7.3.4 · PDF/A-2a · today **`supply` built** (ADR 1990 sections 6 and 7)
 
 - **Mitigation** — **`supply`, and this is the entry that best answers the owner's question.** A
   non-standard structure type has to map, directly or through further non-standard types, to a
@@ -1960,6 +1982,13 @@ ISO 19005-2 6.7.3.4 · PDF/A-2a · today `not-built-yet`
   guessed. What the operator has to know is what their own types mean, which is the one thing they
   certainly do know. The report and `xmpMM:History` must record that the mapping came from the
   configuration.
+- **Built**: the chain an element's `/S` starts is followed through the producer's own map, and the
+  type it ends at, neither standard nor mapped, gains the table's entry; every entry the producer
+  wrote stays. Refused by name: an element stating a namespace, a chain ending at a type the map
+  already names, a type the table does not name. **The PDF 1.7 types are standard**: ISO 32000-2
+  §14.8.6.1 makes the PDF 1.7 namespace the default one and Annex M lists its eleven types beyond
+  PDF 2.0's (`Note`, `TOC`, `TOCI`, `Reference`, `BibEntry`, `Code`, `Quote`, `BlockQuote`, `Art`,
+  `Index`, `Private`), which the validator had reported as unmapped.
 - **Departure** — **B**, and not needed once `supply` exists. An unmapped type leaves a reader
   unable to interpret those elements, which is a real loss at Level A but not an unrenderable file.
 

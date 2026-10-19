@@ -523,6 +523,32 @@ pub enum Supplied {
         /// The operator's wording, holding `{n}` exactly where the number goes.
         template: String,
     },
+    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`: the text a profile's
+    /// missing description or copyright tag is given.
+    ///
+    /// ISO 19005-2 section 6.2.4.2 holds an `ICCBased` space's profile to the tags an ICC edition
+    /// requires, and ICC.1:1998-09 requires a `desc` and a `cprt` of every class. Neither is read
+    /// by a colour transform, so a profile this reader draws through and that lacks only one of
+    /// them is answered by writing it in — but its words are not in the file, so they are the
+    /// operator's (`doc/adr/1979`, `doc/adr/1990`). A profile lacking a tag whose key the row does
+    /// not state keeps its refusal.
+    ProfileText {
+        /// The `description` key: what a profile with no `desc` is made to call itself.
+        description: Option<String>,
+        /// The `copyright` key: what a profile with no `cprt` is made to state.
+        copyright: Option<String>,
+    },
+    /// `logical-structure/role-map-terminates-at-a-standard-type`: the standard structure type
+    /// each of a producer's own types means.
+    ///
+    /// ISO 19005-2 section 6.7.3.4 requires every non-standard type to map to a standard one, and
+    /// which one a producer's `Chapter` means is not in the file; a producer's vocabulary is
+    /// finite and belongs to whoever runs the pipeline, so the operator states it once
+    /// (`doc/adr/1990` section 6).
+    RoleMap {
+        /// Non-standard type to standard type, in the order the file wrote them.
+        by_type: Vec<(String, String)>,
+    },
 }
 
 /// Which of an embedded `CMap`'s two statements of its writing mode stands.
@@ -1071,12 +1097,15 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// [`Supplied`]'s two choices among a file's own disagreeing statements: which definition of an
 /// ink, and which statement of a `CMap`'s writing mode. Last, the label an optional content
 /// configuration states none of, which `doc/pdf-a-mitigations.md` section 12 makes the operator's
-/// to write (`doc/adr/1952`).
-const SUPPLIABLE: [&str; 4] = [
+/// to write (`doc/adr/1952`), and the text an ICC profile's missing description or copyright tag
+/// states (`doc/adr/1990`).
+const SUPPLIABLE: [&str; 6] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
     "fonts/embedded-cmap-states-its-own-write-mode",
     "optional-content/configuration-names",
+    super::icc::SITE,
+    super::roles::SITE,
 ];
 
 /// One remedy configuration, read from a file and validated against a target.
@@ -1138,6 +1167,10 @@ struct Row {
     write_mode: Option<WriteModeSource>,
     /// `name-template` — the label an optional content configuration stating none is given.
     name_template: Option<String>,
+    /// `description` and `copyright` — the text an ICC profile's missing tag states.
+    profile_text: (Option<String>, Option<String>),
+    /// `role-map` — the standard structure type each non-standard one is mapped to.
+    role_map: Vec<(String, String)>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
     /// built first. `true` where the row states none, which is the catalogue's *owed, not
     /// optional*.
@@ -1664,7 +1697,8 @@ fn check_rows(
         // operator's table does not name. The separation site supplies no table — it supplies a
         // choice among the document's own definitions — so it has no unlisted subject.
         if row.remedy == Kind::Supply
-            && row.site == "embedded-files/associated-file-media-type"
+            && (row.site == "embedded-files/associated-file-media-type"
+                || row.site == super::roles::SITE)
             && row.unlisted != Kind::Stop
         {
             return Err(ConfigError::NotBuiltThatWay {
@@ -1793,28 +1827,25 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .get("construct")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let dynamic = tbl
-        .get("dynamic")
-        .and_then(Value::as_text)
-        .and_then(Kind::parse)
-        .unwrap_or(Kind::Stop);
-    let undeterminable = tbl
-        .get("undeterminable")
-        .and_then(Value::as_text)
-        .and_then(Kind::parse)
-        .unwrap_or(Kind::Stop);
-    let unlisted = tbl
-        .get("unlisted")
-        .and_then(Value::as_text)
-        .and_then(Kind::parse)
-        .unwrap_or(Kind::Stop);
+    let dynamic = kind_or_stop(tbl, "dynamic");
+    let undeterminable = kind_or_stop(tbl, "undeterminable");
+    let unlisted = kind_or_stop(tbl, "unlisted");
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
     let write_mode = write_mode_key(tbl, &site)?;
     let name_template = name_template_key(tbl, &site)?;
+    let profile_text = (
+        profile_text_key(tbl, &site, "description")?,
+        profile_text_key(tbl, &site, "copyright")?,
+    );
     let shipped_cmaps = source_key(tbl, &site)?;
     let unmapped = unmapped_key(tbl, &site)?;
     let media_types = tbl
         .get("media-types")
+        .and_then(Value::as_map)
+        .map(<[(String, String)]>::to_vec)
+        .unwrap_or_default();
+    let role_map = tbl
+        .get("role-map")
         .and_then(Value::as_map)
         .map(<[(String, String)]>::to_vec)
         .unwrap_or_default();
@@ -1847,8 +1878,50 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         shipped_cmaps,
         write_mode,
         name_template,
+        profile_text,
+        role_map,
         line: tbl.line,
     })
+}
+
+/// A key whose value is a remedy word, `stop` where the row states none or a word no remedy is.
+fn kind_or_stop(tbl: &toml::Table, key: &str) -> Kind {
+    tbl.get(key)
+        .and_then(Value::as_text)
+        .and_then(Kind::parse)
+        .unwrap_or(Kind::Stop)
+}
+
+/// `description` or `copyright`: a version 2 profile states both tags in 7-bit ASCII (ICC.1:1998-09
+/// sections 6.5.16 and 6.5.17), so a text that is not ASCII could not be written into one and is
+/// refused here, where a person can correct it, rather than at a profile.
+fn profile_text_key(
+    tbl: &toml::Table,
+    site: &str,
+    key: &'static str,
+) -> Result<Option<String>, ConfigError> {
+    let Some(value) = tbl.get(key) else {
+        return Ok(None);
+    };
+    match value.as_text() {
+        Some(text) if !text.is_empty() && text.is_ascii() && !text.contains('\0') => {
+            Ok(Some(text.to_owned()))
+        }
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: key.to_owned(),
+            wanted: "a non-empty string of 7-bit ASCII characters",
+            found: "an empty string, or one with a character outside ASCII",
+        }),
+        None => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: key.to_owned(),
+            wanted: "a string",
+            found: value.kind(),
+        }),
+    }
 }
 
 /// `name-template`, which holds `{n}` once: the number is what makes every name unique, so a
@@ -1959,6 +2032,20 @@ fn supplied(row: &Row) -> Option<Supply> {
         "optional-content/configuration-names" => Supplied::ConfigurationNames {
             template: row.name_template.clone()?,
         },
+        super::roles::SITE if row.role_map.is_empty() => return None,
+        super::roles::SITE => Supplied::RoleMap {
+            by_type: row.role_map.clone(),
+        },
+        super::icc::SITE => {
+            let (description, copyright) = row.profile_text.clone();
+            if description.is_none() && copyright.is_none() {
+                return None;
+            }
+            Supplied::ProfileText {
+                description,
+                copyright,
+            }
+        }
         _ if row.media_types.is_empty() => return None,
         _ => Supplied::MediaTypes {
             by_extension: row.media_types.clone(),

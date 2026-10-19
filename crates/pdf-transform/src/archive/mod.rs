@@ -143,6 +143,7 @@ mod external;
 mod fonts;
 mod halftones;
 mod hexadecimal;
+mod icc;
 mod in_place;
 mod jpeg2000;
 mod overprint;
@@ -152,6 +153,7 @@ mod protection;
 mod remedies;
 mod report;
 mod rewrite;
+mod roles;
 mod signatures;
 mod sites;
 mod tagged;
@@ -982,7 +984,19 @@ fn apply_the_decisions(
         .preserved
         .as_ref()
         .is_ok_and(|composed| !composed.relocations.is_empty());
-    let wanted = rewrites_wanted(conversion, omit_identification, has_relocations);
+    let mut wanted = rewrites_wanted(conversion, omit_identification, has_relocations);
+    // The device colour an unreadable profile's alternate brings into the output is licensed by
+    // the output intent its preparation asked for (`doc/adr/1990`).
+    if wanted.contains(&Rewrite::ProfileAlternateWritten)
+        && prepared
+            .owed
+            .profile_alternates
+            .as_ref()
+            .is_ok_and(|alternates| !alternates.families.is_empty())
+    {
+        wanted.insert(Rewrite::OutputIntent);
+    }
+    let wanted = wanted;
     // The profile is reported wherever it is *used*, which is `doc/questions/A18`'s condition
     // and now two rewrites: the output intent names it as its destination profile, and the
     // `/DefaultCMYK` names the same object as its alternate space.
@@ -1177,6 +1191,7 @@ fn apply_the_decisions(
         conversion
             .described_schemas
             .clone_from(&described.described);
+        conversion.removed.extend(described.cut.iter().cloned());
     }
     // `doc/adr/1269`: the dictionary is gone from the output, so the report is the only place a
     // reader can see which of its entries the packet took and which value went with it.

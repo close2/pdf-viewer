@@ -40,6 +40,9 @@
 
 use raster_scene::Scene;
 
+use std::cell::OnceCell;
+
+use crate::device::KeptInstances;
 use crate::encode::Encoded;
 use crate::frame::EncodeSource;
 use crate::startup::Coverage;
@@ -140,6 +143,10 @@ struct Held {
     encoded: Encoded,
     /// Counted once, when the encode is stored, so that asking is free.
     bytes: u64,
+    /// The device's copies of the encode's instance streams, made by the first frame that
+    /// draws it and read by every replay (viewer ADR 1993): they live and die with the encode
+    /// they were made from, so no frame can draw another encode's instances through them.
+    instances: OnceCell<KeptInstances>,
 }
 
 /// A [`Scene`] the caller keeps across frames, and the encode of its last frame.
@@ -164,7 +171,7 @@ struct Held {
 ///
 /// | the next frame differs by | what happens |
 /// |---|---|
-/// | nothing | the encode is replayed |
+/// | nothing | the encode is replayed, its instance streams read from the device rather than sent again (viewer ADR 1993) |
 /// | its damage list | replayed — `encode` never reads damage (ADR 0012) |
 /// | the target it draws into | replayed — phase 1 knows no target |
 /// | a scroll of a whole number of device pixels | **re-encoded**: the atlas tiles are still valid and are reused, but every device bound, cull and clip rectangle is an absolute position |
@@ -266,6 +273,18 @@ impl RetainedScene {
         self.held.as_ref().map_or(0, |held| held.bytes)
     }
 
+    /// Device bytes the retained encode keeps resident between frames: its instance
+    /// streams, made by the first frame that drew it and read by every replay, so that a
+    /// replay sends none of them again (viewer ADR 1993). Zero before that frame and when no
+    /// encode is retained; [`forget`](RetainedScene::forget) gives them back with the encode.
+    #[must_use]
+    pub fn resident_instance_bytes(&self) -> u64 {
+        self.held
+            .as_ref()
+            .and_then(|held| held.instances.get())
+            .map_or(0, KeptInstances::bytes)
+    }
+
     /// The encode to draw this frame: the retained one when `key` still holds, a fresh
     /// one from `encode` otherwise.
     ///
@@ -276,7 +295,7 @@ impl RetainedScene {
         &mut self,
         key: EncodeKey,
         build: impl FnOnce(&Scene, Option<&crate::encode::ReplayList>) -> Result<Encoded, E>,
-    ) -> Result<(EncodeSource, &Encoded), E> {
+    ) -> Result<(EncodeSource, &Encoded, &OnceCell<KeptInstances>), E> {
         // Taken and put back rather than matched in place: `Option::insert` returns the
         // stored value infallibly, so the encode this call draws is the encode this
         // call stored, with no unwrap and no unreachable arm between the two.
@@ -303,6 +322,7 @@ impl RetainedScene {
                         key,
                         encoded,
                         bytes,
+                        instances: OnceCell::new(),
                     },
                 )
             }
@@ -313,10 +333,12 @@ impl RetainedScene {
                     key,
                     encoded,
                     bytes,
+                    instances: OnceCell::new(),
                 };
                 (EncodeSource::Encoded, held)
             }
         };
-        Ok((source, &self.held.insert(held).encoded))
+        let held = self.held.insert(held);
+        Ok((source, &held.encoded, &held.instances))
     }
 }

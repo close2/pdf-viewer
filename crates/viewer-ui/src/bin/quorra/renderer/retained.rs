@@ -67,7 +67,7 @@ pub(super) fn retain_one(
         frame_on_the_processor,
         (scratch, lanes),
         idle,
-        jobs,
+        (jobs, done),
     ) {
         Drawn::Picture(retained) => retained,
         Drawn::Behind(job) => return Turn::Job(job),
@@ -163,13 +163,16 @@ enum Drawn {
 /// for the device's life, but only after the picture's scene is encoded, so asking again is that
 /// encode paid once per page for nothing. The lane is known from a frame that carried or heard its
 /// refusal, or from this layer's own first ask, and the device is asked once per window.
+///
+/// **A lane this layer heard first is told to the window** (`Finished::Lane`, ADR 2000), which
+/// keeps it as it keeps one a frame heard, so the next frame of the lane does not ask either.
 fn retain(
     renderer: &mut QuorraWindowRenderer,
     page: &crate::stale::Placed,
     frame_on_the_processor: bool,
     (scratch, lanes): (&mut Scratch, &mut RefusedLanes),
     idle: &Idle,
-    jobs: &Receiver<Job>,
+    (jobs, done): (&Receiver<Job>, &Sender<Finished>),
 ) -> Drawn {
     if !frame_on_the_processor {
         // Set where the device would have been asked, refused or not, so that the processor's
@@ -179,7 +182,14 @@ fn retain(
         if !lanes.refused(LANE) {
             match draw_whole_page(renderer, page, scratch) {
                 Some(Ok(retained)) => return Drawn::Picture(retained),
-                Some(Err(problem)) => lanes.learn(remembered(&problem, LANE)),
+                Some(Err(problem)) => {
+                    let said = problem.to_string();
+                    if lanes.learn(remembered(&problem, LANE), &said) {
+                        // A send that fails is an event thread that has gone; the picture's own
+                        // send, or the loop's next wait, ends this thread on the same answer.
+                        drop(done.send(Finished::Lane { lane: LANE, said }));
+                    }
+                }
                 None => {}
             }
         }

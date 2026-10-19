@@ -35,6 +35,7 @@ pub use crate::transfer::Transfer;
 use colour::{BlackPoint, Intent, output_intent_space};
 use ext_gstate::TransferState;
 use font::{Font, FontKey};
+use overprint::ProcessTints;
 use pattern::{PatternInitial, PatternPaint};
 use run::narrow;
 use text::Coverage;
@@ -268,16 +269,18 @@ struct GraphicsState {
     /// "shall have an effect only when the overprint parameter is true". Initially 0.
     overprint_mode: i64,
     /// The four tints the file stated for the current **fill** colour, where it stated them
-    /// in `DeviceCMYK` directly.
+    /// in `DeviceCMYK` directly or in a four-component `ICCBased` space a press may be of.
     ///
     /// §8.6.7 puts the zero test on "the tint value defined within the PDF file, before
     /// quantisation into a device tint value for the output device", so the numbers the
     /// operator carried are kept beside the colour they resolved to. `None` wherever Table
-    /// 146's first row does not apply — any other source space, a pattern, or an image's or a
-    /// shading's colours, which §8.6.7 excludes outright. See [`Interpreter::overprint_blend`].
-    fill_tints: Option<[f32; 4]>,
+    /// 146's first row cannot apply — any other source space, a pattern, or an image's or a
+    /// shading's colours, which §8.6.7 excludes outright. Whether an `ICCBased` colour's
+    /// tints apply is the press's question, asked when it is painted ([`ProcessTints::on`],
+    /// §8.6.5.7). See [`Interpreter::overprint_blend`].
+    fill_tints: Option<ProcessTints>,
     /// As above, for stroking.
-    stroke_tints: Option<[f32; 4]>,
+    stroke_tints: Option<ProcessTints>,
     /// §11.6.4.3's `/AIS`, Table 57's alpha source flag: whether the soft mask and the two
     /// alpha constants state *shape* rather than opacity.
     ///

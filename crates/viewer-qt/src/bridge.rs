@@ -915,6 +915,11 @@ pub mod ffi {
         fn archive_profiles(self: &Host) -> Vec<String>;
         /// Each profile's one sentence about itself, beside its name.
         fn archive_sentences(self: &Host) -> Vec<String>;
+        /// The target the dialogue starts on: the window's held choice where it holds one, else
+        /// the first (ADR 2001).
+        fn archive_target_start(self: &Host) -> i32;
+        /// The profile it starts on, likewise.
+        fn archive_profile_start(self: &Host) -> i32;
         /// The indices the person chose, or a negative one for a dialogue closed without a choice.
         fn archive_answer(self: &mut Host, target: i32, profile: i32);
 

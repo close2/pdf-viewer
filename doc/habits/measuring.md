@@ -1085,3 +1085,57 @@ nine seconds. The lock exists so that two walks of the corpus do not share the m
 already lets run bare. Tier 1 scoped to a round's crates is run bare, and a walk, a hold or an export
 takes the lock.
 
+## 108. A round that moves what `doc/teaching/` names redraws the diagram, not only the name
+
+`tools/conformance/tests/teaching.rs` holds every path, `path::name` and ADR the teaching documents
+write to one that exists, so a moved function fails the test by name (ADR 2003). The sentence and the
+diagram around the name it cannot judge: a stage whose function moved into a sibling module may still
+read as if it lived where it did. Each diagram ends with a maintenance note naming the files and ADRs
+it rests on; a round that touches one of them reads the note and redraws the diagram in the same
+round, and the test's failure is the reminder, never the whole of the work.
+
+## 109. A split that walks up from a method's body stops at the `impl` line
+
+Round 1584's first extraction of a method out of a 4 636-line `impl Viewer` walked upward over the
+method's doc comments and attributes to find its start, and did not stop at `impl Viewer {`: the
+opening of the block went into the first member's text and the result had an unclosed delimiter. A
+method's start is bounded by the line that opens its block as much as by the member above it; the
+walk checks for `impl` and `}` before it takes a line.
+
+## 110. A census's `--since` is checked against the batch's own span first
+
+Round 1581's brief gave the cache census a `--since` of 12:40Z for a batch whose merge commit is
+stamped 09:18Z, because the orchestrator wrote the time from memory rather than from `date -u`; the
+census would have counted nothing, and until the round made it refuse an empty count it printed
+zeros that read as "no loss". Before a census over a time range runs, the range is read against the
+batch's own stamps — `/home/AI/heavy-walk.log`, the merge commit's `%cI` — and a brief's timestamp is
+taken from the clock, never estimated.
+
+
+## 111. Whether an optional conversion's clause applies is read off where the tree does the conversion
+
+§8.6.5.7 binds "when this type of implicit conversion is done" — a condition on the processor's
+act, not on the colour space's dictionary. Round 1580's brief hypothesised from `/Alternate`; the
+answer was in `ColourSpace::to_cmyk`, the one place this reader passes an `ICCBased` colour's values
+through to a press of the same profile (ADR 1996), and nothing in the space's entries could have said
+so. A clause conditioned on what the processor does is read against the code path that does it,
+found by its name in the tree, before any attribute of the input is consulted.
+
+
+## 112. A round's clock hold stops the round's own background drive first
+
+Round 1582 had a drive of the four windows running in the background when its `--clock` hold was
+granted, and the first line of its hold script stopped that drive before any figure was taken. A
+hold takes both lock lanes so that no *other* round's walk shares the machine; a round's own drive
+is outside the lock and is the one load the lock cannot see. The hold script's first statement names
+and stops it, and the record says so beside the hold's load figure.
+
+## 113. Where a figure came from is read off the adapter line the instrument prints
+
+Round 1578 was told to take its device figures on the owner's display because the orchestrator took
+the headless runs for Xvfb's software adapter. They were not: `zoom_frame` and the turn gate open the
+machine's own adapter headless, and every figure was the Radeon's through RADV, which the instrument
+had printed on its first line. A sentence about where a measurement was taken is copied from that
+line, and `doc/environment.md`'s rule follows from it — what is measurable headless is measured
+headless, and the owner's loop is for what a display alone can show.
+

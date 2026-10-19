@@ -266,6 +266,69 @@ pub struct LaneCounts {
     pub image: u32,
 }
 
+/// Where [`Counters::bytes_uploaded`] went, stream by stream: the denominator a zoom step's
+/// `transfer` is read against (viewer ADR 1992).
+///
+/// **Every field is a share of that one number and they sum to it** ([`Self::total`]), so a
+/// caller reads which stream crossed rather than a second count of the same bytes. Two of the
+/// compute lane's shares are named apart because they are not the same kind of byte: its tile
+/// records are written by the host every frame, while its accumulators, sheet image, counts and
+/// edge capacity are device-side allocations the frame budget charges and the host never writes
+/// ([`compute_device_only`](Self::compute_device_only)) — counted in the total because the budget
+/// counts them, and kept apart here so that nobody reads them as a transfer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UploadSplit {
+    /// The rectangle lane's instances (ADR 0007).
+    pub rect_instances: u64,
+    /// The coverage quads' instances: glyph, sheet and image placements.
+    pub quad_instances: u64,
+    /// The line lane's 60-byte instances (ADR 0097).
+    pub line_instances: u64,
+    /// The processor-rasterised coverage written onto the frame's scratch sheet.
+    pub scratch_sheet: u64,
+    /// Glyph atlas rows flushed to the device this frame.
+    pub atlas_rows: u64,
+    /// The compute lane's per-fill tile records, written by the host every frame.
+    pub compute_records: u64,
+    /// The compute lane's resident segment arena, grown by the outlines it met first this
+    /// frame (ADR 0081); zero on a frame whose outlines were all resident.
+    pub arena_growth: u64,
+    /// The compute lane's device-side buffers the budget charges and no host write fills.
+    pub compute_device_only: u64,
+    /// The winding lane's buffers (ADR 0016).
+    pub winding: u64,
+    /// Images, ramps and meshes made resident for the first time this frame.
+    pub paint: u64,
+}
+
+impl UploadSplit {
+    /// The sum of every share, which is [`Counters::bytes_uploaded`].
+    #[must_use]
+    pub fn total(&self) -> u64 {
+        [
+            self.rect_instances,
+            self.quad_instances,
+            self.line_instances,
+            self.scratch_sheet,
+            self.atlas_rows,
+            self.compute_records,
+            self.arena_growth,
+            self.compute_device_only,
+            self.winding,
+            self.paint,
+        ]
+        .into_iter()
+        .fold(0_u64, u64::saturating_add)
+    }
+
+    /// The shares the host wrote this frame: [`Self::total`] less the compute lane's
+    /// device-only allocations.
+    #[must_use]
+    pub fn host_written(&self) -> u64 {
+        self.total().saturating_sub(self.compute_device_only)
+    }
+}
+
 /// What this frame did, in counts (section 8 of the brief).
 ///
 /// The atlas and tiling counters exist from M1 with honest zeros: the fields are the
@@ -428,6 +491,8 @@ pub struct Counters {
     pub layers_culled: u32,
     /// Bytes scheduled for CPU→GPU transfer this frame.
     pub bytes_uploaded: u64,
+    /// [`bytes_uploaded`](Counters::bytes_uploaded) divided by the stream it went to.
+    pub uploads: UploadSplit,
     /// Internal layer textures this frame allocated — the compositor's peak, not its
     /// total (ADR 0020).
     ///

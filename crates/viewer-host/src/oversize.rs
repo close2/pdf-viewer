@@ -8,15 +8,16 @@
 //! draws a window-sized frame from the marks that reach it (ADR 1841). This module is the same
 //! answer for the two toolkit windows (ADRs 1892, 1930).
 //!
-//! **Which pages: those whose window is at most half of them.** [`oversized`] holds a page drawn
-//! this way where [`largest_window`] — the viewport and a quarter of it on every side, inside the
-//! page — is at most half the page's area, or where its whole raster would be past
-//! [`viewer_core::MAX_PIXELS`]. A window is drawn from a list of its own, of the marks that reach
-//! it (ADR 1841), and measured on the witness one that is most of the page lands later than the
-//! page drawn whole while one under half of it lands sooner, by more the deeper the zoom (ADR
-//! 1930 §3); a page drawn whole is also drawn once for every scroll, where a window is drawn again
-//! at each scroll past its margin. So every page at the fit and the first notches past it is
-//! asked for, drawn and answered exactly as before, and no frame of it moves.
+//! **Which pages: those whose window leaves out an eighth of their commands or half their
+//! pixels.** [`oversized`] holds a page drawn this way where [`largest_window`] — the viewport and
+//! a quarter of it on every side, inside the page — keeps at most seven eighths of the page's
+//! commands, or is at most half the page's area, or where the page's whole raster would be past
+//! [`viewer_core::MAX_PIXELS`]. A window is drawn through a selection of the page's own commands
+//! (ADR 1980) and costs what it keeps: a page this size is drawn per command, and a page of few
+//! commands per pixel (ADR 1994). A page drawn whole is also drawn once for every scroll, where a
+//! window is drawn again at each scroll past its margin, so a window that keeps nearly every
+//! command, and ties with its page, is not drawn. Every page at the fit, and every one whose
+//! window holds all of it, is asked for, drawn and answered exactly as before.
 //!
 //! The window tells the viewer it draws a page from its list (`viewer_core::Command::Oversize`),
 //! so a page past the bound is asked for at its whole target rather than refused; [`Oversized`]
@@ -79,24 +80,59 @@ impl Window {
     }
 }
 
-/// Whether a request is for a page drawn as the window shows it — the pages this module holds,
-/// and the only ones: the largest window a viewport `viewport` device pixels across draws of it is
-/// at most half its target's area, or its whole raster is past [`viewer_core::MAX_PIXELS`]
-/// (ADRs 1892, 1930).
+/// The most of a page's commands a window may keep and be drawn in the page's place: seven
+/// eighths (ADR 1994).
 ///
-/// **Half, because a window that is most of the page costs more than the page.** The window is
-/// drawn from the marks that reach it, which are found for every window drawn, and on the
-/// witness a window of nine tenths of the page landed 60–130 ms after the page drawn whole and one
-/// of two fifths 180–220 ms before it (ADR 1930 §3). It is the same half for the same reason as
-/// the band's (`drawing::band_of`, ADR 1868): the fixed part of a draw is about half of it.
+/// **Measured where the two cross.** On the owner's witness, at 1200 × 900 and on four and
+/// twenty-four threads, a window keeping 83 % of the commands landed 20–100 ms before the page and
+/// one keeping 92.7 % tied with it, as one keeping 98.3 % did; on `issue12810.pdf`, whose marks
+/// lie in the page's middle, a window of 61 % of the page kept 97.9 % of them and tied too, where
+/// a bound in area would have drawn it. Above the bound a window buys nothing a scroll does not
+/// take back.
+const KEPT: f64 = 0.875;
+
+/// Whether a request is for a page drawn as the window shows it — the pages this module holds,
+/// and the only ones: its whole raster is past [`viewer_core::MAX_PIXELS`], or the largest window
+/// a viewport `viewport` device pixels across draws of it, centred on it, is part of it and either
+/// at most half its target's area or keeps at most `KEPT`, seven eighths, of its commands (ADRs
+/// 1892, 1930, 1994).
+///
+/// **Commands, because a window costs what it keeps** (ADR 1980 §4): a page drawn at these sizes
+/// is drawn per command, and the share a window keeps is the list's to say
+/// ([`pdf_render::DisplayList::share_reaching`], a stride of it asked on this thread). **And half
+/// the pixels, because a page of few commands is drawn per pixel**: on `22060_A1_01_Plans.pdf`, 70
+/// commands of which a window keeps a third or more, every window landed first, and a page of one
+/// image keeps its one command in every window. The area is asked first, so a window that is half
+/// its page or less asks the list nothing. The window priced is the centred one: the question is
+/// asked once for the request, before the view places any window, and a window placed elsewhere
+/// keeps another share of the same commands, which at worst ties.
 #[must_use]
 pub fn oversized(request: &RenderRequest, viewport: (u32, u32)) -> bool {
     let target = request.target;
-    let (width, height) = largest_window(viewport);
     let area = |width: u32, height: u32| u64::from(width).saturating_mul(u64::from(height));
     let page = area(target.width, target.height);
-    let window = area(width.min(target.width), height.min(target.height));
-    window.saturating_mul(2) <= page || page > viewer_core::MAX_PIXELS
+    if page > viewer_core::MAX_PIXELS {
+        return true;
+    }
+    let window = largest_centred(target, viewport);
+    let kept = area(window.width, window.height);
+    kept < page
+        && (kept.saturating_mul(2) <= page
+            || request.list.share_reaching(window.target_of(target)) <= KEPT)
+}
+
+/// The largest window a viewport `viewport` device pixels across is drawn as, centred on `target`
+/// and inside it: the window [`oversized`] prices.
+#[must_use]
+pub fn largest_centred(target: TargetSpec, viewport: (u32, u32)) -> Window {
+    let (most_x, most_y) = largest_window(viewport);
+    let (across, down) = (most_x.min(target.width), most_y.min(target.height));
+    Window {
+        x: target.width.saturating_sub(across) / 2,
+        y: target.height.saturating_sub(down) / 2,
+        width: across,
+        height: down,
+    }
 }
 
 /// The largest window a viewport `viewport` device pixels across is drawn as: the viewport and a

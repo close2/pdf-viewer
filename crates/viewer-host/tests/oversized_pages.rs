@@ -1,6 +1,6 @@
-//! A page zoomed past its window — twice the largest window or more, or past
-//! `viewer_core::MAX_PIXELS` — asked for, drawn as the window shows it and answered, through the
-//! pieces both toolkit windows use (ADRs 1892, 1930).
+//! A page zoomed past its window — twice the largest window or more, a window that leaves out an
+//! eighth of its commands, or past `viewer_core::MAX_PIXELS` — asked for, drawn as the window
+//! shows it and answered, through the pieces both toolkit windows use (ADRs 1892, 1930, 1994).
 
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,11 @@ fn assembled(objects: &[&str]) -> Vec<u8> {
 
 /// One A1 page (ISO 216's 594 × 841 mm, 1684 × 2384 points) filled red.
 fn a1_in_red() -> Vec<u8> {
-    let content = "1 0 0 rg 0 0 1684 2384 re f";
+    a1_of("1 0 0 rg 0 0 1684 2384 re f")
+}
+
+/// One A1 page drawn by `content`.
+fn a1_of(content: &str) -> Vec<u8> {
     assembled(&[
         "<< /Type /Catalog /Pages 2 0 R >>",
         "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
@@ -199,6 +203,12 @@ fn zoomed(viewer: &mut Viewer, scale: f32) -> viewer_core::RenderRequest {
 /// A viewer of `viewport` device pixels that draws a page past the bound from its list, with the
 /// A1 page open.
 fn opened_a1(viewport: (u32, u32)) -> Viewer {
+    opened(viewport, a1_in_red())
+}
+
+/// A viewer of `viewport` device pixels that draws a page past the bound from its list, with
+/// `bytes` open.
+fn opened(viewport: (u32, u32), bytes: Vec<u8>) -> Viewer {
     let mut viewer = Viewer::new(viewport.0, viewport.1, 1.0);
     viewer
         .handle(Command::Oversize(Oversize::Listed))
@@ -206,7 +216,7 @@ fn opened_a1(viewport: (u32, u32)) -> Viewer {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: a1_in_red().into(),
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -266,6 +276,30 @@ fn a_page_whose_window_is_more_than_half_of_it_is_drawn_whole_and_one_of_half_or
         1,
         "the page twice its window is drawn as the window shows it"
     );
+}
+
+#[test]
+fn a_page_whose_window_is_more_than_half_of_it_and_leaves_out_most_of_its_commands_is_drawn_as_it()
+{
+    // ADR 1994: a window that keeps at most seven eighths of its page's commands is drawn in the
+    // page's place whatever its share of the pixels. The red A1 page with a hundred specks along
+    // its foot, which no window about its middle reaches: such a window keeps one command of 101.
+    let viewport = (800, 600);
+    let content: String = std::iter::once(String::from("1 0 0 rg 0 0 1684 2384 re f\n0 0 1 rg\n"))
+        .chain((0..100).map(|speck: u32| format!("{} 10 4 4 re f\n", 10 + speck * 16)))
+        .collect();
+    let mut viewer = opened(viewport, a1_of(&content));
+    // At 0.72 the page is 1213 × 1717 and its window 1200 × 900, a little over half of it.
+    let windowed = zoomed(&mut viewer, 0.72);
+    assert!(
+        2 * 1200 * 900 > u64::from(windowed.target.width) * u64::from(windowed.target.height),
+        "{:?}",
+        windowed.target
+    );
+    assert!(oversized(&windowed, viewport), "{:?}", windowed.target);
+    // The red page alone keeps its one command in that window, and is drawn whole.
+    let mut red = opened_a1(viewport);
+    assert!(!oversized(&zoomed(&mut red, 0.72), viewport));
 }
 
 #[test]

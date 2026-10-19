@@ -3618,14 +3618,15 @@ PY2
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
-# zoomed_window: step 82's third part (ADR 1930) — a page zoomed until its largest window, the
-# viewport and a quarter of it on every side, is half of it or less is drawn as the window shows it
-# and not whole. The drive's own page: a red block of 60 points at its middle and a body of 2 400 000 fills at its
-# foot, which no window about the middle reaches, so the window is cheap and the page is not.
-# Zoomed in by `=` about the window's middle, each notch waited for until its frame or its window
-# lands, until a notch says `window … rasterised`: the window must be half the page it is of or
-# less, and the photograph taken then must hold the red block at the size the magnification gives
-# it, 60 points of that page. HEAD's windows draw every such page whole and never say a window (the
+# zoomed_window: step 82's third part (ADRs 1930, 1994) — a page zoomed until its largest window, the
+# viewport and a quarter of it on every side, is part of it and leaves out an eighth of its commands
+# or half its pixels is drawn as the window shows it and not whole. The drive's own page: a red block
+# of 60 points at its middle and a body of 2 400 000 fills at its foot, which no window about the
+# middle reaches, so the window is cheap and the page is not, and it is drawn as its window at the
+# first notch whose window is less than the page. Zoomed in by `=` about the window's middle, each
+# notch waited for until its frame or its window lands, until a notch says `window … rasterised`:
+# the window must be less than the page it is of, and the photograph taken then must hold the red
+# block at the size the magnification gives it, 60 points of that page. HEAD's windows draw every such page whole and never say a window (the
 # control). `quorra` draws a window-sized frame and is
 # not offered.
 zoomed_window() {
@@ -3681,8 +3682,8 @@ if not (m and b and w):
     sys.exit(1)
 window_w, window_h, page_w, page_h = map(int, m.groups())
 side = 60 * page_h / 792
-half_or_less = 2 * window_w * window_h <= page_w * page_h
-sys.exit(0 if half_or_less and all(abs(int(v) - side) <= 2 for v in b.groups()) else 1)
+part_of_it = window_w * window_h < page_w * page_h
+sys.exit(0 if part_of_it and all(abs(int(v) - side) <= 2 for v in b.groups()) else 1)
 PY2
     then
         verdict "$step" works "a window drawn at notch $notch ($of), the page last drawn whole at ${whole:-none}; its red block $box"
@@ -4296,20 +4297,36 @@ archive_chosen() {
     else
         verdict 88-archive-kept wrong "the choice was not kept: $LOG"
     fi
-    # Ctrl+Shift+A puts the chooser up again in the window that has chosen (ADR 1985): Down twice
-    # from `refuse-any-loss` is `as-shown`, and Enter keeps it and converts to it.
+    # Ctrl+Shift+A puts the chooser up again in the window that has chosen (ADR 1985), on the
+    # choice it holds (ADR 2001): Down once from `as-if-printed` is `as-shown` — from the first
+    # profile it would be `as-if-printed` again — and Enter keeps it and converts to it.
     mark=$(lines)
     rm -f "$written"
     key ctrl+shift+a
     wait_for 10 said_since "$mark" "Convert to ISO 19005 (PDF/A): A profile is"
     shot 88-archive-again
-    to_the_chooser Down Down Return
+    to_the_chooser Down Return
     wait_for 120 said_since "$mark" "under the profile \"as-shown\": wrote\|no PDF/A-2b file was written"
     if said_since "$mark" "chose PDF/A-2b under the profile \"as-shown\"" &&
         said_since "$mark" "converting to PDF/A-2b under the profile \"as-shown\""; then
         verdict 88-archive-again works "chosen again on the chooser Ctrl+Shift+A put up"
     else
         verdict 88-archive-again wrong "the chooser was not put up again, or not answered: $LOG"
+    fi
+    # And Enter alone on the chooser put up again keeps what the window holds (ADR 2001): the
+    # conversion is under `as-shown`, where a chooser that started on the first profile would
+    # convert under `refuse-any-loss`.
+    mark=$(lines)
+    rm -f "$written"
+    key ctrl+shift+a
+    wait_for 10 said_since "$mark" "Convert to ISO 19005 (PDF/A): A profile is"
+    to_the_chooser Return
+    wait_for 120 said_since "$mark" "under the profile \"[a-z-]*\": wrote\|no PDF/A-2b file was written\|nothing was converted"
+    if said_since "$mark" "chose PDF/A-2b under the profile \"as-shown\"" &&
+        said_since "$mark" "converting to PDF/A-2b under the profile \"as-shown\""; then
+        verdict 88-archive-again-held works "the chooser started on the held choice, and Enter kept it"
+    else
+        verdict 88-archive-again-held wrong "the chooser did not start on the held choice: $LOG"
     fi
     # And closed without a choice, the window keeps the one it held: the next Shift+A converts
     # under `as-shown` with no chooser.

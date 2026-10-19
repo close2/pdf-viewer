@@ -3378,6 +3378,8 @@ void MainWindow::chooseAnArchive()
     for (const rust::String& named : host_->archive_targets()) {
         target->addItem(text(named));
     }
+    // On the window's held choice where it holds one, so Enter keeps it (ADR 2001).
+    target->setCurrentIndex(host_->archive_target_start());
     form->addRow(QStringLiteral("Target"), target);
     column->addLayout(form);
     auto* profiles = new QListWidget(&dialog);
@@ -3387,7 +3389,7 @@ void MainWindow::chooseAnArchive()
         const QString sentence = index < sentences.size() ? text(sentences[index]) : QString();
         profiles->addItem(text(names[index]) + QStringLiteral("\n") + sentence);
     }
-    profiles->setCurrentRow(0);
+    profiles->setCurrentRow(host_->archive_profile_start());
     // Every profile in view at once, its sentence wrapped rather than scrolled sideways: the
     // sentences are what a person chooses by, and a list that hid five of six would offer one.
     profiles->setWordWrap(true);

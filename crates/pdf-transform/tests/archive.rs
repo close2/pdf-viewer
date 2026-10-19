@@ -11230,3 +11230,362 @@ fn the_listing_names_the_jpx_transcode() {
         "{site:?}"
     );
 }
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.2.4.2's tag row: a profile short of a tag its ICC edition requires,
+// answered by what this reader drew through it (`doc/adr/1979`, `doc/adr/1990`).
+// --------------------------------------------------------------------------------------------
+
+/// A part 2 page filling through an `ICCBased` space whose profile is `profile`, its stream
+/// dictionary stating `alternate` besides `/N 3`.
+fn an_icc_space(profile: &[u8], alternate: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in profile {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    Conforming {
+        resources: "/ColorSpace << /C0 6 0 R >>".to_owned(),
+        objects: vec![
+            "[/ICCBased 7 0 R]".to_owned(),
+            format!(
+                "<< /N 3 {alternate} /Filter /ASCIIHexDecode /Length {} >> stream\n{hex}\n\
+                 endstream",
+                hex.len()
+            ),
+        ],
+        contents: Some((
+            String::new(),
+            b"/C0 cs 0.2 0.4 0.6 scn 10 10 50 50 re f".to_vec(),
+        )),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The shipped sRGB profile with its `cprt` entry's signature overwritten, so that its tag table
+/// names no copyright tag and every tag a transform reads is still there.
+fn srgb_without_a_copyright() -> Vec<u8> {
+    let mut profile = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    rename_tag(&mut profile, *b"cprt", *b"zzzz");
+    assert!(pdf_model::icc::Profile::parse(&profile).is_some());
+    profile
+}
+
+/// A profile's tag table entry for `from` renamed `to`, so the table no longer names the tag.
+fn rename_tag(profile: &mut [u8], from: [u8; 4], to: [u8; 4]) {
+    let count = u32::from_be_bytes(profile[128..132].try_into().expect("four bytes"));
+    let table = &mut profile[132..];
+    let entry = table
+        .chunks_exact_mut(12)
+        .take(usize::try_from(count).expect("a count"))
+        .find(|entry| entry[..4] == from)
+        .expect("the profile states the tag");
+    entry[..4].copy_from_slice(&to);
+}
+
+/// A display profile's header and a tag table naming one text tag: a profile, and one no reader
+/// can draw through, since nothing in it is a transform.
+fn a_profile_with_no_transform() -> Vec<u8> {
+    let mut profile = vec![0u8; 128];
+    profile[8] = 2;
+    profile[12..16].copy_from_slice(b"mntr");
+    profile[16..20].copy_from_slice(b"RGB ");
+    profile[20..24].copy_from_slice(b"XYZ ");
+    profile[36..40].copy_from_slice(b"acsp");
+    profile.extend_from_slice(&1u32.to_be_bytes());
+    profile.extend_from_slice(b"cprt");
+    profile.extend_from_slice(&144u32.to_be_bytes());
+    profile.extend_from_slice(&12u32.to_be_bytes());
+    profile.extend_from_slice(b"text\0\0\0\0Mine");
+    let size = u32::try_from(profile.len()).expect("small");
+    profile[0..4].copy_from_slice(&size.to_be_bytes());
+    assert!(pdf_model::icc::Profile::parse(&profile).is_none());
+    profile
+}
+
+/// The one page's display list as text: every command, its colour and its placement, which is
+/// what "draws the same" is measured on (trap 182: the page is drawn before and after).
+fn drawn(bytes: &[u8]) -> String {
+    let document =
+        Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("the document opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("the one page");
+    format!(
+        "{:?}",
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands()
+    )
+}
+
+/// The row as the shipped `as-shown` profile states it.
+const PROFILE_TEXT_ROW: &str = "[site.\"graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires\"]\n\
+     remedy = \"supply\"\n\
+     copyright = \"This profile stated no copyright information.\"\n";
+
+#[test]
+fn a_profile_lacking_only_its_copyright_stays_refused_without_the_operators_text() {
+    // ICC.1:1998-09 section 6.4.11 asks every profile for a copyrightTag, and nothing in the file
+    // says what it would state, so the converter does not write one on its own.
+    let row = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+    let (report, output) = to_part_two(&an_icc_space(&srgb_without_a_copyright(), ""));
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(sentence.contains("supply"), "{sentence}");
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_profile_lacking_only_its_copyright_is_given_the_operators_text_and_draws_the_same() {
+    let row = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+    let target = Target::Two(Level::B);
+    let source = an_icc_space(&srgb_without_a_copyright(), "");
+    let (report, output) = convert_with_plan(&source, &plan_from(PROFILE_TEXT_ROW, target));
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!("the supply answers the site: {:?}", decision(&report, row));
+    };
+    assert_eq!(rewrite, Rewrite::ProfileTextSupplied);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let output_bytes = output.clone();
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let profiles: Vec<Vec<u8>> = document
+        .xref()
+        .object_numbers()
+        .filter_map(|number| {
+            let object = document.get(ObjectId::new(number, 0));
+            let stream = object.as_stream()?;
+            let data = document.decoded_stream_data(stream)?;
+            (data.get(36..40) == Some(b"acsp")).then(|| data.to_vec())
+        })
+        .collect();
+    let [profile] = profiles.as_slice() else {
+        panic!("one profile in the output, found {}", profiles.len());
+    };
+    let read = pdf_model::icc::Identification::read(profile).expect("a profile");
+    assert_eq!(
+        read.copyright.as_deref(),
+        Some("This profile stated no copyright information.")
+    );
+    // Every byte a transform reads is where it was: the parsed profile is the same transform,
+    // whose only difference is the identity a profile's own bytes give it.
+    let transform = |data: &[u8]| {
+        let parsed = pdf_model::icc::Profile::parse(data).expect("parses");
+        let shown = format!("{parsed:?}");
+        shown
+            .split(", identity:")
+            .next()
+            .map(str::to_owned)
+            .unwrap_or_default()
+    };
+    assert_eq!(transform(&srgb_without_a_copyright()), transform(profile));
+    assert_eq!(drawn(&source), drawn(&output_bytes));
+    assert!(
+        conversion(&report).supplied.iter().any(|fact| fact
+            .value
+            .contains("This profile stated no copyright information.")),
+        "the report names the text"
+    );
+}
+
+#[test]
+fn a_profile_this_reader_cannot_draw_through_is_written_as_its_alternate() {
+    // ISO 32000-2 §8.6.5.5's Table 65 makes the Alternate the space used where the profile is not
+    // supported, which is what this reader drew; writing it states the page as it was shown.
+    let row = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+    let alternate = "/Alternate [/CalRGB << /WhitePoint [0.9505 1 1.089] >>]";
+    let (report, output) = to_part_two(&an_icc_space(&a_profile_with_no_transform(), alternate));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::ProfileAlternateWritten,
+            ..
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(!text.contains("ICCBased") && text.contains("CalRGB"));
+    let source = an_icc_space(&a_profile_with_no_transform(), alternate);
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_profile_drawn_through_but_short_of_a_transform_tag_is_refused() {
+    // Supplying a white point would be inventing the producer's colour (`doc/adr/1979`).
+    let row = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+    let mut profile = srgb_without_a_copyright();
+    rename_tag(&mut profile, *b"wtpt", *b"zzzy");
+    // A matrix profile's transform is its six matrix and curve tags, so this reader still draws
+    // through it, and ICC.1:1998-09 section 6.3 still asks for the white point.
+    assert!(pdf_model::icc::Profile::parse(&profile).is_some());
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(
+        &an_icc_space(&profile, ""),
+        &plan_from(PROFILE_TEXT_ROW, target),
+    );
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(sentence.contains("inventing"), "{sentence}");
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_device_alternate_for_an_unreadable_profile_is_written_under_an_output_intent() {
+    // Table 65's alternate is a device space here, so the output uses DeviceRGB where the input
+    // used none, and ISO 19005-2 section 6.2.4.3 then asks for an RGB output intent.
+    let row = "graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires";
+    let source = an_icc_space(&a_profile_with_no_transform(), "/Alternate /DeviceRGB");
+    let (report, output) = to_part_two(&source);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::ProfileAlternateWritten,
+            ..
+        }
+    ));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(String::from_utf8_lossy(&output).contains("/OutputIntents"));
+    // The output intent the device space needs is the shipped sRGB profile, and DeviceRGB drawn
+    // through it comes back within a part of a 255th of what it was: the intent's own statement
+    // (`doc/adr/0948`), not this rewrite's, and the same for every DeviceRGB file it is added to.
+    assert_drawn_within(&drawn(&source), &drawn(&output), 1.0 / 255.0);
+}
+
+/// Two display lists alike in every word and within `tolerance` in every number.
+fn assert_drawn_within(before: &str, after: &str, tolerance: f64) {
+    fn split(text: &str) -> (String, Vec<f64>) {
+        let mut shape = String::new();
+        let mut numbers = Vec::new();
+        let mut token = String::new();
+        for character in text.chars() {
+            let continues = !token.is_empty()
+                && (character.is_ascii_digit()
+                    || character == '.'
+                    || character == 'e'
+                    || (character == '-' && token.ends_with('e')));
+            if continues || character.is_ascii_digit() || (token.is_empty() && character == '-') {
+                token.push(character);
+                continue;
+            }
+            if token == "-" {
+                shape.push('-');
+            } else if !token.is_empty() {
+                numbers.push(token.parse().expect("a number"));
+                shape.push('#');
+            }
+            token.clear();
+            shape.push(character);
+        }
+        if !token.is_empty() {
+            numbers.push(token.parse().expect("a number"));
+            shape.push('#');
+        }
+        (shape, numbers)
+    }
+    let (before_shape, before_numbers) = split(before);
+    let (after_shape, after_numbers) = split(after);
+    assert_eq!(before_shape, after_shape);
+    for (was, is) in before_numbers.iter().zip(&after_numbers) {
+        assert!((was - is).abs() <= tolerance, "{was} became {is}");
+    }
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.7.3.4: a producer's own structure type mapped to a standard one on the
+// operator's word (`doc/adr/1990` section 6).
+// --------------------------------------------------------------------------------------------
+
+/// A tagged part 2 document whose one element is a `Chapter` holding a `Sidebar`, with the root's
+/// `/RoleMap` stating `map`.
+fn a_producers_own_types(map: &str) -> Vec<u8> {
+    Conforming {
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R".to_owned(),
+        objects: vec![
+            format!("<< /Type /StructTreeRoot /K [7 0 R] {map} >>"),
+            "<< /Type /StructElem /S /Chapter /P 6 0 R /K [8 0 R] >>".to_owned(),
+            "<< /Type /StructElem /S /Sidebar /P 7 0 R /K [] >>".to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The operator's table for those two types.
+const ROLE_MAP_ROW: &str = "[site.\"logical-structure/role-map-terminates-at-a-standard-type\"]\n\
+     remedy = \"supply\"\n\
+     role-map = { Chapter = \"Sect\", Sidebar = \"Note\" }\n";
+
+#[test]
+fn a_producers_own_types_are_mapped_where_the_operators_table_names_them() {
+    let row = "logical-structure/role-map-terminates-at-a-standard-type";
+    let target = Target::Two(Level::A);
+    let (report, output) =
+        convert_with_plan(&a_producers_own_types(""), &plan_from(ROLE_MAP_ROW, target));
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!("the supply answers the site: {:?}", decision(&report, row));
+    };
+    assert_eq!(rewrite, Rewrite::RoleMapSupplied);
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&written, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&written);
+    assert!(text.contains("/Chapter /Sect") && text.contains("/Sidebar /Note"));
+    assert_eq!(
+        conversion(&report).supplied.len(),
+        2,
+        "the report names both"
+    );
+}
+
+#[test]
+fn the_producers_own_role_map_entries_are_kept_and_only_the_unmapped_type_gains_one() {
+    let row = "logical-structure/role-map-terminates-at-a-standard-type";
+    let target = Target::Two(Level::A);
+    let source = a_producers_own_types("/RoleMap << /Chapter /Part >>");
+    let (report, output) = convert_with_plan(&source, &plan_from(ROLE_MAP_ROW, target));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Configured {
+            rewrite: Rewrite::RoleMapSupplied,
+            ..
+        }
+    ));
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let text = String::from_utf8_lossy(&written);
+    assert!(
+        text.contains("/Chapter /Part"),
+        "the producer's entry stands"
+    );
+    assert!(
+        !text.contains("/Chapter /Sect"),
+        "and the table does not overrule it"
+    );
+    assert!(text.contains("/Sidebar /Note"));
+}
+
+#[test]
+fn a_type_the_operators_table_does_not_name_stays_refused() {
+    let row = "logical-structure/role-map-terminates-at-a-standard-type";
+    let target = Target::Two(Level::A);
+    let partial = "[site.\"logical-structure/role-map-terminates-at-a-standard-type\"]\n\
+                   remedy = \"supply\"\nrole-map = { Chapter = \"Sect\" }\n";
+    let (report, output) =
+        convert_with_plan(&a_producers_own_types(""), &plan_from(partial, target));
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(sentence.contains("role-map"), "{sentence}");
+    assert!(output.is_none());
+}

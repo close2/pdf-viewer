@@ -13,11 +13,13 @@
 //! coverage lane's integration (ADR 0016) — and the glyph tiles the atlas packed this
 //! frame into a texture that outlives it.
 
+use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
 use super::Device;
 use crate::encode::Encoded;
 use crate::error::RenderError;
+use crate::frame::UploadSplit;
 
 /// Phase 2's product: the frame's buffers and textures, scheduled for upload.
 pub(super) struct Upload {
@@ -29,7 +31,9 @@ pub(super) struct Upload {
     pub(super) quad_instances: Option<wgpu::Buffer>,
     /// The frame's scratch coverage texture, kept alive until the submit.
     pub(super) scratch_view: Option<(wgpu::Texture, wgpu::TextureView)>,
-    pub(super) bytes: u64,
+    /// What the frame scheduled, stream by stream; its total is the frame's
+    /// `bytes_uploaded`.
+    pub(super) split: UploadSplit,
     pub(super) time: Duration,
     /// Host-side spans the upload wants named in the frame's phases — the compute
     /// lane's residency walk and its count stall — so "upload" stops being one number
@@ -43,31 +47,71 @@ pub(super) struct Upload {
     pub(super) compute_run: Option<crate::compute::ComputeRun>,
 }
 
+/// The device's copies of one encode's three instance streams, kept beside a retained
+/// encode so that a replay of it sends none of them again (viewer ADR 1993).
+///
+/// **The streams are the encode's bytes and nothing else**: they are written once, by the
+/// first frame that draws the encode, and no pass writes an instance buffer, so every replay
+/// reads what a fresh upload of the same encode would have written. They are held by the
+/// retained encode itself (`retained::Held`), which is what keeps them from ever being read
+/// for another encode — a new encode is a new cell — and what gives them back when the
+/// encode is dropped, replaced or forgotten. The price is device memory between frames: the
+/// encode's instance bytes, which the frame that made them had already allocated and the
+/// budget had admitted, now held while the page is shown rather than for one frame.
+#[derive(Debug, Clone)]
+pub(crate) struct KeptInstances {
+    rect: Option<wgpu::Buffer>,
+    quad: Option<wgpu::Buffer>,
+    line: Option<wgpu::Buffer>,
+}
+
+impl KeptInstances {
+    /// Device bytes the three streams hold.
+    pub(crate) fn bytes(&self) -> u64 {
+        [&self.rect, &self.quad, &self.line]
+            .into_iter()
+            .flatten()
+            .map(wgpu::Buffer::size)
+            .fold(0_u64, u64::saturating_add)
+    }
+}
+
 impl Device {
     /// Phase 2: create the frame's buffers and textures, sized by phase 1's counts,
     /// and schedule their uploads.
+    ///
+    /// `kept` is the retained encode's cell for its instance streams, `None` for an encode
+    /// no later frame can replay: the first frame that draws a retained encode fills it, and
+    /// a replay reads the streams from it and schedules none of their bytes (ADR 1993).
     ///
     /// # Errors
     ///
     /// Whatever the GPU coverage lane refuses: its sheet is a texture like any other
     /// and is bounded by the adapter's dimension.
-    pub(super) fn upload(&mut self, encoded: &Encoded) -> Result<Upload, RenderError> {
+    pub(super) fn upload(
+        &mut self,
+        encoded: &Encoded,
+        kept: Option<&OnceCell<KeptInstances>>,
+    ) -> Result<Upload, RenderError> {
         let started = Instant::now();
         let mut spans: Vec<(&'static str, Duration)> = Vec::new();
         // The globals are per plan now (ADR 0036) and made where the pass is recorded,
         // so nothing is charged here for them.
-        let mut bytes = 0_u64;
+        let mut split = UploadSplit::default();
         // The compute lane's whole chain is submitted *first* — count, scan, emit,
         // deposit, one submission with no mid-frame readback (ADR 0095) — so the
         // device works through it while the host stages the instance buffers and
         // flushes the atlas. What used to be a stall on the count's map is eight
         // bytes the frame reads at its own end-wait, before anything is presented.
-        let scratch_view = self.create_scratch_sheet(encoded, &mut bytes)?;
+        let scratch_view = self.create_scratch_sheet(encoded, &mut split.scratch_sheet)?;
         let compute_run = if encoded.compute.is_empty() {
             None
         } else {
-            bytes = bytes
-                .saturating_add(encoded.compute.device_bytes())
+            split.compute_records = encoded.compute.record_bytes();
+            split.compute_device_only = encoded
+                .compute
+                .device_bytes()
+                .saturating_sub(split.compute_records)
                 .saturating_add(self.compute_persist.capacity_bytes());
             // The arena's growth is this frame's staging too: the first frame that
             // draws an outline pays its residency once, and the counter says so.
@@ -88,41 +132,22 @@ impl Device {
                 )?,
                 None => None,
             };
-            bytes = bytes.saturating_add(
-                self.segment_arena
-                    .device_bytes()
-                    .saturating_sub(arena_before),
-            );
+            split.arena_growth = self
+                .segment_arena
+                .device_bytes()
+                .saturating_sub(arena_before);
             run
         };
-        let make_instances = |gpu: &wgpu::Device, queue: &wgpu::Queue, label, data: &[u8]| {
-            if data.is_empty() {
-                None
-            } else {
-                let buffer = gpu.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(label),
-                    size: data.len() as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                queue.write_buffer(&buffer, 0, data);
-                Some(buffer)
-            }
-        };
-        let [rect_instances, quad_instances, line_instances] = [
-            ("raster rect instances", &encoded.rect_instances),
-            ("raster quad instances", &encoded.quad_instances),
-            ("raster line instances", &encoded.line_instances),
-        ]
-        .map(|(label, data)| {
-            bytes = bytes.saturating_add(data.len() as u64);
-            make_instances(&self.gpu, &self.queue, label, data)
-        });
-        self.flush_atlas_tiles(&mut bytes);
+        let KeptInstances {
+            rect: rect_instances,
+            quad: quad_instances,
+            line: line_instances,
+        } = self.instance_streams(encoded, kept, &mut split);
+        self.flush_atlas_tiles(&mut split.atlas_rows);
         if !encoded.winding.is_empty()
             && let Some((_, view)) = scratch_view.as_ref()
         {
-            bytes = bytes.saturating_add(encoded.winding.device_bytes());
+            split.winding = encoded.winding.device_bytes();
             crate::winding::render_into(
                 &self.gpu,
                 &self.queue,
@@ -147,11 +172,65 @@ impl Device {
             quad_instances,
             line_instances,
             scratch_view,
-            bytes,
+            split,
             time: started.elapsed(),
             spans,
             compute_stamped,
         })
+    }
+
+    /// The frame's three instance streams on the device: made from the encode's bytes, or —
+    /// for a replay of a retained encode — the ones its first frame made, read from `kept`
+    /// (ADR 1993). A replay schedules none of their bytes, so its shares stay zero, which is
+    /// what crossed.
+    fn instance_streams(
+        &self,
+        encoded: &Encoded,
+        kept: Option<&OnceCell<KeptInstances>>,
+        split: &mut UploadSplit,
+    ) -> KeptInstances {
+        let make_instances = |label, data: &[u8]| {
+            if data.is_empty() {
+                None
+            } else {
+                let buffer = self.gpu.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: data.len() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                self.queue.write_buffer(&buffer, 0, data);
+                Some(buffer)
+            }
+        };
+        let mut make_streams = || {
+            let [rect, quad, line] = [
+                (
+                    "raster rect instances",
+                    &encoded.rect_instances,
+                    &mut split.rect_instances,
+                ),
+                (
+                    "raster quad instances",
+                    &encoded.quad_instances,
+                    &mut split.quad_instances,
+                ),
+                (
+                    "raster line instances",
+                    &encoded.line_instances,
+                    &mut split.line_instances,
+                ),
+            ]
+            .map(|(label, data, share)| {
+                *share = data.len() as u64;
+                make_instances(label, data)
+            });
+            KeptInstances { rect, quad, line }
+        };
+        match kept {
+            Some(cell) => cell.get_or_init(make_streams).clone(),
+            None => make_streams(),
+        }
     }
 
     /// The frame's scratch coverage sheet: the CPU lane's bytes uploaded, the GPU

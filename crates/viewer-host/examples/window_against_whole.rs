@@ -15,14 +15,22 @@
 //! Printed per run: milliseconds from the ask to the landing of each, the bytes each copies into
 //! the toolkit at an update, how many pixels of the window differ from the whole page's same
 //! rectangle, and by how much, and a digest of each drawing's pixels — which is what says that two
-//! builds drew the same window and the same page (ADR 1941).
+//! builds drew the same window and the same page (ADR 1941). Then, after the drawings so that none
+//! of them is handed the bounds it would otherwise measure, how many of the list's commands the
+//! page's own target and the window keep, and the commands the page's target leaves out, by kind
+//! and by the side of the page they lie off, and the share the window keeps as
+//! [`pdf_render::DisplayList::share_reaching`] estimates it for [`oversized`], with how long the
+//! estimate took (ADR 1994). `rounds` of 0 prints that alone. Where
+//! `WINDOW_AGAINST_WHOLE_COPY` is set, each round first copies the window's commands into a list
+//! of their own and lets it go, as every window drawn before ADR 1980 did, so that what that copy
+//! cost the page drawn after it is measured in one build (ADR 1994).
 
 use std::time::{Duration, Instant};
 
 use pdf_render::{Raster, TargetSpec, Transform};
 use viewer_core::{Command, DocumentId, Event, PageGeometry, RenderRequest, Rendered, Viewer};
 use viewer_host::drawing::{Drawing, POLL};
-use viewer_host::oversize::{Oversized, Window, largest_window, oversized};
+use viewer_host::oversize::{Oversized, Window, largest_centred, oversized};
 
 #[expect(
     clippy::expect_used,
@@ -153,20 +161,6 @@ fn dump(raster: &Raster, [x0, y0, x1, y1]: [usize; 4], path: &std::path::Path) {
     }
 }
 
-/// Where the page is not drawn as its window, the window it would be drawn as were the bound
-/// lower — the largest window, centred and clamped to the page — so that the price of a window
-/// that is most of its page is measured too (ADR 1941).
-fn largest_centred(target: TargetSpec, viewport: (u32, u32)) -> Window {
-    let (most_x, most_y) = largest_window(viewport);
-    let (across, down) = (most_x.min(target.width), most_y.min(target.height));
-    Window {
-        x: target.width.saturating_sub(across) / 2,
-        y: target.height.saturating_sub(down) / 2,
-        width: across,
-        height: down,
-    }
-}
-
 /// A digest of a drawing's pixels, to compare two builds' drawings by.
 fn digest(raster: &Raster) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
@@ -197,6 +191,74 @@ fn dump_both(whole: &Raster, window: Window, drawn: &Raster, extent: [usize; 4],
     );
     dump(drawn, extent, &directory.join(format!("{zoom}-window.ppm")));
     println!("  differing within the window's {extent:?}");
+}
+
+/// How many of `request`'s commands the page's whole target and `window` keep, and what the whole
+/// target leaves out: each top-level command whose bound misses the target, by its kind and by
+/// the side of the target it lies off (ADR 1994).
+fn census(request: &RenderRequest, window: Window) {
+    let list = &request.list;
+    let target = request.target;
+    let all = list.commands().len();
+    let kept = |spec: TargetSpec| list.reaching(spec).map_or(all, |kept| kept.len());
+    let began = Instant::now();
+    let estimated = list.share_reaching(window.target_of(target));
+    let asked = began.elapsed();
+    let (whole, windowed) = (kept(target), kept(window.target_of(target)));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a share of a few million commands, printed to a tenth of a per cent"
+    )]
+    let share = |part: usize| part as f64 * 100.0 / all.max(1) as f64;
+    println!(
+        "  commands: {all} in the list; the page's target keeps {whole} ({:.1} %); the window keeps \
+         {windowed} ({:.1} %), estimated {:.1} % in {} µs",
+        share(whole),
+        share(windowed),
+        estimated * 100.0,
+        asked.as_micros()
+    );
+    let bounds = list.mark_bounds(target.transform);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a target's extent is below MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let (width, height) = (target.width as f32, target.height as f32);
+    let mut tally: std::collections::BTreeMap<(&str, &str), usize> =
+        std::collections::BTreeMap::new();
+    for (index, command) in list.commands().iter().enumerate() {
+        if !bounds.misses_target(index, target) {
+            continue;
+        }
+        let kind = match command {
+            pdf_render::Command::Fill { .. } => "fill",
+            pdf_render::Command::Stroke { .. } => "stroke",
+            pdf_render::Command::Image { .. } => "image",
+            pdf_render::Command::Shaped { .. } => "shaped",
+            pdf_render::Command::Group { .. } => "group",
+            _ => "another kind",
+        };
+        let side = bounds
+            .reach(index, target.transform)
+            .map_or("unbounded", |reach| {
+                if reach.max.y < 0.0 {
+                    "above"
+                } else if reach.min.y > height {
+                    "below"
+                } else if reach.max.x < 0.0 {
+                    "left"
+                } else if reach.min.x > width {
+                    "right"
+                } else {
+                    "inside"
+                }
+            });
+        let count = tally.entry((kind, side)).or_default();
+        *count = count.saturating_add(1);
+    }
+    for ((kind, side), count) in tally {
+        println!("  left out by the page's target: {count} {kind} {side}");
+    }
 }
 
 fn millis(duration: Duration) -> String {
@@ -261,6 +323,9 @@ fn main() {
         let mut held = Oversized::default();
         let windowed = held.asked(&request, (width, height));
         let due = held.due(request.document, |_| Some(geometry), (width, height));
+        // Where the page is not drawn as its window, the window it would be drawn as were the
+        // bound lower, so that the price of a window that is most of its page is measured too
+        // (ADR 1941).
         let window = due.first().map_or_else(
             || largest_centred(target, (width, height)),
             |(_, window)| *window,
@@ -274,7 +339,11 @@ fn main() {
             oversized(&request, (width, height)) && windowed,
             share * 100.0
         );
+        let copying = std::env::var_os("WINDOW_AGAINST_WHOLE_COPY").is_some();
         for round in 0..rounds {
+            if copying && let Some(kept) = request.list.reaching(window.target_of(target)) {
+                drop(kept.copied());
+            }
             let (whole, whole_page) = drawn(&request, None);
             let (windowed, window_page) = drawn(&request, Some(window));
             let (differing, worst, extent) = compared(&whole_page, window, &window_page);
@@ -293,5 +362,6 @@ fn main() {
                 digest(&window_page)
             );
         }
+        census(&request, window);
     }
 }

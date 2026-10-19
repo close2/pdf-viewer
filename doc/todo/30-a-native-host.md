@@ -157,9 +157,9 @@ These are the places where a native host's shape differs from the tier-2 host's,
   so a turn has nothing to stand in for. **A page's own pixels are shown at a whole device pixel**,
   and a transition's faces are that picture (`viewer_host::clock::face_as_shown`), so the effect's
   last frame meets the page without a seam (ADR 1865). **A page zoomed until its largest window — the
-  viewport and a quarter round it — is half of it or less is drawn as the window shows it**, and so
-  is one past `viewer_core::MAX_PIXELS` (`viewer_host::oversize`, `Command::Oversize`, ADRs 1892,
-  1930): what is drawn and copied into the toolkit is the window, answered `Rendered::Listed`. **A
+  viewport and a quarter round it — keeps at most seven eighths of its commands or half its pixels
+  is drawn as the window shows it**, and so is one past `viewer_core::MAX_PIXELS`
+  (`viewer_host::oversize`, `Command::Oversize`, ADRs 1892, 1930, 1994): what is drawn and copied into the toolkit is the window, answered `Rendered::Listed`. **A
   page drawn whole of which the window shows less than half the rows has those rows drawn first**,
   as a look of their own over the stand-in, and the page whole after as the frame
   (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**: its
@@ -167,9 +167,8 @@ These are the places where a native host's shape differs from the tier-2 host's,
   refused frame) draws the window and its margin (ADR 1944); a page whose marks cannot cross is
   drawn by the worker as the window shows it, and that window crosses (ADR 1986). What is still owed: a page never
   drawn before that a notch out brings on screen has no picture of any kind until it is
-  drawn; and the half stands though a window now ties its page at 70–83 % of it, because it is
-  drawn as a selection of the page's commands rather than a copy (ADR 1980): a bound in commands
-  kept is `viewer_host::oversize`'s to take, before the draw (ADR 1980 §4).
+  drawn; and the confined window's worker draws a window only past the bound, where the wire
+  admits one, so the bound in commands is the toolkits' alone (ADR 1994 §3).
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

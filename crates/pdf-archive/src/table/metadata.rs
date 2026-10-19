@@ -37,9 +37,10 @@
 //!
 //! - **section 6.6.2.3.1** judges the *predefined* half — the shape of a value, the spelling of its
 //!   scalar, and the language qualifiers a language alternative's items are defined to carry.
-//! - **section 6.6.2.3.2** judges the other half, a namespace no predefined schema owns and no
-//!   embedded extension schema describes, because section 6.6.2.3.1 states that half by deferring
-//!   to section 6.6.2.3.2.
+//! - **section 6.6.2.3.2** judges the other half, a property no predefined schema defines — in a
+//!   namespace none owns, or under a name the owning schema does not have — and no embedded
+//!   extension schema describes, because section 6.6.2.3.1 states that half by deferring to
+//!   section 6.6.2.3.2.
 //! - **section 6.6.2.3.3** judges the description itself: every field of its four tables present,
 //!   each spelled with the prefix its table requires. What it does not judge, and says so in a
 //!   row of its own, is the one sentence of that subclause that reads a field's *value*: a
@@ -1433,10 +1434,14 @@ impl Schema {
 /// type of the vocabulary's members, because the members are what a value has to look like and
 /// this table does not carry the lists themselves.
 ///
-/// One row is not the September 2005 edition's: that edition types `xmp:Rating` as a choice of
-/// integers, and the current one (Part 2, *Additional Properties*) types it as a choice of reals.
-/// Section 6.6.2.3.1 cites the specification without a date, so the later and wider type is the one
-/// a file is entitled to, and `1.0` is a rating.
+/// # Which edition, and why it is this one
+///
+/// ISO 19005-2 never lists the XMP Specification among its normative references: clause 2's rule
+/// that an undated reference takes the latest edition binds the documents clause 2 lists, and
+/// this is not one of them. The one place the part identifies a document by that name is its
+/// bibliography, which names the September 2005 edition, so every row here is that edition's —
+/// `xmp:Rating` its closed choice of integers among them — and a property a later edition added
+/// is one an extension schema has to describe (`doc/adr/1991`).
 static PREDEFINED: &[Schema] = &[
     Schema {
         uri: "http://purl.org/dc/elements/1.1/",
@@ -1474,7 +1479,7 @@ static PREDEFINED: &[Schema] = &[
             ("MetadataDate", Shape::Simple, Lexical::Date),
             ("ModifyDate", Shape::Simple, Lexical::Date),
             ("Nickname", Shape::Simple, Lexical::Any),
-            ("Rating", Shape::Simple, Lexical::Real),
+            ("Rating", Shape::Simple, Lexical::Integer),
             ("Thumbnails", Shape::Alternative, Lexical::Any),
         ],
     },
@@ -1875,11 +1880,11 @@ fn spelled(property: &XmpProperty) -> String {
 /// schema owns, is [`extension_schemas_embedded`]'s row, because section 6.6.2.3.1 states it by
 /// deferring to section 6.6.2.3.2 and a reader that reported both would report each file twice.
 ///
-/// **A property whose local name the table does not carry is not judged**, and that is a reading
-/// rather than a gap. [`PREDEFINED`] is the September 2005 edition of the XMP Specification, the
-/// one ISO 19005-2's bibliography names; the subclause cites the specification without a date,
-/// so a later edition's additions are predefined too, and refusing a name this table has not
-/// heard of would fail conforming files over the age of the table.
+/// **A property whose local name the table does not carry is not judged here**: it uses no
+/// predefined schema, so it needs an extension schema's description, and
+/// [`extension_schemas_embedded`] is the row that asks for one. [`PREDEFINED`] is the September
+/// 2005 edition of the XMP Specification, the one document ISO 19005-2 identifies by that name
+/// (`doc/adr/1991`).
 ///
 /// # `TechNote 0010` A020, which is the committee saying how far this row may go
 ///
@@ -1987,19 +1992,21 @@ pub fn undescribed_schemas(packet: &[u8], described: Option<&[u8]>) -> Vec<Undes
     let Ok(properties) = Xmp::parse_detail(packet) else {
         return Vec::new();
     };
-    let mut known = described
-        .and_then(|bytes| Xmp::parse_detail(bytes).ok())
-        .map(|inherited| described_schemas(&inherited))
+    let inherited = described.and_then(|bytes| Xmp::parse_detail(bytes).ok());
+    let mut known = inherited
+        .as_deref()
+        .map(described_schemas)
         .unwrap_or_default();
     known.extend(described_schemas(&properties));
+    let mut named = inherited
+        .as_deref()
+        .map(described_properties)
+        .unwrap_or_default();
+    named.extend(described_properties(&properties));
     let mut out: Vec<UndescribedSchema> = Vec::new();
     for property in &properties {
         let namespace = &property.name.namespace;
-        if namespace.is_empty()
-            || predefined(namespace).is_some()
-            || defined_by_iso_19005(namespace)
-            || known.iter().any(|uri| uri == namespace)
-        {
+        if !needs_a_description(property, &known, &named) {
             continue;
         }
         let described = UndescribedProperty {
@@ -2248,6 +2255,70 @@ fn scalars(value: &Detail) -> Vec<&str> {
     }
 }
 
+/// The properties the extension schemas described in one packet name, each as its schema's
+/// namespace URI and the property's local name.
+///
+/// What [`described_schemas`] answers by namespace, answered by property: a predefined
+/// namespace's own properties need no description, so a description naming that namespace is
+/// read for the properties it lists rather than as covering the namespace whole (`doc/adr/1991`).
+fn described_properties(properties: &[XmpProperty]) -> Vec<(String, String)> {
+    let mut described = Vec::new();
+    for property in properties {
+        if property.name.namespace != EXTENSION_URI || property.name.local != "schemas" {
+            continue;
+        }
+        for schema in property.value.array().unwrap_or_default() {
+            let Some(uri) = schema
+                .field(SCHEMA_URI, "namespaceURI")
+                .and_then(|field| field.value.text())
+            else {
+                continue;
+            };
+            let listed = schema
+                .field(SCHEMA_URI, "property")
+                .and_then(|field| field.value.array())
+                .unwrap_or_default();
+            for item in listed {
+                if let Some(name) = item
+                    .field(PROPERTY_URI, "name")
+                    .and_then(|field| field.value.text())
+                {
+                    described.push((uri.trim().to_owned(), name.trim().to_owned()));
+                }
+            }
+        }
+    }
+    described
+}
+
+/// Whether a property needs an extension schema's description, and has none.
+///
+/// ISO 19005-2 section 6.6.2.3.1 admits a property of a predefined schema or of an extension
+/// schema complying with section 6.6.2.3.2, so two kinds of property need a description: one in a
+/// namespace no predefined schema owns, and one in a predefined namespace under a local name the
+/// predefined schema does not define — the `xmpTPg:HasVisibleTransparency` an editor writes
+/// beside the five properties the Paged-Text schema has. The first is described by naming its
+/// namespace; the second by naming itself, since the namespace's own properties need nothing.
+fn needs_a_description(
+    property: &XmpProperty,
+    namespaces: &[String],
+    named: &[(String, String)],
+) -> bool {
+    let namespace = &property.name.namespace;
+    if namespace.is_empty() || defined_by_iso_19005(namespace) {
+        return false;
+    }
+    match predefined(namespace) {
+        Some(schema) => {
+            schema.property(&property.name.local).is_none()
+                && !named
+                    .iter()
+                    .any(|(uri, local)| uri == namespace && *local == property.name.local)
+        }
+        None => !namespaces.iter().any(|uri| uri == namespace),
+    }
+}
+
 /// The namespace URIs the extension schemas described in one packet name.
 ///
 /// Table 2's container is a bag; a sequence is accepted here as well, because what this function
@@ -2273,8 +2344,9 @@ fn described_schemas(properties: &[XmpProperty]) -> Vec<String> {
 
 /// ISO 19005-2 section 6.6.2.3.2.
 ///
-/// A property whose namespace no predefined schema owns needs an extension schema describing it,
-/// and the subclause says where that description may be: in the stream the property is in, or in
+/// A property no predefined schema defines needs an extension schema describing it —
+/// [`needs_a_description`] says which those are — and the subclause says where that description
+/// may be: in the stream the property is in, or in
 /// the catalog's, whose schemas every stream inherits. So the catalog's packet is read once and
 /// its descriptions carried into every stream.
 ///
@@ -2282,29 +2354,40 @@ fn described_schemas(properties: &[XmpProperty]) -> Vec<String> {
 /// and neither can this row.
 fn extension_schemas_embedded(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    let inherited = catalog_detail(document)
-        .map(|properties| described_schemas(&properties))
+    let catalog = catalog_detail(document);
+    let inherited = catalog
+        .as_deref()
+        .map(described_schemas)
+        .unwrap_or_default();
+    let inherited_names = catalog
+        .as_deref()
+        .map(described_properties)
         .unwrap_or_default();
     for_each_packet(exam, |id, properties| {
         let mut described = inherited.clone();
         described.extend(described_schemas(properties));
+        let mut named = inherited_names.clone();
+        named.extend(described_properties(properties));
         for property in properties {
-            let namespace = &property.name.namespace;
-            if namespace.is_empty()
-                || predefined(namespace).is_some()
-                || defined_by_iso_19005(namespace)
-                || described.iter().any(|uri| uri == namespace)
-            {
+            if !needs_a_description(property, &described, &named) {
                 continue;
             }
-            findings.record(
-                Where::object(id).named(spelled(property)),
-                format!(
+            let namespace = &property.name.namespace;
+            let complaint = match predefined(namespace) {
+                Some(schema) => format!(
+                    "the packet states {}, which the {} schema of the XMP Specification of \
+                     September 2005 does not define, and no extension schema in this stream or \
+                     the catalog's describes it",
+                    spelled(property),
+                    schema.name
+                ),
+                None => format!(
                     "the packet states {}, whose schema {namespace} is neither predefined nor \
                      described by an extension schema in this stream or the catalog's",
                     spelled(property)
                 ),
-            );
+            };
+            findings.record(Where::object(id).named(spelled(property)), complaint);
         }
     });
 }
@@ -3359,15 +3442,77 @@ mod tests {
         ));
         assert_eq!(found(properties_use_known_schemas, &lowercase), 1);
 
-        // A rating is a real in the current edition of the specification, which section 6.6.2.3.1
-        // cites undated — so both spellings of one are a value of the type.
-        for rating in ["1", "1.0"] {
+        // A rating is a closed choice of integers in the September 2005 edition, the one ISO
+        // 19005-2 identifies (`doc/adr/1991`): a later edition's real is not a value of the type.
+        for (rating, findings) in [("1", 0), ("1.0", 1)] {
             let file = document(&schema_packet(
                 "xmp",
                 "http://ns.adobe.com/xap/1.0/",
                 &format!("<xmp:Rating>{rating}</xmp:Rating>"),
             ));
-            assert_eq!(found(properties_use_known_schemas, &file), 0, "{rating}");
+            assert_eq!(
+                found(properties_use_known_schemas, &file),
+                findings,
+                "{rating}"
+            );
+        }
+    }
+
+    /// ISO 19005-2 section 6.6.2.3.1 by way of section 6.6.2.3.2: a name the September 2005
+    /// edition's schema does not define needs a description, and one naming it is enough.
+    #[test]
+    fn a_name_its_predefined_schema_does_not_define_needs_a_description() {
+        for local in ["HasVisibleTransparency", "HasVisibleOverprint"] {
+            let file = document(&schema_packet(
+                "xmpTPg",
+                "http://ns.adobe.com/xap/1.0/t/pg/",
+                &format!("<xmpTPg:{local}>False</xmpTPg:{local}>"),
+            ));
+            assert_eq!(found(extension_schemas_embedded, &file), 1, "{local}");
+            assert_eq!(found(properties_use_known_schemas, &file), 0, "{local}");
+        }
+        let defined = document(&schema_packet(
+            "xmpTPg",
+            "http://ns.adobe.com/xap/1.0/t/pg/",
+            "<xmpTPg:NPages>2</xmpTPg:NPages>",
+        ));
+        assert_eq!(found(extension_schemas_embedded, &defined), 0);
+        let later = document(&schema_packet(
+            "xmpMM",
+            "http://ns.adobe.com/xap/1.0/mm/",
+            "<xmpMM:OriginalDocumentID>uuid:1</xmpMM:OriginalDocumentID>",
+        ));
+        assert_eq!(found(extension_schemas_embedded, &later), 1);
+        let undescribed = schema_packet(
+            "xmpMM",
+            "http://ns.adobe.com/xap/1.0/mm/",
+            "<xmpMM:OriginalDocumentID>uuid:1</xmpMM:OriginalDocumentID>",
+        );
+        let listed = undescribed_schemas(undescribed.as_bytes(), None);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].properties[0].local, "OriginalDocumentID");
+
+        // A description naming the property satisfies it; one naming the namespace for another
+        // property does not, since the namespace's own properties needed none.
+        let describing = |name: &str| {
+            DESCRIPTION
+                .replace(
+                    "http://example.test/ns/",
+                    "http://ns.adobe.com/xap/1.0/t/pg/",
+                )
+                .replace("<pdfaSchema:prefix>ex<", "<pdfaSchema:prefix>xmpTPg<")
+                .replace(">Serial<", &format!(">{name}<"))
+        };
+        for (name, findings) in [("HasVisibleTransparency", 0), ("HasVisibleOverprint", 1)] {
+            let file = document(&schema_packet(
+                "xmpTPg",
+                "http://ns.adobe.com/xap/1.0/t/pg/",
+                &format!(
+                    "<xmpTPg:HasVisibleTransparency>False</xmpTPg:HasVisibleTransparency>\n{}",
+                    describing(name)
+                ),
+            ));
+            assert_eq!(found(extension_schemas_embedded, &file), findings, "{name}");
         }
     }
 

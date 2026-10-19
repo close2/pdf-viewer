@@ -1011,6 +1011,27 @@ pub enum Rewrite {
     /// zero components leave the backdrop under mode 1 and paint it out under mode 0
     /// (`doc/adr/1978`).
     OverprintModeZeroed,
+    /// Every ICC profile this reader draws through that lacked only a description or a copyright
+    /// tag carries the one the operator's text makes, every byte of its colour data kept.
+    ///
+    /// ISO 19005-2 section 6.2.4.2 holds the profile to the tags an ICC edition requires of its
+    /// class, and ICC.1:1998-09 requires both of every class; no colour transform reads either.
+    /// A `supply`, because what the text says is not in the file (`doc/adr/1990`).
+    ProfileTextSupplied,
+    /// Every `ICCBased` array naming a profile this reader does not draw through is written as
+    /// the profile's `Alternate` space, or the device space of its `N`.
+    ///
+    /// ISO 19005-2 section 6.2.4.2 holds the profile to an ICC edition's tags, and ISO 32000-2
+    /// §8.6.5.5's Table 65 makes the alternate the space used where the profile is not supported
+    /// — which is what this reader drew, so writing it states the page's colours as they were
+    /// shown (`doc/adr/1979`, `doc/adr/1990`).
+    ProfileAlternateWritten,
+    /// Every non-standard structure type whose role map chain ends unmapped is mapped to the
+    /// standard type the operator's `role-map` names, every entry the producer wrote kept.
+    ///
+    /// ISO 19005-2 section 6.7.3.4; ISO 32000-2 §14.7.3 makes `/RoleMap` the mapping. A `supply`:
+    /// which standard type a producer's own type means is not in the file (`doc/adr/1990`).
+    RoleMapSupplied,
 }
 
 impl Rewrite {
@@ -1353,6 +1374,19 @@ impl Rewrite {
                 "a graphics state that set overprint mode 1 for ICCBased CMYK marks states mode \
                  0, and the DeviceCMYK marks it governed paint their zero components"
             }
+            Self::ProfileTextSupplied => {
+                "an ICC profile that lacked only its description or copyright tag carries the \
+                 text the operator supplied for it, its colour data byte for byte as it was"
+            }
+            Self::RoleMapSupplied => {
+                "a non-standard structure type that mapped to no standard one is mapped in the \
+                 role map to the standard type the operator named for it"
+            }
+            Self::ProfileAlternateWritten => {
+                "an ICCBased colour space whose profile this reader cannot draw through is \
+                 written as the Alternate space ISO 32000-2 \u{a7}8.6.5.5 draws it in, or the \
+                 device space of its N"
+            }
             Self::ShippedCMapEmbedded => {
                 "a composite font naming a CMap the base standard does not predefine names a \
                  stream holding Adobe's published program for it, byte for byte, so the same \
@@ -1456,6 +1490,9 @@ impl Rewrite {
             Self::HalftoneNameRemoved => "halftone-name-removed",
             Self::OverprintModeRestated => "overprint-mode-restated",
             Self::OverprintModeZeroed => "overprint-mode-zeroed",
+            Self::ProfileTextSupplied => "profile-text-supplied",
+            Self::ProfileAlternateWritten => "profile-alternate-written",
+            Self::RoleMapSupplied => "role-map-supplied",
         }
     }
 }
@@ -1522,6 +1559,12 @@ pub(super) fn convert(
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
         halftone_names: prepared.owed.halftone_names.as_ref().ok(),
         overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
+        profile_alternates: prepared
+            .owed
+            .profile_alternates
+            .as_ref()
+            .ok()
+            .map(|alternates| &alternates.at),
         appearance_states: prepared.owed.appearance_states.as_ref().ok(),
         orders: prepared.owed.orders.as_ref().ok(),
         page_resources: prepared.owed.page_resources.as_ref().ok(),
@@ -2368,6 +2411,8 @@ struct Rewriter<'a> {
     halftone_names: Option<&'a sites::Sites>,
     /// The graphics states whose overprint mode becomes 0.
     overprint_modes: Option<&'a super::overprint::OverprintModes>,
+    /// The space each unreadable ICC profile's `ICCBased` arrays are written as, by profile.
+    profile_alternates: Option<&'a BTreeMap<ObjectId, Object>>,
     /// The stream each annotation's normal appearance collapses to.
     appearance_states: Option<&'a AppearanceStates>,
     /// The `/Order` arrays completed, and where each goes.
@@ -2465,6 +2510,17 @@ impl Rewriter<'_> {
             }
             changed |= !reached.is_empty();
         }
+        // An `ICCBased` array written as its own object becomes the alternate itself, which may
+        // be a name rather than an array — the one rewrite here that changes the object's kind.
+        if self.wants(Rewrite::ProfileAlternateWritten)
+            && let Some(alternates) = self.profile_alternates
+        {
+            let written = super::icc::write_alternates(self.document, &mut out, alternates, 0);
+            for _ in 0..written {
+                count(applied, Rewrite::ProfileAlternateWritten);
+            }
+            changed |= written > 0;
+        }
         if changed {
             Rewritten::Changed(out)
         } else {
@@ -2507,6 +2563,7 @@ impl Rewriter<'_> {
         if id == self.sites.catalog {
             changed |= self.rewrite_catalog(&mut out, applied);
         }
+        changed |= self.extend_the_role_map(id, &mut out, applied);
         changed |= self.preserve(id, &mut out, applied);
         changed |= self.remove_the_actions(id, &mut out);
         if Some(id) == self.sites.names
@@ -2708,7 +2765,65 @@ impl Rewriter<'_> {
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);
         changed |= self.agree_separations(out, applied);
+        changed |= self.write_profile_alternates(out, applied);
         changed
+    }
+
+    /// ISO 19005-2 section 6.7.3.4 at the object holding the role map: the structure tree root,
+    /// whose `/RoleMap` entry is extended, or the map itself where the root names it by reference.
+    fn extend_the_role_map(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::RoleMapSupplied) {
+            return false;
+        }
+        let Some(roles) = self.remedies.role_entries.as_ref() else {
+            return false;
+        };
+        if roles.at != id {
+            return false;
+        }
+        if roles.in_the_root {
+            let held = out
+                .get("RoleMap")
+                .and_then(Object::as_dict)
+                .cloned()
+                .unwrap_or_default();
+            out.insert(
+                Name::new(&b"RoleMap"[..]),
+                Object::Dictionary(super::roles::extended(&held, &roles.entries)),
+            );
+        } else {
+            *out = super::roles::extended(out, &roles.entries);
+        }
+        for _ in 0..roles.entries.len() {
+            count(applied, Rewrite::RoleMapSupplied);
+        }
+        true
+    }
+
+    /// ISO 19005-2 section 6.2.4.2 by ISO 32000-2 §8.6.5.5's Table 65, inside whatever object
+    /// holds the `ICCBased` array: every object is descended, as [`Self::agree_separations`]
+    /// does, because a colour space in a page's resource dictionary is reported at the page.
+    fn write_profile_alternates(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::ProfileAlternateWritten) {
+            return false;
+        }
+        let Some(alternates) = self.profile_alternates else {
+            return false;
+        };
+        let written = super::icc::write_alternates_in(self.document, out, alternates, 0);
+        for _ in 0..written {
+            count(applied, Rewrite::ProfileAlternateWritten);
+        }
+        written > 0
     }
 
     /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4, inside whatever object holds
@@ -4402,6 +4517,14 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::WriteModeAgreed);
             return Rewritten::Changed(restated.clone());
+        }
+        // The profile given the text tags it lacked: its bytes, its `/Filter` and its `/Length`
+        // change together, so a whole stream (`doc/adr/1990`).
+        if self.wants(Rewrite::ProfileTextSupplied)
+            && let Some(supplied) = self.remedies.supplied_profiles.get(&id)
+        {
+            count(applied, Rewrite::ProfileTextSupplied);
+            return Rewritten::Changed(supplied.clone());
         }
         // The stream whose data was outside the file: its bytes, its `/Filter`, its
         // `/DecodeParms` and its `/Length` all change together, so a whole stream crosses rather

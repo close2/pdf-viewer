@@ -99,6 +99,11 @@ pub(super) struct Remedies {
     pub(super) restated_programs: BTreeMap<ObjectId, Object>,
     /// The `/Name` each optional content configuration stating none is given (`doc/adr/1952`).
     pub(super) configuration_names: ConfigurationNames,
+    /// The whole replacement stream for each ICC profile given the text tags it lacked
+    /// (`doc/adr/1990`).
+    pub(super) supplied_profiles: BTreeMap<ObjectId, Object>,
+    /// The role map entries the operator's table gives this document's unmapped structure types.
+    pub(super) role_entries: Option<super::roles::RoleEntries>,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
@@ -122,6 +127,8 @@ impl Remedies {
             stated_write_modes: BTreeMap::new(),
             restated_programs: BTreeMap::new(),
             configuration_names: ConfigurationNames::default(),
+            supplied_profiles: BTreeMap::new(),
+            role_entries: None,
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
@@ -370,6 +377,21 @@ impl Remedies {
                 self.name_configurations(document, judgement.id, template);
                 return;
             }
+            Supplied::ProfileText {
+                description,
+                copyright,
+            } => {
+                let texts = super::icc::Texts {
+                    description: description.as_deref(),
+                    copyright: copyright.as_deref(),
+                };
+                self.supply_profile_text(document, judgement.id, texts);
+                return;
+            }
+            Supplied::RoleMap { by_type } => {
+                self.supply_role_map(document, judgement.id, by_type);
+                return;
+            }
         };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
@@ -469,6 +491,90 @@ impl Remedies {
 }
 
 impl Remedies {
+    /// `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires`, answered by the
+    /// operator's text for the tags a profile lacks.
+    ///
+    /// ISO 19005-2 section 6.2.4.2. The population is every `ICCBased` profile the requirement's
+    /// own reading finds short, and the site is answered only where every one of them is a profile
+    /// this reader draws through that lacks nothing but `desc` and `cprt`, and the operator stated
+    /// a text for each tag missing — anything else keeps the refusal [`super::icc`] names. No
+    /// colour transform reads either tag, so no colour moves; the report names each profile and
+    /// the text it was given, and the file's `xmpMM:History` records them (`doc/adr/1990`).
+    fn supply_profile_text(
+        &mut self,
+        document: &Document,
+        site: &'static str,
+        texts: super::icc::Texts<'_>,
+    ) {
+        let short = super::icc::ShortProfiles::of(document);
+        if short.supply_obstacle().is_some() {
+            return;
+        }
+        let mut supplied = BTreeMap::new();
+        let mut report = Vec::new();
+        for (at, shortfall) in &short.text_only {
+            let Object::Stream(stream) = document.get(*at) else {
+                return;
+            };
+            let Some(data) = document.decoded_stream_data(&stream) else {
+                return;
+            };
+            let Some(written) = super::icc::supplied_profile(&stream, &data, shortfall, texts)
+            else {
+                return;
+            };
+            supplied.insert(*at, written);
+            for (missing, text, tag) in [
+                (
+                    shortfall.description,
+                    texts.description,
+                    "description (desc)",
+                ),
+                (shortfall.copyright, texts.copyright, "copyright (cprt)"),
+            ] {
+                if let (true, Some(text)) = (missing, text) {
+                    report.push(SuppliedFact {
+                        site,
+                        subject: format!(
+                            "the ICC profile in object {} {}, which carries no {tag} tag",
+                            at.number, at.generation
+                        ),
+                        value: format!("the text \"{text}\", from the operator's configuration"),
+                    });
+                }
+            }
+        }
+        self.supplied_profiles = supplied;
+        self.supplied_report.extend(report);
+        self.supply_sites.insert(site, Rewrite::ProfileTextSupplied);
+    }
+
+    /// `logical-structure/role-map-terminates-at-a-standard-type`, answered by the operator's
+    /// `role-map`.
+    ///
+    /// ISO 19005-2 section 6.7.3.4. Answered only where every unmapped type in the tree is one the
+    /// table names and the role map can take its entry; [`super::roles`] says what refuses. The
+    /// report names each type and the standard type it was given, and `xmpMM:History` records them.
+    fn supply_role_map(
+        &mut self,
+        document: &Document,
+        site: &'static str,
+        by_type: &[(String, String)],
+    ) {
+        let Some(entries) = super::roles::entries(document, by_type) else {
+            return;
+        };
+        for (from, to) in &entries.entries {
+            self.supplied_report.push(SuppliedFact {
+                site,
+                subject: format!("the structure type {from}, which maps to no standard type"),
+                value: format!("the standard type {to}, from the operator's role-map"),
+            });
+        }
+        self.role_entries = Some(entries);
+        self.supply_sites.insert(site, Rewrite::RoleMapSupplied);
+    }
+
     /// `optional-content/configuration-names`, answered by the operator's wording.
     ///
     /// ISO 19005-2 section 6.9 and ISO 19005-4 section 6.10. Every configuration stating no

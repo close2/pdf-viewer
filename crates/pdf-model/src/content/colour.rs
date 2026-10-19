@@ -11,6 +11,7 @@ use crate::black_generation::BlackGeneration;
 use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
 use crate::icc::{A2b, Rendering};
 
+use super::overprint::ProcessTints;
 use super::report::Unsupported;
 use super::run::{name_at, number_at};
 use super::{GraphicsState, Interpreter};
@@ -507,7 +508,8 @@ pub(super) fn assign_colour(
 }
 
 /// §8.6.7's "tint value defined within the PDF file", where the current colour is a
-/// `DeviceCMYK` one the content stream stated directly.
+/// `DeviceCMYK` one the content stream stated directly, or one in a four-component `ICCBased`
+/// space that §8.6.5.7's implicit conversion makes `DeviceCMYK` on a press of its own profile.
 ///
 /// `None` is every other case, and each is a case Table 146 answers with `C_s` in all three of
 /// its columns. Only its first row — "DeviceCMYK , specified directly, not in a sampled image"
@@ -550,9 +552,14 @@ pub(super) fn assign_colour(
     reason = "the table cell and the clause sentences above are quotations, and a quotation \
               may not gain backticks"
 )]
-fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<[f32; 4]> {
+fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<ProcessTints> {
     match space {
-        ColourSpace::Cmyk => <[f32; 4]>::try_from(values).ok(),
+        ColourSpace::Cmyk => <[f32; 4]>::try_from(values).ok().map(ProcessTints::device),
+        // §8.6.5.7's implicit conversion, which is the press's to decide when the colour is
+        // painted: `ProcessTints::on` (ADR 1996).
+        ColourSpace::Icc { profile } if profile.channels() == 4 => <[f32; 4]>::try_from(values)
+            .ok()
+            .map(|tints| ProcessTints::in_profile(tints, profile.identity())),
         // [`reverts_to_cmyk`] is asked first so that the tint transform is evaluated only
         // where its answer is the one the first bullet needs. This runs beside every `sc`,
         // `scn` and `cs`, and the transform is a function the operator has already evaluated
@@ -571,6 +578,7 @@ fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<[f32; 4]> {
 fn reverts_to_cmyk(space: &ColourSpace) -> bool {
     match space {
         ColourSpace::Cmyk => true,
+        ColourSpace::Icc { profile } => profile.channels() == 4,
         ColourSpace::Separation { alternate, .. } => reverts_to_cmyk(alternate),
         _ => false,
     }

@@ -188,6 +188,7 @@ fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
             panic!("a device frame is not drawn on the processor")
         }
         Finished::Scene(_) => panic!("no scene was asked to be built ahead"),
+        Finished::Lane { said, .. } => panic!("no lane was refused here: {said}"),
     }
     let Finished::Sharp(sharp) = next() else {
         panic!("a still view is sharpened");
@@ -472,7 +473,10 @@ fn a_zoom_gesture_out_counts_what_each_refresh_put_up() {
                 }
                 // A look at a frame the processor is drawing changes nothing this test
                 // counts: what it reads is when each true frame landed.
-                Finished::Partial(_) | Finished::Read(_) | Finished::Scene(_) => {}
+                Finished::Partial(_)
+                | Finished::Read(_)
+                | Finished::Scene(_)
+                | Finished::Lane { .. } => {}
             }
         }
         // The gesture: a notch every `every` refreshes, after a still start that lets the

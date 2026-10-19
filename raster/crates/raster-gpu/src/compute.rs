@@ -166,9 +166,7 @@ impl ComputeSheet {
         if self.is_empty() {
             return 0;
         }
-        let tiles = (self.tiles.len() as u64)
-            .saturating_mul(TILE_U32S as u64)
-            .saturating_mul(4);
+        let tiles = self.record_bytes();
         let counts = (self.tiles.len() as u64).saturating_mul(8); // counts + offsets
         let acc = self.acc_floats.saturating_mul(4);
         let image = self.stride().saturating_mul(u64::from(self.height));
@@ -176,6 +174,15 @@ impl ComputeSheet {
             .saturating_add(counts)
             .saturating_add(acc)
             .saturating_add(image)
+    }
+
+    /// Bytes of the tile records the host writes for this frame: the one share of
+    /// [`Self::device_bytes`] that crosses from the host, the rest being device-side
+    /// buffers the passes fill.
+    pub(crate) fn record_bytes(&self) -> u64 {
+        (self.tiles.len() as u64)
+            .saturating_mul(TILE_U32S as u64)
+            .saturating_mul(4)
     }
 
     /// Heap bytes the encoder-side record holds, for a retained encode's price.

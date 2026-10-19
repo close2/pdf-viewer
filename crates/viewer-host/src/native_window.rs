@@ -1615,10 +1615,12 @@ pub trait NativeWindow {
         }
     }
 
-    /// The chooser again, in a window that has chosen: the next conversion is to what is chosen on
-    /// it, and closing it leaves the choice the window held (ADR 1985).
+    /// The chooser again, in a window that has chosen: it starts on the choice the window holds
+    /// (ADR 2001), the next conversion is to what is chosen on it, and closing it leaves the choice
+    /// the window held (ADR 1985).
     fn choose_the_archive_again(&mut self) {
-        self.offer_to_archive(crate::archiving::Choosing::new());
+        let choosing = crate::archiving::Choosing::starting_on(self.state().archive.as_ref());
+        self.offer_to_archive(choosing);
     }
 
     /// Puts the six targets and the shipped profiles in front of the person, in this toolkit's

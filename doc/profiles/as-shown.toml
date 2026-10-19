@@ -151,6 +151,16 @@ remedy = "discard"
 remedy = "supply"
 winner = "first"
 
+# An ICC profile this reader draws through and that lacks only its description or copyright tag
+# is given one: no colour transform reads either, so no colour moves, and the words are this
+# profile's, said in the report and in xmpMM:History as the operator's rather than the producer's
+# (ADR 1990). A profile this reader cannot draw through is written as its Alternate space whatever
+# this row says, a statement of what the page showed; one lacking a transform tag is refused.
+[site."graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires"]
+remedy = "supply"
+description = "This profile stated no description; this text was supplied when it was archived."
+copyright = "This profile stated no copyright information; this text was supplied when it was archived."
+
 # A configuration of the file's optional content that states no Name is given a label: the clause
 # requires one, nothing in the file is it, and the wording is this profile's, said in the report
 # and in xmpMM:History as the operator's rather than the producer's (ADR 1952). No page changes:

@@ -120,6 +120,10 @@ struct Sample {
     /// Whether the device threw every tile's atlas placement away after this frame.
     repacked: bool,
     phases: Vec<(String, f64)>,
+    /// `bytes` by the stream it went to (ADR 1992).
+    split: raster_gpu::UploadSplit,
+    /// The marks each of raster's lanes drew.
+    lanes: raster_gpu::LaneCounts,
 }
 
 /// Milliseconds, which is the unit every frame line in this project is in.
@@ -128,7 +132,11 @@ fn ms(span: std::time::Duration) -> f64 {
 }
 
 impl Sample {
-    fn of(cost: FrameCost, phases: &[(&'static str, std::time::Duration)]) -> Self {
+    fn of(
+        cost: FrameCost,
+        counters: raster_gpu::Counters,
+        phases: &[(&'static str, std::time::Duration)],
+    ) -> Self {
         // `device` minus the phases raster names — the same arithmetic the viewer's own summary
         // does, and carrying the same warning: `execute` is usually the adapter's clock and the
         // rest are the host's, so this is a bound rather than a duration. `readback` is in the
@@ -161,6 +169,8 @@ impl Sample {
                 Some(raster_gpu::EncodeSource::Encoded) | None => "",
             },
             repacked: cost.atlas_repacked,
+            split: counters.uploads,
+            lanes: counters.lanes,
             phases: phases
                 .iter()
                 .map(|(name, spent)| ((*name).to_owned(), ms(*spent)))
@@ -299,7 +309,11 @@ fn main() {
                     backend.last_frame().scene_kept
                 );
             }
-            let sample = Sample::of(backend.last_frame(), backend.last_phases());
+            let sample = Sample::of(
+                backend.last_frame(),
+                backend.last_counters(),
+                backend.last_phases(),
+            );
             if slot.as_ref().is_none_or(|kept| sample.total < kept.total) {
                 *slot = Some(sample);
             }
@@ -358,6 +372,28 @@ fn main() {
         println!(
             "        {} command(s) encoded, {} outline segment(s) handed over",
             sample.commands, sample.segments
+        );
+        // What crossed, by stream, and what the compute lane only allocated (ADR 1992): the
+        // `bytes` column is their sum, and the line under it says which marks made each stream.
+        let split = sample.split;
+        println!(
+            "        crossed: line {} quad {} rect {} sheet {} atlas {} records {} arena {} \
+             winding {} paint {}; device-only {}",
+            split.line_instances,
+            split.quad_instances,
+            split.rect_instances,
+            split.scratch_sheet,
+            split.atlas_rows,
+            split.compute_records,
+            split.arena_growth,
+            split.winding,
+            split.paint,
+            split.compute_device_only
+        );
+        let lanes = sample.lanes;
+        println!(
+            "        lanes: line {} rectangle {} glyph {} path {} image {}",
+            lanes.line, lanes.rectangle, lanes.glyph, lanes.path, lanes.image
         );
         for (phase, spent) in &sample.phases {
             println!("        {phase:<20}{spent:>9.3}");

@@ -487,6 +487,11 @@ impl Window {
                         }
                     }
                     Finished::Scene(prepared) => scene = Some(prepared),
+                    // Kept at once, before the frame behind it is priced or the next one asked:
+                    // the render thread sent it before either (ADR 2000).
+                    Finished::Lane { lane, said } => {
+                        self.refusals.remember(&[], &said, super::Kept::Lane(lane));
+                    }
                 }
             }
         }

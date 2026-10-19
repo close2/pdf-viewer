@@ -56,7 +56,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use pdf_model::Pages;
-use pdf_model::structure::{Child, MarkInfo, Tree, document_language};
+use pdf_model::structure::{Child, MarkInfo, StandardType, Tree, document_language};
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
 use crate::Examination;
@@ -343,10 +343,17 @@ fn structure_tree_root(exam: &Examination<'_>, findings: &mut Findings) {
 /// - An element stating no type at all is passed over. Table 355 of the base standard makes the
 ///   entry required, but that is a different requirement from this one, and reporting it here
 ///   would put a finding under a clause that is not about it.
-/// - `StandardType` is ISO 32000-2's vocabulary, which is a superset of the one ISO 19005-2's own
-///   base document defines. So a part 2 file mapping to a type PDF 2.0 added is accepted; the
-///   alternative is refusing a document over the edition of the base standard this tree owns,
-///   which `crate::target::Part::Two` already names as the limitation it is.
+/// - A type PDF 2.0 added is accepted for a part 2 file, though ISO 19005-2's base document does
+///   not define it; the alternative is refusing a document over the edition of the base standard
+///   this tree owns, which `crate::target::Part::Two` already names as the limitation it is.
+///
+/// **And the eleven types only the PDF 1.7 namespace defines are standard**, which is not a
+/// leniency: they are ISO 32000-1's own, the base document part 2 names, and ISO 32000-2
+/// §14.8.6.1 makes that namespace the default one — an element stating no `/NS` is in it, and
+/// Annex M lists what it holds beyond PDF 2.0's (`Art`, `BlockQuote`, `TOC`, `TOCI`, `Index`,
+/// `Private`, `Quote`, `Note`, `Reference`, `BibEntry`, `Code`). `pdf_model::structure`'s
+/// `StandardType` is PDF 2.0's vocabulary, so [`standard_structure_element`] adds them (ADR 1990
+/// section 7).
 fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Some(tree) = Tree::of(document) else {
@@ -359,13 +366,50 @@ fn role_map_terminates_at_a_standard_type(exam: &Examination<'_>, findings: &mut
         let Some(role) = tree.role(document, &element) else {
             continue;
         };
-        if tree.standard_role(document, &element).is_none() {
+        if !standard_structure_element(&tree, document, &element) {
             findings.record(
                 Where::file().named(role),
                 "a structure type is mapped to no standard structure type",
             );
         }
     }
+}
+
+/// The structure types ISO 32000-2 Annex M lists as defined in the standard structure namespace
+/// for PDF 1.7 and not in the one for PDF 2.0.
+const PDF_1_7_ONLY: [&str; 11] = [
+    "Art",
+    "BlockQuote",
+    "TOC",
+    "TOCI",
+    "Index",
+    "Private",
+    "Quote",
+    "Note",
+    "Reference",
+    "BibEntry",
+    "Code",
+];
+
+/// Whether a structure type name is standard in either standard structure namespace, as
+/// `role_map_terminates_at_a_standard_type` reads one for an element in the default namespace.
+#[must_use]
+pub fn standard_structure_type(name: &str) -> bool {
+    StandardType::read(name).is_some() || PDF_1_7_ONLY.contains(&name)
+}
+
+/// Whether an element's type, after its role mapping, is a standard one: §14.8.4's PDF 2.0
+/// vocabulary through `pdf_model`, or — for an element stating no namespace, which §14.8.6.1 puts
+/// in the default PDF 1.7 one — a type Annex M lists for that namespace alone.
+#[must_use]
+pub fn standard_structure_element(tree: &Tree, document: &Document, element: &Dictionary) -> bool {
+    if tree.standard_role(document, element).is_some() {
+        return true;
+    }
+    element.get("NS").is_none()
+        && tree
+            .role(document, element)
+            .is_some_and(|role| PDF_1_7_ONLY.contains(&role.as_str()))
 }
 
 /// ISO 19005-2 section 6.7.4, which is one `shall` inside a subclause of recommendations.
@@ -1270,6 +1314,34 @@ mod tests {
              5 0 obj\n<< /Type /StructElem /S /Chapter /P 4 0 R >>\nendobj\n",
         );
         assert_eq!(found(role_map_terminates_at_a_standard_type, &unmapped), 1);
+    }
+
+    /// ISO 32000-2 §14.8.6.1 makes the PDF 1.7 namespace the default one, and Annex M lists the
+    /// types it holds beyond PDF 2.0's: an element stating no namespace is standard under one of
+    /// them, and one stating PDF 2.0's own namespace is not.
+    #[test]
+    fn a_type_only_the_pdf_1_7_namespace_defines_is_standard_in_the_default_namespace() {
+        for standard in ["Note", "TOC", "TOCI", "Reference", "BibEntry", "Code", "H3"] {
+            let file = document(
+                " /StructTreeRoot 4 0 R",
+                &format!(
+                    "4 0 obj\n<< /Type /StructTreeRoot /K [5 0 R] >>\nendobj\n\
+                     5 0 obj\n<< /Type /StructElem /S /{standard} /P 4 0 R >>\nendobj\n"
+                ),
+            );
+            assert_eq!(
+                found(role_map_terminates_at_a_standard_type, &file),
+                0,
+                "{standard}"
+            );
+        }
+        let in_pdf_2 = document(
+            " /StructTreeRoot 4 0 R",
+            "4 0 obj\n<< /Type /StructTreeRoot /K [5 0 R] >>\nendobj\n\
+             5 0 obj\n<< /Type /StructElem /S /Note /P 4 0 R /NS 6 0 R >>\nendobj\n\
+             6 0 obj\n<< /Type /Namespace /NS (http://iso.org/pdf2/ssn) >>\nendobj\n",
+        );
+        assert_eq!(found(role_map_terminates_at_a_standard_type, &in_pdf_2), 1);
     }
 
     /// ISO 19005-2 section 6.7.4, over the four shapes §14.9.2.2's sentence distinguishes.

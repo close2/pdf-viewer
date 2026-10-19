@@ -402,7 +402,62 @@ impl DisplayList {
         }
         Some(Window::new(self, kept))
     }
+
+    /// The share of this list's top-level commands a drawing of `target` keeps — the share
+    /// [`DisplayList::reaching`] would keep, `1.0` where it would keep them all — estimated from
+    /// at most 4 096 of them taken at an even stride.
+    ///
+    /// **What a host asks before a draw, on the thread that asks** (`viewer_host::oversize`, ADR
+    /// 1994): whether a window of a page is worth drawing in place of the page is a question of
+    /// how many of its commands the window keeps, because a draw of a page this size costs per
+    /// command (ADRs 1941 §1, 1980 §4). The exact answer is [`MarkBounds::measure`]'s, on every
+    /// core: 18 to 22 ms of the owner's witness on four threads, and a host thread asking it while
+    /// a draw holds the pool waits for that draw. A stride of the list asked on one thread is a
+    /// few hundred microseconds and within a percent or two of the exact share, and a decision
+    /// near the bound costs about the same either way, which is what a bound is.
+    ///
+    /// Each sampled command is asked as [`MarkBounds::misses_target`] asks a kept one, its bound
+    /// grown by [`MARGIN`]. A list that carries a plane drawn beside it is drawn whole at every
+    /// target, so it keeps every command.
+    #[must_use]
+    pub fn share_reaching(&self, target: TargetSpec) -> f64 {
+        let commands = self.commands();
+        if commands.is_empty()
+            || self.black().is_some()
+            || self.transfers().is_some()
+            || self.separation().is_some()
+        {
+            return 1.0;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a target's extent is below MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let (width, height) = (target.width as f32, target.height as f32);
+        let stride = commands.len().div_ceil(SAMPLED).max(1);
+        let (mut asked, mut reaching) = (0_u32, 0_u32);
+        for command in commands.iter().step_by(stride) {
+            asked = asked.saturating_add(1);
+            let misses = command
+                .device_bounds(target.transform)
+                .map(|bound| bound.grown(MARGIN))
+                .is_some_and(|reach| {
+                    reach.max.x < 0.0
+                        || reach.min.x > width
+                        || reach.max.y < 0.0
+                        || reach.min.y > height
+                });
+            if !misses {
+                reaching = reaching.saturating_add(1);
+            }
+        }
+        f64::from(reaching) / f64::from(asked.max(1))
+    }
 }
+
+/// Most commands [`DisplayList::share_reaching`] asks: a binomial standard error of under eight
+/// tenths of a per cent on any share.
+const SAMPLED: usize = 4096;
 
 #[cfg(test)]
 mod tests {
@@ -475,6 +530,55 @@ mod tests {
             .collect();
         assert_eq!(kept, [3, 4, 5]);
         assert_eq!(culled.copied().commands(), &list.commands()[3..6]);
+    }
+
+    #[test]
+    fn the_share_a_window_keeps_of_a_short_list_is_its_selection_counted() {
+        let list = row_of(10);
+        // The row at twice its size, its left edge on page x = 29.75: the square at 50 begins at
+        // device x = 40.5, half a pixel past the window's edge, which only the margin reaches.
+        let window = target(
+            40,
+            20,
+            Transform::scale(2.0, 2.0).then(Transform::translate(-59.5, 0.0)),
+        );
+        let kept = list
+            .reaching(window)
+            .expect("most of the row is outside")
+            .len();
+        assert_eq!(kept, 3);
+        // Every command of a list this short is asked, so the share is exactly the selection's.
+        assert!((list.share_reaching(window) - 0.3).abs() < 1e-12);
+        assert!((list.share_reaching(target(100, 10, Transform::IDENTITY)) - 1.0).abs() < 1e-12);
+        let empty = DisplayList::new(Size::new(10.0, 10.0));
+        assert!((empty.share_reaching(window) - 1.0).abs() < 1e-12);
+    }
+
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
+    #[test]
+    fn the_share_a_window_keeps_of_a_long_list_is_estimated_within_a_percent() {
+        // 50 000 squares, so a stride of thirteen asks 3 847 of them; the window keeps a run of
+        // 7 000 and the two its margin meets.
+        let list = row_of(50_000);
+        let window = target(70_000, 10, Transform::translate(-100_000.0, 0.0));
+        let kept = list
+            .reaching(window)
+            .expect("most of the row is outside the window")
+            .len();
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "counts of a few tens of thousands"
+        )]
+        let exact = kept as f64 / 50_000.0;
+        let estimated = list.share_reaching(window);
+        assert!(
+            (estimated - exact).abs() < 0.01,
+            "{estimated} against {exact}"
+        );
     }
 
     #[cfg_attr(

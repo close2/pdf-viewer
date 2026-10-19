@@ -878,8 +878,23 @@ impl Prepared {
         provenance: Provenance<'_>,
         remedies: &super::remedies::Remedies,
     ) -> Self {
-        let failed: BTreeSet<&'static str> =
+        let mut failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
+        // An unreadable profile's alternate route writes device colour the input did not use, and
+        // ISO 19005-2 section 6.2.4.3 licenses it through an output intent: so the intent is
+        // prepared as the input's own device rows would have asked for it (`doc/adr/1990`).
+        if failed.contains(super::icc::SITE)
+            && let Ok(alternates) = super::icc::Alternates::of(document)
+        {
+            for family in alternates.families {
+                failed.insert(match family {
+                    DeviceFamily::Gray => DEVICE_GRAY_ROW,
+                    DeviceFamily::Rgb => DEVICE_RGB_ROWS[0],
+                    DeviceFamily::Cmyk => DEVICE_CMYK_ROWS[0],
+                });
+            }
+        }
+        let failed = failed;
         let wanted = |rewrite: Rewrite| wanted_by(&failed, rewrite);
         let mut spare = Spare::of(document);
         let catalog = document.catalog().ok();
@@ -1348,6 +1363,12 @@ impl Prepared {
             Rewrite::IdentityTransferFunctionRemoved | Rewrite::TransferFunctionRemoved => {
                 self.owed.transfers.as_ref().err().copied()
             }
+            Rewrite::ProfileAlternateWritten => match &self.owed.profile_alternates {
+                Err(because) => Some(*because),
+                Ok(alternates) => {
+                    alternates.unlicensed_by(self.intent.as_ref().ok().map(|intent| intent.family))
+                }
+            },
             Rewrite::PacketHeaderAttributes => self.owed.packet_headers.as_ref().err().copied(),
             Rewrite::SymbolicTrueTypeEncodingRemoved => {
                 self.owed.symbolic_encodings.as_ref().err().copied()
@@ -1529,6 +1550,8 @@ pub(super) struct Owed {
     pub(super) overprint_modes: Result<super::overprint::OverprintModes, Because>,
     /// The graphics states whose `/TR` goes, or why none do.
     pub(super) transfers: Result<super::transfer::TransferFunctions, Because>,
+    /// The space each unreadable ICC profile's arrays are written as, or why none are.
+    pub(super) profile_alternates: Result<super::icc::Alternates, Because>,
 }
 
 impl Owed {
@@ -1578,6 +1601,9 @@ impl Owed {
             overprint_modes: asked(wanted(Rewrite::OverprintModeRestated), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
                 super::overprint::zeroing(document, survey)
+            }),
+            profile_alternates: asked(wanted(Rewrite::ProfileAlternateWritten), || {
+                super::icc::Alternates::of(document)
             }),
             transfers,
             packet_headers,
@@ -1755,6 +1781,9 @@ const DEVICE_CMYK_ROWS: [&str; 2] = [
     "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
     "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
 ];
+
+/// ISO 19005-2 section 6.2.4.3's grey row, which any PDF/A output intent answers.
+const DEVICE_GRAY_ROW: &str = "graphics/device-gray-needs-a-default-or-an-output-intent";
 
 /// Which of the two shipped profiles this document's own device colour asks for.
 ///
@@ -2634,6 +2663,9 @@ pub(super) struct SchemasDescribed {
     pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
     /// Every schema described, for the report, in the order the packets state them.
     pub(super) described: Vec<DescribedSchema>,
+    /// Every property `undeterminable = "discard"` took out of a packet, which the report names
+    /// as it names every other property a conversion removes (`doc/adr/1991`).
+    pub(super) cut: Vec<MisusedProperty>,
 }
 
 /// One extension schema this conversion described, as the report names it.
@@ -2770,6 +2802,7 @@ fn prepare_schema_descriptions(
             return Err(Because::NotBuiltYet(CONTAINER_ALREADY_THERE));
         }
         let (bytes, undescribed) = if discard_undeterminable {
+            out.cut.extend(undeterminable_properties(&undescribed));
             cut_the_undeterminable(&bytes, undescribed, catalog_packet.as_deref())?
         } else {
             for schema in &undescribed {
@@ -2852,6 +2885,35 @@ fn states_a_container(packet: &[u8]) -> bool {
             .iter()
             .any(|(name, _)| name.namespace == xmp::EXTENSION && name.local == "schemas")
     })
+}
+
+/// Why a property the undeterminable case cut is gone, as the report says it.
+const CUT_UNDETERMINABLE: &str = "its value is a structure, so the value type an extension \
+     schema would have to name is a custom one whose fields' types the file does not state, and \
+     the configuration's undeterminable = \"discard\" took it out rather than describe it";
+
+/// The properties [`cut_the_undeterminable`] takes out, named as the report names a removal.
+fn undeterminable_properties(
+    undescribed: &[pdf_archive::UndescribedSchema],
+) -> Vec<MisusedProperty> {
+    let mut out = Vec::new();
+    for schema in undescribed {
+        for property in &schema.properties {
+            if property.value_type.is_some() {
+                continue;
+            }
+            out.push(MisusedProperty {
+                name: XmpName {
+                    namespace: schema.namespace.clone(),
+                    local: property.local.clone(),
+                },
+                spelled: format!("{}:{}", schema.prefix, property.local),
+                stated: "a structured value".to_owned(),
+                because: CUT_UNDETERMINABLE.to_owned(),
+            });
+        }
+    }
+    out
 }
 
 /// Takes out the properties whose value type the serialisation does not show, and re-reads.
