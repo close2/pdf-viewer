@@ -48,7 +48,9 @@ use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item as OutlineItem, Outline};
 use pdf_model::page::Boundary;
 use pdf_model::popup::Comment;
-use pdf_model::structure::{Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope};
+use pdf_model::structure::{
+    Artifact, ArtifactKind, BlockProgression, CellPlacement, HeaderScope, Nonstandard, StandardType,
+};
 use pdf_model::thumbnail::Thumbnail;
 use pdf_model::view::{FieldName, ShownValue};
 use pdf_model::viewer_preferences::{
@@ -1911,6 +1913,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         let AccessibilityNode {
             parent,
             role,
+            standard,
             name,
             titled,
             substituted,
@@ -1937,6 +1940,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         writer
             .option_usize(*parent)
             .str(role)
+            .u8(standard_kind(standard))
             .str(name)
             .bool(*titled)
             .bool(*substituted)
@@ -2058,9 +2062,12 @@ pub(super) fn decode_accessibility(
         }
         let index = at;
         at = at.saturating_add(1);
+        let role = reader.string("a node's role")?;
+        let standard = read_standard(reader, &role)?;
         Ok(AccessibilityNode {
             parent,
-            role: reader.string("a node's role")?,
+            role,
+            standard,
             name: reader.string("a node's name")?,
             titled: reader.bool("a node's title flag")?,
             substituted: reader.bool("a node's substitution flag")?,
@@ -2137,6 +2144,45 @@ fn read_lines(reader: &mut Reader<'_>) -> Result<Vec<TextLine>, ProtocolError> {
             });
         }
         Ok(TextLine { text, characters })
+    })
+}
+
+/// What a node's role means, as one byte: `0` for a standard type, then one per
+/// [`Nonstandard`] reason.
+///
+/// A standard type crosses as the flag alone and is read back from the role name beside it,
+/// because `pdf_model::structure::Tree::mapped_role` answers a standard type only for a name
+/// that reads as exactly that type in either standard structure namespace — the name is the
+/// type's spelling, and a second statement of it on the wire could only disagree with the first.
+/// What cannot be read back from the name is the *refusal*, which is why it crosses (ADR 2028).
+fn standard_kind(standard: &Result<StandardType, Nonstandard>) -> u8 {
+    match standard {
+        Ok(_) => 0,
+        Err(Nonstandard::Unstated) => 1,
+        Err(Nonstandard::Undefined) => 2,
+        Err(Nonstandard::Foreign) => 3,
+        Err(Nonstandard::Circular) => 4,
+    }
+}
+
+/// The inverse of [`standard_kind`], given the role name it was written beside.
+fn read_standard(
+    reader: &mut Reader<'_>,
+    role: &str,
+) -> Result<Result<StandardType, Nonstandard>, ProtocolError> {
+    let kind = reader.u8("a node's standard type")?;
+    Ok(match kind {
+        0 => Ok(StandardType::read(role).ok_or_else(|| {
+            unrecognised(
+                "a node's standard type, which its role name does not read as",
+                kind,
+            )
+        })?),
+        1 => Err(Nonstandard::Unstated),
+        2 => Err(Nonstandard::Undefined),
+        3 => Err(Nonstandard::Foreign),
+        4 => Err(Nonstandard::Circular),
+        value => return Err(unrecognised("a node's standard type", value)),
     })
 }
 

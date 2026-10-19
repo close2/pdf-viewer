@@ -12,7 +12,7 @@
 # the wall whether the command has ended or not — the agent's next request is then the heartbeat
 # that keeps the cache warm.
 #
-#   tools/wait.sh --start <log> [--wall S] [--tail N] -- <command> [args…]
+#   tools/wait.sh --start <log> -- <command> [args…]
 #   tools/wait.sh [--wall S] [--tail N] [--until ERE] <log>
 #   tools/wait.sh --stop <log>
 #   tools/wait.sh --self-test
@@ -20,9 +20,12 @@
 #   --start <log>  run the command in a session of its own, its standard output and error into
 #                  <log> (which must not exist yet: an old end line would end the wait at once),
 #                  its pid, process group and start time into <log>.pid, and a last line
-#                  `wait: exit <status> after <n>s` appended when it ends; then wait as below. A
-#                  `tools/bounded.sh --lock --tree <GiB> …` run is started this way like any other: the lock is
-#                  the wrapper's, held in the detached session, and its own lines go into <log>.
+#                  `wait: exit <status> after <n>s` appended when it ends; then return at once,
+#                  whatever the command, a lock's queue included. A locked run,
+#                  `tools/bounded.sh --lock --tree <GiB> …`, is started this way like any other: the lock is the
+#                  wrapper's, held in the detached session, and its own lines go into <log>. The wait
+#                  is the next call, or the next command of the same call, so one call holds one
+#                  wall (ADR 2025).
 #   <log>          wait until <log> carries its end line, the process group of <log>.pid is gone,
 #                  or the wall is reached, whichever is first.
 #   --wall S       the most one call waits, in seconds (default 240, at most 270): the cache's five
@@ -35,11 +38,13 @@
 #
 # A wait's options may stand before its log or after it — `tools/wait.sh <log> --wall 30` waits as
 # `tools/wait.sh --wall 30 <log>` does — because a wait that printed this text and exited was read
-# as a wait that had been made (ADR 2011). Anything but one log is refused with a sentence.
+# as a wait that had been made (ADR 2011). Anything but one log is refused with a sentence, and so
+# is a wait's option beside --start, which waits for nothing.
 #
-# Exit status: the command's own once it has ended; 75 (EX_TEMPFAIL) when the wall came first and
-# the command is still running — re-issue `tools/wait.sh <log>`; 70 when the process group is gone
-# without its end line (it was killed); 64 for a usage error. The verdict line is the last line
+# Exit status of --start: 0 once the run has started, 64 when it was refused. Of a wait: the
+# command's own once it has ended; 75 (EX_TEMPFAIL) when the wall came first and the command is
+# still running — re-issue `tools/wait.sh <log>`; 70 when the process group is gone without its end
+# line (it was killed); 64 for a usage error. The verdict line is the last line
 # printed and always starts `wait:`, so a command whose own status is 70 or 75 is still told apart.
 #
 # A wait is only a watcher: killing it — the harness's own timeout, an interrupt — leaves the
@@ -74,13 +79,21 @@ needs_value() {
 # A word that is not an option is the log to wait for, wherever it stands; after --start's log it
 # is the command's first word instead, as it always was.
 logs=()
+waits_by=()
 while [ $# -gt 0 ]; do
     case $1 in
         --start) needs_value $# "$1"; start_log=$2; shift 2 ;;
         --stop) needs_value $# "$1"; stop_log=$2; shift 2 ;;
-        --wall) needs_value $# "$1"; wall=$2; shift 2 ;;
-        --tail) needs_value $# "$1"; tail_lines=$2; shift 2 ;;
-        --until) needs_value $# "$1"; until_ere=$2; shift 2 ;;
+        --wall|--tail|--until)
+            needs_value $# "$1"
+            waits_by+=("$1")
+            case $1 in
+                --wall) wall=$2 ;;
+                --tail) tail_lines=$2 ;;
+                --until) until_ere=$2 ;;
+            esac
+            shift 2
+            ;;
         --self-test) self_test=1; shift ;;
         --) shift; break ;;
         -h|--help) usage ;;
@@ -155,7 +168,8 @@ printf "wait: exit %s after %ss\n" "$status" "$((SECONDS - started))"; exit "$st
     if [ "$pgid" != "$pid" ] || [ "$pgid" = "$(own_group)" ]; then
         refuse "the run's process group $pgid is not its own (pid $pid): --stop would reach the caller"
     fi
-    printf 'wait: started pid %s (process group %s) into %s\n' "$pid" "$pgid" "$log"
+    printf 'wait: started pid %s (process group %s) into %s; wait for it with tools/wait.sh %s\n' \
+        "$pid" "$pgid" "$log" "$log"
 }
 
 stop() {
@@ -249,13 +263,17 @@ self_test() {
         fi
     }
 
-    out=$(bash "$me" --start "$scratch/a.log" --wall 20 -- bash -c 'echo first; sleep 1; echo second'); status=$?
+    out=$(bash "$me" --start "$scratch/a.log" -- bash -c 'echo first; sleep 1; echo second'); status=$?
+    check "--start returns 0 once the run has started, naming the wait to make" 0 "$status" "$out" \
+        '^wait: started pid [0-9]+ .*a\.log; wait for it with tools/wait\.sh .*a\.log$'
+    out=$(bash "$me" --wall 20 "$scratch/a.log"); status=$?
     check "a run that ends inside the wall returns its status and its last lines" 0 "$status" "$out" \
         '^  second$'
     check "and its verdict is the last line" 0 "$status" "$(printf '%s\n' "$out" | tail -n 1)" \
         '^wait: .*a\.log ended, [0-9]+ s since it started — wait: exit 0 after [0-9]+s$'
 
-    out=$(bash "$me" --start "$scratch/b.log" --wall 20 -- bash -c 'exit 3'); status=$?
+    bash "$me" --start "$scratch/b.log" -- bash -c 'exit 3' > /dev/null
+    out=$(bash "$me" --wall 20 "$scratch/b.log"); status=$?
     check "a failing run returns the command's own status" 3 "$status" "$out" 'wait: exit 3 after'
 
     out=$(bash "$me" --start "$scratch/a.log" -- true 2>&1); status=$?
@@ -276,11 +294,19 @@ self_test() {
     out=$(bash "$me" --wall 600 "$scratch/a.log" 2>&1); status=$?
     check "a wall past the cache's lifetime is refused" 64 "$status" "$out" 'outside 1\.\.270'
 
+    out=$(bash "$me" --start "$scratch/x.log" --wall 5 -- true 2>&1); status=$?
+    check "a wait's option beside --start is refused" 64 "$status" "$out" \
+        '^wait: --wall is a wait.s, and --start waits for nothing'
+    [ ! -e "$scratch/x.log" ] || check "and nothing is started" 0 1 "x.log was made" x
+
+    # One call, a start and a wait in it, holds one wall: the composition the round's contract
+    # writes, which two walls in one call put past the harness's timeout (ADR 2025).
     local t0=$SECONDS
-    out=$(bash "$me" --start "$scratch/c.log" --wall 1 -- sleep 3); status=$?
+    out=$(bash "$me" --start "$scratch/c.log" -- sleep 3 && bash "$me" --wall 1 "$scratch/c.log"); status=$?
     check "the wall comes first: 75, and the run named to re-issue" 75 "$status" "$out" \
         'still running .*re-issue tools/wait\.sh .*c\.log'
-    [ $((SECONDS - t0)) -le 3 ] || check "the call returned at its wall" 0 1 "took $((SECONDS - t0)) s" x
+    [ $((SECONDS - t0)) -le 2 ] ||
+        check "a start and a wait in one call took one wall" 0 1 "took $((SECONDS - t0)) s" x
     local pid pgid
     read -r pid pgid _ < "$scratch/c.log.pid"
     check "the run leads a process group of its own, not the caller's" 0 \
@@ -289,7 +315,7 @@ self_test() {
     out=$(bash "$me" --wall 20 "$scratch/c.log"); status=$?
     check "the run outlived the watcher, and a second wait picks it up" 0 "$status" "$out" 'c\.log ended'
 
-    bash "$me" --start "$scratch/d.log" --wall 1 -- sleep 60 > /dev/null
+    bash "$me" --start "$scratch/d.log" -- sleep 60 > /dev/null
     out=$(bash "$me" --stop "$scratch/d.log"); status=$?
     check "--stop ends the process group" 0 "$status" "$out" 'stopped with TERM'
     out=$(bash "$me" --wall 5 "$scratch/d.log"); status=$?
@@ -302,6 +328,36 @@ self_test() {
     printf 'still going\n' > "$scratch/f.log"
     out=$(bash "$me" --wall 1 --until '^done$' "$scratch/f.log"); status=$?
     check "--until without its line waits out the wall" 75 "$status" "$out" 'still running'
+
+    # A locked run queued behind another — the run that did not return — is started at once, and
+    # the caller's output, a pipe here, is closed at once: the run holds the log and never the
+    # caller's descriptors. The lock is a scratch one, taken by the wrapper as every lock under
+    # tools/ is, so the case queues behind its own holder and no round's.
+    locked() {
+        HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" "$@"
+    }
+    locked bash "$me" --start "$scratch/holder.log" -- "$root/tools/bounded.sh" --lock --round 7 \
+        --tree 12 --data 1 --nice 0 -- \
+        sh -c ': > "$0"; n=0; until [ -e "$1" ] || [ "$n" -ge 600 ]; do sleep 0.1; n=$((n + 1)); done' \
+        "$scratch/held" "$scratch/go" > /dev/null
+    local n=0
+    until [ -e "$scratch/held" ] || [ "$n" -ge 100 ]; do sleep 0.1; n=$((n + 1)); done
+    t0=$SECONDS
+    out=$(locked bash "$me" --start "$scratch/g.log" -- "$root/tools/bounded.sh" --lock --round 7 \
+        --tree 12 --data 1 --nice 0 -- sh -c 'exit 5'); status=$?
+    check "a locked run behind a holder is started at once" 0 "$status" \
+        "$out (returned after $((SECONDS - t0)) s)" 'started pid .*returned after [0-2] s\)$'
+    n=0
+    until grep -q 'queued for the heavy-walk lock' "$scratch/g.log" || [ "$n" -ge 100 ]; do
+        sleep 0.1
+        n=$((n + 1))
+    done
+    out=$(bash "$me" --wall 1 "$scratch/g.log"); status=$?
+    check "and it is still queued at the wait after it" 75 "$status" "$out" 'queued for the heavy-walk lock'
+    : > "$scratch/go"
+    out=$(bash "$me" --wall 20 "$scratch/g.log"); status=$?
+    check "granted once the holder lets go, it ends with the command's status" 5 "$status" "$out" \
+        'ended, .* — wait: exit 5 after'
 
     if [ "$fails" -eq 0 ]; then
         printf 'wait.sh self-test: every case holds\n'
@@ -318,8 +374,8 @@ elif [ -n "$stop_log" ]; then
     stop "$stop_log"
 elif [ -n "$start_log" ]; then
     [ ${#logs[@]} -eq 0 ] || refuse "--start $start_log names its own log, so ${logs[0]} is one too many"
+    [ ${#waits_by[@]} -eq 0 ] || refuse "${waits_by[0]} is a wait's, and --start waits for nothing (ADR 2025): tools/wait.sh --start $start_log -- <command>, then tools/wait.sh with it and $start_log"
     start "$start_log" "$@"
-    wait_for "$start_log"
 else
     [ $# -eq 0 ] || refuse "a command after -- is --start's: tools/wait.sh --start <log> -- <command>"
     [ ${#logs[@]} -eq 1 ] || refuse "one wait takes one log, not ${#logs[@]}: tools/wait.sh [--wall S] [--tail N] [--until ERE] <log>, the options before the log or after it"

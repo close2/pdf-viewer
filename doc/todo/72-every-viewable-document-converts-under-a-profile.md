@@ -89,9 +89,12 @@ at 2b, so that corpus ranks them: `graphics/destination-profile-class-and-colour
 **built** where this reader does not draw through the profile and the slot is RGB (ADR 2007; four
 witnesses convert, two drawn-through ones stay refused) — and
 `graphics/halftone-transfer-function-only-where-required` (3) — **built** as `/TR`'s third row
-(ADR 2007; its witnesses are PDF 2.0 files, refused at 2b by their header). Next:
-`…-carries-the-tags-its-class-requires` and `…-states-a-correct-profile-id` (2 each, one witness
-failing both), `graphics/halftone-type-is-one-or-five` (2).
+(ADR 2007; its witnesses are PDF 2.0 files, refused at 2b by their header) — and
+`…-carries-the-tags-its-class-requires` with `…-states-a-correct-profile-id` (2 each, one witness
+failing both) — **built** where the header alone fails them (ADR 2021): a version 5 header on a
+profile written in ICC.1:1998-09's tags and types is restated 2.2.0, a stale `Profile ID` is
+written as the digest; `6-2-3-t01-fail-d` converts to 2b and 4. Next:
+`graphics/halftone-type-is-one-or-five` (2).
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs
@@ -99,6 +102,12 @@ thousand pages in one `/Kids` array) cost 269 s per target in quadratic page loo
 the instrument (`examples/archive_unbuilt -- doc/veraPDF-corpus`).
 
 ## 3. What the two shipped lower-bound profiles still owe
+
+**Not owed, by the owner's word**: an annotation stating no flags is not given Print by a run
+without a profile (`doc/questions/A448`, which adopts the question's recommendation to keep it
+as it is). The site,
+`annotations/flags-entry-present`, asks for `--authorise annotation-printing`; the three keeping
+profiles answer it with `preserve` (ADR 1942).
 
 - **`as-shown`'s `printable-and-visible` split.** One answer covers a hidden annotation (removing
   it is inside the bound) and a visible, non-printing one (it is not); a `shape` per Table 167 bit

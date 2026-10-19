@@ -277,6 +277,17 @@ pub struct Options {
     /// Exceeding it is a [`DeviceError::ResourceBudgetExceeded`] naming all three
     /// numbers, before anything is stored.
     pub max_resource_bytes: u64,
+    /// The most device memory retained encodes may hold between frames — their instance
+    /// streams, kept so that a replay sends none of them again — in bytes. A **request**, as
+    /// [`Options::max_frame_bytes`] is: the device holds it to the smaller of this and its frame
+    /// ceiling, and
+    /// [`Limits::max_resident_bytes`](crate::device::Limits::max_resident_bytes) reports which.
+    /// Its default is [`DEFAULT_MAX_FRAME_BYTES`], so that what the device keeps is held to what
+    /// it admits one frame unless the host asks for less (viewer ADR 2030). An encode past it is
+    /// drawn the same with its streams made per frame, and
+    /// [`RetainedScene::residency_refused`](crate::retained::RetainedScene::residency_refused)
+    /// says so; nothing is refused.
+    pub max_resident_bytes: u64,
     /// The glyph atlas budget, in bytes ([`DEFAULT_ATLAS_BUDGET`]) — a **request**.
     ///
     /// The atlas is one near-square R8 texture whose width is capped at 2048 and whose
@@ -364,6 +375,7 @@ impl Default for Options {
             adapter: None,
             max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
             max_resource_bytes: DEFAULT_MAX_RESOURCE_BYTES,
+            max_resident_bytes: DEFAULT_MAX_FRAME_BYTES,
             atlas_budget: DEFAULT_ATLAS_BUDGET,
             glyph_quantum: Some(DEFAULT_GLYPH_QUANTUM),
             coverage: Coverage::Cpu,

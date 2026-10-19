@@ -73,7 +73,7 @@ mod timing;
 pub mod viewport;
 mod winding;
 
-pub use device::{Device, Limits, PendingFrame};
+pub use device::{Device, Limits, PendingFrame, ResidencyRefused};
 pub use error::{
     DeviceError, LayerProblem, PipelineProblem, RenderError, ResourceProblem, SurfaceProblem,
 };

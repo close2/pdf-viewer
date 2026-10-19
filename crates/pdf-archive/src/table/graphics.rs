@@ -1852,6 +1852,166 @@ pub fn icc_version_tag_shortfall(data: &[u8]) -> Option<IccTagShortfall> {
     })
 }
 
+/// Whether a profile is written in ICC.1:1998-09's own terms: every tag that edition defines
+/// carries a type the edition gives it, and the profile carries every tag the edition requires
+/// of its class.
+///
+/// The question a converter asks of a profile whose header names an edition the profile is not
+/// written in (ADR 2021). ICC.1:1998-09's clause 6.4 gives each of its forty-five tags its type
+/// and clause 6.5 gives each type the signature its first four bytes carry, which is
+/// `ICC_1998_TAG_TYPES`. A tag the edition does not define is a private tag as far as it is
+/// concerned — the edition's clause 6.5 provides for private tags and its introduction asks only
+/// that they be few — so one is passed over rather than counted against the profile. The required tags are `missing_required_tags`'s
+/// reading of clause 6.3, the one the destination and `ICCBased` rows already hold a version 2.2.0
+/// profile to.
+///
+/// `false` for a tag table this cannot read to its end, or that points outside the profile.
+#[must_use]
+pub fn icc_written_in_the_1998_edition(data: &[u8]) -> bool {
+    let Some((class, _)) = profile_header(data) else {
+        return false;
+    };
+    let Some(types) = tag_types(data) else {
+        return false;
+    };
+    let typed_as_defined = types.iter().all(|(signature, kind)| {
+        ICC_1998_TAG_TYPES
+            .iter()
+            .find(|(defined, _)| defined == signature)
+            .is_none_or(|(_, admitted)| admitted.contains(kind))
+    });
+    typed_as_defined && missing_required_tags(IccEdition::Nineteen98, data, class).is_empty()
+}
+
+/// Each tag of a profile's table with the type signature its data opens with.
+///
+/// The table is ICC.1 section 7.3's: a count at offset 128 and twelve bytes an entry — signature,
+/// offset, size. `None` where a count is past [`MAX_TAG_ENTRIES`] or an entry names bytes the
+/// profile does not have, since a type read from outside the profile says nothing about it.
+fn tag_types(data: &[u8]) -> Option<Vec<([u8; 4], [u8; 4])>> {
+    let word = |at: usize| -> Option<usize> {
+        let bytes: [u8; 4] = data.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        usize::try_from(u32::from_be_bytes(bytes)).ok()
+    };
+    let count = word(128)?;
+    if count > MAX_TAG_ENTRIES {
+        return None;
+    }
+    let mut types = Vec::with_capacity(count);
+    for index in 0..count {
+        let at = 132usize.checked_add(index.checked_mul(12)?)?;
+        let signature: [u8; 4] = data.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        let offset = word(at.checked_add(4)?)?;
+        let size = word(at.checked_add(8)?)?;
+        if size < 4 || data.get(offset..offset.checked_add(size)?).is_none() {
+            return None;
+        }
+        let kind: [u8; 4] = data.get(offset..offset.checked_add(4)?)?.try_into().ok()?;
+        types.push((signature, kind));
+    }
+    Some(types)
+}
+
+/// The most tag table entries [`tag_types`] walks: the count is untrusted, and `pdf_colour`'s
+/// own walk of the same table stops at the same figure.
+const MAX_TAG_ENTRIES: usize = 1024;
+
+/// ICC.1:1998-09 clause 6.4's tags, each with the type signatures clause 6.5 gives the types
+/// clause 6.4 names for it — `lut8Type` is `mft1`, `lut16Type` `mft2`, `textDescriptionType`
+/// `desc`, `XYZType` `XYZ `. Sorted by signature; the clause number is beside each.
+const ICC_1998_TAG_TYPES: [([u8; 4], &[[u8; 4]]); 45] = [
+    // 6.4.1 AToB0Tag
+    (*b"A2B0", &[*b"mft1", *b"mft2"]),
+    // 6.4.2 AToB1Tag
+    (*b"A2B1", &[*b"mft1", *b"mft2"]),
+    // 6.4.3 AToB2Tag
+    (*b"A2B2", &[*b"mft1", *b"mft2"]),
+    // 6.4.6 BToA0Tag
+    (*b"B2A0", &[*b"mft1", *b"mft2"]),
+    // 6.4.7 BToA1Tag
+    (*b"B2A1", &[*b"mft1", *b"mft2"]),
+    // 6.4.8 BToA2Tag
+    (*b"B2A2", &[*b"mft1", *b"mft2"]),
+    // 6.4.5 blueTRCTag
+    (*b"bTRC", &[*b"curv"]),
+    // 6.4.4 blueColorantTag
+    (*b"bXYZ", &[*b"XYZ "]),
+    // 6.4.43 ucrbgTag
+    (*b"bfd ", &[*b"bfd "]),
+    // 6.4.22 mediaBlackPointTag
+    (*b"bkpt", &[*b"XYZ "]),
+    // 6.4.9 calibrationDateTimeTag
+    (*b"calt", &[*b"dtim"]),
+    // 6.4.11 copyrightTag
+    (*b"cprt", &[*b"text"]),
+    // 6.4.12 crdInfoTag
+    (*b"crdi", &[*b"crdi"]),
+    // 6.4.30 profileDescriptionTag
+    (*b"desc", &[*b"desc"]),
+    // 6.4.15 deviceSettingsTag
+    (*b"devs", &[*b"devs"]),
+    // 6.4.14 deviceModelDescTag
+    (*b"dmdd", &[*b"desc"]),
+    // 6.4.13 deviceMfgDescTag
+    (*b"dmnd", &[*b"desc"]),
+    // 6.4.19 greenTRCTag
+    (*b"gTRC", &[*b"curv"]),
+    // 6.4.18 greenColorantTag
+    (*b"gXYZ", &[*b"XYZ "]),
+    // 6.4.16 gamutTag
+    (*b"gamt", &[*b"mft1", *b"mft2"]),
+    // 6.4.17 grayTRCTag
+    (*b"kTRC", &[*b"curv"]),
+    // 6.4.20 luminanceTag
+    (*b"lumi", &[*b"XYZ "]),
+    // 6.4.21 measurementTag
+    (*b"meas", &[*b"meas"]),
+    // 6.4.25 namedColor2Tag
+    (*b"ncl2", &[*b"ncl2"]),
+    // 6.4.24 namedColorTag
+    (*b"ncol", &[*b"ncol"]),
+    // 6.4.27 preview0Tag
+    (*b"pre0", &[*b"mft1", *b"mft2"]),
+    // 6.4.28 preview1Tag
+    (*b"pre1", &[*b"mft1", *b"mft2"]),
+    // 6.4.29 preview2Tag
+    (*b"pre2", &[*b"mft1", *b"mft2"]),
+    // 6.4.37 ps2RenderingIntentTag
+    (*b"ps2i", &[*b"data"]),
+    // 6.4.36 ps2CSATag
+    (*b"ps2s", &[*b"data"]),
+    // 6.4.32 ps2CRD0Tag
+    (*b"psd0", &[*b"data"]),
+    // 6.4.33 ps2CRD1Tag
+    (*b"psd1", &[*b"data"]),
+    // 6.4.34 ps2CRD2Tag
+    (*b"psd2", &[*b"data"]),
+    // 6.4.35 ps2CRD3Tag
+    (*b"psd3", &[*b"data"]),
+    // 6.4.31 profileSequenceDescTag
+    (*b"pseq", &[*b"pseq"]),
+    // 6.4.39 redTRCTag
+    (*b"rTRC", &[*b"curv"]),
+    // 6.4.38 redColorantTag
+    (*b"rXYZ", &[*b"XYZ "]),
+    // 6.4.26 outputResponseTag
+    (*b"resp", &[*b"rcs2"]),
+    // 6.4.40 screeningDescTag
+    (*b"scrd", &[*b"desc"]),
+    // 6.4.41 screeningTag
+    (*b"scrn", &[*b"scrn"]),
+    // 6.4.10 charTargetTag
+    (*b"targ", &[*b"text"]),
+    // 6.4.42 technologyTag
+    (*b"tech", &[*b"sig "]),
+    // 6.4.45 viewingConditionsTag
+    (*b"view", &[*b"view"]),
+    // 6.4.44 viewingCondDescTag
+    (*b"vued", &[*b"desc"]),
+    // 6.4.23 mediaWhitePointTag
+    (*b"wtpt", &[*b"XYZ "]),
+];
+
 /// ICC.1:1998-09 section 6.4.30's tag, as a finding names it.
 const DESCRIPTION_TAG: &str = "profileDescriptionTag";
 

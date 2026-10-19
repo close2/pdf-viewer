@@ -51,6 +51,8 @@
 //!   device knows about [`crate::present`] (ADR 0056).
 //! - `staging` — phase 2: the buffers and textures one frame stages before anything is
 //!   recorded.
+//! - `residency` — what retained encodes keep on the device between frames, charged against the
+//!   one figure the device states for it (viewer ADR 2030).
 //! - `record` — phase 3: the route a frame's content takes to the target, recorded
 //!   into one submission.
 //! - `binds` — the bind group and the uniform bytes each of the compositor's passes
@@ -69,6 +71,7 @@ mod ramp;
 mod rare;
 mod record;
 mod render;
+mod residency;
 mod resident;
 mod staging;
 mod textures;
@@ -90,6 +93,8 @@ pub use pending::PendingFrame;
 pub(crate) use rare::{
     SHADING_PARAMS_BYTES, SHADING_QUADS_PER_WINDOW, SHADING_WINDOW_BYTES, shading_params_bytes,
 };
+pub use residency::ResidencyRefused;
+pub(crate) use residency::{Residency, ResidencyBudget};
 pub(crate) use staging::KeptInstances;
 
 /// What this adapter can actually do, discoverable before any frame (section 5 of the brief:
@@ -102,6 +107,14 @@ pub struct Limits {
     pub max_frame_bytes: u64,
     /// The resident-resource budget, as configured.
     pub max_resource_bytes: u64,
+    /// What the device holds of retained encodes between frames — their instance streams
+    /// (viewer ADR 1993) — at most: the smaller of
+    /// [`Options::max_resident_bytes`](crate::startup::Options::max_resident_bytes) and
+    /// [`max_frame_bytes`](Limits::max_frame_bytes), the largest buffer the adapter makes and
+    /// binds (viewer ADR 2030). An encode whose streams would take the device past it is drawn
+    /// with its streams made per frame, and says so
+    /// ([`RetainedScene::residency_refused`](crate::retained::RetainedScene::residency_refused)).
+    pub max_resident_bytes: u64,
     /// The glyph atlas this device actually made, in bytes — **not**
     /// [`Options::atlas_budget`], which is a request (ADR 0063).
     ///
@@ -190,6 +203,9 @@ pub struct Device {
     /// the lane and kept — never on the startup path (ADR 0080) — or the refusal that
     /// stopped them, kept as the render lane keeps one (ADR 1962).
     compute_pipelines: crate::compute::Kept,
+    /// What retained encodes' instance streams hold between frames, against
+    /// [`Limits::max_resident_bytes`] (viewer ADR 2030).
+    residency: ResidencyBudget,
     /// The compute lane's resident segments: every outline it has drawn, uploaded
     /// once (ADR 0081).
     segment_arena: crate::compute::SegmentArena,
@@ -259,6 +275,14 @@ impl Device {
     #[must_use]
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// Device bytes retained encodes hold between frames now — their instance streams — against
+    /// [`Limits::max_resident_bytes`] (viewer ADR 2030). Given back as each encode is dropped,
+    /// replaced or forgotten.
+    #[must_use]
+    pub fn resident_bytes(&self) -> u64 {
+        self.residency.in_use()
     }
 
     /// Which lane makes coverage bytes for the frames after this call.

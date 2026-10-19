@@ -31,9 +31,9 @@
 //! | `TOCI` | `ListItem` | no contents-entry role; an entry is one member of a list of them |
 //! | `Quote`, `Reference` | `Label` | no inline quotation role (`Blockquote` is `BlockQuote`'s, a grouping of paragraphs), and no role for a citation inside the document — `DocNoteRef` and `DocBiblioRef` each name one kind, and a contents entry's `Reference` is neither |
 //! | `Note` | `DocFootnote` | as `FENote`: ISO 32000-1 Table 338 makes it explanatory text such as a footnote or an endnote |
-//! | `Private` | `GenericContainer`, not spoken | its descendants are still read. ISO 32000-1 Table 333 says neither it nor they are to be interpreted, and leaving them out is `viewer-core`'s walk; no corpus document states one |
+//! | `Private` | `GenericContainer`, not spoken | nothing a host is handed: ISO 32000-1 Table 333 says neither it nor any of its descendants is to be interpreted, and `viewer-core`'s walk gathers neither (ADR 2028). Mapped all the same, so that a node from another source is withheld rather than described |
 //! | `Figure` | `Image` | `Role::Figure` exists and becomes an AT-SPI `Panel`, which says nothing; a `Figure` is graphical content that §14.8.4.8.5 says "should have either an `Alt` entry or an `ActualText` entry", which is an image with alternative text |
-//! | anything else | `Group`, described | §14.8.4.1 requires a tagged document's types to be standard or role mapped to standard ones, so a name arriving here is a defect in the *document*. The name is put in the node's description rather than dropped |
+//! | anything else | `Group`, described | §14.8.4.1 requires a tagged document's types to be standard or role mapped to standard ones, so a name arriving here is a defect in the *document*. The name is put in the node's description rather than dropped, with which of `pdf_model::structure::Nonstandard`'s reasons it is: a name its namespace does not define, a foreign namespace's word — a `Table` there is a homonym, not a table — a role map that came back on itself, or no type at all |
 //!
 //! # Two roles the platform filters out, and the rule that follows
 //!
@@ -121,7 +121,7 @@
 
 use accesskit::Role;
 use pdf_model::form::Control;
-use pdf_model::structure::{HeaderScope, StandardType};
+use pdf_model::structure::{HeaderScope, Nonstandard, StandardType};
 
 /// What one structure type becomes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,7 +138,7 @@ pub struct Mapping {
     /// nesting of the logical structure" — a derivation this program does not do, and a level
     /// invented here would be a claim about the document rather than a reading of it.
     pub level: Option<u32>,
-    /// The type the document wrote, where §14.8.4 does not define it.
+    /// The type the document wrote, where §14.8.4 does not define it, and why it is not one.
     ///
     /// `Some` is a finding about the *document*: §14.8.4.1 requires "[a]ll structure elements
     /// occurring within a tagged PDF document" to have "a type matching one of those defined as a
@@ -146,7 +146,7 @@ pub struct Mapping {
     /// Standard Structure Type", and the role map has already been applied by the time a name
     /// reaches here. It is carried into the node's description rather than dropped, because a
     /// person whose reader says "group" wants to know that the file, not the reader, is why.
-    pub unmapped: Option<String>,
+    pub unmapped: Option<(String, Nonstandard)>,
     /// Whether a label may be put on the node.
     ///
     /// `false` for `Artifact`: §14.8.2.2 makes an artifact content that is on the page and is not
@@ -175,6 +175,12 @@ pub struct Mapping {
 
 /// Maps one element's structure type onto the platform's vocabulary.
 ///
+/// `standard` is what the type means in the namespace it ends in, which
+/// [`viewer_core::AccessibilityNode::standard`] answers with; `name` is the name the role map
+/// ended at, read for nothing but the description of a type that is not standard. **The name is
+/// never read as a type here**: a foreign namespace's `Table` is not §14.8.4's, and only the
+/// reading side, which holds the namespace, can say so (ADR 2028).
+///
 /// `speaking` is whether the element has anything of its own to say, which decides one thing: a
 /// type that would otherwise become a role the platform filters out of the tree keeps its text by
 /// becoming a [`Role::Label`] instead. See this module's own documentation.
@@ -194,21 +200,25 @@ pub struct Mapping {
 /// module's own documentation.
 #[must_use]
 pub fn map(
-    role: &str,
+    standard: Result<&StandardType, Nonstandard>,
+    name: &str,
     speaking: bool,
     titled: bool,
     scope: Option<HeaderScope>,
     control: Option<&Control>,
 ) -> Mapping {
-    let Some(standard) = StandardType::read(role) else {
-        return Mapping {
-            role: Role::Group,
-            level: None,
-            unmapped: Some(role.to_owned()),
-            speaks: true,
-            note: None,
-            toggled: None,
-        };
+    let standard = match standard {
+        Ok(standard) => standard,
+        Err(reason) => {
+            return Mapping {
+                role: Role::Group,
+                level: None,
+                unmapped: Some((name.to_owned(), reason)),
+                speaks: true,
+                note: None,
+                toggled: None,
+            };
+        }
     };
     #[expect(
         clippy::match_same_arms,
@@ -216,7 +226,7 @@ pub fn map(
                   the ones that happen to land on the same role would hide which table a type \
                   came from — which is the thing this mapping has to be readable against"
     )]
-    let (mapped, level) = match &standard {
+    let (mapped, level) = match standard {
         // Table 364, document level.
         StandardType::Document | StandardType::DocumentFragment => (Role::Document, None),
         // Table 365, grouping level.
@@ -300,8 +310,8 @@ pub fn map(
         level,
         unmapped: None,
         speaks,
-        note: header_note(&standard, scope).or_else(|| form_note(&standard, control)),
-        toggled: form_toggled(&standard, control),
+        note: header_note(standard, scope).or_else(|| form_note(standard, control)),
+        toggled: form_toggled(standard, control),
     }
 }
 
@@ -421,10 +431,31 @@ fn filtered_out(role: Role) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mapping, map};
+    use super::Mapping;
     use accesskit::Role;
     use pdf_model::form::Control;
-    use pdf_model::structure::StandardType;
+    use pdf_model::structure::{HeaderScope, Nonstandard, StandardType};
+
+    /// [`super::map`] for a name stating no namespace, read as the default one's — the reading
+    /// `pdf_model::structure::Tree::mapped_role` gives such an element whose role map is not
+    /// circular.
+    fn map(
+        name: &str,
+        speaking: bool,
+        titled: bool,
+        scope: Option<HeaderScope>,
+        control: Option<&Control>,
+    ) -> Mapping {
+        let standard = StandardType::read(name);
+        super::map(
+            standard.as_ref().ok_or(Nonstandard::Undefined),
+            name,
+            speaking,
+            titled,
+            scope,
+            control,
+        )
+    }
 
     /// Every one of §14.8.4's forty-one types maps, and none of them lands on `Unknown`.
     ///
@@ -596,6 +627,21 @@ mod tests {
     fn a_type_outside_the_standard_set_is_carried_rather_than_dropped() {
         let mapping = map("Advertising", true, false, None, None);
         assert_eq!(mapping.role, Role::Group);
-        assert_eq!(mapping.unmapped.as_deref(), Some("Advertising"));
+        assert_eq!(
+            mapping.unmapped,
+            Some(("Advertising".to_owned(), Nonstandard::Undefined))
+        );
+    }
+
+    /// A foreign namespace's `Table` is mapped as what the reading side resolved — no standard
+    /// type — and never as §14.8.4's table because the string matches (ADR 2028).
+    #[test]
+    fn a_homonym_is_what_the_tree_resolved_and_not_what_its_name_reads_as() {
+        let mapping = super::map(Err(Nonstandard::Foreign), "Table", false, false, None, None);
+        assert_eq!(mapping.role, Role::Group, "not Role::Table");
+        assert_eq!(
+            mapping.unmapped,
+            Some(("Table".to_owned(), Nonstandard::Foreign))
+        );
     }
 }

@@ -1,10 +1,12 @@
 //! `tools/wait.sh` is how a round waits for a command longer than the prompt cache's five minutes:
 //! the command runs detached in a process group of its own, and every wait for it returns inside a
 //! wall, so the agent's next request reads its context from the cache instead of writing it again
-//! (ADR 1976). Its `--self-test` runs the cases a round leans on — a run's status returned, the
-//! wall coming first with 75, the run outliving its watcher, `--stop` ending the group, a killed
-//! group said at once with 70, a wall past the cache's lifetime refused, and a log the script did
-//! not start ending on `tools/bounded.sh`'s closing line.
+//! (ADR 1976). Its `--self-test` runs the cases a round leans on — `--start` returning as soon as
+//! the run has started, a locked run queued behind a holder included, so that a start and a wait in
+//! one call hold one wall (ADR 2025); a run's status returned, the wall coming first with 75, the
+//! run outliving its watcher, `--stop` ending the group, a killed group said at once with 70, a
+//! wall past the cache's lifetime refused, and a log the script did not start ending on
+//! `tools/bounded.sh`'s closing line.
 //!
 //! It lives here for the reason `bounded.rs` does: this crate's gates read the repository's own
 //! files, and a waiter broken by an edit should fail a round before that round waits on it.

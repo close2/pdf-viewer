@@ -4238,6 +4238,104 @@ fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
     assert!(nodes[2].substituted, "{:?}", nodes[2]);
 }
 
+/// A one-page tagged document whose `Sect` holds a `Private` element, with a `Span` below it, and
+/// then a `P` — with §14.7.5.4's parent tree where `parent_tree` asks for it, so that both of the
+/// walk's routes to the page's elements are taken.
+fn with_a_private_element(parent_tree: bool) -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "BT /F1 12 Tf 10 60 Td\n\
+         /P <</MCID 0>> BDC (Alpha) Tj EMC\n\
+         /P <</MCID 1>> BDC (Beta) Tj EMC\n\
+         /P <</MCID 2>> BDC (Gamma) Tj EMC\n\
+         /P <</MCID 3>> BDC (Delta) Tj EMC\nET\n";
+    let parents = if parent_tree {
+        " /ParentTree << /Nums [0 [8 0 R 9 0 R 10 0 R 11 0 R]] >>"
+    } else {
+        ""
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 7 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         6 0 obj\nnull\nendobj\n\
+         7 0 obj\n<< /Type /StructTreeRoot /K [8 0 R]{parents} >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /Sect /P 7 0 R /Pg 3 0 R \
+          /K [0 9 0 R 11 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Private /P 8 0 R /Pg 3 0 R \
+          /K [1 10 0 R] >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /Span /P 9 0 R /Pg 3 0 R /K [2] >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K [3] >>\nendobj\n",
+        content.len(),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// ISO 32000-1 Table 333's `Private`, which §14.8.6.1's default namespace defines: "[n]either the
+/// Private element nor any of its descendants shall be interpreted or exported to other document
+/// formats". So a host is told about neither — no node, no text, and no place in the `Sect` that
+/// encloses them — whichever route reaches the page's elements, and what follows it is answered
+/// as before (ADR 2028).
+#[test]
+fn a_private_element_and_its_descendants_are_not_presented() {
+    for parent_tree in [false, true] {
+        let mut viewer = Viewer::new(400, 300, 1.0);
+        let events: Vec<Event> = viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: with_a_private_element(parent_tree).into(),
+                password: None,
+                fragment: None,
+            })
+            .collect();
+        let request = request(&events).clone();
+        serve(&mut viewer, &request);
+        let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+            panic!("the query always answers");
+        };
+        let nodes = on_one_page(pages);
+        let roles: Vec<&str> = nodes.iter().map(|node| node.role.as_str()).collect();
+        assert_eq!(roles, ["Sect", "P"], "parent tree {parent_tree}: {nodes:?}");
+        assert_eq!(nodes[0].name, "Alpha");
+        assert_eq!(nodes[1].name, "Delta");
+        assert_eq!(nodes[1].parent, Some(0));
+        assert!(
+            nodes
+                .iter()
+                .all(|node| !node.name.contains("Beta") && !node.name.contains("Gamma")),
+            "a Private element's content was presented: {nodes:?}"
+        );
+        // The `Sect` covers its own sequence and the `P`'s, and nothing of the `Private`'s.
+        let covered = nodes[0].quads.len();
+        let alone = nodes[1].quads.len();
+        assert!(
+            covered <= 2 * alone.max(1),
+            "the Sect is placed over the Private element's marks too: {:?}",
+            nodes[0]
+        );
+    }
+}
+
 /// One tagged table, built so that every branch of §14.8.5.7's assumption is on one page.
 ///
 /// The corner cell spans two rows, which is what makes the second row's first *child* not its

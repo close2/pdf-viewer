@@ -26,6 +26,7 @@ use crate::json::Value;
 use crate::update::TABLE_349;
 
 use super::decision::{Because, REMEDIES};
+use super::destination::RestatedDestination;
 use super::fonts::{self, Directions, Metrics, Substitutes};
 use super::jpeg2000::{self, Specifications};
 use super::preserve::{self, Composed};
@@ -666,6 +667,9 @@ pub(super) struct Prepared {
     /// Prepared **before** the intent, which then names the profile written rather than the one
     /// it replaces.
     pub(super) replaced_destination: Result<ReplacedDestination, Because>,
+    /// The destination profile whose header is restated as what its own bytes are, or why it is
+    /// not (`doc/adr/2021`).
+    pub(super) restated_destination: Result<RestatedDestination, Because>,
     /// The output intent to add, or why one cannot be.
     pub(super) intent: Result<Intent, Because>,
     /// The `/DefaultCMYK` to write, or why one cannot be.
@@ -910,6 +914,14 @@ impl Prepared {
             catalog.as_ref(),
         ) {
             (true, Some(catalog)) => replaced_destination(plan, document, catalog),
+            (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        let restated_destination = match (
+            wanted(Rewrite::DestinationProfileRestated),
+            catalog.as_ref(),
+        ) {
+            (true, Some(catalog)) => super::destination::restated(document, catalog),
             (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
             (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
         };
@@ -1312,6 +1324,7 @@ impl Prepared {
         };
         Self {
             replaced_destination,
+            restated_destination,
             intent,
             default_cmyk,
             metadata,
@@ -1362,6 +1375,9 @@ impl Prepared {
             Rewrite::IdentificationSchema => self.metadata.as_ref().err().copied(),
             Rewrite::DestinationProfileReplaced => {
                 self.replaced_destination.as_ref().err().copied()
+            }
+            Rewrite::DestinationProfileRestated => {
+                self.restated_destination.as_ref().err().copied()
             }
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
@@ -1984,12 +2000,18 @@ const DESTINATION_NOT_ONE_OBJECT: &str = "the output intents in this file do not
      its own - so replacing the profile at one object would leave the requirement failing at \
      another (doc/adr/2007)";
 
-/// The replacement, where every condition [`ReplacedDestination`] states holds.
-fn replaced_destination(
-    plan: &ArchivePlan,
+/// The one destination profile object every entry of the catalog's `OutputIntents` array names,
+/// and its stream.
+///
+/// A rewrite of the profile at one object answers ISO 19005-2 and ISO 19005-4 section 6.2.3 only
+/// where that object is the profile of every entry, which the subclause's own paragraph on several
+/// entries requires anyway: an entry naming another object, a profile stated directly rather than
+/// by reference, or a page stating an `OutputIntents` array of its own each leaves the requirement
+/// failing somewhere the rewrite did not reach (`doc/adr/2007`, `doc/adr/2021`).
+pub(super) fn the_destination_object(
     document: &Document,
     catalog: &Dictionary,
-) -> Result<ReplacedDestination, Because> {
+) -> Result<(ObjectId, std::sync::Arc<Stream>), Because> {
     let not_one = Because::NotBuiltYet(DESTINATION_NOT_ONE_OBJECT);
     let mut named = BTreeSet::new();
     for entry in output_intent_entries(document, catalog) {
@@ -2021,6 +2043,16 @@ fn replaced_destination(
     let Object::Stream(stream) = document.get(at) else {
         return Err(not_one);
     };
+    Ok((at, stream))
+}
+
+/// The replacement, where every condition [`ReplacedDestination`] states holds.
+fn replaced_destination(
+    plan: &ArchivePlan,
+    document: &Document,
+    catalog: &Dictionary,
+) -> Result<ReplacedDestination, Because> {
+    let (at, stream) = the_destination_object(document, catalog)?;
     let drawn_through = document
         .decoded_stream_data(&stream)
         .is_some_and(|data| pdf_model::icc::Profile::parse(&data).is_some());

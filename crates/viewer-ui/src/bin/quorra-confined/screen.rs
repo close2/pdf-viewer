@@ -18,7 +18,10 @@
 //! said it draws them (`Command::Oversize`), the device draws them at the window's size as it
 //! draws every page, and the processor — `--cpu`, or a frame the device refused — draws the part
 //! of the page the window shows with `viewer_host::oversize`'s margin round it, so no raster of the
-//! whole page is allocated on this side of the pipe either.
+//! whole page is allocated on this side of the pipe either. **So is a page under the bound whose
+//! window the toolkit windows would draw in its place** — `viewer_host::oversize::worth_a_window`,
+//! asked here of the marks that crossed, because this side holds them and only this side knows
+//! that the processor is what draws them (ADR 2026).
 //!
 //! What this module owns is the gap between arrival and pixels: which page is ready, which is
 //! still being drawn, which refused — and the one identity check that keeps a slow draw from
@@ -109,8 +112,9 @@ enum Content {
         /// What the pixels were drawn from, `None` where they crossed as pixels.
         drawn: Option<(Arc<DisplayList>, TargetSpec)>,
     },
-    /// A page past `viewer_core::MAX_PIXELS` that the processor draws, as the window shows it
-    /// (ADR 1944).
+    /// A page the processor draws as the window shows it: one past `viewer_core::MAX_PIXELS`
+    /// (ADR 1944), or one under it whose window the toolkit windows' rule draws in its place
+    /// ([`drawn_as_windows`], ADR 2026).
     Windowed(Windowed),
     /// A window the worker drew of a page past the bound whose marks cannot cross, placed where
     /// the frame says it is (`Payload::Window`, ADR 1986). The worker draws the next one when a
@@ -137,7 +141,7 @@ enum Content {
     },
 }
 
-/// A page past the bound drawn on the processor as the window shows it, and what is drawn of it.
+/// A page drawn on the processor as the window shows it, and what is drawn of it.
 #[derive(Debug)]
 struct Windowed {
     /// The marks and the whole target the window is a part of — the identity every other variant
@@ -170,6 +174,40 @@ enum WindowPixels {
 /// sends as its marks because this window draws it at the window's size (ADR 1944).
 fn past_the_bound(target: TargetSpec) -> bool {
     u64::from(target.width).saturating_mul(u64::from(target.height)) > viewer_core::MAX_PIXELS
+}
+
+/// Whether the processor draws `list` at `target` as the window shows it rather than whole, at a
+/// viewport `viewport` device pixels across: a page past the bound always (ADR 1944), and one under
+/// it where `viewer_host::oversize::worth_a_window` holds — the rule the toolkit windows draw every
+/// page by, the very function and not a statement of it again (ADRs 1994, 2026).
+///
+/// **Asked once for a drawing, as the toolkits ask it once for a request**: a drawing this screen
+/// already holds, as windows or whole, keeps the answer it was given, so a scroll asks the list
+/// nothing and a page is never drawn whole and then as windows at one target. A new list or a new
+/// target is a new drawing and is asked. A window with no extent shows no window, so a page under
+/// the bound is drawn whole there, as the worker draws it behind no viewport.
+///
+/// **The question costs one stride of the list on the window's thread**
+/// ([`pdf_render::DisplayList::share_reaching`], at most 4 096 of its commands, and none where the
+/// window is half its page or less): a pass bounded by the bytes that crossed, which decoding the
+/// frame has already paid once.
+fn drawn_as_windows(
+    before: Option<&Content>,
+    list: &Arc<DisplayList>,
+    target: TargetSpec,
+    viewport: (u32, u32),
+) -> bool {
+    let same = |held: &Arc<DisplayList>, at: TargetSpec| Arc::ptr_eq(held, list) && at == target;
+    match before {
+        _ if past_the_bound(target) => true,
+        Some(Content::Windowed(held)) if held.is_of(list, target) => true,
+        Some(
+            Content::Pixels(_, Some((held, at)))
+            | Content::Drawing(held, at)
+            | Content::Refused { of: (held, at), .. },
+        ) if same(held, *at) => false,
+        _ => viewport.0 > 0 && viewport.1 > 0 && oversize::worth_a_window(list, target, viewport),
+    }
 }
 
 /// Where a window of a page whose top-left corner is at `origin` is placed: the page's corner,
@@ -324,7 +362,14 @@ impl Screen {
                     target,
                     drawing,
                 ),
-                Payload::List { list, target } if past_the_bound(target) && !self.device => {
+                Payload::List { list, target }
+                    if drawn_as_windows(
+                        before.as_ref().map(|slot| &slot.content),
+                        &list,
+                        target,
+                        self.extent,
+                    ) =>
+                {
                     windowed(
                         before.map(|slot| slot.content),
                         (page, origin, self.extent),
@@ -590,7 +635,7 @@ impl Screen {
         let extent = self.extent;
         for slot in &mut self.slots {
             if let Content::Marks(list, target) = &slot.content
-                && past_the_bound(*target)
+                && drawn_as_windows(None, list, *target, extent)
             {
                 slot.content = windowed(
                     None,
@@ -677,10 +722,10 @@ fn waiting(content: &Content) -> bool {
     }
 }
 
-/// A page past the bound on the processor (ADR 1944): what was held of that drawing kept — a
-/// refusal of it, or the windows of it — and the part the window now shows, with
-/// `viewer_host::oversize`'s margin, asked of the drawing thread where neither the window drawn
-/// nor the one asked for holds it.
+/// A page drawn as its windows on the processor ([`drawn_as_windows`], ADRs 1944, 2026): what was
+/// held of that drawing kept — a refusal of it, or the windows of it — and the part the window now
+/// shows, with `viewer_host::oversize`'s margin, asked of the drawing thread where neither the
+/// window drawn nor the one asked for holds it.
 fn windowed(
     before: Option<Content>,
     (page, origin, viewport): (usize, (f32, f32), (u32, u32)),
@@ -1298,7 +1343,9 @@ mod tests {
     fn a_page_that_leaves_the_arrangement_interrupts_its_draw() {
         let mut screen = Screen::new();
         let mut drawing = Drawing::new();
-        screen.resize(30, 30);
+        // A window the page fits, so that it is drawn whole: at a smaller one the toolkit
+        // windows' rule draws it as its window (ADR 2026).
+        screen.resize(600, 800);
         let list = an_expensive_list(600.0, 800.0, 20_000);
         let target = TargetSpec::for_page(&list, 1.0, u64::from(u32::MAX)).expect("a target");
         screen.take(
@@ -1587,5 +1634,176 @@ mod tests {
             landed[0].1.transform, moved[0].1.transform,
             "and what changed is the placement"
         );
+    }
+
+    /// A page of four marks with edges that fall between pixels: a diagonal, a slanted
+    /// quadrilateral and two rectangles at fractional coordinates, so a window drawn of it and the
+    /// page drawn whole could differ wherever a window's corner moved an edge's coverage.
+    fn a_page_of_edges(side: f32) -> Arc<DisplayList> {
+        // Each shape's corners in page units, and its colour.
+        type Shape<'a> = (&'a [(f32, f32)], [f32; 3]);
+        let mut list = DisplayList::new(Size {
+            width: side,
+            height: side,
+        });
+        let shapes: [Shape<'_>; 4] = [
+            (&[(0.0, 0.0), (side, 0.0), (0.0, side)], [1.0, 0.0, 0.0]),
+            (
+                &[(10.3, 20.7), (60.1, 15.2), (75.9, 70.4), (30.6, 88.8)],
+                [0.0, 0.5, 1.0],
+            ),
+            (
+                &[
+                    (41.25, 41.25),
+                    (58.75, 41.25),
+                    (58.75, 58.75),
+                    (41.25, 58.75),
+                ],
+                [0.1, 0.8, 0.2],
+            ),
+            (
+                &[(5.5, 90.1), (95.3, 90.1), (95.3, 92.6), (5.5, 92.6)],
+                [0.0, 0.0, 0.0],
+            ),
+        ];
+        for (points, [red, green, blue]) in shapes {
+            let mut path = MarkPath::new();
+            let mut corners = points.iter();
+            if let Some(&(x, y)) = corners.next() {
+                path.push(PathCommand::MoveTo(Point::new(x, y)));
+            }
+            for &(x, y) in corners {
+                path.push(PathCommand::LineTo(Point::new(x, y)));
+            }
+            path.push(PathCommand::Close);
+            list.push(Mark::Fill {
+                path: Arc::new(path),
+                transform: Transform::IDENTITY,
+                paint: Paint::Solid(Color::rgb(red, green, blue)),
+                fill_rule: FillRule::NonZero,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        Arc::new(list)
+    }
+
+    /// One list payload of page 0.
+    fn one_page(list: &Arc<DisplayList>, target: TargetSpec, origin: (f32, f32)) -> Vec<Framed> {
+        vec![Framed {
+            page: 0,
+            payload: Payload::List {
+                list: Arc::clone(list),
+                target,
+            },
+            bytes: 0,
+            origin,
+        }]
+    }
+
+    /// A page under the bound whose largest window is at most half of it is drawn on the processor
+    /// as the window shows it, as the toolkit windows draw it (ADR 2026) — and the window it
+    /// composes is, byte for byte, the window the page drawn whole composes at the same place.
+    #[test]
+    fn a_page_under_the_bound_the_toolkits_window_is_drawn_as_its_window_and_composes_alike() {
+        let list = a_page_of_edges(100.0);
+        let target = TargetSpec::for_page(&list, 2.13, u64::from(u32::MAX)).expect("a target");
+        assert!(
+            !super::past_the_bound(target),
+            "the test is about a page under the bound"
+        );
+        let origin = (-37.4, -61.6);
+
+        let mut windowed = Screen::new();
+        let mut drawing = Drawing::new();
+        windowed.resize(40, 40);
+        windowed.take(one_page(&list, target, origin), &mut drawing);
+        let Some(Content::Windowed(held)) = windowed.slots.first().map(|slot| &slot.content) else {
+            panic!("the page is held as a window");
+        };
+        let asked = held
+            .asked
+            .expect("a window was asked of the drawing thread");
+        assert!(
+            u64::from(asked.width) * u64::from(asked.height)
+                < u64::from(target.width) * u64::from(target.height),
+            "the window is part of its page"
+        );
+        drain(&mut windowed, &mut drawing);
+
+        // The control: the same drawing taken first where its window would be the whole page, so
+        // it is drawn whole, then shown at the small window; the drawing keeps its answer.
+        let mut whole = Screen::new();
+        let mut drawing = Drawing::new();
+        whole.resize(400, 400);
+        whole.take(one_page(&list, target, origin), &mut drawing);
+        drain(&mut whole, &mut drawing);
+        whole.resize(40, 40);
+        whole.take(one_page(&list, target, origin), &mut drawing);
+        assert!(
+            matches!(
+                whole.slots.first().map(|slot| &slot.content),
+                Some(Content::Pixels(..))
+            ),
+            "a drawing held whole keeps its answer: the rule is asked once for a drawing"
+        );
+        assert!(whole.settled(), "and nothing was asked again");
+
+        let (by_window, by_page) = (
+            windowed
+                .compose()
+                .expect("a window with an extent composes"),
+            whole.compose().expect("a window with an extent composes"),
+        );
+        assert!(
+            by_window.data == by_page.data,
+            "the window composes what the page drawn whole composes"
+        );
+        assert_ne!(
+            pixel(&by_window, 20, 20),
+            surround_pixel(),
+            "and the page is on it"
+        );
+    }
+
+    /// A window with no extent shows no window, so a page under the bound is drawn whole there.
+    #[test]
+    fn a_page_under_the_bound_behind_no_window_is_drawn_whole() {
+        let list = a_page_of_edges(100.0);
+        let target = TargetSpec::for_page(&list, 2.13, u64::from(u32::MAX)).expect("a target");
+        let mut screen = Screen::new();
+        let mut drawing = Drawing::new();
+        screen.take(one_page(&list, target, (0.0, 0.0)), &mut drawing);
+        assert!(matches!(
+            screen.slots.first().map(|slot| &slot.content),
+            Some(Content::Drawing(..))
+        ));
+    }
+
+    /// A device screen's page under the bound whose frame the device refused falls back to the
+    /// processor's windows where the toolkit windows' rule holds (ADR 2026), and to a whole page
+    /// where it does not.
+    #[test]
+    fn a_refused_page_under_the_bound_falls_back_to_a_window_where_the_rule_holds() {
+        let list = a_page_of_edges(100.0);
+        let target = TargetSpec::for_page(&list, 2.13, u64::from(u32::MAX)).expect("a target");
+        for (extent, as_windows) in [((40, 40), true), ((400, 400), false)] {
+            let mut screen = Screen::for_device();
+            let mut drawing = Drawing::new();
+            screen.resize(extent.0, extent.1);
+            screen.take(one_page(&list, target, (-37.4, -61.6)), &mut drawing);
+            assert_eq!(screen.fall_back(&mut drawing), 1, "the device refused it");
+            assert_eq!(
+                matches!(
+                    screen.slots.first().map(|slot| &slot.content),
+                    Some(Content::Windowed(..))
+                ),
+                as_windows,
+                "at {extent:?}"
+            );
+            drain(&mut screen, &mut drawing);
+            assert_eq!(screen.device_pages(extent.0, extent.1).len(), 1, "it lands");
+        }
     }
 }

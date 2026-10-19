@@ -26,7 +26,7 @@ use raster_scene::{MAX_COORDINATE, Scene};
 use super::bound::Bound;
 use super::damage::DamagePlan;
 use super::pending::{Submission, Submitted};
-use super::{Device, KeptInstances};
+use super::{Device, KeptInstances, Residency};
 use crate::encode::{self, Encoded};
 use crate::error::RenderError;
 use crate::frame::{
@@ -278,7 +278,7 @@ impl Device {
     pub(super) fn submit_encoded<'t>(
         &mut self,
         encoded: &Encoded,
-        kept: Option<&OnceCell<KeptInstances>>,
+        kept: Option<&OnceCell<Residency>>,
         viewport: &Viewport<'_>,
         into: &Target<'t>,
         damage: &DamagePlan,
@@ -325,8 +325,11 @@ impl Device {
         // pays this branch nothing but the read.
         let mut attempts = 0_u32;
         let mut first_split: Option<UploadSplit> = None;
+        // The streams of an encode no cell keeps, made by the first attempt and read by the
+        // others: nothing a pass does writes an instance buffer (ADR 1993).
+        let this_frame: OnceCell<KeptInstances> = OnceCell::new();
         let (upload_time, upload_bytes, upload_spans, compute_stamped, ran) = loop {
-            let mut upload = self.upload(encoded, kept)?;
+            let mut upload = self.upload(encoded, kept, &this_frame)?;
             let upload_time = upload.time.saturating_add(paint_time);
             let upload_bytes = reported(&mut first_split, upload.split, paint_bytes);
             let upload_spans = std::mem::take(&mut upload.spans);

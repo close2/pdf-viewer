@@ -112,7 +112,7 @@
 use accesskit::{
     Action, Affine, Node, NodeId, Rect, Role, TextDirection, Toggled, Tree, TreeId, TreeUpdate,
 };
-use pdf_model::structure::ArtifactKind;
+use pdf_model::structure::{ArtifactKind, Nonstandard};
 use viewer_core::AccessibilityNode;
 
 /// The window, and the root of the tree.
@@ -474,6 +474,7 @@ fn elements(
             continue;
         }
         let mapping = crate::role::map(
+            node.standard.as_ref().map_err(|reason| *reason),
             &node.role,
             !node.name.trim().is_empty(),
             node.titled,
@@ -494,11 +495,8 @@ fn elements(
             built.set_toggled(if on { Toggled::True } else { Toggled::False });
         }
         let mut description: Vec<String> = Vec::new();
-        if let Some(name) = mapping.unmapped {
-            description.push(format!(
-                "structure type {name}, which ISO 32000-2 §14.8.4 does not define and this \
-                 document's role map does not map"
-            ));
+        if let Some((name, reason)) = mapping.unmapped {
+            description.push(unmapped(&name, reason));
         } else if let Some(note) = mapping.note {
             // What the platform's vocabulary could not carry, in the description rather than in
             // the name: it is about the *reading* of the cell and not what the cell says.
@@ -937,6 +935,34 @@ fn flows_to(built: &mut Node, band: Band, next: Option<&Vec<usize>>, published: 
         if published.get(*at).copied().unwrap_or(false) {
             built.push_flow_to(band.element(*at));
         }
+    }
+}
+
+/// What the description says of a structure type that is not one of §14.8.4's, with the reason
+/// the reading side gave.
+///
+/// The reasons are four different statements about the document and a person is told which one
+/// it made: a name its namespace does not define is §14.8.4.1's requirement unmet, a foreign
+/// namespace's name is that vocabulary's word whatever §14.8.4 calls the same string, a role map
+/// that came back on itself stopped where §14.7.3's NOTE 2 stops, and an element with no type
+/// broke Table 355 (ADR 2028).
+fn unmapped(name: &str, reason: Nonstandard) -> String {
+    match reason {
+        Nonstandard::Undefined => format!(
+            "structure type {name}, which ISO 32000-2 §14.8.4 does not define and this \
+             document's role map does not map"
+        ),
+        Nonstandard::Foreign => format!(
+            "structure type {name} in a namespace that is not a standard structure namespace \
+             (ISO 32000-2 §14.8.6.1), which this document's role map does not map into one"
+        ),
+        Nonstandard::Circular => format!(
+            "structure type {name}, whose role map returns to a type it has already reached \
+             before it reaches a standard one (ISO 32000-2 §14.7.3)"
+        ),
+        Nonstandard::Unstated => "a structure element stating no structure type (ISO 32000-2 \
+                                  Table 355 makes S required)"
+            .to_owned(),
     }
 }
 

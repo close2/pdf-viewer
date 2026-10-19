@@ -371,9 +371,9 @@ impl Tree {
     /// > the structure tree root using the RoleMap entry
     ///
     /// so a document's own `/Sect2` becomes the standard `/Sect` it maps to. The map is
-    /// followed transitively — a role map may name a type that is itself mapped — with the
-    /// same bound the tree walk uses, and a name that maps to itself or into a cycle answers
-    /// the last name reached rather than looping.
+    /// followed transitively — a role map may name a type that is itself mapped — and stops at
+    /// the first type it returns to, which is §14.7.3's NOTE 2; [`Self::mapped_role`] says which
+    /// name a circular chain answers with and that it was one.
     ///
     /// **Which map applies is §14.8.6.2's question, not §14.7.3's.** An element that names its
     /// namespace is mapped by *that namespace's* `/RoleMapNS`: "if the structure element does
@@ -403,15 +403,48 @@ impl Tree {
         document: &Document,
         element: &Dictionary,
     ) -> Option<(String, Option<Dictionary>)> {
-        let mut name = document.get_key(element, "S").as_name()?.clone();
+        let end = self.walk_role_map(document, element)?;
+        Some((end.name, end.namespace))
+    }
+
+    /// §14.7.3's and §14.8.6.2's walk through the role maps, and whether it came back on itself.
+    ///
+    /// §14.7.3 permits the loop it then has to stop:
+    ///
+    /// > NOTE 2 The same structure type can occur as both a key and a value in the role map, and
+    /// > circular chains of association are explicitly permitted. Therefore, a single role map can
+    /// > define a bidirectional mapping. A PDF processor using the role map needs to follow the
+    /// > chain of associations until it either finds a structure type it recognises or returns to
+    /// > one it has already encountered.
+    ///
+    /// **The normative sentence decides an acyclic chain and the NOTE a circular one.** "A
+    /// structure type shall always be mapped to its corresponding name in the role map, if there
+    /// is one, even if the original name is one of the standard types", so a chain that passes
+    /// through a standard name the map maps onward is followed past it to the name the map does not
+    /// map. A circular chain has no such name, so the `shall` cannot be met by any of its members
+    /// and the NOTE's two stops are what is left: the walk ends at the first pair it returns to,
+    /// and answers with the first type along the chain — the element's own name excepted, which
+    /// the `shall` maps at least once — that a standard structure namespace defines. The NOTE's
+    /// own example is why the order is that one: a bidirectional map `MyPara` ↔ `P` reads as `P`
+    /// from either end. Where no member of the circle is a standard type the answer is the last
+    /// new name the walk reached, which is the element's own name mapped at least once.
+    ///
+    /// [`MAX_DEPTH`] still bounds a chain of distinct names, which no NOTE permits and which only
+    /// a file built to exhaust a reader states.
+    fn walk_role_map(&self, document: &Document, element: &Dictionary) -> Option<RoleMapEnd> {
+        let first = document.get_key(element, "S").as_name()?.clone();
         // The element's own namespace, if it states one. `None` means §14.8.6.1's default
         // standard structure namespace, which is where the root's `/RoleMap` applies.
-        let mut namespace = document.get_key(element, "NS").as_dict().cloned();
-
+        let mut chain: Vec<(Name, Option<Dictionary>)> =
+            vec![(first, document.get_key(element, "NS").as_dict().cloned())];
+        let mut returned_to = None;
         for _ in 0..MAX_DEPTH {
+            let Some((name, namespace)) = chain.last() else {
+                break;
+            };
             // §14.8.6.2 decides which of the two maps is consulted, and nothing else does:
             // an element in an explicit namespace is mapped by that namespace's own.
-            let map = match &namespace {
+            let map = match namespace {
                 Some(space) => document.get_key(space, "RoleMapNS"),
                 None => document.get_key(&self.root, "RoleMap"),
             };
@@ -419,17 +452,11 @@ impl Tree {
             // is probed as bytes — §7.3.5's exact binary match (ADR 0439).
             let mapped = map
                 .as_dict()
-                .map_or(Object::Null, |map| document.get_key_by_name(map, &name));
-            match mapped {
+                .map_or(Object::Null, |map| document.get_key_by_name(map, name));
+            let next = match mapped {
                 // "a single name identifying a structure element type in the default standard
                 // structure namespace" — so the mapping leaves whatever namespace it was in.
-                Object::Name(next) => {
-                    if next == name && namespace.is_none() {
-                        break;
-                    }
-                    name = next;
-                    namespace = None;
-                }
+                Object::Name(next) => (next, None),
                 // "an array where the first value shall be a structure element type name in a
                 // target namespace with the second value being an indirect reference to the
                 // target namespace dictionary".
@@ -444,19 +471,90 @@ impl Tree {
                         .get(1)
                         .map(|item| document.resolve(item))
                         .and_then(|object| object.as_dict().cloned());
-                    if next == name && target == namespace {
-                        break;
-                    }
-                    name = next;
-                    namespace = target;
+                    (next, target)
                 }
                 _ => break,
+            };
+            if chain.contains(&next) {
+                returned_to = Some(next);
+                break;
             }
+            chain.push(next);
         }
-        Some((
-            String::from_utf8_lossy(name.as_bytes()).into_owned(),
+        let Some(returned_to) = returned_to else {
+            let (name, namespace) = chain.pop()?;
+            return Some(RoleMapEnd {
+                name: String::from_utf8_lossy(name.as_bytes()).into_owned(),
+                namespace,
+                circular: false,
+            });
+        };
+        // The NOTE's first stop, read over the circle the walk has closed: the first type along
+        // it that a standard structure namespace defines, the pair it returned to last.
+        let recognised = chain
+            .iter()
+            .skip(1)
+            .chain(std::iter::once(&returned_to))
+            .find(|(name, namespace)| {
+                standard_in(
+                    document,
+                    &String::from_utf8_lossy(name.as_bytes()),
+                    namespace.as_ref(),
+                )
+                .is_some()
+            })
+            .cloned();
+        let circular = recognised.is_none();
+        let (name, namespace) = match recognised {
+            Some(found) => found,
+            None => chain.pop()?,
+        };
+        Some(RoleMapEnd {
+            name: String::from_utf8_lossy(name.as_bytes()).into_owned(),
             namespace,
-        ))
+            circular,
+        })
+    }
+
+    /// The element's type after its role map, with what §14.8.4's vocabulary makes of it — the
+    /// standard type, or which of four reasons there is none.
+    ///
+    /// [`Self::role`] and [`Self::standard_role`] in one walk, and the one answer a consumer
+    /// that hands the element on should carry: the name is what the document wrote or what its
+    /// role map took it to, and the reading is what that name means in the namespace it ends in.
+    /// A consumer reading the name again with [`StandardType::read`] would take a foreign
+    /// namespace's `Table` for §14.8.4's (ADR 2028).
+    ///
+    /// A role map that comes back on itself is followed until it returns to a type it has met,
+    /// which is where §14.7.3's NOTE 2 stops, and answers with the first standard type along the
+    /// circle — the element's own name excepted, which the clause's `shall` maps at least once — or
+    /// with [`Nonstandard::Circular`] where the circle holds none.
+    #[must_use]
+    pub fn mapped_role(&self, document: &Document, element: &Dictionary) -> MappedRole {
+        let Some(end) = self.walk_role_map(document, element) else {
+            return MappedRole {
+                name: String::new(),
+                standard: Err(Nonstandard::Unstated),
+            };
+        };
+        let standard = match standard_in(document, &end.name, end.namespace.as_ref()) {
+            Some(kind) => Ok(kind),
+            None if end.circular => Err(Nonstandard::Circular),
+            None => match &end.namespace {
+                Some(space)
+                    if Namespace::read(document, space)
+                        .and_then(|space| space.standard())
+                        .is_none() =>
+                {
+                    Err(Nonstandard::Foreign)
+                }
+                _ => Err(Nonstandard::Undefined),
+            },
+        };
+        MappedRole {
+            name: end.name,
+            standard,
+        }
     }
 
     /// The element's §14.8.4 standard type, after §14.7.3's and §14.8.6.2's role mapping.
@@ -500,14 +598,7 @@ impl Tree {
     /// 1.7 namespace is not a type.
     #[must_use]
     pub fn standard_role(&self, document: &Document, element: &Dictionary) -> Option<StandardType> {
-        let (name, namespace) = self.resolved(document, element)?;
-        match namespace {
-            Some(space) => {
-                StandardType::read_in(&name, Namespace::read(document, &space)?.standard()?)
-            }
-            None => StandardType::read_in(&name, StandardNamespace::Pdf1_7)
-                .or_else(|| StandardType::read_in(&name, StandardNamespace::Pdf2_0)),
-        }
+        self.mapped_role(document, element).standard.ok()
     }
 
     /// The namespace name an element is in, §14.8.6.1's default where it states none.
@@ -3617,6 +3708,70 @@ pub enum StandardNamespace {
     Pdf2_0,
 }
 
+/// An element's structure type after §14.7.3's and §14.8.6.2's role mapping, and what §14.8.4's
+/// vocabulary makes of it: [`Tree::mapped_role`]'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedRole {
+    /// The name the role map ended at — what the document wrote, or what its own map took it
+    /// to. Empty for an element stating no `/S`.
+    pub name: String,
+    /// The standard type that name is in the namespace it ends in, or why it is none.
+    pub standard: Result<StandardType, Nonstandard>,
+}
+
+/// Why an element's type, after its role map, is not one of §14.8.4's standard types.
+///
+/// Four answers rather than one because a person told "this is not a standard type" is owed the
+/// reason, and the reasons are statements about different things: the element, the namespace's
+/// vocabulary, the namespace, and the role map (ADR 2028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nonstandard {
+    /// The element states no `/S`, which Table 355 makes required.
+    Unstated,
+    /// The name ends in a standard structure namespace, or in none, and that vocabulary does not
+    /// define it: §14.8.4.1's requirement unmet by the document, since "[a]ll structure elements
+    /// occurring within a tagged PDF document shall have a type matching one of those defined as
+    /// a Standard Structure Type, or a role map providing a mapping from the non-standard type to
+    /// a Standard Structure Type".
+    Undefined,
+    /// The name ends in a namespace that is not one of §14.8.6.1's two, so whatever it is called
+    /// it is not §14.8.4's type — a foreign vocabulary's `Table` is a homonym. A namespace
+    /// dictionary stating no `/NS` of its own is this too: Table 356 makes the entry required, and
+    /// the alternative is to take a broken namespace for a standard one.
+    Foreign,
+    /// The role map returned to a type it had already reached before it reached one a standard
+    /// structure namespace defines — §14.7.3 NOTE 2's second stop with nothing its first would
+    /// have recognised.
+    Circular,
+}
+
+/// Where [`Tree::walk_role_map`] ended.
+struct RoleMapEnd {
+    /// The name the walk answers with.
+    name: String,
+    /// The namespace that name is in, `None` for the default one.
+    namespace: Option<Dictionary>,
+    /// Whether the walk closed a circle in which no type was a standard one.
+    circular: bool,
+}
+
+/// What a name means in the namespace it is in: §14.8.4's type, or `None`.
+///
+/// An explicit namespace is read in its own vocabulary and held to, and no namespace is read in
+/// PDF 1.7's — §14.8.6.1's default — with a PDF 2.0 type stating none read as PDF 2.0's by choice
+/// (ADR 2014 section 3). A namespace that is not standard defines no standard type.
+fn standard_in(
+    document: &Document,
+    name: &str,
+    namespace: Option<&Dictionary>,
+) -> Option<StandardType> {
+    match namespace {
+        Some(space) => StandardType::read_in(name, Namespace::read(document, space)?.standard()?),
+        None => StandardType::read_in(name, StandardNamespace::Pdf1_7)
+            .or_else(|| StandardType::read_in(name, StandardNamespace::Pdf2_0)),
+    }
+}
+
 /// §14.8.4.1's four categories of standard structure type.
 ///
 /// > Some structure types -for example Table or Figure -may be used as block level types or as
@@ -5367,10 +5522,11 @@ mod tests {
     use super::{
         Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, Boundary,
         Category, CellFacts, CellPlacement, Checked, Child, FieldRole, HeaderScope,
-        ListContinuation, ListEntry, MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType,
-        TableGrid, TableStack, Tree, WritingMode, actual_text, allocation_rectangle,
-        alternate_description, annotation_languages, annotation_rectangles, language,
-        list_predecessors, outside_sequences, table_cell_rectangles, well_formed_language_tag,
+        ListContinuation, ListEntry, MAX_TABLE_COLUMNS, MappedRole, Nonstandard, Owner, ParentTree,
+        Priority, StandardType, TableGrid, TableStack, Tree, WritingMode, actual_text,
+        allocation_rectangle, alternate_description, annotation_languages, annotation_rectangles,
+        language, list_predecessors, outside_sequences, table_cell_rectangles,
+        well_formed_language_tag,
     };
     use pdf_syntax::{Dictionary, Document, Object};
     use std::collections::BTreeSet;
@@ -6259,6 +6415,97 @@ mod tests {
             tree.standard_role(&doc, &element),
             None,
             "and it is not §14.8.4's table, because it is not in a standard structure namespace"
+        );
+    }
+
+    /// §14.7.3 NOTE 2's two stops: a circular role map is followed until it returns to a type it
+    /// has met, and answers with the first standard type along the circle — so the NOTE's own
+    /// bidirectional map reads as `P` from either end — or, where the circle holds none, with the
+    /// last new name, said to be circular rather than undefined (ADR 2028).
+    ///
+    /// > A PDF processor using the role map needs to follow the chain of associations until it
+    /// > either finds a structure type it recognises or returns to one it has already encountered.
+    #[test]
+    fn a_circular_role_map_stops_at_the_first_type_it_returns_to() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] \
+             /RoleMap << /MyPara /P /P /MyPara /Left /Right /Right /Left \
+             /Chap /Sect /Sect /Div >> >>",
+            "<< /Type /StructElem /S /MyPara >>",
+            "<< /Type /StructElem /S /P >>",
+            "<< /Type /StructElem /S /Left >>",
+            "<< /Type /StructElem /S /Right >>",
+            "<< /Type /StructElem /S /Chap >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let elements: Vec<Dictionary> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(element) => Some(element),
+                _ => None,
+            })
+            .collect();
+        let [my_para, p, left, right, chap] = elements.as_slice() else {
+            panic!("five elements: {elements:?}");
+        };
+        for element in [my_para, p] {
+            assert_eq!(
+                tree.mapped_role(&doc, element),
+                MappedRole {
+                    name: "P".to_owned(),
+                    standard: Ok(StandardType::Paragraph),
+                },
+                "the NOTE's bidirectional map reads as the standard type from either end"
+            );
+        }
+        // No standard type on the circle: the element's own name mapped once, and the reason.
+        assert_eq!(
+            tree.mapped_role(&doc, left),
+            MappedRole {
+                name: "Right".to_owned(),
+                standard: Err(Nonstandard::Circular),
+            }
+        );
+        assert_eq!(tree.role(&doc, right).as_deref(), Some("Left"));
+        // An acyclic chain is the normative sentence's: followed past a standard name the map
+        // maps onward, to the name it does not map.
+        assert_eq!(tree.standard_role(&doc, chap), Some(StandardType::Division));
+    }
+
+    /// [`Tree::mapped_role`]'s other two reasons: a foreign namespace's homonym, and a name the
+    /// default namespace does not define — the distinction a host is now told (ADR 2028).
+    #[test]
+    fn a_type_that_is_not_standard_says_why() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 7 0 R 8 0 R] /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /Table /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/furniture) >>",
+            "<< /Type /StructElem /S /Advertising >>",
+            "<< /Type /StructElem /K 0 >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let reasons: Vec<Result<StandardType, Nonstandard>> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(element) => Some(tree.mapped_role(&doc, &element).standard),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                Err(Nonstandard::Foreign),
+                Err(Nonstandard::Undefined),
+                Err(Nonstandard::Unstated),
+            ]
         );
     }
 

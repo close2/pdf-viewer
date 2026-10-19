@@ -11781,6 +11781,77 @@ fn an_unreadable_destination_profile_outside_an_rgb_slot_stays_refused() {
     assert!(output.is_none());
 }
 
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 and ISO 19005-4 section 6.2.3's tag and identifier rows, failed by the destination
+// profile's header alone: the header restated as what the profile's bytes are (`doc/adr/2021`).
+// --------------------------------------------------------------------------------------------
+
+#[test]
+fn a_version_five_header_on_a_1998_destination_profile_is_restated_and_draws_the_same() {
+    // The shape of the veraPDF corpus's `6-2-3-t01-fail-d`: a version 2 matrix-and-curve display
+    // profile whose header names ICC.2:2023, which builds no profile that way.
+    let mut profile = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    profile[8..12].copy_from_slice(&[5, 0, 0, 0]);
+    let source = an_output_intent_over(&profile, 3);
+    let failed: Vec<_> = holds(&source, Target::Two(Level::B))
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    let rows = [
+        "graphics/destination-profile-carries-the-tags-its-class-requires",
+        "graphics/destination-profile-states-a-correct-profile-id",
+    ];
+    for row in rows {
+        assert!(failed.contains(&row), "{row} fails the source: {failed:?}");
+    }
+    let (report, output) = to_part_two(&source);
+    for row in rows {
+        assert!(
+            matches!(
+                decision(&report, row),
+                Decision::Stated {
+                    rewrite: Rewrite::DestinationProfileRestated,
+                    ..
+                }
+            ),
+            "{row}: {:?}",
+            decision(&report, row)
+        );
+    }
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    // The page is drawn through the same tags before and after (trap 182).
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_destination_profile_short_of_a_tag_under_its_own_edition_stays_refused() {
+    // A version 4.4 profile missing a colorant tag: supplying it would be writing the producer's
+    // profile, so the tag row keeps its refusal with the sentence that says so.
+    let mut profile = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/sRGB2014.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    profile[8..12].copy_from_slice(&[4, 0x40, 0, 0]);
+    rename_tag(&mut profile, *b"rXYZ", *b"zzzz");
+    let row = "graphics/destination-profile-carries-the-tags-its-class-requires";
+    let (report, output) = to_part_two(&an_output_intent_over(&profile, 3));
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(&report, row) else {
+        panic!("refused: {:?}", decision(&report, row));
+    };
+    assert!(
+        sentence.contains("writing the producer's profile"),
+        "{sentence}"
+    );
+    assert!(output.is_none());
+}
+
 /// Two display lists alike in every word and within `tolerance` in every number.
 fn assert_drawn_within(before: &str, after: &str, tolerance: f64) {
     fn split(text: &str) -> (String, Vec<f64>) {

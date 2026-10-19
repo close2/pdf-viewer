@@ -1182,3 +1182,31 @@ scope moved to `group_commands`, which every run passes — the press run, the b
 alike — and the tests that plant it out are written for the rerun too. A new piece of interpreter
 state is placed by listing the runs a group's content can take, not the one the round is thinking of.
 
+## 119. A split in a crate no arm binary links is proved by the dependency graph, not by the arms
+
+Round 1598 split `pdf-transform`'s redaction walk and did not walk the six arms: `cargo tree -i
+pdf-transform` against the arm binaries' crates (`render-raster`, `pdf-sandbox`) finds no path, so
+the binaries the arms run cannot differ from HEAD's and a forty-minute walk of the lock would have
+answered nothing. "Nothing drawn moved" is a claim about the arm binaries; where the changed crate is
+outside their graph the proof is the graph, written into the record with the command that printed it,
+and the arms are for a change the binaries contain.
+
+## 120. A validator's `over` right after an edition is re-read is first a question about the corpus's edition
+
+After ADR 1991 fixed the validator to the 2005 XMP edition, `t3-archive-val` failed one veraPDF pass
+file. Round 1592 found the file states `xmp:Rating` as `1.0` where the 2005 edition types the property
+as a closed choice of Integer, which admits no decimal point; veraPDF reads a later edition's Real.
+The validator was right, and the ruling is the corpus's against the standard (ADR 2020). The tell was
+a sibling pass file differing only in the value's spelling. When an `over` appears right after an
+edition changed hands, the first question is which edition the corpus file was written against, and
+the answer is read from the edition's own type table before any validator line is touched.
+
+## 121. A wall-clock difference callgrind cannot see is first run under `setarch -R`
+
+Round 1593's encode walk ran 146–217 ms where HEAD's ran 84–108, with callgrind's instructions,
+simulated cache misses, branch mispredictions and page faults equal between the two builds; the
+difference was real but bimodal, and only with address-space randomisation off (`setarch -R`) was it
+the same every run. Before any theory is built on a wall figure the deterministic counters do not
+explain, both builds are run under `setarch -R` so that the difference is reproducible, and the
+record says whether it survived.
+

@@ -139,6 +139,7 @@ mod census;
 mod cmaps;
 mod config;
 mod decision;
+mod destination;
 mod external;
 mod fonts;
 mod halftones;

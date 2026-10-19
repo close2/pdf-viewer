@@ -102,7 +102,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use pdf_model::Pages;
-use pdf_model::structure::{Child, MarkInfo, StandardNamespace, StandardType, Tree};
+use pdf_model::structure::{Child, MarkInfo, Nonstandard, StandardNamespace, StandardType, Tree};
 use pdf_syntax::{Document, Limits, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use viewer_core::{
@@ -376,14 +376,16 @@ struct Census {
     titled: usize,
     titled_roles: std::collections::BTreeMap<String, usize>,
     /// Elements a host is told no standard structure namespace defines, by the name that reaches
-    /// it, and the tagged pages that carry at least one.
+    /// it and the reason [`AccessibilityNode::standard`] gives, and the tagged pages that carry at
+    /// least one.
     ///
-    /// `viewer-accessibility` reads [`AccessibilityNode::role`] with `StandardType::read`, and a
-    /// name it cannot read crosses as a group described by that name — §14.8.4.1's defect in the
-    /// document, said rather than guessed at. Counted by name, so that a change to either
-    /// namespace's vocabulary shows which names it moved (ADR 2014). **Printed and not
-    /// ratcheted**: a fall here is a capability and a rise is a defect class, and which one a
-    /// change is depends on the names, which a floor or a ceiling cannot see.
+    /// `viewer-accessibility` maps what [`AccessibilityNode::standard`] resolved, and a node it
+    /// resolved to no standard type crosses as a group described by its name and that reason —
+    /// §14.8.4.1's defect in the document, a foreign namespace's word, or a circular role map,
+    /// said rather than guessed at (ADRs 2014, 2028). Counted by name, so that a change to either
+    /// namespace's vocabulary shows which names it moved. **Printed and not ratcheted**: a fall
+    /// here is a capability and a rise is a defect class, and which one a change is depends on
+    /// the names, which a floor or a ceiling cannot see.
     undefined_roles: std::collections::BTreeMap<String, usize>,
     pages_with_undefined_roles: usize,
     /// Elements the namespace they end in does not define, by the name they end at, over each
@@ -397,6 +399,23 @@ struct Census {
     /// 3's sentence for §14.8.6.1 and which `Tree::standard_role` reads as PDF 2.0's by choice (ADR
     /// 2014). Counted so that the choice is a number someone can see move.
     read_as_pdf_2_0: std::collections::BTreeMap<String, usize>,
+    /// Elements whose role map returned to a type it had reached before reaching a standard one,
+    /// by the name the walk answered with, over each tagged document's tree once — §14.7.3 NOTE
+    /// 2's second stop with nothing its first recognised (ADR 2028).
+    circular_roles: std::collections::BTreeMap<String, usize>,
+    /// ISO 32000-1 Table 333's `Private` elements, over each tagged document's tree once.
+    ///
+    /// "Neither the Private element nor any of its descendants shall be interpreted or exported to
+    /// other document formats", so `viewer-core` gathers neither, and what that silences is
+    /// [`Self::withheld_elements`] and [`Self::withheld_items`] (ADR 2028).
+    private_elements: usize,
+    /// Structure elements below a `Private` one, which a host is no longer told about.
+    withheld_elements: usize,
+    /// Content items — §14.7.5.2's marked-content sequences and §14.7.5.3's object references —
+    /// below a `Private` element, whose text and place are no longer spoken.
+    withheld_items: usize,
+    /// The documents stating a `Private` element, with what is withheld in each.
+    private_documents: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -475,25 +494,23 @@ impl Census {
         self.field_characters = self.field_characters.saturating_add(from.field_characters);
         self.filled_unplaced.extend(from.filled_unplaced);
         self.titled = self.titled.saturating_add(from.titled);
-        for (role, count) in from.titled_roles {
-            let entry = self.titled_roles.entry(role).or_default();
-            *entry = entry.saturating_add(count);
-        }
-        for (role, count) in from.undefined_roles {
-            let entry = self.undefined_roles.entry(role).or_default();
-            *entry = entry.saturating_add(count);
-        }
+        add_counts(&mut self.titled_roles, from.titled_roles);
+        add_counts(&mut self.undefined_roles, from.undefined_roles);
         self.pages_with_undefined_roles = self
             .pages_with_undefined_roles
             .saturating_add(from.pages_with_undefined_roles);
-        for (role, count) in from.outside_their_namespace {
-            let entry = self.outside_their_namespace.entry(role).or_default();
-            *entry = entry.saturating_add(count);
-        }
-        for (role, count) in from.read_as_pdf_2_0 {
-            let entry = self.read_as_pdf_2_0.entry(role).or_default();
-            *entry = entry.saturating_add(count);
-        }
+        add_counts(
+            &mut self.outside_their_namespace,
+            from.outside_their_namespace,
+        );
+        add_counts(&mut self.read_as_pdf_2_0, from.read_as_pdf_2_0);
+        add_counts(&mut self.circular_roles, from.circular_roles);
+        self.private_elements = self.private_elements.saturating_add(from.private_elements);
+        self.withheld_elements = self
+            .withheld_elements
+            .saturating_add(from.withheld_elements);
+        self.withheld_items = self.withheld_items.saturating_add(from.withheld_items);
+        self.private_documents.extend(from.private_documents);
         self.panicked.extend(from.panicked);
     }
 
@@ -544,22 +561,66 @@ impl Census {
         }
     }
 
-    /// Counts the page's elements whose name no standard structure namespace defines.
+    /// Counts the page's elements that crossed as no standard type, by name and reason.
     ///
     /// An element stating no `/S` crosses with an empty name and is not counted: Table 355 makes
     /// the entry required, and an absent type is a different defect from an undefined one.
     fn undefined(&mut self, nodes: &[AccessibilityNode]) {
         let mut any = false;
-        for node in nodes
-            .iter()
-            .filter(|node| !node.role.is_empty() && StandardType::read(&node.role).is_none())
-        {
+        for (node, reason) in nodes.iter().filter_map(|node| match node.standard {
+            Err(Nonstandard::Unstated) | Ok(_) => None,
+            Err(reason) => Some((node, reason)),
+        }) {
             any = true;
-            let entry = self.undefined_roles.entry(node.role.clone()).or_default();
+            let entry = self
+                .undefined_roles
+                .entry(format!("{} ({reason:?})", node.role))
+                .or_default();
             *entry = entry.saturating_add(1);
         }
         if any {
             self.pages_with_undefined_roles = self.pages_with_undefined_roles.saturating_add(1);
+        }
+    }
+
+    /// Counts the document's `Private` elements and what is below them, which ISO 32000-1 Table
+    /// 333 says shall not be interpreted, and its circular role maps.
+    ///
+    /// Read off the tree's own walk rather than off what crossed, because what is counted is what
+    /// no longer crosses — the instrument cannot be the answer it is measuring the absence from.
+    fn withheld(&mut self, document: &Document, tree: &Tree, name: &str) {
+        let mut inside: Option<usize> = None;
+        let (mut private, mut elements, mut items) = (0usize, 0usize, 0usize);
+        for (depth, child) in tree.walk(document).items {
+            if inside.is_some_and(|at| depth <= at) {
+                inside = None;
+            }
+            let Child::Element(element) = child else {
+                if inside.is_some() {
+                    items = items.saturating_add(1);
+                }
+                continue;
+            };
+            let mapped = tree.mapped_role(document, &element);
+            if mapped.standard == Err(Nonstandard::Circular) {
+                let entry = self.circular_roles.entry(mapped.name).or_default();
+                *entry = entry.saturating_add(1);
+            }
+            if inside.is_some() {
+                elements = elements.saturating_add(1);
+            } else if mapped.standard == Ok(StandardType::Private) {
+                private = private.saturating_add(1);
+                inside = Some(depth);
+            }
+        }
+        if private > 0 {
+            self.private_elements = self.private_elements.saturating_add(private);
+            self.withheld_elements = self.withheld_elements.saturating_add(elements);
+            self.withheld_items = self.withheld_items.saturating_add(items);
+            self.private_documents.push((
+                name.to_owned(),
+                format!("{private} Private, {elements} elements and {items} content items below"),
+            ));
         }
     }
 
@@ -895,6 +956,7 @@ fn examine(path: &Path) -> Census {
     if let Some(tree) = &tree {
         census.with_structure = 1;
         census.outside_namespace(&document, tree);
+        census.withheld(&document, tree, &name);
     }
     let marked = MarkInfo::read(&document).marked;
     if marked {
@@ -1344,6 +1406,32 @@ fn report_tagging(census: &Census) {
         census.read_as_pdf_2_0.values().sum::<usize>()
     );
     print_names(&census.read_as_pdf_2_0);
+    println!(
+        "elements whose role map returned before a standard type, over each tagged document's \
+         tree: {}",
+        census.circular_roles.values().sum::<usize>()
+    );
+    print_names(&census.circular_roles);
+    println!(
+        "Private elements withheld, over each tagged document's tree: {} ({} elements and {} \
+         content items below them)",
+        census.private_elements, census.withheld_elements, census.withheld_items
+    );
+    print_witnesses(
+        "a document stating a Private element",
+        &census.private_documents,
+    );
+}
+
+/// Folds one document's counts by name into the population's.
+fn add_counts(
+    into: &mut std::collections::BTreeMap<String, usize>,
+    from: std::collections::BTreeMap<String, usize>,
+) {
+    for (name, count) in from {
+        let entry = into.entry(name).or_default();
+        *entry = entry.saturating_add(count);
+    }
 }
 
 /// Prints a count by name, the commonest first, [`WITNESSES`] of them.

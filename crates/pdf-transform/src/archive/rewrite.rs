@@ -96,6 +96,13 @@ pub enum Rewrite {
     /// the page was drawn as though no intent were stated; the profile the `OutputIntent` rewrite
     /// would write is written at the object every entry already names (`doc/adr/2007`).
     DestinationProfileReplaced,
+    /// The destination profile every output intent names has its header restated as what its
+    /// own bytes are: a version 5 header on a profile written in ICC.1:1998-09's tags and types
+    /// written 2.2.0, or a stale `Profile ID` written as the digest of the profile.
+    ///
+    /// ISO 19005-2 and ISO 19005-4 section 6.2.3's tag and identifier rows, where the header alone
+    /// fails them; no transform reads either field this reader draws by (`doc/adr/2021`).
+    DestinationProfileRestated,
     /// The catalog's `/OutputIntents` gains a PDF/A entry naming a destination profile.
     ///
     /// **The one rewrite of this verb that changes what the file *means*** rather than only what
@@ -1081,6 +1088,11 @@ impl Rewrite {
                 "the destination profile every output intent names, which this reader could not \
                  draw through, is written as the profile a file stating no intent is given"
             }
+            Self::DestinationProfileRestated => {
+                "the destination profile every output intent names has its header restated as \
+                 what its own bytes are - the ICC edition its tags are written in, or the digest \
+                 of the profile as its Profile ID - every tag and every colour kept"
+            }
             Self::OutputIntent => {
                 "the catalog states a PDF/A output intent whose destination profile says what \
                  this file's device colours mean"
@@ -1438,6 +1450,7 @@ impl Rewrite {
             Self::AlternatePresentations => "alternate-presentations",
             Self::PresentationSteps => "presentation-steps",
             Self::DestinationProfileReplaced => "destination-profile-replaced",
+            Self::DestinationProfileRestated => "destination-profile-restated",
             Self::OutputIntent => "output-intent",
             Self::IdentificationSchema => "identification-schema",
             Self::DefaultCmyk => "default-cmyk",
@@ -1576,6 +1589,7 @@ pub(super) fn convert(
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
         halftone_names: prepared.owed.halftone_names.as_ref().ok(),
         replaced_destination: prepared.replaced_destination.as_ref().ok(),
+        restated_destination: prepared.restated_destination.as_ref().ok(),
         overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
         profile_alternates: prepared
             .owed
@@ -2429,6 +2443,8 @@ struct Rewriter<'a> {
     halftone_names: Option<&'a sites::Sites>,
     /// The destination profile written over one this reader does not draw through.
     replaced_destination: Option<&'a super::prepare::ReplacedDestination>,
+    /// The destination profile whose header is restated, where it is (`doc/adr/2021`).
+    restated_destination: Option<&'a super::destination::RestatedDestination>,
     /// The graphics states whose overprint mode becomes 0.
     overprint_modes: Option<&'a super::overprint::OverprintModes>,
     /// The space each unreadable ICC profile's `ICCBased` arrays are written as, by profile.
@@ -4541,6 +4557,16 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::DestinationProfileReplaced);
             return Rewritten::Changed(replaced.written.clone());
+        }
+        // The same object's header restated as what its bytes are, where it was not replaced
+        // outright above (`doc/adr/2021`).
+        if self.wants(Rewrite::DestinationProfileRestated)
+            && let Some(restated) = self
+                .restated_destination
+                .filter(|restated| restated.at == id)
+        {
+            count(applied, Rewrite::DestinationProfileRestated);
+            return Rewritten::Changed(restated.written.clone());
         }
         // The attachment a tool derived: a whole new stream rather than a dictionary edit, because
         // its bytes, its `/Length`, its `/Subtype` and its `/Params` all change together. The

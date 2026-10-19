@@ -13,16 +13,20 @@
 
 use accesskit::{Action, Node, NodeId, Role, TextDirection, Toggled};
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
-use pdf_model::structure::HeaderScope;
+use pdf_model::structure::{HeaderScope, Nonstandard, StandardType};
 use pdf_model::view::ShownValue;
 use viewer_accessibility::{DocumentView, PageView, tree};
 use viewer_core::{AccessibilityNode, Character, TextLine};
 
 /// One structure element, as `Query::AccessibilityTree` would answer with it.
+///
+/// Its type is read in the default namespace, as `Tree::mapped_role` reads an element that states
+/// none; a case about another reading states it.
 fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
     AccessibilityNode {
         parent,
         role: role.to_owned(),
+        standard: StandardType::read(role).ok_or(Nonstandard::Undefined),
         name: name.to_owned(),
         titled: false,
         substituted: false,
@@ -525,6 +529,42 @@ fn a_header_cells_axis_decides_its_role_and_the_rest_is_said_in_words() {
     );
 }
 
+/// A host speaks what the reading side resolved and never reads the name again: a foreign
+/// namespace's `Table`, which `Tree::mapped_role` answers as no standard type, is published as a
+/// group described as that namespace's word — not as a table because the string matches — and a
+/// circular role map says so (ADR 2028).
+#[test]
+fn a_homonym_crosses_as_what_the_tree_resolved() {
+    let nodes = [
+        AccessibilityNode {
+            standard: Err(Nonstandard::Foreign),
+            ..element(None, "Table", "")
+        },
+        AccessibilityNode {
+            standard: Err(Nonstandard::Circular),
+            ..element(None, "Left", "")
+        },
+    ];
+    let update = built(view(&nodes, &[]));
+    let homonym = node(&update, NodeId(16));
+    assert_eq!(homonym.role(), Role::Group, "not Role::Table");
+    assert!(
+        homonym
+            .description()
+            .is_some_and(|note| note.contains("not a standard structure namespace")),
+        "{:?}",
+        homonym.description()
+    );
+    let circular = node(&update, NodeId(17));
+    assert!(
+        circular
+            .description()
+            .is_some_and(|note| note.contains("role map returns")),
+        "{:?}",
+        circular.description()
+    );
+}
+
 /// A cell's header cells reach a person, in the order §14.8.4.8.3 builds them in.
 ///
 /// Table 384's `/Short` says what this is for — "for each table cell the applicable header cells
@@ -870,6 +910,7 @@ fn a_long_line_becomes_runs_that_say_they_are_one_line() {
 fn an_artifact_has_no_run_to_move_through() {
     let artifact = AccessibilityNode {
         role: "Artifact".to_owned(),
+        standard: Ok(StandardType::Artifact),
         ..typed("page 7", (0.0, 0.0), 5.0)
     };
     let update = built(view(&[artifact], &[]));

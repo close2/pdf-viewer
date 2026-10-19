@@ -343,6 +343,22 @@ static ADJUDICATED: &[(&str, Ruling, &str)] = &[
          This \
          crate reports section B.2.3 as a `Check::Processor` row, which is what it is.",
     ),
+    // ISO 19005-2 section 6.6.2.3.1, the one pass file this crate fails since the XMP edition
+    // part 2 names was read as its September 2005 one (`doc/adr/1991`, `doc/adr/2020`).
+    (
+        "veraPDF test suite 6-6-2-3-1-t07-pass-m.pdf",
+        Ruling::SpecAgainstTheCorpus,
+        "an `xmp:Rating` of `1.0`, expected to pass. The subclause admits the predefined schemas \
+         of the XMP Specification, and part 2 identifies that document only as its September \
+         2005 edition. That edition types `xmp:Rating` a closed choice of Integer, and defines an \
+         Integer as a decimal numeric string with an optional sign — its Real is the type that \
+         admits a single decimal point — so `1.0` is not a value of the property's type, and \
+         TechNote 0010's A020, which the working group resolved parts 1 to 3 are read with, \
+         holds a value to its type alone. The sibling `-t07-pass-l` states `1` and passes here \
+         too. The corpus reads the later editions' Real for this property, while reading the \
+         2005 edition for the four properties ADR 1991 read; a later edition is not the one \
+         part 2 names.",
+    ),
 ];
 
 /// Whether a file's disagreement with this crate has already been read against the clause.
@@ -453,6 +469,10 @@ struct Tally {
     /// A number tells a reader how much is left and nothing about what; twenty-three names fit
     /// on a screen and each one is a document some author wrote to break a specific rule.
     missed_names: Vec<String>,
+    /// The names behind `over`, for the same reason and more urgently: each is a conforming
+    /// document this crate tells a user does not conform, and the column is worked by reading
+    /// the file, which needs its name.
+    over_names: Vec<String>,
 }
 
 /// Whether a judgement's citation names this clause, and not one that merely starts with it.
@@ -529,7 +549,12 @@ fn sweep(root: &Path, folder: &str, target: Target) -> BTreeMap<String, Tally> {
                     tally.missed_names.push(name.to_owned());
                 }
             }
-            (Intended::Pass, true) => tally.over = tally.over.saturating_add(1),
+            (Intended::Pass, true) => {
+                tally.over = tally.over.saturating_add(1);
+                if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                    tally.over_names.push(name.to_owned());
+                }
+            }
         }
     }
     by_clause
@@ -539,6 +564,7 @@ fn sweep(root: &Path, folder: &str, target: Target) -> BTreeMap<String, Tally> {
 fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
     let mut total = Tally::default();
     let mut missed: Vec<String> = Vec::new();
+    let mut over: Vec<String> = Vec::new();
     println!("\n== {name} ==");
     println!("  clause  agreed  missed  over  settled  elsewhere  unreadable");
     for (clause, tally) in by_clause {
@@ -557,6 +583,9 @@ fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
         total.settled = total.settled.saturating_add(tally.settled);
         for name in &tally.missed_names {
             missed.push(format!("{clause}  {name}"));
+        }
+        for name in &tally.over_names {
+            over.push(format!("{clause}  {name}"));
         }
         total.elsewhere = total.elsewhere.saturating_add(tally.elsewhere);
         total.unreadable = total.unreadable.saturating_add(tally.unreadable);
@@ -579,6 +608,12 @@ fn report(name: &str, by_clause: &BTreeMap<String, Tally>) {
          `elsewhere` caught, under the clause that states the rule rather than the one whose\n              \
          directory the witness sits in — a delegation, not a disagreement"
     );
+    if !over.is_empty() {
+        println!("  the `over` documents, by the clause their name claims:");
+        for line in &over {
+            println!("    {line}");
+        }
+    }
     if !missed.is_empty() {
         println!("  the `missed` documents, by the clause their name claims:");
         for line in &missed {

@@ -42,7 +42,7 @@ use raster_scene::Scene;
 
 use std::cell::OnceCell;
 
-use crate::device::KeptInstances;
+use crate::device::{Residency, ResidencyRefused};
 use crate::encode::Encoded;
 use crate::frame::EncodeSource;
 use crate::startup::Coverage;
@@ -145,8 +145,10 @@ struct Held {
     bytes: u64,
     /// The device's copies of the encode's instance streams, made by the first frame that
     /// draws it and read by every replay (viewer ADR 1993): they live and die with the encode
-    /// they were made from, so no frame can draw another encode's instances through them.
-    instances: OnceCell<KeptInstances>,
+    /// they were made from, so no frame can draw another encode's instances through them. Or
+    /// the device's refusal to hold them, decided by that same frame and kept for the encode's
+    /// life (viewer ADR 2030).
+    instances: OnceCell<Residency>,
 }
 
 /// A [`Scene`] the caller keeps across frames, and the encode of its last frame.
@@ -276,13 +278,30 @@ impl RetainedScene {
     /// Device bytes the retained encode keeps resident between frames: its instance
     /// streams, made by the first frame that drew it and read by every replay, so that a
     /// replay sends none of them again (viewer ADR 1993). Zero before that frame and when no
-    /// encode is retained; [`forget`](RetainedScene::forget) gives them back with the encode.
+    /// encode is retained, and where the device refused to hold them
+    /// ([`residency_refused`](RetainedScene::residency_refused));
+    /// [`forget`](RetainedScene::forget) gives them back with the encode.
     #[must_use]
     pub fn resident_instance_bytes(&self) -> u64 {
         self.held
             .as_ref()
             .and_then(|held| held.instances.get())
-            .map_or(0, KeptInstances::bytes)
+            .map_or(0, Residency::bytes)
+    }
+
+    /// Why the retained encode's instance streams are sent every frame rather than kept on the
+    /// device, where they are: holding them would have taken the device past
+    /// [`Limits::max_resident_bytes`](crate::device::Limits::max_resident_bytes) (viewer ADR
+    /// 2030). Decided by the encode's first frame and true for the encode's life; `None` before
+    /// that frame, when the streams are kept, and when no encode is retained. Every frame is
+    /// drawn the same either way; what the refusal costs is the transfer a replay would have
+    /// saved.
+    #[must_use]
+    pub fn residency_refused(&self) -> Option<ResidencyRefused> {
+        match self.held.as_ref()?.instances.get()? {
+            Residency::Refused(refused) => Some(*refused),
+            Residency::Kept { .. } => None,
+        }
     }
 
     /// The encode to draw this frame: the retained one when `key` still holds, a fresh
@@ -295,7 +314,7 @@ impl RetainedScene {
         &mut self,
         key: EncodeKey,
         build: impl FnOnce(&Scene, Option<&crate::encode::ReplayList>) -> Result<Encoded, E>,
-    ) -> Result<(EncodeSource, &Encoded, &OnceCell<KeptInstances>), E> {
+    ) -> Result<(EncodeSource, &Encoded, &OnceCell<Residency>), E> {
         // Taken and put back rather than matched in place: `Option::insert` returns the
         // stored value infallibly, so the encode this call draws is the encode this
         // call stored, with no unwrap and no unreachable arm between the two.

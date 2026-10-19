@@ -140,6 +140,9 @@ impl Viewer {
                     .unwrap_or_default();
                 Some(crate::AccessibilityNode {
                     role: "Form".to_owned(),
+                    // §14.8.4.7.2's widget type, which is what this node is whatever namespace a
+                    // tagged page's elements are in: no element stated it (ADR 1369).
+                    standard: Ok(pdf_model::structure::StandardType::Form),
                     name: field.name.shown().to_owned(),
                     language: languages.get(annotation).cloned(),
                     bounds: self.device_rect(open, on_screen.page, widget.rect),

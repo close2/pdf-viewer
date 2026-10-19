@@ -3759,6 +3759,71 @@ pdf.save(sys.argv[1])
 PY2
     zoom_past "$file" 82-zoom-past-the-bound-uncrossable judged
 }
+# zoomed_window_processor: step 82's fifth part (ADR 2026) — `quorra-confined --cpu`, whose pages'
+# marks cross the pipe and are drawn on this side's processor, draws a page *under* the bound as the
+# window shows it where the toolkit windows' rule holds, and not only past the bound. The drive's own
+# A1 page (the fourth part's), whose few marks cross at every notch, zoomed by `=` about the window's
+# middle, each notch's frame waited for and then its drawing, until the processor says `window …
+# rasterised …, of W×H`: that page must be under `MAX_PIXELS` (2^28), the window less than it, and
+# the photograph taken then must hold the red square at the size the magnification gives it, 200
+# points of the page's 2 384. HEAD's processor screen windows a page only past the bound, so its
+# first window is of a page past it (the control). The toolkit windows' processor is the third part.
+zoomed_window_processor() {
+    local step=82-zoomed-window-processor file="$FIXTURES/drive-a1.pdf" traced=$LAUNCH_TRACE
+    local landed='window [0-9]*x[0-9]* at [0-9]*,[0-9]* rasterised in .*, of [0-9]*x[0-9]*'
+    local mark first notch of box X Y WIDTH HEIGHT
+    if [ "$WINDOW" != quorra-confined ]; then
+        verdict "$step" "not offered" "the toolkit windows' processor is step 82's third part"
+        return
+    fi
+    a1_page "$file"
+    LAUNCH_TRACE=events,launch,frames
+    launch "$file" --cpu
+    LAUNCH_TRACE=$traced
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)); sleep 0.3
+    xdotool windowfocus --sync "$(main_window)" 2>/dev/null
+    first=$(lines)
+    for notch in $(seq 18); do
+        mark=$(lines)
+        xdotool key equal
+        # The notch's frame follows its command (ADR 1827), and the processor draws after the frame:
+        # the page whole, or the window, each said in the toolkit windows' words.
+        wait_for 60 zoom_framed "$mark"
+        wait_for 30 said_since "$mark" "page 1 rasterised\\|page 1 window"
+        said_since "$first" "$landed" && break
+        sleep 0.5
+    done
+    of=$(tail -n "+$((first + 1))" "$LOG" | grep -m1 -oE "window [0-9]+x[0-9]+ at [0-9]+,[0-9]+ rasterised in .*, of [0-9]+x[0-9]+$")
+    if [ -z "$of" ]; then
+        verdict "$step" wrong "no window was drawn after $notch notches"
+        kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+        return
+    fi
+    sleep 0.7
+    xdotool key shift; sleep 0.5
+    shot "$step"
+    box=$(magick "$OUT/shots/$WINDOW/$step.png" -alpha off -fuzz 6% -fill white +opaque "#ff0000" -format %@ info: 2>/dev/null)
+    if python3 - "$of" "$box" <<'PY2'
+import re, sys
+of, box = sys.argv[1:]
+m = re.match(r"window (\d+)x(\d+) at .*, of (\d+)x(\d+)$", of)
+b = re.match(r"(\d+)x(\d+)\+\d+\+\d+$", box)
+if not (m and b):
+    sys.exit(1)
+window_w, window_h, page_w, page_h = map(int, m.groups())
+side = 200 * page_h / 2384
+under = page_w * page_h <= 1 << 28
+part_of_it = window_w * window_h < page_w * page_h
+sys.exit(0 if under and part_of_it and all(abs(int(v) - side) <= 2 for v in b.groups()) else 1)
+PY2
+    then
+        verdict "$step" works "at notch $notch the processor drew a $of, under the bound; its red square $box"
+    else
+        verdict "$step" wrong "at notch $notch: $of, the red square ${box:-not found}"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # rendition_click: a click on §12.5.6.18's screen annotation reaches its §12.6.4.14 rendition in the
 # confined window, whose worker judges the clip and hands it over as `Event::Media` (ADR 1987). The
 # drive's own page: one screen annotation over the whole of it, playing a clip named by a URL, so a
@@ -3803,9 +3868,10 @@ zoomed_eighteen() {
     from=$(grep -n -- '-> Zoom' "$LOG" | tail -1 | cut -d: -f1)
     tail -n "+$from" "$LOG" | grep -q "device frame in\\|window [0-9]*x[0-9]* at .* rasterised"
 }
-zoom_past() { # file step judged|counted
-    local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark moved said refusals sizes after black X Y WIDTH HEIGHT
-    [ -s "$file" ] || [ "$how" = counted ] || python3 - "$file" <<'PY2'
+# a1_page FILE: the drive's own A1 page — white, a red square of 200 points at its middle and a black
+# bar one point wide down the square's middle — written to FILE where nothing is there yet.
+a1_page() {
+    [ -s "$1" ] || python3 - "$1" <<'PY2'
 import sys, pikepdf
 from pikepdf import Name, Dictionary
 pdf = pikepdf.new()
@@ -3815,6 +3881,10 @@ pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 1684, 2
                                          Contents=pdf.make_indirect(content))))
 pdf.save(sys.argv[1])
 PY2
+}
+zoom_past() { # file step judged|counted
+    local file=$1 step=$2 how=$3 traced=$LAUNCH_TRACE mark moved said refusals sizes after black X Y WIDTH HEIGHT
+    [ "$how" = counted ] || a1_page "$file"
     if [ ! -s "$file" ]; then
         verdict "$step" "not offered" "no $file to zoom into"
         return
@@ -4478,6 +4548,7 @@ for WINDOW in "${WINDOWS[@]}"; do
         loading_bar
         zoom_past_the_bound
         zoom_past_the_bound_uncrossable
+        zoomed_window_processor
         rendition_click
         bare_session_start
         archive_converted

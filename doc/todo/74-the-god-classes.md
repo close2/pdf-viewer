@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 and 2 are split (ADRs 2004, 2018); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1, 2 and 3 are split (ADRs 2004, 2018, 2032); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -31,16 +31,16 @@ files and `scripts.rs` stay as they were. The entry named eight modules; the fie
 fields did not have to be cut last: they call the others through `pub(super)` and no field was
 widened.
 
-## 3. `Walk` (`crates/pdf-transform/src/redact.rs`)
+## 3. Built — `Walk` (`crates/pdf-transform/src/redact.rs`, with `redact/`), ADR 2032
 
-One walk over a content stream that rewrites it under a region: the stream and its operators
-(`run`, `run_stream`, `operator`), text (`select_font`, `show_*`, `rewrite_show`, the code/box
-tests), paths (the `*_subpath`, `paint_path`, `cut_hairline`, `stroke_outline`), images (the `plan_*`
-family, `jpx_*`, `image_layout`, `inline_*`), forms and frames (`do_xobject`, `run_form`,
-`enter_frame`), and graphics state (`text_state`, `ext_gstate`, soft masks). Split by those: the
-images are the largest and the most separable; `redact/` would take `text.rs`, `paths.rs`,
-`images.rs`, `forms.rs`. The same type has seven files across the crate's archive path; read them
-together before cutting.
+The third block. `redact.rs` is the root — the state, the entry points and the page's planning and
+writing — and seven modules each hold an `impl Walk<'_>` for one concern: `text`, `painting`,
+`frames`, `images`, `inline`, `graphics_state` and `regions`, beside the six constructions
+(`forms`, `located`, `mesh`, `paths`, `shading`, `type3`) that were already there. The entry named
+`text`, `paths`, `images` and `forms`; `paths` and `forms` are constructions the walk calls, so its
+side of them is `painting` and `frames`. What is left in the root past the walk is the page's
+writing (`write_document`, `build_page`, `Carried`) and the sample arithmetic, free functions and
+types that are a different split.
 
 ## 4. `Rewriter` (`crates/pdf-transform/src/archive/rewrite.rs`)
 
@@ -111,7 +111,7 @@ splitting only if the vocabulary does.
 
 ## Found, not fixed
 
-- None in the code moved by entries 1 and 2; the moves changed no line of behaviour.
+- None in the code moved by entries 1 to 3; the moves changed no line of behaviour.
 - `raster/crates/raster-gpu/src/device/render.rs:451` did not compile at one moment of this round
   (`missing field uploads in initializer of Counters`) while a sibling slot was editing the crate;
   not this round's, noted so the merge reads it as a mid-edit and not a regression.

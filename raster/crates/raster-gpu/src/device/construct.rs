@@ -275,10 +275,14 @@ impl Device {
         // constructor is the one place that knows what the budget became, and two
         // arithmetics for one number is how they come to disagree (ADR 0063).
         let atlas = AtlasStore::new(options.atlas_budget, max_dimension);
+        let max_frame_bytes = frame_ceiling(options.max_frame_bytes, &gpu.limits());
         let limits = Limits {
             max_target_size: max_dimension,
-            max_frame_bytes: frame_ceiling(options.max_frame_bytes, &gpu.limits()),
+            max_frame_bytes,
             max_resource_bytes: options.max_resource_bytes,
+            // Held to the frame's ceiling: the adapter states no memory size, and the largest
+            // buffer it makes and binds is the figure it does state (ADR 2030).
+            max_resident_bytes: options.max_resident_bytes.min(max_frame_bytes),
             atlas_bytes: atlas.byte_size(),
         };
 
@@ -291,6 +295,7 @@ impl Device {
             pipelines,
             warm_up,
             resources: ResourceStore::new(options.max_resource_bytes),
+            residency: super::ResidencyBudget::new(limits.max_resident_bytes),
             atlas,
             kept_meets: crate::encode::KeptMeets::default(),
             atlas_texture: None,

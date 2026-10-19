@@ -1550,9 +1550,9 @@ impl<'a> Interpreter<'a> {
     /// forgotten is a report lost, on a page that still looks right.
     #[expect(
         clippy::too_many_lines,
-        reason = "one line per field of an interpreter that has fifty-nine of them, twice over. \
-                  The length is the guard rather than an accident: shortening it means a `..`, \
-                  which is the one thing this function may not have"
+        reason = "one line per field of the interpreter, twice over, so a field added is a line \
+                  added here. The length is the guard rather than an accident: shortening it \
+                  means a `..`, which is the one thing this function may not have"
     )]
     fn checkpoint(&self) -> Checkpoint {
         let Self {

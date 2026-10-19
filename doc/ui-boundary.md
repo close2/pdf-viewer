@@ -98,13 +98,15 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF16`
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF17`
 since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679), a located
 point's `/DCS` reading in either of Table 269's shapes (ADR 1678), a text note's retyping and the
 note a popup window names (ADR 1726), and §12.8.3.4.4's published policy copies, the event
 `Event::SignaturePoliciesPublished` that every window answers under the submissions level (ADR
 1738), a script's keys and console requests (ADR 1771), and the worker's notice of how far its
-page has got, which the transport hands a listener inside the exchange it arrives in (ADR 1811). Where the
+page has got, which the transport hands a listener inside the exchange it arrives in (ADR 1811), and
+each node's `standard`, what its type means in the namespace §14.8.6.2's walk ended in, one byte beside
+its name (ADR 2028). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).

@@ -1931,16 +1931,34 @@ impl ApplicationHandler for Host {
             self.release_held();
         }
         let mut changed = false;
+        // A page the processor drew whole, and a window of one it draws as the window shows it
+        // (ADRs 1944, 2026), each said in the toolkit windows' words, so a drive tells the two
+        // apart as it does theirs; a window's line ends with the page it is of, which is what says
+        // whether the page was under the bound.
         for finished in self.drawing.collect() {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} {} {}x{} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned after"
+                    },
+                    finished.request.target.width,
+                    finished.request.target.height,
+                    finished.cost,
+                    finished.waited
+                ),
+            );
             changed |= self.screen.landed(finished);
         }
-        // A page past the bound drawn on the processor lands as a window of it (ADR 1944), said
-        // in the toolkit windows' words.
         for (finished, window) in self.drawing.windows() {
             self.trace.say(
                 Topic::Frames,
                 format_args!(
-                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}",
+                    "page {} window {}x{} at {},{} {} in {:?}, waited {:?}, of {}x{}",
                     finished.request.page.saturating_add(1),
                     window.width,
                     window.height,
@@ -1952,7 +1970,9 @@ impl ApplicationHandler for Host {
                         "abandoned"
                     },
                     finished.cost,
-                    finished.waited
+                    finished.waited,
+                    finished.request.target.width,
+                    finished.request.target.height
                 ),
             );
             changed |= self.screen.landed_window(finished, window);

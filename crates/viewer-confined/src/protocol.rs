@@ -59,7 +59,7 @@ pub(crate) mod windowed;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF16";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF17";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -6658,6 +6658,7 @@ mod tests {
             AccessibilityNode {
                 parent: None,
                 role: "Document".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Document),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6687,6 +6688,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "Table".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Table),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6715,6 +6717,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "Figure".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Figure),
                 name: "a chart of sales".to_owned(),
                 substituted: true,
                 titled: false,
@@ -6747,6 +6750,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "TH".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::TableHeader),
                 name: "Region".to_owned(),
                 substituted: false,
                 titled: false,
@@ -6790,6 +6794,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "Form".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Form),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6818,6 +6823,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "TD".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::TableData),
                 name: "north".to_owned(),
                 substituted: false,
                 titled: false,
@@ -6865,6 +6871,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "L".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::List),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6891,6 +6898,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "L".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::List),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6921,6 +6929,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "Artifact".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Artifact),
                 name: String::new(),
                 substituted: false,
                 titled: false,
@@ -6955,6 +6964,7 @@ mod tests {
             AccessibilityNode {
                 parent: Some(0),
                 role: "Form".to_owned(),
+                standard: Ok(pdf_model::structure::StandardType::Form),
                 name: "A".to_owned(),
                 substituted: false,
                 titled: false,
@@ -6983,6 +6993,63 @@ mod tests {
                     }],
                 }],
                 annotation: Some(ObjectId::new(9, 0)),
+                headers: Vec::new(),
+                continues_a_list: false,
+                continued_from: None,
+                lines: Vec::new(),
+                drawn: None,
+                enclosed_a_refusal: false,
+            },
+            // Two elements that are not standard types, each with the reason the reading side
+            // gave, because the reason is what a host cannot work out from the name: a foreign
+            // namespace's `Table` is a homonym, and it must not arrive as a table (ADR 2028).
+            AccessibilityNode {
+                parent: Some(0),
+                role: "Table".to_owned(),
+                standard: Err(pdf_model::structure::Nonstandard::Foreign),
+                name: String::new(),
+                substituted: false,
+                titled: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: None,
+                cell: None,
+                summary: None,
+                short: None,
+                bounds: None,
+                allocation: None,
+                artifact: None,
+                control: None,
+                value: None,
+                value_lines: Vec::new(),
+                annotation: None,
+                headers: Vec::new(),
+                continues_a_list: false,
+                continued_from: None,
+                lines: Vec::new(),
+                drawn: None,
+                enclosed_a_refusal: false,
+            },
+            AccessibilityNode {
+                parent: Some(0),
+                role: "Left".to_owned(),
+                standard: Err(pdf_model::structure::Nonstandard::Circular),
+                name: String::new(),
+                substituted: false,
+                titled: false,
+                language: None,
+                quads: Vec::new(),
+                header_scope: None,
+                cell: None,
+                summary: None,
+                short: None,
+                bounds: None,
+                allocation: None,
+                artifact: None,
+                control: None,
+                value: None,
+                value_lines: Vec::new(),
+                annotation: None,
                 headers: Vec::new(),
                 continues_a_list: false,
                 continued_from: None,

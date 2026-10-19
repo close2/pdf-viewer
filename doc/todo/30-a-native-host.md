@@ -164,14 +164,14 @@ These are the places where a native host's shape differs from the tier-2 host's,
   as a look of their own over the stand-in, and the page whole after as the frame
   (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**: its
   worker sends the marks, the device draws them at the window's size and the processor (`--cpu`, a
-  refused frame) draws the window and its margin (ADR 1944); a page whose marks cannot cross is
+  refused frame) draws the window and its margin (ADR 1944), under the bound too wherever the
+  toolkits' rule holds of the marks that crossed (ADR 2026); a page whose marks cannot cross is
   drawn by the worker as the window shows it, and that window crosses (ADR 1986), under the bound
   too wherever the toolkits' seven eighths or half holds (ADR 2016); and a page past the bound whose
   marks cross takes the route the window prices, its marks or the worker's window, the crossing
   counted in the device's prediction (ADR 2017, `doc/questions/A477`). What is still owed: a page
   never drawn before that a notch out brings on screen has no picture of any kind until it is
-  drawn; and the confined processor screen (`--cpu`, a refused frame) windows a page whose marks
-  cross only past the bound, not by the toolkits' rule (ADR 2016 §3).
+  drawn.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is

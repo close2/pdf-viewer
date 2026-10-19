@@ -330,6 +330,11 @@ each frame line that sent anything ends in `| sent …` under the `crossed:` lin
 step sends is a function of the view through the host's cull** (ADR 2008): in the window the line
 lane's admitted set moves by a quarter at a 1.25× step on the owner's drawing, which is why the op
 list is built once only after the line lane maps and culls on the device (`doc/todo/75` items 2–3).
+**That mapping, built, saved the step's transfer and lost more in the walk** (ADR 2022): the witness's
+1.25× step sent no line byte and its transfer fell from 29–47 ms to 1–2, while `encode: recording` rose
+60–80 ms in most processes with the same instruction count, and the window's step, writing every line
+the view no longer culls, rose by 100 ms — so it is not in the tree, and `zoom_frame`'s
+`ZOOM_FRAME_DUMP` is what compares two builds' frames byte by byte when it comes back.
 
 ### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
 

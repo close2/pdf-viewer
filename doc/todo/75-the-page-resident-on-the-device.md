@@ -1,6 +1,6 @@
 # 75 — The page resident on the device, and a zoom that sends only a matrix
 
-Status: **open** — the evaluation is ADR 1992; item 1 is built (ADR 1993); items 2–7 are the order,
+Status: **open** — the evaluation is ADR 1992; items 1 and 5 are built (ADRs 1993, 2030); the rest are the order,
 item 3 after item 2 (ADR 2008); the window's trace prints each frame's streams (ADR 2009).
 Priority: the owner's, 2026-10-19: "evaluate: keep the page's intermediate representation resident
 on the GPU and have a compute stage re-rasterise it at the new transform, so a zoom sends only a
@@ -24,7 +24,15 @@ same view reads them from the device. It is the mechanism every item below stand
 held on the device, keyed by the encode it was made from, given back with it — measured where it is
 reachable today: the replay of the witness's page.
 
-## 2. Line instances in page space, the view a uniform (ADR 1877 §5)
+## 2. Line instances in page space, the view a uniform (ADR 1877 §5) — built, measured, taken back (ADR 2022)
+
+**The owner accepted the change of bar (`doc/questions/A473`), and the build is not in the tree**: it
+saved the witness's step its 264 MB of line bytes and 29–47 ms of transfer, and its walk was 60–80 ms
+slower in most processes for no cause instructions, caches, branches, the makers or page faults
+explain — and in the window, where a line the view does not admit became an instance, the step went
+from 144–151 ms to 249–252. ADR 2022 has the figures and what is owed first: the walk's cost found by a
+hardware profile or a bisected build, and the host's cull kept until item 3. The patches are outside
+the repository, in `/home/AI/r1593-line-lane/`.
 
 `line.wgsl` reads the endpoints after the line's own transform, the width and the clip rectangle in
 the same space, and maps all three by a view uniform (a scale and a translation; a turned view stays
@@ -60,12 +68,15 @@ ADR 1877 asks every dot drawn as a line again at the new view (13–40 ms for 28
 Under item 3 the ask is the shader's: a dot whose disc reaches no level at this view takes the
 substitution in the vertex stage, so no mark disappears and the host asks nothing.
 
-## 5. A residency budget that refuses by name
+## 5. Built — a residency budget that refuses by name (ADR 2030)
 
-The kept streams are device memory held between frames (ADR 1993 prices it: the witness's 264 MB).
-Item 2 makes them the page's for its life, so they are charged as the segment arena is, against a
-residency ceiling the device states, and a stream past it is refused with both numbers and the
-frame re-encodes rather than holding it.
+The kept streams are charged, before a buffer is made, against `Limits::max_resident_bytes`: the
+host's request held to the frame's ceiling, since the adapter states no memory size and the largest
+buffer it makes and binds is the figure it does state. A charge is given back when its encode goes.
+An encode past the budget is drawn the same with its streams made per frame,
+`RetainedScene::residency_refused` names the three numbers, and the window's terminal says it once a
+scene. One page retained per device is always admitted, because the frame budget admitted its
+streams; the budget bites where a host retains several encodes on a device or asks for less.
 
 ## 6. Strokes the line lane does not take, expanded on the device
 

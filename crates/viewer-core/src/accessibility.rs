@@ -71,8 +71,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
 use pdf_model::structure::{
-    Artifact, BlockProgression, CellPlacement, Child, HeaderScope, ListEntry, StandardType,
-    TableStack, Tree, list_predecessors, table_cell_rectangles,
+    Artifact, BlockProgression, CellPlacement, Child, HeaderScope, ListEntry, Nonstandard,
+    StandardType, TableStack, Tree, list_predecessors, table_cell_rectangles,
 };
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
@@ -152,11 +152,18 @@ pub struct AccessibilityNode {
     /// about its own names and is a `shall`; §14.8.4's standard set onto a platform's roles is the
     /// host's. Two mappings wearing one coat, and only the second was ever the host's (ADR 0214).
     ///
-    /// Still a name rather than [`pdf_model::structure::StandardType`]: §14.8.4.1 requires a
+    /// The name crosses beside [`Self::standard`] rather than in its place: §14.8.4.1 requires a
     /// tagged document's types to be standard or mapped to standard ones, so a name that is
-    /// neither is a fact about the document a host may want to say, and
-    /// [`pdf_model::structure::StandardType::read`] is one call away for the ones that are.
+    /// neither is a fact about the document a host may want to say.
     pub role: String,
+    /// What [`Self::role`] means in the namespace §14.8.6.2's walk ended in: §14.8.4's standard
+    /// type, or which of [`Nonstandard`]'s reasons there is none.
+    ///
+    /// **Carried rather than left to the host to read from the name**, because the name alone
+    /// cannot answer it: a foreign namespace's `Table` is a homonym and not §14.8.4's table, and
+    /// only [`pdf_model::structure::Tree::mapped_role`], which holds the namespace, can tell the
+    /// two apart. A host speaks what this says and never reads the name again (ADR 2028).
+    pub standard: Result<StandardType, Nonstandard>,
     /// What a text-to-speech engine would say for **this element and no other**.
     ///
     /// §14.9.3's `/Alt` where the element states one — "human-readable text that could, for
@@ -620,6 +627,7 @@ impl AccessibilityNode {
         Self {
             parent: None,
             role: String::new(),
+            standard: Err(Nonstandard::Unstated),
             name: String::new(),
             titled: false,
             substituted: false,
@@ -709,6 +717,8 @@ impl Sequence {
 pub(crate) struct Gathered {
     /// The element's `/S`, role mapped.
     pub(crate) role: String,
+    /// What that name means in the namespace it ends in, as [`AccessibilityNode::standard`] states.
+    pub(crate) standard: Result<StandardType, Nonstandard>,
     /// The marked-content sequences below it, including those of its descendants.
     ///
     /// Descendants' too, because the *place* an element occupies is everything it encloses: a
@@ -1031,10 +1041,42 @@ fn walk(
                 // §14.7.3's role map, which is a `shall` on whoever reads a structure type and
                 // not a courtesy: "[a] structure type shall always be mapped to its corresponding
                 // name in the role map, if there is one, even if the original name is one of the
-                // standard types." `Tree::role` follows it transitively and through §14.8.6.2's
-                // namespace maps; an element with no `/S` at all keeps the empty name, because
+                // standard types." `Tree::mapped_role` follows it transitively and through
+                // §14.8.6.2's namespace maps, and stops at a circle where §14.7.3's NOTE 2 does;
+                // an element with no `/S` at all keeps the empty name, because
                 // Table 355 requires the entry and inventing one would be a guess.
-                let role = tree.role(document, &dict).unwrap_or_default();
+                //
+                // **One walk answers the name and its meaning**, and the meaning is
+                // `Tree::mapped_role`'s rather than `StandardType::read` of the name: §14.8.4's
+                // vocabulary is defined *by* the standard structure namespaces, so a foreign
+                // namespace's `Table` is a homonym, and reading Table 384's `/Summary` off it — or
+                // telling a host it is a table — would answer one vocabulary's question with
+                // another's (ADRs 0785, 2028). No corpus document is a witness — `examples/
+                // absence_audit` finds none in 65 944 crawled files.
+                let pdf_model::structure::MappedRole {
+                    name: role,
+                    standard,
+                } = tree.mapped_role(document, &dict);
+                let kind = standard.clone().ok();
+                // ISO 32000-1 Table 333's `Private`, which only the PDF 1.7 namespace defines:
+                // "[n]either the Private element nor any of its descendants shall be interpreted or
+                // exported to other document formats". So neither is gathered — no node, no text,
+                // no place pushed to an ancestor — and the subtree is still *reached*, because
+                // §14.7.5.4 names its elements for this page and a walk that had not reached them
+                // would be one whose two chains disagree. A widget its object references name is
+                // then named by no element and is offered as §12.5.1's interactive content, which
+                // is ADR 1381's rule for a widget the structure leaves out (ADR 2028).
+                if kind == Some(StandardType::Private) {
+                    withhold(
+                        document,
+                        tree,
+                        &dict,
+                        depth.saturating_add(1),
+                        within,
+                        reached,
+                    );
+                    continue;
+                }
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
                 let index = out.len();
@@ -1044,17 +1086,6 @@ fn walk(
                 // type of TH" for `/Short` — and the type those sentences are about is §14.7.3's
                 // mapped one, which is why the condition is applied here where the role is in
                 // hand rather than inside the reader.
-                //
-                // **`Tree::standard_role` rather than `StandardType::read` of the name**, and
-                // that is §14.8.6.2 rather than a tidy-up: §14.8.4's vocabulary is defined *by*
-                // the standard structure namespaces, so a foreign namespace's `Table` is a
-                // homonym and reading Table 384's `/Summary` off it would be answering one
-                // vocabulary's question with another's. `Tree::role` still supplies the name the
-                // document wrote, which is what crosses to a screen reader. No corpus document
-                // is a witness — `examples/absence_audit` finds none in 65 944 crawled files —
-                // which is exactly why this stood for the whole life of `standard_role` (ADR
-                // 0785).
-                let kind = tree.standard_role(document, &dict);
                 let (cell, header_scope) =
                     header_scope(document, tree, &dict, kind.as_ref(), depth, index, tables);
                 let bounds = tree.bounds(document, &dict);
@@ -1088,6 +1119,7 @@ fn walk(
                     parent,
                     Gathered {
                         role,
+                        standard,
                         mcids: Vec::new(),
                         own: Vec::new(),
                         on_page: false,
@@ -1172,6 +1204,48 @@ fn walk(
                 }
             }
         }
+    }
+}
+
+/// The elements below a `Private` one, reached and not gathered: [`walk`]'s `reached` without
+/// its `out`.
+///
+/// Pruned to `within` exactly as [`walk`] is, so what it enters is the page's subtree; and an
+/// element already reached is not entered again, which is the bound [`MAX_NODES`] is for in
+/// [`walk`] — nothing is gathered here for that bound to count.
+fn withhold(
+    document: &Document,
+    tree: &Tree,
+    element: &Dictionary,
+    depth: usize,
+    within: Option<&BTreeSet<ObjectId>>,
+    reached: &mut BTreeSet<ObjectId>,
+) {
+    if depth >= MAX_DEPTH {
+        return;
+    }
+    for (child, id) in tree.identified_children(document, Some(element)) {
+        let Child::Element(dict) = child else {
+            continue;
+        };
+        if let Some(within) = within
+            && id.is_none_or(|id| !within.contains(&id))
+        {
+            continue;
+        }
+        if let Some(id) = id
+            && !reached.insert(id)
+        {
+            continue;
+        }
+        withhold(
+            document,
+            tree,
+            &dict,
+            depth.saturating_add(1),
+            within,
+            reached,
+        );
     }
 }
 
@@ -1401,6 +1475,7 @@ pub(crate) fn finish(
     AccessibilityNode {
         parent,
         role: gathered.role,
+        standard: gathered.standard,
         name,
         titled,
         substituted,
@@ -1767,6 +1842,7 @@ mod tests {
         AccessibilityNode {
             parent,
             role: "P".to_owned(),
+            standard: Ok(pdf_model::structure::StandardType::Paragraph),
             name: String::new(),
             titled: false,
             substituted: false,
@@ -1825,6 +1901,7 @@ mod tests {
         let cell = element(Some(0));
         let mut widget = element(Some(1));
         widget.role = "Form".to_owned();
+        widget.standard = Ok(pdf_model::structure::StandardType::Form);
         widget.bounds = Some([20.0, 30.0, 120.0, 50.0]);
         assert_eq!(
             places(&[row, cell, widget]),
@@ -1907,6 +1984,7 @@ mod tests {
         ] {
             let mut cell = element(None);
             cell.role = "TD".to_owned();
+            cell.standard = Ok(pdf_model::structure::StandardType::TableData);
             cell.drawn = drawn;
             cell.cell = Some(TableCell {
                 table: 0,

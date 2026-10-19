@@ -14,7 +14,19 @@
 //! ZOOM_FRAME_SEQUENCE=1,1.25,1.5,1.25,1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_COVERAGE=compute cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_DIGEST=1 cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_RESIDENT=1 cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_DUMP=<dir> cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_DUMP` writes each frame's bytes into a directory**, `<n>-<width>x<height>.rgba`, the
+//! last round's, under either backend — so two builds' frames, or a device frame and the CPU
+//! backend's at the same target, can be compared byte by byte where a digest says only that they
+//! differ (ADR 2022).
+//!
+//! **`ZOOM_FRAME_RESIDENT` asks the device to keep at most that many bytes between frames**
+//! (`Options::max_resident_bytes`, ADR 2030), so that a page the default budget keeps can be
+//! measured as one past it: its replay then sends its instance streams again, and the terminal
+//! says why once.
 //!
 //! **`ZOOM_FRAME_DIGEST` prints each frame's FNV-1a digest as it lands**, with whether it kept the
 //! scene of the frame before: a sequence whose second view kept the first's scene, against a run
@@ -221,6 +233,14 @@ fn main() {
         Some("compute") => raster_gpu::Coverage::Compute,
         Some(other) => panic!("ZOOM_FRAME_COVERAGE={other}: cpu, gpu or compute"),
     };
+    let resident: u64 = variable("ZOOM_FRAME_RESIDENT").map_or_else(
+        || render_raster::options().max_resident_bytes,
+        |bytes| {
+            bytes
+                .parse()
+                .expect("ZOOM_FRAME_RESIDENT is a number of bytes")
+        },
+    );
 
     let document =
         Document::open(std::fs::read(&path).expect("the document is readable")).expect("it opens");
@@ -279,6 +299,7 @@ fn main() {
         let mut backend = render_raster::QuorraRasterizer::with_options(&raster_gpu::Options {
             instrument_encode: instrument,
             encode_threads: threads,
+            max_resident_bytes: resident,
             ..render_raster::options()
         })
         .expect("an adapter");
@@ -295,6 +316,7 @@ fn main() {
             let drawn = backend
                 .rasterize_frame(&frame)
                 .unwrap_or_else(|error| panic!("refused: {error}"));
+            dump(order_of(&targets, target), target, &drawn.data);
             if digest {
                 // FNV-1a over the frame's bytes, printed as it lands, beside whether the frame kept
                 // the scene of the one before (ADR 1877) — so a kept frame and a fresh one at the
@@ -402,6 +424,34 @@ fn main() {
 }
 
 /// The same targets drawn by the CPU backend, the minimum of `rounds` round-robin rounds each.
+/// The position of `target` in `targets`, which is the frame's number less one.
+fn order_of(targets: &[TargetSpec], target: TargetSpec) -> usize {
+    targets
+        .iter()
+        .position(|placed| {
+            placed.width == target.width
+                && placed.height == target.height
+                && placed.transform == target.transform
+        })
+        .unwrap_or(0)
+}
+
+/// The frame's bytes into `ZOOM_FRAME_DUMP`'s directory, where it names one.
+fn dump(order: usize, target: TargetSpec, data: &[u8]) {
+    let Some(directory) = variable("ZOOM_FRAME_DUMP") else {
+        return;
+    };
+    let name = format!(
+        "{}-{}x{}.rgba",
+        order.saturating_add(1),
+        target.width,
+        target.height
+    );
+    std::fs::create_dir_all(&directory).expect("the dump directory can be made");
+    std::fs::write(std::path::Path::new(&directory).join(name), data)
+        .expect("the frame is written");
+}
+
 fn cpu_backend(
     path: &str,
     index: usize,
@@ -415,12 +465,13 @@ fn cpu_backend(
     let mut backend = render_cpu::CpuRasterizer::new();
     let mut best = vec![f64::INFINITY; targets.len()];
     for _ in 0..rounds {
-        for (slot, target) in best.iter_mut().zip(targets.iter().copied()) {
+        for (order, (slot, target)) in best.iter_mut().zip(targets.iter().copied()).enumerate() {
             let started = std::time::Instant::now();
-            backend
+            let drawn = backend
                 .rasterize(list, target)
                 .unwrap_or_else(|error| panic!("refused: {error}"));
             *slot = slot.min(ms(started.elapsed()));
+            dump(order, target, &drawn.data);
         }
     }
     println!("{path} page {index}, the CPU backend");

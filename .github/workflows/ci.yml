@@ -215,10 +215,26 @@ jobs:
           done
 
 
-  nightly:
+  # The interpreter and the fuzzer are two jobs, because one job's ceiling cannot be generous to
+  # both: Miri's time grows with every test the two crates gain, and with the fuzz build and its
+  # short runs after it the one job's healthy runs had come within minutes of its ceiling (ADR 2024).
+  # Each ceiling is about twice the longest healthy run of what it bounds, so a job that reaches one
+  # has hung or doubled, and either is worth reading rather than raising the ceiling past.
+  miri:
+    strategy:
+      fail-fast: false
+      matrix:
+        # One crate a job, so that the two run beside each other and a ceiling bounds one
+        # crate's interpretation; `pdf-render`'s is the longer by far (ADR 2024).
+        include:
+          - crate: pdf-render
+            minutes: 75
+          - crate: pdf-syntax
+            minutes: 30
     runs-on: ubuntu-24.04
+    name: miri (${{ matrix.crate }})
     continue-on-error: true # advisory until the parser exists and this earns its keep
-    timeout-minutes: 60  # see `check` above
+    timeout-minutes: ${{ matrix.minutes }}  # see `check` above, and the comment above this job
     steps:
       - uses: actions/checkout@v5
         with:
@@ -228,7 +244,11 @@ jobs:
         with:
           components: miri, rust-src
 
+      # Keyed by the crate, because both halves of the matrix are the same job on the same runner
+      # and would otherwise restore and save one cache between them.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri-${{ matrix.crate }}
 
       # Miri interprets rather than executes, so it cannot run the GPU backend or
       # anything else that touches a driver. It is pointed at the pure-Rust crates,
@@ -247,7 +267,22 @@ jobs:
       # dependency and the aliasing rule named beside it: `filter.rs`'s `mod tests` for
       # zlib-rs (doc/todo/52) and `paint.rs` for crossbeam-epoch. ADR 0450.
       - name: Miri on the pure-Rust core
-        run: cargo +nightly miri test -p pdf-render -p pdf-syntax --lib
+        run: cargo +nightly miri test -p ${{ matrix.crate }} --lib
+
+  # The fuzz targets need nightly for the sanitiser, which is why they are not built in `check`,
+  # whose ceiling is fast feedback on the pinned stable toolchain (ADR 2024).
+  fuzz:
+    runs-on: ubuntu-24.04
+    continue-on-error: true # advisory until the parser exists and this earns its keep
+    timeout-minutes: 30  # see `check` above, and the comment above `miri`
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
 
       # Building the fuzz targets every push is what stops them rotting: a target that no
       # longer compiles is discovered here rather than the next time someone wants to fuzz.

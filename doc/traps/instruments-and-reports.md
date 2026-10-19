@@ -1655,3 +1655,37 @@ not built. Today 40 of a line instance's 60 bytes are the device's, and a 1.25×
 of the admitted lines, so every step is the whole walk (ADR 2008). A figure quoted from a list is read
 with the item that produced it; the orchestrator writes the brief's premise from the list's sentence,
 not from the number beside it.
+
+### 204. Two walls in one call add up to a hang
+
+Round 1590 reported that `tools/wait.sh --start` around a locked command twice did not return. Round
+1594 read the transcript: the harness had backgrounded both calls, one because `--start`'s own 240 s
+wait exceeded the default 120 000 ms timeout, the other because a `--start` and a following wait in
+the same call summed to 480 s against a 270 000 ms timeout. Nothing hung; the call outlived its
+budget. `--start` now returns at once (ADR 2025), and the rule is general: one Bash call carries one
+wait, sized under the timeout it was given.
+
+### 205. A `sed` whose replacement holds its delimiter writes a stray file
+
+Round 1595 rewrote a line with a `sed` substitution delimited by bars whose replacement held an
+escaped bar; `sed` took the bar as the end of the substitution and the rest as a `w` flag, wrote a
+file named after the remainder into the worktree's root, and left the line half replaced. The round
+found both, deleted the file and repaired the line, and the merge's `git status` is what would have
+caught them otherwise. An edit to a shell or Rust file is a script with an anchor it asserts on, as
+every placement in this tree is written.
+
+### 206. `git apply` in a subdirectory skips the paths above it and says nothing
+
+Round 1597 applied its patch inside its export directory and `staging.rs` stayed at HEAD: `git apply`
+restricts itself to the current directory's subtree when run below the repository root and reports
+success for what it skipped. The export's figures were taken on a tree that lacked one of the round's
+files until the arms' comparison was re-read. Inside an export, `patch -p1` applies what it is given;
+either way, every path the patch names is diffed against HEAD before a figure is believed.
+
+### 207. `bounded.sh` reads no standard input for its command
+
+Round 1596's first census, fed the file list through a pipe into `tools/bounded.sh`, reported 0 of 0
+files and read as clean; the wrapper runs its command with its own standard input, and the pipe's
+bytes went nowhere. The census was re-run with the list as a file argument and found what it was
+looking for. A command under the wrapper takes its input from arguments or files, and a probe that
+can report "nothing found" is first shown something it must find.

@@ -315,6 +315,11 @@ struct Retained {
     /// at the end of their frame would leave the handle holding a scene whose resources are
     /// gone — and the next re-encode of it would be refused by name rather than drawn.
     transient: Vec<ResourceId>,
+    /// Whether the terminal has been told that the device keeps this scene's instance streams
+    /// per frame rather than resident (raster's `RetainedScene::residency_refused`, ADR 2030):
+    /// once a scene, so that a zoom whose every step is a new encode says it once and not per
+    /// notch.
+    residency_said: bool,
 }
 
 impl Retained {
@@ -491,6 +496,15 @@ impl FrameSlot {
         let rendered = device.render_retained(&mut held.scene, &viewport, into);
         cost.device = submitted.elapsed();
         cost.retained_bytes = held.scene.retained_bytes();
+        if !held.residency_said
+            && let Some(refused) = held.scene.residency_refused()
+        {
+            // Said rather than returned: the frame is drawn, byte for byte the frame a resident
+            // encode draws, and what the person is owed is why a still page costs its transfer
+            // on every frame (ADR 2030).
+            eprintln!("note: {refused}");
+            held.residency_said = true;
+        }
 
         let drawn = rendered?;
         cost.read(&drawn, phases);
@@ -588,6 +602,7 @@ impl FrameSlot {
                     overlays: frame.overlays.iter().map(|list| (*list).clone()).collect(),
                     scene: raster_gpu::RetainedScene::new(builder.finish()),
                     transient,
+                    residency_said: false,
                 })
             }
         };

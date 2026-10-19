@@ -533,7 +533,7 @@ all six · 4f/4e-and-4 for the third · the second **built in session 966**, the
 #### `graphics/destination-profile-carries-the-tags-its-class-requires`
 #### `graphics/destination-profile-states-a-correct-profile-id`
 all six · the first **built** where this reader does not draw through the profile (ADR 2007), the
-other two `not-built-yet`
+other two **built** where the profile's header alone fails them (ADR 2021)
 
 - **What is built** — a statement, not the `discard` below. ISO 32000-2 §14.11.5 leaves a
   processor free to disregard an output intent, and this reader disregards one whose profile it
@@ -544,6 +544,14 @@ other two `not-built-yet`
   draw through, an `/N` other than 3, two objects, an inline profile and a page-level array are
   each refused by name. Isartor `6-2-2-t02-fail-a` and veraPDF `6-2-2-t03-fail-b`,
   `6-2-3-t01-fail-b` and `6-2-3-t03-fail-b` convert to 2b, pages identical, veraPDF compliant.
+- **What is built for the other two** — a statement as well (ADR 2021). Where the header names
+  ICC.2:2023 and every tag ICC.1:1998-09 defines carries the type that edition gives it, with
+  the tags its class requires, the version is restated 2.2.0 and the reserved bytes 84 to 99
+  cleared; where only the `Profile ID` is stale, the digest of the profile is written. No tag
+  moves and this reader draws through the same transform. A tag missing under the header's own
+  edition is refused by name, and so is a version 5 profile in later types or with CIELAB tables.
+  veraPDF `6-2-3-t01-fail-d` (its `PDF_A-2b` and `PDF_A-4` copies) converts to 2b and to 4, pages
+  byte-identical at 72 dpi, veraPDF compliant.
 
 - **Mitigation** — `discard` **plus** `preserve`, and the pairing is the answer. The profile the
   document carries is not one ISO 19005 admits, and this converter cannot repair an ICC profile
@@ -1521,6 +1529,10 @@ ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 
   built first. `preserve` here is not a placement — nothing is kept anywhere else — so the word
   alone is the mechanism. The other half already built is the smaller one —
   an annotation stating no `/F` at all, where `--authorise annotation-printing` writes bit 3.
+  **Without a profile that annotation is not given Print**, by the owner's word (`doc/questions/
+  A448`, which adopts the question's own recommendation to keep it as it is): a run that states no policy does not decide what a
+  document says about paper, so the site asks for the authorisation, the three keeping profiles
+  answer it with `preserve`, and `refuse-any-loss` stops.
 - **By target** — none.
 - **From a configuration** — this is the profile question `doc/rfc/0007` section 5a.1 is built
   around, and the printing yardstick answers it per class without looking at any document: an

@@ -1558,7 +1558,9 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2, first sentence. The second sentence
     // — the Print bit set and four others clear — is a separate row over annotations that *do*
     // state flags, and `doc/pdf-a-conversion-limits.md` section 3.7's other future for those is
-    // removing the annotation, which this converter does not offer.
+    // removing the annotation, which this converter does not offer. A loss to authorise rather
+    // than a statement, by the owner's word: a run with no profile states no policy, so it does
+    // not decide what a document says about paper (`doc/questions/A448`, `doc/adr/1942`).
     Remedy {
         requirement: "annotations/flags-entry-present",
         answer: Answer::Loses(Loss::AnnotationPrinting, Rewrite::AnnotationFlags),
@@ -1729,6 +1731,26 @@ pub(super) const REMEDIES: &[Remedy] = &[
             None,
             Rewrite::DestinationProfileReplaced,
             DESTINATION_REPLACED_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the tag and identifier rows, where
+    // the destination profile's header alone fails them — a version 5 header on a profile written
+    // in ICC.1:1998-09's tags and types, or a stale Profile ID. One rewrite answers both rows, and
+    // `super::destination` names each other case's refusal (`doc/adr/2021`).
+    Remedy {
+        requirement: "graphics/destination-profile-carries-the-tags-its-class-requires",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileRestated,
+            DESTINATION_RESTATED_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/destination-profile-states-a-correct-profile-id",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileRestated,
+            DESTINATION_RESTATED_REINTERPRETS,
         ),
     },
     // ISO 19005-2 section 6.2.5, ISO 19005-4 section 6.2.5. Stated where every `/TR` is the
@@ -3055,6 +3077,16 @@ const DESTINATION_REPLACED_REINTERPRETS: &str = "the destination profile this fi
      device colours are stated as this reader showed them. What changes is for a processor that \
      could read the producer's profile, and the producer's own identification of the output \
      condition is kept beside a profile it did not choose. The report names the profile written";
+
+/// What restating a destination profile's header asserts (`doc/adr/2021`).
+const DESTINATION_RESTATED_REINTERPRETS: &str = "the destination profile this file's own output \
+     intent names says in its header something its own bytes contradict: an ICC edition whose \
+     tags it does not carry, where every tag it does carry is written as ICC.1:1998-09 defines \
+     it, or a Profile ID that is not the digest of the profile. The header is restated as what \
+     the bytes are - version 2.2.0, the reserved field that edition has where later ones put the \
+     identifier cleared, or the digest written - and no tag changes, so this reader draws every \
+     colour through the profile exactly as before. What changes is for a processor that read the \
+     producer's header as the producer wrote it";
 
 /// What removing a halftone's `TransferFunction /Identity` asserts (`doc/adr/2007`).
 const HALFTONE_IDENTITY_REINTERPRETS: &str = "a halftone in this file states TransferFunction \

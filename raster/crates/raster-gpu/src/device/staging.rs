@@ -17,6 +17,7 @@ use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
 use super::Device;
+use super::residency::Residency;
 use crate::encode::Encoded;
 use crate::error::RenderError;
 use crate::frame::UploadSplit;
@@ -57,7 +58,8 @@ pub(super) struct Upload {
 /// for another encode — a new encode is a new cell — and what gives them back when the
 /// encode is dropped, replaced or forgotten. The price is device memory between frames: the
 /// encode's instance bytes, which the frame that made them had already allocated and the
-/// budget had admitted, now held while the page is shown rather than for one frame.
+/// budget had admitted, now held while the page is shown rather than for one frame — and
+/// charged, for that, against the device's residency budget (`residency`, viewer ADR 2030).
 #[derive(Debug, Clone)]
 pub(crate) struct KeptInstances {
     rect: Option<wgpu::Buffer>,
@@ -82,7 +84,10 @@ impl Device {
     ///
     /// `kept` is the retained encode's cell for its instance streams, `None` for an encode
     /// no later frame can replay: the first frame that draws a retained encode fills it, and
-    /// a replay reads the streams from it and schedules none of their bytes (ADR 1993).
+    /// a replay reads the streams from it and schedules none of their bytes (ADR 1993) —
+    /// unless the residency budget refused them, when the cell says so and the streams are
+    /// this frame's (ADR 2030). `this_frame` holds the streams across the frame's own
+    /// attempts (`submit_encoded`'s loop) wherever the encode's cell does not.
     ///
     /// # Errors
     ///
@@ -91,7 +96,8 @@ impl Device {
     pub(super) fn upload(
         &mut self,
         encoded: &Encoded,
-        kept: Option<&OnceCell<KeptInstances>>,
+        kept: Option<&OnceCell<Residency>>,
+        this_frame: &OnceCell<KeptInstances>,
     ) -> Result<Upload, RenderError> {
         let started = Instant::now();
         let mut spans: Vec<(&'static str, Duration)> = Vec::new();
@@ -142,7 +148,7 @@ impl Device {
             rect: rect_instances,
             quad: quad_instances,
             line: line_instances,
-        } = self.instance_streams(encoded, kept, &mut split);
+        } = self.instance_streams(encoded, kept, this_frame, &mut split);
         self.flush_atlas_tiles(&mut split.atlas_rows);
         if !encoded.winding.is_empty()
             && let Some((_, view)) = scratch_view.as_ref()
@@ -181,14 +187,24 @@ impl Device {
 
     /// The frame's three instance streams on the device: made from the encode's bytes, or —
     /// for a replay of a retained encode — the ones its first frame made, read from `kept`
-    /// (ADR 1993). A replay schedules none of their bytes, so its shares stay zero, which is
-    /// what crossed.
+    /// (ADR 1993), or — for a later attempt of this frame — the ones its first attempt made,
+    /// read from `this_frame`. Streams read from either schedule none of their bytes, so
+    /// their shares stay zero, which is what crossed.
+    ///
+    /// A retained encode's first frame charges the streams against the residency budget
+    /// before it makes them (ADR 2030): admitted, they are kept with their charge; refused,
+    /// the cell keeps the refusal, so that no later frame of the encode asks again, and the
+    /// streams are this frame's alone.
     fn instance_streams(
         &self,
         encoded: &Encoded,
-        kept: Option<&OnceCell<KeptInstances>>,
+        kept: Option<&OnceCell<Residency>>,
+        this_frame: &OnceCell<KeptInstances>,
         split: &mut UploadSplit,
     ) -> KeptInstances {
+        if let Some(streams) = this_frame.get() {
+            return streams.clone();
+        }
         let make_instances = |label, data: &[u8]| {
             if data.is_empty() {
                 None
@@ -227,9 +243,32 @@ impl Device {
             });
             KeptInstances { rect, quad, line }
         };
-        match kept {
-            Some(cell) => cell.get_or_init(make_streams).clone(),
-            None => make_streams(),
+        let Some(cell) = kept else {
+            return this_frame.get_or_init(make_streams).clone();
+        };
+        // Decided once, by the encode's first frame: counted from the bytes the streams will
+        // hold, charged before a buffer is made, and kept with the streams or refused for the
+        // encode's life.
+        let residency = cell.get_or_init(|| {
+            let bytes = [
+                &encoded.rect_instances,
+                &encoded.quad_instances,
+                &encoded.line_instances,
+            ]
+            .into_iter()
+            .map(|data| data.len() as u64)
+            .fold(0_u64, u64::saturating_add);
+            match self.residency.charge(bytes) {
+                Ok(charge) => Residency::Kept {
+                    streams: make_streams(),
+                    charge,
+                },
+                Err(refused) => Residency::Refused(refused),
+            }
+        });
+        match residency {
+            Residency::Kept { streams, .. } => streams.clone(),
+            Residency::Refused(_) => this_frame.get_or_init(make_streams).clone(),
         }
     }
 
