@@ -513,6 +513,66 @@ fn every_refused_member_throws_not_allowed_error_by_name() {
 }
 
 #[test]
+fn a_name_the_reference_has_absent_from_an_acrobat_form_is_not_there() {
+    for (holder, member) in pdf_script::surface::ABSENT {
+        let spelled = format!("{}{member}", holder.prefix());
+        let ran = outcome(&request(
+            Trigger::Format,
+            &format!(
+                "console.println(typeof {spelled}); \
+                 try {{ {spelled}.host; }} catch (e) {{ console.println(e.name); }}"
+            ),
+            "1",
+            "",
+            false,
+        ));
+        assert_eq!(ran.ending, Ending::Finished, "{spelled}: {:?}", ran.ending);
+        assert_eq!(
+            ran.log,
+            vec!["undefined".to_owned(), "ReferenceError".to_owned()],
+            "{spelled} is not there, as the reference's Acrobat form has it not there"
+        );
+        assert!(ran.refusals.is_empty(), "{spelled}: {:?}", ran.refusals);
+    }
+}
+
+#[test]
+fn the_reference_s_xfa_example_finds_an_acrobat_form() {
+    // The *JavaScript for Acrobat API Reference*'s XFA page, its example verbatim but for the
+    // entities: `&#160;` is the no-break space, `&quot;` the quotation mark.
+    let line_one = "console.println(\"Document name: \" + this.documentFileName);\n";
+    let the_rest = "// The xfa object is undefined in an Acrobat form.\n\
+        if ( typeof xfa == \"object\" ) {\n\
+        if ( this.dynamicXFAForm )\n\
+        console.println(\" \u{a0}This is a dynamic XML form.\");\n\
+        else\n\
+        console.println(\" \u{a0}This is a static XML form.\");\n\
+        if ( this.XFAForeground )\n\
+        console.println(\" \u{a0}This document has imported artwork\");\n\
+        }\n\
+        else console.println(\" \u{a0}This is an Acrobat form.\");\n";
+    // Its first line reads a file's name on the reader's machine, which `REFUSED` keeps out by
+    // name: the example stops there, and says why.
+    let ran = outcome(&request(
+        Trigger::Format,
+        &format!("{line_one}{the_rest}"),
+        "1",
+        "",
+        false,
+    ));
+    assert!(matches!(ran.ending, Ending::Threw(_)), "{:?}", ran.ending);
+    assert_eq!(
+        ran.refusals.first().map(|refusal| refusal.member.as_str()),
+        Some("this.documentFileName")
+    );
+    // The rest is the test the example exists for, and it finds what this processor shows.
+    let ran = outcome(&request(Trigger::Format, the_rest, "1", "", false));
+    assert_eq!(ran.ending, Ending::Finished, "{:?}", ran.ending);
+    assert_eq!(ran.log, vec![" \u{a0}This is an Acrobat form.".to_owned()]);
+    assert!(ran.refusals.is_empty(), "{:?}", ran.refusals);
+}
+
+#[test]
 fn the_bookmark_root_answers_its_parent_and_doc_and_refuses_an_outline_it_was_not_told() {
     // The reference's "Bookmark properties": the root's parent is null and its doc is the Doc it
     // resides in. The walk its "children" example makes reads the outline, which this request does

@@ -26,7 +26,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Color, DisplayList, Medium, Raster, TargetSpec, Transform};
+use pdf_render::{Color, DisplayList, Medium, Raster, Selection, TargetSpec, Transform};
 use raster_scene::ResourceId;
 
 use crate::QuorraRasterError;
@@ -1410,10 +1410,12 @@ pub(crate) fn build(
         }
         // The marks that reach the window, where this build may cull (ADR 1841): the same
         // pixels, and on the owner's witness at four times the fit a ninth of the commands.
+        // A window names the list's own commands, so the encoder reads its clips and masks from
+        // the list itself (ADR 1980).
         let culled = if cull { list.reaching(*target) } else { None };
-        let drawn: &DisplayList = culled.as_ref().unwrap_or(list);
+        let drawn = Selection::drawn(list, culled.as_ref());
         let mut encoder = Encoder::with_placement(
-            device, drawn, *target, page_space, caches, transient, functions,
+            device, list, *target, page_space, caches, transient, functions,
         );
         // §14.11.2.1's clip, hung under every chain this page's commands carry. A window is
         // larger than its page, so without it the marks a stream made outside the page's own

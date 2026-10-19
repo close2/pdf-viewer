@@ -90,6 +90,15 @@ fn check(reply: &Reply) {
                             u64::from(target.width).saturating_mul(u64::from(target.height))
                         );
                     }
+                    // A window is admitted only past the bound and only for a host that said it
+                    // draws such a page, which no decoder here was told (ADR 1986).
+                    Payload::Window { .. } => {
+                        panic!(
+                            "page {}'s window crossed a decoder no host told it draws a page past \
+                             the bound",
+                            framed.page
+                        );
+                    }
                 }
             }
         }

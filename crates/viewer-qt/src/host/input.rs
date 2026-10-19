@@ -110,9 +110,9 @@ impl Host {
             // §10.8.3: the state is this window's, because it is a preference a person toggles
             // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
             viewer_host::WindowAct::Separations => {
-                self.separations = !self.separations;
-                self.dispatch(Command::Separations(self.separations));
-                self.say(&viewer_host::separations_note(self.separations));
+                self.state.separations = !self.state.separations;
+                self.dispatch(Command::Separations(self.state.separations));
+                self.say(&viewer_host::separations_note(self.state.separations));
             }
             viewer_host::WindowAct::Notices => self.update.notices = true,
             viewer_host::WindowAct::Restrictions => self.update.menu = true,
@@ -167,6 +167,7 @@ impl Host {
                 }
             }
             viewer_host::WindowAct::Archive => self.ask_to_archive(),
+            viewer_host::WindowAct::ChooseArchive => self.choose_the_archive_again(),
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
     }

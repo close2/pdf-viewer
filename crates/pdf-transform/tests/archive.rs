@@ -786,6 +786,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -936,6 +937,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1013,6 +1015,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3459,6 +3462,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -4252,6 +4256,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4302,6 +4307,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4350,6 +4356,7 @@ fn two_specifications_marked_best_stay_refused() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4391,6 +4398,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -6337,6 +6345,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7581,6 +7590,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -7899,6 +7909,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7933,6 +7944,7 @@ fn every_loss() -> Authorisations {
         embedded_file: false,
         transfer_function: false,
         halftone_name: false,
+        overprint_mode: false,
     }
 }
 
@@ -10183,6 +10195,79 @@ fn an_authorised_transfer_function_goes_and_what_it_said_stays_in_the_history() 
     assert_eq!(removed[0].state, ObjectId::new(7, 0));
 }
 
+/// A page whose one graphics state states `/TR2` as `tr2`.
+fn a_second_transfer_function(tr2: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/ExtGState << /G0 6 0 R >>".to_owned(),
+        objects: vec![
+            format!("<< /Type /ExtGState /TR2 {tr2} >>"),
+            "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/G0 gs 0 0 1 rg 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_second_transfer_function_naming_the_identity_is_written_default_as_a_statement() {
+    // ISO 19005-2 and ISO 19005-4 section 6.2.5 admit TR2 only as Default, which Table 57 makes
+    // the function in effect at the start of the page: the identity on this reader's device, as
+    // the name was (`doc/adr/1978` section 6).
+    let row = "graphics/second-transfer-function-is-default";
+    let (report, output) = to_part_four(&a_second_transfer_function("/Identity"));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::IdentityTransferFunctionRemoved,
+            ..
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(String::from_utf8_lossy(&output).contains("/TR2 /Default"));
+}
+
+#[test]
+fn a_second_transfer_function_that_is_a_function_is_the_transfer_functions_loss() {
+    // §10.5's function is drawn, so writing Default in its place moves the colours it adjusted:
+    // the loss ADR 1964 states, with the function kept in xmpMM:History first.
+    let row = "graphics/second-transfer-function-is-default";
+    let source = a_second_transfer_function("7 0 R");
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::TransferFunction,
+            ..
+        }
+    ));
+    assert!(output.is_none());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::TransferFunction);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::TransferFunction,
+            rewrite: Rewrite::TransferFunctionRemoved,
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("/TR2 /Default"));
+    assert!(
+        text.contains("/TR2 7 0 R, where 7 0 obj"),
+        "the history keeps what the function said"
+    );
+    let removed = &conversion(&report).removed_transfer_functions;
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].state, ObjectId::new(6, 0));
+}
+
 /// A page whose graphics state selects `halftone`, an object of its own.
 fn a_halftone(halftone: &str) -> Vec<u8> {
     Conforming {
@@ -10255,6 +10340,112 @@ fn a_halftone_that_is_only_a_name_stays_refused() {
     assert!(matches!(
         decision(&report, "graphics/no-halftone-name"),
         Decision::Refused(Because::NotBuiltYet(_))
+    ));
+    assert!(output.is_none());
+}
+
+/// A page painting under a graphics state that sets overprint mode 1 with overprinting on: an
+/// `ICCBased` CMYK fill over the shipped press profile, then whatever `more` paints, on a page
+/// stating `page` besides.
+fn an_overprint_mode(more: &str, page: &str) -> Vec<u8> {
+    let icc = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/GRACoL2006_Coated1v2.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    let mut hex = String::new();
+    for byte in &icc {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    Conforming {
+        page: page.to_owned(),
+        resources: "/ExtGState << /G0 6 0 R >> /ColorSpace << /C0 [/ICCBased 7 0 R] >>".to_owned(),
+        objects: vec![
+            "<< /Type /ExtGState /OP true /OPM 1 >>".to_owned(),
+            format!(
+                "<< /N 4 /Alternate /DeviceCMYK /Filter /ASCIIHexDecode /Length {} >> stream\n\
+                 {hex}\nendstream",
+                hex.len()
+            ),
+        ],
+        contents: Some((
+            String::new(),
+            format!("/G0 gs /C0 cs 0 0 0 1 scn 10 10 50 50 re f {more}").into_bytes(),
+        )),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn an_overprint_mode_governing_only_icc_marks_is_set_to_zero_as_a_statement() {
+    // ISO 19005-2 section 6.2.4.2 forbids the mode here; ISO 32000-2 §8.6.7 applies it only to
+    // DeviceCMYK marks, so with no such mark under the state nothing it defines moves
+    // (`doc/adr/1978`).
+    let row = "graphics/no-overprint-mode-one-under-icc-cmyk";
+    let (report, output) = to_part_two(&an_overprint_mode("", ""));
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Stated {
+            rewrite: Rewrite::OverprintModeRestated,
+            ..
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(text.contains("/OPM 0") && !text.contains("/OPM 1"));
+    assert!(text.contains("/OP true"), "overprinting itself stays on");
+}
+
+#[test]
+fn an_overprint_mode_also_governing_a_device_cmyk_mark_is_a_loss_to_authorise() {
+    // §8.6.7: under mode 1 a DeviceCMYK mark's zero components leave the backdrop; under mode 0
+    // they paint it, which a press shows and this reader's window, blending in three components,
+    // does not (`doc/adr/1978`).
+    let row = "graphics/no-overprint-mode-one-under-icc-cmyk";
+    let source = an_overprint_mode("0 0 0 1 k 20 20 5 5 re f", "");
+    let (report, output) = to_part_two(&source);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::OverprintMode,
+            ..
+        }
+    ));
+    assert!(output.is_none());
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::OverprintMode);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::OverprintMode,
+            rewrite: Rewrite::OverprintModeZeroed,
+        }
+    ));
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn an_overprint_mode_the_window_composites_by_stays_refused() {
+    // Inside a page group blending in DeviceCMYK, §11.7.4.3's special blend mode composites the
+    // DeviceCMYK mark by the mode and this reader's window draws it, so the loss is one the
+    // window showed and is not offered even where authorised (`doc/adr/1978`).
+    let source = an_overprint_mode(
+        "0 0 0 1 k 20 20 5 5 re f",
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+    );
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::OverprintMode);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert!(matches!(
+        decision(&report, "graphics/no-overprint-mode-one-under-icc-cmyk"),
+        Decision::Refused(Because::NotBuiltYet(why)) if why.contains("four components")
     ));
     assert!(output.is_none());
 }

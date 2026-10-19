@@ -205,6 +205,16 @@ fn main() {
             );
             raster
         }
+        // A page past the bound, which this example's one opening at the fit never asks for.
+        Payload::Window { corner, raster, .. } => {
+            println!(
+                "a {}x{} window at {corner:?} crossed the pipe in {:.3} ms",
+                raster.width,
+                raster.height,
+                crossed.as_secs_f64() * 1e3
+            );
+            raster.clone()
+        }
     };
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
     println!("  {ink} dark pixels");

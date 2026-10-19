@@ -34,7 +34,11 @@ impl Host {
         }
         // §O.2.1's caution, under the level the menu holds: `viewer_host::may_open_extracted`
         // decides, and this window carries out the answer and puts the question (ADR 1331).
-        match viewer_host::may_open_extracted(asked, name, self.restrictions.embedded_documents()) {
+        match viewer_host::may_open_extracted(
+            asked,
+            name,
+            self.state.restrictions.embedded_documents(),
+        ) {
             viewer_host::Unpacking::Open => self.open_embedded(document, name, bytes, fragment),
             viewer_host::Unpacking::Warn(note) => {
                 self.say(&note);

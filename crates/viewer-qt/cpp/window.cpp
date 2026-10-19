@@ -3392,11 +3392,6 @@ void MainWindow::chooseAnArchive()
     // sentences are what a person chooses by, and a list that hid five of six would offer one.
     profiles->setWordWrap(true);
     profiles->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    int tall = 2 * profiles->frameWidth();
-    for (int row = 0; row < profiles->count(); ++row) {
-        tall += profiles->sizeHintForRow(row);
-    }
-    profiles->setMinimumHeight(tall);
     column->addWidget(profiles);
     auto* buttons = new QDialogButtonBox(&dialog);
     QPushButton* convert = buttons->addButton(QStringLiteral("Convert"), QDialogButtonBox::AcceptRole);
@@ -3407,7 +3402,23 @@ void MainWindow::chooseAnArchive()
     // Enter on a profile is the convert button, whichever widget had the keyboard.
     connect(profiles, &QListWidget::itemActivated, &dialog, &QDialog::accept);
     column->addWidget(buttons);
-    dialog.resize(560, dialog.sizeHint().height());
+    // The list is as tall as its rows laid out at the width the dialogue is shown at (ADR 1985). A
+    // wrapped sentence is as tall as the width it wraps in, and a row's own size hint, asked before
+    // the list has a width, is the sentence on one line: the last profile's sentence then sat at the
+    // list's lower edge. So the dialogue takes its width first and the rows are laid out in it,
+    // with no vertical bar to narrow them while they are measured.
+    constexpr int kWide = 560;
+    dialog.resize(kWide, dialog.sizeHint().height());
+    profiles->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    column->activate();
+    profiles->doItemsLayout();
+    const int rows = profiles->count();
+    if (rows > 0) {
+        const QRect last = profiles->visualItemRect(profiles->item(rows - 1));
+        profiles->setMinimumHeight(last.bottom() + 1 + profiles->spacing() + 2 * profiles->frameWidth());
+    }
+    profiles->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    dialog.resize(kWide, dialog.sizeHint().height());
     profiles->setFocus();
     const bool chosen = dialog.exec() == QDialog::Accepted;
     Busy guard(busy_);

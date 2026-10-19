@@ -195,14 +195,19 @@ impl ReducedImages {
     /// vectors — which a translation does not change. So the key a strip computes is the key
     /// warmed here, and the bytes are the bytes: `Reduction`'s own documentation is where that is
     /// stated.
-    pub(crate) fn warm(&self, commands: &[Command], to_device: Transform, page: Rect) {
+    pub(crate) fn warm<'c>(
+        &self,
+        commands: impl IntoIterator<Item = &'c Command>,
+        to_device: Transform,
+        page: Rect,
+    ) {
         for command in commands {
             match command {
                 Command::Group { commands, .. } => self.warm(commands, to_device, page),
                 // Only the object: the shape half draws the same geometry with its opacity
                 // removed, so it is the same image and the same key.
                 Command::Shaped { object, .. } => {
-                    self.warm(std::slice::from_ref(object), to_device, page);
+                    self.warm(std::iter::once(&**object), to_device, page);
                 }
                 // A command no strip would draw is one no strip would reduce, and warming it
                 // would be work this module invented — so the same test the strip loop applies is

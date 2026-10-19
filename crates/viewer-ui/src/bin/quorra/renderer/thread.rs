@@ -11,6 +11,7 @@ use render_raster::QuorraWindowRenderer;
 
 use super::as_read::sent_read;
 use super::device::{draw, prepare};
+use super::lanes::RefusedLanes;
 use super::retained::{Turn, retain_one};
 use super::sharp::{SHARP_STALL_BUDGET, draw_sharp, sharp_pass_affordable, sharp_pass_cost};
 use super::{Finished, Job, Link, same_pages};
@@ -106,6 +107,10 @@ fn draw_until_told_to_stop(
     // it or take as long over it as over the frame, and a device draw cannot be taken back when
     // the next job arrives, where the processor's can.
     let mut on_the_processor: Vec<crate::stale::Picture> = Vec::new();
+    // The coverage lanes the adapter refused, learned from the frames and from the retained
+    // layer's own ask, so that a retained picture of a refused lane is not asked of the device
+    // either (ADR 1984).
+    let mut refused_lanes = RefusedLanes::default();
     // What building the device's scene of the pages on hand is predicted to cost, where the last
     // frame was the processor's and the window asked for the build ([`Job::build_ahead`]).
     let mut build_ahead: Option<Duration> = None;
@@ -135,6 +140,7 @@ fn draw_until_told_to_stop(
             shown_size = (job.width, job.height);
             let asked_ahead = job.build_ahead.take();
             let finished = draw(&mut renderer, job, done, waker);
+            refused_lanes.learn(finished.known.or(finished.refused_now));
             // Only after a frame the processor drew and the device was not asked: a refusal is the
             // device's answer for these pages, and a frame taken back is of a view nobody wants.
             build_ahead = asked_ahead.filter(|_| {
@@ -256,7 +262,12 @@ fn draw_until_told_to_stop(
         match retain_one(
             &mut renderer,
             (&showing, &on_the_processor),
-            (&mut proxies, &mut no_proxy, &mut scratch),
+            (
+                &mut proxies,
+                &mut no_proxy,
+                &mut scratch,
+                &mut refused_lanes,
+            ),
             idle,
             jobs,
             done,

@@ -9,7 +9,7 @@ use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pdf_render::{DisplayList, TargetSpec};
+use pdf_render::{DisplayList, Selection, TargetSpec};
 
 use crate::mask_cache::{MASK_BUDGET, MaskCache};
 use crate::soft_mask::mask_consumer_reach;
@@ -113,19 +113,21 @@ impl CpuRasterizer {
         list: &DisplayList,
         target: TargetSpec,
     ) -> Result<(), CpuRasterError> {
-        self.encode_in_strips_watched(pixmap, list, target, None)
+        self.encode_in_strips_watched(pixmap, Selection::whole(list), target, None)
     }
 
-    /// [`Self::encode_in_strips`], with each strip answering `showing`'s glances for its own rows
-    /// where a caller is looking — the page itself, and never a plane drawn beside it.
+    /// [`Self::encode_in_strips`] of a selection of a list's commands — the page's, or a window's
+    /// of it (ADR 1980) — with each strip answering `showing`'s glances for its own rows where a
+    /// caller is looking: the page itself, and never a plane drawn beside it.
     pub(crate) fn encode_in_strips_watched(
         &self,
         pixmap: &mut tiny_skia::Pixmap,
-        list: &DisplayList,
+        drawn: Selection<'_>,
         target: TargetSpec,
         showing: Option<&glimpse::Showing>,
     ) -> Result<(), CpuRasterError> {
-        let boundaries = self.strip_plan(list, target);
+        let list = drawn.list();
+        let boundaries = self.selection_plan(drawn, target);
         let strips = boundaries.len().saturating_sub(1);
         // Computed once per rasterisation, before any mask is built, so that every build —
         // serial, in a strip, or nested inside another mask's — restricts against the same
@@ -133,7 +135,7 @@ impl CpuRasterizer {
         let reach = if list.soft_mask_count() == 0 {
             Arc::new(HashMap::new())
         } else {
-            Arc::new(mask_consumer_reach(list, target.transform))
+            Arc::new(mask_consumer_reach(drawn, target.transform))
         };
         // Measured once before any strip is queued — by the planner where it divides the page,
         // which reads them (ADR 1882), and here where it does not — so that every strip asks the
@@ -145,7 +147,7 @@ impl CpuRasterizer {
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
             return self.encode_page(
                 &mut pixmap.as_mut(),
-                (list, &bounds, 0),
+                (drawn, &bounds, 0),
                 surface,
                 &mut masks,
                 showing,
@@ -158,7 +160,7 @@ impl CpuRasterizer {
         // thread, before any strip is queued: the strips then all hit, and this is the one place
         // the reduction may use rayon without being re-entered by a strip (ADR 0731).
         self.reduced_images
-            .warm(list.commands(), target.transform, whole_target(target));
+            .warm(drawn.commands(), target.transform, whole_target(target));
         // The budget is divided rather than multiplied: the masks of a strip are a strip tall,
         // so the same total memory buys the same coverage of the page it did serially.
         let budget = MASK_BUDGET.checked_div(strips).unwrap_or(MASK_BUDGET);
@@ -194,7 +196,13 @@ impl CpuRasterizer {
                 )?;
                 let mut masks =
                     MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
-                self.encode_page(&mut piece, (list, &bounds, 0), surface, &mut masks, showing)
+                self.encode_page(
+                    &mut piece,
+                    (drawn, &bounds, 0),
+                    surface,
+                    &mut masks,
+                    showing,
+                )
             })
     }
 }
@@ -248,7 +256,7 @@ pub(crate) fn whole_target(target: TargetSpec) -> pdf_render::Rect {
 /// six and seven times the fit that took the planner from 231–351 ms to 39–48 ms on twenty-four
 /// threads, and from 206–359 ms to 55–102 ms on four (ADR 1882).
 pub(crate) fn plan_strips(
-    list: &DisplayList,
+    list: Selection<'_>,
     target: TargetSpec,
     asked: Option<u32>,
     anti_alias: bool,
@@ -276,7 +284,7 @@ pub(crate) fn plan_strips(
     // the cuts are the ones a single thread would choose (`pdf_render::StripInputs`). The bounds
     // are the ones the draw measures anyway (ADR 1841), measured here first so that the reading
     // takes each command's from them rather than measuring it twice more (ADR 1882).
-    let bounds = list.mark_bounds(target.transform);
+    let bounds = list.list().mark_bounds(target.transform);
     let inputs = pdf_render::strip_inputs(list, target, &bounds, &|mark| {
         drawn_row_by_row(mark, anti_alias, target)
     });

@@ -46,7 +46,8 @@ fn main() {
     let page = pages.get(0).expect("has a first page");
     let list = pdf_model::content::interpret(&document, &page).display_list;
     let target = TargetSpec::for_page(&list, scale, 64 << 20).expect("a target");
-    let culled = list.reaching(target);
+    // As a list of its own, so that each backend is handed it as it is handed a page.
+    let culled = list.reaching(target).map(|window| window.copied());
     let kept = culled
         .as_ref()
         .map_or(list.commands().len(), |c| c.commands().len());

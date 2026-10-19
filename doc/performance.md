@@ -656,6 +656,14 @@ and one thread then draws it for 1.24–1.27 s more. ADR 1888 measured the poole
 **After that build, ADR 1900 calls performance at diminishing returns**, and names the refactoring
 targets a code-improvement batch takes.
 
+**A zoomed window costs what it keeps.** A toolkit window draws a page zoomed past its viewport as
+the window shows it (ADR 1930), from the commands that reach the window, and those are named by
+their indices into the page's own list rather than copied (`pdf_render::Selection`, ADR 1980): on
+the witness at 1200 × 900, a window of 83 % of the page — 98 % of its commands — lands in 495–517 ms
+on four threads and 333–381 on twenty-four, 118–270 and 100–130 ms sooner than the copy let it, and
+ties the page drawn whole; one of 63 % is ahead of it. `viewer-host`'s `examples/window_against_whole`
+is the instrument, and prints each drawing's digest beside its clock.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

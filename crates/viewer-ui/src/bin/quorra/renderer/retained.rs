@@ -6,8 +6,9 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use pdf_render::Interrupt;
 use raster_gpu::wgpu;
-use render_raster::{PresentFrame, QuorraWindowRenderer, WindowTextures};
+use render_raster::{PresentFrame, QuorraRasterError, QuorraWindowRenderer, WindowTextures};
 
+use super::lanes::{RefusedLanes, remembered};
 use super::thread::Idle;
 use super::{Finished, Job};
 
@@ -16,6 +17,14 @@ type Store = crate::stale::Proxies<Arc<wgpu::Texture>>;
 
 /// The chrome lane's target for a whole page drawn on the device, kept per page shape.
 type Scratch = Option<(u32, u32, wgpu::Texture)>;
+
+/// The coverage lane a retained picture is drawn under on the device.
+///
+/// A whole page at a few hundred pixels is far below the magnification at which raster's GPU
+/// coverage lane is the cheaper one, whatever the window is showing (`crate::surface`), so the lane
+/// is stated rather than inherited from whatever the last frame asked for. `draw` sets it per job,
+/// so the next window frame is unaffected.
+const LANE: raster_gpu::Coverage = raster_gpu::Coverage::Cpu;
 
 /// What one idle turn spent on the retained layer came to.
 pub(super) enum Turn {
@@ -33,7 +42,12 @@ pub(super) enum Turn {
 pub(super) fn retain_one(
     renderer: &mut QuorraWindowRenderer,
     (showing, on_the_processor): (&[crate::stale::Placed], &[crate::stale::Picture]),
-    (proxies, no_proxy, scratch): (&mut Store, &mut Vec<crate::stale::Picture>, &mut Scratch),
+    (proxies, no_proxy, scratch, lanes): (
+        &mut Store,
+        &mut Vec<crate::stale::Picture>,
+        &mut Scratch,
+        &mut RefusedLanes,
+    ),
     idle: &Idle,
     jobs: &Receiver<Job>,
     done: &Sender<Finished>,
@@ -46,8 +60,15 @@ pub(super) fn retain_one(
     let Some(page) = proxies.wanted(&drawable) else {
         return Turn::Nothing;
     };
-    let on_the_device = !on_the_processor.contains(&page.of);
-    let retained = match retain(renderer, &page, on_the_device, scratch, idle, jobs) {
+    let frame_on_the_processor = on_the_processor.contains(&page.of);
+    let retained = match retain(
+        renderer,
+        &page,
+        frame_on_the_processor,
+        (scratch, lanes),
+        idle,
+        jobs,
+    ) {
         Drawn::Picture(retained) => retained,
         Drawn::Behind(job) => return Turn::Job(job),
         Drawn::Taken => return Turn::Drew,
@@ -74,23 +95,20 @@ pub(super) fn retain_one(
 
 /// Draws one whole page into a raster of its own, for the layer under the base.
 ///
-/// `None` where the page states no usable extent, or where the device refused it — **and it is
-/// deliberately silent**, because this is a picture nobody asked for: a refusal costs a stand-in
+/// `None` where the page states no usable extent, and the device's refusal where it refused —
+/// **which is not said**, because this is a picture nobody asked for: a refusal costs a stand-in
 /// that will not be as good and nothing else, and reporting it would be a note about work the
-/// person did not request. It cannot spin, and it is not paid twice: the caller keeps the page out
-/// of every later idle turn for as long as its ink stands (ADR 1821).
+/// person did not request. The caller sorts it by the frames' rule and draws on the processor. It
+/// cannot spin, and it is not paid twice: the caller keeps the page out of every later idle turn
+/// for as long as its ink stands (ADR 1821), and a refused lane out of every later picture (ADR
+/// 1984). The lane is [`LANE`], which [`retain`] has set.
 fn draw_whole_page(
     renderer: &mut QuorraWindowRenderer,
     page: &crate::stale::Placed,
     scratch: &mut Option<(u32, u32, wgpu::Texture)>,
-) -> Option<crate::stale::Retained<Arc<wgpu::Texture>>> {
+) -> Option<Result<crate::stale::Retained<Arc<wgpu::Texture>>, QuorraRasterError>> {
     let target = crate::stale::proxy_target(&page.list)?;
     let (width, height) = (target.width, target.height);
-    // A whole page at a few hundred pixels is far below the magnification at which raster's GPU
-    // coverage lane is the cheaper one, whatever the window is showing (`crate::surface`), so the
-    // lane is stated rather than inherited from whatever the last frame asked for. `draw` sets it
-    // per job, so the next window frame is unaffected.
-    renderer.set_coverage(raster_gpu::Coverage::Cpu);
     let chrome = match scratch.take() {
         Some((held_width, held_height, texture))
             if (held_width, held_height) == (width, height) =>
@@ -118,12 +136,11 @@ fn draw_whole_page(
         },
     );
     *scratch = Some((width, height, chrome));
-    drawn.ok()?;
-    Some(crate::stale::Retained {
+    Some(drawn.map(|()| crate::stale::Retained {
         of: page.of,
         target,
         pixels: Arc::new(texture),
-    })
+    }))
 }
 
 /// What a whole page drawn for the retained layer came to.
@@ -139,17 +156,33 @@ enum Drawn {
 }
 
 /// One whole page for the retained layer: on the device where its frame is drawn there, and on the
-/// processor where the frame is or the device refused this picture (ADR 1831).
+/// processor where the frame is, where the device refused this picture (ADR 1831), or where the
+/// adapter refused [`LANE`]'s pipelines before — and then the device is not asked (ADR 1984).
+///
+/// **A refused lane is routed as a frame of it is** (ADR 1968): raster answers it in the same words
+/// for the device's life, but only after the picture's scene is encoded, so asking again is that
+/// encode paid once per page for nothing. The lane is known from a frame that carried or heard its
+/// refusal, or from this layer's own first ask, and the device is asked once per window.
 fn retain(
     renderer: &mut QuorraWindowRenderer,
     page: &crate::stale::Placed,
-    on_the_device: bool,
-    scratch: &mut Option<(u32, u32, wgpu::Texture)>,
+    frame_on_the_processor: bool,
+    (scratch, lanes): (&mut Scratch, &mut RefusedLanes),
     idle: &Idle,
     jobs: &Receiver<Job>,
 ) -> Drawn {
-    if on_the_device && let Some(retained) = draw_whole_page(renderer, page, scratch) {
-        return Drawn::Picture(retained);
+    if !frame_on_the_processor {
+        // Set where the device would have been asked, refused or not, so that the processor's
+        // picture goes back under the lane it went back under after a refusal: one image and no
+        // chrome, which the compute assist does not take (ADR 1984).
+        renderer.set_coverage(LANE);
+        if !lanes.refused(LANE) {
+            match draw_whole_page(renderer, page, scratch) {
+                Some(Ok(retained)) => return Drawn::Picture(retained),
+                Some(Err(problem)) => lanes.learn(remembered(&problem, LANE)),
+                None => {}
+            }
+        }
     }
     let interrupt = Interrupt::new();
     if let Ok(mut held) = idle.interrupt.lock() {

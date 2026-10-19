@@ -227,12 +227,19 @@ esac
 # round. So the prompt's number is taken from `ROUND_SESSION` where the caller sets it, and checked
 # against the batch's range; where it is not set on a batch branch, both are printed and the round
 # is told how to say its own (ADR 1903).
+#
+# **The brief is the authority on its slots, and the branch's range only its first six.** A batch
+# may carry a seventh slot the branch was named before, so a session past the range is accepted
+# where the brief, `/home/AI/batch-<first>-brief.md` (`ROUND_BRIEF` names another), has a slot
+# heading ending `— session <n>`, and the slot it names is printed with the brief's path (ADR 1983).
 assigned_by=
+brief_slot=
 case "$branch" in
     batch-[0-9]*-[0-9]*)
         batch_first=${branch#batch-}; batch_first=${batch_first%%-*}
         batch_last=${branch##*-}
         assigned_by="the branch $branch holds sessions $batch_first to $batch_last"
+        brief=${ROUND_BRIEF:-/home/AI/batch-$batch_first-brief.md}
         ;;
 esac
 if [ -n "${ROUND_SESSION:-}" ]; then
@@ -243,14 +250,22 @@ if [ -n "${ROUND_SESSION:-}" ]; then
     session=$ROUND_SESSION
     last=$((session - 1))
     from="ROUND_SESSION, the number the batch's prompt gave; doc/history/ alone would say $by_history"
-    if [ -n "$assigned_by" ] && { [ "$session" -lt "$batch_first" ] || [ "$session" -gt "$batch_last" ]; }; then
-        printf 'ROUND_SESSION=%s is outside this batch: %s\n' "$session" "$assigned_by" >&2
-        exit 1
+    if [ -n "$assigned_by" ]; then
+        brief_slot=$(grep -m 1 -E "^## Slot [0-9]+ — .* — session $session\$" "$brief" 2>/dev/null | sed 's/^## \(Slot [0-9]*\) — .*/\1/')
+        if [ -z "$brief_slot" ] && { [ "$session" -lt "$batch_first" ] || [ "$session" -gt "$batch_last" ]; }; then
+            if [ -r "$brief" ]; then
+                printf 'ROUND_SESSION=%s is outside this batch: %s, and no slot of %s is that session\n' "$session" "$assigned_by" "$brief" >&2
+            else
+                printf 'ROUND_SESSION=%s is outside this batch: %s, and its brief %s cannot be read (ROUND_BRIEF names another)\n' "$session" "$assigned_by" "$brief" >&2
+            fi
+            exit 1
+        fi
     fi
 fi
 
 heading "the round"
 printf '  session %s, after %s (from %s)\n' "$session" "$last" "$from"
+[ -z "$brief_slot" ] || printf '  %s of the brief %s\n' "$brief_slot" "$brief"
 if [ -z "${ROUND_SESSION:-}" ] && [ -n "$assigned_by" ]; then
     printf '  but %s, each numbered by its brief:\n' "$assigned_by"
     printf '  the one above is the first unwritten, and ROUND_SESSION=<yours> tools/round.sh %s prints yours\n' "${kind:-<kind>}"

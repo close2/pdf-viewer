@@ -60,11 +60,13 @@ impl Host {
     /// so what is left is this window's own swap and a nested `pump` would be a second command
     /// loop inside the first. Answers whether anything moved.
     pub(super) fn take_the_front(&mut self, id: DocumentId) -> bool {
-        self.state.showing.departures = self.restrictions.document();
+        self.state.showing.departures = self.state.restrictions.document();
         if !self.state.documents.focus(id, &mut self.state.showing) {
             return false;
         }
-        self.restrictions.depart(self.state.showing.departures);
+        self.state
+            .restrictions
+            .depart(self.state.showing.departures);
         // §12.7's controls and §12.5.6.14's windows are **not** taken down here. Each is rebuilt
         // from the answer that follows `Command::Focus`, and both rebuilds are guarded by a
         // comparison against what is on the screen.
@@ -181,12 +183,14 @@ impl Host {
         let closing = self.state.documents.focused();
         // The menu's document scope goes into the state that is about to be swapped, exactly as
         // it does on a switch.
-        self.state.showing.departures = self.restrictions.document();
+        self.state.showing.departures = self.state.restrictions.document();
         match self.state.documents.close(closing, &mut self.state.showing) {
             viewer_host::Close::Last => self.closing = true,
             viewer_host::Close::Unknown => {}
             viewer_host::Close::Done { state, focused } => {
-                self.restrictions.depart(self.state.showing.departures);
+                self.state
+                    .restrictions
+                    .depart(self.state.showing.departures);
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
                 self.state.kept.forget(closing);

@@ -29,6 +29,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use pdf_model::view::WidgetAppearances;
 use viewer_core::{
     Answer, Command, DocumentId, Event, Find, FindDirection, Purpose, Query, Viewer,
 };
@@ -37,6 +38,53 @@ use crate::trace::{Topic, Trace};
 
 /// The identity a native window gives the one document it opens with.
 pub const DOCUMENT: DocumentId = DocumentId(1);
+
+/// The window's standing levels, from what the command line set (ADR 1145).
+#[must_use]
+pub fn standing(settings: crate::Settings) -> crate::Restrictions {
+    crate::Restrictions::new(settings.restrictions)
+        .with(crate::ActLevel::EmbeddedDocuments(
+            settings.embedded_documents,
+        ))
+        .with(crate::ActLevel::Submissions(settings.submissions))
+        .with(crate::ActLevel::Scripts(settings.scripts))
+}
+
+/// What an open sends, in the order it sends it: every policy before the document.
+///
+/// One statement for the open at launch, on the opening thread, and every open after it, on the
+/// window's. A policy applied halfway through is not a policy: §6.3.2.2's instruction is a
+/// property of *this host* rather than of the document, which is why it is not part of `Open` — a
+/// host that changes its mind sends it again and the page is rebuilt (ADR 0245) — and `Restrict`
+/// is the reader's answer to what the *file* asserts, which `CLAUDE.md` says is always the
+/// reader's to give.
+#[must_use]
+pub fn opening_commands(
+    window: viewer_core::RestrictionPolicy,
+    widget_appearances: WidgetAppearances,
+    separations: bool,
+    bytes: pdf_syntax::FileBytes,
+    password: Option<viewer_core::Secret>,
+    fragment: Option<String>,
+) -> VecDeque<Command> {
+    VecDeque::from([
+        Command::Restrict(viewer_core::RestrictionScope::Window(window)),
+        Command::Delegate(widget_appearances),
+        // §10.8.3's simulation on the same argument: it decides what colour every mark of the
+        // first interpretation is, so a preference applied after the page had been drawn would
+        // have drawn the other picture first (ADR 1228).
+        Command::Separations(separations),
+        // A page zoomed past its window is drawn as much as the window shows of it, as `quorra`
+        // draws every page, and one past the whole-page bound is not refused (ADRs 1892, 1930).
+        Command::Oversize(viewer_core::Oversize::Listed),
+        Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password,
+            fragment,
+        },
+    ])
+}
 
 /// Everything one tab of a native window holds about the document in it.
 ///
@@ -236,12 +284,36 @@ pub struct WindowState {
     /// The conversions running, each on an `archive` thread of its own, looked for on the timer
     /// that looks for a server's answers (ADR 1954).
     pub converter: crate::archiving::Converter,
+    /// §6.3.2.2: who draws §12.7's widgets — the toolkit's controls, or the document's own
+    /// pictures.
+    ///
+    /// [`WidgetAppearances::Delegated`] unless the command line asked otherwise, because both
+    /// toolkit hosts place a real control over every widget and leaving the appearance underneath
+    /// is the duplication ADR 0244 photographed. `--draw-widget-appearances` restores §6.3.2.2's
+    /// default, which is what taking the two pictures side by side needs.
+    pub widget_appearances: WidgetAppearances,
+    /// How much of what the document asserts over its reader this window obeys: a fact about
+    /// what *this reader* has been asked to do rather than about the file.
+    ///
+    /// One level per operation, every one of them [`viewer_core::RestrictionLevel::Off`] unless
+    /// [`crate::RESTRICTIONS`] or [`crate::IGNORE_RESTRICTIONS`] was on the command line (ADRs
+    /// 0604, 1144), until the menu says otherwise. **Two scopes**: the window's levels, and what
+    /// the open document departs from them in — a level set to catch one file would otherwise
+    /// catch every file this window opens afterwards (ADR 1145).
+    pub restrictions: crate::Restrictions,
+    /// §10.8.3: whether this window has asked for the separation simulation.
+    ///
+    /// Held here rather than asked of the core, because it is a preference a person toggles and
+    /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
+    /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
+    pub separations: bool,
 }
 
 impl WindowState {
     /// A window's state before its document has been read: a viewer with no viewport yet, one tab
     /// for the file at `path` under [`DOCUMENT`], and no thread started for anything but `ahead`,
-    /// page one's drawing beside the opening thread's read.
+    /// page one's drawing beside the opening thread's read. `widget_appearances` and `settings` are
+    /// what the command line asked of the window, which every open sends before its document.
     #[must_use]
     pub fn new(
         path: &Path,
@@ -249,6 +321,8 @@ impl WindowState {
         fragment: Option<String>,
         trace: Trace,
         ahead: crate::Ahead,
+        widget_appearances: WidgetAppearances,
+        settings: crate::Settings,
     ) -> Self {
         Self {
             viewer: Viewer::new(1, 1, 1.0),
@@ -281,6 +355,9 @@ impl WindowState {
             archive: None,
             kept: crate::password::Kept::new(),
             converter: crate::archiving::Converter::new(),
+            widget_appearances,
+            restrictions: standing(settings),
+            separations: settings.separations,
         }
     }
 
@@ -447,9 +524,6 @@ pub trait NativeWindow {
     /// Runs a queue of commands the way [`Self::dispatch`] runs one: until nothing is left, then
     /// the window is refreshed.
     fn drain(&mut self, queue: VecDeque<Command>);
-
-    /// §7.6.4.1: opens the document, with a password where one has been supplied.
-    fn open_document(&mut self, password: Option<viewer_core::Secret>);
 
     /// Reads what page one does not need beside it, on a thread of its own: §12.3.3's outline and
     /// §7.7.3's page tree, placed, which the open no longer reads (ADRs 1543, 1553).
@@ -948,6 +1022,23 @@ pub trait NativeWindow {
             self.take_the_opening(resize);
         }
         false
+    }
+
+    /// §7.6.4.1: opens the document, with a password where one has been supplied.
+    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
+        if let Some(password) = &password {
+            self.state_mut().kept.keep(DOCUMENT, password);
+        }
+        let state = self.state();
+        let commands = opening_commands(
+            state.restrictions.window(),
+            state.widget_appearances,
+            state.separations,
+            state.showing.bytes.clone(),
+            password,
+            state.showing.fragment.clone(),
+        );
+        self.drain(commands);
     }
 
     /// Takes in the document the opening thread opened, and tells it its viewport.
@@ -1522,6 +1613,12 @@ pub trait NativeWindow {
             crate::archiving::Pressed::Convert(command) => self.dispatch(command),
             crate::archiving::Pressed::Choose(choosing) => self.offer_to_archive(choosing),
         }
+    }
+
+    /// The chooser again, in a window that has chosen: the next conversion is to what is chosen on
+    /// it, and closing it leaves the choice the window held (ADR 1985).
+    fn choose_the_archive_again(&mut self) {
+        self.offer_to_archive(crate::archiving::Choosing::new());
     }
 
     /// Puts the six targets and the shipped profiles in front of the person, in this toolkit's

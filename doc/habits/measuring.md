@@ -1076,3 +1076,12 @@ because every one of the three puts the keyboard focus on its list when it opens
 focus lands elsewhere makes the drive's step toolkit-specific, and a step that differs by toolkit is
 a step that goes untested in one of them.
 
+## 107. A crate-scoped check runs bare; the lock is for walks
+
+Round 1571 queued `cargo nextest -p pdf-archive` and a clippy of two crates under `tools/bounded.sh
+--lock` and waited thirteen to twenty-five minutes behind the batch's walks for checks that ran in
+nine seconds. The lock exists so that two walks of the corpus do not share the machine's memory
+(ADR 1684); a crate's own tests and lints are a build's size, which `doc/environment.md`'s rule block
+already lets run bare. Tier 1 scoped to a round's crates is run bare, and a walk, a hold or an export
+takes the lock.
+

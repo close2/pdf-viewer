@@ -56,11 +56,13 @@ impl Host {
     /// `viewer_core` already keeps beside the document it is about (ADR 1145) — and the view
     /// itself, which is one widget tree moved into the notebook page that is now current.
     pub(super) fn show_document(&mut self, id: DocumentId, queue: &mut VecDeque<Command>) {
-        self.state.showing.departures = self.restrictions.document();
+        self.state.showing.departures = self.state.restrictions.document();
         if !self.state.documents.focus(id, &mut self.state.showing) {
             return;
         }
-        self.restrictions.depart(self.state.showing.departures);
+        self.state
+            .restrictions
+            .depart(self.state.showing.departures);
         self.hold_the_view(self.state.documents.focused_index());
         // §12.7's controls and §12.5.6.14's windows are **not** taken down here. Each is rebuilt
         // from the answer that follows `Command::Focus`, and both rebuilds are guarded by a
@@ -234,12 +236,14 @@ impl Host {
         // The menu's document scope goes into the state that is about to be swapped, exactly as
         // it does on a switch: the value the menu holds is this document's and the one that comes
         // back belongs to whichever tab takes the front.
-        self.state.showing.departures = self.restrictions.document();
+        self.state.showing.departures = self.state.restrictions.document();
         match self.state.documents.close(closing, &mut self.state.showing) {
             viewer_host::Close::Last => self.ui.window.close(),
             viewer_host::Close::Unknown => {}
             viewer_host::Close::Done { state, focused } => {
-                self.restrictions.depart(self.state.showing.departures);
+                self.state
+                    .restrictions
+                    .depart(self.state.showing.departures);
                 // **The view leaves the page before the page is destroyed.** A notebook page
                 // owns its child, and the page being removed is the one holding the splitter —
                 // so removing it first would take the panels and the page area down with it.

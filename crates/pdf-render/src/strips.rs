@@ -31,8 +31,8 @@ use std::collections::{HashMap, HashSet};
 use rayon::prelude::*;
 
 use crate::{
-    BlendMode, ClipId, Command, DisplayList, MarkBounds, Paint, Path, Rect, Stroke, TargetSpec,
-    Transform,
+    BlendMode, ClipId, Command, DisplayList, MarkBounds, Paint, Path, Rect, Selection, Stroke,
+    TargetSpec, Transform,
 };
 
 /// The device extent of every command a backend draws, in target pixels, in painting order.
@@ -846,22 +846,27 @@ fn same_bits(left: Option<Rect>, right: Option<Rect>) -> bool {
 /// from it only where it was measured under `target.transform` itself, every one of the six numbers
 /// the same, and measured again here otherwise. `row_local` is [`unsplittable_rows_where`]'s
 /// question to the backend, asked from every thread of the pool.
+///
+/// `drawn` is the list's commands a backend draws: every one of them ([`Selection::whole`]), or a
+/// window's, which is read as a list of those commands alone would be — divided into the same
+/// runs by position, each command's bound read by its index into the list (ADR 1980).
 #[must_use]
 pub fn strip_inputs<'a>(
-    list: &DisplayList,
+    drawn: Selection<'_>,
     target: TargetSpec,
     bounds: &'a MarkBounds,
     row_local: &(dyn Fn(PlannedMark<'_>) -> bool + Sync),
 ) -> StripInputs<'a> {
-    let commands = list.commands();
+    let selection = drawn;
+    let list = selection.list();
+    let length = selection.len();
     let rows = target.height as usize;
     let shares = rayon::current_num_threads().saturating_mul(SHARES_PER_THREAD);
     let band = rows.div_ceil(shares.max(1)).max(1);
     let measured = bounds
         .exactly_at(target.transform)
-        .filter(|measured| measured.len() == commands.len());
-    let pieces = commands
-        .len()
+        .filter(|measured| measured.len() == list.commands().len());
+    let pieces = length
         .div_ceil(LEAST_PIECE)
         .min(shares)
         .min(
@@ -870,14 +875,13 @@ pub fn strip_inputs<'a>(
                 .unwrap_or(usize::MAX),
         )
         .max(1);
-    let size = commands.len().div_ceil(pieces).max(1);
-    let pieces = commands
-        .par_chunks(size)
-        .enumerate()
-        .map(|(index, run)| {
+    let size = length.div_ceil(pieces).max(1);
+    let pieces = (0..length.div_ceil(size))
+        .into_par_iter()
+        .map(|index| {
             let first = index.saturating_mul(size);
-            let own = measured.and_then(|all| all.get(first..first.saturating_add(run.len())));
-            Piece::read(list, target, run, own, row_local, band)
+            let run = selection.part(first..first.saturating_add(size));
+            Piece::read(list, target, run, measured, row_local, band)
         })
         .collect();
     StripInputs {
@@ -889,18 +893,23 @@ pub fn strip_inputs<'a>(
 }
 
 impl<'a> Piece<'a> {
-    /// Reads one run of top-level commands, `measured` holding their own bounds where known.
+    /// Reads one run of top-level commands, `measured` holding every command of the list's own
+    /// bound, by its index into the list, where known.
+    ///
+    /// A run of the list borrows its extents from those bounds; a run of a window's commands
+    /// states them, since the bounds of the commands it keeps are not one slice of the list's.
     fn read(
         list: &DisplayList,
         target: TargetSpec,
-        run: &[Command],
+        run: Selection<'_>,
         measured: Option<&'a [Option<Rect>]>,
         row_local: &dyn Fn(PlannedMark<'_>) -> bool,
         band: usize,
     ) -> Self {
         let rows = target.height as usize;
         let to_device = target.transform;
-        let mut extents = Extents::new(measured, run.len());
+        let borrowed = measured.and_then(|all| all.get(run.run()?));
+        let mut extents = Extents::new(borrowed, run.len());
         let mut gathered = Vec::new();
         let mut memo = HashMap::new();
         let mut forbidden = vec![false; rows];
@@ -911,7 +920,7 @@ impl<'a> Piece<'a> {
             row_local,
             freed: Some(RefCell::new(vec![false; rows])),
         };
-        for (index, command) in run.iter().enumerate() {
+        for (position, (index, command)) in run.indexed().enumerate() {
             let own = match measured {
                 Some(all) => all
                     .get(index)
@@ -933,7 +942,7 @@ impl<'a> Piece<'a> {
                 &mut gathered,
                 &mut memo,
             );
-            extents.push(index, &gathered);
+            extents.push(position, &gathered);
             walk.element(command, false, own, &mut forbidden, &mut seen);
         }
         let extents = extents.settled();
@@ -1825,6 +1834,71 @@ mod tests {
         }
     }
 
+    /// A window's commands read through its selection state every number the planner reads of a
+    /// list of those commands alone — the copy a window was once drawn from — bit for bit, on
+    /// pools of one to seven threads, with the bounds measured where the window is and at another
+    /// translation (ADR 1980).
+    #[cfg_attr(
+        miri,
+        ignore = "crossbeam-epoch's retag under rayon, not this tree's — see `paint.rs`'s test of \
+                  the divided reduction"
+    )]
+    #[test]
+    fn a_window_read_through_its_selection_states_what_its_copy_states() {
+        let list = busy_page(40_000, 31);
+        let at = Transform::scale(2.0, 2.0).then(Transform::translate(-300.0, -150.0));
+        let window = TargetSpec {
+            width: 600,
+            height: 500,
+            transform: at,
+        };
+        let elsewhere = at.then(Transform::translate(17.0, -3.0));
+        for measured_at in [at, elsewhere] {
+            let fresh = list.clone();
+            let bounds = fresh.mark_bounds(measured_at);
+            let culled = fresh.reaching(window).expect("the window leaves marks out");
+            assert!(
+                culled.len() < list.commands().len() / 2,
+                "most marks are culled"
+            );
+            let copied = culled.copied();
+            let copied_bounds = MarkBounds::measure(&copied, measured_at);
+            let bits = |costs: &[f64]| costs.iter().map(|cost| cost.to_bits()).collect::<Vec<_>>();
+            for threads in [1, 4, 7] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .expect("a pool");
+                let (selected, whole) = pool.install(|| {
+                    (
+                        strip_inputs(culled.selection(), window, &bounds, &frees_some),
+                        strip_inputs(
+                            crate::Selection::whole(&copied),
+                            window,
+                            &copied_bounds,
+                            &frees_some,
+                        ),
+                    )
+                });
+                assert_eq!(
+                    selected.pieces.len(),
+                    whole.pieces.len(),
+                    "{threads} threads"
+                );
+                assert_eq!(selected.extents(), whole.extents(), "{threads} threads");
+                let (one, other) = pool.install(|| (selected.costs(), whole.costs()));
+                assert_eq!(bits(&one), bits(&other), "costs, {threads} threads");
+                assert_eq!(selected.unsplittable(), whole.unsplittable());
+                assert_eq!(selected.between_fills(), whole.between_fills());
+                let division = [0, 64, 300, 500];
+                assert_eq!(
+                    selected.replay_ratio(&division).to_bits(),
+                    whole.replay_ratio(&division).to_bits()
+                );
+            }
+        }
+    }
+
     /// [`the_inputs_read_on_the_pool_are_the_serial_inputs`] of one page, whose runs read from
     /// bounds measured where the target is `borrow` them or state their extents in full.
     fn the_inputs_are_the_serial_inputs(list: &DisplayList, borrow: bool) {
@@ -1854,7 +1928,9 @@ mod tests {
                     .num_threads(threads)
                     .build()
                     .expect("a pool");
-                let inputs = pool.install(|| strip_inputs(&list, target, &bounds, &frees_some));
+                let inputs = pool.install(|| {
+                    strip_inputs(crate::Selection::whole(&list), target, &bounds, &frees_some)
+                });
                 assert!(threads == 1 || inputs.pieces.len() > 1, "read in pieces");
                 let borrowed = |piece: &Piece<'_>| {
                     matches!(&piece.extents, Extents::Borrowed { exceptions, .. }

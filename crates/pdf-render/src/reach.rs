@@ -12,10 +12,11 @@
 //! transform and kept with the list ([`DisplayList::mark_bounds`]). It serves every transform of
 //! the same magnification — the same linear part — because a scroll moves every bound by the
 //! same translation, and the rounding that move leaves is bounded and added to the margin
-//! ([`MarkBounds::reach`]). [`DisplayList::reaching`] is the list of the commands that reach a
-//! target, which is what a backend draws a part of a page from (ADR 1841).
+//! ([`MarkBounds::reach`]). [`DisplayList::reaching`] names the commands that reach a target,
+//! which is what a backend draws a part of a page from (ADR 1841), as a selection of the list's
+//! own commands rather than a copy of them (`crate::selection`, ADR 1980).
 //!
-//! **A culled list draws the same pixels as the whole one**, and that is the whole contract. A
+//! **A culled page draws the same pixels as the whole one**, and that is the whole contract. A
 //! command is left out only where its bound, grown by the margin `render_cpu` already culls rows
 //! with, misses the target; such a command marks no pixel of it, so leaving it out changes no
 //! pixel the target holds. What does change is what a strip planner is told: a mark that reaches
@@ -25,7 +26,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use rayon::prelude::*;
 
-use crate::{Command, DisplayList, Point, Rect, TargetSpec, Transform};
+use crate::{DisplayList, Point, Rect, TargetSpec, Transform, Window};
 
 /// The margin, in device pixels, a bound is grown by before it is said to miss a region.
 ///
@@ -296,18 +297,6 @@ impl MarkBounds {
             reach.max.x < 0.0 || reach.min.x > width || reach.max.y < 0.0 || reach.min.y > height
         })
     }
-
-    /// The bounds of the commands `kept` names, in the order it names them, under the same
-    /// transform: what a list of those commands alone would measure.
-    fn kept(&self, kept: impl IndexedParallelIterator<Item = usize>) -> Self {
-        Self {
-            at: self.at,
-            bounds: kept
-                .map(|index| self.bounds.get(index).copied().flatten())
-                .collect(),
-            extremes: OnceLock::new(),
-        }
-    }
 }
 
 /// A list's [`MarkBounds`] at the magnification it was last asked at.
@@ -376,52 +365,42 @@ impl DisplayList {
         measured
     }
 
-    /// The commands of this list that can mark `target`, as a list of their own, or `None`
-    /// where it would be this list — every command reaches the target — or where this list
-    /// carries a plane drawn beside it that a list of fewer commands could not keep in step.
+    /// The commands of this list that can mark `target`, by their indices into it, or `None`
+    /// where that would be this list — every command reaches the target — or where this list
+    /// carries a plane drawn beside it that a selection of fewer commands could not keep in step.
     ///
     /// Byte for byte the same pixels in `target` as this list draws there: a command is left out
     /// only where its bound, grown by [`MARGIN`], misses every pixel of the target (the module
-    /// comment, ADR 1841). The list returned keeps this one's clips, soft masks, page boundary
-    /// and blending curve, and the bounds of the commands it keeps, so a strip of it asks
-    /// [`DisplayList::mark_bounds`] and measures nothing again.
+    /// comment, ADR 1841). A reader draws the window through [`Window::selection`], which names
+    /// this list's own commands, clips and soft masks and copies none of them (ADR 1980), and asks
+    /// this list's [`DisplayList::mark_bounds`] by each command's index into it.
     ///
     /// **Declined where the list carries a plane indexed by its commands**: §11.4.7's second
     /// raster in a four-component blending space, §11.7.5.2's transfer channel and §10.8.3's
     /// spot planes are each drawn beside the page from lists of their own, and a page with one
-    /// is drawn whole rather than culled out of step with it.
+    /// is drawn whole rather than culled out of step with it. And declined for a list of more
+    /// commands than a [`Window`]'s 32-bit indices count, which is drawn whole.
     #[must_use]
-    pub fn reaching(&self, target: TargetSpec) -> Option<Self> {
+    pub fn reaching(&self, target: TargetSpec) -> Option<Window<'_>> {
         if self.black().is_some() || self.transfers().is_some() || self.separation().is_some() {
             return None;
         }
         let bounds = self.mark_bounds(target.transform);
-        if bounds.every_command_reaches(target) {
+        if bounds.every_command_reaches(target) || u32::try_from(self.commands().len()).is_err() {
             return None;
         }
-        let kept: Vec<(usize, &Command)> = self
-            .commands()
-            .par_iter()
-            .enumerate()
-            .filter(|(index, _)| !bounds.misses_target(*index, target))
+        // The kept indices alone, on every core. A filtered collect joins its threads' pieces on
+        // one thread (trap 186), which for four bytes a command is a copy of 17 MB on the witness
+        // where the commands themselves were 520 MB and a reference count apiece (ADR 1941).
+        let kept: Vec<u32> = (0..self.commands().len())
+            .into_par_iter()
+            .filter(|index| !bounds.misses_target(*index, target))
+            .filter_map(|index| u32::try_from(index).ok())
             .collect();
         if kept.len() == self.commands().len() {
             return None;
         }
-        // Copied on every core, each copy written where it belongs: an indexed iterator collects
-        // into the list in place, where the filtered one it replaced gathered pieces and joined
-        // them on one thread — a second copy of every command. A window of 83 % of the owner's
-        // witness keeps 4 333 950 of its commands, and their copy took 77 to 158 ms of its frame
-        // on one thread and 81 to 98 ms filtered on the pool, and takes 43 to 49 ms (ADR 1941).
-        let commands = kept
-            .par_iter()
-            .map(|(_, command)| (*command).clone())
-            .collect();
-        let culled = self.with_commands(commands);
-        culled.kept_bounds().keep(Arc::new(
-            bounds.kept(kept.par_iter().map(|(index, _)| *index)),
-        ));
-        Some(culled)
+        Some(Window::new(self, kept))
     }
 }
 
@@ -489,7 +468,13 @@ mod tests {
             .expect("most of the row is outside the window");
         // Squares at 30 and 40 are inside; the one at 20 ends at device x = -18 and the one at
         // 50 begins at device x = 40, the window's edge, which a bound grown by a pixel meets.
-        assert_eq!(culled.commands(), &list.commands()[3..6]);
+        let kept: Vec<usize> = culled
+            .selection()
+            .indexed()
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(kept, [3, 4, 5]);
+        assert_eq!(culled.copied().commands(), &list.commands()[3..6]);
     }
 
     #[cfg_attr(

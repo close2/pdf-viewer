@@ -981,7 +981,8 @@ pub enum Rewrite {
     /// `/TR` the file states is the name `Identity`, the function in force is the identity before
     /// and after each `gs`, and removing the entry leaves every colour where it was on this
     /// reader's device, whose initial transfer function §8.4.1's Table 52 leaves device dependent
-    /// and which is the identity here (`doc/adr/1952` section 3).
+    /// and which is the identity here (`doc/adr/1952` section 3). A `/TR2 /Identity` is written as
+    /// Table 57's `Default`, that same initial function, by the same reasoning (`doc/adr/1978`).
     IdentityTransferFunctionRemoved,
     /// Every graphics state stating `/TR` loses the entry, where one of them states a function
     /// other than the identity — each such function first written into `xmpMM:History`.
@@ -997,6 +998,19 @@ pub enum Rewrite {
     /// moves, and a press holding a halftone of that name screens with the dictionary's own
     /// parameters instead, which is [`super::Loss::HalftoneName`] (`doc/adr/1965`).
     HalftoneNameRemoved,
+    /// Every graphics state that set overprint mode 1 for an `ICCBased` CMYK mark painted with
+    /// overprinting on states mode 0, where none of them governs a `DeviceCMYK` mark.
+    ///
+    /// ISO 19005-2 section 6.2.4.2 and ISO 19005-4 section 6.2.4.2 forbid the mode there, and
+    /// ISO 32000-2 §8.6.7 applies a non-zero mode only to `DeviceCMYK` marks, and §8.6.5.7 to an
+    /// `ICCBased` one only where a processor treats the space as its output device's own — which
+    /// this reader does only on a page compositing in a press, refused (`doc/adr/1978`).
+    OverprintModeRestated,
+    /// The same states state mode 0 where one of them also governs a `DeviceCMYK` mark painted
+    /// with overprinting on, which costs [`super::Loss::OverprintMode`]: §8.6.7 has such a mark's
+    /// zero components leave the backdrop under mode 1 and paint it out under mode 0
+    /// (`doc/adr/1978`).
+    OverprintModeZeroed,
 }
 
 impl Rewrite {
@@ -1319,15 +1333,25 @@ impl Rewrite {
                  operator's name-template makes, numbered past every name the file already uses"
             }
             Self::IdentityTransferFunctionRemoved => {
-                "a graphics state's TR entry naming the identity is removed, in a file whose \
-                 graphics states state no other transfer function"
+                "a graphics state's TR entry naming the identity is removed and a TR2 naming it \
+                 is written Default, in a file whose graphics states state no other transfer \
+                 function"
             }
             Self::TransferFunctionRemoved => {
-                "every graphics state's TR entry is removed, and each function other than the \
-                 identity is first written into the file's own xmpMM:History"
+                "every graphics state's TR entry is removed and every TR2 is written Default, and \
+                 each function other than the identity is first written into the file's own \
+                 xmpMM:History"
             }
             Self::HalftoneNameRemoved => {
                 "a halftone's HalftoneName is removed and every parameter it defines is kept"
+            }
+            Self::OverprintModeRestated => {
+                "a graphics state that set overprint mode 1 for ICCBased CMYK marks states mode \
+                 0, in a file where no DeviceCMYK mark is painted under it with overprinting on"
+            }
+            Self::OverprintModeZeroed => {
+                "a graphics state that set overprint mode 1 for ICCBased CMYK marks states mode \
+                 0, and the DeviceCMYK marks it governed paint their zero components"
             }
             Self::ShippedCMapEmbedded => {
                 "a composite font naming a CMap the base standard does not predefine names a \
@@ -1430,6 +1454,8 @@ impl Rewrite {
             Self::IdentityTransferFunctionRemoved => "identity-transfer-function-removed",
             Self::TransferFunctionRemoved => "transfer-function-removed",
             Self::HalftoneNameRemoved => "halftone-name-removed",
+            Self::OverprintModeRestated => "overprint-mode-restated",
+            Self::OverprintModeZeroed => "overprint-mode-zeroed",
         }
     }
 }
@@ -1495,6 +1521,7 @@ pub(super) fn convert(
         transfers: prepared.owed.transfers.as_ref().ok(),
         blend_modes: prepared.owed.blend_modes.as_ref().ok(),
         halftone_names: prepared.owed.halftone_names.as_ref().ok(),
+        overprint_modes: prepared.owed.overprint_modes.as_ref().ok(),
         appearance_states: prepared.owed.appearance_states.as_ref().ok(),
         orders: prepared.owed.orders.as_ref().ok(),
         page_resources: prepared.owed.page_resources.as_ref().ok(),
@@ -2339,6 +2366,8 @@ struct Rewriter<'a> {
     blend_modes: Option<&'a sites::Sites>,
     /// The halftones whose `HalftoneName` goes.
     halftone_names: Option<&'a sites::Sites>,
+    /// The graphics states whose overprint mode becomes 0.
+    overprint_modes: Option<&'a super::overprint::OverprintModes>,
     /// The stream each annotation's normal appearance collapses to.
     appearance_states: Option<&'a AppearanceStates>,
     /// The `/Order` arrays completed, and where each goes.
@@ -2625,6 +2654,19 @@ impl Rewriter<'_> {
                 count(applied, rewrite);
                 changed = true;
             }
+            // Table 57's `Default`, the one value ISO 19005-2 section 6.2.5 admits for `/TR2`.
+            if self.wants(rewrite)
+                && self
+                    .transfers
+                    .is_some_and(|functions| functions.second.contains(&id))
+            {
+                out.insert(
+                    Name::new(&b"TR2"[..]),
+                    Object::Name(Name::new(&b"Default"[..])),
+                );
+                count(applied, rewrite);
+                changed = true;
+            }
         }
         changed |= self.restate_blend_mode(id, out, applied);
         if self.wants(Rewrite::HalftoneNameRemoved)
@@ -2635,6 +2677,19 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::HalftoneNameRemoved);
             changed = true;
+        }
+        // One change under either of its two rewrites, as for the transfer functions above: the
+        // decision says what it costs, and the states it reaches are the same (`doc/adr/1978`).
+        for rewrite in [Rewrite::OverprintModeRestated, Rewrite::OverprintModeZeroed] {
+            if self.wants(rewrite)
+                && self
+                    .overprint_modes
+                    .is_some_and(|modes| modes.at.contains(&id))
+            {
+                out.insert(Name::new(&b"OPM"[..]), Object::Integer(0));
+                count(applied, rewrite);
+                changed = true;
+            }
         }
         changed |= self.collapse_appearance_states(id, out, applied);
         changed |= self.reduce_appearance_dictionary(id, out, applied);

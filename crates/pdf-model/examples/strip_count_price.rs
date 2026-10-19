@@ -85,7 +85,9 @@ fn main() {
         // One list per target, so that the bounds the cull keeps are measured once per
         // magnification as a viewer's are, and not in the first count's clock.
         let fresh = list.clone();
-        let planned = fresh.reaching(target).unwrap_or_else(|| fresh.clone());
+        let planned = fresh
+            .reaching(target)
+            .map_or_else(|| fresh.clone(), |window| window.copied());
         let mut clocks = vec![Vec::new(); counts.len()];
         let mut digests = vec![0_u64; counts.len()];
         for _ in 0..rounds {

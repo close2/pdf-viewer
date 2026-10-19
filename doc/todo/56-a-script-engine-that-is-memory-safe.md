@@ -64,8 +64,8 @@ keys a host tells, `richValue` and `richChange` read-only as spans of the field'
 requests a host takes, the page's words read once for a script that spells the pair, `util`'s seven
 as pure functions, and `OCG.getIntent`; `surface::NOT_BRIDGED` is empty, and the two runners answer
 whether a page changed beside how many scripts ran. **What is next** is chosen from the throws'
-causes below, and the owner's amendment of `CLAUDE.md`'s exclusion, which `doc/questions/Q286`
-proposes. Every window commits through
+causes below, within `CLAUDE.md`'s exclusion as the owner amended it in answer to `doc/questions/Q286` (A286,
+ADR 1904). Every window commits through
 `viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
 Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
 (ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit

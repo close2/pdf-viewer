@@ -17,7 +17,8 @@
 //! one page rather than about the viewer, so `viewer_core::MAX_PIXELS` goes on bounding every
 //! raster this process draws and `Query::Frame` goes on answering for the pages that must still
 //! cross as pixels. A page past the bound is asked for only where the host said it draws one from
-//! its marks (`Command::Oversize`), and then it crosses as marks or is refused (ADR 1944). One consequence is worth stating rather than discovering: **the cancel is
+//! its marks (`Command::Oversize`), and then it crosses as marks (ADR 1944) or, where its marks cannot,
+//! as the window this process draws of it (ADR 1986). One consequence is worth stating rather than discovering: **the cancel is
 //! about the work this process does**, so on the marks arm it covers the interpretation and there
 //! is no rasterisation of ours for it to stop. Drawing the marks is the host's, as it always was
 //! — the worker was drawing a second copy and throwing it away.
@@ -430,6 +431,22 @@ pub enum Payload {
         /// carries the y flip and any tile offset besides — and `doc/traps/the-interactive-loop.md`'s
         /// trap 12a is a doc comment that claimed the display list's space *was* the raster's.
         target: pdf_render::TargetSpec,
+    },
+    /// A window of a page past [`viewer_core::MAX_PIXELS`] whose marks cannot cross, drawn in the
+    /// confined process: the part of `target` the viewport shows with a margin round it (ADR 1986).
+    ///
+    /// The page that needs it is one the list format refuses ([`Uncodable`]) or one whose list is
+    /// past the gibibyte a page's pixels may claim, at a target no raster of which may be
+    /// allocated. **The worker states the window rather than the host asking for one**, so the
+    /// host places what it is given at `corner` and needs no agreement with the worker about the
+    /// margin; a scroll that leaves the window is drawn again in the command that scrolled.
+    Window {
+        /// The whole target the window is a part of, which places it on the page.
+        target: pdf_render::TargetSpec,
+        /// The window's first column and row in `target`'s pixels.
+        corner: (u32, u32),
+        /// The window's pixels, `raster.width` × `raster.height` of `target` from `corner`.
+        raster: Raster,
     },
 }
 

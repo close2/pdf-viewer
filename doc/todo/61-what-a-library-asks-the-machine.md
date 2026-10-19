@@ -2,7 +2,8 @@
 
 Status: **accepted** by the project owner on 2026-09-04, as the line drawn through
 [59](59-the-resource-port.md): the environment probes and the document's resources are two
-different things, and only one of them is a capability.
+different things, and only one of them is a capability. The allow-list moves only by the owner's
+word, and this file is where a round prepares the case (`doc/questions/A26`, 2026-09-06).
 Priority: 50-band. Companions: [59](59-the-resource-port.md), `doc/todo/34`, `doc/todo/58` §4,
 traps 31 and 32.
 

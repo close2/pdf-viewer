@@ -1602,3 +1602,30 @@ interpreter from the environment, `PYTHONDONTWRITEBYTECODE` included, so the byt
 environment forbids is written anyway. `-B` forbids it on the command line, where `-I` cannot undo it;
 the census's usage line says `python3 -I -B`, and so does every script under `tools/` that another
 script may import.
+
+### 196. A wall clock below the poll measures the processor, not the lock
+
+`tools/bounded.sh --self-test` failed in three merge chains in a row and passed alone each time.
+Round 1573 found the test judging "waited for nothing" by `wait=` against one 0.5 s poll, where `wait=`
+on a lane granted at first look is the wrapper's twenty forks and a Python start — 0.0 s on an idle
+machine, 5.3–13.8 s beside busy loops at nice 0, and `behind=-` on every one of those lines, so the
+lane had been free. The lock writes whether a look found its lane held; that field is the fact the
+test wanted, and the five sites that compared a clock now read it (ADR 1982). A test of a lock that
+reads a clock is a test of whatever else the machine is doing.
+
+### 197. Two drives' photographs differ by the drive's own names
+
+Round 1576 compared 221 photographs of HEAD against HEAD plus its patch and found 46 different.
+Thirty-one of them were the status strip printing the drive's output directory, a loopback port or an
+answer file's temporary name — text that differs between any two runs and says nothing about the
+program. The rest were a caret's blink, a window not yet up, a loading bar's moment, a focus ring, and
+a face not loaded 0.4 s after launch (ADR 1406). A photograph comparison is read after its known
+sources of difference are taken out, and the drive's own names are the first of those.
+
+### 199. A gate binary copied out of `release/deps` judges nothing and passes
+
+Round 1572 copied the turn gate's binary into its scratch, as trap 191 asks of every drive, and
+the gate exited 0 with every figure "not judged": it reads whether to judge from its own path, and
+`release/deps` was not in it. The second hold ran the copy from `<scratch>/release/deps/` and judged
+33 of 33. A gate that can decline to judge says so in its output; a reader of a green exit looks for
+that sentence before believing the green.

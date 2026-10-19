@@ -317,9 +317,10 @@ fn planned(list: &DisplayList, target: TargetSpec) -> DisplayList {
     planned_list(list, target).unwrap_or_else(|| list.clone())
 }
 
-/// The cull the shipped rasteriser makes of `list` for `target`, or `None` where it keeps all.
+/// The cull the shipped rasteriser makes of `list` for `target`, as a list of its own, or `None`
+/// where it keeps all.
 fn planned_list(list: &DisplayList, target: TargetSpec) -> Option<DisplayList> {
-    list.reaching(target)
+    list.reaching(target).map(|window| window.copied())
 }
 
 /// A 64-bit FNV-1a digest of a raster's bytes, for comparing two builds' windows by eye.

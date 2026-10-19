@@ -112,6 +112,10 @@ enum Content {
     /// A page past `viewer_core::MAX_PIXELS` that the processor draws, as the window shows it
     /// (ADR 1944).
     Windowed(Windowed),
+    /// A window the worker drew of a page past the bound whose marks cannot cross, placed where
+    /// the frame says it is (`Payload::Window`, ADR 1986). The worker draws the next one when a
+    /// scroll leaves it, so nothing here asks.
+    Sent(Window, WindowPixels),
     /// The rasteriser refused the page, in its own words, and what it refused.
     ///
     /// Kept rather than retried **for that drawing and no other**: a rasteriser that refused this
@@ -287,6 +291,11 @@ impl Screen {
                     }
                 }
                 Payload::Raster(raster) => Content::Pixels(raster, None),
+                Payload::Window {
+                    target: _,
+                    corner,
+                    raster,
+                } => sent(before.map(|slot| slot.content), corner, raster, self.device),
                 Payload::List { list, target } if self.device => on_the_device(
                     before.map(|slot| slot.content),
                     (page, origin, self.extent),
@@ -491,7 +500,10 @@ impl Screen {
                 Content::Windowed(Windowed {
                     drawn: Some((drawn, WindowPixels::Raster(raster))),
                     ..
-                }) => blit(&mut window, raster, window_origin(slot.origin, *drawn)),
+                })
+                | Content::Sent(drawn, WindowPixels::Raster(raster)) => {
+                    blit(&mut window, raster, window_origin(slot.origin, *drawn));
+                }
                 _ => {}
             }
         }
@@ -525,7 +537,8 @@ impl Screen {
                 Content::Windowed(Windowed {
                     drawn: Some((drawn, WindowPixels::Wrapped(list))),
                     ..
-                }) => Some((
+                })
+                | Content::Sent(drawn, WindowPixels::Wrapped(list)) => Some((
                     Arc::clone(list),
                     placed(
                         image_target(list),
@@ -537,6 +550,7 @@ impl Screen {
                 Content::Drawing(..)
                 | Content::Pixels(..)
                 | Content::Windowed(..)
+                | Content::Sent(..)
                 | Content::Refused { .. } => None,
             })
             .collect()
@@ -681,6 +695,29 @@ fn windowed(
         held.asked = Some(window);
     }
     Content::Windowed(held)
+}
+
+/// A window the worker drew (ADR 1986): blitted as it is on a processor screen, wrapped as the
+/// one-image list the device places on a device screen — the held wrapper kept where the same
+/// window recrossed with the same pixels, for the reason a raster payload's is kept.
+fn sent(before: Option<Content>, corner: (u32, u32), raster: Raster, device: bool) -> Content {
+    let window = Window {
+        x: corner.0,
+        y: corner.1,
+        width: raster.width,
+        height: raster.height,
+    };
+    if !device {
+        return Content::Sent(window, WindowPixels::Raster(raster));
+    }
+    match before {
+        Some(Content::Sent(held, WindowPixels::Wrapped(list)))
+            if held == window && wraps_exactly(&list, &raster) =>
+        {
+            Content::Sent(held, WindowPixels::Wrapped(list))
+        }
+        _ => Content::Sent(window, WindowPixels::Wrapped(wrap(raster))),
+    }
 }
 
 /// The page's pixels as the one-command list the device draws them by.

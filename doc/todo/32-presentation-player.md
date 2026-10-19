@@ -1,8 +1,9 @@
 # A presentation player
 
-Status: all twelve of Table 164's styles are drawn — four of them at a quantity this program chose
+Status: **done.** All twelve of Table 164's styles are drawn — four of them at a quantity this program chose
 and reports as its own (ADR 1299) — §12.4.4.2's states are walked, there is a window (ADR 0470),
 and all three hosts drive the clock (ADR 0473). Nothing in §12.4.4 is owed.
+Cited by: `doc/ui-boundary.md` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 32
 Clauses: §12.4.4, §12.2, Table 29
 Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,

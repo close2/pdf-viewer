@@ -3708,6 +3708,69 @@ PY2
 # `zoom_past_the_bound_heavy` is the same zoom on `HEAVY_FILE`, with the picture not judged.
 zoom_past_the_bound() { zoom_past "$FIXTURES/drive-a1.pdf" 82-zoom-past-the-bound judged; }
 zoom_past_the_bound_heavy() { zoom_past "$HEAVY_FILE" 82-zoom-past-the-bound-heavy counted; }
+# zoom_past_the_bound_uncrossable: the same zoom, on the same page with §8.7.4.5.2's Type 1 shading
+# in its bottom-left corner — a function of position, which the confined wire carries as no marks at
+# all (`Uncodable::DeferredColours`), so past the bound the confined window was refused the page
+# where the toolkit windows draw it. Its worker now draws the window and sends that (ADR 1986), and
+# the step is judged as the plain page is: the bar sharp in the middle, and no refusal.
+zoom_past_the_bound_uncrossable() {
+    local file="$FIXTURES/drive-a1-shaded.pdf"
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array
+pdf = pikepdf.new()
+body = (b"1 0 0 rg 742 1092 200 200 re f\n0 0 0 rg 841.5 1092 1 200 re f\n"
+        b"q 0 0 400 400 re W n /Sh0 sh Q\n")
+function = pikepdf.Stream(pdf, b"{ pop dup 0 }")
+function.FunctionType = 4
+function.Domain = Array([0, 1, 0, 1])
+function.Range = Array([0, 1, 0, 1, 0, 1])
+shading = Dictionary(ShadingType=1, ColorSpace=Name.DeviceRGB, Domain=Array([0, 1, 0, 1]),
+                     Matrix=Array([400, 0, 0, 400, 0, 0]), Function=pdf.make_indirect(function))
+content = pikepdf.Stream(pdf, body)
+pdf.pages.append(pikepdf.Page(Dictionary(
+    Type=Name.Page, MediaBox=[0, 0, 1684, 2384], Contents=pdf.make_indirect(content),
+    Resources=Dictionary(Shading=Dictionary(Sh0=pdf.make_indirect(shading))))))
+pdf.save(sys.argv[1])
+PY2
+    zoom_past "$file" 82-zoom-past-the-bound-uncrossable judged
+}
+# rendition_click: a click on §12.5.6.18's screen annotation reaches its §12.6.4.14 rendition in the
+# confined window, whose worker judges the clip and hands it over as `Event::Media` (ADR 1987). The
+# drive's own page: one screen annotation over the whole of it, playing a clip named by a URL, so a
+# click at the window's middle is on it at any arrangement and no file is written for the hand-off.
+rendition_click() {
+    local step=89-rendition-click file="$FIXTURES/drive-rendition.pdf" mark X Y WIDTH HEIGHT
+    [ -s "$file" ] || python3 - "$file" <<'PY2'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+pdf = pikepdf.new()
+pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                         Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+page = pdf.pages[0]
+screen = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Screen,
+                                      Rect=Array([0, 0, 612, 792]), P=page.obj, F=4))
+clip = Dictionary(Type=Name.MediaClip, S=Name.MCD, CT=String("video/mp4"),
+                  D=Dictionary(Type=Name.Filespec, FS=Name.URL,
+                               F=String("https://example.org/clip.mp4")))
+rendition = Dictionary(Type=Name.Rendition, S=Name.MR, C=clip)
+screen.A = Dictionary(S=Name.Rendition, OP=0, AN=screen, R=rendition)
+page.obj.Annots = Array([screen])
+pdf.save(sys.argv[1])
+PY2
+    launch "$file"
+    eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+    mark=$(lines)
+    xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+    wait_for 15 said_since "$mark" "hands a media clip to this window for a player"
+    shot "$step"
+    if said_since "$mark" "hands a media clip to this window for a player"; then
+        verdict "$step" works "$(tail -n "+$((mark + 1))" "$LOG" | grep -o 'hands a media clip[^;]*' | head -1)"
+    else
+        verdict "$step" wrong "the click said nothing of the clip: $LOG"
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
 # zoomed_eighteen N: whether eighteen zooms have gone to the confined worker since line N and a
 # frame was drawn after the last of them, on the device or as a window on the processor.
 zoomed_eighteen() {
@@ -4233,6 +4296,39 @@ archive_chosen() {
     else
         verdict 88-archive-kept wrong "the choice was not kept: $LOG"
     fi
+    # Ctrl+Shift+A puts the chooser up again in the window that has chosen (ADR 1985): Down twice
+    # from `refuse-any-loss` is `as-shown`, and Enter keeps it and converts to it.
+    mark=$(lines)
+    rm -f "$written"
+    key ctrl+shift+a
+    wait_for 10 said_since "$mark" "Convert to ISO 19005 (PDF/A): A profile is"
+    shot 88-archive-again
+    to_the_chooser Down Down Return
+    wait_for 120 said_since "$mark" "under the profile \"as-shown\": wrote\|no PDF/A-2b file was written"
+    if said_since "$mark" "chose PDF/A-2b under the profile \"as-shown\"" &&
+        said_since "$mark" "converting to PDF/A-2b under the profile \"as-shown\""; then
+        verdict 88-archive-again works "chosen again on the chooser Ctrl+Shift+A put up"
+    else
+        verdict 88-archive-again wrong "the chooser was not put up again, or not answered: $LOG"
+    fi
+    # And closed without a choice, the window keeps the one it held: the next Shift+A converts
+    # under `as-shown` with no chooser.
+    to_the_chooser_closed() {
+        key ctrl+shift+a
+        wait_for 10 said_since "$mark" "Convert to ISO 19005 (PDF/A): A profile is"
+        to_the_chooser Escape
+    }
+    mark=$(lines)
+    to_the_chooser_closed
+    rm -f "$written"
+    key shift+a
+    wait_for 120 said_since "$mark" "under the profile \"as-shown\": wrote\|no PDF/A-2b file was written"
+    if said_since "$mark" "nothing was converted" &&
+        said_since "$mark" "converting to PDF/A-2b under the profile \"as-shown\""; then
+        verdict 88-archive-again-closed works "closed without a choice, Shift+A kept as-shown"
+    else
+        verdict 88-archive-again-closed wrong "the held choice did not survive the closed chooser: $LOG"
+    fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
 }
 # A document behind §7.6.4.1's password converts under the password its prompt was given (ADR
@@ -4341,6 +4437,8 @@ for WINDOW in "${WINDOWS[@]}"; do
         signature_policy
         loading_bar
         zoom_past_the_bound
+        zoom_past_the_bound_uncrossable
+        rendition_click
         bare_session_start
         archive_converted
         continue

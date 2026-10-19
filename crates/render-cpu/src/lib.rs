@@ -58,7 +58,7 @@ use strips::{PIXEL_PASS_ROWS, drawn_row_by_row, plan_strips};
 
 use pdf_render::{
     BackendError, ClipId, DisplayList, Interrupt, MAX_EXTENT, Medium, Paint, Raster, RasterFormat,
-    Rasterizer, SoftMaskId, TargetSpec, Transform,
+    Rasterizer, Selection, SoftMaskId, TargetSpec, Transform,
 };
 
 /// Every paint this backend hands `tiny-skia` asks for its high-precision pipeline, ISO 32000-2
@@ -213,9 +213,15 @@ impl CpuRasterizer {
     /// strips that were never made says nothing (ADR 1819).
     #[must_use]
     pub fn strip_plan(&self, list: &DisplayList, target: TargetSpec) -> Vec<u32> {
+        self.selection_plan(Selection::whole(list), target)
+    }
+
+    /// [`Self::strip_plan`] of a selection of a list's commands — a window's, which the planner
+    /// reads as a list of those commands alone (ADR 1980).
+    pub(crate) fn selection_plan(&self, drawn: Selection<'_>, target: TargetSpec) -> Vec<u32> {
         match self.stated_cuts(target) {
             Some(cuts) => cuts.to_vec(),
-            None => plan_strips(list, target, self.strips, self.anti_alias),
+            None => plan_strips(drawn, target, self.strips, self.anti_alias),
         }
     }
 
@@ -375,16 +381,17 @@ impl Rasterizer for CpuRasterizer {
         // at a zoom — is drawn from the commands that reach it, and is the same pixels as the
         // page's whole list drawn there. What changes is what the strip planner below is told,
         // which no longer counts the rows a mark outside the window would have forbidden
-        // (ADR 1841). `None` where every command reaches, which is every page-sized target.
-        let culled = list.reaching(target);
-        let list = culled.as_ref().unwrap_or(list);
+        // (ADR 1841). `None` where every command reaches, which is every page-sized target. The
+        // window names the list's own commands, so every pass below reads the list (ADR 1980).
+        let window = list.reaching(target);
+        let drawn = Selection::drawn(list, window.as_ref());
 
         // Before the pixmap for the same reason the interrupt is: refusing a page that would
         // spend minutes inside `draw_group` is worth nothing if the refusal is paid for after
         // the allocation. `pdf_render::check_group_blit` reads the list and draws nothing —
         // see `pdf_render::group_cost` for the measure, the census that sized it and the page
         // that made it necessary.
-        pdf_render::check_group_blit(list, target)?;
+        pdf_render::check_selected_blit(drawn, target)?;
 
         let mut pixmap = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
             CpuRasterError::Allocation {
@@ -400,7 +407,7 @@ impl Rasterizer for CpuRasterizer {
             .showing
             .as_ref()
             .filter(|_| glimpse::Showing::admits(list));
-        self.encode_in_strips_watched(&mut pixmap, list, target, showing)?;
+        self.encode_in_strips_watched(&mut pixmap, drawn, target, showing)?;
 
         // §11.4.7 puts a colour space under the whole page — "[a]ll page-level compositing
         // shall be done in the default blending colour space of the page, and the entire

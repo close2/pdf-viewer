@@ -2,7 +2,7 @@
 
 Status: **built, answers every question, stoppable, its tier question settled, and not yet where a
 person would meet it.** The
-confined process exists, draws real pages (ADR 0218) and carries all **twenty-nine** questions —
+confined process exists, draws real pages (ADR 0218) and carries every question `viewer-core` states, which a protocol test counts —
 the panels' (ADR 0223), the caret's inverse and a field's selected range (ADR 0225), §12.7's form
 (ADR 0235) and §12.5.6.6's free text at a point (ADR 0238); a hostile document has a cancel (ADR
 0241). **A window uses it** — `quorra-confined`, ADR 0713, deliberately the smallest

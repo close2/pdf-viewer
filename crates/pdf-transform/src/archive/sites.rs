@@ -483,6 +483,14 @@ pub(super) struct DescriptorSets {
 /// ISO 19005-2 section 6.2.11.4.2. The findings name the **font**, so the descriptor is found
 /// from it — through the descendant `CIDFont` for the `/CIDSet` row, since §9.7.4.1 puts a
 /// composite font's descriptor on the `CIDFont` rather than on the Type 0 dictionary.
+///
+/// **A findings list the validator shortened is answered from the fonts themselves**: every
+/// `/Type /Font` object the cross-reference table names whose own descriptor states the key — the
+/// population the requirement is checked over, a `CIDFont` among them as an object of its own.
+/// Removing the entry from a descriptor whose set was complete loses nothing either, by the same
+/// sentence (the entry is optional in both editions of the base standard and its absence means
+/// what the subset tag says), so reaching more descriptors than failed costs nothing; reaching
+/// fewer left the output failing at the rest (`doc/adr/1978` section 5).
 pub(super) fn descriptor_sets(
     document: &Document,
     input: &pdf_archive::Report,
@@ -494,9 +502,12 @@ pub(super) fn descriptor_sets(
             "fonts/cidset-lists-every-cid-in-the-program" => "CIDSet",
             _ => continue,
         };
-        let Outcome::Failed { places, .. } = &judgement.outcome else {
+        let Outcome::Failed { places, total } = &judgement.outcome else {
             continue;
         };
+        if places.len() != *total {
+            every_descriptor_stating(document, key, &mut found);
+        }
         for finding in places {
             let Some(font) = finding.place.object else {
                 return Err(Because::NotBuiltYet(NO_DESCRIPTOR));
@@ -507,6 +518,33 @@ pub(super) fn descriptor_sets(
         }
     }
     Ok(found)
+}
+
+/// Every font descriptor object a `/Type /Font` object names that states `key`.
+fn every_descriptor_stating(document: &Document, key: &'static str, found: &mut DescriptorSets) {
+    for number in document.xref().object_numbers() {
+        let font = document.get(ObjectId::new(number, 0));
+        let Some(font) = dictionary_of(&font) else {
+            continue;
+        };
+        if document
+            .get_key(font, "Type")
+            .as_name()
+            .is_none_or(|name| name.as_bytes() != b"Font")
+        {
+            continue;
+        }
+        let Some(at) = font.get("FontDescriptor").and_then(Object::as_reference) else {
+            continue;
+        };
+        if document
+            .get(at)
+            .as_dict()
+            .is_some_and(|descriptor| descriptor.get(key).is_some())
+        {
+            found.at.entry(at).or_default().insert(key);
+        }
+    }
 }
 
 /// The object a font's `/FontDescriptor` is, through the descendant `CIDFont` where asked for.

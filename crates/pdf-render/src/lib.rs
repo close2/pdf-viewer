@@ -39,6 +39,7 @@ pub mod paint;
 pub mod program;
 pub mod reach;
 pub mod repeat;
+pub mod selection;
 pub mod separation;
 pub mod shading;
 pub mod soft_mask;
@@ -71,7 +72,8 @@ pub use edge::{
 };
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use group_cost::{
-    MAX_GROUP_BLIT_PIXELS, check_group_blit, commands_blit_demand, group_blit_demand,
+    MAX_GROUP_BLIT_PIXELS, check_group_blit, check_selected_blit, commands_blit_demand,
+    group_blit_demand,
 };
 pub use lattice::{Lattice, MAX_DISTORTION, TilingType, snap_lattice};
 pub use medium::{
@@ -87,6 +89,7 @@ pub use paint::{
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use reach::MarkBounds;
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
+pub use selection::{Indexed, Selection, Window};
 pub use separation::{
     SpotColourant, SpotSeparation, matte as separation_matte, resolve as resolve_separation,
     resolve_over_device as resolve_separation_over_device,

@@ -881,10 +881,9 @@ impl Drop for DisplayList {
     /// reference count given back per path and per paint, each a cache line of its own, has no
     /// order a reader can see.
     ///
-    /// A window's list is dropped as its frame is finished, so the drop is on the frame's path: a
-    /// window of 83 % of the owner's witness keeps 4 333 950 of its commands, and letting them go
-    /// took 31 to 34 ms on one thread and takes 18 to 21 on the pool (ADR 1941). A list of fewer
-    /// commands is dropped where it is, because handing it to the pool costs more than it does.
+    /// A list of 4 333 950 commands, most of the owner's witness, took 31 to 34 ms to let go of on
+    /// one thread and takes 18 to 21 on the pool (ADR 1941). A list of fewer commands is dropped
+    /// where it is, because handing it to the pool costs more than it does.
     fn drop(&mut self) {
         if self.commands.len() >= LET_GO_ON_THE_POOL {
             std::mem::take(&mut self.commands)
@@ -1051,7 +1050,7 @@ impl DisplayList {
     /// This list with `commands` in place of its own: its clips, soft masks, page boundary,
     /// blending curve or cube and overprinting carried over, and no plane drawn beside it.
     ///
-    /// What [`DisplayList::reaching`] builds a part of a page from. A caller keeps a list that
+    /// What [`crate::Window::copied`] builds a window's own list from. A caller keeps a list that
     /// carries §11.4.7's second raster, §11.7.5.2's channel or §10.8.3's spot planes whole, since
     /// those are drawn from lists of their own that this one's commands would fall out of step
     /// with.

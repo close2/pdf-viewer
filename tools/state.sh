@@ -647,8 +647,12 @@ section_confined() {
 # have counted the corpus. The corpus half of `doc/todo/66` is `section_archive` below, which keeps
 # the walk's per-target conversion counts — a different question, and that one does need the walk.
 #
-# Cheap — a table lookup per target and per profile, no corpus and no document — so it is in
-# `quick`, and `section_archive` calls it so that a run of that section alone prints the whole item.
+# **The census is the section's second half, so that a brief's premise is one command** (ADR 1983).
+# The listing says which sites have no remedy and needs no document; `examples/archive_unbuilt`
+# says, over the corpora `doc/todo/72` names, how many documents fail each of them per target, with
+# its kind, and that ranking is what an archive slot is chosen from. It is a walk, about three
+# minutes and under a gibibyte, so the section is not in `quick`; `section_archive` calls it so that
+# a run of that section alone prints the whole item.
 section_remedies() {
     heading "the mitigation catalogue's gap, per PDF/A target" \
         "quorra-transform archive --remedy-sites --to <target> [--config <profile>]"
@@ -721,6 +725,11 @@ section_remedies() {
                 "$name" "$target" "$answered" "$absent"
         done
     done
+    # The filter keeps the opened count, each target's heading and every site a document fails; a
+    # site no document reaches is still owed, and the first half above counts it.
+    run "the census: the documents failing each unbuilt site, per target, ranked (doc/todo/72)" \
+        '^[0-9]+ of [0-9]+ documents opened|^PDF/A-[0-9a-z]+: [0-9]+ unbuilt site|^ +[1-9][0-9]* +' \
+        walk small -- cargo run --release -q -p pdf-transform --example archive_unbuilt -- doc/pdf.js/test/pdfs doc/corpora
 }
 
 # ISO 19005's two readings, clause by clause: the validator against every witness the veraPDF
@@ -1803,12 +1812,11 @@ section_ratchets() {
 }
 
 all="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
-quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held remedies instruments"
+quick="ledger departures flags names cited last-sentences navigation superlatives comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
-# `--list`, because a section a reader cannot discover is a section nobody runs. `remedies` is in
-# `quick` as well, since it is the one line of `archive` that needs no corpus.
+# `--list`, because a section a reader cannot discover is a section nobody runs.
 composed="ratchets remedies frontier"
 
 # The round a walk's lock line names (`walk` above); `-`, the wrapper's own default, where none is

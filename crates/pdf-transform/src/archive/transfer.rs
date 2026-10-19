@@ -34,6 +34,15 @@
 //!
 //! Baking the function into the colours instead would rewrite every colour operand, image sample
 //! and shading drawn under the state — content, behind ADR 0816's fence — so it is not offered.
+//!
+//! # `/TR2`, which the same subclause admits only as `Default`
+//!
+//! §8.4.5's Table 57 makes `TR2` "[s]ame as TR except that the value may also be the name
+//! Default , denoting the transfer function that was in effect at the start of the page", and has
+//! it "take precedence" over a `TR` beside it. So a `TR2` other than `Default` is written
+//! `Default` under the same two answers: the name `Identity` is the initial function on this
+//! reader's device and the statement is free, and a function is the same loss, recorded the same
+//! way before it goes (`doc/adr/1978` section 6).
 
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Write as _;
@@ -46,6 +55,9 @@ use super::decision::Because;
 
 /// The requirement this module answers, by the identifier the validator reports it under.
 const SITE: &str = "graphics/no-transfer-function-in-a-graphics-state";
+
+/// The `/TR2` requirement beside it, answered by the same two answers.
+const SECOND: &str = "graphics/second-transfer-function-is-default";
 
 /// Why a graphics state's transfer function is not removed at all.
 const STATE_NOT_REACHED: &str = "a graphics state in this file states a transfer function \
@@ -93,6 +105,8 @@ pub(super) struct TransferFunctions {
     pub(super) citation: String,
     /// Every graphics state stating `/TR`.
     pub(super) at: BTreeSet<ObjectId>,
+    /// Every graphics state whose `/TR2` is written `Default`.
+    pub(super) second: BTreeSet<ObjectId>,
     /// The ones whose `/TR` is not the name `Identity`, each with its statement.
     pub(super) stated: Vec<RemovedTransferFunction>,
 }
@@ -109,8 +123,8 @@ impl TransferFunctions {
             return None;
         }
         let mut out = format!(
-            "{}: the transfer function stated by {} graphics state(s) removed; ISO \
-             32000-2 10.5's function each applied is kept here as data",
+            "{}: the transfer function stated by {} graphics state(s) removed, or a TR2 \
+             written Default; ISO 32000-2 10.5's function each applied is kept here as data",
             self.citation,
             self.stated.len()
         );
@@ -140,28 +154,36 @@ pub(super) fn removal(
     let mut out = TransferFunctions::default();
     let mut budget = Budget::default();
     for judgement in input.failures() {
-        if judgement.id != SITE {
-            continue;
-        }
+        let key = match judgement.id {
+            SITE => "TR",
+            SECOND => "TR2",
+            _ => continue,
+        };
         let Outcome::Failed { places, total } = &judgement.outcome else {
             continue;
         };
         if places.len() != *total {
             return Err(refused);
         }
-        out.citation.clone_from(&judgement.citation);
+        if out.citation.is_empty() || key == "TR" {
+            out.citation.clone_from(&judgement.citation);
+        }
         for finding in places {
             let id = finding.place.object.ok_or(refused)?;
             let object = document.get(id);
             let state = object.as_dict().ok_or(refused)?;
-            let tr = state.get("TR").ok_or(refused)?;
-            if !matches!(tr, Object::Name(name) if name.as_bytes() == b"Identity") {
+            let value = state.get(key).ok_or(refused)?;
+            if !matches!(value, Object::Name(name) if name.as_bytes() == b"Identity") {
                 out.stated.push(RemovedTransferFunction {
                     state: id,
-                    statement: statement(document, tr, &mut budget)?,
+                    statement: statement(document, key, value, &mut budget)?,
                 });
             }
-            out.at.insert(id);
+            if key == "TR" {
+                out.at.insert(id);
+            } else {
+                out.second.insert(id);
+            }
         }
     }
     Ok(out)
@@ -176,16 +198,22 @@ struct Budget {
     objects: usize,
 }
 
-/// `/TR` as the graphics state states it, then every object it reaches, once each.
+/// `/TR` — or `/TR2`, as `key` says — as the graphics state states it, then every object it
+/// reaches, once each.
 ///
 /// Breadth first from the value, so the record reads in the order a reader resolves it: a
 /// stitching function's own entry before the functions it stitches. A reference already written
 /// is not written twice, which is also what ends a cycle.
-fn statement(document: &Document, tr: &Object, budget: &mut Budget) -> Result<String, Because> {
-    let mut out = format!("/TR {}", written(tr));
+fn statement(
+    document: &Document,
+    key: &str,
+    value: &Object,
+    budget: &mut Budget,
+) -> Result<String, Because> {
+    let mut out = format!("/{key} {}", written(value));
     let mut queue = VecDeque::new();
     let mut seen = BTreeSet::new();
-    references(tr, &mut queue);
+    references(value, &mut queue);
     while let Some(id) = queue.pop_front() {
         if !seen.insert(id) {
             continue;
@@ -267,6 +295,7 @@ mod tests {
         let functions = TransferFunctions {
             citation: "ISO 19005-2 section 6.2.5".to_owned(),
             at: BTreeSet::from([ObjectId::new(9, 0), ObjectId::new(10, 0)]),
+            second: BTreeSet::new(),
             stated: vec![RemovedTransferFunction {
                 state: ObjectId::new(10, 0),
                 statement: "/TR 11 0 R, where 11 0 obj << /FunctionType 2 >>".to_owned(),
@@ -287,6 +316,7 @@ mod tests {
         let functions = TransferFunctions {
             citation: "ISO 19005-2 section 6.2.5".to_owned(),
             at: BTreeSet::from([ObjectId::new(9, 0)]),
+            second: BTreeSet::new(),
             stated: Vec::new(),
         };
         assert!(functions.costs_nothing());

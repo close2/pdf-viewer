@@ -266,13 +266,14 @@ fn moved(at: usize, by: isize, len: usize) -> usize {
     at.saturating_add_signed(by).min(len.saturating_sub(1))
 }
 
-/// What a window says once a person has chosen: what it converts to, and that the choice holds
-/// for the rest of the window's life — the next press of the key converts without asking.
+/// What a window says once a person has chosen: what it converts to, that the choice holds for
+/// the rest of the window's life — the next press of the key converts without asking — and the
+/// key that puts the chooser up again (ADR 1985).
 #[must_use]
 pub fn remembered(asked: &Archiving) -> String {
     format!(
         "chose {} under the profile {:?}; Shift+A converts to it from now on in this window, as \
-         {ARCHIVE} {}:{} would have",
+         {ARCHIVE} {}:{} would have, and Ctrl+Shift+A chooses again",
         asked.target,
         asked.profile,
         target_word(asked.target),
@@ -714,6 +715,7 @@ mod tests {
             "{}",
             remembered(&asked)
         );
+        assert!(remembered(&asked).ends_with("Ctrl+Shift+A chooses again"));
         assert!(
             matches!(pressed(Some(&asked)), Pressed::Convert(Command::Archive(again)) if again == asked)
         );

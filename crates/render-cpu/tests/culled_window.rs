@@ -195,7 +195,7 @@ fn a_window_drawn_from_the_marks_that_reach_it_is_the_window_drawn_from_them_all
         .reaching(window)
         .expect("a window onto a quarter of the page leaves marks out");
     assert_eq!(
-        culled.commands(),
+        culled.copied().commands(),
         reaching.commands(),
         "the cull keeps exactly the marks that reach the window, in their order"
     );
@@ -231,4 +231,34 @@ fn a_window_drawn_in_strips_is_the_window_drawn_whole_where_every_cut_is_exact()
         .rasterize(&everywhere, window)
         .expect("the window draws");
     assert_eq!(one.data, four.data);
+}
+
+#[test]
+fn a_window_drawn_through_its_selection_is_the_window_drawn_from_a_copy_of_its_commands() {
+    // The window as shipped names the page's own commands (ADR 1980); the list the cull used to
+    // copy them into is `Window::copied`, which reaches the window whole and so is drawn as itself.
+    // The two are the same pixels, divided as the planner divides them and into four strips.
+    let (everywhere, _) = pages();
+    let window = window();
+    let copied = everywhere
+        .reaching(window)
+        .expect("a window onto a quarter of the page leaves marks out")
+        .copied();
+    assert!(copied.reaching(window).is_none(), "the copy is drawn whole");
+    for strips in [None, Some(4)] {
+        let drawn = |list: &DisplayList| {
+            let mut rasterizer = match strips {
+                Some(count) => CpuRasterizer::new().with_strips(count),
+                None => CpuRasterizer::new(),
+            };
+            rasterizer
+                .rasterize(list, window)
+                .expect("the window draws")
+        };
+        assert_eq!(
+            drawn(&everywhere).data,
+            drawn(&copied).data,
+            "{strips:?} strips"
+        );
+    }
 }

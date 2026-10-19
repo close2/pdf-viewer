@@ -343,11 +343,23 @@ pub enum Loss {
     /// a halftone of that name screens with the dictionary's own parameters instead. A halftone
     /// that is only a name is refused rather than removed (`doc/adr/1965`).
     HalftoneName,
+    /// ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2: overprint mode 1, set to 0 in the
+    /// graphics states that set it, where one of them also governs a `DeviceCMYK` mark.
+    ///
+    /// ISO 32000-2 §8.6.7 makes the mode act on `DeviceCMYK` marks painted with overprinting on: a
+    /// zero component "shall leave the corresponding component of the previously painted colour
+    /// unchanged". With the mode at 0 it paints that component out, so a press — or a reader
+    /// simulating one — composites such a mark differently: black text stops overprinting the
+    /// colour under it. **Nothing this reader's window draws moves**, because the mode acts here
+    /// only where a group blends in four components, and a mark there is refused rather than
+    /// offered (`doc/adr/1978`). Where the states govern only `ICCBased` marks, changing the mode
+    /// moves nothing the standard defines and is not asked.
+    OverprintMode,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -367,6 +379,7 @@ impl Loss {
         Self::EmbeddedFile,
         Self::TransferFunction,
         Self::HalftoneName,
+        Self::OverprintMode,
     ];
 
     /// The word a caller authorises it by.
@@ -392,6 +405,7 @@ impl Loss {
             Self::EmbeddedFile => "embedded-file",
             Self::TransferFunction => "transfer-function",
             Self::HalftoneName => "halftone-name",
+            Self::OverprintMode => "overprint-mode",
         }
     }
 
@@ -535,6 +549,13 @@ impl Loss {
                  file's parameters instead of its own. Nothing on a screen moves: ISO 32000-2 \
                  \u{a7}10.6.1 needs no halftoning on a device that shows continuous tone"
             }
+            Self::OverprintMode => {
+                "a graphics state's overprint mode 1 is set to 0, so a DeviceCMYK mark painted \
+                 with overprinting on paints its zero components instead of leaving what was \
+                 under them: on a press, black text knocks out the colour beneath it where it \
+                 overprinted. Nothing in this viewer's window moves, and the report names every \
+                 graphics state changed and the pages whose DeviceCMYK marks it governed"
+            }
         }
     }
 
@@ -596,6 +617,8 @@ pub struct Authorisations {
     pub transfer_function: bool,
     /// Whether [`Loss::HalftoneName`] was authorised.
     pub halftone_name: bool,
+    /// Whether [`Loss::OverprintMode`] was authorised.
+    pub overprint_mode: bool,
 }
 
 impl Authorisations {
@@ -622,6 +645,7 @@ impl Authorisations {
             Loss::EmbeddedFile => self.embedded_file,
             Loss::TransferFunction => self.transfer_function,
             Loss::HalftoneName => self.halftone_name,
+            Loss::OverprintMode => self.overprint_mode,
         }
     }
 
@@ -647,6 +671,7 @@ impl Authorisations {
             Loss::EmbeddedFile => self.embedded_file = true,
             Loss::TransferFunction => self.transfer_function = true,
             Loss::HalftoneName => self.halftone_name = true,
+            Loss::OverprintMode => self.overprint_mode = true,
         }
     }
 }
@@ -1706,6 +1731,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
             IDENTITY_TRANSFER_REINTERPRETS,
         ),
     },
+    // The `/TR2` row beside it, the same removal's two answers over Table 57's `Default`
+    // (`doc/adr/1978` section 6).
+    Remedy {
+        requirement: "graphics/second-transfer-function-is-default",
+        answer: Answer::Stated(
+            None,
+            Rewrite::IdentityTransferFunctionRemoved,
+            SECOND_IDENTITY_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.2.6, which part 4 does not state.
     Remedy {
         requirement: "graphics/rendering-intent-entries-name-one-of-four",
@@ -1729,6 +1764,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "graphics/no-halftone-name",
         answer: Answer::Loses(Loss::HalftoneName, Rewrite::HalftoneNameRemoved),
+    },
+    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2. Stated where the states setting
+    // the mode govern no `DeviceCMYK` mark, and a loss where one does (`doc/adr/1978`):
+    // `answer_of` routes on what `super::overprint` found, as `CONDITIONAL` says.
+    Remedy {
+        requirement: "graphics/no-overprint-mode-one-under-icc-cmyk",
+        answer: Answer::Stated(
+            None,
+            Rewrite::OverprintModeRestated,
+            OVERPRINT_MODE_REINTERPRETS,
+        ),
     },
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
     Remedy {
@@ -1959,6 +2005,14 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
         "graphics/no-transfer-function-in-a-graphics-state",
         Conditional::PerDocument(Loss::TransferFunction),
+    ),
+    (
+        "graphics/second-transfer-function-is-default",
+        Conditional::PerDocument(Loss::TransferFunction),
+    ),
+    (
+        "graphics/no-overprint-mode-one-under-icc-cmyk",
+        Conditional::PerDocument(Loss::OverprintMode),
     ),
 ];
 
@@ -2592,10 +2646,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/halftone-transfer-function-only-where-required",
         Because::NotBuiltYet(HALFTONE_NOT_REMOVED),
     ),
-    (
-        "graphics/second-transfer-function-is-default",
-        Because::NotBuiltYet(TRANSFER_FUNCTION_NOT_REMOVED),
-    ),
     // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table. The two
     // rows whose field is in the JP2 wrapper are `REMEDIES`' now — a colour specification box can
     // be removed where it cannot be written — and what stays here is the three whose subject is
@@ -2624,11 +2674,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
         Because::NotBuiltYet(DUPLICATE_PROFILE_NOT_COLLAPSED),
-    ),
-    // ISO 19005-2 section 6.2.4.2, ISO 19005-4 section 6.2.4.2.
-    (
-        "graphics/no-overprint-mode-one-under-icc-cmyk",
-        Because::NotBuiltYet(OVERPRINT_MODE_NOT_CHANGED),
     ),
     // ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4: section 4.5's two rows.
     (
@@ -2943,9 +2988,9 @@ const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its des
 
 /// Why a halftone is not removed.
 ///
-/// The pair with [`TRANSFER_FUNCTION_NOT_REMOVED`], and they are deliberately two sentences:
 /// `CLAUDE.md` records §10.6's halftones as inapplicable on the standard's own condition and
-/// §10.5's transfer functions as emphatically not, so what removing each costs is different.
+/// §10.5's transfer functions as emphatically not, so removing a halftone costs what a press does
+/// and a transfer function is `super::transfer`'s loss.
 const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or 5, and \
      forbids a halftone phase or origin key in a graphics state. Removing one \
      changes nothing this renderer draws — CLAUDE.md records §10.6's halftones as inapplicable \
@@ -2954,16 +2999,14 @@ const HALFTONE_NOT_REMOVED: &str = "ISO 19005 admits halftones only of type 1 or
      an archived print master is kept for. doc/pdf-a-conversion-limits.md section 4.8 therefore \
      makes it an Ask, and neither the authorisation word nor the rewrite is built";
 
-/// Why a transfer function is not removed.
-const TRANSFER_FUNCTION_NOT_REMOVED: &str = "ISO 19005 forbids a TR entry in a graphics state \
-     and admits TR2 only with the value Default. This is not a print-only key: CLAUDE.md records \
-     that this project called transfer functions inapplicable and was wrong, because §10.5's \
-     transfer functions decide what a screen shows and an inverting one is a photographic \
-     negative. So removing one can change the rendered page, and \
-     doc/pdf-a-conversion-limits.md section 4.8's default is to render the page both ways, show \
-     whether anything changed, and remove it only with that shown. The comparison and the \
-     rewrite are both owed; where the function is the identity the removal is silent and safe, \
-     which doc/adr/1952 builds for TR and not yet for TR2";
+/// What writing a `/TR2 /Identity` as `Default` asserts (`doc/adr/1978` section 6).
+const SECOND_IDENTITY_REINTERPRETS: &str = "a graphics state in this file states TR2 Identity, \
+     which ISO 19005 forbids, and no graphics state in it states any other transfer function, so \
+     the entry is written Default, ISO 32000-2 8.4.5's Table 57 name for the transfer function in \
+     effect at the start of the page. Table 52 leaves that initial function device dependent; on \
+     this reader's device it is the identity, so every colour is drawn where it was. On a device \
+     whose own default is not the identity, the producer's reset to the identity no longer \
+     happens. The report names every graphics state rewritten";
 
 /// Why JPEG 2000 samples are not re-encoded.
 const JPEG2000_SAMPLES_NOT_RE_ENCODED: &str = "doc/pdf-a-conversion-limits.md section 4.10: the \
@@ -3023,13 +3066,17 @@ const DUPLICATE_PROFILE_NOT_COLLAPSED: &str = "ISO 19005-4 forbids an ICCBased s
      takes a decision the base standard leaves to the processor and settles it in the file, \
      which is the ambiguity section 6.2.4.2's own NOTE 2 names as the reason for the prohibition";
 
-/// Why overprint mode is not changed.
-const OVERPRINT_MODE_NOT_CHANGED: &str = "this file sets overprint mode 1 while an ICCBased CMYK \
-     space is in use and overprinting is on. doc/pdf-a-conversion-limits.md section 4.5 makes it \
-     an Ask: the mode decides whether a zero component leaves the backdrop alone or paints it, \
-     so changing it changes how overlapping CMYK marks composite. The key is in a graphics state \
-     parameter dictionary rather than on a page, so no fence stands in the way; what is missing \
-     is the authorisation word and the rewrite";
+/// What setting an `ICCBased` mark's overprint mode to 0 asserts (`doc/adr/1978`).
+const OVERPRINT_MODE_REINTERPRETS: &str = "a graphics state in this file sets overprint mode 1 \
+     where an ICCBased CMYK space is painted with overprinting on, which ISO 19005 forbids, and \
+     none of those states governs a DeviceCMYK mark, so each one's mode is set to 0. ISO 32000-2 \
+     8.6.7 applies a non-zero mode only to DeviceCMYK marks, and 8.6.5.7 extends it to an \
+     ICCBased one only where a processor treats that space as its output device's own; this \
+     reader draws these pages in the screen's components and applies the mode to no ICCBased \
+     mark, so every mark is drawn where it was. A processor that treated the space as its press's \
+     and overprinted no longer leaves the colour under the marks' zero components, which is the \
+     dependence on the processor the requirement removes. The report names every graphics state \
+     rewritten";
 
 /// Why two `Separation` arrays of one name are not reconciled.
 const SEPARATIONS_NOT_RECONCILED: &str = "two Separation arrays here name the same colourant and \
@@ -3284,6 +3331,53 @@ const fn constraint(decision: Decision) -> u8 {
 }
 
 /// One row's answer, once the caller's authorisations and the document's preparations are known.
+/// A `Stated` row whose cost the preparation found to be a fact about the file: the statement
+/// where the rewrite moves nothing, the row's loss where it does, and the preparation's own refusal
+/// where it could not tell.
+///
+/// `rewrite` is one of the two rows [`answer_of`] sends here:
+///
+/// - ISO 19005-2 section 6.2.4.2's overprint mode: a state governing only `ICCBased` marks changes
+///   nothing ISO 32000-2 §8.6.7 defines, and one governing a `DeviceCMYK` mark changes what a
+///   press composites (`doc/adr/1978`).
+/// - ISO 19005-2 section 6.2.5's transfer functions: removing `/TR /Identity` moves nothing on
+///   this reader's device and is a statement, and removing any other function moves the colours
+///   it adjusted (`doc/adr/1964`).
+fn stated_where_free(
+    rewrite: Rewrite,
+    reinterprets: &'static str,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    let (free, loss) = if rewrite == Rewrite::OverprintModeRestated {
+        (
+            prepared
+                .owed
+                .overprint_modes
+                .as_ref()
+                .map(super::overprint::OverprintModes::costs_nothing),
+            Answer::Loses(Loss::OverprintMode, Rewrite::OverprintModeZeroed),
+        )
+    } else {
+        (
+            prepared
+                .owed
+                .transfers
+                .as_ref()
+                .map(super::transfer::TransferFunctions::costs_nothing),
+            Answer::Loses(Loss::TransferFunction, Rewrite::TransferFunctionRemoved),
+        )
+    };
+    match free {
+        Err(because) => Decision::Refused(*because),
+        Ok(true) => Decision::Stated {
+            rewrite,
+            reinterprets,
+        },
+        Ok(false) => answer_of(loss, authorised, prepared),
+    }
+}
+
 fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) -> Decision {
     match answer {
         // ISO 19005-2 section 6.1.13's page-boundary limit, whose answer the table cannot take:
@@ -3365,23 +3459,13 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                 ),
             }
         }
-        // ISO 19005-2 section 6.2.5's transfer functions, whose cost is a fact about the file:
-        // removing `/TR /Identity` moves nothing on this reader's device and is a statement, and
-        // removing any other function moves the colours it adjusted (`doc/adr/1964`).
-        Answer::Stated(_, Rewrite::IdentityTransferFunctionRemoved, reinterprets) => {
-            match &prepared.owed.transfers {
-                Err(because) => Decision::Refused(*because),
-                Ok(functions) if functions.costs_nothing() => Decision::Stated {
-                    rewrite: Rewrite::IdentityTransferFunctionRemoved,
-                    reinterprets,
-                },
-                Ok(_) => answer_of(
-                    Answer::Loses(Loss::TransferFunction, Rewrite::TransferFunctionRemoved),
-                    authorised,
-                    prepared,
-                ),
-            }
-        }
+        // The two `Stated` rows whose cost is a fact about the file: `stated_where_free` says
+        // which (`doc/adr/1964`, `doc/adr/1978`).
+        Answer::Stated(
+            _,
+            rewrite @ (Rewrite::OverprintModeRestated | Rewrite::IdentityTransferFunctionRemoved),
+            reinterprets,
+        ) => stated_where_free(rewrite, reinterprets, authorised, prepared),
         // §12.7.3's Table 224 read as the two answers it admits (`doc/adr/1257`): the flag with
         // the appearances built is a statement, and the flag on its own is a loss. Which of the
         // two this conversion is taking is the operator's `construct`, which the preparation has

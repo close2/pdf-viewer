@@ -802,8 +802,14 @@ lock_record() {
         done
         held_ms=$(now_ms) held_slept=$(slept_ms) lanes=-
     fi
-    ended_ms=$(now_ms)
-    ended_slept=$(slept_ms)
+    # A run that held nothing held it for no time, and its line says `hold=0.0s` because it is so,
+    # not because two clock readings fell close: between them is a `python3`, which a loaded machine
+    # can keep a tenth of a second (ADR 1982).
+    if [ "$lanes" = - ]; then
+        ended_ms=$held_ms ended_slept=$held_slept
+    else
+        ended_ms=$(now_ms) ended_slept=$(slept_ms)
+    fi
     small_walk_overran
     # The two sleeps go after `lane=` and before `cmd=`, which is the line's last field and has
     # blanks in it, so that every reader that takes the first six fields by position still can.
@@ -862,10 +868,14 @@ if [ -n "$self_test" ]; then
         fail "$3"
     }
     hold_until='for _ in $(seq 600); do [ -e "$0.go" ] && exit 0; sleep 0.1; done; exit 9'
-    # A run that found its lane free never polls, and one that queued sleeps at least one poll, so
-    # under a poll's length is the discriminating figure for "it waited for nothing" — not 0.0 s,
-    # which is the time three `flock` calls take on an idle machine only.
-    waited_nothing() { awk -v w="$1" -v p="$poll_interval" 'BEGIN { exit !(w < p) }'; }
+    # **"It was granted at once" is read off the lock's own account, never off a clock** (ADR 1982).
+    # A look that finds its lane held names the holder in `behind=` before the run sleeps a poll, so a
+    # line that says `behind=-` is a run whose first look was granted. Its `wait=` is not that fact: it
+    # is the wrapper's own work from the ask to the grant — some twenty processes and an interpreter —
+    # and that is the processor's to give, half a second with six busy loops on two processors and five
+    # to fourteen at nice 19 beside loops at nice 0, where a lane's poll is half a second.
+    # `granted_at_once LINE` reads the field.
+    granted_at_once() { [ -n "$1" ] && [ "$(printf '%s\n' "$1" | sed -n 's/.* behind=\([^ ]*\) kind=.*/\1/p')" = - ]; }
 
     # 1. A flat tree of 100 000 children under the root, beside 500 strangers: the total is the
     #    root's 100 plus 100 000 tens, every child is listed once, and the whole walk costs well
@@ -991,11 +1001,12 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         echo "bounded --self-test: NOT RUN — the task-limit case wants python3 for its fork loop, and there is none" >&2
     fi
 
-    # 7. The lock, on a file of the case's own. A holder keeps it for two seconds: a `--lock` run
-    #    queues behind it, passes its command's status through, and writes one line whose wait is
+    # 7. The lock, on a file of the case's own. A holder keeps it until the case lets it go: a `--lock`
+    #    run queues behind it, passes its command's status through, and writes one line whose wait is
     #    at least a second — the calibration, since a wrapper that did not take the lock reads 0.0.
-    #    A second run finds it free and waits nothing; a third runs under `flock` on the same file
-    #    and must finish rather than queue behind its own caller; and the lock is free afterwards.
+    #    A second run finds it free and is granted at its first look, `behind=-`; a third runs under
+    #    `flock` on the same file and must finish rather than queue behind its own caller; and the lock
+    #    is free afterwards.
     #    The queued line names its holder: the bare `flock`'s command from `/proc/locks`, and then a
     #    `--lock` holder's round from the file it leaves, the source `/proc/locks` cannot be.
     #    The holder releases a second after the run has said it queued, so the run's wait is at least
@@ -1015,7 +1026,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ "$status" -eq 3 ] || fail "lock: exit $status, wanted the command's 3: $(tail -n 1 "$scratch/lock.err")"
     grep -q 'queued for the heavy-walk lock' "$scratch/lock.err" || fail "lock: the wait was not said: $(cat "$scratch/lock.err")"
     lock_case --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "lock: a free lock's run failed"
-    timeout 20 flock "$scratch/lock" env HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" \
+    timeout 60 flock "$scratch/lock" env HEAVY_WALK_LOCK="$scratch/lock" HEAVY_WALK_LOG="$scratch/lock.log" \
         "$self" --lock --round 7 --tree 12 --data 1 --nice 0 -- true > /dev/null 2>&1 ||
         fail "lock: a run under its caller's flock did not finish (exit $?): it queued behind its own caller"
     flock -n "$scratch/lock" true || fail "lock: the lock is still held after every run ended"
@@ -1025,8 +1036,8 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     grep -q '^[0-9T:-]* batch=[^ ]* round=7 wait=[0-9.]*s hold=[0-9.]*s exit=3 peak=[0-9.]*GiB behind=flock_[^ ]* kind=large lane=1 cmd=sh -c exit 3 *$' "$scratch/lock.log" ||
         fail "lock: the line is not the shape the header states: $(head -n 1 "$scratch/lock.log")"
     for line in 2 3; do
-        waited_nothing "$(sed -n "${line}s/.* wait=\([0-9.]*\)s .*/\1/p" "$scratch/lock.log")" ||
-            fail "lock: run $line found the lock free or its caller's and still waited: $(sed -n "${line}p" "$scratch/lock.log")"
+        granted_at_once "$(sed -n "${line}p" "$scratch/lock.log")" ||
+            fail "lock: run $line found the lock free or its caller's and still queued: $(sed -n "${line}p" "$scratch/lock.log")"
     done
     # And a suspend is on the line rather than inside its clocks (trap 164). The machine cannot be
     #    suspended here, so the reading stands in a file: a bare `flock` holds the lock while the
@@ -1082,7 +1093,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         (for _ in $(seq 200); do [ -e "$1.over" ] && break; sleep 0.1; done
          "$0" --held && echo yes > "$1.daemon"; : > "$1.asked"; exec sleep 30) > /dev/null 2>&1 < /dev/null &
         echo $! > "$1.pid"
-        timeout 20 "$0" --lock --round 88 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 && echo yes > "$1.nested"
+        timeout 60 "$0" --lock --round 88 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 && echo yes > "$1.nested"
         exit 0
     ' "$self" "$scratch/held8" > /dev/null 2>&1 || fail "held: the hold's own run failed"
     daemon=$(cat "$scratch/held8.pid" 2>/dev/null)
@@ -1150,7 +1161,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     wait "$large" "$small" "$timed" "$owed" "$held_long" "$side" "$late"
     lane_line() { grep " round=$1 " "$scratch/lane.log"; }
     lane_line 91 | grep -q ' kind=large lane=1 ' || fail "lanes: the large walk's line: $(lane_line 91)"
-    lane_line 92 | grep -q ' kind=small lane=2 ' && waited_nothing "$(lane_line 92 | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+    lane_line 92 | grep -q ' kind=small lane=2 ' && granted_at_once "$(lane_line 92)" ||
         fail "lanes: a small walk beside a large one was not granted the second lane at once: $(lane_line 92)"
     lane_line 93 | grep -q ' behind=[^ ]*round=91[^ ]* kind=clock lane=1+2 ' || fail "lanes: the clock run's line: $(lane_line 93)"
     lane_line 94 | grep -q ' kind=small lane=2 ' || fail "lanes: the side lane's walk: $(lane_line 94)"
@@ -1230,7 +1241,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     long_line() { grep " round=$1 " "$scratch/long.log"; }
     long_line 111 | grep -q ' kind=long lane=2 ' || fail "long: the first long run's line: $(long_line 111)"
     long_line 112 | grep -q ' behind=[^ ]*round=111[^ ]* kind=long lane=2 ' || fail "long: the second long run's line does not name the first: $(long_line 112)"
-    long_line 113 | grep -q ' kind=small lane=1 ' && waited_nothing "$(long_line 113 | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+    long_line 113 | grep -q ' kind=small lane=1 ' && granted_at_once "$(long_line 113)" ||
         fail "long: a small walk beside a long run was not granted the first lane at once: $(long_line 113)"
     long_case --long --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
     [ "$status" -eq 64 ] || fail "long: --long without --lock exited $status, wanted 64"
@@ -1242,7 +1253,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     [ "$status" -eq 64 ] || fail "long: a --long run inside a hold of the first lane exited $status, wanted 64"
     long_case --lock --round 116 --tree 1 --data 1 --nice 0 -- "$self" --lock --long --round 117 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
     [ "$status" -eq 0 ] || fail "long: a --long run inside a hold of the second lane exited $status, wanted 0"
-    timeout 20 flock "$scratch/long" env HEAVY_WALK_LOCK="$scratch/long" HEAVY_WALK_LOG="$scratch/long.log" \
+    timeout 60 flock "$scratch/long" env HEAVY_WALK_LOCK="$scratch/long" HEAVY_WALK_LOG="$scratch/long.log" \
         "$self" --lock --long --round 118 --data 1 --nice 0 -- true > /dev/null 2>&1; status=$?
     [ "$status" -eq 64 ] || fail "long: a --long run under a bare flock of the first lane exited $status, wanted 64"
     flock -n "$scratch/long" true && flock -n "$scratch/long.lane2" true && flock -n "$scratch/long.gate" true ||
@@ -1263,7 +1274,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
     timed=$!
     appears "$scratch/turn122.err" 'held by a long run' "turn: the clock run never said it waits for the long run"
     turn_case --lock --round 123 --tree 1 --data 1 --nice 0 -- true > /dev/null 2>&1 || fail "turn: the small walk beside a waiting clock run failed"
-    waited_nothing "$(grep ' round=123 ' "$scratch/turn.log" | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" ||
+    granted_at_once "$(grep ' round=123 ' "$scratch/turn.log")" ||
         fail "turn: a small walk asked while a clock run waited for a long run was not granted the first lane at once: $(grep ' round=123 ' "$scratch/turn.log")"
     turn_case --lock --long --round 124 --data 1 --nice 0 -- sh -c 'date +%s%N > "$0"' "$scratch/turn124" > /dev/null 2> "$scratch/turn124.err" &
     second_long=$!
@@ -1340,7 +1351,7 @@ print(f"all {born} forks succeeded", file=sys.stderr)
         order_line "$walk" | grep -q ' kind=small lane=2 ' || fail "order: walk $walk's line: $(order_line "$walk")"
     done
     order_line 135 | grep -q ' behind=[^ ]*round=13[34]' || fail "order: the last ask's line does not name the asks ahead of it: $(order_line 135)"
-    waited_nothing "$(order_line 137 | sed 's/.* wait=\([0-9.]*\)s .*/\1/')" && order_line 137 | grep -q ' kind=small lane=2 ' ||
+    granted_at_once "$(order_line 137)" && order_line 137 | grep -q ' kind=small lane=2 ' ||
         fail "order: a small walk behind a large walk's ask was not granted the free second lane at once: $(order_line 137)"
     order_line 136 | grep -q ' kind=large lane=1 ' || fail "order: the large walk's line: $(order_line 136)"
     [ -s "$scratch/order.queue" ] && fail "order: a ticket outlived its walk: $(cat "$scratch/order.queue")"

@@ -766,16 +766,11 @@ impl App {
                 match viewer_host::archiving::pressed(self.archive.as_ref()) {
                     viewer_host::archiving::Pressed::Convert(command) => self.dispatch(command),
                     viewer_host::archiving::Pressed::Choose(choosing) => {
-                        self.archive_card.show(choosing);
-                        println!(
-                            "note: {}: {}",
-                            viewer_host::archiving::CHOOSING_TITLE,
-                            viewer_host::archiving::CHOOSING
-                        );
-                        self.redraw();
+                        self.show_the_archive_card(choosing);
                     }
                 }
             }
+            viewer_host::WindowAct::ChooseArchive => self.choose_the_archive_again(),
             // §10.8.3: the state is this window's, because it is a preference a person toggles
             // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
             viewer_host::WindowAct::Separations => {
@@ -793,6 +788,23 @@ impl App {
                 };
             }
         }
+    }
+
+    /// ISO 19005's card over the page, with the choice as it begins (ADR 1966).
+    fn show_the_archive_card(&mut self, choosing: viewer_host::archiving::Choosing) {
+        self.archive_card.show(choosing);
+        println!(
+            "note: {}: {}",
+            viewer_host::archiving::CHOOSING_TITLE,
+            viewer_host::archiving::CHOOSING
+        );
+        self.redraw();
+    }
+
+    /// The card again in a window that has chosen: Enter makes what is chosen on it the window's,
+    /// and Escape leaves the choice the window held (ADR 1985).
+    fn choose_the_archive_again(&mut self) {
+        self.show_the_archive_card(viewer_host::archiving::Choosing::new());
     }
 
     /// This window's display scale, or one where there is no window yet.

@@ -44,6 +44,7 @@ use crate::Reply;
 
 pub(crate) mod display_list;
 mod panels;
+pub(crate) mod windowed;
 
 /// Greeting bytes, changed whenever this format changes incompatibly.
 ///
@@ -58,7 +59,7 @@ mod panels;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF14";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF15";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -98,6 +99,8 @@ pub(crate) const FRAME_REFUSAL: u8 = 5;
 const PAYLOAD_RASTER: u8 = 0;
 /// Frame payload: the marks, for a host that draws them itself (ADR 0607).
 const PAYLOAD_LIST: u8 = 1;
+/// Frame payload discriminant: a window of a page past the bound, drawn here (ADR 1986).
+const PAYLOAD_WINDOW: u8 = 2;
 
 /// A restriction level byte that is not a level: this document departs from the window in nothing
 /// here.
@@ -165,6 +168,8 @@ enum Placed<'a> {
     Pixels(&'a viewer_core::FrameView<'a>),
     /// The marks this store is holding, and where the viewer puts the page they are of.
     Marks(&'a Crossed),
+    /// The window this store drew of a page past the bound whose marks cannot cross (ADR 1986).
+    Window(&'a windowed::Windowed, windowed::Window, &'a Raster),
 }
 
 /// The pages whose marks are what crosses, one entry apiece.
@@ -176,6 +181,9 @@ enum Placed<'a> {
 #[derive(Debug, Default)]
 pub(crate) struct Marks {
     by_page: std::collections::BTreeMap<usize, Crossed>,
+    /// The pages past the bound whose marks cannot cross, drawn here as the window shows them
+    /// (ADR 1986). A page is in one of the two maps or in neither.
+    windows: std::collections::BTreeMap<usize, windowed::Windowed>,
 }
 
 impl Marks {
@@ -246,12 +254,82 @@ impl Marks {
     /// would draw an interpretation nothing on the screen was of. Keeping the greatest token is
     /// exactly the rule `Viewer::rendered` applies.
     fn record(&mut self, page: usize, crossed: Crossed) {
-        match self.by_page.get(&page) {
-            Some(held) if held.token > crossed.token => {}
-            _ => {
-                self.by_page.insert(page, crossed);
-            }
+        if self.newer(page, crossed.token) {
+            return;
         }
+        self.windows.remove(&page);
+        self.by_page.insert(page, crossed);
+    }
+
+    /// Whether either map holds an answer for `page` from a render later than `token`'s.
+    fn newer(&self, page: usize, token: viewer_core::RenderToken) -> bool {
+        self.by_page
+            .get(&page)
+            .is_some_and(|held| held.token > token)
+            || self
+                .windows
+                .get(&page)
+                .is_some_and(|held| held.token > token)
+    }
+
+    /// Records that a page past the bound whose marks cannot cross is drawn here as the window
+    /// shows it, from `request`'s list, with no window drawn yet — [`Self::windows_owed`] names
+    /// the first (ADR 1986).
+    pub(crate) fn hold_window(&mut self, request: &viewer_core::RenderRequest, origin: (f32, f32)) {
+        if self.newer(request.page, request.token) {
+            return;
+        }
+        self.by_page.remove(&request.page);
+        self.windows.insert(
+            request.page,
+            windowed::Windowed {
+                token: request.token,
+                document: request.document,
+                list: std::sync::Arc::clone(&request.list),
+                target: request.target,
+                origin,
+                drawn: None,
+            },
+        );
+    }
+
+    /// Every window owed where the viewport `viewport` shows a part of a page past the bound that
+    /// the last window drawn of it does not hold: the page, its marks, its target and the window.
+    pub(crate) fn windows_owed(
+        &self,
+        viewport: (u32, u32),
+    ) -> Vec<(
+        usize,
+        std::sync::Arc<pdf_render::DisplayList>,
+        pdf_render::TargetSpec,
+        windowed::Window,
+    )> {
+        self.windows
+            .iter()
+            .filter_map(|(page, held)| {
+                held.owed(viewport).map(|window| {
+                    (
+                        *page,
+                        std::sync::Arc::clone(&held.list),
+                        held.target,
+                        window,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// The window drawn for `page`, kept until the next one replaces it.
+    pub(crate) fn drew(&mut self, page: usize, window: windowed::Window, raster: Raster) {
+        if let Some(held) = self.windows.get_mut(&page) {
+            held.drawn = Some((window, raster));
+        }
+    }
+
+    /// A window of `page` the rasteriser refused: the page is let go, and the document it is of
+    /// named for the sentence that says so.
+    pub(crate) fn refused_window(&mut self, page: usize) -> Option<DocumentId> {
+        self.windows.remove(&page).map(|held| held.document)
     }
 
     /// Records that a page crosses as pixels, forgetting any marks held for it.
@@ -260,12 +338,11 @@ impl Marks {
     /// whose newest interpretation cannot cross as a list — a scan, or one of ADR 0607's two
     /// deferred producers — must not be drawn from an older interpretation that could.
     fn forget(&mut self, page: usize, token: viewer_core::RenderToken) {
-        match self.by_page.get(&page) {
-            Some(held) if held.token > token => {}
-            _ => {
-                self.by_page.remove(&page);
-            }
+        if self.newer(page, token) {
+            return;
         }
+        self.by_page.remove(&page);
+        self.windows.remove(&page);
     }
 
     /// Places every page this store holds where the viewer now places it, and forgets the rest.
@@ -285,6 +362,13 @@ impl Marks {
         self.by_page.retain(|page, crossed| match origin(*page) {
             Some(at) => {
                 crossed.origin = at;
+                true
+            }
+            None => false,
+        });
+        self.windows.retain(|page, held| match origin(*page) {
+            Some(at) => {
+                held.origin = at;
                 true
             }
             None => false,
@@ -3961,6 +4045,13 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                 .iter()
                 .map(|(page, crossed)| (*page, Placed::Marks(crossed)))
                 .collect();
+            // A page drawn here as the window shows it crosses once a window of it is drawn;
+            // before that the viewport shows none of it (ADR 1986).
+            for (page, held) in &marks.windows {
+                if let Some((window, raster)) = &held.drawn {
+                    placed.insert(*page, Placed::Window(held, *window, raster));
+                }
+            }
             for frame in frames {
                 placed.insert(frame.page, Placed::Pixels(frame));
             }
@@ -3998,6 +4089,26 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                             .u8(format)
                             .bytes(&frame.raster.data);
                         writer.point(frame.origin);
+                    }
+                    // The whole target, then the window's corner in it and its pixels, so the
+                    // host places the window where this process drew it (ADR 1986).
+                    Placed::Window(held, window, raster) => {
+                        let format = match raster.format {
+                            RasterFormat::Rgba8 => 0,
+                        };
+                        writer
+                            .u8(PAYLOAD_WINDOW)
+                            .u32(held.target.width)
+                            .u32(held.target.height);
+                        display_list::write_transform(&mut writer, held.target.transform);
+                        writer
+                            .u32(window.x)
+                            .u32(window.y)
+                            .u32(raster.width)
+                            .u32(raster.height)
+                            .u8(format)
+                            .bytes(&raster.data);
+                        writer.point(held.origin);
                     }
                 }
             }
@@ -4146,7 +4257,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
 }
 
 /// Reads one page's pixels off a frame.
-fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, ProtocolError> {
+fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<Raster, ProtocolError> {
     let width = reader.u32("a raster width")?;
     let height = reader.u32("a raster height")?;
     let format = match reader.u8("a raster format")? {
@@ -4179,12 +4290,12 @@ fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Prot
             available: data.len(),
         });
     }
-    Ok(crate::Payload::Raster(Raster {
+    Ok(Raster {
         width,
         height,
         format,
         data,
-    }))
+    })
 }
 
 /// The decoded lists a host was last handed, one per page, so the same bytes come back as the
@@ -4271,6 +4382,27 @@ fn decode_list_payload(
     page: usize,
     held: &mut HeldLists,
 ) -> Result<crate::Payload, ProtocolError> {
+    let target = read_target(reader, held)?;
+    let bytes = reader.bytes("a display list")?;
+    // The same bytes hand back the same `Arc` — see [`HeldLists`]. Byte equality first, because
+    // the worker is the untrusted side and nothing weaker may stand in for "the same list"; on a
+    // hit the decode is skipped too, which is most of this arm's cost on an unchanged page.
+    let list = if let Some(list) = held.same(page, bytes) {
+        list
+    } else {
+        let list = std::sync::Arc::new(display_list::decode(bytes)?);
+        held.keep(page, bytes, &list);
+        list
+    };
+    Ok(crate::Payload::List { list, target })
+}
+
+/// Reads the target a page's marks or window crossed under, refused against the bounds that
+/// produced it — [`decode_list_payload`]'s reasoning, which is this function's.
+fn read_target(
+    reader: &mut Reader<'_>,
+    held: &HeldLists,
+) -> Result<pdf_render::TargetSpec, ProtocolError> {
     let width = reader.u32("a target width")?;
     let height = reader.u32("a target height")?;
     if width == 0 || height == 0 {
@@ -4294,24 +4426,50 @@ fn decode_list_payload(
         });
     }
     let transform = display_list::read_transform(reader, "a target transform")?;
-    let bytes = reader.bytes("a display list")?;
-    // The same bytes hand back the same `Arc` — see [`HeldLists`]. Byte equality first, because
-    // the worker is the untrusted side and nothing weaker may stand in for "the same list"; on a
-    // hit the decode is skipped too, which is most of this arm's cost on an unchanged page.
-    let list = if let Some(list) = held.same(page, bytes) {
-        list
-    } else {
-        let list = std::sync::Arc::new(display_list::decode(bytes)?);
-        held.keep(page, bytes, &list);
-        list
+    Ok(pdf_render::TargetSpec {
+        width,
+        height,
+        transform,
+    })
+}
+
+/// Reads a window of a page past the bound, drawn by the worker (ADR 1986).
+///
+/// **Only past the bound and only for a host that said it draws such a page**: a page under it
+/// crosses whole, as its pixels or its marks, so a window of one is nothing an honest worker
+/// sends. The window must be a part of its target and hold a pixel; its samples are checked
+/// against the bytes sent as every raster's are, so the allocation is the sender's to pay for.
+fn decode_window_payload(
+    reader: &mut Reader<'_>,
+    held: &HeldLists,
+) -> Result<crate::Payload, ProtocolError> {
+    let target = read_target(reader, held)?;
+    if u64::from(target.width).saturating_mul(u64::from(target.height)) <= viewer_core::MAX_PIXELS {
+        return Err(ProtocolError::Unbuildable {
+            what: "a window of a page",
+            why: "a page under the bound crosses whole, so no worker sends a window of it",
+        });
+    }
+    let corner = (
+        reader.u32("a window's first column")?,
+        reader.u32("a window's first row")?,
+    );
+    let raster = decode_raster_payload(reader)?;
+    let inside = |first: u32, length: u32, extent: u32| {
+        length > 0 && u64::from(first).saturating_add(u64::from(length)) <= u64::from(extent)
     };
-    Ok(crate::Payload::List {
-        list,
-        target: pdf_render::TargetSpec {
-            width,
-            height,
-            transform,
-        },
+    if !inside(corner.0, raster.width, target.width)
+        || !inside(corner.1, raster.height, target.height)
+    {
+        return Err(ProtocolError::Unbuildable {
+            what: "a window of a page",
+            why: "a window holds at least one pixel and lies inside its page",
+        });
+    }
+    Ok(crate::Payload::Window {
+        target,
+        corner,
+        raster,
     })
 }
 
@@ -4632,11 +4790,12 @@ pub(crate) fn decode_answer_reusing(
             for _ in 0..count {
                 let page = reader.usize("a page index")?;
                 let payload = match reader.u8("a frame payload")? {
-                    PAYLOAD_RASTER => decode_raster_payload(&mut reader)?,
+                    PAYLOAD_RASTER => crate::Payload::Raster(decode_raster_payload(&mut reader)?),
                     PAYLOAD_LIST => {
                         listed.push(page);
                         decode_list_payload(&mut reader, page, held)?
                     }
+                    PAYLOAD_WINDOW => decode_window_payload(&mut reader, held)?,
                     value => {
                         return Err(ProtocolError::Unrecognised {
                             what: "a frame payload",
@@ -7184,6 +7343,135 @@ mod tests {
             panic!("a frame answer decodes as one");
         };
         assert!(frames.is_empty(), "{frames:?}");
+    }
+
+    /// A page past the bound whose marks cannot cross is drawn here as the window shows it, and
+    /// crosses as that window, to a host that said it draws such a page and to no other; the
+    /// window is drawn again only where a scroll leaves it (ADR 1986).
+    #[test]
+    fn a_window_drawn_here_crosses_where_the_page_could_not() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf"),
+        )
+        .expect("the committed note is readable");
+        let mut viewer = viewer_core::Viewer::new(800, 1000, 1.0);
+        let mut request = viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            })
+            .find_map(|event| match event {
+                Event::NeedsRender(request) => Some(request),
+                _ => None,
+            })
+            .expect("opening a document asks for its first page");
+        // The page at a target past the bound, its corner a thousand pixels up and left of the
+        // viewport's: the viewport shows columns 1 000 to 1 799 and rows 1 000 to 1 999.
+        request.target.width = 40_000;
+        request.target.height = 50_000;
+        let viewport = (800, 1000);
+        let mut marks = Marks::default();
+        marks.hold_window(&request, (-1000.0, -1000.0));
+
+        // Nothing crosses until a window is drawn.
+        let empty = encode_answer(&Answer::Frame(Vec::new()), &marks).expect("a frame crosses");
+        let mut told = HeldLists::default();
+        told.told(&Command::Oversize(viewer_core::Oversize::Listed));
+        let Ok(Reply::Frame(frames)) = decode_answer_reusing(&empty, &mut told) else {
+            panic!("a frame answer decodes as one");
+        };
+        assert!(frames.is_empty(), "{frames:?}");
+
+        let owed = marks.windows_owed(viewport);
+        let [(page, _, target, window)] = owed.as_slice() else {
+            panic!("the one page held owes one window: {owed:?}");
+        };
+        assert_eq!((*page, *target), (request.page, request.target));
+        assert_eq!(
+            (window.x, window.y, window.width, window.height),
+            (800, 750, 1200, 1500)
+        );
+        let raster = Raster {
+            width: window.width,
+            height: window.height,
+            format: RasterFormat::Rgba8,
+            data: vec![7; 1200 * 1500 * 4],
+        };
+        marks.drew(*page, *window, raster.clone());
+
+        let encoded = encode_answer(&Answer::Frame(Vec::new()), &marks).expect("a frame crosses");
+        let Ok(Reply::Frame(frames)) = decode_answer_reusing(&encoded, &mut told) else {
+            panic!("a host that draws past the bound reads the window");
+        };
+        let [only] = frames.as_slice() else {
+            panic!("the window is the page that crossed: {frames:?}");
+        };
+        assert_eq!((only.page, only.origin), (request.page, (-1000.0, -1000.0)));
+        assert_eq!(
+            only.payload,
+            crate::Payload::Window {
+                target: request.target,
+                corner: (800, 750),
+                raster,
+            }
+        );
+        // A host that never said so is handed nothing it did not ask for.
+        assert!(decode_answer(&encoded).is_err());
+
+        // A scroll inside the margin owes nothing; one past it owes the next window.
+        marks.place(|_| Some((-1150.0, -1100.0)));
+        assert!(marks.windows_owed(viewport).is_empty());
+        marks.place(|_| Some((-1300.0, -1000.0)));
+        assert_eq!(marks.windows_owed(viewport).len(), 1);
+        // A refused window lets the page go, naming its document for the sentence.
+        assert_eq!(marks.refused_window(request.page), Some(DocumentId(1)));
+        assert!(marks.windows_owed(viewport).is_empty());
+    }
+
+    /// A window is refused where no honest worker could have sent it: of a page under the bound,
+    /// or not a part of its page (ADR 1986).
+    #[test]
+    fn a_window_no_worker_could_have_drawn_is_refused() {
+        let frame = |width: u32, height: u32, corner: (u32, u32), size: (u32, u32)| {
+            let mut writer = Writer::new();
+            writer.u8(answer_kind::FRAME).usize(1);
+            writer.usize(0).u8(PAYLOAD_WINDOW).u32(width).u32(height);
+            display_list::write_transform(&mut writer, pdf_render::Transform::IDENTITY);
+            let pixels = vec![0; (size.0 * size.1 * 4) as usize];
+            writer
+                .u32(corner.0)
+                .u32(corner.1)
+                .u32(size.0)
+                .u32(size.1)
+                .u8(0)
+                .bytes(&pixels);
+            writer.point((0.0, 0.0));
+            writer.finish()
+        };
+        let mut told = HeldLists::default();
+        told.told(&Command::Oversize(viewer_core::Oversize::Listed));
+        let past = 1 << 20;
+        assert!(decode_answer_reusing(&frame(past, past, (5, 5), (4, 4)), &mut told).is_ok());
+        for (width, height, corner, size, why) in [
+            (100, 100, (0, 0), (4, 4), "a page under the bound"),
+            (
+                past,
+                past,
+                (past - 2, 0),
+                (4, 4),
+                "a window across the page's edge",
+            ),
+            (past, past, (0, 0), (0, 4), "a window of no pixels"),
+        ] {
+            let refused = decode_answer_reusing(&frame(width, height, corner, size), &mut told)
+                .expect_err(why);
+            assert!(
+                matches!(refused, ProtocolError::Unbuildable { what, .. } if what == "a window of a page"),
+                "{why} was refused as {refused}"
+            );
+        }
     }
 
     /// **A target is the one length on this boundary with no bytes behind it.**

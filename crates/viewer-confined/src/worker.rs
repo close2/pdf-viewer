@@ -474,22 +474,29 @@ fn perform(
             match event {
                 Event::NeedsRender(request) => {
                     let ahead = turning.take_for(&request);
-                    let rendered = match marks.decide(&request, placement(viewer, request.page)) {
+                    let origin = placement(viewer, request.page);
+                    let rendered = match marks.decide(&request, origin) {
                         // **The render that does not happen.** The host is being handed this
                         // page's own display list, so pixels of it would be drawn, held and
                         // thrown away.
                         protocol::Carries::Marks => Rendered::Listed,
-                        // A page past the bound whose marks do not fit what a page may claim here
-                        // is refused in the viewer's own words, where its raster would have been
-                        // the allocation the ceiling kills (ADR 1944).
+                        // A page past the bound whose marks cannot cross is drawn here as the
+                        // window shows it, after this command, and crosses as that window: its
+                        // raster would be the allocation the ceiling kills (ADR 1986).
                         protocol::Carries::Pixels if past_the_bound(request.target) => {
-                            Rendered::Failed(format!(
-                                "this page cannot be drawn at this size: {}",
-                                pdf_render::BackendError::TargetTooLarge {
-                                    requested: pixels(request.target),
-                                    limit: viewer_core::MAX_PIXELS,
-                                }
-                            ))
+                            if let Some(origin) = origin {
+                                marks.hold_window(&request, origin);
+                                Rendered::Listed
+                            } else {
+                                // A page the viewer does not place has no window to show.
+                                Rendered::Failed(format!(
+                                    "this page cannot be drawn at this size: {}",
+                                    pdf_render::BackendError::TargetTooLarge {
+                                        requested: pixels(request.target),
+                                        limit: viewer_core::MAX_PIXELS,
+                                    }
+                                ))
+                            }
                         }
                         protocol::Carries::Pixels => {
                             // The page drawn while it was read, finished from where its read
@@ -533,10 +540,43 @@ fn perform(
     // the pages this store holds, because those are the ones the viewer keeps no pixels of.
     // Both questions are a borrow of state the viewer already has and cost no interpretation.
     marks.place(|page| placement(viewer, page));
+    // **And the windows the viewport now owes**, drawn here after the command that moved it — a
+    // zoom's first, a scroll's past the margin — so that the frame the host asks for next is of
+    // the view as it stands (ADR 1986).
+    if let Some((viewport, _)) = turning.viewport {
+        draw_windows(marks, rasterizer, viewport, &mut outgoing);
+    }
 
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
+    }
+}
+
+/// Draws every window `marks` owes at a viewport `viewport` across, from the marks it holds.
+///
+/// A window the rasteriser refuses lets its page go and is said in the rasteriser's words, as a
+/// page's refusal is (trap 5): the viewer was told the host took that render, so the sentence is
+/// the only thing left to say it was not drawn.
+fn draw_windows(
+    marks: &mut protocol::Marks,
+    rasterizer: &mut CpuRasterizer,
+    viewport: (u32, u32),
+    outgoing: &mut Vec<Event>,
+) {
+    for (page, list, target, window) in marks.windows_owed(viewport) {
+        match rasterizer.rasterize(&list, window.target_of(target)) {
+            Ok(raster) => marks.drew(page, window, raster),
+            Err(error) => {
+                if let Some(document) = marks.refused_window(page) {
+                    outgoing.push(Event::Reported {
+                        document,
+                        page: Some(page),
+                        notes: vec![format!("this page's window could not be drawn: {error}")],
+                    });
+                }
+            }
+        }
     }
 }
 

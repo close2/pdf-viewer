@@ -529,3 +529,12 @@ the middle of the terminal's sentence. The title now takes the first line and th
 because the graphics device {problem}", so the lines end the sentence rather than split it (ADR
 1962). Any sentence built around a library's error text is checked in a window, not only in a test,
 because the text's shape is the library's and changes with it.
+
+### 200. The first frame after the last command may be the one before the window landed
+
+Round 1575's first clock hold photographed `quorra-confined` at the first device frame after its
+twentieth notch and read the surround alone, with the page's window still on its way from the worker;
+the second hold waited for the window's landing line and the photograph showed the page. On a path
+where the device refuses and the processor fills in, the first frame is the refusal's and the picture
+arrives a frame later. A photograph is taken after the line that says what it should show, and after
+the pointer has moved once so that the frame is the presented one.

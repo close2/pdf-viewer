@@ -10,7 +10,7 @@ use viewer_host::panel::Tab;
 use viewer_host::trace::Topic;
 
 use super::panels::flatten;
-use super::{DOCUMENT, Host, opening_commands};
+use super::{DOCUMENT, Host};
 
 impl Host {
     /// The first resize: the document the opening thread opened is taken in, and told its
@@ -151,20 +151,5 @@ impl Host {
             }
         }
         self.drain(queue);
-    }
-
-    /// §7.6.4.1: opens the document, with a password where one has been supplied.
-    pub(super) fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        if let Some(password) = &password {
-            self.state.kept.keep(DOCUMENT, password);
-        }
-        self.drain(opening_commands(
-            self.restrictions.window(),
-            self.widget_appearances,
-            self.separations,
-            self.state.showing.bytes.clone(),
-            password,
-            self.state.showing.fragment.clone(),
-        ));
     }
 }

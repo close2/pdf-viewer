@@ -1486,6 +1486,29 @@ impl Host {
         });
     }
 
+    /// A press or a release on the page, as `Command::Pointer` (ADR 1987).
+    ///
+    /// Held behind a busy worker as any command is, so the two ends arrive in order. **After the
+    /// release the keyboard follows the focus**, as after a Tab: a press inside a text field is
+    /// how a person says "type here", and the worker's viewer has moved §12.6.3's focus there.
+    fn click(&mut self, state: ElementState) {
+        let action = match state {
+            ElementState::Pressed => viewer_core::PointerAction::Pressed,
+            ElementState::Released => viewer_core::PointerAction::Released,
+        };
+        self.dispatch(Command::Pointer {
+            at: self.cursor,
+            action,
+        });
+        if action == viewer_core::PointerAction::Released {
+            if self.must_hold() {
+                self.hold(Held::Focus);
+            } else {
+                self.ask_the_focus();
+            }
+        }
+    }
+
     /// One key, one meaning; anything else is nothing.
     fn key(&mut self, event: &KeyEvent) {
         if event.state != ElementState::Pressed {
@@ -1754,6 +1777,14 @@ impl ApplicationHandler for Host {
                     self.measure_at();
                 }
             }
+            // §12.5.1's activation: both ends of the press go to the worker, whose viewer finds
+            // the annotation under them and performs its actions — a link, a field, §12.6.4.14's
+            // rendition — and answers in the events every other command's arrive in (ADR 1987).
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } if !self.password.shown && !self.measuring.is_on() => self.click(state),
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }

@@ -182,6 +182,9 @@ fn pixels(framed: &viewer_confined::Framed) -> pdf_render::Raster {
             .with_strips(1)
             .rasterize(list, *target)
             .expect("the host draws the list it was handed"),
+        viewer_confined::Payload::Window { .. } => {
+            panic!("a page whose whole raster is compared is under the bound: {framed:?}")
+        }
     }
 }
 
@@ -1472,6 +1475,134 @@ fn a_page_past_the_bound_crosses_as_marks_to_a_host_that_draws_them() {
     assert!(
         u64::from(target.width) * u64::from(target.height) > viewer_core::MAX_PIXELS,
         "at its whole target, which the host draws a window of: {target:?}"
+    );
+}
+
+/// One letter-sized page painted whole by §8.7.4.5.2's Type 1 shading — a function of position,
+/// which the list format carries as a producer resolved at the device's scale and therefore does
+/// not carry at all (`Uncodable::DeferredColours`): red rising left to right, green with it.
+fn a_page_whose_marks_cannot_cross() -> Vec<u8> {
+    let contents = "q 0 0 612 792 re W n /Sh0 sh Q\n";
+    let function = "{ pop dup 0 }";
+    let page_contents = format!(
+        "<< /Length {} >>\nstream\n{contents}endstream",
+        contents.len()
+    );
+    let function = format!(
+        "<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\nstream\n\
+         {function}\nendstream",
+        function.len().saturating_add(1)
+    );
+    let objects: [&[u8]; 6] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+          /Resources << /Shading << /Sh0 5 0 R >> >> >>",
+        page_contents.as_bytes(),
+        b"<< /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] \
+          /Matrix [612 0 0 792 0 0] /Function 6 0 R >>",
+        function.as_bytes(),
+    ];
+    let mut out = b"%PDF-2.0\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = out.len();
+    out.extend_from_slice(b"xref\n0 7\n0000000000 65535 f \n");
+    for offset in offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+/// A page past the bound whose marks cannot cross is drawn by the worker as the window shows it
+/// and crosses as that window, where it was refused (ADR 1986); a scroll past the window's margin
+/// brings the next one.
+#[test]
+fn a_page_past_the_bound_whose_marks_cannot_cross_crosses_as_its_window() {
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    for command in [
+        Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        },
+        Command::Oversize(viewer_core::Oversize::Listed),
+        Command::Open {
+            id: DOCUMENT,
+            bytes: a_page_whose_marks_cannot_cross().into(),
+            password: None,
+            fragment: None,
+        },
+    ] {
+        confined.handle(&command).expect("the command crosses");
+    }
+    // 612 × 792 points at 32 pixels a point is 19 584 × 25 344, 496 million pixels.
+    let events = confined
+        .handle(&Command::Zoom {
+            zoom: Zoom::Scale(32.0),
+            at: None,
+        })
+        .expect("a zoom crosses");
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Reported { notes, .. }
+            if notes.iter().any(|note| note.contains("cannot be drawn")))),
+        "nothing is refused: {events:?}"
+    );
+    let window = |confined: &mut Confined| {
+        let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+            panic!("the confined viewer holds a frame for the page on the screen");
+        };
+        let [shown] = frames.as_slice() else {
+            panic!("a single-page arrangement crosses as one frame: {frames:?}")
+        };
+        let viewer_confined::Payload::Window {
+            target,
+            corner,
+            raster,
+        } = &shown.payload
+        else {
+            panic!("the page crosses as its window: {shown:?}");
+        };
+        assert!(u64::from(target.width) * u64::from(target.height) > viewer_core::MAX_PIXELS);
+        // The viewport and a quarter of it round it, at most, and a pixel more where the page's
+        // corner sits at a fraction of one: the window holds every pixel any part of which shows.
+        assert!(
+            raster.width <= 751 && raster.height <= 1051,
+            "a window of {}x{}",
+            raster.width,
+            raster.height
+        );
+        (*corner, raster.clone())
+    };
+    let (first, raster) = window(&mut confined);
+    // The shading drew: red and green rise together and blue is nought, so no pixel is white.
+    assert!(
+        raster
+            .data
+            .chunks_exact(4)
+            .all(|pixel| pixel[2] < 8 && pixel[0].abs_diff(pixel[1]) < 8),
+        "the window holds the shading's colours"
+    );
+    confined
+        .handle(&Command::Scroll {
+            dx: 0.0,
+            dy: 2000.0,
+        })
+        .expect("a scroll crosses");
+    let (second, _) = window(&mut confined);
+    assert!(
+        second.1 > first.1,
+        "a scroll past the margin is drawn again further down: {first:?} then {second:?}"
     );
 }
 

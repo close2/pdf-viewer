@@ -236,6 +236,9 @@ remedy = "stop"
 #   graphics/no-transfer-function-in-a-graphics-state, second-transfer-function-is-default,
 #   halftone-*                     a press applies these; an archived print master is kept for it
 #                                  (TR above)
+#   graphics/no-overprint-mode-one-under-icc-cmyk  a press composites DeviceCMYK marks by the
+#                                  mode; one whose marks are all ICCBased converts as a statement
+#                                  (doc/adr/1978)
 #   graphics/rendering-intent-*    decides printed colour
 #   graphics/destination-profile-* the output intent is the statement of what was printed to
 #   fonts/*                        a printed page carried glyphs; every font refusal stays.

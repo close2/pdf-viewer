@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use pdf_render::{ClipId, Command, DisplayList, MAX_GROUP_DEPTH, SoftMaskId, Transform};
+use pdf_render::{ClipId, Command, DisplayList, MAX_GROUP_DEPTH, Selection, SoftMaskId, Transform};
 
 use crate::compose::Compose;
 use crate::mask_cache::MaskCache;
@@ -400,13 +400,18 @@ impl MaskReach {
 /// Consumers inside *other masks'* groups are walked as well, with their own clip chains: the
 /// rows such a consumer actually reads are those drawn during the enclosing mask's build,
 /// which are a subset of its clip's band, so the answer stays a superset of every read.
+///
+/// Of a [`Selection`] — a window's commands — the consumers at the top level are the selection's,
+/// and those inside every soft mask the list's, as a list of the kept commands alone would walk
+/// them (ADR 1980).
 pub(crate) fn mask_consumer_reach(
-    list: &DisplayList,
+    drawn: Selection<'_>,
     page: Transform,
 ) -> HashMap<SoftMaskId, MaskReach> {
+    let list = drawn.list();
     let mut reach = HashMap::new();
     let mut known = HashMap::new();
-    let mut complete = note_mask_consumers(list, list.commands(), page, &mut known, &mut reach, 0);
+    let mut complete = note_mask_consumers(list, drawn.commands(), page, &mut known, &mut reach, 0);
     for number in 0..list.soft_mask_count() {
         let mask = u32::try_from(number)
             .ok()
@@ -508,9 +513,9 @@ fn chain_reach(
 /// — nesting past [`MAX_GROUP_DEPTH`], which [`CpuRasterizer::encode`] refuses anyway — at
 /// which point the caller must restrict nothing, because an unseen consumer could read
 /// anywhere.
-fn note_mask_consumers(
+fn note_mask_consumers<'c>(
     list: &DisplayList,
-    commands: &[Command],
+    commands: impl IntoIterator<Item = &'c Command>,
     page: Transform,
     known: &mut HashMap<ClipId, MaskReach>,
     reach: &mut HashMap<SoftMaskId, MaskReach>,
@@ -537,21 +542,15 @@ fn note_mask_consumers(
                 note_mask_consumers(list, commands, page, known, reach, depth.saturating_add(1))
             }
             Command::Shaped { object, shape } => {
-                note_mask_consumers(
-                    list,
-                    std::slice::from_ref(&**object),
-                    page,
-                    known,
-                    reach,
-                    depth,
-                ) && note_mask_consumers(
-                    list,
-                    std::slice::from_ref(&**shape),
-                    page,
-                    known,
-                    reach,
-                    depth,
-                )
+                note_mask_consumers(list, std::iter::once(&**object), page, known, reach, depth)
+                    && note_mask_consumers(
+                        list,
+                        std::iter::once(&**shape),
+                        page,
+                        known,
+                        reach,
+                        depth,
+                    )
             }
             _ => true,
         };
@@ -644,7 +643,7 @@ mod tests {
 
         let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
         let surface = Surface::whole(target);
-        let reach = mask_consumer_reach(&list, target.transform);
+        let reach = mask_consumer_reach(pdf_render::Selection::whole(&list), target.transform);
 
         // The restriction must narrow, or this test would stay green with the feature gone.
         let marked = marked_rows(

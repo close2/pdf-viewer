@@ -145,6 +145,7 @@ mod halftones;
 mod hexadecimal;
 mod in_place;
 mod jpeg2000;
+mod overprint;
 mod prepare;
 mod preserve;
 mod protection;

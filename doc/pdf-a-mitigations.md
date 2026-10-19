@@ -698,7 +698,18 @@ ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **built** (ADR 1188): `re
   right shape: depart for `All` and `None`, decide the real inks.
 
 #### `graphics/no-overprint-mode-one-under-icc-cmyk`
-ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · all six · today `not-built-yet`
+ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · all six · **built** (ADR 1978): every graphics state
+that set mode 1 for an `ICCBased` CMYK mark painted with overprinting on states mode 0. Where none
+of them also governs a `DeviceCMYK` mark painted with overprinting on it is a statement — ISO
+32000-2 §8.6.7 applies a non-zero mode to an `ICCBased` mark only where §8.6.5.7's implicit
+conversion is done, a processor's choice the file cannot state, and this reader does it only on a
+page compositing in a press. Where one does, it is the loss `overprint-mode`: such a mark's zero components stop leaving
+the backdrop on a press. `as-shown` answers it `discard`, `as-if-printed` leaves it at `stop`. A
+CMYK mark of either kind under the mode inside a page or group blending in four components — where
+this reader's window composites by the mode — is refused by name, as is a mode set by a dictionary that is not an
+object of its own, or a content walk a bound stopped. The witness `102952.pdf` draws its 77 pages
+byte-identically at 72 and 720 dpi with the mode at 0, and governs `0 0 0 1 k` text, so it is the
+loss.
 
 - **Mitigation** — `discard`: set overprint mode 0 in the graphics state parameter dictionary, which
   is the limits document's section 4.5 Ask. The key is in an object rather than on a page, so no
@@ -731,7 +742,11 @@ one is a function it is removed as the loss `transfer-function`, each function f
 the output's own `xmpMM:History` in clause 7's syntax with its data decoded and named in the report
 (ADR 1964). Both shipped profiles answer it `stop` — a printer applies the function as a screen
 does, and the witness `issue6931_reduced.pdf` is a negative without it — so the loss is the
-operator's to authorise by name. The other two rows today `not-built-yet`
+operator's to authorise by name. **`/TR2` built the same way** (ADR 1978 section 6, the second
+row): a `TR2` other than `Default` is written Table 57's `Default`, the function in effect at the
+start of the page — a statement where every function the file states is `Identity`, the loss
+`transfer-function` with the function kept in `xmpMM:History` where one is not. The third row
+today `not-built-yet`
 
 - **Mitigation** — `discard`, with the limits document's section 4.8 evidence attached: render the
   page both ways, show whether anything changed, and remove the function only with that shown. Add a

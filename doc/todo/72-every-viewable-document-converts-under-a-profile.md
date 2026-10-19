@@ -41,9 +41,9 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    statement (26 of 27 documents; ADR 1952 section 3), any other function the loss
    `transfer-function`, kept in `xmpMM:History` before it goes. Both shipped profiles say `stop`:
    a printer applies the function as a screen does, and the witness (`issue6931_reduced.pdf`)
-   turns to a negative without it (ADR 1964). Left: `/TR2` other than `Default`
-   (`second-transfer-function-is-default`, no corpus document) and a function past the record's
-   bound, refused.
+   turns to a negative without it (ADR 1964). `/TR2` other than `Default` — **built** (ADR 1978
+   section 6): written `Default`, the same statement or the same loss; veraPDF's
+   `6-2-5-t02-fail-a.pdf` is its witness. Left: a function past the record's bound, refused.
 5. `graphics/named-resources-are-defined` (fence) — a resource name the page uses and the file
    does not define. Read what ISO 32000-2 has a processor do with one before arguing a remedy;
    the catalogue's "none" rests on supplying an object being invention.
@@ -55,11 +55,16 @@ Each line: the site, and what its remedy would be. `the-fence` rows are refused 
    outside the Adobe Glyph List; ADR 1942's construction names the glyph by its `/ToUnicode`
    character instead, proved the same way — the same build widened.
 9. `graphics/no-halftone-name` — **built** as the loss `halftone-name`, `discard` under `as-shown`
-   (ADR 1965): `endchar.pdf` converts to 2b. The next ranked, each the only refusal of one witness
-   (`examples/archive_unbuilt -- … --who <site>` names them):
-   `graphics/no-overprint-mode-one-under-icc-cmyk` (`102952.pdf`) and
-   `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (`issue14814.pdf`); the
-   first is catalogued as `discard`, OPM 0, Ask. Then `file-structure/bound-names-are-valid-utf8`,
+   (ADR 1965): `endchar.pdf` converts to 2b. `graphics/no-overprint-mode-one-under-icc-cmyk` —
+   **built** (ADR 1978): the states that set mode 1 for `ICCBased` marks state 0, a statement where
+   they govern no `DeviceCMYK` mark (`2018-Lee-Fatherinclusiveperinatal.pdf`, whose next refusal
+   is a standard-14 font) and the loss `overprint-mode` where they do (`102952.pdf`, which
+   converts to 2b under `as-shown`); a mark in a four-component blending space is refused.
+   `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` — **decided, not built**
+   (ADR 1979): `issue14814.pdf` lacks only `cprt`, which no colour reads, so the tag is a supply
+   of the operator's text; `435321.pdf`'s profile is unreadable and drawn through its
+   `/Alternate`, which the conversion writes as a statement. Then
+   `file-structure/bound-names-are-valid-utf8`,
    `fonts/symbolic-truetype-program-has-a-usable-cmap`, `fonts/cid-system-info-agrees-with-the-cmap`,
    `fonts/non-symbolic-truetype-program-maps-every-code`, `graphics/inline-image-interpolation-is-off`
    — each reached by a handful; the catalogue entry says what each would be.

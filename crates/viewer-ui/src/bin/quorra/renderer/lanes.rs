@@ -493,6 +493,35 @@ pub(super) fn upload_lane(refused: raster_gpu::Coverage) -> raster_gpu::Coverage
     }
 }
 
+/// The coverage lanes the adapter refused, as the render thread knows them (ADRs 1968, 1984).
+///
+/// [`Refusals`] is the event thread's, and it reaches a frame as the job's [`Known`]; a retained
+/// picture is drawn while no job is in hand, so the render thread keeps the lanes it has heard of
+/// for itself — from every frame that carried a lane's refusal or heard one, and from the retained
+/// layer's own ask, sorted by the frames' rule ([`remembered`]). A refusal about a frame is not a
+/// fact about another page, so it is not kept here. Never aged, for [`Refusals`]'s reason: the
+/// device is this thread's and lives as long as it does.
+///
+/// [`Known`]: super::Known
+#[derive(Debug, Default)]
+pub(super) struct RefusedLanes(Vec<raster_gpu::Coverage>);
+
+impl RefusedLanes {
+    /// Keeps a refusal where it is a lane's.
+    pub(super) fn learn(&mut self, kept: Option<Kept>) {
+        if let Some(Kept::Lane(lane)) = kept
+            && !self.0.contains(&lane)
+        {
+            self.0.push(lane);
+        }
+    }
+
+    /// Whether the adapter refused this lane's pipelines on this device.
+    pub(super) fn refused(&self, lane: raster_gpu::Coverage) -> bool {
+        self.0.contains(&lane)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,6 +871,40 @@ mod tests {
         assert_eq!(refusals.said(&[], COMPUTE), None, "no page asks nothing");
         refusals.remember(&placed(2, 1.0, 0.0), said, Kept::Lane(COMPUTE));
         assert_eq!(refusals.lanes.len(), 1, "a lane is one entry");
+    }
+
+    /// **The render thread keeps a lane's refusal, from a frame or from its own ask, and nothing
+    /// else** (ADR 1984): a refusal about a frame says nothing about another page, and a lane
+    /// heard twice is one lane.
+    #[test]
+    fn the_render_thread_keeps_a_lane_s_refusal_and_not_a_frame_s() {
+        use raster_gpu::{PipelineProblem, RenderError};
+        let mut lanes = RefusedLanes::default();
+        lanes.learn(Some(Kept::Frame));
+        lanes.learn(None);
+        assert!(
+            !lanes.refused(CPU) && !lanes.refused(COMPUTE),
+            "nothing is a lane's"
+        );
+        lanes.learn(Some(Kept::Lane(COMPUTE)));
+        assert!(
+            lanes.refused(COMPUTE),
+            "a frame's carried refusal of its lane"
+        );
+        assert!(!lanes.refused(CPU), "is its lane's alone");
+        let own = QuorraRasterError::Render(RenderError::PipelineUnavailable {
+            reason: PipelineProblem::ComputePipeline {
+                pipeline: "raster compute count",
+                detail: "no entry point".to_owned(),
+            },
+        });
+        lanes.learn(remembered(&own, CPU));
+        lanes.learn(remembered(&own, CPU));
+        assert!(
+            lanes.refused(CPU),
+            "the retained layer's own ask, sorted by the frames' rule"
+        );
+        assert_eq!(lanes.0.len(), 2, "a lane heard twice is one lane");
     }
 
     /// The processor's picture of a frame whose lane was refused goes back through a lane that

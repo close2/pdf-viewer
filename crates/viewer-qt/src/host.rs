@@ -101,49 +101,6 @@ pub enum HostError {
     },
 }
 
-/// The window's standing levels, from what the command line set (ADR 1145).
-fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
-    viewer_host::Restrictions::new(settings.restrictions)
-        .with(viewer_host::ActLevel::EmbeddedDocuments(
-            settings.embedded_documents,
-        ))
-        .with(viewer_host::ActLevel::Submissions(settings.submissions))
-        .with(viewer_host::ActLevel::Scripts(settings.scripts))
-}
-
-/// What an open sends, in the order it sends it: every policy before the document.
-///
-/// One statement for the open at launch, on the opening thread, and every open after it, on this
-/// one. A policy applied halfway through is not a policy: §6.3.2.2's instruction is a property of
-/// *this host* rather than of the document (ADR 0245), and `Restrict` is the reader's answer to
-/// what the *file* asserts, which `CLAUDE.md` says is always the reader's to give.
-fn opening_commands(
-    window: viewer_core::RestrictionPolicy,
-    widget_appearances: WidgetAppearances,
-    separations: bool,
-    bytes: pdf_syntax::FileBytes,
-    password: Option<viewer_core::Secret>,
-    fragment: Option<String>,
-) -> VecDeque<Command> {
-    VecDeque::from([
-        Command::Restrict(viewer_core::RestrictionScope::Window(window)),
-        Command::Delegate(widget_appearances),
-        // §10.8.3's simulation on the same argument: it decides what colour every mark of the
-        // first interpretation is, so a preference applied after the page had been drawn would
-        // have drawn the other picture first (ADR 1228).
-        Command::Separations(separations),
-        // A page zoomed past its window is drawn as much as the window shows of it, as `quorra`
-        // draws every page, and one past the whole-page bound is not refused (ADRs 1892, 1930).
-        Command::Oversize(viewer_core::Oversize::Listed),
-        Command::Open {
-            id: DOCUMENT,
-            bytes,
-            password,
-            fragment,
-        },
-    ])
-}
-
 /// How many panels this window has, which is `viewer_host::Tab`'s own count.
 ///
 /// §12.3.3's outline, §12.3.4's miniatures, §8.11.4.3's `/Order`, §7.11.4's embedded files,
@@ -199,26 +156,10 @@ pub struct Host {
     /// cannot take `QApplication::exec` with it. What is left on this thread is bounded by *this
     /// host's* own asking rather than by what a document chose to state.
     rasterizer: CpuRasterizer,
-    /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
-    widget_appearances: WidgetAppearances,
-    /// How much of what the document asserts over its reader this window obeys.
-    ///
-    /// The other policy value beside the one above, and the same kind of thing: a fact about what
-    /// *this reader* has been asked to do rather than about the file.
-    /// One level per operation, every one of them [`viewer_core::RestrictionLevel::Off`] unless
-    /// [`viewer_host::RESTRICTIONS`] or [`viewer_host::IGNORE_RESTRICTIONS`] was on the command
-    /// line — the first of which this program did not have, and the second of which it refused as
-    /// an unknown option while telling every person who hit a refusal to use it (ADR 0604, ADR
-    /// 1144).
-    ///
-    /// **Two scopes**: the window's levels, and what the open document departs from them in. A
-    /// level set to catch one suspicious file would otherwise catch every file this window opens
-    /// afterwards (ADR 1145).
-    restrictions: viewer_host::Restrictions,
     /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
     ///
-    /// The other direction from the entry above, and that is why it is a second value rather than
-    /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
+    /// The other direction from [`WindowState::restrictions`], and that is why it is a second
+    /// value rather than a seventh operation of the first: what a document *asserts over its reader* is one subject,
     /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
     /// `CLAUDE.md`'s four levels over the second (ADR 1155).
     links: viewer_host::Links,
@@ -229,12 +170,6 @@ pub struct Host {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
-    /// §10.8.3: whether this window has asked for the separation simulation.
-    ///
-    /// Held here rather than asked of the core, because it is a preference a person toggles and
-    /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
-    /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
-    separations: bool,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -475,8 +410,8 @@ impl Host {
             Topic::Launch,
             format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
-        let commands = opening_commands(
-            standing(settings).window(),
+        let commands = viewer_host::native_window::opening_commands(
+            viewer_host::native_window::standing(settings).window(),
             widget_appearances,
             settings.separations,
             bytes.clone(),
@@ -516,9 +451,17 @@ impl Host {
             (viewer, events)
         });
         Ok(Self {
-            state: WindowState::new(path, bytes, fragment, trace, ahead)
-                .archiving(archive)
-                .opening(anticipated),
+            state: WindowState::new(
+                path,
+                bytes,
+                fragment,
+                trace,
+                ahead,
+                widget_appearances,
+                settings,
+            )
+            .archiving(archive)
+            .opening(anticipated),
             // No thread and nothing read until a label holds a character the compiled-in face
             // lacks, and then off this thread (ADR 1406).
             faces: viewer_host::machine_faces::MachineFaces::new(),
@@ -529,11 +472,8 @@ impl Host {
             documents_moved: false,
             closing: false,
             rasterizer: CpuRasterizer::new(),
-            widget_appearances,
-            restrictions: standing(settings),
             links: settings.links,
             remote_documents: settings.remote_documents,
-            separations: settings.separations,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -700,10 +640,6 @@ impl NativeWindow for Host {
 
     fn drain(&mut self, queue: VecDeque<Command>) {
         Self::drain(self, queue);
-    }
-
-    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        Self::open_document(self, password);
     }
 
     fn prepare(&mut self) {

@@ -77,6 +77,7 @@
 
 use crate::backend::{BackendError, TargetSpec};
 use crate::display_list::{Command, DisplayList};
+use crate::selection::Selection;
 
 /// Most pixels one draw's transparency groups may blit.
 ///
@@ -138,9 +139,18 @@ pub const MAX_GROUP_BLIT_PIXELS: u64 = 1 << 35;
 /// what makes that a fact about the code rather than about the arithmetic.
 #[must_use]
 pub fn group_blit_demand(list: &DisplayList, target: TargetSpec) -> u64 {
-    let mut pixels = walk(list, list.commands(), target);
+    selected_blit_demand(Selection::whole(list), target)
+}
+
+/// [`group_blit_demand`] of a selection of a list's commands — a window's (ADR 1980): the top
+/// level is the selection's, and every soft mask the list's, as a list of the kept commands alone
+/// would count them, since a window draws a mask whole wherever a kept command takes one.
+fn selected_blit_demand(selection: Selection<'_>, target: TargetSpec) -> u64 {
+    let list = selection.list();
+    let mut pixels = walk(list, selection.commands(), target);
     if let Some(black) = list.black() {
-        // The page's own §11.7.2 pair: a second whole list, drawn onto a second target.
+        // The page's own §11.7.2 pair: a second whole list, drawn onto a second target. Never
+        // a window's, because a list that carries one is never culled (`DisplayList::reaching`).
         pixels = pixels.saturating_add(walk(black, black.commands(), target));
     }
     for index in 0..list.soft_mask_count() {
@@ -180,7 +190,20 @@ pub fn commands_blit_demand(owner: &DisplayList, commands: &[Command], target: T
 /// [`BackendError::GroupsTooCostly`], carrying both figures, so that a host reports the
 /// bound by name and by number rather than showing an empty page.
 pub fn check_group_blit(list: &DisplayList, target: TargetSpec) -> Result<(), BackendError> {
-    let demanded = group_blit_demand(list, target);
+    check_selected_blit(Selection::whole(list), target)
+}
+
+/// [`check_group_blit`] of a selection of a list's commands — a window's, which a backend draws
+/// without a list of its own (ADR 1980).
+///
+/// # Errors
+///
+/// As [`check_group_blit`].
+pub fn check_selected_blit(
+    selection: Selection<'_>,
+    target: TargetSpec,
+) -> Result<(), BackendError> {
+    let demanded = selected_blit_demand(selection, target);
     if demanded > MAX_GROUP_BLIT_PIXELS {
         return Err(BackendError::GroupsTooCostly {
             demanded,
@@ -195,7 +218,11 @@ pub fn check_group_blit(list: &DisplayList, target: TargetSpec) -> Result<(), Ba
 /// `owner` is the list whose clip table the commands' [`crate::ClipId`]s name — the same
 /// list for a group's elements and for a soft mask's, and the black half's own table for
 /// the commands inside it.
-fn walk(owner: &DisplayList, commands: &[Command], target: TargetSpec) -> u64 {
+fn walk<'c>(
+    owner: &DisplayList,
+    commands: impl IntoIterator<Item = &'c Command>,
+    target: TargetSpec,
+) -> u64 {
     let mut pixels = 0_u64;
     for command in commands {
         match command {
@@ -216,8 +243,8 @@ fn walk(owner: &DisplayList, commands: &[Command], target: TargetSpec) -> u64 {
             // §11.4.6's shaped pair is two commands drawn one after the other, and either
             // may be a group — a walk over the top level alone would miss both.
             Command::Shaped { object, shape, .. } => {
-                pixels = pixels.saturating_add(walk(owner, std::slice::from_ref(object), target));
-                pixels = pixels.saturating_add(walk(owner, std::slice::from_ref(shape), target));
+                pixels = pixels.saturating_add(walk(owner, std::iter::once(&**object), target));
+                pixels = pixels.saturating_add(walk(owner, std::iter::once(&**shape), target));
             }
             _ => {}
         }

@@ -356,6 +356,9 @@ pub enum WindowAct {
     /// window's to hold — chosen by `--archive`, or on the card or dialogue this key puts up where
     /// none was chosen yet — rather than a command sent with nothing to fill it (ADRs 1954, 1966).
     Archive,
+    /// Put the archive chooser up again in a window that has chosen, so that the next conversion
+    /// is to another target or under another profile ([`crate::archiving::Choosing`], ADR 1985).
+    ChooseArchive,
     /// Leave full screen, which is what Escape means while one is running.
     LeaveFullScreen,
     /// Move on to the next of Table 29's six arrangements ([`crate::arrangement`]).
@@ -483,7 +486,7 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
     let presenting = matches!(mode, Mode::Presenting);
     let warned = matches!(waiting, Waiting::Warned);
     if held.ctrl {
-        return ctrl_meaning(key, mode);
+        return ctrl_meaning(key, held, mode);
     }
     let shift = held.shift;
     Some(match key {
@@ -596,9 +599,13 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
 /// a binding away from the people using it; what Control adds is the key everything else on the
 /// desktop uses for the same job.
 ///
-/// **Shift is not read here**, so Ctrl + Shift + P prints. A person holding a third key down has
+/// **Shift changes no row here**, so Ctrl + Shift + P prints. A person holding a third key down has
 /// not asked for another meaning, and the shifted rows of the unmodified table are about
-/// *direction* — §12.5.1's tab — which none of these rows has.
+/// *direction* — §12.5.1's tab — which none of these rows has. **One row is read with it, and it
+/// is a row of its own rather than another meaning of one**: Ctrl + Shift + A puts the archive
+/// chooser up again where the window has chosen, and Ctrl + A has no row. The conversion is on
+/// Shift + A, and choosing it again is that key with Control added, on the letter it is named
+/// after; every letter Shift alone could take is bound unshifted (ADR 1985).
 ///
 /// # And a key with no row means nothing
 ///
@@ -611,7 +618,7 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
 /// the find bar's row is taken away while a presentation is running, exactly as its unmodified
 /// key is.
 #[must_use]
-pub fn ctrl_meaning(key: Key, mode: Mode) -> Option<Meaning> {
+pub fn ctrl_meaning(key: Key, held: Modifiers, mode: Mode) -> Option<Meaning> {
     Some(match key {
         Key::C => Meaning::Window(WindowAct::Copy),
         Key::S => Meaning::Send(Command::Save),
@@ -635,6 +642,11 @@ pub fn ctrl_meaning(key: Key, mode: Mode) -> Option<Meaning> {
         // what Table 29's `FullScreen` shows none of — so this row goes with the three above while
         // a presentation is running (ADR 1275).
         Key::O => Meaning::Window(WindowAct::OpenDocument),
+        // The archive chooser again, for the row above's reason taken away while a presentation
+        // is running: a dialogue is a window of its own, and `quorra`'s card covers the page.
+        Key::A if held.shift && !matches!(mode, Mode::Presenting) => {
+            Meaning::Window(WindowAct::ChooseArchive)
+        }
         _ => return None,
     })
 }
@@ -952,6 +964,29 @@ mod tests {
         ));
         assert!(
             meaning(Key::O, Modifiers::CTRL, Mode::Presenting, Waiting::Nothing).is_none(),
+            "a chooser is another window, and FullScreen shows none"
+        );
+    }
+
+    /// Ctrl + Shift + A puts the archive chooser up again, Shift + A still converts, and Ctrl + A
+    /// alone means nothing (ADR 1985).
+    #[test]
+    fn control_and_shift_a_chooses_the_conversion_again() {
+        let both = Modifiers {
+            shift: true,
+            ctrl: true,
+        };
+        assert!(matches!(
+            meaning(Key::A, both, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::ChooseArchive))
+        ));
+        assert!(matches!(
+            meaning(Key::A, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Archive))
+        ));
+        assert!(meaning(Key::A, Modifiers::CTRL, Mode::Reading, Waiting::Nothing).is_none());
+        assert!(
+            meaning(Key::A, both, Mode::Presenting, Waiting::Nothing).is_none(),
             "a chooser is another window, and FullScreen shows none"
         );
     }

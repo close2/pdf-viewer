@@ -8,7 +8,8 @@ impl Host {
     /// The headings of the restrictions menu bar: one per group the menu's rows open, the two
     /// scopes and then what a document may ask this machine to do.
     pub(crate) fn restriction_scopes(&self) -> Vec<String> {
-        self.restrictions
+        self.state
+            .restrictions
             .headings()
             .into_iter()
             .map(str::to_owned)
@@ -20,7 +21,8 @@ impl Host {
     /// Built when the menu is opened and never held, which is `CLAUDE.md` section 2's rule: what
     /// it holds is a function of two policies that change while the window is up.
     pub(crate) fn restriction_menu(&self) -> Vec<crate::bridge::ffi::QtMenuEntry> {
-        self.restrictions
+        self.state
+            .restrictions
             .rows()
             .into_iter()
             .map(|row| match row {
@@ -60,12 +62,12 @@ impl Host {
     /// policy — two scopes, every operation, four levels and one way back — and only what is
     /// ticked does. A heading's index chooses nothing, which is what a `QMenu` title is.
     pub(crate) fn chose_restriction(&mut self, entry: usize) {
-        let picked = match self.restrictions.rows().get(entry).copied() {
+        let picked = match self.state.restrictions.rows().get(entry).copied() {
             Some(viewer_host::Row::Level(picked)) => picked,
             // An act's row sets a level this host reads, and tells the viewer only of the act it
             // does itself — a script runs in its view state (ADRs 1291, 1331, 1616).
             Some(viewer_host::Row::ActLevel(act)) => {
-                self.restrictions.set(act.level);
+                self.state.restrictions.set(act.level);
                 if let Some(command) = viewer_host::told(act.level) {
                     self.dispatch(command);
                 }
@@ -74,7 +76,7 @@ impl Host {
             }
             _ => return,
         };
-        let command = self.restrictions.chose(picked.chose);
+        let command = self.state.restrictions.chose(picked.chose);
         self.dispatch(command);
         self.say(&viewer_host::chosen(picked.chose));
     }

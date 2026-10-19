@@ -16,7 +16,7 @@ impl Host {
     /// model built once would show the policy the program launched with. What it costs is one
     /// walk over 62 entries when a person opens a menu, which is on no path a page takes.
     fn fill_the_restrictions_menu(&mut self) {
-        let (model, actions) = restrictions_menu(&self.me, self.restrictions);
+        let (model, actions) = restrictions_menu(&self.me, self.state.restrictions);
         self.ui
             .window
             .insert_action_group(MENU_ACTIONS, Some(&actions));
@@ -27,7 +27,7 @@ impl Host {
     /// the viewer told only where the act is one it does — a script runs in its view state (ADRs
     /// 1291, 1331, 1616).
     fn chose_act(&mut self, level: viewer_host::ActLevel) {
-        self.restrictions.set(level);
+        self.state.restrictions.set(level);
         if let Some(command) = viewer_host::told(level) {
             self.dispatch(command);
         }
@@ -36,7 +36,7 @@ impl Host {
 
     /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
     fn chose_restriction(&mut self, chose: viewer_host::Chose) {
-        let command = self.restrictions.chose(chose);
+        let command = self.state.restrictions.chose(chose);
         self.dispatch(command);
         self.say(&viewer_host::restriction::chosen(chose));
     }

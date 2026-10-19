@@ -77,15 +77,17 @@ operation.** It performs none of the six a restriction decides, supplies no file
 links, so it owes nothing. Each gap a reader notices is answered: there is no `--restrictions=`
 because there is nothing to decide, `Event::Asking` is refused out loud because nobody could answer
 (ADR 0814), and `--links=` and `--remote-documents=` are both pinned to `refuse` because there is no
-dialogue and no click handling (ADRs 1155, 1227). For a file a document names it answers
+dialogue (ADRs 1155, 1227). A click reaches the page as `Command::Pointer`'s two ends: a link inside
+the document is followed, a field takes the keyboard, and a rendition's clip is handed over (ADR
+1987). For a file a document names it answers
 `Command::Supply` with no bytes and tells the person by name (ADR 1227). It holds one document: a
 second would first have to decide whether two documents share one worker's confinement (ADRs 0713,
 1190). What arrives with each future feature, in the feature's own round:
 
 - **selection or copy** → `--restrictions=` with that row, and the ask dialogue on the modal
   machinery ADR 0718 already loads lazily;
-- **click handling** → `--links=` and `--remote-documents=` with real `Ask` arms, replacing the
-  pins;
+- **a dialogue** → `--links=` and `--remote-documents=` with real `Ask` arms, replacing the pins,
+  which click handling did not lift (ADR 1987);
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
   *worker* has no filesystem, but the host holds one by design and opens the document itself;
 - **§12.7.5.3's file-select control** → a file *chooser*, as the other windows have.
@@ -162,11 +164,12 @@ These are the places where a native host's shape differs from the tier-2 host's,
   as a look of their own over the stand-in, and the page whole after as the frame
   (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**: its
   worker sends the marks, the device draws them at the window's size and the processor (`--cpu`, a
-  refused frame) draws the window and its margin (ADR 1944). What is still owed: a page never
+  refused frame) draws the window and its margin (ADR 1944); a page whose marks cannot cross is
+  drawn by the worker as the window shows it, and that window crosses (ADR 1986). What is still owed: a page never
   drawn before that a notch out brings on screen has no picture of any kind until it is
-  drawn; and a window that is most of its page costs more than the page, which is why the half
-  stands: a list culled to it is a copy of the commands it keeps, and draws as long as the page
-  where it keeps most of them (ADRs 1930 §4, 1941 §4).
+  drawn; and the half stands though a window now ties its page at 70–83 % of it, because it is
+  drawn as a selection of the page's commands rather than a copy (ADR 1980): a bound in commands
+  kept is `viewer_host::oversize`'s to take, before the draw (ADR 1980 §4).
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
   (`viewer_core::layout`, `viewer_host::Presenting`, `viewer_host::Clock`), and each toolkit
   supplies the wall clock (ADRs 0441, 0442, 0470, 0473). The gap between pages is
@@ -239,10 +242,6 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `\n`, and the toolkits' editors hand back their own line feeds with `Edit::SetNoteText`. The fix
   touches all three windows' editors and their offset arithmetic (ADR 1798 section 3).
 
-- **`quorra-gtk` can hang before it maps where no session bus is** (ADR 1907): GLib's
-  `dbus-launch` pipes reach a sandbox worker started inside GLib's spawn, and GLib waits for their
-  end of file for ever. Closing them takes one `unsafe` call, which is `doc/questions/Q430`;
-  the drive's step 84 says `wrong` until it is answered.
 - **ISO 19005's conversion is chosen once per window** (`--archive <target>:<profile>`, or the
   card or dialogue Shift+A puts up where nothing was chosen, ADRs 1954, 1966): a window that has
   chosen converts to that choice for its life, and choosing again needs a new window.

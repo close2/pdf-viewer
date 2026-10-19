@@ -106,7 +106,7 @@ pub enum HostError {
 /// — the display, the theme, the window, its realisation — is 90 to 140 ms under Xvfb, and none of
 /// it needs the document; the open and page one's interpretation need none of it. So the open is
 /// started before `Application::run`, on a `Viewer` with no viewport, through the same commands
-/// [`Host::open_document`] sends, and [`viewer_core::Viewer::anticipate`] interprets the page it
+/// [`NativeWindow::open_document`] sends, and [`viewer_core::Viewer::anticipate`] interprets the page it
 /// stands at (ADR 1531). The first allocation joins it and its `Resize` goes straight to the
 /// render. The core is still single-threaded: it is made on that thread and moved back, which is
 /// `viewer-core`'s rule 4 as `quorra` keeps it.
@@ -153,8 +153,8 @@ impl Opening {
                 path: path.to_owned(),
                 error: error.to_string(),
             })?;
-        let commands = opening_commands(
-            standing(settings).window(),
+        let commands = viewer_host::native_window::opening_commands(
+            viewer_host::native_window::standing(settings).window(),
             widget_appearances,
             settings.separations,
             bytes.clone(),
@@ -200,51 +200,6 @@ impl Opening {
             archive,
         })
     }
-}
-
-/// The window's standing levels, from what the command line set (ADR 1145).
-fn standing(settings: viewer_host::Settings) -> viewer_host::Restrictions {
-    viewer_host::Restrictions::new(settings.restrictions)
-        .with(viewer_host::ActLevel::EmbeddedDocuments(
-            settings.embedded_documents,
-        ))
-        .with(viewer_host::ActLevel::Submissions(settings.submissions))
-        .with(viewer_host::ActLevel::Scripts(settings.scripts))
-}
-
-/// What an open sends, in the order it sends it: every policy before the document.
-///
-/// One statement for the open at launch, on [`Opening`]'s thread, and every open after it, on
-/// this one. A policy applied halfway through is not a policy: §6.3.2.2's instruction is a
-/// property of *this host* rather than of the document, which is why it is not part of `Open` — a
-/// host that changes its mind sends it again and the page is rebuilt — and `Restrict` is the
-/// reader's answer to what the *file* asserts, which `CLAUDE.md` says is always the reader's to
-/// give.
-fn opening_commands(
-    window: viewer_core::RestrictionPolicy,
-    widget_appearances: WidgetAppearances,
-    separations: bool,
-    bytes: pdf_syntax::FileBytes,
-    password: Option<viewer_core::Secret>,
-    fragment: Option<String>,
-) -> VecDeque<Command> {
-    VecDeque::from([
-        Command::Restrict(viewer_core::RestrictionScope::Window(window)),
-        Command::Delegate(widget_appearances),
-        // §10.8.3's simulation on the same argument: it decides what colour every mark of the
-        // first interpretation is, so a preference applied after the page had been drawn would
-        // have drawn the other picture first (ADR 1228).
-        Command::Separations(separations),
-        // A page zoomed past its window is drawn as much as the window shows of it, as `quorra`
-        // draws every page, and one past the whole-page bound is not refused (ADRs 1892, 1930).
-        Command::Oversize(viewer_core::Oversize::Listed),
-        Command::Open {
-            id: DOCUMENT,
-            bytes,
-            password,
-            fragment,
-        },
-    ])
 }
 
 /// What the chrome layer draws, kept apart from the [`Host`] on purpose.
@@ -500,27 +455,10 @@ pub struct Host {
     pub(crate) access_interval: Option<i32>,
     /// The source draining that flag, at the interval the bridge asks for.
     pub(crate) access_draining: Option<glib::SourceId>,
-    /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
-    ///
-    /// [`WidgetAppearances::Delegated`] unless the command line asked otherwise, because this host
-    /// *does* place a real control over every widget and leaving the appearance underneath is the
-    /// duplication ADR 0244 photographed. `--draw-widget-appearances` restores §6.3.2.2's default,
-    /// which is what taking the two pictures side by side needs.
-    widget_appearances: WidgetAppearances,
-    /// How much of what the document asserts over its reader this window obeys.
-    ///
-    /// The other policy value beside the one above, and the same kind of thing: a fact about what
-    /// *this reader* has been asked to do rather than about the file.
-    /// What `--restrictions=` asked for until the menu says otherwise, and what the open document
-    /// departs from that in — two scopes, because a level set to catch one file would otherwise
-    /// catch every file this window opens afterwards (ADR 1145). The word
-    /// [`viewer_host::IGNORE_RESTRICTIONS`] turns them all off, and this program refused it as an
-    /// unknown option while telling every person who hit a refusal to use it (ADR 0604).
-    restrictions: viewer_host::Restrictions,
     /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
     ///
-    /// The other direction from the entry above, and that is why it is a second value rather than
-    /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
+    /// The other direction from [`WindowState::restrictions`], and that is why it is a second
+    /// value rather than a seventh operation of the first: what a document *asserts over its reader* is one subject,
     /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
     /// `CLAUDE.md`'s four levels over the second (ADR 1155).
     links: viewer_host::Links,
@@ -531,12 +469,6 @@ pub struct Host {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
-    /// §10.8.3: whether this window has asked for the separation simulation.
-    ///
-    /// Held here rather than asked of the core, because it is a preference a person toggles and
-    /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
-    /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
-    separations: bool,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -635,9 +567,17 @@ impl Host {
             let ui = build_window(app, path, me, &chrome);
             trace.say(Topic::Launch, format_args!("window built"));
             RefCell::new(Self {
-                state: WindowState::new(path, bytes, fragment, trace, ahead)
-                    .archiving(archive)
-                    .opening(thread),
+                state: WindowState::new(
+                    path,
+                    bytes,
+                    fragment,
+                    trace,
+                    ahead,
+                    widget_appearances,
+                    settings,
+                )
+                .archiving(archive)
+                .opening(thread),
                 pointer_at: None,
                 zoom_wheel: viewer_host::ZoomWheel::default(),
                 panels_due: false,
@@ -666,11 +606,8 @@ impl Host {
                 access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 access_interval: None,
                 access_draining: None,
-                widget_appearances,
-                restrictions: standing(settings),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
-                separations: settings.separations,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -811,10 +748,6 @@ impl NativeWindow for Host {
 
     fn drain(&mut self, queue: VecDeque<Command>) {
         self.pump(queue);
-    }
-
-    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        Self::open_document(self, password);
     }
 
     fn prepare(&mut self) {

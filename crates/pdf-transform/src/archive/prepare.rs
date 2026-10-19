@@ -1342,6 +1342,9 @@ impl Prepared {
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FilterNamesSpelledOut => self.owed.filter_names.as_ref().err().copied(),
             Rewrite::HalftoneNameRemoved => self.owed.halftone_names.as_ref().err().copied(),
+            Rewrite::OverprintModeRestated | Rewrite::OverprintModeZeroed => {
+                self.owed.overprint_modes.as_ref().err().copied()
+            }
             Rewrite::IdentityTransferFunctionRemoved | Rewrite::TransferFunctionRemoved => {
                 self.owed.transfers.as_ref().err().copied()
             }
@@ -1522,6 +1525,8 @@ pub(super) struct Owed {
     pub(super) filter_names: Result<(), Because>,
     /// The halftones whose `HalftoneName` goes, or why none do.
     pub(super) halftone_names: Result<Sites, Because>,
+    /// The graphics states whose overprint mode becomes 0, or why none do.
+    pub(super) overprint_modes: Result<super::overprint::OverprintModes, Because>,
     /// The graphics states whose `/TR` goes, or why none do.
     pub(super) transfers: Result<super::transfer::TransferFunctions, Because>,
 }
@@ -1569,6 +1574,10 @@ impl Owed {
             }),
             halftone_names: asked(wanted(Rewrite::HalftoneNameRemoved), || {
                 super::halftones::removal(document, input)
+            }),
+            overprint_modes: asked(wanted(Rewrite::OverprintModeRestated), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                super::overprint::zeroing(document, survey)
             }),
             transfers,
             packet_headers,
@@ -1656,7 +1665,8 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 6] = [
+const SURVEYED: [Rewrite; 7] = [
+    Rewrite::OverprintModeRestated,
     Rewrite::SubstituteFontProgram,
     Rewrite::RestateFontMetrics,
     Rewrite::RestateVerticalFontMetrics,

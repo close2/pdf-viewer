@@ -500,13 +500,13 @@ impl<'a> Encoder<'a> {
         self.element_of_knockout
     }
 
-    /// Translates one command list into the builder — the page's, a group's or a
-    /// soft mask's, which all share this walk so the cross-backend tests exercise
-    /// every path a mask can take.
-    pub(crate) fn commands(
+    /// Translates one command list into the builder — the page's, a window's selection of it
+    /// (ADR 1980), a group's or a soft mask's, which all share this walk so the cross-backend
+    /// tests exercise every path a mask can take.
+    pub(crate) fn commands<'c>(
         &mut self,
         builder: &mut SceneBuilder,
-        commands: &[Command],
+        commands: impl IntoIterator<Item = &'c Command>,
     ) -> Result<(), QuorraRasterError> {
         for command in commands {
             match command {

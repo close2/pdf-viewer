@@ -1,9 +1,10 @@
 # 62 — The exemption no row stated: a named resource nothing references
 
-Status: **taken** (ADR 1021), after ADR 0935 deferred it with an argument and ADR
+Status: **done — taken** (ADR 1021), after ADR 0935 deferred it with an argument and ADR
 0941 measured what was being deferred. What blocked it was named in this file for three sessions —
 "a whole-file reachability answer available to every row, which is a change to `Examination`'s
 contract rather than to any one predicate" — and that answer is now `crate::reach`.
+Cited by: comments in `crates/pdf-archive`; `doc/crate-map.md` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: **closed**; what is left of it is one sentence, §5 below, and it is owed by the base
 standard rather than by this item. Companions: `doc/todo/01` (the ledger sweeps), `doc/todo/48`
 (the copy of the standard).

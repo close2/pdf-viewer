@@ -54,7 +54,7 @@ use rayon::iter::{
 };
 use rayon::slice::ParallelSliceMut as _;
 
-use pdf_render::{DisplayList, MarkBounds, Raster, RasterFormat, TargetSpec};
+use pdf_render::{DisplayList, MarkBounds, Raster, RasterFormat, Selection, TargetSpec};
 
 /// A flag another thread raises to ask a draw in progress for the picture so far.
 ///
@@ -227,8 +227,10 @@ impl crate::CpuRasterizer {
     /// recursion, and every strip of the owner's witness replayed it for each of 4.4 M commands,
     /// 9.9 % of the processor's drawing (ADR 1841).
     ///
-    /// The commands drawn are the list's from `from` on, which is how a page drawn ahead from its
-    /// parts is finished from the list once the read has ended ([`Underway::finish`]).
+    /// The commands drawn are the selection's from position `from` on, which is how a page drawn
+    /// ahead from its parts is finished from the list once the read has ended
+    /// ([`Underway::finish`]). A window's selection is asked of `bounds` by each command's index
+    /// into the list and watched by its position in the window (ADR 1980).
     ///
     /// # Errors
     ///
@@ -236,12 +238,13 @@ impl crate::CpuRasterizer {
     pub(crate) fn encode_page(
         &self,
         pixmap: &mut tiny_skia::PixmapMut<'_>,
-        (list, bounds, from): (&DisplayList, &MarkBounds, usize),
+        (drawn, bounds, from): (Selection<'_>, &MarkBounds, usize),
         surface: crate::surface::Surface,
         masks: &mut crate::mask_cache::MaskCache,
         showing: Option<&Showing>,
     ) -> Result<(), crate::CpuRasterError> {
-        let commands = list.commands();
+        let list = drawn.list();
+        let length = drawn.len();
         #[expect(
             clippy::cast_precision_loss,
             reason = "a target height below MAX_EXTENT = 2^24 is exact in f32"
@@ -252,11 +255,11 @@ impl crate::CpuRasterizer {
         );
         let mut watch = showing
             .map(|showing| Watch::new(showing, list, surface.page, surface.rows.top, self.medium));
-        for (index, command) in commands.iter().enumerate().skip(from) {
+        for (position, (index, command)) in drawn.indexed().enumerate().skip(from) {
             if let Some(watch) = watch.as_mut()
                 && watch.due()
             {
-                watch.answer(pixmap.as_ref().data(), index, commands.len());
+                watch.answer(pixmap.as_ref().data(), position, length);
             }
             // `encode`'s first two questions, in its order: whether anybody has asked for the
             // thread back, and whether this command can mark any row of the strip.
@@ -281,7 +284,7 @@ impl crate::CpuRasterizer {
         if let (Some(showing), Some(watch)) = (showing, watch.as_mut())
             && showing.glance.asked() > 0
         {
-            watch.answer(pixmap.as_ref().data(), commands.len(), commands.len());
+            watch.answer(pixmap.as_ref().data(), length, length);
         }
         Ok(())
     }
@@ -538,9 +541,10 @@ impl Underway {
         let bounds = list.mark_bounds(target.transform);
         if self.strips.len() > 1 {
             let anti_alias = self.rasterizer.anti_alias;
-            let inputs = pdf_render::strip_inputs(list, target, &bounds, &|mark| {
-                crate::strips::drawn_row_by_row(mark, anti_alias, target)
-            });
+            let inputs =
+                pdf_render::strip_inputs(Selection::whole(list), target, &bounds, &|mark| {
+                    crate::strips::drawn_row_by_row(mark, anti_alias, target)
+                });
             let forbidden = inputs.unsplittable();
             let inner = self.cuts.get(1..self.cuts.len().saturating_sub(1));
             if inner.unwrap_or_default().iter().any(|row| {
@@ -570,7 +574,7 @@ impl Underway {
             };
             rasterizer.encode_page(
                 &mut strip.pixmap.as_mut(),
-                (list, &bounds, from),
+                (Selection::whole(list), &bounds, from),
                 surface,
                 &mut strip.masks,
                 None,

@@ -6,7 +6,9 @@
 //! bridge by deleting one line here. Each member throws a `NotAllowedError` naming it (ADR 1591),
 //! where a script meets it: a method when it is called, so that `typeof` answers what the reference
 //! has the member be, and a property when it is read ([`Member`], ADR 1957). A member in neither
-//! list and not carried is simply not there, which is how the reference's surface ends.
+//! list and not carried is simply not there, which is how the reference's surface ends — and
+//! [`ABSENT`] names the one member the reference itself has not there in the form this processor
+//! presents, so that no later reading lists it as a refusal again (ADR 1989).
 
 /// The object a member is a property of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -305,7 +307,7 @@ pub const EXCLUDED: &[Excluded] = &[
     },
     Excluded {
         holder: Holder::Global,
-        members: &["XFA", "xfa"],
+        members: &["XFA"],
         kind: Member::Property,
         reason: "is XFA, which Annex K permits a processor not to implement",
     },
@@ -341,6 +343,21 @@ pub const REFUSED: &[Excluded] = &[
                  reach",
     },
 ];
+
+/// What Adobe's reference has absent from an Acrobat form, which is the form this processor makes of
+/// every document: neither refused nor carried, so that `typeof` answers `undefined` (ADR 1989).
+///
+/// The reference's XFA page asks `typeof xfa == "object"` to tell an XML form from an Acrobat
+/// form, with the comment "The xfa object is undefined in an Acrobat form". This processor takes
+/// §K.1's permission not to implement XFA, and what it shows and fills is the form of the
+/// document's interactive form dictionary, which §K.2 requires to be consistent with the XFA
+/// resource — so the document a script here acts on *is* an Acrobat form, and the reference's own
+/// answer for one is that the name is not there. A refusal would tell the script it stands in an
+/// XML form whose object it may not reach, the one thing not true of it here. Nothing is said in
+/// silence: a document that carries an XFA resource is said once where the viewer opens it
+/// (`viewer_core`'s notes), and a script that uses the name rather than asking about it meets the
+/// `ReferenceError` an Acrobat form would give it.
+pub const ABSENT: &[(Holder, &str)] = &[(Holder::Global, "xfa")];
 
 /// What RFC 0008 section 4.2 admits to Tier 1 and this bridge does not carry, by holder.
 ///

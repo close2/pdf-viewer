@@ -1,7 +1,7 @@
 # 70 — Doom in a PDF: what a document that runs a program asks of this viewer
 
 Status: **open** — the evaluation is ADR 1950; items 1–5 are built (ADRs 1950, 1956, 1957, 1974,
-1975), and item 6 is a decision.
+1975, 1989), and item 6 is a decision.
 Priority: the owner's, 2026-10-15: "find out, what still needs to be implemented to get it working"
 — and fix what is wrong on its own terms on the way.
 Witness: `/home/cl/projects/pdf-viewer/tmp/doom.pdf`, the owner's, **not in the repository**
@@ -44,9 +44,10 @@ with scripts off, a person's press on such a widget is still unsaid.
 ## 5. Built — a refused method refused at its call, not at its name (ADR 1957 section 2)
 
 `crate::surface::Member` on every row; `typeof print` answers `function`, and the call throws. None
-of the eight property rows is a method in Adobe's reference (ADR 1975 section 2). Left: the
-reference's XFA page asks `typeof xfa == "object"` to tell an Acrobat form, "The xfa object is
-undefined in an Acrobat form", and here that read throws.
+of the eight property rows is a method in Adobe's reference (ADR 1975 section 2). `xfa` is not
+there (`crate::surface::ABSENT`, ADR 1989): the reference's XFA page tells an Acrobat form by
+`typeof xfa == "object"`, "The xfa object is undefined in an Acrobat form", and the form a script
+acts on here is the AcroForm §K.2 makes consistent with the XFA resource.
 
 ## 6. Running the document — a decision, not recommended
 

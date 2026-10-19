@@ -653,3 +653,11 @@ whose length is unknown gathers each thread's piece and then joins them serially
 kept indices first and copying through an indexed iterator writes every item in place in parallel:
 43–49 ms (ADR 1941). A parallel copy is parallel only when its output positions are known before it
 starts.
+
+### 198. A planted pipeline refuses only on the path that reaches it
+
+Round 1574 planted ADR 1962's broken count pipeline and counted nine device asks for retained
+pictures — all nine drawn by the device, none refused, because under `Cpu` the compute assist takes
+only tiles the atlas cannot hold and a 512 px picture fits. The refusal appeared once "the atlas has
+no room" was planted beside it. A count of asks is not a count of refusals; the planted call's own
+answer is printed first, and the plant is extended until that answer is the refusal the test wants.

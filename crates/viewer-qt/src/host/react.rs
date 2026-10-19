@@ -130,7 +130,7 @@ impl Host {
         self.state.showing.asking.opened();
         // A document opens at the window's levels, so the menu's ticks go back to them
         // too — the core's `Open` forgets the departures (ADR 1145).
-        self.restrictions.opened();
+        self.state.restrictions.opened();
         self.state.showing.report_due.opened();
         self.obey_the_catalog(queue, behind.is_none());
         self.state.showing.catalog_due = behind.is_some();

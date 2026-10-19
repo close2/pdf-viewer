@@ -239,6 +239,18 @@ remedy = "stop"
 remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
+# Overprint mode. ISO 32000-2 8.6.7 applies mode 1 to DeviceCMYK marks painted with overprinting
+# on, and the window composites by it only inside a group blending in four components - a case the
+# converter refuses by name rather than offers. So setting the mode to 0 moves nothing the window
+# showed; what moves is a press, where black text stops overprinting what lies under it. A file
+# whose overprinting marks are all ICCBased converts as a statement and asks nothing
+# (doc/adr/1978).
+# ---------------------------------------------------------------------------------------------
+
+[site."graphics/no-overprint-mode-one-under-icc-cmyk"]
+remedy = "discard"
+
+# ---------------------------------------------------------------------------------------------
 # What this profile deliberately leaves at `stop`, because the window WOULD have shown it:
 #
 #   graphics/no-transfer-function-in-a-graphics-state  above: 10.5's transfer functions

@@ -562,6 +562,34 @@ pub struct IccCmykPaint {
     pub mode: i64,
 }
 
+/// One painting operator that marked the page in `DeviceCMYK` with overprinting on and a
+/// non-zero overprint mode — the marks ISO 32000-2 §8.6.7's mode acts on.
+///
+/// > Non-zero overprint mode shall apply only to painting operations that use the current colour
+/// > in the graphics state when the current colour space is DeviceCMYK
+///
+/// So this is the population a change of the mode reaches, where [`IccCmykPaint`] is the one
+/// ISO 19005-2 section 6.2.4.2 forbids it for. `DeviceCMYK` is reached as §11.7.4.3's NOTE 2
+/// reaches it: stated, through `k` or `K`, as the alternate a `Separation` or `DeviceN` space
+/// reverts to, or as an `Indexed` space's base. A space reverting depends on the device's
+/// colourants, so every `Separation` but `All` and `None` and every `DeviceN` over a `DeviceCMYK`
+/// alternate is counted: the walk over-reports here rather than under, because a caller reads
+/// this to learn whether a change of the mode is free (ADR 1978).
+#[derive(Debug, Clone)]
+pub struct ProcessCmykOverprint {
+    /// The zero-based index of the page the mark was made on.
+    pub page: usize,
+    /// Whether the space in force was the stroking one rather than the non-stroking one.
+    pub stroking: bool,
+    /// The graphics state parameter dictionary whose `OPM` set the mode, where it is an object
+    /// of its own; `None` where it was written directly into a resource dictionary.
+    pub mode_set_by: Option<ObjectId>,
+    /// Whether §11.3.4's current blending colour space had four components: a page group or
+    /// transparency group in `DeviceCMYK` or an `ICCBased` CMYK space, where §11.7.4.3's special
+    /// blend mode composites the mark in the group's own components.
+    pub in_four_components: bool,
+}
+
 /// An extreme one document's content streams reached, with the page that reached it.
 ///
 /// Every field of [`ContentLiterals`] is one of these, and so is the deepest `q` nesting.
@@ -726,6 +754,17 @@ pub struct Survey {
     icc: Vec<IccSelection>,
     /// Every painting operator that marked the page in an `ICCBased` CMYK colour space.
     icc_paints: Vec<IccCmykPaint>,
+    /// Every painting operator that marked the page in `DeviceCMYK` under a non-zero overprint
+    /// mode with overprinting on.
+    process_overprints: Vec<ProcessCmykOverprint>,
+    /// The graphics state parameter dictionaries whose non-zero `OPM` was in force at an
+    /// `ICCBased` CMYK mark with overprinting on, `None` standing for one written directly into a
+    /// resource dictionary.
+    icc_overprint_modes: BTreeSet<Option<ObjectId>>,
+    /// Whether one of those marks was painted inside a page or group blending in four components.
+    icc_overprint_blended: bool,
+    /// Whether one of the walk's bounds stopped it, so that every list here may be a prefix.
+    stopped_short: bool,
     /// How far the operands of the content streams reached, in each direction.
     literals: ContentLiterals,
     /// The deepest `q` nesting any one content stream reached.
@@ -843,6 +882,47 @@ impl Survey {
         &self.icc_paints
     }
 
+    /// Every painting operator that marked a page in `DeviceCMYK` with overprinting on and a
+    /// non-zero overprint mode.
+    #[must_use]
+    pub fn process_cmyk_overprints(&self) -> &[ProcessCmykOverprint] {
+        &self.process_overprints
+    }
+
+    /// The graphics state parameter dictionaries that set the non-zero overprint mode in force
+    /// at an `ICCBased` CMYK mark painted with overprinting on — the marks ISO 19005-2 section
+    /// 6.2.4.2 forbids the mode for — by object, `None` standing for a dictionary written directly
+    /// into a resource dictionary.
+    ///
+    /// Kept apart from [`Self::icc_cmyk_paints`] rather than as a field of each, so that the
+    /// requirement's findings stay one per page and kind of stream however many dictionaries set
+    /// the mode there.
+    #[must_use]
+    pub const fn icc_overprint_mode_sources(&self) -> &BTreeSet<Option<ObjectId>> {
+        &self.icc_overprint_modes
+    }
+
+    /// Whether one of the marks [`Self::icc_overprint_mode_sources`] is about was painted inside a
+    /// page or group blending in four components, where ISO 32000-2 §8.6.5.7's implicit
+    /// conversion is what a processor compositing in that press may do — and "[w]hen this type of
+    /// implicit conversion is done", that clause says, "[t]he non-zero overprint mode (see 8.6.7,
+    /// "Overprint control") shall determine the interpretation of colour component values in the
+    /// space".
+    #[must_use]
+    pub const fn icc_overprint_in_four_components(&self) -> bool {
+        self.icc_overprint_blended
+    }
+
+    /// Whether a bound — the token budget, the form depth, the count of streams or of
+    /// observations — stopped the walk before it had read everything.
+    ///
+    /// The walk under-reports when that happens, which is the safe direction for a requirement
+    /// and the unsafe one for a caller who reads an empty list as an absence.
+    #[must_use]
+    pub const fn stopped_short(&self) -> bool {
+        self.stopped_short
+    }
+
     /// Whether the method finds transparency on this page.
     ///
     /// **Which method, for which part, is not one answer.** ISO 32000-2 Annex Q states it and is
@@ -953,15 +1033,32 @@ struct State {
     fill: Selected,
     /// The same for the stroke colour space.
     stroke: Selected,
-    /// Whether the fill colour space is an `ICCBased` one whose profile has four components.
-    fill_icc_cmyk: bool,
+    /// Which of the two CMYK spaces §8.6.7 tells apart the fill colour space is, if either.
+    fill_cmyk: Cmyk,
     /// The same for the stroke colour space.
-    stroke_icc_cmyk: bool,
+    stroke_cmyk: Cmyk,
     /// ISO 32000-2 §8.6.7's overprint parameters, which decide what a mark does to the
     /// colourants it does not name.
     overprint: Overprint,
     /// ISO 32000-2 §11.3.4's current blending colour space, where a group established one.
     blending: Blending,
+}
+
+/// Which kind of CMYK space a side's colour space is, for ISO 32000-2 §8.6.7's overprint mode.
+///
+/// The two are exclusive: an `ICCBased` space is reached at the top or as an `Indexed` base, and
+/// `DeviceCMYK` by name, so no space is both.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Cmyk {
+    /// Neither: the mode reaches no mark painted in it.
+    #[default]
+    Neither,
+    /// An `ICCBased` space whose profile has four components, which ISO 19005-2 section 6.2.4.2
+    /// forbids the mode for.
+    Icc,
+    /// `DeviceCMYK`, or a space reaching it as [`ProcessCmykOverprint`] says: the marks the mode
+    /// acts on.
+    Process,
 }
 
 /// ISO 32000-2 §8.6.7's overprint parameters, as §8.4.5's Table 58 sets them.
@@ -976,6 +1073,8 @@ struct Overprint {
     fill: bool,
     /// Table 51's overprint mode, as `OPM` last set it.
     mode: i64,
+    /// The graphics state parameter dictionary object whose `OPM` set the mode, if any.
+    mode_set_by: Option<ObjectId>,
 }
 
 /// ISO 32000-2 §11.3.4's current blending colour space, as much of it as the rules need.
@@ -1334,6 +1433,9 @@ enum Observation {
     ),
     /// A painting operator marking in an `ICCBased` CMYK space, with the overprint parameters.
     Overprint(usize, &'static str, bool, bool, i64),
+    /// A painting operator marking in `DeviceCMYK` under a non-zero mode with overprinting on,
+    /// by the graphics state that set the mode and whether four components were blending.
+    ProcessOverprint(usize, bool, Option<ObjectId>, bool),
     /// A keyword no operator summary lists, by the page and kind of stream that used it.
     Operator(usize, &'static str, Vec<u8>),
     /// An `/ActualText` value written inline, by the page that drew it.
@@ -1582,6 +1684,7 @@ impl Walk<'_> {
         let base = self.marks.len();
         loop {
             if self.budget == 0 {
+                self.survey.stopped_short = true;
                 self.marks.truncate(base);
                 return;
             }
@@ -1735,19 +1838,7 @@ impl Walk<'_> {
                 }
             }
             Operator::SetDeviceColour { family, stroking } => {
-                self.record_colour(
-                    (family, Route::Direct),
-                    context,
-                    "a colour operator",
-                    state.blending.kind,
-                );
-                if stroking {
-                    state.stroke = Selected::Plain;
-                    state.stroke_icc_cmyk = false;
-                } else {
-                    state.fill = Selected::Plain;
-                    state.fill_icc_cmyk = false;
-                }
+                self.set_device_colour(family, stroking, state, context);
             }
             Operator::Shade => {
                 if let Some(name) = operands.first() {
@@ -2082,7 +2173,7 @@ impl Walk<'_> {
         if self.is_transparent_state(&dict) {
             self.survey.transparent.insert(context.page);
         }
-        self.overprint(&dict, state);
+        self.overprint(&dict, entry.as_reference(), state);
     }
 
     /// ISO 32000-2 §8.4.5, Table 58's `OP`, `op` and `OPM`, as a `gs` operator sets them.
@@ -2093,7 +2184,10 @@ impl Walk<'_> {
     /// > Specifying an OP entry shall set both parameters unless there is also an op entry in
     /// > the same graphics state parameter dictionary, in which case the OP entry shall set only
     /// > the overprint parameter for stroking.
-    fn overprint(&self, dict: &Dictionary, state: &mut State) {
+    ///
+    /// `id` is the dictionary's object where it is one, kept beside the mode it sets so that a
+    /// caller changing the mode knows which object to change.
+    fn overprint(&self, dict: &Dictionary, id: Option<ObjectId>, state: &mut State) {
         let stated = |key: &str| dict.get(key).is_some();
         let on = |object: &Object| *object == Object::Boolean(true);
         if stated("OP") {
@@ -2108,6 +2202,7 @@ impl Walk<'_> {
         }
         if let Some(mode) = self.document.get_key(dict, "OPM").as_integer() {
             state.overprint.mode = mode;
+            state.overprint.mode_set_by = id;
         }
     }
 
@@ -2127,6 +2222,35 @@ impl Walk<'_> {
             return true;
         }
         blends(self.document, dict)
+    }
+
+    /// A device colour operator — `g`, `rg`, `k` and their stroking twins — which selects its
+    /// family's space and a colour in it at once (§8.6.8).
+    fn set_device_colour(
+        &mut self,
+        family: DeviceFamily,
+        stroking: bool,
+        state: &mut State,
+        context: &Context<'_>,
+    ) {
+        self.record_colour(
+            (family, Route::Direct),
+            context,
+            "a colour operator",
+            state.blending.kind,
+        );
+        let cmyk = if family == DeviceFamily::Cmyk {
+            Cmyk::Process
+        } else {
+            Cmyk::Neither
+        };
+        if stroking {
+            state.stroke = Selected::Plain;
+            state.stroke_cmyk = cmyk;
+        } else {
+            state.fill = Selected::Plain;
+            state.fill_cmyk = cmyk;
+        }
     }
 
     /// A `cs` or `CS` operator, which selects a colour space by name.
@@ -2150,15 +2274,22 @@ impl Walk<'_> {
             Selected::Plain
         };
         let profile = icc_profile(self.document, &resolved, context.resources, 0);
-        let cmyk = profile
+        let cmyk = if profile
             .as_ref()
-            .is_some_and(|profile| profile.family == Some(DeviceFamily::Cmyk));
+            .is_some_and(|profile| profile.family == Some(DeviceFamily::Cmyk))
+        {
+            Cmyk::Icc
+        } else if reaches_process_cmyk(self.document, &resolved, 0) {
+            Cmyk::Process
+        } else {
+            Cmyk::Neither
+        };
         if stroking {
             state.stroke = selected;
-            state.stroke_icc_cmyk = cmyk;
+            state.stroke_cmyk = cmyk;
         } else {
             state.fill = selected;
-            state.fill_icc_cmyk = cmyk;
+            state.fill_cmyk = cmyk;
         }
         let place = Where::page(context.page);
         self.record_space(
@@ -2187,12 +2318,42 @@ impl Walk<'_> {
                 state.blending.kind,
             );
         }
-        if fill && state.fill_icc_cmyk {
+        if fill && state.fill_cmyk == Cmyk::Icc {
             self.record_icc_paint(false, state.overprint.fill, state, context);
         }
-        if stroke && state.stroke_icc_cmyk {
+        if stroke && state.stroke_cmyk == Cmyk::Icc {
             self.record_icc_paint(true, state.overprint.stroke, state, context);
         }
+        // §8.6.7: the mode "shall have an effect only when the overprint parameter is true".
+        if state.overprint.mode != 0 {
+            if fill && state.fill_cmyk == Cmyk::Process && state.overprint.fill {
+                self.record_process_overprint(false, state, context);
+            }
+            if stroke && state.stroke_cmyk == Cmyk::Process && state.overprint.stroke {
+                self.record_process_overprint(true, state, context);
+            }
+        }
+    }
+
+    /// One side of a painting operator that marked the page in `DeviceCMYK` under a non-zero
+    /// overprint mode with overprinting on.
+    fn record_process_overprint(&mut self, stroking: bool, state: &State, context: &Context<'_>) {
+        let mode_set_by = state.overprint.mode_set_by;
+        let in_four_components = blends_in_four_components(&state.blending);
+        if !self.first_time(Observation::ProcessOverprint(
+            context.page,
+            stroking,
+            mode_set_by,
+            in_four_components,
+        )) {
+            return;
+        }
+        self.survey.process_overprints.push(ProcessCmykOverprint {
+            page: context.page,
+            stroking,
+            mode_set_by,
+            in_four_components,
+        });
     }
 
     /// One side of a painting operator that marked the page in an `ICCBased` CMYK space.
@@ -2204,6 +2365,12 @@ impl Walk<'_> {
         context: &Context<'_>,
     ) {
         let mode = state.overprint.mode;
+        if overprinting && mode == 1 {
+            self.survey
+                .icc_overprint_modes
+                .insert(state.overprint.mode_set_by);
+            self.survey.icc_overprint_blended |= blends_in_four_components(&state.blending);
+        }
         if !self.first_time(Observation::Overprint(
             context.page,
             context.what,
@@ -2437,7 +2604,11 @@ impl Walk<'_> {
 
     /// Whether an observation is new, and worth the entry it would cost.
     fn first_time(&mut self, observation: Observation) -> bool {
-        self.seen.len() < MAX_OBSERVATIONS && self.seen.insert(observation)
+        if self.seen.len() >= MAX_OBSERVATIONS {
+            self.survey.stopped_short = true;
+            return false;
+        }
+        self.seen.insert(observation)
     }
 
     /// Widens [`ContentLiterals`]' two integer extremes by one operand.
@@ -2701,6 +2872,7 @@ impl Walk<'_> {
         route: Via,
     ) {
         if depth >= MAX_FORM_DEPTH || self.opened >= MAX_STREAMS {
+            self.survey.stopped_short = true;
             return;
         }
         // A stream reached twice on one page draws the same marks twice, and following it once
@@ -3260,6 +3432,64 @@ fn icc_profile(
     }
 }
 
+/// Whether §11.3.4's current blending colour space has four components: `DeviceCMYK`, or an
+/// `ICCBased` CMYK space, the two a page or group composites in a press through.
+const fn blends_in_four_components(blending: &Blending) -> bool {
+    matches!(
+        blending.kind,
+        Some(
+            SpaceKind::Device(DeviceFamily::Cmyk)
+                | SpaceKind::Independent(Some(DeviceFamily::Cmyk))
+        )
+    )
+}
+
+/// Whether a resolved colour space paints in `DeviceCMYK` as ISO 32000-2 §11.7.4.3's NOTE 2 reads
+/// "current colour space": stated, the base of an `Indexed` space, or the alternate a
+/// `Separation` or `DeviceN` space reverts to.
+///
+/// A `Separation` naming `All` or `None` never reverts (§8.6.6.4), so it is not counted; any other
+/// reverts where the device lacks its colourants, which is a fact about the device, so it is
+/// (ADR 1978).
+fn reaches_process_cmyk(document: &Document, space: &Object, depth: usize) -> bool {
+    if depth > MAX_SPACE_DEPTH {
+        return false;
+    }
+    let space = document.resolve(space);
+    if let Some(name) = space.as_name() {
+        return matches!(name.as_bytes(), b"DeviceCMYK" | b"CMYK");
+    }
+    let Object::Array(items) = &space else {
+        return false;
+    };
+    let family = items.first().map(|first| document.resolve(first));
+    let next = depth.saturating_add(1);
+    match family
+        .as_ref()
+        .and_then(Object::as_name)
+        .map(Name::as_bytes)
+    {
+        Some(b"Indexed" | b"I") => items
+            .get(1)
+            .is_some_and(|base| reaches_process_cmyk(document, base, next)),
+        Some(b"Separation") => {
+            let colourant = items.get(1).map(|name| document.resolve(name));
+            let never_reverts = colourant
+                .as_ref()
+                .and_then(Object::as_name)
+                .is_some_and(|name| matches!(name.as_bytes(), b"All" | b"None"));
+            !never_reverts
+                && items
+                    .get(2)
+                    .is_some_and(|alternate| reaches_process_cmyk(document, alternate, next))
+        }
+        Some(b"DeviceN") => items
+            .get(2)
+            .is_some_and(|alternate| reaches_process_cmyk(document, alternate, next)),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pdf_syntax::{Dictionary, Document, Name, Object};
@@ -3744,6 +3974,45 @@ mod tests {
             vec![(false, false, 1)],
             "the stroking space was never stroked with, and `op` governs the fill"
         );
+    }
+
+    /// ISO 32000-2 §8.6.7's mode reaches a `DeviceCMYK` mark, whether `k` states the space or a
+    /// `Separation` reverts to it, and names the graphics state that set it; an `ICCBased` mark
+    /// under the same state names it among the sources the converter changes (ADR 1978).
+    #[test]
+    fn a_process_cmyk_mark_under_overprint_mode_one_names_the_state_that_set_the_mode() {
+        let document = page_with(
+            "/GS0 gs 0 0 0 1 k 0 0 1 1 re f /CS1 cs 1 scn 0 0 1 1 re f \
+             /CS0 cs 0 0 0 1 scn 0 0 1 1 re f /CS2 cs 1 scn 0 0 1 1 re f",
+            "/Resources << /ColorSpace << /CS0 [/ICCBased 5 0 R] \
+             /CS1 [/Separation /Black /DeviceCMYK 6 0 R] \
+             /CS2 [/Separation /All /DeviceCMYK 6 0 R] >> /ExtGState << /GS0 7 0 R >> >>",
+            &[
+                "<< /N 4 /Length 4 >> stream\nabcd\nendstream",
+                "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>",
+                "<< /Type /ExtGState /OP true /OPM 1 >>",
+            ],
+        );
+        let survey = Survey::of(&document);
+        let state = Some(pdf_syntax::ObjectId::new(7, 0));
+        let marks: Vec<(bool, Option<pdf_syntax::ObjectId>, bool)> = survey
+            .process_cmyk_overprints()
+            .iter()
+            .map(|mark| (mark.stroking, mark.mode_set_by, mark.in_four_components))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![(false, state, false)],
+            "the k fill and the Black separation are one observation; All never reverts"
+        );
+        assert_eq!(
+            survey
+                .icc_overprint_mode_sources()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![&state]
+        );
+        assert!(!survey.stopped_short());
     }
 
     /// Table 58: an `OP` entry with no `op` beside it sets both overprint parameters.

@@ -19,7 +19,7 @@ impl Host {
         document: DocumentId,
         submission: pdf_model::submission::Submission,
     ) {
-        match viewer_host::may_submit(&submission, self.restrictions.submissions()) {
+        match viewer_host::may_submit(&submission, self.state.restrictions.submissions()) {
             viewer_host::Sending::Send => self.send_form(document, submission, None),
             viewer_host::Sending::Warn(note) => self.send_form(document, submission, Some(note)),
             viewer_host::Sending::Ask(words) => self.put_the_question(
@@ -46,7 +46,7 @@ impl Host {
         url: String,
         queue: &mut VecDeque<Command>,
     ) {
-        match viewer_host::may_fetch_import(&url, self.restrictions.submissions()) {
+        match viewer_host::may_fetch_import(&url, self.state.restrictions.submissions()) {
             viewer_host::Sending::Send => self.start_fetch(document, url, None),
             viewer_host::Sending::Warn(note) => self.start_fetch(document, url, Some(note)),
             viewer_host::Sending::Ask(words) => {
@@ -76,7 +76,7 @@ impl Host {
         use viewer_host::policy::{
             asked_to_fetch_policy, may_fetch_signature_policy, signature_policy_declined,
         };
-        match may_fetch_signature_policy(&policy, self.restrictions.submissions()) {
+        match may_fetch_signature_policy(&policy, self.state.restrictions.submissions()) {
             viewer_host::Sending::Send => self.start_policy_fetch(document, policy, None),
             viewer_host::Sending::Warn(note) => {
                 self.start_policy_fetch(document, policy, Some(note));
