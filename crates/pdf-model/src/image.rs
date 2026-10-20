@@ -9,7 +9,7 @@
 //! Three routes, and which one a stream takes is decided by the codec left on the end of
 //! its filter chain:
 //!
-//! - No codec: the bytes *are* samples, and [`unpack`] reads them at the declared depth.
+//! - No codec: the bytes *are* samples, and `unpack` reads them at the declared depth.
 //! - `DCTDecode`: `zune-jpeg`, in this process.
 //! - `JBIG2Decode` and `JPXDecode`: [`pdf_sandbox`], which by default decodes them in a
 //!   confined worker process. The samples come back in the form the filter is defined to
@@ -26,7 +26,7 @@
 //!
 //! **`/Decode` is the third entry and does *not* follow those two.** The clause's condition is
 //! `/ColorSpace`'s **absence**, not the filter — its own sentence is quoted verbatim in
-//! [`decode_jpx`], where the entry is read. Where the dictionary states a colour space it
+//! `decode_jpx`, where the entry is read. Where the dictionary states a colour space it
 //! states the map into it as well, and dropping the array would turn a crawled catalogue cover's
 //! `/Decode [1 0 1 0 1 0 1 0]` CMYK photograph into its own complement in silence (ADR 0468).
 //!
@@ -42,8 +42,6 @@
 //! conversion into the page's space. `mask`, `soft_mask`, `combine` and `device_scale` apply
 //! §8.9.6's and §11.6.5.2's masks, and `cache` and `ahead` are what a page keeps of its images and
 //! what it decodes before their `Do`. ADR 1912 is the split.
-//!
-//! [`decode_jpx`]: jpx::decode_jpx
 
 use pdf_render::{Image, SampleAlpha};
 use pdf_syntax::{Dictionary, Document, Stream};
@@ -126,7 +124,7 @@ pub enum ImageError {
         /// The declared depth.
         bits: u32,
     },
-    /// The image is larger than [`MAX_SAMPLES`].
+    /// The image is larger than `MAX_SAMPLES`.
     #[error("image of {samples} samples exceeds the limit of {MAX_SAMPLES}")]
     TooLarge {
         /// How many samples were requested.
@@ -154,14 +152,13 @@ pub enum ImageError {
 ///
 /// Two of the standard's rasters share a unit square without sharing a grid — §8.9.6.3's
 /// explicit mask and §11.6.5.2's soft-mask image — and where their refinement is small enough
-/// to build, [`combine_on_the_finer_grid`] builds it and the answer is one raster. Where it is
+/// to build, `combine_on_the_finer_grid` builds it and the answer is one raster. Where it is
 /// not, §10.7.4's answer is the device's own grid, and this carries the two parts to whoever
 /// knows it.
 /// Cloning one shares its samples rather than copying them — an [`Image`]'s data and a
 /// [`SoftMaskAtDeviceScale`]'s are both behind an [`Arc`] — which is what makes [`RasterCache`]
 /// able to answer a second `Do` with the first one's raster.
 ///
-/// [`combine_on_the_finer_grid`]: combine::combine_on_the_finer_grid
 /// [`Arc`]: std::sync::Arc
 #[derive(Debug, Clone)]
 pub enum Picture {

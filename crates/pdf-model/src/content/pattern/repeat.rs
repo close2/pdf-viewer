@@ -366,7 +366,7 @@ impl Interpreter<'_> {
     /// So a group whose one element is this stroke, taken for its alpha, is this stroke's
     /// shape — including whatever coverage a rasteriser gives its anti-aliased edge, which is
     /// the same quantity it would have given the stroke itself. §11.6.5.1 says the colour is
-    /// irrelevant — "[t]he colours of the constituent objects shall be ignored" — so the
+    /// irrelevant — "\[t]he colours of the constituent objects shall be ignored" — so the
     /// element is painted opaque white and nothing reads it.
     ///
     /// The mask is recorded as a shape ([`crate::image::ShapeMasks`]), because that is what it

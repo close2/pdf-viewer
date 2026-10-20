@@ -9,7 +9,7 @@
 //! Table 197's pointer events as well, which is why the walk asks for the trigger's key rather
 //! than stopping at the first `/AA`.
 //!
-//! §12.6.4.17's Table 221 says what the action carries: `/JS`, "[a] text string or text stream
+//! §12.6.4.17's Table 221 says what the action carries: `/JS`, "\[a] text string or text stream
 //! containing the ECMAScript script to be executed". Both are read as §7.9.2.2's text string.
 
 use pdf_syntax::{Dictionary, Document, Object};

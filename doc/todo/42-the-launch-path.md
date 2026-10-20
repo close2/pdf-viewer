@@ -425,8 +425,10 @@ for page one instead of polling for it. The instrument is `--trace=launch` in ei
   its first frame; what that frame costs is the driver's. On a real adapter it is smaller, and by how
   much is item 5's last paragraph's question in a second window.
 - **A native launch has never been measured cold.** Every number above is a warm page cache and a
-  warm loader, which is right for an A/B and wrong for `CLAUDE.md`'s cold-start gate. The gate does
-  not exist for these two binaries at all.
+  warm loader, which is right for an A/B and wrong for `CLAUDE.md`'s cold-start gate. The warm gate
+  exists: each window's `tests/launch_path.rs` holds its window, bring-up, page one and first frame
+  on both lanes to `doc/checks/toolkit-launch.toml` (ADR 2125), and ADR 2124 reads what the device
+  lane costs there. The cold one does not exist for these two binaries at all.
 
 ## 7. Annex F's parameter dictionary, if the figure ever moves — **declined, priced, not closed**
 

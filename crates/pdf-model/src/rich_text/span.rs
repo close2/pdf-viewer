@@ -1,7 +1,7 @@
 //! A rich text string as the flat list of styled runs a script holds: Adobe's `Span` objects.
 //!
 //! Table 228's `/RV` is a rich text string "as described in Adobe XML Architecture, XML Forms
-//! Architecture (XFA) Specification, version 3.3", and this tree reads it through [`super::markup`]
+//! Architecture (XFA) Specification, version 3.3", and this tree reads it through `super::markup`
 //! into paragraphs of styled runs. A script sees the same text as an array of `Span` objects —
 //! `event.richValue`, `util.xmlToSpans` — and writes one back through `util.spansToXML`. The object's
 //! twelve properties are Adobe's, *JavaScript for Acrobat API Reference*, "Span properties", read at
@@ -11,7 +11,7 @@
 //! **Paragraphs are carriage returns.** The reference's `Span` has no paragraph of its own and
 //! says only that the first span on a line decides its alignment, so a paragraph boundary is a
 //! `\r` at the end of the text before it — the character §12.5.6.2 separates a plain text's
-//! paragraphs by, and the one [`super::RichText::text`] spells — and [`markup`] starts a new `p`
+//! paragraphs by, and the one `super::RichText::text` spells — and [`markup()`] starts a new `p`
 //! at each. A chapter 27 line break `br` inside a paragraph reads as the same `\r`, so it comes
 //! back as a paragraph boundary: the reference's object has no way to say the difference.
 
@@ -90,7 +90,7 @@ impl Default for Span {
 /// A rich text string as spans, one per styled run, under a default style string and with
 /// relative sizes measured against `root_size`.
 ///
-/// `None` where the markup is not a rich text string [`super::markup`] reads (not well formed,
+/// `None` where the markup is not a rich text string `super::markup` reads (not well formed,
 /// no element, past its length bound). A tab chapter 27 states as `xfa-tab-count` is that many
 /// `\t` characters; a paragraph holding no text is an empty span carrying its `\r`.
 #[must_use]
@@ -176,7 +176,7 @@ fn alignment_name(align: Option<Align>) -> &'static str {
 /// and one `span` per run, each stating every property the span carries.
 ///
 /// The `body` names XHTML's namespace and XFA's and `xfa:spec` the version of chapter 27 written
-/// to (*Version Specification*, page 1222), as [`super::written`] does. A paragraph's alignment
+/// to (*Version Specification*, page 1222), as `super::written` does. A paragraph's alignment
 /// is its first span's that holds characters of it, the reference's rule ("Span properties" —
 /// alignment) — the empty remainder of a span whose text ended the paragraph before is not on the
 /// line; a value chapter 27

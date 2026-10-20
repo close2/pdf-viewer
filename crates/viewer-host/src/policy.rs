@@ -86,6 +86,10 @@ use pdf_signature::verdict::Acceptance;
 use pdf_signature::x509::Instant;
 use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 
+mod settings;
+
+pub use settings::{Level, Policy};
+
 /// The word a person types to turn a document's restrictions off, in every host that has a
 /// command line.
 ///

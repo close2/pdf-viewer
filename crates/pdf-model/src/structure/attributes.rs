@@ -16,8 +16,8 @@ impl Tree {
     /// Every attribute object attached to an element, in **increasing precedence order**.
     ///
     /// §14.7.6 attaches attributes by two routes and states which wins in each. Within an
-    /// element's `/A`, "[i]f a given attribute is specified more than once, the later (in array
-    /// order) entry shall take precedence"; between the two routes, "[i]f both the A and C
+    /// element's `/A`, "\[i]f a given attribute is specified more than once, the later (in array
+    /// order) entry shall take precedence"; between the two routes, "\[i]f both the A and C
     /// entries are present and a given attribute is specified by both, the one specified by
     /// the A entry shall take precedence". So the list is the `/C` classes first and the `/A`
     /// objects after them, each in array order, and the *last* object stating an attribute is
@@ -90,11 +90,13 @@ impl Tree {
     ///   standard gives no owner for. Both are refused *by name* rather than in silence:
     ///   [`Self::unranked_owners`] is the list of what was skipped on an element.
     ///
-    /// The fourth priority — "[t]he resolved value of the parent structure element, if the
+    /// The fourth priority — "\[t]he resolved value of the parent structure element, if the
     /// attribute is inheritable" — is [`Self::inherited_attribute`], because whether an
     /// attribute *is* inheritable is stated per attribute in §14.8.5.4's tables and is a
     /// property of the attribute rather than of the element. The fifth, a default, is the same
     /// kind of statement and belongs to whoever knows the attribute.
+    ///
+    /// [`Priority`]: crate::structure::Priority
     #[must_use]
     pub fn attribute(
         &self,
@@ -141,7 +143,7 @@ impl Tree {
     /// `/ColSpan`.
     ///
     /// The clause's own closing sentence is why this returns the same kind of answer as the
-    /// direct one: "[t]here is no semantic distinction between attributes that are specified
+    /// direct one: "\[t]here is no semantic distinction between attributes that are specified
     /// explicitly and ones that are inherited."
     #[must_use]
     pub fn inherited_attribute(
@@ -217,8 +219,8 @@ impl Tree {
     ///
     /// # Why this returns the same type the content stream's artifacts do
     ///
-    /// §14.8.2.2.2 gives an artifact two forms, "[b]y enclosing it in a marked-content sequence
-    /// with the tag Artifact" and "[b]y inclusion in the logical structure tree through the use
+    /// §14.8.2.2.2 gives an artifact two forms, "\[b]y enclosing it in a marked-content sequence
+    /// with the tag Artifact" and "\[b]y inclusion in the logical structure tree through the use
     /// of the Artifact structure element type", and they carry the same facts under two tables:
     /// Table 363's property list entries and Table 385's attributes. [`Artifact::read`] answers
     /// the first; this answers the second, into the same [`Artifact`], so a consumer deciding
@@ -228,7 +230,7 @@ impl Tree {
     ///
     /// **The fourth type name.** Table 363's is `Background`, "content ... from document
     /// templates that are often repeated unchanged across many pages"; Table 385's is `Inline`
-    /// (PDF 2.0), which "enclose[s] artifact content that has context in the document's logical
+    /// (PDF 2.0), which "enclose\[s] artifact content that has context in the document's logical
     /// structure". Each reader takes its own table's four names and nothing else, which is what
     /// keeps [`ArtifactKind`] one enum rather than a union of two vocabularies.
     ///

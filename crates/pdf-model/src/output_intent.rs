@@ -3,7 +3,7 @@
 //! **One selection, two readers.** The interpreter asks which profile says what a page's device
 //! colours mean (`crate::content`'s colour conversion, ADR 0272); a print asks which press the
 //! document was prepared for, so that it can say what a print through this program does not do
-//! with it (ADR 1932). Both are answered by [`selected`], so the press a print names is always the
+//! with it (ADR 1932). Both are answered by `selected`, so the press a print names is always the
 //! press whose profile the page was drawn through, and never a second reading of the same array
 //! that could disagree with the first.
 //!
@@ -33,7 +33,7 @@ pub struct OutputIntent {
     /// extension's — where the dictionary states it as a name.
     pub subtype: Option<String>,
     /// What to call the intended output condition, where the dictionary says, chosen in the order
-    /// Table 401 ranks its strings for presentation; [`Self::named`] is the reading.
+    /// Table 401 ranks its strings for presentation; `Self::named` is the reading.
     pub condition: Option<String>,
 }
 

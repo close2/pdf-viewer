@@ -1051,7 +1051,7 @@ impl Interpreter<'_> {
     /// Moves the pen across a string whose font has no program, drawing and reading nothing.
     ///
     /// ISO 32000-2 §9.4.4 makes the update owed by every code a show string states, whatever
-    /// became of the glyph — "[a]fter the glyph is painted, the text matrix shall be updated
+    /// became of the glyph — "\[a]fter the glyph is painted, the text matrix shall be updated
     /// according to the glyph displacement and any spacing parameters that apply" — and §9.2.4
     /// puts the displacement in the *font dictionary* as well as in the program, so a font
     /// `pdf-font` refused still states it. What the refusal costs is the mark; what it does not

@@ -1709,6 +1709,7 @@ costs a minute rather than a chain.
 AddressSanitizer reserves its shadow memory as one enormous mapping at start, and `tools/bounded.sh`'s
 `RLIMIT_DATA` refuses it; round 1633 lost 730 s to a build that could never have started before running
 the JBIG2 target with `-s none`, as `doc/verify.md` already says and `tools/fuzz.sh` does not yet do
-(ADR 2102). Two rules until the wrapper is fixed: a fuzz target under the lock is built with `-s none`,
+(ADR 2102). Two rules, which `tools/fuzz.sh` applies itself under a data limit (ADR 2127): a fuzz
+target under the lock is built with `-s none`,
 and it is started from a scratch directory, because `-jobs=1` writes `fuzz-0.log` into the current one.
 

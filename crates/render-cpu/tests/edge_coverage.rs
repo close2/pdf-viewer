@@ -141,6 +141,58 @@ fn assert_raster_is_the_clauses_area(what: &str, list: &DisplayList, path: &Path
     );
 }
 
+/// A rectangle inside one device row is painted at its area to the rounding of one level — within
+/// half a level of 255 at every pixel, which is the closed form's own rounding (ADR 2117).
+///
+/// `tiny-skia`'s rectangle converter states a rectangle that one row holds by a branch of its own,
+/// `bottom − top − 1` in 8.8 fixed point, which is under the area at every placement: 75 for an
+/// area of 76.5 at `19.6–19.9` (ADR 2084 §5). Under the area is the side §10.7.4's third sentence
+/// forbids, so such a rectangle is written by the closed form instead. Swept over every twentieth
+/// of a pixel for its top and every twentieth for its height, the left and right edges fractional
+/// so that its corners are asked too.
+///
+/// The rectangle is one of two subpaths, the other a rectangle several rows tall, because that is
+/// the mark that reaches the converter: a path every subpath of which is thinner than a pixel is
+/// `pdf_render::sub_pixel_bands`' to draw first, and a path that also states a thicker portion is
+/// declined there whole.
+#[test]
+fn a_rectangle_inside_one_row_is_its_area_to_half_a_level() {
+    let target_of = |list: &DisplayList| TargetSpec::for_page(list, 1.0, GENEROUS);
+    let mut worst = (0.0_f32, (0.0_f32, 0.0_f32), (0_u32, 0_u32));
+    for top in 0..20_u8 {
+        for height in 1..(20 - top) {
+            let low = 3.0 + f32::from(top) / 20.0;
+            let high = low + f32::from(height) / 20.0;
+            // Page space counts up, so the row's device extent is `16 − high` to `16 − low`.
+            let mut path = rectangle(5.375, low, 20.6, high);
+            for command in rectangle(2.25, 8.5, 21.7, 12.3).commands() {
+                path.push(*command);
+            }
+            let list = scene(path.clone());
+            let raster = CpuRasterizer::new()
+                .rasterize(&list, target_of(&list).expect("valid target"))
+                .expect("a solid fill is supported");
+            let device = pdf_render::device_rectangles(&path, to_device(1.0))
+                .expect("one axis-aligned rectangle");
+            for y in 11..14 {
+                for x in 4..22 {
+                    let difference = (coverage(&raster, x, y) - clauses_area(&device, x, y)).abs();
+                    if difference > worst.0 {
+                        worst = (difference, (low, high), (x, y));
+                    }
+                }
+            }
+        }
+    }
+    let (difference, (low, high), pixel) = worst;
+    assert!(
+        difference <= 0.5 / 255.0 + f32::EPSILON,
+        "a rectangle from {low} to {high} differs from §10.7.4's area at pixel {pixel:?} by \
+         {} levels",
+        difference * 255.0
+    );
+}
+
 /// An edge at every twentieth of a pixel, on both axes at once.
 ///
 /// The rungs are the ones `render-raster/examples/edge_coverage_ladder` prints. Four of the

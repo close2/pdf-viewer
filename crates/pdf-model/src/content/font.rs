@@ -210,7 +210,7 @@ pub const FONT_BUDGET: usize = 2 * 1024 * 1024;
 /// # What it is for
 ///
 /// A page names a handful of fonts and a *document* names the same handful on every page, so an
-/// [`Interpreter`] that lives for one page pays §9.6's whole load again on the next: seven of
+/// `Interpreter` that lives for one page pays §9.6's whole load again on the next: seven of
 /// them on page 101 of ISO 32000-2, and 213 of the 240 loads in its first forty pages are of a
 /// font an earlier page had already loaded. Twenty distinct pages of that document interpret in
 /// **−14.86%** of the instructions with this than without (ADR 0710).
@@ -228,7 +228,7 @@ pub const FONT_BUDGET: usize = 2 * 1024 * 1024;
 ///   [`ObjectId`], which names one dictionary in one file, names one loaded font.
 /// - **The document is checked rather than assumed.** An object number means nothing across
 ///   files, so an entry is answered only while the cache is bound to the document it was loaded
-///   from, and the binding is the identity of that document's own bytes ([`Kept::bind`]).
+///   from, and the binding is the identity of that document's own bytes (`Kept::bind`).
 ///   The cache *holds* that allocation, which is what stops a freed document's address being
 ///   handed to the next one — `doc/todo/41`'s own lesson, and the invariant ADR 0317 states for
 ///   the decoded-stream cache one crate down.

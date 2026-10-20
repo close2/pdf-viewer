@@ -60,10 +60,11 @@ corpus-classes = { path = "crates/corpus-classes", version = "0.1.0" }
 # (ADR 1075). A dev-dependency of every crate with a corpus-scale gate and a dependency of none.
 gate-ratchet = { path = "crates/gate-ratchet", version = "0.1.0" }
 
-# External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
-# developed against that brief in its own repository and wired in here at its final
-# milestone. A git dependency rather than a path so that CI and a fresh checkout
-# reach it; Cargo.lock pins the exact revision, and deny.toml names the source.
+# The document renderer doc/RENDER_LIBRARY.md commissioned, developed against that brief
+# in its own repository and brought into this tree as the sub-project `raster/` (merge
+# d9bc96b2): its crates are members of this workspace and reach the graph by path, so a
+# change that spans the viewer and the library is one change under one tree's gates and
+# the library's own (`raster/CLAUDE.md`).
 raster-gpu = { path = "raster/crates/raster-gpu", version = "0.1.0" }
 raster = { path = "raster/crates/raster", version = "0.1.0" }
 raster-pages = { path = "raster/crates/raster-pages", version = "0.1.0" }

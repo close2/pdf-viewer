@@ -155,3 +155,43 @@ profiles answer it with `preserve` (ADR 1942).
 - **Pol.pdf at 2u**: its Type 3 font names glyphs `/0`…`/7`, outside the Adobe Glyph List, and
   carries no `/ToUnicode` (section 6.2.11.7.2). **At 4**: DeviceRGB and DeviceCMYK on one page,
   and part 4 states no `DeviceN` half for CMYK, so a CMYK output intent is needed beside RGB.
+
+## 4. What the two lower-bound profiles still refuse over the veraPDF corpus, by group
+
+The instrument: `cargo test --profile gates -p pdf-transform --test archive_corpus --
+--ignored --nocapture the_shipped_profiles` lists, per profile and target, every requirement that
+refused a document, the kind of *no* (or `output-fails`, the second verdict's), the sentence's first
+clause and the witnesses. Its counts are the record's (`doc/history/1639`), not this file's. The
+groups, in the order a slot should take them:
+
+1. **Remedies RFC 0007's shapes can still build.** (`metadata/extension-schema-container-fields`
+   with nothing in the file to complete it was the largest group at 2b: its `discard` is built,
+   the whole container going because the XMP writer removes a property and not one item of its
+   array — taking the incomplete description alone is the narrower cut still owed.)
+   `annotations/subtype-defined-in-iso-32000-1`
+   under `as-shown`, whose `preserve` "by keeping" is section 3's owed item. A part 4 `DeviceRGB`
+   inside a group blending in a CMYK or grey `ICCBased` space beside an RGB intent
+   (`6-2-4-3-t04-fail-n`): the `/DefaultRGB` of ADR 2114 would answer it and is prepared only
+   beside a non-RGB profile.
+2. **Converter defects, owed a fix and a test.** `actions/no-launch-multimedia-or-form-actions`
+   at part 4 (`6-6-1-t01-fail-m`): an action the removal does not reach survives into the output,
+   and the output's verdict refuses. (A PostScript XObject the page invokes was the other: ADR 2115
+   writes it as a form that draws nothing.)
+3. **The colour family the profile in hand cannot answer.** `DeviceCMYK`, or a group blending in
+   it, beside an RGB intent at part 4, and such a group at part 2: ADR 2114 section 4 is why no
+   default is written; `--output-intent-profile` with the press's CMYK profile is the answer.
+4. **Refusals the standard forces.** The content-stream fence (ADR 0816): a `.notdef` glyph or a
+   code the embedded program lacks, an undefined operator, an inline image's filter or intent, a
+   hexadecimal string's digits, a content stream naming resources it has no dictionary for, an
+   annotation with no appearance whose subtype clause states no artwork. Section 6.1.13's limits
+   at part 2 (`not-this-target`; part 4 lifts them). Data outside the file nobody handed over.
+   A PDF 2.0 header at part 2. A part 4f file with no attachment, a 3D stream neither U3D nor PRC.
+5. **Losses both profiles leave at `stop` by their yardstick.** Transfer functions, halftones under
+   `as-if-printed`, image interpolation: section 3's argument stands, and an operator's
+   `--authorise` answers each.
+6. **`not-built-yet` sites each reached by one to three witnesses**: the JPEG 2000 rows, the
+   composite font rows (`cid-to-gid-map-present`, `embedded-cmap-states-its-own-write-mode`,
+   `font-programs-embedded`'s shapes, the TrueType route), `spot-colourants-appear-in-the-colorants-dictionary`
+   with no Separation of its own, `graphics-state-blend-modes-are-defined`, `no-reference-xobjects`,
+   `normal-appearance-shape`, the `to-unicode` rows at 2u, `role-map-terminates-at-a-standard-type`
+   at 2a. The catalogue entry of each says what its remedy would be.

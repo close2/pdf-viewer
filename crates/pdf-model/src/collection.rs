@@ -10,7 +10,7 @@
 //! *columns* a viewer would show, the order to sort them in, the folder tree the files hang in,
 //! and the layout to present it all with.
 //!
-//! The one sentence that makes a collection more than a hint is in §12.3.5.1: "[i]f this
+//! The one sentence that makes a collection more than a hint is in §12.3.5.1: "\[i]f this
 //! dictionary is present in a PDF document, the interactive PDF processor shall present the
 //! document as a portable collection". A viewer without a file browser cannot obey it, which is
 //! what keeps this crate's part of the clause `partial` — the data is all here.
@@ -23,7 +23,7 @@
 //! as associated with the root folder". [`folder_of`] is that convention, and it is the reason
 //! this module reads name-tree *keys* rather than only the files behind them.
 //!
-//! **A layout is chosen, not read.** §12.3.6: "[w]hen multiple names are provided, an
+//! **A layout is chosen, not read.** §12.3.6: "\[w]hen multiple names are provided, an
 //! interactive PDF processor should present the first one it is capable of displaying in the
 //! order present in the array". [`Navigator::preferred`] takes the list of layouts a viewer can
 //! draw and answers with the first match, which is a different function from "what does the file
@@ -31,7 +31,7 @@
 //!
 //! **A name is restricted, and a processor chooses whether to care.** §12.3.5.2 puts six
 //! restrictions on a folder's name and on the names of the files under it, and then hands the
-//! reader a choice about a name that breaks one: "[a]n interactive PDF processor may choose to
+//! reader a choice about a name that breaks one: "\[a]n interactive PDF processor may choose to
 //! support invalid names or not. If not, an appropriate error message shall be provided." **This
 //! program supports them**, deliberately and once — ADR 1050 — and [`Collection::invalid_names`]
 //! is the other half of that choice: every restriction broken, named, so that a presentation can
@@ -133,11 +133,11 @@ pub enum View {
 pub struct Field {
     /// `/Subtype`, which decides both the type of the data and where it comes from.
     pub kind: FieldKind,
-    /// `/N`, "[t]he textual field name that shall be presented to the user".
+    /// `/N`, "\[t]he textual field name that shall be presented to the user".
     pub name: String,
-    /// `/O`, "[t]he relative order of the field name in the user interface".
+    /// `/O`, "\[t]he relative order of the field name in the user interface".
     pub order: Option<i64>,
-    /// `/V`, "[t]he initial visibility of the field". Default `true`.
+    /// `/V`, "\[t]he initial visibility of the field". Default `true`.
     pub visible: bool,
     /// `/E`, whether a processor "should provide support for editing the field value". Default
     /// `false`.
@@ -202,7 +202,7 @@ pub struct Sort {
 impl Sort {
     /// Whether the field at `index` sorts ascending.
     ///
-    /// Table 156 makes `/A` "[a] boolean or an array of booleans" and gives the default as
+    /// Table 156 makes `/A` "\[a] boolean or an array of booleans" and gives the default as
     /// `true`; a single boolean applies to every field, and a shorter array leaves the rest at
     /// the default.
     #[must_use]
@@ -251,7 +251,7 @@ pub enum SplitDirection {
     Horizontal,
     /// `V` — "the window is split vertically".
     Vertical,
-    /// `N` — not split: "[t]he entire window region shall be dedicated to the file navigation
+    /// `N` — not split: "\[t]he entire window region shall be dedicated to the file navigation
     /// view".
     None,
 }
@@ -266,7 +266,7 @@ pub struct Navigator {
 impl Navigator {
     /// The first layout the file names that a caller can draw.
     ///
-    /// §12.3.6: "[w]hen multiple names are provided, an interactive PDF processor should present
+    /// §12.3.6: "\[w]hen multiple names are provided, an interactive PDF processor should present
     /// the first one it is capable of displaying in the order present in the array." So the
     /// answer depends on the *viewer* as well as the file, which is why this takes the list of
     /// layouts a caller supports rather than answering from the document alone.
@@ -286,7 +286,7 @@ impl Navigator {
 /// Table 160's named layouts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Layout {
-    /// `D`, `T` and `H`, "[c]orresponding to the value of" the same name in `/View`.
+    /// `D`, `T` and `H`, "\[c]orresponding to the value of" the same name in `/View`.
     View(View),
     /// `FilmStrip` — "a strip of thumbnails, providing an index to the file attachments".
     FilmStrip,
@@ -311,7 +311,7 @@ pub struct Folder {
     pub id: u32,
     /// `/Name`, the folder's name.
     pub name: String,
-    /// `/Desc`, "[a] text description associated with this folder".
+    /// `/Desc`, "\[a] text description associated with this folder".
     pub description: Option<String>,
     /// `/CI`, §7.11.6's collection item — "user-defined metadata … just as it does for embedded
     /// files in a collection".
@@ -325,7 +325,7 @@ pub struct Folder {
 /// §7.11.6's collection item: the values behind a schema's columns. Table 46.
 ///
 /// A map from the schema's own keys to values, because Table 46 has no fixed entries at all —
-/// "[o]ther keys … [p]rovides the data corresponding to the related fields in the collection
+/// "\[o]ther keys … \[p]rovides the data corresponding to the related fields in the collection
 /// dictionary", each named by the writer.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Item {
@@ -339,16 +339,16 @@ pub struct Value {
     /// The data: a text string, a date string or a number, as the schema's field says.
     ///
     /// Kept as the object the file wrote. Which of the three it is, is not this dictionary's to
-    /// say — "[t]he type of each entry shall match the type of data identified by the collection
+    /// say — "\[t]he type of each entry shall match the type of data identified by the collection
     /// field dictionary … referenced by the same key" — so interpreting it needs the schema, and
     /// a reader that guessed from the object's own type would disagree with the schema on any
     /// file where they differ.
     pub data: Object,
-    /// Table 47's `/P`, "[a] prefix string that shall be concatenated with the text string
+    /// Table 47's `/P`, "\[a] prefix string that shall be concatenated with the text string
     /// presented to the user".
     ///
     /// The clause states its own exception, which is why the prefix is kept apart from the data
-    /// rather than glued to it: "[t]his entry is ignored when an interactive PDF processor sorts
+    /// rather than glued to it: "\[t]his entry is ignored when an interactive PDF processor sorts
     /// the items in the collection".
     pub prefix: Option<String>,
 }
@@ -356,14 +356,14 @@ pub struct Value {
 /// What §12.3.5.1's `/D` entry asks a viewer to open first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Initial {
-    /// The container itself: "[i]f the D entry is missing or is not a valid byte string, the
+    /// The container itself: "\[i]f the D entry is missing or is not a valid byte string, the
     /// initial document shall be the one that contains the collection dictionary".
     Container,
     /// The named embedded file, which the `/EmbeddedFiles` tree holds.
     Embedded(String),
-    /// "[T]he first item from the list of files": `/D` named something the tree does not have.
+    /// "\[T]he first item from the list of files": `/D` named something the tree does not have.
     FirstFile,
-    /// "[A]n empty preview window": `/D` named nothing the tree has, and the tree is empty.
+    /// "\[A]n empty preview window": `/D` named nothing the tree has, and the tree is empty.
     Empty,
 }
 
@@ -443,7 +443,7 @@ impl Collection {
 /// §12.3.5.2 states the convention as four bulleted rules, and it is the only place in the
 /// standard where a name tree's *key* carries structure: the key is a text string whose first
 /// character — "excluding any byte order marker" — is a less-than sign, followed by one or more
-/// digits and a closing greater-than sign, and "[t]he remainder of the string is a file name".
+/// digits and a closing greater-than sign, and "\[t]he remainder of the string is a file name".
 ///
 /// `None` is a key that does not conform, and §12.3.5.2 says such files "shall be treated as
 /// associated with the root folder" rather than rejected — so a caller reads `None` as "the root", and the file name is
@@ -462,7 +462,7 @@ pub fn folder_of(key: &str) -> Option<(u32, &str)> {
 
 /// One of §12.3.5.2's restrictions on a name, broken.
 ///
-/// The clause states five of them as bullets under "[a] valid file name conforms to the
+/// The clause states five of them as bullets under "\[a] valid file name conforms to the
 /// following requirements", and a sixth as a sentence of its own two paragraphs later. Each
 /// variant carries what a reader would need to say which name it is about and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -512,8 +512,8 @@ pub enum NameRestriction {
     /// > same folder.
     ///
     /// **A folder's name is a file name too**, which is what puts subfolders and files in one
-    /// namespace here: the clause defines the term as "[s]trings that conform to these
-    /// restrictions are known as file names" and then applies the restrictions to "[a] folder, as
+    /// namespace here: the clause defines the term as "\[s]trings that conform to these
+    /// restrictions are known as file names" and then applies the restrictions to "\[a] folder, as
     /// well as its associated files". Table 159's `/Name` states the folder half again on its own
     /// — "Two sibling folders shall not share the same name following case normalization" — and
     /// reading the two as one rule is what makes that sentence a restatement rather than a second
@@ -561,7 +561,7 @@ const SPECIAL_CHARACTERS: [char; 8] = ['/', '\\', ':', '*', '"', '<', '>', '|'];
 
 /// Which of §12.3.5.2's five per-name requirements a string breaks.
 ///
-/// The clause's bullets, in its own order, minus the first: "[t]he string shall be a PDF text
+/// The clause's bullets, in its own order, minus the first: "\[t]he string shall be a PDF text
 /// string" is a statement about the *bytes* a document wrote, which a `&str` no longer has, and
 /// [`NameRestriction::TextString`] is raised where those bytes are read instead.
 ///
@@ -569,7 +569,7 @@ const SPECIAL_CHARACTERS: [char; 8] = ['/', '\\', ':', '*', '"', '<', '>', '|'];
 /// string's scalar values are counted and not its UTF-8 length.
 ///
 /// Nothing here refuses anything: a broken restriction is a value, and ADR 1050 is where this
-/// program decides what to do with one. That decision is the clause's to offer — "[a]n
+/// program decides what to do with one. That decision is the clause's to offer — "\[a]n
 /// interactive PDF processor may choose to support invalid names or not" — and taking it at the
 /// point of the read would be taking it in the one place no host could reach.
 #[must_use]
@@ -615,7 +615,7 @@ fn case_normalised(name: &str) -> String {
 /// once, and its five per-name ones applied to the keys.
 ///
 /// One namespace per folder, because that is what "in the same folder" names. A key is in the
-/// folder its own tag names — "[t]he section of the string enclosed by LESS-THAN SIGN
+/// folder its own tag names — "\[t]he section of the string enclosed by LESS-THAN SIGN
 /// GREATER-THAN SIGN(&lt;&gt;) is interpreted as a numeric value that specifies the ID value of
 /// the folder with which the file is associated" — and a key that conforms to none of the tag's
 /// rules is the root's, which is the clause's own remedy for one: such files "shall be treated as
@@ -1044,7 +1044,7 @@ pub fn embedded_file_keys(document: &Document) -> Vec<String> {
 ///   the named fields are exhausted" and says nothing about what is left; the tree's own order is
 ///   the one order the document also stated, so nothing is invented.
 ///
-/// Table 47's prefix is not consulted, because its own entry says not to: "[t]his entry is
+/// Table 47's prefix is not consulted, because its own entry says not to: "\[t]his entry is
 /// ignored when an interactive PDF processor sorts the items in the collection."
 #[must_use]
 pub fn sorted_keys(
@@ -1131,7 +1131,7 @@ fn items_by_key(document: &Document) -> BTreeMap<String, Item> {
 /// One member's value for one field, in the form §12.3.5.1 compares it in.
 ///
 /// Three forms rather than one, because the clause states three comparisons and fixes which by
-/// the *field's* type: "[t]he type of sorting depends on the type of data".
+/// the *field's* type: "\[t]he type of sorting depends on the type of data".
 #[derive(Debug, PartialEq)]
 enum Sortable {
     /// A text field's string, compared by its Unicode scalar values.

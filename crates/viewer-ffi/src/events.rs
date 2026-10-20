@@ -671,22 +671,7 @@ impl Events {
     /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
     pub fn script_question(&self, index: usize) -> Result<ScriptQuestionNumbers, Status> {
         match self.events.get(index).ok_or(Status::OutOfRange)? {
-            Event::ScriptAsking { question, .. } => Ok(match question {
-                viewer_core::ScriptQuestion::Alert { icon, buttons, .. } => ScriptQuestionNumbers {
-                    kind: ScriptQuestionKind::Alert,
-                    icon: Some(AlertIconKind::of(*icon)),
-                    buttons: Some(AlertButtonsKind::of(*buttons)),
-                    dismissed: Some(AlertButtonKind::of(buttons.dismissed())),
-                    password: false,
-                },
-                viewer_core::ScriptQuestion::Response { password, .. } => ScriptQuestionNumbers {
-                    kind: ScriptQuestionKind::Response,
-                    icon: None,
-                    buttons: None,
-                    dismissed: None,
-                    password: *password,
-                },
-            }),
+            Event::ScriptAsking { question, .. } => Ok(ScriptQuestionNumbers::of(question)),
             _ => Err(Status::WrongKind),
         }
     }
@@ -704,25 +689,34 @@ impl Events {
         else {
             return Err(Status::WrongKind);
         };
-        let text = match (question, part) {
-            (_, ScriptTextKind::Message) => Some(script_question_text(question)),
-            (
-                viewer_core::ScriptQuestion::Alert { title, .. }
-                | viewer_core::ScriptQuestion::Response { title, .. },
-                ScriptTextKind::Title,
-            ) => title.as_deref(),
-            (viewer_core::ScriptQuestion::Response { default, .. }, ScriptTextKind::Default) => {
-                Some(default.as_str())
-            }
-            (viewer_core::ScriptQuestion::Response { label, .. }, ScriptTextKind::Label) => {
-                label.as_deref()
-            }
-            (
-                viewer_core::ScriptQuestion::Alert { .. },
-                ScriptTextKind::Default | ScriptTextKind::Label,
-            ) => None,
-        };
-        text.ok_or(Status::NoAnswer)
+        script_part(question, part).ok_or(Status::NoAnswer)
+    }
+}
+
+/// One of a script question's strings, `None` for a title or a label the script did not give and
+/// for a default or a label asked of an alert — what `quorra_event_script_text` and
+/// `quorra_owed_script_text` both copy.
+pub(crate) fn script_part(
+    question: &viewer_core::ScriptQuestion,
+    part: ScriptTextKind,
+) -> Option<&str> {
+    match (question, part) {
+        (_, ScriptTextKind::Message) => Some(script_question_text(question)),
+        (
+            viewer_core::ScriptQuestion::Alert { title, .. }
+            | viewer_core::ScriptQuestion::Response { title, .. },
+            ScriptTextKind::Title,
+        ) => title.as_deref(),
+        (viewer_core::ScriptQuestion::Response { default, .. }, ScriptTextKind::Default) => {
+            Some(default.as_str())
+        }
+        (viewer_core::ScriptQuestion::Response { label, .. }, ScriptTextKind::Label) => {
+            label.as_deref()
+        }
+        (
+            viewer_core::ScriptQuestion::Alert { .. },
+            ScriptTextKind::Default | ScriptTextKind::Label,
+        ) => None,
     }
 }
 
@@ -739,6 +733,29 @@ pub struct ScriptQuestionNumbers {
     pub dismissed: Option<AlertButtonKind>,
     /// Whether a response's entry is a password's.
     pub password: bool,
+}
+
+impl ScriptQuestionNumbers {
+    /// A question's numbers, in Adobe's own (ADR 2060 decision 5).
+    #[must_use]
+    pub fn of(question: &viewer_core::ScriptQuestion) -> Self {
+        match question {
+            viewer_core::ScriptQuestion::Alert { icon, buttons, .. } => Self {
+                kind: ScriptQuestionKind::Alert,
+                icon: Some(AlertIconKind::of(*icon)),
+                buttons: Some(AlertButtonsKind::of(*buttons)),
+                dismissed: Some(AlertButtonKind::of(buttons.dismissed())),
+                password: false,
+            },
+            viewer_core::ScriptQuestion::Response { password, .. } => Self {
+                kind: ScriptQuestionKind::Response,
+                icon: None,
+                buttons: None,
+                dismissed: None,
+                password: *password,
+            },
+        }
+    }
 }
 
 /// Table 164's numbers for one transition, flattened for C.

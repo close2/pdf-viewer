@@ -58,7 +58,7 @@ use crate::file_spec::FileSpec;
 /// front matter and exists so that one `Do` cannot cost a walk of a ten-thousand-page target.
 const MAX_LABELS_SEARCHED: usize = 4096;
 
-/// Table 95's `/Page`: "[a] page index or page label … identifying the page of the target
+/// Table 95's `/Page`: "\[a] page index or page label … identifying the page of the target
 /// document containing the content to be imported".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Designation {
@@ -72,11 +72,11 @@ pub enum Designation {
 /// ISO 32000-2 §8.10.4.1 Table 95's reference dictionary.
 ///
 /// Read from a form `XObject`'s `/Ref`, which §8.10.4.1 makes the thing that distinguishes a
-/// reference `XObject` from any other form: "[t]he presence of the Ref entry shall distinguish
+/// reference `XObject` from any other form: "\[t]he presence of the Ref entry shall distinguish
 /// reference `XObjects` from other types of form `XObjects`."
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
-    /// Table 95's `/F`, "[t]he PDF file containing the target document" (required).
+    /// Table 95's `/F`, "\[t]he PDF file containing the target document" (required).
     pub file: FileSpec,
     /// Table 95's `/Page` (required).
     pub page: Designation,
@@ -355,7 +355,7 @@ pub enum Outcome<'a> {
     Unavailable,
     /// The named file is here and Table 95's `/Page` names no page of it.
     ///
-    /// Table 95 says this can happen without anybody doing anything wrong: "[t]his reference is a
+    /// Table 95 says this can happen without anybody doing anything wrong: "\[t]his reference is a
     /// weak one and may be inadvertently invalidated if the referenced page is changed or
     /// replaced in the target document after the reference is created."
     NoSuchPage {

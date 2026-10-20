@@ -297,7 +297,7 @@ struct HandOver {
     spoiled: Option<&'static str>,
     /// How much the finished list states, once its run has concluded.
     ended: Option<Stated>,
-    /// The finished list, once a caller shared it ([`kept`]).
+    /// The finished list, once a caller shared it ([`Parts::keep`]).
     list: Option<Weak<DisplayList>>,
 }
 

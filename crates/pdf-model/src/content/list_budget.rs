@@ -11,7 +11,7 @@
 //! times builds its path a million times; and a Type 3 glyph inside a Type 3 glyph inside a tiling
 //! pattern multiplies all of them. The corpus's `ContentStreamCycleType3insideType3.pdf` builds
 //! 3.93 million commands and **2.05 million clips**, 1.15 GiB of list for a 2440-byte file (ADR
-//! 1507). Principle 3 asks for "[e]xplicit memory and time budgets" against "pathological
+//! 1507). Principle 3 asks for "\[e]xplicit memory and time budgets" against "pathological
 //! content", and a bound in the unit of the work is the memory one.
 //!
 //! # What is charged, and when

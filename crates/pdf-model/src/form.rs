@@ -4,7 +4,7 @@
 //! content, and a highlight or a stamp has no counterpart in a native toolkit. A form field does.
 //! A text field is a `QLineEdit`, an `NSTextField`, a `GtkEntry`; a choice field is a combo box or
 //! a list; a check box is the platform's check box. `doc/ui-boundary.md` states the rule this
-//! module exists to satisfy — "[i]nteractive chrome crosses as geometry, not pixels" — and
+//! module exists to satisfy — "\[i]nteractive chrome crosses as geometry, not pixels" — and
 //! §12.5.6.19 states the same division from the standard's side: widget annotations "represent the
 //! appearance of fields and **to manage user interactions**", and managing an interaction is what a
 //! host does in its own controls.
@@ -60,7 +60,7 @@ pub struct FormField {
     /// Table 226's `/T`, the partial name — the last component of the qualified one.
     ///
     /// Carried rather than left to a host to split off, because the split is only obvious once
-    /// §12.7.4.2 has been read: "[b]ecause the PERIOD is used as a separator for fully qualified
+    /// §12.7.4.2 has been read: "\[b]ecause the PERIOD is used as a separator for fully qualified
     /// names, a partial name shall not contain a PERIOD character", which is what makes the last
     /// component the whole of `/T` and not part of it.
     pub partial: String,
@@ -124,7 +124,7 @@ pub struct Widget {
     /// field that is not a toggling button, and for one whose `/AP` states no such entry.
     ///
     /// **One per widget and not one per field**, because §12.7.5.2.4's radio buttons differ in
-    /// exactly this: "[t]he parent field's V entry holds a name object corresponding to the
+    /// exactly this: "\[t]he parent field's V entry holds a name object corresponding to the
     /// appearance state of whichever child field is currently in the on state".
     pub on_state: Option<String>,
     /// Table 230's `/Opt` entry for this widget, where the field states the array. §12.7.5.2.3:
@@ -275,12 +275,12 @@ pub struct TextControl {
     /// Bit 25 and Table 232's `/MaxLen` together: how many equally spaced cells the field is
     /// divided into, where it is a comb field.
     ///
-    /// `Some(n)` only where the flag is set *and* Table 231's own condition on it holds — "[m]ay
+    /// `Some(n)` only where the flag is set *and* Table 231's own condition on it holds — "\[m]ay
     /// be set only if the `MaxLen` entry is present ... and if the Multiline, Password, and
     /// `FileSelect` flags are clear" — so a file claiming a comb it is not entitled to gets an
     /// ordinary entry rather than a cell count this crate invented.
     pub comb: Option<u32>,
-    /// Table 232's `/MaxLen`: "[t]he maximum length of the field's text, in characters."
+    /// Table 232's `/MaxLen`: "\[t]he maximum length of the field's text, in characters."
     ///
     /// Beside `comb` rather than folded into it, because the entry binds a field that is not a
     /// comb as well: a host caps its control's length from this.
@@ -305,7 +305,7 @@ pub struct ChoiceControl {
     pub combo: bool,
     /// Bit 19: "the combo box shall include an editable text box as well as a drop-down list".
     ///
-    /// The table restricts it — "[t]his flag shall be used only if the Combo flag is set" — and
+    /// The table restricts it — "\[t]his flag shall be used only if the Combo flag is set" — and
     /// the restriction is carried rather than enforced: a file that sets it on a list box has said
     /// something Table 233 forbids, and silently clearing it would hide the file's mistake.
     pub editable: bool,
@@ -323,11 +323,11 @@ pub struct ChoiceControl {
     ///
     /// The order matters and Table 233 bit 20 says why: a reader shows them "in the order in which
     /// they occur in the Opt array". An empty list is the table's own answer for a field with no
-    /// `/Opt` — "[i]f this entry is not present, no choices should be presented to the user".
+    /// `/Opt` — "\[i]f this entry is not present, no choices should be presented to the user".
     pub options: Vec<Choice>,
     /// Which entries of `options` §12.7.5.4 says are selected, as indices into it.
     ///
-    /// Derived from the value, because the clause makes the value decide: "[i]f the items
+    /// Derived from the value, because the clause makes the value decide: "\[i]f the items
     /// identified by this entry differ from those in the V entry of the field dictionary ... the V
     /// entry shall be used", of Table 234's `/I`. `/I` is read only where it breaks a tie the
     /// value cannot — two options with the same label — which is the case the clause states it
@@ -697,7 +697,7 @@ pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
 /// Table 234's `/I` is consulted for the one case the clause states it for — "when two or more
 /// elements in the Opt array have different names but the same export value" — because a label
 /// that occurs twice cannot say which occurrence the value means. Where they disagree the clause is
-/// explicit and the value wins: "[i]f the items identified by this entry differ from those in the V
+/// explicit and the value wins: "\[i]f the items identified by this entry differ from those in the V
 /// entry of the field dictionary ... the V entry shall be used."
 pub(crate) fn selected(document: &Document, field: &Field, options: &[Choice]) -> Vec<usize> {
     let mut wanted: Vec<String> = Vec::new();

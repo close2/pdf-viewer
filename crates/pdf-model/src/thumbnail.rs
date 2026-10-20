@@ -9,7 +9,7 @@
 //! other image in this tree becomes.
 //!
 //! **Two tables carry the entry and one clause decides both.** §7.11.3's Table 43 gives a *file
-//! specification* a `/Thumb` of its own, "[a] stream object defining the thumbnail image for the
+//! specification* a `/Thumb` of its own, "\[a] stream object defining the thumbnail image for the
 //! file specification", and sends the reader to §12.3.4 for what it means — so [`of_file_spec`]
 //! is [`read`] with a different carrier and the same subtraction. A third `/Thumb` is not an
 //! image at all: Table 159's, in [`crate::collection`], is a collection folder's flag.
@@ -120,7 +120,7 @@ pub struct Thumbnail {
     ///
     /// The other of the clause's two producer-side constraints, in a parenthesis: "(If a
     /// Subtype entry is specified, its value shall be Image .)" A thumbnail stating none is
-    /// conformant — Table 87 makes `/Subtype` "[o]ptional when used only as a thumbnail image,
+    /// conformant — Table 87 makes `/Subtype` "\[o]ptional when used only as a thumbnail image,
     /// required otherwise" — so this is `true` for an absent entry.
     pub permitted_subtype: bool,
 }
@@ -138,12 +138,12 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
     decode(document, &document.get_key(page, "Thumb"))
 }
 
-/// Reads and decodes §7.11.3 Table 43's `/Thumb`: "[a] stream object defining the thumbnail image
+/// Reads and decodes §7.11.3 Table 43's `/Thumb`: "\[a] stream object defining the thumbnail image
 /// for the file specification."
 ///
 /// The entry sends the reader to the same clause a page's does — "(See 12.3.4, "Thumbnail
 /// images")" — so the miniature of an attached file is decoded under §12.3.4's subtraction rule
-/// exactly as a miniature of a page is, and [`decode`] is that sentence once for both carriers.
+/// exactly as a miniature of a page is, and `decode` is that sentence once for both carriers.
 /// The two entries are different tables: the other `/Thumb` read outside a page's is
 /// [`crate::collection`]'s, which is **Table 159's** folder flag and not an image at all.
 ///

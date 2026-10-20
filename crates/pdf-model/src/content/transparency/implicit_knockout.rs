@@ -207,7 +207,7 @@ pub(super) fn transparent_knockout_elements(
 /// **An element of zero opacity has `wᵢ = 0` everywhere** — §11.6.4.4's constant is a
 /// factor of its opacity, and under `/AIS true` of its shape — so it contributes no colour
 /// to `K` and its own mode is applied to nothing; it is still an element of the group, and
-/// under the opacity reading it still knocks out what is under it (§11.4.6's NOTE 5: "[a]
+/// under the opacity reading it still knocks out what is under it (§11.4.6's NOTE 5: "\[a]
 /// shape value of 1.0 (inside) yields the colour and opacity that result from compositing
 /// the object with the initial backdrop", which for opacity 0 is the backdrop). So only the
 /// elements that carry colour have to share the mode, and **where exactly one does**,

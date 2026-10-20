@@ -41,5 +41,10 @@ pango.workspace = true
 # Every refusal in this crate is a typed error, as everywhere else in the tree.
 thiserror.workspace = true
 
+[dev-dependencies]
+# `tests/launch_path.rs` prints each launch figure beside its band and the distance to its nearer
+# edge, in the shape every other band in this tree prints (ADR 2125).
+gate-ratchet.workspace = true
+
 [lints]
 workspace = true

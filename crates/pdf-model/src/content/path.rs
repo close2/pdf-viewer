@@ -380,7 +380,7 @@ impl Interpreter<'_> {
     /// > point; if the current point is undefined, an error shall be generated.
     ///
     /// `l`, `c`, `v` and `y` are the four operators that sentence covers; `m` and `re` are the two
-    /// it excludes with the word "[m]ost", because the paragraph above says "the first one invoked
+    /// it excludes with the word "\[m]ost", because the paragraph above says "the first one invoked
     /// shall be m or re to begin a new subpath".
     ///
     /// # What the clause decides, and what it leaves to this program
@@ -399,7 +399,7 @@ impl Interpreter<'_> {
     ///   file states after the error, which is more than the clause costs.
     /// - **Add nothing**, which is what this does. The segment has no first endpoint and the clause
     ///   supplies none, so it describes no geometry; and because the current point is defined as
-    ///   "[t]he trailing endpoint of the segment most recently added", an operator that added none
+    ///   "\[t]he trailing endpoint of the segment most recently added", an operator that added none
     ///   leaves it undefined and the next segment is refused for the same reason. A run of segments
     ///   after the error therefore vanishes whole, until an `m` or an `re` states a point.
     ///

@@ -381,6 +381,41 @@ fn a_tall_page_is_cut_and_its_strips_are_the_page() {
     }
 }
 
+/// A rectangle in the first strip of a page taller than 8191 pixels is the rectangle the page
+/// drawn in one strip states (ADR 2116, trap 146). That strip's origin is the page's, so nothing
+/// but the surface's own height could move it, and the converter a rectangle takes is the page's
+/// to decide: on a page past the range every surface writes the closed form, as the page whole
+/// does, where the first strip used to hand it to the library's 8.8 converter because the strip
+/// alone is under 8191 rows. The edges are `issue12810.pdf`'s bar at 4×, not dyadic, which is the
+/// fraction the two converters round apart — 183 and 184 at column 29 — and which
+/// [`page_of_marks`]'s dyadic rectangles never reach.
+#[test]
+fn a_rectangle_in_a_tall_page_s_first_strip_is_the_page_s() {
+    let (width, height) = (64_u32, 8_256_u32);
+    let mut list = DisplayList::new(Size::new(width as f32, height as f32));
+    list.push(filled(rectangle(26.639_88, 20.3, 29.279_88, 60.7)));
+    let target = TargetSpec {
+        width,
+        height,
+        transform: Transform::IDENTITY,
+    };
+    let whole = CpuRasterizer::new()
+        .with_strips(1)
+        .rasterize(&list, target)
+        .expect("the rectangle draws");
+    for cuts in [vec![0, 1_000, height], vec![0, 100, 4_000, height]] {
+        let cut = CpuRasterizer::new()
+            .with_cuts(&cuts)
+            .rasterize(&list, target)
+            .expect("the rectangle draws in strips");
+        assert_the_page(
+            "the tall page's rectangle",
+            &cuts,
+            &differences(&whole, &cut),
+        );
+    }
+}
+
 /// A spike from the page to `(x, y)` device pixels, stated with dyadic coordinates.
 fn spike_to(x: f32, y: f32) -> Path {
     let mut path = Path::new();

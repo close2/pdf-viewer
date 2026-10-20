@@ -48,7 +48,7 @@ use super::{ArchivePlan, COMPRESSION_LEVEL};
 /// short answer being that ISO 19005-2 section 6.2.4.2 names the ICC editions a profile may
 /// conform to and the ICC's headline v4 download conforms to none of them. It is `static` data,
 /// so it costs no parse time until something asks for it.
-const SRGB: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc");
+pub(super) const SRGB: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc");
 
 /// The CMYK profile this program ships.
 ///
@@ -268,24 +268,6 @@ const PROPERTY_NOT_CUT: &str = "a metadata property this conversion removed is s
 /// Why a metadata stream that is not one is not cleaned.
 const NOT_A_PACKET: &str = "this document fails the schema requirement in an object that is not \
      a stream this tree can decode, so there is no packet to take the property out of";
-
-/// Why a container missing a field outright is not respelled.
-///
-/// ISO 19005-2 section 6.6.2.3.3's tables ask for two different things at once, and only one of
-/// them is a fact about the serialisation. A field stated with the wrong prefix is the packet
-/// spelling a name it already carries; a field the packet does not state is content nothing in
-/// the file holds, and `doc/pdf-a-mitigations.md`'s entry for this requirement is the reading:
-/// what is missing is a name for a schema, a description of what a property means, or the
-/// category saying where a value came from, and the two honest answers to that are the operator's
-/// own `supply` and a `discard` that loses the container. Neither is this rewrite.
-const FIELD_NOT_IN_THE_FILE: &str = "this document describes an extension schema whose \
-     description leaves out a field ISO 19005-2 section 6.6.2.3.3's tables require of it. What is \
-     missing is a name for the schema, a description of what a property means, or the category \
-     saying whether a property's value is derived from the document or supplied from outside it \
-     — none of which the file states anywhere, so supplying one would be this converter writing \
-     metadata about metadata that nobody produced. A field the packet does state and spells with \
-     another prefix is corrected without asking anyone, because the name, the namespace and the \
-     value are all already in the file";
 
 /// Why a packet whose prefixes cannot be moved refuses the document.
 const PACKET_NOT_RESPELLABLE: &str = "this document spells an extension schema container field \
@@ -586,6 +568,11 @@ pub(super) struct Respelled {
     pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
     /// How many fields were respelled, for the report to count places by.
     pub(super) fields: usize,
+    /// The properties that went with a container missing a field the file states nowhere, where
+    /// the catalogue's `discard` was prepared (`super::extension_container`).
+    pub(super) removed: Vec<MisusedProperty>,
+    /// How many containers were discarded, each missing a field the file states nowhere.
+    pub(super) discarded: usize,
 }
 
 /// The appearances a conversion is in a position to construct.
@@ -683,6 +670,11 @@ pub(super) struct Prepared {
     /// and the packet has to carry the `xmpMM:History` entry `doc/questions/A48` makes the
     /// default conditional on.
     pub(super) default_cmyk: Result<DefaultCmyk, Because>,
+    /// The `/DefaultRGB` to write, or why one cannot be (`doc/adr/2114`).
+    ///
+    /// Prepared after the survey, because whether the document draws in `DeviceRGB` at all is
+    /// the survey's to say: six of the rows it answers state no family of their own.
+    pub(super) default_rgb: Result<super::default_rgb::DefaultRgb, Because>,
     /// The metadata stream to write, or why one cannot be.
     pub(super) metadata: Result<Metadata, Because>,
     /// The `/ToUnicode` `CMaps` to write, or why none can be.
@@ -990,11 +982,26 @@ impl Prepared {
         // The repair `super::hexadecimal` makes needs the same walk the font rewrites do, so the
         // one survey answers both: a document that fails neither is never walked.
         let odd_digits = super::decision::odd_hexadecimal_digits_on_a_page(input);
-        let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite)) || odd_digits)
-            .then(|| Survey::of(document));
+        // The `/DefaultRGB` asks the survey only where the profile in hand is of another family,
+        // so the commonest conversion — an sRGB intent for a document in `DeviceRGB` — walks
+        // nothing more than it did (`doc/adr/2114`).
+        let rgb_by_default = wanted(Rewrite::DefaultRgb)
+            && intent
+                .as_ref()
+                .is_ok_and(|intent| intent.family != DeviceFamily::Rgb);
+        let survey =
+            (SURVEYED.iter().any(|rewrite| wanted(*rewrite)) || odd_digits || rgb_by_default)
+                .then(|| Survey::of(document));
         let hexadecimal = asked(odd_digits, || {
             super::hexadecimal::complete(document, survey.as_ref())
         });
+        let default_rgb = match (wanted(Rewrite::DefaultRgb), intent.as_ref()) {
+            (true, Ok(intent)) => {
+                super::default_rgb::prepare(document, intent, survey.as_ref(), &mut spare)
+            }
+            (true, Err(because)) => Err(*because),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
         // After the repair, because a content stream both reach is respelled from its bytes: the
         // value written is the operator's where a `supply` answered the site, and §14.9.2.2's
         // empty identifier otherwise (`doc/adr/2066`).
@@ -1029,10 +1036,6 @@ impl Prepared {
         let properties = asked(wanted(Rewrite::PropertyOutsideItsSchema), || {
             prepare_properties(document, input, headers.as_ref().ok(), fresh.as_ref().ok())
         });
-        let removals = properties
-            .as_ref()
-            .map(|cleaned| names_removed(&cleaned.removed))
-            .unwrap_or_default();
         // Section 6.6.2.3.3's prefixes move in what the removal left: the catalog's packet is one
         // both writers may edit, and a writer starting from the producer's original would undo
         // the one before it.
@@ -1045,6 +1048,16 @@ impl Prepared {
                 fresh.as_ref().ok(),
             )
         });
+        let removals = properties
+            .as_ref()
+            .map(|cleaned| names_removed(&cleaned.removed))
+            .unwrap_or_default();
+        // A discarded container is its own recorded action, because its reason is section
+        // 6.6.2.3.3's and not the misused property's.
+        let discards = respelled
+            .as_ref()
+            .map(|respelled| names_discarded(&respelled.removed))
+            .unwrap_or_default();
         // Section 6.6.4's amendment identifier is cut last of the four editors, in what the
         // three before it left: the schema is restated into this, so a cut taken from the
         // producer's original would undo them.
@@ -1261,7 +1274,7 @@ impl Prepared {
             document,
             catalog.as_ref(),
             &mut spare,
-            Recording {
+            &Recording {
                 // Edited when the schema is wanted or when it is deliberately omitted (`A59`).
                 schema: wanted(Rewrite::IdentificationSchema) || omit_identification,
                 omit_identification,
@@ -1276,6 +1289,7 @@ impl Prepared {
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
+                discards: &discards,
                 substituted: &font_history,
                 supplements: &supplements,
                 edited,
@@ -1292,6 +1306,14 @@ impl Prepared {
         let properties = unless_recorded(
             properties,
             recorded_it || nothing_removed,
+            NO_PLACE_TO_RECORD_A_REMOVAL,
+        );
+        let nothing_discarded = respelled
+            .as_ref()
+            .is_ok_and(|respelled| respelled.discarded == 0);
+        let respelled = unless_recorded(
+            respelled,
+            recorded_it || nothing_discarded,
             NO_PLACE_TO_RECORD_A_REMOVAL,
         );
         // The same construction, for the same reason: `doc/adr/1014` section 5 makes the history
@@ -1398,6 +1420,7 @@ impl Prepared {
             intent,
             supplied_destination,
             default_cmyk,
+            default_rgb,
             metadata,
             to_unicode,
             appearances,
@@ -1468,7 +1491,9 @@ impl Prepared {
             Rewrite::AmendmentIdentifierRemoved => self.amended.as_ref().err().copied(),
             Rewrite::ExtensionSchemaDescribed => self.described.as_ref().err().copied(),
             Rewrite::ExtensionFieldDescribed => self.fields_described.as_ref().err().copied(),
-            Rewrite::ExtensionSchemaPrefixes => self.respelled.as_ref().err().copied(),
+            Rewrite::ExtensionSchemaPrefixes | Rewrite::ExtensionContainerDiscarded => {
+                self.respelled.as_ref().err().copied()
+            }
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
             Rewrite::RestateFontMetrics | Rewrite::RestateVerticalFontMetrics => {
@@ -1592,6 +1617,11 @@ impl Prepared {
             out.insert(metadata.at, object.clone());
         }
         if let Ok(default) = &self.default_cmyk {
+            for (id, object) in &default.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(default) = &self.default_rgb {
             for (id, object) in &default.written {
                 out.insert(*id, object.clone());
             }
@@ -2334,7 +2364,7 @@ fn held_destination_profile(document: &Document, catalog: &Dictionary) -> Option
 /// transformation from the PDF document's source colours to output device colourants" and says
 /// that "[t]he format of the profile stream is the same as that used in specifying an `ICCBased`
 /// colour space", which is §8.6.5.5's — hence the `/N`.
-fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
+pub(super) fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
     let components = match family {
         DeviceFamily::Gray => 1,
         DeviceFamily::Rgb => 3,
@@ -3907,6 +3937,8 @@ fn prepare_respellings(
         .collect();
     let mut packets = BTreeMap::new();
     let mut fields = 0usize;
+    let mut removed = Vec::new();
+    let mut discarded = 0usize;
     for at in schema_packets(input, CONTAINER_REQUIREMENT) {
         // Replaced rather than edited, for [`prepare_properties`]'s reason: a fresh packet
         // describes no extension schema, so it states no container field to respell.
@@ -3929,8 +3961,14 @@ fn prepare_respellings(
         if faults.is_empty() {
             continue;
         }
+        // A field nothing in the file states cannot be respelled into being; the catalogue's
+        // `discard` is prepared instead, and the decision asks whether it was authorised.
         if faults.iter().any(|fault| !fault.misspelled) {
-            return Err(Because::NotBuiltYet(FIELD_NOT_IN_THE_FILE));
+            let (cut, went) = super::extension_container::discarded(&bytes)?;
+            packets.insert(at, cut);
+            removed.extend(went);
+            discarded = discarded.saturating_add(1);
+            continue;
         }
         let respelled = xmp::respell(&bytes, &required)
             .map_err(|_| Because::NotBuiltYet(PACKET_NOT_RESPELLABLE))?;
@@ -3942,7 +3980,12 @@ fn prepare_respellings(
         packets.insert(at, respelled);
         fields = fields.saturating_add(faults.len());
     }
-    Ok(Respelled { packets, fields })
+    Ok(Respelled {
+        packets,
+        fields,
+        removed,
+        discarded,
+    })
 }
 
 /// The pages a configured `preserve` remedy appends, or why none are.
@@ -4662,6 +4705,31 @@ fn names_removed(removed: &[MisusedProperty]) -> String {
     )
 }
 
+/// The parameters a discarded container's recorded action states, naming what went with it.
+fn names_discarded(removed: &[MisusedProperty]) -> String {
+    if removed.is_empty() {
+        return String::new();
+    }
+    let named: Vec<&str> = removed
+        .iter()
+        .take(MOST_NAMED)
+        .map(|property| property.spelled.as_str())
+        .collect();
+    let rest = removed.len().saturating_sub(named.len());
+    let tail = if rest == 0 {
+        String::new()
+    } else {
+        format!(", and {rest} more")
+    };
+    format!(
+        "an extension schema container that left out a field ISO 19005-2 clause 6.6.2.3.3 \
+         requires, and that the file states nowhere, was discarded with every property it \
+         described: {}{tail}. The conversion report names each one, its namespace and the value \
+         that was there",
+        named.join(", ")
+    )
+}
+
 /// Why appended pages a packet could not record are not appended.
 const NO_PLACE_TO_RECORD_A_PRESERVATION: &str = "preserving this content on a page appended to \
      the document is allowed on condition that the page is recorded in the file's own \
@@ -4817,6 +4885,8 @@ struct Recording<'a> {
     default_cmyk: bool,
     /// The removal's own recorded action, empty where nothing was removed.
     removals: &'a str,
+    /// The discarded containers' recorded action, empty where none was discarded.
+    discards: &'a str,
     /// The substitution's own recorded action, empty where no face was embedded.
     substituted: &'a str,
     /// The properties §14.3.3's information dictionary adds to the packet, where it moves.
@@ -4908,20 +4978,10 @@ fn document_packet(
     })
 }
 
-/// The metadata stream this conversion writes, with every action it has to record in it.
-///
-/// ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5 ask a converter to record what it did,
-/// and `doc/pdf-a-conversion-limits.md` section 4.2 turns that into one entry per **Ask**. The
-/// entries are appended in the order they are built, so a packet already holding a producer's
-/// history keeps it and gains these after it.
-fn the_packet(
-    target: Target,
-    document: &Document,
-    catalog: Option<&Dictionary>,
-    spare: &mut Spare,
-    recording: Recording<'_>,
-) -> Result<Metadata, Because> {
-    let mut events: Vec<xmp::Event<'_>> = Vec::new();
+/// The actions a conversion records in `xmpMM:History`, one per kind of thing it did that the
+/// file's own provenance has to carry, all at the one instant `recording.when` states.
+fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
+    let mut events: Vec<xmp::Event<'a>> = Vec::new();
     if let Some(when) = recording.when {
         if recording.default_cmyk {
             events.push(xmp::Event {
@@ -4934,6 +4994,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: REMOVED_PROPERTIES_ACTION,
                 parameters: recording.removals,
+                when,
+            });
+        }
+        if !recording.discards.is_empty() {
+            events.push(xmp::Event {
+                action: REMOVED_PROPERTIES_ACTION,
+                parameters: recording.discards,
                 when,
             });
         }
@@ -5001,6 +5068,23 @@ fn the_packet(
             });
         }
     }
+    events
+}
+
+/// The metadata stream this conversion writes, with every action it has to record in it.
+///
+/// ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5 ask a converter to record what it did,
+/// and `doc/pdf-a-conversion-limits.md` section 4.2 turns that into one entry per **Ask**. The
+/// entries are appended in the order they are built, so a packet already holding a producer's
+/// history keeps it and gains these after it.
+fn the_packet(
+    target: Target,
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    spare: &mut Spare,
+    recording: &Recording<'_>,
+) -> Result<Metadata, Because> {
+    let events = recorded_events(recording);
     // Nothing is prepared that no failed requirement asked for: a document needing neither the
     // schema nor an entry does not have its packet read at all, and the reason is never shown —
     // `decide` consults it only for a requirement the table answers with this rewrite.

@@ -78,7 +78,28 @@ fn form_fixture() -> Vec<u8> {
          font-family:Courier;letter-spacing:2pt\">red</span> word<span \
          style=\"xfa-tab-count:1\"/></p></body>",
     );
+    written(&body)
+}
 
+/// One text field whose validation asks with `app.alert` — RFC 0008 section 4.2's question, the
+/// icon a question's and the buttons Yes and No, in Adobe's numbers 2 and 2 — for the window's
+/// script dialogue (ADR 2121).
+fn script_fixture() -> Vec<u8> {
+    written(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] \
+         /DA (/Helv 0 Tf 0 g) >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Annots [4 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (kept) /V (1) \
+         /Rect [10 10 90 30] /F 4 /AA << /V << /S /JavaScript \
+         /JS (app.alert\\('Keep it?', 2, 2\\);) >> >> >>\nendobj\n",
+    )
+}
+
+/// `body`'s objects behind a header, with the cross-reference table and the trailer that index
+/// them.
+fn written(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -374,6 +395,25 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
         built.is_ok_and(|status| status.success()),
         "the cdylib has to exist for a C program to link against"
     );
+    // The script worker the window's runner starts, which `PDF_SCRIPT_WORKER` names below: the
+    // engine is the worker program's alone, so no library this test links is built with it (ADR
+    // 1616).
+    let worker = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()))
+        .args([
+            "build",
+            "-p",
+            "pdf-script-worker",
+            "--features",
+            "engine",
+            "--bin",
+            "pdf-script-worker",
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .status();
+    assert!(
+        worker.is_ok_and(|status| status.success()),
+        "the script worker has to exist for a script's question to be asked"
+    );
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let program = artefacts.join("quorra_drive_a_window");
     let compiled = Command::new(&cc)
@@ -398,9 +438,17 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     // A file of the window's own, beside the first test's, so the two may run at once.
     let form = artefacts.join("quorra_window_form_fixture.pdf");
     std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
+    let script = artefacts.join("quorra_window_script_fixture.pdf");
+    std::fs::write(&script, script_fixture())
+        .expect("the fixture is written beside the test binary");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
+        .arg(&script)
+        .env("PDF_SCRIPT_WORKER", artefacts.join("pdf-script-worker"))
+        // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
+        // inside the test (ADR 1643).
+        .env("PDF_VIEWER_SCRIPT_ANSWER_WAIT_MS", "2000")
         .output()
         .expect("the program runs");
     let said = String::from_utf8_lossy(&ran.stdout).into_owned();
@@ -419,7 +467,7 @@ fn what_the_window_owed(said: &str) {
     for expected in [
         // The counted kinds against the header's, and a path that names no file refused by its
         // own status rather than opened into a window that says nothing.
-        "owed kinds 13 (header 13), unknown is unknown",
+        "owed kinds 17 (header 17), unknown is unknown",
         // `viewer_host::Tab`'s six, in the order and the words every window shows them.
         "panels offered 6 (header 6): Contents Pages Layers Files Read About",
         "an unreadable file: the file named could not be opened for reading",
@@ -485,6 +533,32 @@ fn what_the_window_owed(said: &str) {
          index is not of the kind this accessor reads; an unknown field: there is nothing to \
          answer with",
         "window control committed: typed is \"typed in C\" (ok)",
+        // ISO 19005's chooser, a record on the six targets and the shipped profiles, starting on
+        // the first of each; an index past the list leaves it out, closing it says nothing was
+        // converted, and a second answer finds nothing to answer (ADR 2121).
+        "archive chooser: Convert to ISO 19005 (PDF/A)\nA profile is the least a conversion may \
+         lose",
+        "window chooser: 6 target(s) from PDF/A-2b, ",
+        "starting on 0 and 0, act Nothing; past the list: the index names nothing; closed: nothing \
+         was converted: no target and profile were chosen; again: there is nothing to answer with",
+        // Control + P asks §7.6.4.2's bit 3 on the window's own default sheet, as `viewer-qt`
+        // asks it; the grant is a record, the print stands until it is ended, and once.
+        "print: printing, over 5 page(s)",
+        "window print: act Nothing, 5 page(s), degraded 0; finished again: there is nothing to \
+         answer with; a script answer nobody asked for: there is nothing to answer with",
+        // The levels a host states, by word and by number, read as every window reads them; the
+        // refusal is `--links=`' own sentence, and the form's submission is refused under them
+        // where the default level asked (ADR 2120).
+        "settings: --submissions=refuse taken 1, --cpu taken 0; --links=sometimes: the message at \
+         that index is not of the kind this accessor reads, \"--links=sometimes: no such level. \
+         One of refuse, ask, warn, open\"",
+        "window under the stated levels: 0 question(s); ",
+        // A script's `app.alert` at the scripts' PROCEED level: the record in Adobe's numbers —
+        // the question icon 2, Yes and No 2, closed answering No 3 — answered once; the second,
+        // left, withdrawn by its wait (ADRs 1628, 1643).
+        "window script: \"Keep it?\", icon 2, buttons 2, closed answers 3",
+        "window script again: there is nothing to answer with; the second withdrawn 1, then \
+         answered: there is nothing to answer with",
         "ok",
     ] {
         assert!(

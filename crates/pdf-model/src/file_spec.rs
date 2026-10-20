@@ -49,7 +49,7 @@ use pdf_syntax::{Dictionary, Document, Object};
 /// bound is far past any real one and exists because the split is linear in the string.
 const MAX_COMPONENTS: usize = 256;
 
-/// §7.11.3's `/FS`, "[t]he name of the file system that shall be used to interpret this file
+/// §7.11.3's `/FS`, "\[t]he name of the file system that shall be used to interpret this file
 /// specification".
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FileSystem {
@@ -95,7 +95,7 @@ pub enum FileSystem {
 /// it stays out of reach for the same reason: there is no handler for what `/Subtype` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncryptedPayload {
-    /// §7.6.7's Table 28 `/Subtype`, **required**: "[t]he name of the cryptographic filter used
+    /// §7.6.7's Table 28 `/Subtype`, **required**: "\[t]he name of the cryptographic filter used
     /// to encrypt the encrypted payload document."
     ///
     /// > This allows a PDF processor to easily determine whether it has the appropriate
@@ -107,10 +107,10 @@ pub struct EncryptedPayload {
     /// already the fact a reader needs — this file is a wrapper — and the name is what it cannot
     /// act on either way.
     pub filter: Option<String>,
-    /// Table 28's `/Version`: "[t]he version number of the cryptographic filter used to encrypt
+    /// Table 28's `/Version`: "\[t]he version number of the cryptographic filter used to encrypt
     /// the encrypted payload referenced by this dictionary."
     ///
-    /// A *name*, and the table's NOTE says how to read it: "[t]he value of Version is not to be
+    /// A *name*, and the table's NOTE says how to read it: "\[t]he value of Version is not to be
     /// interpreted as a real number but as integers with a PERIOD (2Eh) between them." So it is
     /// carried as the producer spelled it and never parsed into a number.
     pub version: Option<String>,
@@ -171,7 +171,7 @@ pub struct FileSpec {
     /// it is already a text string, because 7-bit US-ASCII is a strict subset of
     /// `PDFDocEncoding`.
     pub bytes: Option<Vec<u8>>,
-    /// Table 43's `/Desc`, "[d]escriptive text associated with the file specification".
+    /// Table 43's `/Desc`, "\[d]escriptive text associated with the file specification".
     pub description: Option<String>,
     /// Table 43's `/ID`, §14.4's two-string file identifier of the file being referred to.
     pub id: Option<[Vec<u8>; 2]>,
@@ -189,7 +189,7 @@ pub struct FileSpec {
     ///
     /// `/DOS`, `/Mac` and `/Unix` are "deprecated in PDF 2.0" and are read only where neither
     /// `/UF` nor `/F` is present, which is the order Table 43's own requirement implies: `/F` is
-    /// "[r]equired if the DOS, Mac, and Unix entries are all absent".
+    /// "\[r]equired if the DOS, Mac, and Unix entries are all absent".
     pub platform_specific: bool,
 }
 
@@ -318,7 +318,7 @@ impl FileSpec {
     /// four-byte string `in\/out` after §7.3.4.2 and one component, `in/out`, after this.
     ///
     /// Empty for a URL specification, which is not a path (§7.11.5), and for a specification
-    /// with no `/F` at all. An *empty component* is not the same thing and is kept: "[a]ny of
+    /// with no `/F` at all. An *empty component* is not the same thing and is kept: "\[a]ny of
     /// the components may be empty", and an absolute specification's leading SOLIDUS produces
     /// one.
     #[must_use]

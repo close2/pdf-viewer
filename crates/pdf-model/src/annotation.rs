@@ -175,7 +175,7 @@ pub(crate) fn press_changes(
 /// to it, in place of the artwork `/AP` `/D` holds rather than beside it.
 ///
 /// **A link is not under this rule**, and the difference is the table rather than a choice:
-/// Table 176 gives `/H` four modes with no such sentence, and its `P` is "[d]isplay the
+/// Table 176 gives `/H` four modes with no such sentence, and its `P` is "\[d]isplay the
 /// annotation as if it were being pushed below the surface of the page" — which names no
 /// appearance stream. §12.5.5's "down appearance shall be used when the mouse button is pressed"
 /// therefore stands for every subtype but the one whose own table overrides it.
@@ -316,7 +316,7 @@ pub(crate) enum Highlight {
 /// **The default is `I` and this applies it only where the annotation states no down
 /// appearance.** The two clauses genuinely disagree for an annotation that states a `/D` and no
 /// `/H`: §12.5.5 says the down appearance "shall be used when the mouse button is pressed", and
-/// Table 191 gives `/H` the default `I` and says "[a] highlighting mode other than P shall
+/// Table 191 gives `/H` the default `I` and says "\[a] highlighting mode other than P shall
 /// override any down appearance". Taking the default flatly makes the *file's own artwork*
 /// unshowable — 95 of the corpus's page-one annotations state a `/D` and no `/H`, so 95 pieces
 /// of artwork would exist for a moment that could never display them. Taking a stated `/D` as
@@ -545,7 +545,7 @@ const ICON_SIZE: f32 = 20.0;
 ///
 /// §12.5.6.15's file attachment and §12.5.6.16's sound are deliberately not here: neither clause
 /// states either sentence, so neither annotation is attached to a point and neither is held at a
-/// fixed size, and [`crate::appearance::symbol_icon`] still inscribes those in `/Rect`.
+/// fixed size, and `crate::appearance::symbol_icon` still inscribes those in `/Rect`.
 ///
 /// `rc_annotation.pdf` is the one corpus witness — `/Subtype /Text /Name /Note /Rect
 /// [50 50 50 50]` — and it drew nothing here for as long as anybody looked, inside an `ambiguous`
@@ -604,7 +604,7 @@ fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
 ///
 /// So the printed page's rule is bit 3's three sentences and nothing else, and `NoView` is
 /// deliberately not consulted: its own row states the consequence of that in as many words —
-/// "[t]he annotation may be printed (depending on the setting of the Print flag) but should be
+/// "\[t]he annotation may be printed (depending on the setting of the Print flag) but should be
 /// considered hidden for purposes of on-screen display and user interaction". Bit 9,
 /// `ToggleNoView`, goes with it: it inverts `NoView` "for annotation selection and mouse
 /// hovering", which is a sentence about a pointer that no printed page has.
@@ -628,6 +628,8 @@ fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
 /// **One statement of it rather than two**, which is why it is a function: `crate::popup` asks
 /// the same question of a subtype [`decided`] answers `Nothing` for before it gets this far, and
 /// two copies of a flag test are how a clause comes to be honoured on one path and not the other.
+///
+/// [`Appearance::Normal`]: crate::view::Appearance::Normal
 pub(crate) fn displayed(
     document: &Document,
     annotation: &Dictionary,
@@ -965,7 +967,7 @@ pub(crate) fn decide(
 /// > If the dimensions of the target media are not known at the time of drawing, drawing shall be
 /// > done relative to the dimensions specified by the page's MediaBox entry
 ///
-/// and §12.5.6.22 puts a screen in the second branch by name — "[w]hen displaying a watermark
+/// and §12.5.6.22 puts a screen in the second branch by name — "\[w]hen displaying a watermark
 /// annotation on-screen, interactive PDF processors shall use the dimensions of the media box ...
 /// so that the scroll and zoom behaviour is the same as for other annotations". So the media box
 /// is not a fallback this crate chose; it is what the clause requires of every caller that is not
@@ -1432,7 +1434,7 @@ fn appearance_damage(
 ///
 /// **The one annotation entry that is not like `/CA` and `/ca`**, and the reason is worth the
 /// paragraph because the other reading is easy to take. Table 166 states
-/// each of the two opacities as the value "[w]hen regenerating the annotation's appearance
+/// each of the two opacities as the value "\[w]hen regenerating the annotation's appearance
 /// stream" and adds outright that it "shall not be used if the annotation has an appearance
 /// stream". §12.5.2 states `/BM` with no such condition:
 ///
@@ -1734,7 +1736,7 @@ fn alignment(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
 ///
 /// # Which corner goes to the origin
 ///
-/// "[T]ranslated to the origin" does not name a corner, and the algorithm it substitutes into
+/// "\[T]ranslated to the origin" does not name a corner, and the algorithm it substitutes into
 /// does: step 2 maps "the lower-left corner (the corner with the smallest x and y coordinates)".
 /// [`rectangle`] has already normalised `/Rect` onto that corner, so this is a subtraction of its
 /// first two numbers.
@@ -1768,7 +1770,7 @@ fn alignment(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
 /// > printed page) to the origin of the default user space
 ///
 /// **B's translation is the media rectangle's own corner, and its scale is what the caller
-/// states.** The paragraphs after the EXAMPLE open "[i]n situations other than the usual case
+/// states.** The paragraphs after the EXAMPLE open "\[i]n situations other than the usual case
 /// where the PDF page size equals the media size", and a page shrunk onto a sheet or placed in an
 /// n-up cell is exactly such a situation: the clause asks for the mark "at the specified size" on
 /// a page that is no longer at its own, so B's scale is cancelled by dividing the transformed

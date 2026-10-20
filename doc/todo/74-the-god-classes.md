@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 8 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 9 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -106,10 +106,18 @@ fifteen modules hold the rest: the `impl ColourSpace` by concern (`parsing`, `se
 tests remain in the root, a different split; `ink_search.rs`, `press.rs` and `spots.rs` are each above
 600 lines and are the next cuts if one is wanted.
 
-## 9. `App` (`crates/viewer-ui/src/bin/quorra/surface.rs`)
+## 9. Built — `App` (`crates/viewer-ui/src/bin/quorra/surface.rs`, with `surface/`), ADR 2128
 
-Already twelve files; `surface.rs` is the block left (1 652 lines, 30 methods). Read it against
-`window.rs` and `viewer-device`'s `renderer/` before cutting.
+`surface.rs` held one `impl App` of 1 652 lines and 30 methods: the frame of a window with a device,
+the frame of one without, the bring-up and the settling after it. It is now a root and five modules.
+The root keeps `Surface`, `State`, the four accessors (`device_window`, `device_window_ref`,
+`composer`, `composer_ref`), `redraw_requested` (the tick that routes to a path) and the free
+functions `predicted`, `in_the_window` and `wake_on`; each module holds an `impl App` for one
+concern: `device_frame` (adopt, ask, place, the placements and `present`), `device_adoption` (taking
+a finished picture in, naming the lane, a reported fault or a refused swapchain), `processor_frame`
+(the same tick over `composer`), `bring_up` (the device or the software surface) and `settling`
+(the cadence and the compiled pipelines). The entry said to read it against `window.rs` and
+`viewer-device`'s `renderer/` first; the cut follows the two paths, and neither file was touched.
 
 ## 10. Files with no large block
 

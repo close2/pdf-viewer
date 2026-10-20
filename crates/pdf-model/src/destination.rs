@@ -40,7 +40,7 @@ const MAX_INDIRECTION: usize = 8;
 
 /// Table 149's destination syntax: where on the page, and how large.
 ///
-/// A `None` is the clause's own null: "[a] null value for any of the parameters left, top, or
+/// A `None` is the clause's own null: "\[a] null value for any of the parameters left, top, or
 /// zoom specifies that the current value of that parameter shall be retained unchanged" — so
 /// the absence of a number is a *distinct* instruction rather than a missing one, and it
 /// cannot be collapsed into a default without changing what the document said.
@@ -111,7 +111,7 @@ impl View {
     ///
     /// The one place Table 149 is spelled, and it has two callers because the standard gives it
     /// two spellings: §12.3.2.2's array, where the numbers are objects, and Annex O's `view`
-    /// parameter, where they are text in a URI and the table is named outright — "[t]he keyword
+    /// parameter, where they are text in a URI and the table is named outright — "\[t]he keyword
     /// shall correspond to one of the keywords defined in "Table 149 - Destination syntax" with
     /// appropriate position values".
     ///
@@ -424,8 +424,8 @@ impl Destination {
     /// > parameter specifies an integer page number within the remote document instead of a page
     /// > object in the current document.
     ///
-    /// and its NOTE says "[t]he above paragraph was corrected to also include embedded go-to
-    /// actions (2020)". Table 203 gives the numbering: "[t]he first page shall be numbered 0."
+    /// and its NOTE says "\[t]he above paragraph was corrected to also include embedded go-to
+    /// actions (2020)". Table 203 gives the numbering: "\[t]he first page shall be numbered 0."
     ///
     /// So [`Target::Number`] *is* an index here, where in [`Self::page_index`] it is a number
     /// about a file this reader does not have. Both are answered because a destination reached
@@ -485,7 +485,7 @@ pub fn structure_element_page(
 /// The page a reference "belongs to" is Table 357's and Table 358's `/Pg`, and where the
 /// reference states none it is the containing element's — §14.7.5.3 says of an object
 /// reference's `/Pg` that it takes precedence over any `/Pg` in the structure element containing
-/// the object reference, and is required where that element has none. (This sentence read "[t]his
+/// the object reference, and is required where that element has none. (This sentence read "\[t]his
 /// entry overrides any Pg entry in the structure element containing the object reference; it
 /// shall be used if the structure element has no such entry" until Errata Collection 3 — Issue
 /// #431, `/State` `Review` `Accepted` — which also reclassifies the entry from "Optional" to

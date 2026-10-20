@@ -187,7 +187,7 @@ impl SpotColourants {
     /// `press` is `None` for a page whose group composites in one or three components, where
     /// §11.7.3 makes no process colourant of the device available to a `Separation` or `DeviceN`
     /// (ADR 1329).
-    /// A colourant [`SpotColourants::readable`] took out has no plane either, and is named with
+    /// A colourant `SpotColourants::readable` took out has no plane either, and is named with
     /// the ones past the bound.
     #[must_use]
     pub fn device(&self, press: Option<&Press>) -> DeviceSpots {

@@ -262,7 +262,7 @@ impl MaskCache {
             soft_bytes: 0,
             budget,
             admits_wholly: HashMap::new(),
-            scratch: scan::Scratch::default(),
+            scratch: scan::Scratch::for_page(surface.page.width, surface.page.height),
             reach: Arc::new(HashMap::new()),
         }
     }

@@ -91,7 +91,7 @@ impl Interpreter<'_> {
     /// where the pattern states no usable box — and the readings of §11.6.4.3's `/AIS` the
     /// cell's marks were painted under, which are the cell's own: §8.7.3.1 runs it under "the
     /// graphics state that was in effect at the beginning of the pattern's parent content
-    /// stream", and §11.6.7 adds that "[t]he definition shall not inherit the current values
+    /// stream", and §11.6.7 adds that "\[t]he definition shall not inherit the current values
     /// of the graphics state parameters at the time it is evaluated". So the record is scoped
     /// to the cell and seeded from the state it starts in, never from the painting mark's, and
     /// [`Interpreter::compose_tiling`] decides whether it joins the enclosing one (ADR 1306).

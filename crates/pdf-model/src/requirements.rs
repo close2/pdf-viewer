@@ -100,7 +100,7 @@ pub struct Requirement {
 
 /// Table 275's requirement types.
 ///
-/// The table is closed as of PDF 2.0 and open in principle — "[a]dditional requirement types,
+/// The table is closed as of PDF 2.0 and open in principle — "\[a]dditional requirement types,
 /// including ones identifying vendor-specific features, may be registered" — so an unrecognised
 /// name is kept rather than dropped: a document that needs something this reader cannot even
 /// name is exactly the case a person wants to be told about.
@@ -599,7 +599,7 @@ fn penalty(document: &Document, dict: &Dictionary) -> u8 {
 /// §7.12's extensions dictionary: the developer extensions a document was written against.
 ///
 /// Keyed by the registered prefix name — `/ADBE` for Adobe's, `/ISO_` for ISO's — because that
-/// is what §7.12.1 makes the key: "[t]he remaining keys shall be names consisting of registered
+/// is what §7.12.1 makes the key: "\[t]he remaining keys shall be names consisting of registered
 /// prefix names of the developer extensions used". A prefix may name several extensions, which
 /// is PDF 2.0's array form and is why the value is a list.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -611,12 +611,12 @@ pub struct Extensions {
 /// One developer extensions dictionary. Table 49.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeveloperExtension {
-    /// `/BaseVersion`: "[t]he name of the PDF version to which this extension applies".
+    /// `/BaseVersion`: "\[t]he name of the PDF version to which this extension applies".
     ///
-    /// A name, and compared as one: §7.12.4's NOTE says "[t]he value of `BaseVersion` is not to
+    /// A name, and compared as one: §7.12.4's NOTE says "\[t]he value of `BaseVersion` is not to
     /// be interpreted as a real number but as two integers with a PERIOD (2Eh) between them".
     pub base_version: String,
-    /// `/ExtensionLevel`: "[a]n integer defined by the developer to denote the extension being
+    /// `/ExtensionLevel`: "\[a]n integer defined by the developer to denote the extension being
     /// used", which §7.12.5 says increases over time within one base version.
     pub level: i64,
     /// `/URL`: where the developer documents the extension.

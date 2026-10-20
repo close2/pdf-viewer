@@ -18,7 +18,7 @@
 //! **The text is the parent's, and Table 186 makes that a `shall`**: "the parent annotation's
 //! Contents , M , C , and T entries … shall override those of the popup annotation itself". The
 //! popup's own four are the fallback the clause's NOTE 3 describes, for a popup with no parent:
-//! "[t]he Contents entry for a popup annotation is relevant only if it has no parent; in that
+//! "\[t]he Contents entry for a popup annotation is relevant only if it has no parent; in that
 //! case, it represents the text of the annotation".
 //!
 //! **Measured over the corpus** (974 documents, first 50 pages each): 45 documents state a popup,
@@ -63,7 +63,7 @@ pub struct Popup {
     /// Table 186's `/Parent`: the markup annotation this window belongs to.
     ///
     /// `None` for the case the clause's NOTE 3 names, where the popup's own entries are the
-    /// answer. §12.5.6.2 calls that file wrong — "[t]he popup annotation type shall not appear
+    /// answer. §12.5.6.2 calls that file wrong — "\[t]he popup annotation type shall not appear
     /// by itself" — and the note says what to do with it anyway, so it is read rather than
     /// refused. Four of the corpus's 128 popups are like this.
     pub parent: Option<ObjectId>,
@@ -73,7 +73,7 @@ pub struct Popup {
     /// Whether the window opens with the page, which **two** entries can each say.
     ///
     /// Table 186's `/Open` is the popup's own — "whether the popup annotation shall initially be
-    /// displayed open" — and Table 175's is the *text annotation's*: "[a] flag specifying whether
+    /// displayed open" — and Table 175's is the *text annotation's*: "\[a] flag specifying whether
     /// the annotation shall initially be displayed open". §12.5.6.4 is what makes the second one
     /// a statement about this window rather than about an icon:
     ///
@@ -96,18 +96,18 @@ pub struct Popup {
     pub text: Option<String>,
     /// Table 166's `/M`, **as the file spells it**.
     ///
-    /// Not a `pdf_syntax::Date`, and that is the clause rather than laziness: "[t]he format
+    /// Not a `pdf_syntax::Date`, and that is the clause rather than laziness: "\[t]he format
     /// should be a date string as described in 7.9.4, "Dates" but interactive PDF processors
     /// shall accept and display a string in any format". A processor that parsed this and
     /// dropped what would not parse would break the `shall`; one that parses it *and* keeps the
     /// original can obey both, so the string is what crosses and [`Popup::modified_date`] is the
     /// half that is a date.
     pub modified: Option<String>,
-    /// Table 166's `/C`, converted to RGB — "[t]he title bar of the annotation's popup window".
+    /// Table 166's `/C`, converted to RGB — "\[t]he title bar of the annotation's popup window".
     ///
     /// `None` for the value the table gives an empty array: "0 No colour; transparent".
     pub colour: Option<pdf_render::Color>,
-    /// Table 172's `/Subj`: "[t]ext representing a short description of the subject being
+    /// Table 172's `/Subj`: "\[t]ext representing a short description of the subject being
     /// addressed by the annotation".
     ///
     /// A *description of the annotation*, which is what separates it from [`Self::text`] and is
@@ -122,7 +122,7 @@ pub struct Popup {
         reason = "a verbatim quotation: §12.5.6.2 spells the entry names without backticks"
     )]
     pub subject: Option<String>,
-    /// Table 172's `/CreationDate`: "[t]he date and time (7.9.4, "Dates") when the annotation was
+    /// Table 172's `/CreationDate`: "\[t]he date and time (7.9.4, "Dates") when the annotation was
     /// created", as the file spells it.
     ///
     /// The string rather than the parsed date, for [`Self::modified`]'s reason turned round: the
@@ -451,7 +451,7 @@ const OWN_WINDOW: (f32, f32) = (216.0, 144.0);
 
 /// How far a chain of Table 172 `/IRT` replies is followed before a file is read as cyclic.
 ///
-/// The clause bounds a thread to one page — "[b]oth annotations shall be on the same page of the
+/// The clause bounds a thread to one page — "\[b]oth annotations shall be on the same page of the
 /// document" — and states no depth. ISO 32000-2's own PDF is the deepest population measured,
 /// at four hops (`examples/annotation_group_census`); this is far above it and exists so that a
 /// file writing a cycle terminates rather than to express a limit the standard has.
@@ -522,7 +522,7 @@ fn states_its_own_window(document: &Document, annotation: &Dictionary) -> bool {
 /// Whether this annotation is Table 172's *reply* rather than a group's subordinate.
 ///
 /// The entry that says which is `/RT`, "meaningful only if IRT is present", whose two values are
-/// `R` — "[t]he annotation is considered a reply to the annotation specified by IRT" — and
+/// `R` — "\[t]he annotation is considered a reply to the annotation specified by IRT" — and
 /// `Group`, with "Default value: R ". So an `/IRT` with no `/RT` is a reply, which is what makes
 /// the default load-bearing rather than cosmetic.
 fn is_reply(document: &Document, annotation: &Dictionary) -> bool {
@@ -553,9 +553,9 @@ fn is_reply(document: &Document, annotation: &Dictionary) -> bool {
 /// window this clause forbids. `None`, as for an annotation that states no entry (ADR 1057).
 ///
 /// **And a reply's window is the thread's**, since §12.5.6.2's other `shall` was implemented:
-/// "[i]nteractive PDF processors shall not display replies to an annotation individually but
+/// "\[i]nteractive PDF processors shall not display replies to an annotation individually but
 /// together in the form of threaded comments", so activating a reply exhibits the one window that
-/// thread is shown in rather than a second window beside it. [`thread_window`] is that climb and
+/// thread is shown in rather than a second window beside it. `thread_window` is that climb and
 /// is what [`popups`] folds by, so the two answers cannot disagree.
 #[must_use]
 pub fn popup_of(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
@@ -683,7 +683,7 @@ pub(crate) fn opens_with_the_page(
 /// one subtype whose text this program takes a retyping of (`ViewState::set_note_text`, ADRs 1721,
 /// 1726).
 ///
-/// Table 186's `/Parent`, or the note itself for the window [`own_window`] gives one with no popup
+/// Table 186's `/Parent`, or the note itself for the window `own_window` gives one with no popup
 /// — and for §12.5.6.2's subordinate, whose `Contents` is a group attribute, the primary its
 /// `/IRT` names, since that is whose text the window shows. `None` for any other markup
 /// annotation's window, whose text this program does not retype.
@@ -740,7 +740,7 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 /// characters are the text, by making `/RC` and `/Contents` "textually equivalent" where a file
 /// states both.
 ///
-/// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form — "[w]hen separating
+/// **A paragraph is a break.** §12.5.6.2 states the rule for the plain form — "\[w]hen separating
 /// text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used" — and the rich form spells a
 /// paragraph as an element, so a closing `</p>` and a `<br/>` become the newline the plain form
 /// would have carried. Nothing else in the markup changes the text.
@@ -762,7 +762,7 @@ fn is_open(document: &Document, dict: &Dictionary) -> bool {
 /// > A rich text string (see Adobe XML Architecture, XML Forms Architecture (XFA) Specification,
 /// > version 3.3 ) that shall be used to generate the appearance of the annotation.
 ///
-/// The same NOTE says why the two cannot be one function's two callers by accident: "[a]s
+/// The same NOTE says why the two cannot be one function's two callers by accident: "\[a]s
 /// freetext annotations do not have an open state this cannot apply to the popup window as
 /// described for the RC key in "Table 172 - Additional entries in an annotation dictionary
 /// specific to markup annotations"." So the *characters* are extracted identically and the
@@ -792,7 +792,7 @@ pub(crate) fn rich_text(document: &Document, dict: &Dictionary) -> Option<String
 ///
 /// The two callers want the same characters and disagree about a malformed packet, so the walk
 /// answers both questions and each decides for itself: [`rich_text`] keeps what it read, because
-/// half a comment is better than none, and [`crate::appearance::rich_text_value`] takes a
+/// half a comment is better than none, and `crate::appearance::rich_text_value` takes a
 /// field's value as markup only where the markup is whole, because a value that is not a rich
 /// text string is a value to draw as it stands (ADR 1197).
 pub(crate) struct RichTextCharacters {

@@ -1,594 +1,210 @@
 # The UI boundary — `viewer-core`, its vocabulary, and the three pixel tiers
 
-Status: **built, shaken out, and frozen** — seven consumers on it, **three of them hosts somebody
-else's widgets sit on**: GTK4 since the four-hundred-and-eighth session (`crates/viewer-gtk`, ADR
-0244), Qt 6 through a C++ bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246),
-and **a C ABI since the four-hundred-and-eleventh** (`crates/viewer-ffi`, ADR 0247). One is behind
-a confinement — and since the seven-hundred-and-seventy-fifth one sits on the *far side* of that
-confinement: `quorra-confined`, the first window whose pages arrive from the sandboxed worker
-rather than from a viewer it holds (ADR 0713). `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
-shaken the API out"* — was met, the three amendments it named were taken, and **no host added a
-message, three running**. **One variant changed shape in the four-hundred-and-twelfth**, which is
-the other mechanism and not the same thing: `Edit::SetField`'s value became
-`pdf_model::view::Entered` so that §12.7.5.4's list box could say which of Table 234's options are
-selected (ADR 0248). **And the four-hundred-and-fourteenth added a `Command` *and* an `Event`, the
-first `Event` since the vocabulary was frozen**: `Command::Find` and `Event::Searched` are Annex O's
-document-wide `search`, which `Query::Find` is not — that one answers for the page showing, out of a
-readback that exists, and this one interprets pages nobody is looking at. Six consumers failed to
-compile and `QUORRA_EVENT_KIND_COUNT` moved 15 → **16** for the first time, which is what a C caller's
-`quorra_abi_check` is for (ADR 0250). **And the four-hundred-and-eighty-first added a `Command` and no
-`Event`**: `Command::Present(PresentationMode)` is §12.4.4.2's own condition, which that clause
-requires and no state machine over a file can deduce (ADR 0316). Two consumers failed to compile —
-`viewer-confined`'s wire protocol and `viewer-ui`'s trace line, the two that match `Command`
-exhaustively — and the C ABI did not, because commands there are *functions* and
-`QUORRA_EVENT_KIND_COUNT` stayed where it was. **And the five-hundred-and-twenty-second added a
-`Query` and an `Answer`**: `Query::Highlight` is Annex O's `highlight` parameter, whose rectangle a
-host cannot place for itself because no host sees the fragment — it arrives inside `Command::Open`
-undecoded — and whose *look* the annex hands to a processor outright ("[t]he nature of the
-highlighting is implementation-dependent"), which is this boundary's own rule stated by the
-standard. Three consumers failed to compile and the C ABI gained its hundred-and-twelfth entry
-point (ADR 0357). **And the five-hundred-and-ninety-sixth added nothing and changed one variant's
-shape**: `Event::Extracted` carries the rest of the URI's fragment beside the bytes, which is
-§O.2.1's "[a]ny remaining parameters after this parameter apply to the selected embedded file" —
-the annex's last unbuilt sentence, and the mechanism this file prefers to a new message whenever a
-host needs two things a variant carried one of (ADR 0431). **And the six-hundred-and-sixth added a
-`Command` and changed an `Answer`'s shape**: `Command::Layout(PageLayout)` is Table 29's own entry,
-which `viewer-core` reads out of the catalog for itself — the entry states the layout that "shall be
-used when the document is opened", an *initial* state — and which only a host can say the reader has
-since changed; and `Answer::Frame` carries a `Vec<FrameView>`, because `OneColumn` puts several pages
-in one window and a host drawing the first of them would draw a continuous view with a hole in it.
-Four consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, and the C ABI gained two entry
-points — `quorra_layout` and `quorra_frame_count`, the second because a C consumer cannot fail to compile
-and so has to be able to *ask* how many pages the arrangement is showing (ADR 0441).
-**And the six-hundred-and-seventh added nothing at all**, which is the half of ADR 0441 that was
-still owed: the tier-2 host draws the arrangement now, and what it needed in order to follow one was
-already answered — `Query::PageGeometry` says `Answer::None` for a page the arrangement does not
-show, so a host holding one render request per page learns from that question alone which of them
-have scrolled off. Three hosts on all six of Table 29's values, one message between them (ADR 0442).
-**The six-hundred-and-twenty-second added one field**, `RenderRequest::ink`, and it is the kind of
-addition this section exists to make a round justify. A host that keeps pixels of a page it drew
-earlier — a tier-1 raster, a tier-2 window's own stand-in — has to be able to tell a *re-interpretation
-of unchanged ink* from an *interpretation of changed ink*, and the `Arc<DisplayList>` cannot: a page
-that leaves Table 29's arrangement and comes back arrives as a new address over the same commands.
-Nor can a host derive it, which is the argument for putting it here rather than counting commands on
-the far side: what changes a page's ink is §8.11's layer switch, §12.5.5's appearance under the
-pointer, §12.7.5's field value, §6.3.2.2's delegated widgets and §12.6.4's actions, and which of a
-host's commands reaches one of those is this crate's business. `crate::open::Open::stale` already was
-the one place that decided it and now says so in a number. ADR 0457.
+Status: **built, shaken out, and frozen.** Read by: anybody writing a host, adding a `Command`,
+`Event` or `Query`, or asking what the crate boundary permits. `doc/HANDOVER.md`'s reader table
+points a round writing a host here, and ADRs 0116 to 0121 are the argument.
 
-**And the six-hundred-and-ninth added nothing and changed one variant's shape**, which is the
-third time that mechanism has been preferred to a message and the second in four rounds:
-`Answer::Selected`'s `text` is a `std::borrow::Cow<'a, str>`, because a drag may now cross a page
-boundary and the bytes of such a selection live in two readbacks and are one string in neither. A
-selection *inside* a page is still a borrowed slice of that page's readback, which is not an
-optimisation but the identity `selection_census` asserts of `Selection::All` against
-`pdf_model::Interpretation::text` and the one `pdf-retrieve`'s default answer is held to (ADR 0257).
-The standard is why both ends of a selection carry a page: §9.4.1's text position "shall not persist
-from one text object to the next", so there is no document-wide offset and a pair composes where a
-number could not exist. Five consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, the C
-ABI gained no entry point, and **no host needed a line about pages** — each asks `Query::Selection`
-per repaint and draws the quadrilaterals it is handed in the viewport's own device pixels (ADR
-0444).
-**And the six-hundred-and-tenth added nothing and changed *three* variants' shapes**, which is the
-fourth use of that mechanism and the first time it has taken three at once: `Answer::Reports`,
-`Answer::Readback` and `Answer::Accessibility` each carry one entry per page Table 29's
-arrangement is showing — `PageReports`, `PageReadback`, `PageStructure`, each saying which page it is
-about — because all three read the *current page's* interpretation while a column shows several, so a
-report about a page on the screen was silently absent and one about a page off it was present. The
-third is the sharpest and is why the round happened: a screen reader handed one page's tree while a
-window shows four is being told the document is one page long, which is trap 5 aimed at the one
-person for whom the picture is no answer. The boundary's test does not fall the way 606's did —
-which pages are on the screen is the viewer's arrangement, and that is why `Command::Layout` had to
-exist — but a host asking *these* questions already holds half the answer, because it knows which
-page it draws where. The entries stay per page on the standard's own division: §14.7.5.2's
-identifier is unique "within its content stream" and §14.7.5.4 keys the route in from that page's
-`/StructParents`, so two pages' trees share no numbering and §14.8.2.5 states no order between them
-— joining them is the platform's question, which `viewer-accessibility` answers with one
-`Role::Document` node per page. Five consumers failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16,
-and the C ABI gained two entry points — `quorra_reported_pages` and `quorra_reported_page`, for
-`quorra_frame_count`'s reason (ADR 0445).
-`PageStructure` also carries `widgets`: the page's widget annotations no element reaches — every one
-on an untagged page, and on a tagged page those its structure left out — answered beside the element
-list rather than in it, and crossing the confined wire as a second list. No message was added (ADRs
-1369, 1381). And it carries `tagging`, which of `viewer_core::Tagging`'s four answers an empty or
-full list is — a document with no structure, a page not read yet, a structure that reaches nothing
-on the page, or one that does — crossing the confined wire as one byte after the two lists; no
-message was added (ADR 1393).
-Each `AccessibilityNode` naming a text field or a combo box carries the field's §12.7.4.3 value in
-the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
-holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
-`value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF18`
-since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679), a located
-point's `/DCS` reading in either of Table 269's shapes (ADR 1678), a text note's retyping and the
-note a popup window names (ADR 1726), and §12.8.3.4.4's published policy copies, the event
-`Event::SignaturePoliciesPublished` that every window answers under the submissions level (ADR
-1738), a script's keys and console requests (ADR 1771), and the worker's notice of how far its
-page has got, which the transport hands a listener inside the exchange it arrives in (ADR 1811),
-each node's `standard`, what its type means in the namespace §14.8.6.2's walk ended in, one byte beside
-its name (ADR 2028), and `Command::Respond`, §12.7.8's form data a server answered the confined
-window's submission with, which the window sends and the worker imports (ADR 2076). Where the
-viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
-(`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
-(ADR 1516).
-**And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
-been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
-full-screen *window* it had never had, in all three hosts, and every channel it needed was already
-here. `Command::Present(PresentationMode)` is what a host sends (ADR 0316), `Query::Opening` answers
-Table 29's `/PageMode` and `Query::Preferences` answers Table 147 whole — including
-`/NonFullScreenPageMode`, which decides which panel is open when full screen ends and which nothing
-had ever acted on. The decision itself is not on this boundary at all: it is `viewer_host::Presenting`,
-because *which sentence a window is obeying* is shared and `GtkWindow::fullscreen` against
-`QWidget::showFullScreen` against `winit`'s `set_fullscreen` is what a toolkit is (ADR 0470). No
-consumer failed to compile, `QUORRA_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
-**Table 147's window entries added nothing either** (ADR 1429): `/FitWindow` and `/CenterWindow` are
-answered from `Query::View` and `Query::PageGeometry` at a frame, `/DisplayDocTitle` from
-`Query::Properties`, and the arithmetic is `viewer_host::Presenting::place`, `fitted` and `centred`,
-shared by the three windows; `quorra-qt`'s own bridge gained `place_window`, which is a host's
-inside and not this boundary.
-**And the six-hundred-and-forty-second added nothing at all either**, which is three rounds
-running and is worth the sentence because this one had the shape that usually *does* ask for a
-message: two hosts gained a capability the third already had. §12.4.4.1's **clock** now runs in all
-three — `/Dur` advances a page and Table 164's frames animate in `viewer-gtk` and `viewer-qt` for
-the first time — and `Command::Tick { millis }` has carried exactly what that needs since ADR 0135,
-`Event::Transition` since ADR 0230. What was missing was never a channel: it was two hosts driving
-the one that existed. The decision is `viewer_host::Clock` and not this boundary, for
-`Presenting`'s reason one paragraph up — *how often to look at a wall clock* is shared and
-`glib::timeout_add_local_once` against `QTimer` against `ControlFlow::WaitUntil` is what an event
-loop is (ADR 0473). `viewer-ui` adopted the shared clock and deleted a private type doing it, which
-is the test this crate applies to anything it takes in: a third host would have been a third copy.
-**And the seven-hundred-and-thirty-fifth added nothing at all either**, which is the fifth time and
-the one that had a *measured* gap behind it rather than a missing capability: a click on §12.7.5.2's
-check box or radio button did nothing in either native window, and what it needed was already here —
-`Query::FieldAt` for the model's own hit test, `Query::Fields` for the flags Tables 227 and 229 set,
-`Edit::SetField` for the appearance-state name §12.7.5.2.3 makes the value. The decision is
-`viewer_host::form::Clicked` and not this boundary, for `Presenting`'s and `Clock`'s reason one
-paragraph up — *what a click on a button field means* is one clause and `GtkCheckButton::toggled`
-against `QAbstractButton::toggled` against a point on a page is what a toolkit is. It deleted the
-third copy on its way in, and the three copies had already stopped agreeing about Table 227 (ADR
-0630).
-**And the seven-hundred-and-fortieth broke the run — one *outcome*, and it is the first change to
-`Rendered` since this vocabulary was frozen**: `Rendered::Listed` means *the host took this
-request's own list*, which is the answer to the question the last section of this file had been
-holding. What made it a change here rather than a message is that `Rendered::Presented` is a
-statement about the **viewer** — it holds for every page at once — and the confined worker is the
-first host that keeps *some* pages' marks and hands *others* back as pixels. So the page holds its
-place, the viewer holds no pixels of it, and `holds_rasters` does not move: `MAX_PIXELS` goes on
-bounding every request and `Query::Frame` goes on answering for the page's neighbours, which is
-exactly what reusing `Presented` would have cost. The three mechanisms this file prefers were all
-checked first and none fits — a field on `RenderRequest` cannot say what the host did *after* the
-request, a variant changing shape would mean two different facts carried at one width, and a
-`Query` is no use for an answer that arrives unasked. One consumer failed to compile —
-`viewer-ui`, the only one that matches `Rendered` exhaustively — `QUORRA_EVENT_KIND_COUNT` stayed
-where it is, because an outcome is not an event, and the C ABI gained no entry point (ADR 0640).
-**And the fifteen-hundred-and-twenty-eighth added a `Command` for the same population**:
-`Command::Oversize(Oversize::Listed)` says a host draws a page past `MAX_PIXELS` from its list, as
-much as its window shows, so the viewer asks for it rather than refusing it and the host answers
-`Rendered::Listed`; the default refuses. Three consumers matched `Command` exhaustively and each
-gained an arm (ADR 1892). It crosses to the confined worker too, which then sends such a page's
-marks where they fit what a page's pixels at the bound may claim there and refuses it by name where
-they do not (ADR 1944).
-**And the seven-hundred-and-fifty-fourth added nothing at all either**, which is the sixth time and
-the one that moved the most host code: both native windows rasterised inside their
-`Event::NeedsRender` arm, on the toolkit's main thread, so a page written to draw for 27.6 s took
-the window with it — and `pdf_render::Interrupt`, a flag *another* thread raises, had no thread to be
-raised from. `viewer_host::drawing` is the thread, shared by both, and everything it needed was
-already here. The sharpest part is that this boundary's own bookkeeping is what makes the policy
-*exact* rather than a judgement: `Viewer::rendered` drops a `Command::RenderReady` whose token is not
-the one outstanding, which was written so that "a worker that is slow costs a wasted render and never
-a wrong frame" — and read the other way round it says a draw whose token the viewer no longer holds
-cannot change a pixel, which is precisely when a host may stop drawing. What it did *not* need was a
-question about that: `Query::PageGeometry` already answers `Answer::None` for a page the arrangement
-does not show, which is the other half of the rule. `QUORRA_EVENT_KIND_COUNT` stayed 16 and the C ABI
-gained no entry point — it is the one host of the four still without a way to raise a flag, which is
-`doc/todo/30`'s (ADR 0668).
-**And the one-thousand-four-hundred-and-eighty-seventh added nothing either**, for a figure that
-had to move *while* the core was busy, which no message can: an `Event` is returned when a command
-ends, and the wait was inside one. The owner's loading bar is `pdf_model::progress::Progress`, a
-figure the interpreter publishes to on whichever thread a host installed it, read by the window's
-thread beside the core rather than through it; `viewer_host::Loading` is the opening thread that
-carries it, waits for the page no longer than `drawing::WARN`, and lets the window answer its
-toolkit after that. `QUORRA_EVENT_KIND_COUNT` stayed where it is and the C ABI gained no entry point,
-because a C host opens on no thread of ours (ADR 1811).
-**And the eight-hundred-and-fifth added a `Query`, an `Answer` and a `Command`** — the first
-three-message round since this vocabulary was frozen, and the first `Command` since Table 29's
-`/PageLayout`. `Query::View` answers with `Viewing` — the page, the magnification and the scroll —
-and `Command::View(Viewing)` takes one back. What makes it a question rather than a deduction is
-that **every command that makes a view is relative and the viewer clamps it**: `Zoom::In` three
-times and once out is not a net two steps when the ladder has a range, and a `Scroll` stopped at
-the bottom of a page moved less than it said, so a host that watched every message it sent still
-cannot say where the reader is. And what makes the answer's return trip a *command* rather than a
-replay of the three a host already has is that the three cannot be sequenced without knowing which
-of them resets the others — a page turn zeroes the scroll, a zoom moves it — and that a scroll of
-the difference lands within a rounding of the place rather than on it. The three mechanisms this
-file prefers were checked first and none fits: `Query::PageGeometry`'s `scale` is the magnification
-*and* the display's scale multiplied, and dividing them back is the one round trip `viewer-core`
-refuses to make in `f32`; its `origin` is where the raster ended up, which for a centred page says
-nothing about the scroll at all; and a field on an existing message cannot carry a value that
-travels in both directions. **A host does not compose a `Viewing`; it echoes one.** Two consumers
-failed to compile — `viewer-confined`'s wire and `viewer-ui`'s trace line for the command,
-`viewer-confined` and `viewer-ffi`'s `every_query_reaches_the_abi` for the question —
-`QUORRA_EVENT_KIND_COUNT` stayed where it is because none of the three is an event, and the C ABI
-gained two entry points and its first struct passed by value since the ABI was written: `quorra_view`,
-`quorra_set_view` and `quorra_viewing`, named for the reason `quorra_frame` is — C puts a struct tag and
-a function in one namespace. `QUORRA_ABI_VERSION` did not move, because a struct *added* is a shape
-an old caller never passes. ADR 0737.
+**Frozen means one test for a new message**: it carries a question a host cannot answer for
+itself, or a value only a host has — never a second way to say something a host can. ADR 0247
+states the condition the freeze waited on, *"Do not freeze a C ABI until two Rust consumers have
+shaken the API out"*; it was met, and the three amendments `doc/todo/30` named were taken.
 
-**And the eight-hundred-and-eighty-fifth added two `Edit`s, a `Command`, three `Event`s and two
-levels — the largest single addition since the vocabulary was frozen, and every one of them owed by
-one feature.** The project owner's *"I am missing adding embedded files"* is `Edit::Attach { bytes,
-name, description, mime, home }` and `Edit::Detach { name }`, §7.11.4's file put into one of
-§7.11.4.1's two homes or taken out of the tree, as entries in the log beside the immutable document.
-What that dragged in is the *policy*: an edit a document restricts had two answers here and
-`CLAUDE.md` names four, so `RestrictionLevel` gained `Ask` and `Warn`, and each arrived **with the
-message that makes it a level rather than a variant nothing answers** — `Event::Asking` answered by
-`Command::Answer { document, proceed }`, which is `Event::PasswordRequired`'s shape, and
-`Event::Warned` after the edit and after the `Dirty` it caused (`doc/todo/38`'s standing condition,
-ADR 0178's lesson). `Event::AttachmentsChanged` is the third, and it passes this file's own test for
-a message: a host sent the edit but not the *verdict* — an attach under `On` moved nothing — and an
-undo names no edit at all. **Every consumer that matches these enumerations exhaustively failed to compile**, `QUORRA_EVENT_KIND_COUNT` moved
-16 → **19** for the second time in its life, and the C ABI gained three entry points (`quorra_attach`,
-`quorra_detach`, `quorra_answer`) and four constants. `QUORRA_ABI_VERSION` did not move, because every
-addition is a shape an old caller never passes. **No host gained an attach gesture**: the owner
-asked for mockups of that flow first, so each window gained only the display half — the files tab
-rebuilt from `Query::Attachments` when the list moves. ADR 0814.
+**Before a message, this boundary prefers three other mechanisms**, and the lists below show each
+used many times:
 
-**And the one-thousand-one-hundred-and-fifty-fifth changed one variant's shape and added no
-message**, which is the sixth use of the mechanism this file prefers and the second on the same
-variant: `Command::Restrict` carries a `RestrictionScope` — the window's whole
-`RestrictionPolicy`, or a `RestrictionOverride` the focused document departs from it in. What made
-it a change here rather than a host's bookkeeping is that the scope is a statement *this boundary*
-has to carry: a host-supplied value applies to every document a window opens (ADR 0604), and the
-sentence a reader needs — *for this document, ask before copying* — is one no host can compose out
-of messages that all mean *for every document*. The override lives beside the document in
-`open::Open`, so it ends when the document does, and `RestrictionPolicy::under` is the one place
-the two meet. Three consumers failed to compile — the wire, `viewer-ui`'s trace line and
-`viewer-ffi`'s session — `QUORRA_EVENT_KIND_COUNT` stayed where it is because none of this is an
-event, and the C ABI gained one entry point and one constant that is deliberately not a level,
-`QUORRA_RESTRICT_INHERIT`. **And the three windows put the question** `Event::Asking` asks: a menu
-of `CLAUDE.md`'s four levels in each window's own chrome and a modal answer apiece, worded once in
-`viewer_host::restriction` for the reason `Presenting` and `Clock` are shared — what a window is
-obeying is one decision and a `gio::Menu` against a `QMenuBar` against a card this program draws is
-what a toolkit is. ADR 1145.
+- **a variant changes shape**, where a host needs two things a variant carried one of — every
+  consumer then fails to compile, which is what nothing being `#[non_exhaustive]` is for;
+- **a field is added** to a value that already crosses, where no host could derive it;
+- **nothing is added**, because the channel existed and what was missing was hosts driving it. The
+  decision that is the same in every window then goes into `viewer-host`, never onto this boundary:
+  *which sentence a window is obeying* is shared, and `GtkWindow::fullscreen` against
+  `QWidget::showFullScreen` against winit's `set_fullscreen` is what a toolkit is (ADR 0470).
 
-**And the one-thousand-and-sixty-second added one `Command` and one entry point, for the input ADR
-1039 named forty rounds earlier and did not build.** §12.8.1's third question — *is the signer
-anyone to believe* — needs RFC 5280 section 6.1.1's input (d), the trust anchors, and that RFC says
-whose choice they are: "The selection of a trust anchor is a matter of policy." So the value comes
-from outside the document, and `Command::Trust(TrustPolicy)` is how, on `Command::Restrict`'s rules
-and for a sharper version of its reason: a state machine over a file cannot know whom its reader
-believes, and a *file* that could name its own anchors would be vouching for itself. It passes this
-file's own test for a message — no host holds a certification path, and no core has a filesystem or
-a clock to read certificates with. **Two consumers failed to compile**, `viewer-confined`'s wire
-(command kind 28, the DER crossing into the confinement rather than out of it) and `quorra`'s trace
-line; `QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI
-gained one entry point and two constants — `quorra_trust_anchors`, `QUORRA_ACCEPT_*`.
-`QUORRA_ABI_VERSION` did not move, because an entry point *added* is one an old caller never calls
-and this one takes no struct by value. **No host gained a gesture**: `quorra` gained
-`--trust-anchors <dir>` and `--accept-unknown-revocation`, which is how this host supplies every
-other policy it has, and `doc/todo/38`'s user interface is still not to be built. A host that
-supplies nothing gets exactly the answers it got before, which is ADR 1039's decision unchanged.
-ADR 1076.
+**What a change costs is known before it is made.** Every consumer that matches the enumeration
+exhaustively fails to compile. A C consumer cannot fail to compile, so the C ABI gains entry points
+and a constant per event kind, and a caller checks `QUORRA_EVENT_KIND_COUNT` against its header
+with `quorra_abi_check` (ADR 0250); a question added fails `viewer-ffi`'s
+`tests/every_query_reaches_the_abi.rs` instead, which matches `Query` exhaustively (ADR 0576).
+`QUORRA_ABI_VERSION` moves only when a shape an old caller passes changes — an entry point or a
+struct *added* is one an old caller never uses. `grep -E 'define QUORRA_(ABI_VERSION|EVENT_KIND_COUNT)'
+crates/viewer-ffi/include/quorra.h` prints both, and `tools/state.sh hosts` counts the entry points.
 
-**And a script's timers added a `Query` and an `Answer`, and its sound an `Event`** (ADR 1702).
-`app.setInterval` and `app.setTimeOut` need a clock, and rule 3 below gives this crate none: so a
-timer is counted down in the milliseconds `Command::Tick` carries, and `Query::TimerDue` answers
-how long a window may sleep before one is owed — `Answer::TimerDue(None)` for every window whose
-documents set none, which is what keeps a still window from waking at all. It is a question rather
-than an event because the answer is a fact about *now* that every command can move, which is the
-shape `Query::Dirty` already has, and it is asked of every document because a timer ends with its
-document and not when another is brought to the front. **One clock per window**: a presentation's
-`viewer_host::Clock` already ticks the core, so while one runs the timers ride on it, and
-`viewer_host::script_timers::Ticker` is the shared rest. `app.beep` is `Event::Beep { document,
-sound }`, a host's act as a dialogue is: GTK's display and Qt's application play their one system
-sound, and `quorra`, whose toolkit has none, says none was played. Every consumer that matches the
-enumerations failed to compile — the wire (event kind 25, query and answer kind 36), the trace line,
-both toolkits and the confined window — `QUORRA_EVENT_KIND_COUNT` moved 25 → **26**, and the C ABI
-gained `quorra_timer_due` and `QUORRA_EVENT_BEEP`; `QUORRA_ABI_VERSION` did not move. And because
-a window now ticks while a person reads, a tick advances §12.4.4.1's `/Dur` only under
-`Command::Present(On)`, the clause's own condition.
+#### Messages added, and what each passed
 
-**And a script's keys added a `Command`, and its console an `Event`** (ADR 1771), on that pattern.
-`event.shift`, `event.modifier` and `event.keyDown` are facts only a host has, so
-`Command::Keys(pdf_model::view::Keys)` carries them, sent by each window as Shift or Control
-changes — `quorra` at winit's `ModifiersChanged`, GTK and Qt read off the keyboard before each
-pointer message — and around a choice field's selection an arrow key made (ADR 1786), and held for
-every open document and every one opened after. `console.show`,
-`hide` and `clear` are `Event::Console { document, request }`, a host's act as a sound is; every
-window's console is its log, so each says the request by name. The wire, the trace line, both
-toolkits and the confined window failed to compile (command kind 41, event kind 27);
-`QUORRA_EVENT_KIND_COUNT` moved 27 → **28** and the C ABI gained `QUORRA_EVENT_CONSOLE` and no
-entry point for the keys, since a session supplies no runner and nothing there reads them.
-`QUORRA_ABI_VERSION` did not move.
+The enumerations themselves are the list — `Command`, `Edit`, `Rendered` and `Purpose` in
+`crates/viewer-core/src/command.rs`, `Event` in `event.rs`, `Query` and `Answer` in `query.rs`.
+What follows is why each later addition passed the test.
 
-**And the one-thousand-and-eighty-seventh added one `Command` and one entry point, on exactly that
-pattern, for §8.10.4's reference `XObject`s.** The clause writes a `shall` for a processor that
-imports the referenced page and a `shall` for one that draws the proxy instead, and which of the two
-this program is depends on whether the target file is in front of it — which, with rule 2 in force,
-it never is unless a host puts it there. Worse than "never": Table 95's `/F` is a path the
-*document* writes, so a reader that opened what it named would let a file choose what this machine
-reads. So `Command::References(ReferenceFiles)` carries the bytes, on `Command::Trust`'s rules, and
-the match is §14.4's identifier rather than any path — the clause states that match itself. **Two
-consumers failed to compile**, `viewer-confined`'s wire (command kind 29, whole PDF files crossing
-*into* the confinement, because the party that reads a disk is outside and the party that parses a
-PDF is inside) and `quorra`'s trace line; `QUORRA_EVENT_KIND_COUNT` stayed where it is because
-nothing here is an event, and the C ABI gained one entry point and no constants —
-`quorra_reference_files`. `QUORRA_ABI_VERSION` did not move, for the standing reason.
-`Viewer::reference_refusals` is a query rather than an event, because a file a host offered and this
-reader will not open is a fact about the *host's input* and about no document. **No host gained a
-gesture**: `quorra` gained `--reference-files <dir>`, which is how this host supplies every other
-policy it has. A host that supplies nothing draws every proxy and is told nothing, which is what
-§8.10.4.1 asks of a reader with no target file. ADR 1101.
+- **`Command::Find` and `Event::Searched`** — Annex O's document-wide `search`, one page per step
+  because rule 4 forbids blocking and rule 3 leaves no clock to budget with; `Query::Find` stays the
+  page showing, out of a readback that exists (ADR 0250).
+- **`Command::Present(PresentationMode)`** — §12.4.4.2's condition, which no state machine over a
+  file can deduce (ADR 0316).
+- **`Query::Highlight`** — Annex O's `highlight`, whose rectangle no host can place because the
+  fragment arrives undecoded inside `Command::Open`, and whose look the annex leaves to the
+  processor ("[t]he nature of the highlighting is implementation-dependent") (ADR 0357).
+- **`Command::Layout(PageLayout)`** — Table 29's entry states the layout that "shall be used when
+  the document is opened", and only a host knows the reader has since changed it; `Answer::Frame`
+  became a `Vec<FrameView>` with it, and C gained `quorra_frame_count` to *ask* how many (ADR 0441).
+- **`Query::View` and `Command::View(Viewing)`** — every command that makes a view is relative and
+  the viewer clamps it, so no host can say where the reader is. **A host does not compose a
+  `Viewing`; it echoes one** (ADR 0737).
+- **`Edit::Attach`, `Edit::Detach`, `Command::Answer`, `Event::Asking`, `Event::Warned`,
+  `Event::AttachmentsChanged`, and `RestrictionLevel`'s `Ask` and `Warn`** — the owner's *"I am
+  missing adding embedded files"*, and each of `CLAUDE.md`'s two further levels arriving with the
+  message that makes it a level rather than a variant nothing answers (ADR 0814).
+- **`Command::Restrict` with a level per `pdf_model::restriction::Operation`, and `Command::Copy`
+  with `Event::Copied`** — Table 22's positions have different subjects. A query could not carry
+  the copy: `Query::Selection` is what a drag asks to draw a highlight, and a query raises no event
+  for the *ask* level to wait on. `Event::Copied` carries both of §14.8.2.5's orders, chosen
+  between once in `viewer_host::copied` (ADR 1144).
+- **`Command::Trust(TrustPolicy)`** — RFC 5280 section 6.1.1's trust anchors, which that RFC makes
+  the reader's policy; a file naming its own would vouch for itself (ADR 1076).
+- **`Command::References(ReferenceFiles)`** — §8.10.4's target files as bytes, matched by §14.4's
+  identifier and never by the path a document wrote; `Viewer::reference_refusals` is a method,
+  because a refused file is a fact about the host's input and about no document (ADR 1101).
+- **`Command::Audience`** — §8.11.4.4's user and language categories, which no file may assert
+  (ADR 1106).
+- **`Query::Measure` and `Answer::Measured`** — §12.9's traced path, mapped by ADR 0118's arithmetic
+  and read through Table 267; no `Command`, because §12.9 states no state for a viewer to be in, so
+  the mode is `viewer_host::Measuring` (ADR 1191).
+- **`Command::Separations(bool)`** — §10.8.3's simulation, which §10.8.1 leaves "up to the
+  processing software" (ADRs 1227, 1228).
+- **`Command::Beside(Option<DocumentId>)`** — a name held in reserve for Tables 203 and 204's
+  `/NewWindow`, deliberately not a field on `Command::Supply`, which would answer the weaker of the
+  two entries (ADRs 1263, 1264).
+- **`Command::Report`** — the one message whose reason is principle 2 rather than a clause: what a
+  document says about itself is asked for once the frame is on the screen, as
+  `viewer_host::report::Due` holds for every host (ADR 1044).
+- **`Command::Archive` and `Event::Archiving`** — print's shape for a verb this crate cannot run:
+  `pdf-transform` depends on this crate, so `viewer_host::archiving` runs the conversion for every
+  host, and the confined window's wire refuses both as `Uncarried` (ADRs 1954, 1966, 1967).
+- **`Query::TimerDue` and `Event::Beep`** — a script's timers, counted down in the milliseconds
+  `Command::Tick` carries (rule 3), with one clock per window, and its sound; a tick advances
+  §12.4.4.1's `/Dur` only under `Command::Present(On)` (ADR 1702).
+- **`Command::Keys` and `Event::Console`** — a script's modifier keys, which only a host has, and
+  its console requests (ADRs 1771, 1786).
+- **`Command::Oversize(Oversize::Listed)`** — a host draws a page past `MAX_PIXELS` from its list
+  and answers `Rendered::Listed`; the confined worker sends such a page's marks where they fit and
+  refuses it by name where they do not (ADRs 1892, 1944).
+- **`Command::Respond`** — §12.7.8's form data a server answered with, named by document because it
+  arrives when the server answers; the network is a host's (ADRs 1291, 1527, 2076).
+- **`Event::SignaturePoliciesPublished`** — §12.8.3.4.4's published policy copies, answered under
+  the submissions level (ADR 1738).
 
-**And the one-thousand-and-ninety-second added one `Command` and one entry point, on the same
-pattern again, for §8.11.4.4's two usage categories about the *reader*.** Table 100 lets a document
-name "one or more users for whom this optional content group is primarily intended" and the
-language of a group's content, and §8.11.4.4 says what a processor does with each: match the names
-"with the user's identification", and select content "based on the language and locale of the
-application". Neither is a fact the file holds, neither may be invented by a renderer, and a
-document that could assert who is reading would be choosing its own audience — so
-`Command::Audience(pdf_model::optional_content::Audience)` carries the answer, on `Command::Trust`'s
-rules. **Two consumers failed to compile**, `viewer-confined`'s wire (command kind 30: three lists
-of names, because Table 100's `/Type` decides what the names beside it mean, and a language tag with
-a flag saying whether one was stated at all) and `quorra`'s trace line;
-`QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI gained
-one entry point and no constants — `quorra_audience`. `QUORRA_ABI_VERSION` did not move, for the
-standing reason. **No host gained a gesture**: `quorra` gained `--reader-name`, `--reader-title`,
-`--reader-organisation` and `--interface-language`, which is how this host supplies every other
-policy it has. A host that supplies nothing gets both categories reported unanswered and every
-layer where the document's own configuration put it, which is what this program did before the
-question could be answered at all. ADR 1106.
+#### Shapes changed and fields added
 
-**And the one-thousand-one-hundred-and-forty-seventh changed one `Command`'s shape and added one
-`Command` and one `Event`, which is the fifth use of the shape mechanism and the first message pair
-in forty rounds.** `Command::Restrict` carries a `RestrictionPolicy` — one `RestrictionLevel` per
-`pdf_model::restriction::Operation` — because §7.6.4.2's Table 22 states eight positions with eight
-different subjects, and a reader who wants to be asked before text leaves the program has said
-nothing whatever about whether they want to be asked before each keystroke into a form field. The
-message pair is the operation that had no message: `Command::Copy` and `Event::Copied`, for Table
-22's bit 5. **A query could not carry it**, and that is this section's test applied twice —
-`Query::Selection` is what a drag asks sixty times a second in order to draw a highlight, so
-refusing it would refuse the highlight; and a query raises no events, so nothing can wait on one
-and the *ask* level cannot exist over a readback at all. `Event::Copied` carries **both** of
-§14.8.2.5's orders rather than one, because `viewer_host::copied` is where the choice between them
-is already made once for three windows and a C caller. **Five consumers failed to compile**:
-`viewer-confined`'s wire (command kind 31 for the copy, six level bytes where the restriction used
-to spell one, event kind 20), and all three windows, each of which now sends the gesture instead of
-asking twice. `QUORRA_EVENT_KIND_COUNT` moved **20 → 21**, and the C ABI gained three entry points
-and seven constants — `quorra_restrict_operation`, `quorra_copy`, `quorra_event_copied`,
-`QUORRA_EVENT_COPIED` and the six `QUORRA_RESTRICTED_*`. `QUORRA_ABI_VERSION` did not move, for the
-standing reason: no struct crosses by value. **Every host gained a word**, `--restrictions=`, which
-is the first piece of `doc/todo/38`'s interface and is a command line rather than the menu that
-entry still wants. ADR 1144.
+- `Command::Zoom` gained the viewport point to hold still (ADR 0166). `Answer::Field` gained
+  §14.9.3's second name (ADR 0167) and then `pdf_model::view::ShownValue`, Table 231 bit 14's
+  `obscured` beside the characters, which `Answer::Fields` shares (ADR 0247).
+- `Edit::SetField`'s value is `pdf_model::view::Entered`, because Table 233 bit 22 lets a list box
+  hold several items (ADR 0248).
+- `Event::Extracted` carries the rest of the URI's fragment, for §O.2.1's "[a]ny remaining
+  parameters after this parameter apply to the selected embedded file" (ADR 0431).
+- `Answer::Selected`'s `text` is a `Cow`: borrowed inside a page, assembled across a page boundary,
+  because §9.4.1's text position "shall not persist from one text object to the next" and so there
+  is no document-wide offset (ADRs 0257, 0444).
+- `Answer::Reports`, `Answer::Readback` and `Answer::Accessibility` carry one entry per page Table
+  29's arrangement shows (`PageReports`, `PageReadback`, `PageStructure`). Two pages' structure
+  trees share no numbering (§14.7.5.2, §14.7.5.4) and §14.8.2.5 states no order between them, so
+  `viewer-accessibility` gives each page one `Role::Document` node (ADR 0445).
+- `Command::Restrict` carries a `RestrictionScope` — the window's `RestrictionPolicy`, or a
+  `RestrictionOverride` the focused document departs from it in, kept in `open::Open` and met in
+  `RestrictionPolicy::under` (ADR 1145).
+- `Purpose` gained `RemoteDocument`, `NamedPage` and `ThreadDocument` on the `Event::NeedsFile` and
+  `Command::Supply` that existed (ADRs 1228, 1239), and `Event::NeedsFile` gained `beside` (below).
+- `Located::At`'s `display` is `pdf_model::geospatial::Displayed`, a projected `/DCS` as an easting
+  and a northing (ADR 1678).
+- `Rendered::Listed` — *the host took this request's own list* — is said about a page, where
+  `Presented` is said about the viewer (ADR 0640, and the bullet below).
+- `RenderRequest::ink` tells a host keeping pixels a re-interpretation of unchanged ink from changed
+  ink, which the `Arc<DisplayList>`'s address cannot; `Open::stale` decides it (ADR 0457).
+- `PageStructure` carries `widgets`, the widget annotations no element reaches (ADRs 1369, 1381),
+  and `tagging`, which of `viewer_core::Tagging`'s four answers an empty or full list is (ADR 1393).
+  An `AccessibilityNode` for a text field or a combo box carries its §12.7.4.3 value (ADR 1489),
+  `value_lines` (ADR 1501) and `standard`, its type's meaning in the namespace §14.8.6.2's walk ended
+  in (ADR 2028).
+- `PopupWindow::replies` carries §12.5.6.2's threaded comments, which Table 172 makes a `shall`; what
+  makes an annotation a reply is `/IRT` and `/RT`, which no host reads (ADRs 1090, 1727).
+  `PopupWindow::rich` and `Comment::rich` are Table 172's `/RC` read into runs, so no host parses
+  the markup (ADRs 1642, 1654, 1655); `PopupWindow::note` names the note `Edit::SetNoteText`
+  retypes (ADR 1726).
 
-**And the one-thousand-one-hundred-and-seventy-seventh added one `Query`, one `Answer` and no
-`Command`** — the smallest shape a clause has needed since the vocabulary was frozen, and the
-reason it is that small is §12.9's own position. `Query::Measure(&[[f32; 2]])` takes the path a
-person traced in viewport pixels and `Answer::Measured` hands back
-`pdf_model::measurement::Traced`: the viewport's name, the drawing's scale ratio, and the strings
-§12.9.2's algorithm produced from Table 267's `/D`, `/A`, `/T` and `/S`, with what §12.10 states
-about a geospatial viewport beside them. **This section's test is met twice over.** The points are
-in the viewport's device pixels and §12.9's `/VP` is in default user space, so the mapping between
-them is the arithmetic ADR 0118 keeps in one place; and what a unit of that space is *worth* is
-Table 267's conversions and five formatting steps, which are a reading of the document. A host
-holds neither half. **What is deliberately not here is a `Command`**: §12.9 states no state at all
-for a viewer to be in, so the mode is chrome and the points are the host's — a rubber band is drawn
-where a selection highlight is drawn — and `viewer_core` keeps nothing between two presses. That
-half is `viewer_host::Measuring`, beside `Presenting` and `Clock` and for their reason: when a
-press is a point, and what the answer says, are one decision, and a `GtkLabel` against a
-`QStatusBar` against a title bar is what a toolkit is. Two consumers failed to compile —
-`viewer-confined`'s wire (query kind 34, answer kind 35, the first `Reply` variant boxed for its
-size) and `viewer-ffi`'s `every_query_reaches_the_abi` — `QUORRA_EVENT_KIND_COUNT` stayed where it
-is because none of this is an event, and the C ABI gained one entry point and seven constants:
-`quorra_measure`, with a `part` selector rather than seven symbols, because six quantities and a
-sentence over one path would be six chances to be handed a string from a different reading of it.
-`QUORRA_ABI_VERSION` did not move, for the standing reason. **Every window gained the gesture**:
-`m` puts it into the mode, a press puts a point down, and the answer goes where that window already
-puts a sentence. ADR 1191. `Located::At`'s `display` is `pdf_model::geospatial::Displayed`, so a
-projected `/DCS` reaches every window as an easting and a northing rather than as a refusal; the
-variant changed shape and no message was added (ADR 1678).
+Each of these crosses the confined window's wire, whose greeting moves whenever the wire's shape
+does: it is `PDFVCF18`, the `MAGIC` in `crates/viewer-confined/src/protocol.rs`, and
+`tools/conformance/tests/greetings.rs` holds this sentence to it.
 
-**And the one-thousand-one-hundred-and-ninety-fifth added one `Command`, one `Purpose` value and
-one entry point**, on the pattern `Command::Trust` set. `Command::Separations(bool)` carries
-§10.8.3's answer, which is the reader's and not the document's: the clause conditions the whole
-simulation on what "is important for the colours of the display" and §10.8.1 says the choice is
-"up to the processing software", so no file states it and no renderer may invent it. The value
-joins `Trust`, `References`, `Audience` and `Clock` under their rule — every open document and
-every one opened afterwards. `Purpose::RemoteDocument` is the other half and is not a new message
-at all: §12.6.4.3's remote go-to asks a host for a file exactly as §12.6.4.4's embedded go-to and
-§12.7.6.4's import already do, so the existing `Event::NeedsFile` and `Command::Supply` carry it
-and only the enumeration grew. **Two consumers failed to compile**, `viewer-confined`'s wire
-(command kind 34, one bit; purpose 2 on both sides of `Supply` and `NeedsFile`) and `quorra`'s
-trace line; the C ABI gained `quorra_separations` and `QUORRA_PURPOSE_REMOTE_DOCUMENT`, and
-`QUORRA_ABI_VERSION` did not move, for the standing reason. **Every window gained two words and a
-key**: `--separations=on|off`, `--remote-documents=refuse|ask|warn|open`, and shifted `S`.
-ADRs 1227, 1228.
+#### Capabilities that added nothing
 
-**And the one-thousand-two-hundred-and-first added two more `Purpose` values and no message at
-all.** `Purpose::NamedPage` carries §12.7.8's Table 253 `/F` — a named page in a second PDF, which
-Table 249's `/APRef` and Table 252's `/TRef` both reach — and `Purpose::ThreadDocument` carries
-§12.6.4.7's Table 209 `/F`. Both go out on the `Event::NeedsFile` that already existed, so again
-only the enumeration grew: the confined wire's purpose byte took 3 and 4, and the C ABI gained
-`QUORRA_PURPOSE_NAMED_PAGE` and `QUORRA_PURPOSE_THREAD_DOCUMENT` without `QUORRA_ABI_VERSION`
-moving. The new thing is *when* one is raised: `NamedPage` is a second question asked while the
-answer to the first is being applied, which no purpose had done before. All three are decided by
-the `--remote-documents=` a reader already set, and `viewer_host::remote` took a `Purpose` so that
-the question a person is asked names what *this* one would do with the file. ADR 1239.
+Each needed a channel that already existed; the shared decision is in `viewer-host`.
 
-**And the same round gave `viewer-gtk` and `viewer-qt` a file chooser**, which is not a vocabulary
-change either: the chooser fills the control's entry in and the edit is `Edit::ChooseFile` by the
-route a typed path already took. What is new on the boundary is one policy function,
-`viewer_host::policy::may_choose_file`, asked by the window offering the affordance and by
-`form::edit_of` when the path comes back. ADR 1240.
-
-**And the same round gave the key table a Control**, which is not a vocabulary change at all and is
-here because it changes what every window does on a keypress: `viewer_host::keys::meaning` took a
-`shift` and nothing else, so all three hosts discarded Control before asking and Ctrl + P entered
-§12.4.4's presentation while Ctrl + C copied by coincidence. `Modifiers` carries both, each host
-translates its toolkit's modifier state at a seam a test can reach without a display, and
-`ctrl_meaning` is a table of its own holding the four operations this program already performs —
-§7.5.6's save, §14.8.2.5's copy, RFC 0004's print job and the find bar. A Control this program does
-not bind now means **nothing** rather than the unmodified row. ADR 1192.
-
-**The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
-set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
-displaying replies "individually but together in the form of threaded comments" a `shall` on the
-processor, and `pdf_model::popup` now folds each reply's own window into the one it answers. **No
-host could derive it**, which is this section's test: what makes an annotation a reply is `/IRT` and
-`/RT`, entries no host reads, and the fold changes which windows `Query::Popups` answers with at all
-— so a host that was given only the surviving windows would show a reviewed document with a fifth of
-its comments gone. **Two consumers failed to compile**, `viewer-confined`'s wire (the field is
-encoded and decoded with the window it belongs to) and `viewer-ui`'s test fixture; `viewer-gtk`
-places a box per reply and `viewer-qt` takes the same thread flattened by
-`viewer_host::popup::thread`, which is one place deciding the indent for all three.
-`QUORRA_EVENT_KIND_COUNT` stayed 19 because nothing here is an event, and **the C ABI gained three
-entry points** — `quorra_popup_reply_count`, `quorra_popup_reply_object` and
-`quorra_popup_reply_text` — for the standing reason a C caller cannot fail to compile and so has to
-be able to *ask*. `QUORRA_ABI_VERSION` did not move: an entry point added is one an old caller never
-calls, and none of the three takes a struct by value. ADR 1090.
-
-**And Table 172's `/RC` added one field and no message** — `PopupWindow::rich`, and `Comment::rich`
-beside it, the note *read* into paragraphs of runs (ADR 1642), each run carrying its face's search
-path, size, weight, posture, colour, lines, rise, letter spacing and two font scales (ADR 1654). No
-host could derive it without parsing chapter 27 itself. The C ABI gained six entry points and two
-structs a caller's memory receives — `quorra_popup_rich` and its `_paragraph`, `_run`, `_text`,
-`_family` and `_unapplied`, `quorra_rich_paragraph` and `quorra_rich_run` — and hands the runs over
-rather than the XHTML, so that a fourth host shows the reading the three show and never parses the
-document's markup (ADR 1655). `QUORRA_EVENT_KIND_COUNT` and `QUORRA_ABI_VERSION` stayed where they
-are.
-
-**And the one-thousand-two-hundred-and-thirteenth added one `Command` and one entry point**, on the
-pattern `Command::Trust` set, and it is the value that had to exist before any window could hold a
-second document. Two tables say a destination in another file may be opened in a window of its own
-— §12.6.4.3's Table 203 and §12.6.4.4's Table 204 — and both defer the absent case to a preference
-this crate does not hold: whether this program *has* a second place to put a document is a fact
-about the window, and the name it would be called by can only come from a host, because
-`DocumentId` is the host's word. So `Command::Beside(Option<DocumentId>)` carries a name held in
-reserve, used only where an action states the entry and consumed the moment one is opened under it.
-**It is deliberately not a field on `Command::Supply`**, which is the shape this section prefers:
-§12.6.4.4's target is inside the document already open, so no file is ever asked for there and a
-design carried on a supply would answer the weaker of the two entries — Table 203 states the `true`
-case with nothing and Table 204 states it with a `should`. **Two consumers failed to compile**,
-`viewer-confined`'s wire (command kind 35) and `quorra`'s trace line;
-`QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI gained
-one entry point and no constants — `quorra_beside`. `QUORRA_ABI_VERSION` did not move, for the
-standing reason. **Every window gained a strip of tabs and two keys**: a `gtk4::Notebook`, a
-`QTabWidget` and a strip `viewer-ui` draws for itself, with Ctrl + Tab and Ctrl + W, and
-`viewer_host::Documents` as the bookkeeping the three share. ADRs 1263, 1264.
+- §12.4.4's full-screen window: `Command::Present`, `Query::Opening` and `Query::Preferences`
+  (Table 147 whole, `/NonFullScreenPageMode` among it), decided in `viewer_host::Presenting` (ADR
+  0470); Table 147's window entries by `Presenting::place`, `fitted` and `centred` (ADR 1429).
+- §12.4.4.1's clock in every window: `Command::Tick` (ADR 0135) and `Event::Transition` (ADR 0230),
+  driven by `viewer_host::Clock` (ADR 0473).
+- A click on §12.7.5.2's check box or radio button: `Query::FieldAt`, `Query::Fields` and
+  `Edit::SetField`, decided in `viewer_host::form::Clicked` (ADR 0630).
+- Drawing off the toolkit's thread, in `viewer_host::drawing`: `Viewer::rendered` drops a
+  `Command::RenderReady` whose token is not the one outstanding, so a draw whose token the viewer no
+  longer holds cannot change a pixel — which is when a host may raise `pdf_render::Interrupt` (ADR
+  0668).
+- The loading bar: `pdf_model::progress::Progress`, read by the window's thread beside the core, and
+  `viewer_host::Loading`, which waits for the page no longer than `drawing::WARN` (ADR 1811).
+- Table 29's arrangement in the tier-2 host: `Query::PageGeometry` answers `Answer::None` for a page
+  the arrangement does not show (ADR 0442).
+- A file chooser: `Edit::ChooseFile`, asked of `viewer_host::policy::may_choose_file` (ADR 1240).
+- Control in the key table: `viewer_host::keys::Modifiers` and `ctrl_meaning` (ADR 1192).
+- §12.9's rubber band, drawn by each window over `Query::Measure`'s points (ADR 1264).
+- AT-SPI's actions, which resolve to places `Command::Scroll` and `Command::Pointer` already take
+  (ADR 0425).
+- Where the viewport sits in the window: `Reading::at` in `quorra-gtk`, a fact about the toolkit's
+  layout (ADR 1516).
+- `viewer_host::Documents`, the strip of tabs every window has (ADRs 1263, 1264).
 
 **A password may be asked about a file a host supplied, and the answer goes to that file.** Table
-203's, Table 209's and Table 253's `/F` each name a second PDF, and a file that wants §7.6.4.1's
-password raises `Event::PasswordRequired` under the name the core would use for it: the name
-`Command::Beside` held out, for a `/NewWindow true` jump and for §12.7.8's named page; the document
-the link was in, for a jump that replaces it. **The answer is `Command::Open` under that name with
-that file's bytes** — the ones just supplied, never the document on show — and a named page, which
-opens under no name, is drawn into the document that asked and answered with `Event::Closed` for the
-name it was asked under. `viewer_host::Arrivals` is that bookkeeping for the three windows (`offer`,
-`locked`, `settle`, and `supplied` once the supply's events have been seen), so a replacement made
-with a prompt and one made without relabel the tab by one route. **`Event::NeedsFile` took one
-field, `beside`** — Table 203's and Table 204's `/NewWindow true` — because a host asking a person
-whether to open the file owes them where it would open. `viewer-confined`'s wire carries it as one
-bit after the name, and the C ABI as `quorra_event_needs_file_beside`, a getter in
-`quorra_event_dirty`'s shape; `quorra.h` states the retry rule beside `quorra_supply`. **A prompt a
-person cancels is the file declined**: `Command::Supply` with no bytes under the purpose it was
-supplied for ends the core's hold, says why, lets a named page's references go — each widget keeps
-its own `/AP` — and gives back with `Event::Closed` a name `Command::Beside` held out.
-`viewer_host::Arrivals::cancel` and `declined` are that for the three windows, sent where the next
-arrival starts rather than from inside the events that raised the prompt. ADRs 1332, 1335, 1345.
-
-**And it added nothing at all for §12.9's rubber band**, which is worth the sentence because ADR
-1191 wrote down that it was owed. The points have been the host's since that round and
-`Query::Measure` answers what they mean, so what three windows were missing was three pictures:
-the traced path drawn over the page in each window's own colour, with every press marked. No
-message, no shared code, and the colour is each platform's answer to a clause that states none.
-ADR 1264.
-
-**And `Command::Archive` and `Event::Archiving` are print's shape for a verb this crate cannot run.**
-`Command::Archive(Archiving { target, profile })` asks Table 22's bit 11 — assembling the document
-into a new one, the operation `quorra-transform archive` asks — at the reader's level, and the grant
-carries the `FileBytes` the document was opened from, because `pdf-transform` depends on this crate
-and so the converter is a host's to run. `viewer_host::archiving` runs it for every host: the
-profiles are `pdf_transform::profiles`'s compiled-in list, a profile's tools go through the one
-shared executor, the run is on a thread of its own, and the file lands beside the document. The
-confined window's wire refuses both as `Uncarried`; the C ABI gained seven entry points and
-`QUORRA_EVENT_ARCHIVING`; every window gained `--archive <target>:<profile>` and Shift+A. ADR 1954.
-Where nothing was chosen, Shift+A puts up `viewer_host::archiving::Choosing` — the six targets and
-the shipped profiles, each with its own `[profile] sentence` — as `quorra`'s card, a GTK dialogue
-or a Qt one, and the choice is kept for the window's life (ADR 1966); nothing crosses the boundary
-for it, because which target a window holds is the window's. A document opened with §7.6.4.1's
-password converts under it: the core still keeps none, and `viewer_host::password::Kept` lends the
-host's own copy to the conversion (ADR 1967).
-
-Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
-crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
-are the argument.
-
-This was `doc/HANDOVER.md`'s section 0 until the three-hundred-and-ninety-fifth session moved it
-here whole: it is the specification of an interface, which is read when the interface is being
-used and not every round.
-
-**Everything a viewer still owes was blocked on one missing interface.** Since the
-hundred-and-thirty-first session that interface is code — `crates/viewer-core`, ADRs 0116 to
-0121 — with `viewer-ui` on it as a tier-2 host and `tests/headless.rs` driving it with no display
-at all. This section is now half description and half instruction: read the first half to know
-what is there, the second to know what is next.
-
-#### Why it was the headline
-
-Five owed items were the same item, and **four of them are done**: a password prompt, which this
-file called "the missing piece, not the clause" for twenty sessions and which session 132 landed
-in eleven lines of host code; an editable field (sessions 135 and 136); the layer panel, whose
-data `Query::Layers` has answered with since 131 and which session 167 drew; and presentation
-mode's clock (`Command::Tick`, 150). **And the fifth, AccessKit, landed in the
-three-hundred-and-seventy-sixth** — `crates/viewer-accessibility`, verified by reading the tree
-back off a real AT-SPI bus (ADR 0214). All five are done; what §0 still owes is elsewhere.
-
+203's, Table 209's and Table 253's `/F` each name a second PDF, and one that wants §7.6.4.1's
+password raises `Event::PasswordRequired` under the name the core would use for it — the name
+`Command::Beside` held out, or the document the link was in. The answer is `Command::Open` under
+that name with that file's bytes; a named page, which opens under no name, is drawn into the
+document that asked and answered with `Event::Closed`. `Event::NeedsFile`'s `beside` tells a host
+asking a person where the file would open. A prompt cancelled is the file declined: `Command::Supply`
+with no bytes ends the core's hold and gives back a held name with `Event::Closed`.
+`viewer_host::Arrivals` is that bookkeeping for the windows (ADRs 1332, 1335, 1345).
 #### The goal, stated by the owner
 
 The viewer is to be **embeddable in native frameworks** — Win32/WinUI, AppKit, KDE/Qt, GTK — not
 built on a cross-platform toolkit. Later it must support **text selection** and **annotation
-editing**, possibly form-field text editing. `CLAUDE.md`'s exclusion list was amended in the
-hundred-and-thirtieth session to permit the writing that implies.
+editing**, possibly form-field text editing. `CLAUDE.md`'s exclusion list permits the writing that
+implies.
 
 #### What exists
 
-Seven consumers: `viewer-ui`'s `quorra.rs` (winit + vello, tier 2),
-`viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
-(a process with no filesystem, tier 1), **`viewer-gtk`'s `quorra-gtk` — a real GTK4
-application, tier 1** (ADR 0244) and **`viewer-qt`'s `quorra-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — `tools/state.sh hosts` counts its entry points, a
-hand-written header and a C program that drives it, tier 1** (ADR 0247) — and, since the
-seven-hundred-and-seventy-fifth, **`viewer-ui`'s `quorra-confined`**, the window on the far
-side of `pdf-view-worker`'s pipe: it sends `Command`s and reads `Event`s like any host and takes
-its pixels from `viewer-confined`'s `Reply`, so it consumes the vocabulary without ever holding a
-`Viewer` (ADR 0713). The first two could not
-prove the interface alone — one is a toolkit, the other is not a program — and the last three are
-what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
-`GtkListView` and a `QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over
-§12.7.5.3's text field, a `GtkCheckButton` and a `Qt::CheckStateRole` over §12.7.5.2.3's check box,
-and **three whole hosts that between them needed no new message**.
-The three windows are held to one list of what a reader does by `tools/drive-windows.sh`, which
-drives each under `Xvfb` and photographs every step; the defects it found when it was written were
-all a host's own — a toolkit's focus taking the keys, a wash covering its words — or the writer's,
-never a missing message (ADR 1453). It drives `quorra-confined` too, on a page its worker sends as
-marks and its device refuses, so the fourth host's refusal is read off its title (ADR 1478).
+Seven consumers: `viewer-ui`'s `quorra` (winit, tier 2), `viewer-core/tests/headless.rs` (no
+display at all, tier 1), `viewer-confined`'s `pdf-view-worker` (a process with no filesystem, tier
+1), **`viewer-gtk`'s `quorra-gtk`**, a GTK4 application, tier 1 (ADR 0244), **`viewer-qt`'s
+`quorra-qt`**, Qt 6 Widgets through a C++ bridge, tier 1 (ADR 0246), **`viewer-ffi`'s C ABI** with
+a hand-written header and two C programs that drive it, tier 1 (ADR 0247), and **`viewer-ui`'s
+`quorra-confined`**, the window on the far side of `pdf-view-worker`'s pipe, which sends `Command`s,
+reads `Event`s and takes its pixels from `viewer-confined`'s `Reply` without ever holding a `Viewer`
+(ADR 0713). Over the C ABI sits a .NET layer, `hosts/windows/Quorra.Interop`, held to the header by
+a test (ADR 2054). The toolkit hosts are what `doc/todo/30` calls the proof that the answers are
+enough for *somebody else's widgets*: a `GtkListView` and a `QTreeView` over §12.3.3's outline, a
+`GtkEntry` and a `QLineEdit` over §12.7.5.3's text field, a `GtkCheckButton` and a
+`Qt::CheckStateRole` over §12.7.5.2.3's check box. The windows are held to one list of what a
+reader does by `tools/drive-windows.sh`, which drives each under `Xvfb` and photographs every step
+(ADRs 1453, 1478).
 
-**What the second host cost, and where.** Not the vocabulary: it cost one word in a crate root.
-`#[cxx::bridge]` expands to `unsafe` and a `forbid` cannot be lifted, so `viewer-qt` holds
-`#![deny(unsafe_code)]` with one exemption on `mod bridge` and **one hand-written `unsafe` token**
-— the `unsafe extern "C++"` header, which is `cxx` asking the author to assert that the C++
-declared there exists and is safe to call. `cpp/host.h` declares one function and names no Qt type,
-and `tests/unsafe_position.rs` asserts the file, the token, and — since the
-four-hundred-and-eleventh — that **exactly two** crates in the tree lift the denial.
-`doc/todo/30`'s "`viewer-ffi` is the only crate permitted `unsafe`" was a rule about promises a
-reviewer has to check, and two promises in two places with a test on each is what keeps it (ADRs
-0246, 0247).
-
-**What the third host cost.** Not the vocabulary either, and not a word in a crate root: it cost
-the three amendments below and nothing else. `viewer-ffi/src/abi.rs` holds one lint lift, 112
-`#[unsafe(no_mangle)]` attributes and 104 signatures, and **no `unsafe` block anywhere in the
-crate**; its own test asserts that and that every crate touching PDF bytes still *forbids* the
-permission (ADR 0247).
+**What the bridges cost.** `#[cxx::bridge]` expands to `unsafe` and a `forbid` cannot be lifted, so
+`viewer-qt` holds `#![deny(unsafe_code)]` with one exemption on `mod bridge` and **one hand-written
+`unsafe` token** — the `unsafe extern "C++"` header, `cxx` asking the author to assert that the C++
+declared there exists and is safe to call. `cpp/host.h` declares one function and names no Qt type.
+`viewer-ffi` denies `unsafe_code` and lifts it once, on `mod abi`, with **no `unsafe` block
+anywhere in the crate**. Each
+crate's `tests/unsafe_position.rs` asserts its own shape, and `viewer-qt`'s also names every crate
+in the tree that lifts the denial — the two C ABIs, this bridge and the three workers' close (ADRs
+0246, 0247, 1945) — while `viewer-ffi`'s asserts that every crate touching PDF bytes still
+*forbids* it.
 
 ```
 host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)  ──Event──▶  host
@@ -600,399 +216,195 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
 - `Viewer::handle(&mut self, Command) -> impl Iterator<Item = Event>`, and
   `Viewer::query(&self, Query) -> Answer` beside it. **Selection cannot wait for a render round
   trip**, which is why the second channel is not a command.
-- **And one method that is neither, since the four-hundred-and-twentieth**:
-  `Viewer::readback_cache(DocumentId) -> Option<ReadbackCache>`, which says how much of this
-  document's readback the search cache is holding, against what budget, with hits, misses and
-  evictions. It is an *instrument* rather than a message, and that is the whole reason it is not a
-  `Query`: a `Query` is a question a host asks in order to **draw** something, and six consumers
-  match that enum exhaustively while `viewer-confined` puts every variant on a wire — a cost worth
-  paying for a panel and not for a number no interface displays. It cost no consumer a line.
-  `quorra --trace=search` is what prints it. The rule this establishes for the next such
-  number: **if a host would draw it, it is a `Query`; if a person would read it, it is a method**
-  (ADR 0256).
-- `Command`: `Open { id, bytes, password, fragment }` — the password a `viewer_core::Secret` since
-  the six-hundred-and-ninety-fifth session, because this enum derives `Debug` and two hosts trace a
-  command by printing one (ADR 0545), and the bytes a `pdf_syntax::FileBytes` since the
-  eight-hundred-and-eighty-first, whole in memory or open on disk and read where the file's offsets
-  point (ADR 0809) — and across the confinement a file on disk crosses as its open descriptor beside
-  the frame, so the confined host holds no byte of it either (ADR 0812) — `Close`, `Focus`, `Resize { width, height, scale }`,
-  `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
-  `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
-  §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
-  **`View(Viewing)`** — where the reader is looking, said absolutely, and the only command whose
-  value a host does not compose but echoes: `Query::View` answers with one and this puts it back,
-  which is what a confined host does after starting another worker (ADR 0737) —
-  `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
-  bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
-  budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
-  `Supply { purpose, bytes }`, **`Respond { document, answers, source, format, bytes }`** —
-  §12.7.8's form data a server answered with, a submission's or a fetched import's (`Answered`), and
-  named by document rather than applied to the one in front because it arrives when the server
-  answers; the network is a host's and nothing of it crosses (ADRs 1291, 1527) —
-  **`Restrict(RestrictionLevel)`**, **`Answer { document, proceed }`** —
-  the second half of `RestrictionLevel::Ask`, and the only command whose whole content is one
-  bit only a person can supply (ADR 0814) — **`Present(PresentationMode)`**,
-  **`Layout(PageLayout)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
-  **`Layout` is the fourth policy value and the six-hundred-and-sixth session's**, on Table 29's
-  `/PageLayout`. What only this crate can do is *arrange* the pages — a host holds no page extents,
-  no display lists and none of ADR 0118's arithmetic — and what only a host knows is which of the six
-  the person reading has chosen, because the clause states the layout a document *opens* in and
-  nothing about what happens afterwards. It differs from the other three in one respect and the
-  difference is the clause's: those are facts about the window and reach every open document, and
-  this is a way of looking at one file. ADR 0441.
-  **`Present` is the third policy value and the four-hundred-and-eighty-first session's**, on
-  §12.4.4.2's NOTE 3: that clause conditions a *state machine* — the current navigation node it
-  opens by requiring — on being in presentation mode, and whether a window is showing a slide show
-  is a fact no state machine over a file can see. It amends ADR 0135's "there is no presentation
-  state in this crate", which deduced the mode from `Tick` and therefore answered *no* for exactly
-  the case the clause is about: a person stepping through a slide show by hand drives no clock.
-  Two states, `Off` (the default) and `On`; the forward and backward *requests* are the `GoTo`
-  this vocabulary already had, because "the user requests to navigate forward (such as an arrow key
-  press)" is what that message already means. ADR 0316.
-  **`Restrict` is the one policy value in the crate**, and rule 2 is the whole reason it exists:
-  how much of what a document asserts over its reader this program obeys is the *reader's*,
-  never the file's and never a deduction from it. Two levels, `On` (the default) and `Off`; the
-  project owner's other two — ask and warn — are a question, and a question needs a host that
-  can answer it (ADR 0212). **`Activate` is what a panel row sends** — the object, not a
-  payload, so the *document* decides what activating it means (ADR 0144). **`Open`'s `fragment` is
-  Annex O's**, added in the three-hundred-and-sixty-ninth: the text after `#` in the URI the bytes
-  came from, undecoded, because splitting a URI is the host's and percent-decoding belongs to
-  whoever knows which component it is decoding (ADR 0209).
-- `Event`: `Opened`, `OpenFailed`, **`PasswordRequired`**, `Closed`, `PageChanged`,
-  `NeedsRender(RenderRequest)`, `Damage(Rect)`, `OpenUri`, `NeedsFile`, `Transition`, `Dirty`,
-  `Saved { bytes }`, **`Extracted { name, bytes, fragment }`** — a variant that changed shape
-  rather than becoming a second message, in the five-hundred-and-ninety-sixth: §O.2.1's "[a]ny
-  remaining parameters after this parameter apply to the selected embedded file" needs the rest of
-  the URI's fragment to travel with the file, and a host *has* the fragment but not §O.2's grammar,
-  so splitting it here and carrying it there is one channel rather than six re-derivations. The two
-  consumers that construct the event failed to compile, `QUORRA_EVENT_KIND_COUNT` did not move, and a
-  host that opens the bytes hands the field straight back as `Command::Open`'s (ADR 0431) —
-  **`Searched { document, found, remaining, wrapped }`** — one step of a document-wide search, and
-  the only event a host has to *pump*: `remaining` above zero means send `Find::Continue` again,
-  which is the same division `NeedsRender` makes and forced by the same two rules (ADR 0250) —
-  **`Refused { document, operation, notes }`** — an operation this reader declined *on the
-  document's instructions*, and deliberately not `Reported`: that one says what the **document**
-  could not do, and this says what the reader's own policy did. It carries the operation so that
-  it can become a question (ADR 0212) — and since the eight-hundred-and-eighty-fifth it has:
-  **`Asking { document, operation, notes }`** is the same list under `RestrictionLevel::Ask`, held
-  until `Command::Answer`, and **`Warned { document, operation, notes }`** the same list under
-  `Warn`, after the edit — so `Refused` is now the answer of exactly one level —
-  **`AttachmentsChanged { document }`**, §7.11.4's list moving under a host that cannot work out
-  for itself whether its edit was performed (ADR 0814) —
-  `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
-  says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
-- `Query` → `Answer`: `PageCount`, `CurrentPage`, **`View`** — the page, the magnification and the
-  scroll as one value, because the commands that make them are relative and clamped and no host can
-  invert them (ADR 0737) — `PageGeometry`, `LinkAt`, `FieldAt`,
-  **`Fields`** — §12.7's whole form on the page being shown, as controls a host builds itself
-  (ADR 0235) —
-  **`Caret { at, offset }`** (§12.7.4.3's layout, ADR 0211), **`Offset { at, point }`** — that
-  question's inverse — and **`FieldSelection { at, from, to }`**, the shapes over a range of a
-  field's value (ADR 0225),
-  **`FreeTextAt { at }`** — §12.5.6.6's annotation at a point and its `/Contents`, which is how a
-  host aims a keyboard at one (ADR 0238) —
-  `Selection` — **whose answer's text is a `Cow` since the six-hundred-and-ninth**, borrowed for a
-  selection inside one page and assembled for one that crosses a boundary, the pages joined by a
-  newline that no clause states and that is therefore a documented choice —
-  **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring),
-  **`Highlight`** (Annex O's rectangle, ADR 0357), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
-  **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
-  `Preferences`, `Frame`, `Reports`. **`Frame` answers with a *list* since the
-  six-hundred-and-sixth, and `Reports`, `Readback` and `AccessibilityTree` since the
-  six-hundred-and-tenth**, one entry per page Table 29's arrangement is showing, and `PageGeometry`
-  answers for every one of them rather than for the page showing — that question needed no change at
-  all, because its own documentation already said "a page that is not the one showing has no place on
-  the screen", and what moved is which pages those are. **`Selection` answers in device pixels
-  and produces no events**: a drag emits `Damage` and never `NeedsRender`, which is what keeps
-  chrome off the rendering path.
-- **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
-  a catch-all arm is where a message added later goes to be ignored in silence. A new `Event`
-  should fail to compile in every consumer. **What the rule binds is a *vocabulary*, and
-  `viewer_confined::ConfinedError` is the one type beside it that is `#[non_exhaustive]` on
-  purpose** — a line ADR 0734 recorded as a tension and ADR 0737 drew. A message's population is
-  this project's own and every member of it is something a host has to decide about; that error's
-  population is the *kernel's*, and what a host decides about one of them is not which it is but
-  whether another worker is worth starting — which is `viewer_confined::Resume`, two arms, closed,
-  matched exhaustively, with the wildcard-free match over every error variant kept inside the crate
-  that declares them. **The rule reaches types this crate does not declare**,
-  which the two native hosts found and the third settled: `pdf_render::RasterFormat` crosses inside
-  `Rendered::Raster` and `Answer::Frame`, was `#[non_exhaustive]`, and cost four consumers a
-  catch-all apiece — so it is not, since ADR 0247. **And a C consumer cannot fail to compile at
-  all**, which is what `viewer-ffi` exists to answer rather than to pretend away: every event kind
-  has a name and a one-sentence description whatever the caller knows about it, and the *count* of
-  kinds is what a C caller checks against its header at startup.
-- **This crate interprets; the host rasterises.** `NeedsRender` carries an `Arc<DisplayList>` and
-  a `TargetSpec`, so a zoom or a scroll re-rasterises *without re-interpreting* — asserted by
-  pointer equality of the list in `zooming_rasterises_again_without_interpreting_again`.
-- **A stale token is dropped**, so a page turned mid-render cannot be overwritten by the frame
-  the previous page produced.
+- **And one method that is neither**: `Viewer::readback_cache(DocumentId) -> Option<ReadbackCache>`,
+  how much of a document's readback the search cache holds, against what budget, with hits, misses
+  and evictions; `quorra --trace=search` prints it. It is an *instrument*: **if a host would draw
+  it, it is a `Query`; if a person would read it, it is a method** (ADR 0256).
+- **The variants whose shape needs a reason beyond the lists above.** `Command::Open { id, bytes,
+  password, fragment }` takes the password as a `viewer_core::Secret`, because the enum derives
+  `Debug` and hosts trace a command by printing one (ADR 0545); the bytes as a
+  `pdf_syntax::FileBytes`, whole in memory or open on disk and read where the file's offsets point
+  (ADR 0809), a file on disk crossing the confinement as its open descriptor (ADR 0812); and the
+  fragment as Annex O's text after `#`, undecoded, because splitting a URI is the host's and
+  percent-decoding belongs to whoever knows which component it decodes (ADR 0209).
+  **`Activate(ObjectId)` is what a panel row sends** — the object, not a payload, so the
+  *document* decides what activating it means (ADR 0144). `Focused(FocusMove)` is §12.5.1's tab key.
+  `Edit` is the eight edits `command.rs` lists. **`Answer { document, proceed }`** is the only
+  command whose whole content is one bit only a person can supply (ADR 0814). The policy values a
+  host supplies — `Restrict`, `Present`, `Delegate`, `Trust`, `References`, `Audience`, `Clock`
+  (Table 166's entry, ADR 1160) and `Separations` — are facts about the window or the reader's
+  machine and reach every open document and every one opened after; `Layout` is a way of looking at
+  one file (ADR 0441), a `Restrict` override is one document's (ADR 1145), and `Beside`'s name is
+  consumed by the one document opened under it (ADR 1263).
+- **`Event::Refused { document, operation, notes }`** is an operation this reader declined *on the
+  document's instructions*, deliberately not `Reported`: that one says what the **document** could
+  not do, this what the reader's own policy did, and it carries the operation so that it can become
+  a question (ADR 0212) — `Asking` and `Warned` are the same list under `Ask` and `Warn`, so
+  `Refused` is the answer of exactly one level. `Reported { document, page: Option<usize>, notes }`
+  with page `None` is what the *document* says about itself (§12.11, §12.8, §7.11.4).
+  `Searched` is the only event a host has to *pump*: `remaining` above zero means send
+  `Find::Continue` again, the division `NeedsRender` makes (ADR 0250).
+- **`Query::Selection` answers in device pixels and produces no events**: a drag emits `Damage` and
+  never `NeedsRender`, which keeps chrome off the rendering path. A selection crossing pages is
+  joined by a newline no clause states, a documented choice. `Query::Frame`, `Reports`, `Readback`
+  and `AccessibilityTree` answer one entry per page the arrangement shows, and `PageGeometry`
+  answers for each of them, because its documentation already said that a page the arrangement
+  does not show has no place on the screen.
+- **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and a
+  catch-all arm is where a message added later is ignored in silence. The rule binds a
+  *vocabulary*, so `viewer_confined::ConfinedError` is `#[non_exhaustive]` on purpose: its
+  population is the kernel's, and what a host decides about one is whether another worker is worth
+  starting — `viewer_confined::Resume`, two arms, closed (ADRs 0734, 0737). **The rule reaches types
+  this crate does not declare**: `pdf_render::RasterFormat` crosses inside `Rendered::Raster` and
+  `Answer::Frame`, so it is not `#[non_exhaustive]` either (ADR 0247).
+- **This crate interprets; the host rasterises.** `NeedsRender` carries an `Arc<DisplayList>` and a
+  `TargetSpec`, so a zoom or a scroll re-rasterises *without re-interpreting* — asserted by pointer
+  equality of the list in `zooming_rasterises_again_without_interpreting_again`.
+- **A stale token is dropped**, so a page turned mid-render cannot be overwritten by the frame the
+  previous page produced.
 - `Rendered::{Raster, Presented, Listed, Failed}` is where tier 1 and tier 2 differ and the only
-  place they do: a host drawing onto its own surface has no raster to hand back and has not failed.
-  **`Listed` is the fourth and it is one page's**, since the seven-hundred-and-fortieth: two of the
-  four say the viewer holds no pixels, and they are not the same statement — `Presented` is
+  place they do. Two say the viewer holds no pixels, and not the same thing: `Presented` is
   remembered for the life of the viewer and takes `MAX_PIXELS` with it, `Listed` is forgotten with
   the page and leaves the budget alone (ADR 0640).
 
-#### What is still owed
+#### Editing, the form, and the chrome
 
-**The writer's two recorded costs are closed** — encryption on the way out (ADR 0129) and
-§12.7.4.3's appearance stream written into the file rather than owed to the next reader (ADR
-0130). **And the `Edit` variant carrying a *new object* rather than a field's value landed in the
-three-hundred-and-twenty-first session** (ADR 0196): `Edit::Markup` marks up what is selected in
-one of §12.5.6.10's four ways, `ViewState::add_markup` builds the annotation, and §7.5.6's update
-writes it and appends the reference to the page's `/Annots`. Two things came with it that are
-worth knowing about — `Page` now carries its own `ObjectId`, because an edit has to be filed
-against a page and the interpreter may not walk the page tree to find out which; and the edit
-*log* records what was done rather than what was asked for, because "mark up what is selected" is
-a fact about the moment the command arrived and undo is a replay. **And a caret since the three-hundred-and-seventy-first** (ADR 0211): `Query::Caret { at, offset }`
-answers with the segment the next character will be drawn against, computed inside §12.7.4.3's own
-layout rather than from the text layer — an empty field has no glyphs, and 147 of the corpus's
-first-page widgets are empty text fields. **And the caret's inverse since
-the three-hundred-and-eighty-eighth** (ADR 0225): `Query::Offset` turns a point into a byte offset
-so a click places the caret where it landed, and `Query::FieldSelection` answers the shapes over a
-range so a drag can select inside a value — a *third* question rather than two carets, because
-§12.7.5.3's Multiline flag lets the layout break a value into lines a host cannot see. Copying,
-cutting and pasting inside a field needed **no** message: the characters are a slice of the value a
-host has already read back and the edit is the `Edit::SetField` a keystroke already sends.
+**Edits are entries in a log beside the immutable document** (rule 1, and the edit log below), and
+§7.5.6's incremental update writes them.
 
-**And §12.5.6.6's free text since the four-hundred-and-first** (ADR 0238), which is the last thing
-[todo 33](todo/33-annotation-editing.md) called missing. `Edit::FreeText { from, to, colour }`
-takes the two corners of a **drag** rather than a selection — that subtype "displays text directly
-on the page" and so has nothing on the page to be over — `Edit::SetFreeText { annotation, text }`
-says what it says, and `Query::FreeTextAt { at }` is how a host learns which annotation the drag
-made. Three things came with it. The caret needed *no* new question: §12.5.6.6 sends its own
-subtype to §12.7.4.3, so `Query::Caret`, `Query::Offset` and `Query::FieldSelection` answer for an
-annotation exactly as they answer for a field and only the box underneath them differs. The
-annotation is named by **object** where a field is named by §12.7.4.2's qualified name, because an
-annotation has no name for anything to address it by. And an annotation the *file* states is
-deliberately not answered by `Query::FreeTextAt` at all: appending an object is the writing
-`CLAUDE.md` permits and replacing the producer's is a decision nobody has made.
+- **`Edit::Markup`** marks up what is selected in one of §12.5.6.10's four ways; `ViewState::add_markup`
+  builds the annotation and the update appends its reference to the page's `/Annots`. `Page`
+  carries its own `ObjectId`, because an edit is filed against a page and the interpreter may not
+  walk the page tree, and the log records what was *done* rather than what was asked for, because
+  undo is a replay (ADR 0196).
+- **A caret**: `Query::Caret { at, offset }` answers with the segment the next character is drawn
+  against, computed inside §12.7.4.3's own layout rather than from the text layer, because an empty
+  field has no glyphs (ADR 0211). `Query::Offset` is its inverse, and `Query::FieldSelection` answers
+  the shapes over a range — a third question rather than two carets, because §12.7.5.3's Multiline
+  flag lets the layout break a value into lines a host cannot see (ADR 0225). Copy, cut and paste
+  inside a field need no message: the characters are a slice of the value a host already read, and
+  the edit is the `Edit::SetField` a keystroke sends.
+- **§12.5.6.6's free text**: `Edit::FreeText { from, to, colour }` takes a drag's two corners, since
+  that subtype "displays text directly on the page" and has nothing to be over; `Edit::SetFreeText`
+  says what it says; `Query::FreeTextAt { at }` names the annotation, by object, because an
+  annotation has no name to address it by. The caret questions answer for it unchanged, because
+  §12.5.6.6 sends its subtype to §12.7.4.3 (ADR 0238). An annotation the *file* states is answered
+  and retyped too, its `/AP` replaced by the update (ADR 0304).
+- **§12.5.6.4's note, retyped in its own window**: `Edit::SetNoteText`, the note named by
+  `PopupWindow::note`, because §12.5.6.14's popup "shall be used for editing the parent's text"
+  (ADRs 1721, 1726).
+- **§7.11.4's file**: `Edit::Attach { bytes, name, description, mime, home }` takes the file whole —
+  rule 2 gives the host the filesystem, so what crosses is bytes and never a path — and `AttachHome`
+  chooses §7.11.4.1's `/EmbeddedFiles` tree or §12.5.6.15's annotation under a viewport point.
+  `Edit::Detach { name }` removes one by the key `Query::Attachments` answers with, and that answer
+  is the **log's** view, which is why `Event::AttachmentsChanged` exists. The name is one namespace
+  across both homes, under §7.9.6's "[t]he keys contained within the various nodes' Names entries
+  shall not overlap"; `operation_of` answers
+  `Operation::Annotate` for a page and `Operation::Modify` for the tree (ADR 0814).
+- **A form**: `Query::Fields` answers every field with a widget on the page shown — §12.7.5's type,
+  the flags of Tables 227, 229, 231 and 233, Table 234's items and selection, Table 232's `/MaxLen`,
+  and the appearance-state name §12.7.5.2.3 makes a check box's value — so a host builds a real
+  `QLineEdit`, combo box and check box rather than taking a form as pixels (ADR 0235). §12.7.5.2.3's
+  "[t]he value of the V key shall also be the value of the AS key" binds the processor that changes
+  `/V`, and is held.
+- **The page drawn without those widgets' appearances**: `Command::Delegate(WidgetAppearances)` is
+  §6.3.2.2's "unless otherwise instructed" as a value only a host can supply. It reaches `interpret`
+  through `ViewState`, and removes exactly the widgets of the fields a host places a control over —
+  `pdf_model::form::Control::is_delegable` and `viewer_host::ControlKind::is_placed` are one set,
+  held together by a test. A push-button, a signature and a field stating no `/FT` keep their
+  appearance, because no control replaced it; Space or Enter at §12.5.1's focus is
+  `viewer_host::pressed`'s (ADRs 0245, 1357). `ViewState::of` is the other value, so every existing
+  caller's display list is unchanged.
 
-**And §12.5.6.4's note, retyped in its own window** (ADR 1726): `Edit::SetNoteText { annotation,
-text }`, and one field, `PopupWindow::note`. §12.5.6.14's popup "shall be used for editing the
-parent's text", and the view state already held a note's retyping (`set_note_text`, ADR 1721); what
-no host had was a way to name the note, because a window is keyed by its popup and a text note is
-one of several things a window's text can be. So the answer says it — the note the window's text is,
-or `None` for any other markup annotation's window, which a host offers no keyboard to — and the edit
-names it back, by object for `SetFreeText`'s reason. A note's caret is the toolkit's in the two
-native windows, which place a text view over the window, and at the note's end in `quorra`, which
-lays the window's lines out itself and asks the core no point for an offset. The confined wire, which
-matches `Edit` whole and spells a `PopupWindow` field by field, failed to compile, the greeting moved, `QUORRA_EVENT_KIND_COUNT` stayed where it was, and the C ABI gained
-`quorra_popup_note` and `quorra_set_note_text`, with four more for a tab stop's leader
-(`quorra_popup_rich_leader`, `_leader_text`, `quorra_leader_cycles`, `quorra_rule_pieces`), which
-crosses now as the toolkits receive it. §12.5.6.2's reply that states no `/Popup` needed no message
-at all: it is a comment in `PopupWindow::replies` like any other (ADR 1727).
+**Ctrl + wheel zooms in every window**, anchored at the pointer: a zoom has to hold a page point
+`Open::origin` knows about and the scroll does not, because a page smaller than the viewport is
+centred (ADR 0166), and each window counts a gesture's travel with `viewer_host::ZoomWheel` (ADR
+1118).
 
-**And §7.11.4's file since the eight-hundred-and-eighty-fifth** (ADR 0814), which is the third
-kind of thing an `Edit` adds: not a value put into something the document holds, and not an
-annotation, but a *file*. `Edit::Attach { bytes, name, description, mime, home }` takes the file
-whole — rule 2 gives the host the filesystem, so what crosses is bytes and never a path — and
-`AttachHome` chooses between §7.11.4.1's two: the document's `/EmbeddedFiles` tree, or §12.5.6.15's
-annotation on the page under a **point** of the viewport, mapped like `Edit::FreeText`'s corners.
-`Edit::Detach { name }` takes an entry out of the tree by the key `Query::Attachments` answered
-with. Four things came with it. `Query::Attachments` now answers the **log's** view rather than the
-file's, so a file attached this sitting is listed before anything is saved and one detached is out
-of it at once — which is why `Event::AttachmentsChanged` had to exist. The name is **one namespace
-across both homes**, under §7.9.6's "[t]he keys shall not overlap", so that a detach by name is
-never ambiguous. Which of Table 22's bits governs the edit depends on the home, so `operation_of`
-answers `Operation::Annotate` for a page and `Operation::Modify` for the tree — the argument is in
-ADR 0814 and on the §7.6.4.2 ledger row. And **no host gained an attach gesture**: a window may
-display the list and nothing more until the owner's mockups of that flow are reviewed.
+**The panels are drawn** in every window, the list of them being `viewer_host::Tab` (ADR 0564).
+`quorra`'s are `viewer_ui::chrome`, a `pdf-render` display list at an identity transform so that
+both backends draw it (ADRs 0142 to 0145); `viewer-ui/tests/panel.rs` rasterises it with
+`render-cpu` and **counts ink**, calibrated by deleting the glyph fill.
 
-**And a *form* since the three-hundred-and-ninety-eighth** (ADR 0235). `Query::Fields` answers with
-every field that has a widget on the page being shown — §12.7.5's type, the flags of Tables 227, 229,
-231 and 233 that decide what kind of control it is, Table 234's items and selection, Table 232's
-`/MaxLen`, and the appearance-state name §12.7.5.2.3 makes a check box's value — so a host builds a
-real `QLineEdit`, a real combo box and a real check box instead of taking a form as pixels off the
-raster. `doc/todo/37` was the audit that found it the last of six chrome populations not to cross —
-absorbed into [30](todo/30-a-native-host.md) once its last decision was taken — and the round that
-closed it found something the audit had not: **a check box could not be checked at all**, because
-§12.7.5.2.3's "[t]he value of the V key shall also be the value of the AS key" binds the processor
-that changes `/V` and this tree read only the sentence after it.
+**Text this program sets for itself has a font.** `LoadedFont::standard` loads one of §9.6.2.2's
+fourteen through `LoadedFont::load` against `Document::empty`, so the encoding is §9.6.5.2's and the
+widths the clause's own on a machine with no fonts installed. A character none of the fourteen
+states is asked of the machine by file (ADR 1382), on `viewer_host::machine_faces`' thread (ADR
+1406), and `quorra-qt` registers the same file with Qt (ADR 1418). **What crosses the boundary is
+the stored text, in logical order**: a toolkit shapes and orders a label itself, and `quorra`'s
+chrome does the same through `pdf_font::shaping::Label` (ADR 1417).
 
-**And the page drawn *without* those widget appearances since the four-hundred-and-ninth** (ADR
-0245), which is the last thing §0 owed here. `Command::Delegate(WidgetAppearances)` is §6.3.2.2's
-"unless otherwise instructed" as a value only a host can supply — the second policy in this
-vocabulary after `Restrict`, and a different kind: that one says how much of what a *document*
-asserts over its reader this program obeys, this says which half of the page the *host* draws. It
-reaches `interpret` through `ViewState`, where rule 1 says a statement about the view belongs and
-where the magnification already sits, and it removes **exactly the widgets of the fields a host places
-a control over** — `pdf_model::form::Control::is_delegable` and `viewer_host::ControlKind::is_placed`
-are one set, held together by a test. A widget §12.7.4.2 leaves "simply a Widget annotation" keeps its
-appearance, because no control replaced it, and so do §12.7.5.2.2's push-button, §12.7.5.5's
-signature and a field stating no `/FT`: a push-button's `/AP` is the producer's whole statement of what
-it looks like, so no window puts a toolkit button over it. Its click is the pointer's, as on every
-page-drawn widget, and Space or Enter at §12.5.1's focus is `viewer_host::pressed`'s (ADR 1357). `ViewState::of` is the other value, so every existing caller's display list is
-unchanged: 974 corpus documents digested before and after, an empty diff.
-
-**The vocabulary is complete**, and ten sessions of building on it added five messages rather than
-changing any — ten now, with `Query::Caret` in the three-hundred-and-seventy-first,
-`Query::Offset` and `Query::FieldSelection` in the three-hundred-and-eighty-eighth,
-`Query::Fields` in the three-hundred-and-ninety-eighth, `Query::FreeTextAt` in the
-four-hundred-and-first and `Query::Highlight` in the five-hundred-and-twenty-second, and it is the
-same rule those six followed: a *question* a host cannot answer for itself, never a second way to
-say something it can — `Command::Activate`, `Command::Extract`, `Event::Extracted`, `Query::Opening`,
-`Query::Properties`, each because a *clause* needed a channel — with one variant **removed** the
-session after it was added, because the fuller reading of §12.3.3 made it a path nobody takes
-(ADR 0144). **Two variants changed shape in the two-hundred-and-fourteenth**, both for the same
-reason and neither adding a message: `Command::Zoom` gained the viewport point to hold still
-(ADR 0166) and `Answer::Field` gained §14.9.3's second name (ADR 0167) — where a host needs two
-things a variant carried one of, the variant changes and every consumer fails to compile, which is
-what nothing being `#[non_exhaustive]` is *for*. **`Edit::SetField` changed shape in the
-four-hundred-and-twelfth**, on that rule and with three hosts behind it: its value is
-`pdf_model::view::Entered` — characters, §12.7.5.4's chosen options as indices into Table 234's
-`/Opt`, or a clear — because Table 233 bit 22 lets a list box hold several items and one string
-could not say which. GTK4, Qt and the headless harness had each asked their control for single
-selection *deliberately*, which is what a message-shaped gap looks like when three people find it
-independently. Six consumers failed to compile; the C ABI did not, because `Command::Edit` is not
-among its 39 entry points at the time, and `QUORRA_EVENT_KIND_COUNT` stayed 15 (ADR 0248). **`Answer::Field` changed shape a second time in
-the four-hundred-and-eleventh**, for that rule's own reason and with a bug behind it: its value is
-`Option<pdf_model::view::ShownValue>` now, the characters beside Table 231 bit 14's `obscured`, and
-what the compiler failure found was `viewer-ui` writing a password field's bullets back as its next
-value on every keystroke. `Answer::Fields` carries the same type, so a host cannot learn the
-exception from one question and miss it in the other (ADR 0247).
-
-**`Command::Report` was added in the one-thousand-and-twenty-seventh**, and it is the one message
-here whose reason is principle 2 rather than a clause needing a channel. What a *document* says
-about itself — §12.11's requirements, §12.8's signatures, §7.11.4's embedded files and five more —
-used to be worded by `Command::Open` and arrive unasked; §12.8's answer digests the bytes
-`/ByteRange` names, which on a signed document is most of the file, and none of it draws a page. So
-the sentences are asked for, on the event that always carried them, and **when a host asks is part
-of the decision**: once the frame it has just presented is on the screen, which
-`viewer_host::report::Due` holds for all four hosts and a sweep in `viewer-host` enforces. ADR 1044.
-
-So what is left of §0 is **hosts**, and each has a file: [30](todo/30-a-native-host.md), whose
-three landed in the four-hundred-and-eighth, the four-hundred-and-tenth and the
-four-hundred-and-eleventh, and whose remainder is *surface* rather than architecture. **The three
-amendments the ABI waited on are taken** (ADR 0247): `RasterFormat` is no longer
-`#[non_exhaustive]`, `Answer::Outline` is owned like its two siblings, and `Answer::Field` carries
-`pdf_model::view::ShownValue` — the characters *and* whether Table 231 bit 14 replaced them — because
-the third of those was not a doc sentence but a bug `viewer-ui` had been shipping: it read a
-password field's value back after every keystroke and sent the bullets as the next value —
-[31](todo/31-accessibility-host.md), whose four named edges — a `TH` cell's axis, a `Form` element's
-control role, AT-SPI's `Text` interface and the actions a client may request — are all four closed
-(ADRs 0300, 0338, 0394, 0425), the last of them without adding a message: an action resolves to a
-*place* and `Command::Scroll` and `Command::Pointer` already take places. What is left there is
-upstream and geometric rather than a vocabulary question — and
-[32](todo/32-presentation-player.md) a presentation player. **Ctrl + wheel zooming landed in the
-two-hundred-and-fourteenth session**, and the interesting half was in the core rather than in the
-host: a zoom anchored at the pointer has to hold a page point that `Open::origin` knows about and
-the scroll does not, because a page smaller than the viewport is *centred* (ADR 0166). **All three
-windows offer it**: `quorra`, `quorra-gtk` (its `EventControllerScroll` reading Control) and
-`quorra-qt` (`wheelEvent` under `Qt::ControlModifier`) each send `Command::Zoom` anchored at the
-pointer, and each counts a gesture's travel with the one accumulator, `viewer_host::ZoomWheel`
-(ADR 1118).
-
-**The panels this file called "the largest single thing this project owes" for thirty sessions
-are drawn.** `viewer_ui::chrome` is a sidebar of four tabs and a modal card, in a `pdf-render`
-display list at an identity transform so that both backends draw it (ADRs 0142 to 0145). None of
-the gates can see any of it, which is why `viewer-ui/tests/panel.rs` rasterises the panel's own
-display list with `render-cpu` and **counts ink** rather than asserting a command count — checked
-by deleting the glyph fill, which fails four of its eight cases.
-
-**The one thing it needed that did not exist is worth naming, because it is not a UI problem.**
-Text this program generates for *itself* had no font: every route into `pdf-font` takes a
-`&Document` beside a `&Dictionary`, and an interface has neither. `LoadedFont::standard` loads one
-of §9.6.2.2's fourteen through the ordinary `LoadedFont::load` against a new `Document::empty`, so
-the encoding is §9.6.5.2's and the widths are the clause's own — and an interface set in Helvetica
-is set in the same Helvetica on a machine with no fonts installed. A character none of the fourteen
-states is asked of the machine by file (ADR 1382), on `viewer_host::machine_faces`' thread rather
-than the one that draws (ADR 1406), and `quorra-qt` registers the same file with Qt for its tabs and
-its panels (ADR 1418). **What crosses the boundary is the stored text, in logical order**: a toolkit
-shapes and orders a label itself, and `quorra`'s chrome does the same through
-`pdf_font::shaping::Label` (ADR 1417), so a row ordered before it reached Pango or Qt would be
-reordered a second time.
+**What the hosts still owe is in their files**: [30](todo/30-a-native-host.md), whose remainder is
+surface rather than architecture; [31](todo/31-accessibility-host.md), whose four named edges are
+closed (ADRs 0300, 0338, 0394, 0425) and whose remainder is upstream and geometric; and
+[32](todo/32-presentation-player.md), a presentation player.
 
 #### Crates
 
-- `viewer-core` — the state machine. **Exists**; depends on `pdf-model`, `pdf-render` and
-  `pdf-syntax` and nothing else. Owns the open-document set, page/zoom/scroll, links and
-  §12.6's actions, the selection, the edit log and the render scheduler's *bookkeeping* (not its
-  threads). **Search landed in the four-hundred-and-fourteenth** — `Command::Find`, one page per
-  step (ADR 0250) — so what this line still owes is a navigation history.
-- `viewer-render` (new, optional) — a default worker a host may use instead of writing one.
-- `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
-  `vello` in its API.
-- `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
-  `doc/todo/30` names. **Its entry points are counted by `tools/state.sh hosts` rather than stated
-  here, and so is how much of this vocabulary they cover** — "the whole of it" was true when ADR
-  0346 wrote it and decayed as the vocabulary grew, which is a claim ADR 0509 turned into a command.
-  **Every `Query` variant reaches a symbol again since the seven-hundred-and-ninth** (ADR 0576), and
-  this time the claim comes with the thing that keeps it true rather than with a sentence:
-  `tests/every_query_reaches_the_abi.rs` matches exhaustively over the enum, so a question added here
-  fails to compile there. `QUORRA_EVENT_KIND_COUNT` is the right protection for a message that arrives
-  unasked and is none at all for a question, which is how eleven queries came to reach no symbol with
-  nothing saying so.
-  What ADR 0346 added is the pointer and the selection, §12.7's form and the four edits,
-  save and extract, the other two panels, §12.4.4's clock and the three policy values; what ADRs
-  2060 and 2061 added is the eight a toolkit's own controls, its clock, its network and its scripts
-  need — a field committed, §7.9.4's instant, a server's answer, a page drawn a window at a time,
-  the keys, and the scripts' level with its two answers, the level becoming a runner where every
-  window's does; and what ADR 2072 added is the key table — a caller translates its toolkit's key
-  into a `QUORRA_KEY_*`, `quorra_key_press` acts on it as the three windows act, and only what a
-  window alone can do comes back, as a `QUORRA_ACT_*`. **And a second layer above the vocabulary,
-  `quorra_window`** (ADR 2088, RFC 0010 section 3.2a): `NativeWindow` implemented in the library, so a
-  C host runs no event match of its own — the document opened on a thread and joined at the first
-  resize, the drawing thread looked at on a tick whose interval the window states, a key and the
-  pointer acted on, the search stepped, the strip of open documents kept,
-  §7.6.4.1's prompt and the *ask* level's one question put and answered — and what a toolkit would
-  do arrives as a batch of `QUORRA_OWED_*` records after each call, never as a callback. Beside them,
-  a hand-written `include/quorra.h`, and
-  `c/open_a_page.c` and `c/drive_a_window.c`, which a test compiles with `-Werror` and runs. Commands are functions rather
-  than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
-  arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller
-  may move to a thread of its own; and a frame is copied into a buffer the caller owns. Depends on
-  `viewer-core`, `viewer-host`, `pdf-render`, `pdf-model`, `pdf-syntax` and `render-cpu` — the last
-  only so that a caller has something to draw a display list with. Cross-compiles to both the
-  Windows and macOS targets, unlike either toolkit host. ADR 0247.
-- `viewer-accessibility` — **exists** since the three-hundred-and-seventy-sixth. §14.7's tree onto
-  AccessKit, and the only crate permitted to name `accesskit_unix` and therefore an async runtime.
-  Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.
-- `viewer-ui` — consumer #1 since session 132, and a tier-2 host. **A frame its graphics device
-  refuses is drawn on the processor and said in the title** as well as on the terminal, in `quorra`
-  and `quorra-confined` alike (ADR 1466); `quorra-gtk` and `quorra-qt` draw no page through a
-  graphics device, so they have no such refusal to say.
-- `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
-  discovered: five panel answers as one row shape and the list of panels itself (`Tab`, ADR 0564),
-  §12.3.4's miniatures fetched a row at a time, §12.7.5's field as the control it is,
-  §12.7.6.4's file policy, §O.2.1's extraction policy, the launch timeline, and — since the
-  five-hundred-and-eleventh — **the magnification at which a platform control fits the `/Rect` the
-  document states for it** (`fit::ControlFit`, ADR 0346), which is the piece ADR 0245's third
-  decision was missing and which needed no message: `Query::Fields` gives the rectangles, the
-  toolkit gives the minimums, and `Zoom::Scale` takes the answer. Toolkit-free, depended
-  on by all three hosts since the four-hundred-and-seventy-fifth — `viewer-ui` took the dependency
-  rather than keep a third copy of the decision (ADR 0310) —
-  and deliberately *not* in `viewer-core` — a mapping from three answers into one row shape is a
-  convenience for whoever draws a tree, not a statement about a document. ADR 0246.
-- `viewer-gtk` — **exists** since the four-hundred-and-eighth. GTK4 through `gtk4-rs`, tier 1,
-  `#![forbid(unsafe_code)]` held; its whole public interface is `Host` and `HostError`, because
-  four of its eight modules turned out not to be GTK's. Depends on `viewer-core`, `viewer-host`,
-  `pdf-render`, `render-cpu`, `pdf-model` and `pdf-syntax`; nothing depends on it. ADR 0244.
-- `viewer-qt` — **exists** since the four-hundred-and-tenth, and it is the only C++ in the tree.
-  Qt 6 Widgets through `cxx` and `cxx-qt-build`, tier 1, `#![deny(unsafe_code)]` with one exemption
-  and one hand-written token. **C++ owns the host** for the life of `QApplication::exec`, which is
-  the ownership inverted from `viewer-gtk` and why this one needs no `RefCell`. ADR 0246.
+Each crate's `[dependencies]` in its `Cargo.toml` is the list; what is said here is the shape.
+
+- `viewer-core` — the state machine. Depends on PDF crates only, never a toolkit, a graphics
+  library or an I/O crate (rule 5). Owns the open-document set, page/zoom/scroll, links and §12.6's
+  actions, the selection, search, the edit log and the render scheduler's *bookkeeping* (not its
+  threads). A navigation history is still owed.
+- `viewer-host` — toolkit-free, and what a second host discovered: the panel rows and the list of
+  panels (`Tab`, ADR 0564), §12.3.4's miniatures a row at a time, §12.7.5's field as the control it
+  is, the file, extraction and restriction policies, the launch timeline, the magnification at which
+  a platform control fits the `/Rect` the document states (`fit::ControlFit`, ADR 0346), and every
+  decision named under *Capabilities that added nothing*. Every window and the C ABI depend on it,
+  and it is deliberately *not* in `viewer-core`: a mapping from answers into one row shape is a
+  convenience for whoever draws, not a statement about a document (ADRs 0246, 0310).
+- `viewer-device` — the device renderer: the chooser, the kept scene, the presenter thread, the
+  stand-ins and the processor's composition, in a library that names no window (ADRs 2049 §2, 2052).
+  Only a window may depend on it, which `stale::tests::nothing_but_a_window_depends_on_the_library_that_holds_the_stand_ins`
+  holds for ADR 0378's rule 2, *nothing that judges a picture ever sees one* (ADR 2053).
+- `viewer-ffi` — the C ABI, the last host `doc/todo/30` names. `tools/state.sh hosts` counts its
+  entry points and how much of the vocabulary they cover (ADR 0509), and
+  `tests/every_query_reaches_the_abi.rs` keeps every `Query` reaching a symbol (ADR 0576). ADR 0346
+  added the pointer and the selection, §12.7's form and its edits, save and extract, the panels,
+  §12.4.4's clock and the policy values; ADRs 2060 and 2061 the eight commands a toolkit's controls,
+  clock, network and scripts need; ADR 2072 the key table — a caller translates its toolkit's key
+  into a `QUORRA_KEY_*`, `quorra_key_press` acts on it as the windows act, and what only a window can
+  do comes back as a `QUORRA_ACT_*`. **Above the vocabulary sits `quorra_window`** (ADR 2088, RFC 0010
+  section 3.2a): `NativeWindow` run by the library, so a C host runs no event match of its own, and
+  what a toolkit would do arrives as a batch of `QUORRA_OWED_*` records after each call, never as a
+  callback. Beside them, `include/quorra.h` and `c/open_a_page.c` and `c/drive_a_window.c`, which a
+  test compiles with `-Werror` and runs. Commands are functions rather than a tagged union (a
+  union's size is part of an ABI; a symbol is not); events and answers arrive owned, so no borrow of
+  the viewer crosses; a render request is an opaque handle a caller may move to a thread; a frame is
+  copied into a buffer the caller owns. It links `render-cpu` so that a caller has something to draw
+  a display list with, and `doc/verify.md` cross-checks it for the Windows and macOS targets, which
+  neither toolkit host builds for. ADR 0247.
+- `viewer-accessibility` — §14.7's tree onto AccessKit, and the only crate that names
+  `accesskit_unix` and therefore an async runtime. The three windows depend on it.
+- `viewer-ui` — `quorra` and `quorra-confined`, the tier-2 reference (ADR 2048).
+- `viewer-gtk` — GTK4 through `gtk4-rs`, tier 1, `#![forbid(unsafe_code)]` held; nothing depends on
+  it. ADR 0244.
+- `viewer-qt` — the only C++ in the tree: Qt 6 Widgets through `cxx` and `cxx-qt-build`, tier 1, `#![deny(unsafe_code)]`
+  with one exemption and one hand-written token. **C++ owns the host** for the life of
+  `QApplication::exec`, the ownership inverted from `viewer-gtk`'s, which is why this one needs no
+  `RefCell`. ADR 0246.
+- **A frame the device refuses is drawn on the processor and said in the title** as well as on the
+  terminal, in every window that draws on the device — `quorra` and `quorra-confined` (ADR 1466),
+  and `quorra-gtk` and `quorra-qt` on the lane they read back from, in the same words (ADR 2070).
 - `pdf-model` — has the text layer (ADR 0118). The edit log lives in `viewer-core` and reaches
-  interpretation through `ViewState`, which was already the log §12.6.4's actions write to — so
-  `interpret` did not need a third input after all, and rule 1 holds without one.
+  interpretation through `ViewState`, which was already the log §12.6.4's actions write to, so
+  `interpret` needs no third input and rule 1 holds.
 
 #### Five rules, and each has a reason that already exists in the tree
 
 1. **`pdf_syntax::Document` is immutable, forever.** An edit is a log beside it, not a change to
-   it — the pattern `view.rs` already uses for §12.6.4's actions, and which the edit log joined
-   in the hundred-and-thirty-fifth session rather than displacing. `interpret` stays a pure
-   function of the document and the view state, which is what keeps the oracle's comparison of
-   1665 pages meaning anything. Stated in `CLAUDE.md`, and held.
+   it — the pattern `view.rs` already uses for §12.6.4's actions. `interpret` stays a pure function
+   of the document and the view state, which is what keeps the oracle's comparison meaning
+   anything. Stated in `CLAUDE.md`, and held.
 2. **No filesystem in the core.** The host supplies bytes; the core produces bytes. Not new
    policy — `Request::Import` and `Request::Resolve` already do exactly this, argued in ADRs 0090
-   and 0104: "a document naming a file is a document asking this machine for something, and
-   whether to give it is not a rendering decision." **A file the host opened and handed over as a
+   and 0104: a document naming a file is a document asking this machine for something, and
+   whether to give it is not a rendering decision. **A file the host opened and handed over as a
    `pdf_syntax::FileBytes` on disk keeps the rule** (ADR 0809): the host chose the path and opened
-   it, and the core reads through the handle it was given and never a path of its own — what a
-   *path* is to the core is unchanged, and what changed is that the host need not read the whole
-   file to hand it over. **The confined worker keeps it the same way** (ADR 0812): the descriptor
-   it receives is the host's open file, which the filter lets it read and nothing else — not name,
-   not `stat`, not open another.
+   it, and the core reads through the handle it was given and never a path of its own. **The
+   confined worker keeps it the same way** (ADR 0812): the descriptor it receives is the host's open
+   file, which the filter lets it read and nothing else — not name, not `stat`, not open another.
 3. **No clock.** §12.4.4's transitions and `/Dur` auto-advance arrive as `Command::Tick { millis }`.
 4. **No threads the core was not handed**, and no blocking.
 5. **No toolkit or graphics type in `viewer-core`'s public API.** Tier 2 (below) lives in a
@@ -1002,58 +414,44 @@ reordered a second time.
 
 | tier | what crosses | hosts | cost |
 |---|---|---|---|
-| **1** | a CPU `Raster` | everything, today, no unsafe | one copy per frame |
+| **1** | a CPU `Raster` | everything, no unsafe | one copy per frame |
 | **2** | a raw window handle; we drive wgpu/vello | anything producing `raw-window-handle` | a graphics dependency in the *binding* |
 | **3** | the host's own GPU device/texture | one toolkit at a time | interop per platform |
 
 **Define the interface at tier 1**, because that is what makes the core toolkit-free by
-construction rather than by discipline. **This paragraph used to add "and it is not a compromise
-here, because `CLAUDE.md` makes the CPU backend the startup path", and that reason is gone**: the
-project owner decided in the two-hundred-and-seventy-third session that page one goes to the
-graphics device, so tier 1 is a portability choice and not a startup one. **And neither native
-host had a choice about it**, for two different reasons — which is what makes the agreement worth
-something. GTK4 gives a widget no native surface for tier 2 and hands out no device for tier 3, so
-tier 1 is what its public API admits and nothing else (ADR 0244). Qt *has* `QOpenGLWidget` and
-`QVulkanWindow`, and neither is the comparable host — they are different widgets with different
-rules about being composited inside a `QSplitter` beside a sidebar — while `QRhi`, which owns the
-device Qt draws through, is a private module a release may change without notice (ADR 0246).
+construction rather than by discipline. Page one goes to the graphics device (`CLAUDE.md`,
+principle 2), so tier 1 is a portability choice and not a startup one. **Neither native host had a
+choice about it**, for two different reasons. GTK4 gives a widget no native surface for tier 2 and
+hands out no device for tier 3 (ADR 0244). Qt *has* `QOpenGLWidget` and `QVulkanWindow`, but they
+are different widgets with different rules about being composited inside a `QSplitter` beside a
+sidebar, while `QRhi`, which owns the device Qt draws through, is a private module a release may
+change without notice (ADR 0246).
 
-**The copy is now measured on both, cold and warm, rather than estimated.** `Raster` is
-`GDK_MEMORY_R8G8B8A8` and `QImage::Format_RGBA8888` *exactly*, so there is no conversion at all in
-either direction:
+**The copy is measured on both, and it is only a `memcpy`.** `Raster` is `GDK_MEMORY_R8G8B8A8` and
+`QImage::Format_RGBA8888` exactly, so there is no conversion in either direction:
 
 | | first frame's copy, median of five | steady state, after a page turn |
 |---|---|---|
 | `gdk::MemoryTexture`, 2 687 100 B | 748 µs — 3.6 GB/s | **234 µs — 11.5 GB/s** |
 | `QImage`, 2 765 244 B | 1078 µs — 2.6 GB/s | **231 µs — 12.0 GB/s** |
 
-**ADR 0244's ≈3.2 GB/s was a first-frame number**, and the steady state is three to four times
-faster on both toolkits; the two agree to within 4%, which is what "only a `memcpy`" predicts and is
-what one host could not have said. Cost, with a number: 1920×1080 RGBA is 8.3 MB, so full-window
-repaint at 60 fps is ~500 MB/s of memcpy — a few percent of a core even at the *cold* rate, and only
-during smooth scroll. `TargetSpec::transform` already carries "any tile offset", so tiled repaint is
-the first lever if it matters.
+The two toolkits agree to within 4%, which is what "only a `memcpy`" predicts. Full-window repaint
+of 1920×1080 RGBA at 60 fps is about 500 MB/s of copy — a few percent of a core even at the cold
+rate, and only during smooth scroll. `TargetSpec::transform` already carries any tile offset, so
+tiled repaint is the first lever if it matters.
 
 **Interactive chrome crosses as geometry, not pixels.** Selection highlights, an in-progress
-annotation rubber-band, resize handles, a caret — these change at pointer speed and must not
-force a page re-render. Emitting them as quads and points lets a native host draw selection in
-**macOS's selection colour, KDE's accent, the Windows highlight brush**, with its own caret blink
-and focus ring. That is most of what makes an embedded view feel native and is unreachable if we
-hand over finished pixels. It also means a slow render never blocks feedback.
+annotation rubber band, resize handles, a caret change at pointer speed and must not force a page
+re-render. Emitting them as quads and points lets a native host draw selection in **macOS's
+selection colour, KDE's accent, the Windows highlight brush**, with its own caret blink and focus
+ring — most of what makes an embedded view feel native, and unreachable from finished pixels. A
+slow render never blocks feedback.
 
-**And the two native hosts found that the *colour* is a fact about each platform.** GTK 4.22 exposes
-no accent colour to application code at all — there is no symbol containing `accent` in `gtk4-sys`,
-and `@accent_bg_color` is a CSS name libadwaita defines — so `viewer-gtk` draws the selection fill
-and §12.5.1's ring in `gtk_widget_get_color`, the theme's own foreground, which follows a light or
-dark theme without the program knowing which is on. **Qt has both**: `QPalette::Highlight` and,
-since Qt 6.6, `QPalette::Accent`, which KDE writes from the colour scheme. `viewer-qt` says which it
-used and the pixel proves it — selection drawn in `#3daee9`, sampled back out of the window as
-`srgb(187,227,248)`, which is that colour at the overlay's 0.35 alpha over white.
-
-**So the sentence above is satisfiable on one of the two platforms and not on the other, and that
-sharpens the argument rather than weakening it**: handing over finished pixels would have made even
-GTK's answer impossible, and which colour a platform will part with is a fact about each platform
-rather than about this boundary (ADRs 0244, 0246).
+**Which colour a platform parts with is a fact about the platform.** GTK 4.22 exposes no accent
+colour to application code — `@accent_bg_color` is a CSS name libadwaita defines — so `viewer-gtk`
+draws the selection fill and §12.5.1's ring in `gtk_widget_get_color`, the theme's own foreground.
+Qt has `QPalette::Highlight` and, from Qt 6.6, `QPalette::Accent`, which KDE writes from the colour
+scheme; `viewer-qt` says which it used (ADRs 0244, 0246).
 
 | | crosses as | changes at | drawn by |
 |---|---|---|---|
@@ -1063,12 +461,13 @@ rather than about this boundary (ADRs 0244, 0246).
 #### What each platform admits for the device
 
 The owner's `doc/questions/A287`: "If possible gtk, qt, and dotnet should provide a way to still
-render on the GPU." The tiers above are about what crosses. This is about who draws, and **the
+render on the GPU." The tiers above are about what crosses; this is about who draws, and **the
 device can draw behind tier 1**: a frame the device drew and read back is a `Rendered::Raster` like
-any other, so the first device path in every native host changes no message (ADR 2049, G1 and Q1).
-The read-back is 0.34–1.18 ms of a frame on this machine's adapter, and the passes after it are
-1.18–4.20 ms, on a page from 596×842 to 1132×1601. What a zero-copy path saves is those, plus the
-0.23 ms copy above.
+any other, so the first device path in a native host changes no message (ADR 2049, G1 and Q1).
+**That path is built in both toolkit windows**: `quorra-gtk` and `quorra-qt` draw a page on the
+device and read it back in a lane beside the drawing thread (ADR 2070), page one included by
+default (ADR 2071), with `--cpu` as the way out. ADR 2049 measured the read-back and the passes
+after it, which are what a path without a copy would save, beside the copy above.
 
 | host | without a copy | what it costs | status |
 |---|---|---|---|
@@ -1077,134 +476,85 @@ The read-back is 0.34–1.18 ms of a frame on this machine's adapter, and the pa
 | a .NET host | a WinUI 3 `SwapChainPanel` (wgpu 30's DX12 target), XAML controls composed over it | one surface entry point in `viewer-ffi`'s `abi.rs` | proposed (RFC 0010 §4) |
 | a macOS host | a `CAMetalLayer` behind an `NSView`, made on the main thread | the same entry point, kind `CA_METAL_LAYER` | in mind, not built (ADR 2048) |
 
-**All four share one first step, and it is taken**: the device renderer (the chooser, the kept
-scene, the presenter thread), its stand-ins and the processor's composition are `viewer-device`, a
-library that names no window — a host supplies a `Wake`, its frame trace and its clock, and makes
-its surface from whatever its window converts to a `wgpu::SurfaceTarget` (ADRs 2049 §2, 2052).
-`quorra` is its one consumer so far, and nothing but a window may depend on it (rule 2). **And
-all four rule out a native child window over which nothing composes.** The controls
-`Command::Delegate` places over the page have to be drawn above the device's picture, which a Qt
-window container and a WPF `HwndHost` both prevent.
+**All four share one first step, and it is taken**: `viewer-device` (above), from which a host
+supplies a `Wake`, its frame trace and its clock, and makes its surface from whatever its window
+converts to a `wgpu::SurfaceTarget` (ADRs 2049 §2, 2052). **And all four rule out a native child
+window over which nothing composes**: the controls `Command::Delegate` places over the page have to
+be drawn above the device's picture, which a Qt window container and a WPF `HwndHost` both prevent.
 
-#### Two artefacts, both of which now exist
+#### Two artefacts: a text layer and an edit log
 
-**A text layer — done in the hundred-and-thirty-third session (ADR 0118), and selection on it in
-the hundred-and-thirty-fourth (ADR 0119).**
-`Interpretation::text_layer` is one `Placed` per character code: the range of the readback it
-produced and the quadrilateral its glyph occupies, in the display list's coordinates. The box is
-the glyph's advance by Table 120's `/Ascent` and `/Descent`, and it is built for rendering modes
-3 and 7 too, because an OCR layer under a scanned page is exactly the text a person selects.
-Measured at **+1.69%** of interpretation by an A/B in one sitting, and kept unconditional with the
-cost written down.
+**The text layer** (ADR 0118), with selection on it (ADR 0119). `Interpretation::text_layer` is one
+`Placed` per character code: the range of the readback it produced and the quadrilateral its glyph
+occupies, in the display list's coordinates. The box is the glyph's advance by Table 120's `/Ascent`
+and `/Descent`, built for rendering modes 3 and 7 too, because an OCR layer under a scanned page is
+exactly the text a person selects. It is kept unconditional, with its cost measured and written
+down in ADR 0118. Its other consumers: **search** — `Query::Find` answers with the shapes
+`Query::Selection` does, case-insensitively, and a match highlight is the same kind of thing as a
+selection highlight, drawn by each window's find bar in its own colours (ADR 0250); and
+**§14.8.2.5's logical order** — a selection is taken in content order, so `Tree::logical_range`
+maps a range of the readback through the structure tree's order and `Query::LogicalSelection` is
+what a host asks when a person presses copy. It answers nothing where the tree does not reach every
+byte of the range, because a copy that silently dropped what the tree missed would be worse than one
+handing back content order. **Not built on it**: word and paragraph selection. The caret is
+deliberately not on it — §12.7.4.3's layout knows where the next character in a field goes, and the
+text layer has no glyphs for an empty field (ADR 0211).
 
-**Search is the layer's third consumer** since the hundred-and-fortieth session: `Query::Find`
-answers with the same shapes `Query::Selection` does, case-insensitively, and cost one function
-because the geometry was already there. **And it reached a program at last in the
-four-hundred-and-fourteenth**, three of them: a find bar drawn by `viewer-ui`, a `GtkSearchBar` and a
-`QToolBar`, each drawing the matches under the selection in its own colours. What the round found on
-the way is the *scope*: `Query::Find` is the page and Annex O wants the document, so `Command::Find`
-is the second question rather than the first one looped, and a match highlight needed no new answer
-because it is the same kind of thing as a selection highlight (ADR 0250). **§14.8.2.5's *logical* order is the layer's fourth consumer** since the
-two-hundred-and-ninety-sixth session: a selection is taken in content order — which is what its
-shapes are in — so `Tree::logical_range` maps a *range* of the readback through the structure
-tree's order and `Query::LogicalSelection` is what a host asks when a person presses copy. It
-answers nothing where the tree does not reach every byte of the range, because a copy that
-silently dropped what the tree missed would be worse than one handing back content order.
-**What is still not built on it**: word and paragraph selection. The caret is *not* built on it and
-deliberately so — §12.7.4.3's layout is what knows where the next character in a *field* goes, and
-the text layer cannot answer for a field with no glyphs in it (ADR 0211).
+**The edit log** (ADR 0120). `Open::log` is what a person did, with a cursor; undo moves the cursor
+and the surviving prefix is *replayed* rather than inverted, because an inverse would have to
+remember what each edit replaced and would drift the moment two edits touched one field.
+`ViewState::set_field` is the fourth statement about a field's value beside Table 226's `/V`,
+§12.7.6.3's `/DV` and §12.7.8's imported one, and the last one made stands.
 
-**An edit log — done in the hundred-and-thirty-fifth session (ADR 0120).** `Open::log` is what a
-person did, with a cursor; undo moves the cursor and the surviving prefix is *replayed* rather
-than inverted, because an inverse would have to remember what each edit replaced and would drift
-the moment two edits touched one field. `ViewState::set_field` is the fourth statement about a
-field's value beside Table 226's `/V`, §12.7.6.3's `/DV` and §12.7.8's imported one, and the last
-one made stands.
+**It is saved** (ADR 0121): `ViewState::save` produces the file with §7.5.6's incremental update
+appended, the host writes the bytes, and the producer's bytes are still there underneath, which is
+the clause's whole point. §12.7.4.3's appearance stream is *written* rather than owed to the next
+reader behind Table 224's `/NeedAppearances` — the bytes are the ones this program draws — and the
+flag is set only for a widget whose stream this program could not produce whole (ADR 0130). A widget
+with no `/AP` gets an object *added*, the half of §7.5.6's "changed, replaced, or deleted" that adds,
+numbered from the larger of `/Size` and the highest number the cross-reference table holds, because
+corpus documents understate the first. **An encrypted document is written** (ADR 0129): §7.6.2's
+ciphers run on the way out through `decrypt_object`'s mirror, so the clause's exceptions are stated
+once. §7.6.3.2's fresh random initialisation vector per AES string makes an encrypted save differ
+from one run to the next, so its tests read the file back rather than compare it.
 
-**And it is saved** since the hundred-and-thirty-sixth session (ADR 0121): `ViewState::save`
-produces the file with §7.5.6's incremental update appended, the host writes the bytes, and
-`pdftotext` and `mutool` both read the value back out of what it wrote. The producer's bytes are
-still there underneath, which is the clause's whole point. **Both costs written down are closed.**
-§12.7.4.3's appearance stream is *written* since the hundred-and-forty-fifth session (ADR 0130)
-rather than owed to the next reader behind Table 224's `/NeedAppearances` — the bytes are the ones
-this program draws, so writing them is not a new opinion about the file — and the flag is now set
-only for a widget whose stream this program could not produce or could produce only part of. A
-widget that had no `/AP` gets an object *added*, which is the half of §7.5.6's "changed, replaced,
-or deleted" the writer did not do; the number it starts from is the larger of `/Size` and the
-highest the cross-reference table holds, because 68 corpus documents understate the first. **An
-encrypted document is written since the hundred-and-forty-fourth session** (ADR 0129): §7.6.2's
-ciphers run on the way out through `decrypt_object`'s mirror, so the clause's exceptions are
-stated once rather than twice, and the six corpus documents covering every revision and method
-§7.6 states take a string and give it back — `mutool` and `pdftotext` read all six. The cost of
-*that* is one testing habit: §7.6.3.2 requires a fresh random initialisation vector per AES
-string, so an encrypted document's save is no longer byte-identical from one run to the next, and
-its tests read the file back rather than compare it.
+#### One boundary, not two: the confined process speaks this vocabulary
 
-#### The prize: one boundary, not two — **taken in the three-hundred-and-eighty-first**
+Principle 3 wants the interpreter and rasteriser confined, and **the confined process speaks this
+vocabulary rather than a second protocol**: `viewer-confined` is `Command`/`Event` with `Raster`
+payloads, the confined process owns document, interpretation and rasterisation, and the host
+receives pixels and events (ADR 0218, `doc/todo/34`). **`viewer-core` needed no change for it**: the
+five rules above describe a confined process — no filesystem, no clock, no threads it was not handed
+— so a crate written to be free of a *toolkit* is free of a *kernel* too. What had to be decided was
+on the transport's side: the questions that answer with `pdf-model` types are refused by name, and a
+page draws on one thread because `glibc`'s allocator asks the kernel how many processors there are by
+reading a file.
 
-Principle 3 wants the interpreter and rasteriser confined, and this file recorded the open question
-as "the protocol would have to carry a display list rather than an image, which is a real design
-question". **It dissolved exactly as predicted**: `viewer-confined` is `Command`/`Event` with
-`Raster` payloads, the confined process owns document, interpretation and rasterisation, and the
-host receives pixels and events — one protocol instead of two.
-
-**And it comes back for the *window*, which is the one host this dissolution did not cover — decided
-in the seven-hundred-and-twenty-fourth session** (ADR 0607). A tier-2 host draws on a device the
-*host* owns, so a confined process behind it has either to ship marks instead of pixels or to hold
-a device of its own; the second was measured and does not exist, because a device confined at any
-point in the ordering dies on its first `ioctl` and a process holding one cannot install Landlock
-under this crate's descriptor ceiling. So **display lists cross for a tier-2 host, and the raster
-payload stays**, chosen per page by comparing two sizes the confined process can both compute —
-about 2% of a raster at the median, larger than one on the 4% of pages that are scans. It is still
-one protocol: `Rendered::{Raster, Presented}` was already a payload choice on this boundary, and
-this makes the choice a measurement rather than a tier.
-
-**And it is wired in since the seven-hundred-and-thirty-sixth** (ADR 0633), which cost this
-vocabulary nothing at all — the fourth time that has been the whole answer. The payload choice is
-`viewer_confined::Framed::payload`, on the *transport's* side of the boundary and not on this one,
-because which of two encodings a page crosses in is a fact about a pipe and not about what a host
-may ask. What the round found instead is the one thing this vocabulary owed it: **`Rendered` was
-per viewer where it needed to be per page.** A confined worker that answered `Rendered::Presented`
-for the page it ships as marks would set `holds_rasters` false for every page, so `Query::Frame`
-would go silent about the pages that must still cross as pixels and `MAX_PIXELS` would stop
-bounding what a *confined* process is asked to draw — and inside a confinement an unbounded raster
-is an abort rather than a refusal. So the worker drew a page whose pixels it did not send.
-
-**`Rendered::Listed` is what removed it, in the seven-hundred-and-fortieth** (ADR 0640), and it is
-the change this file's opening section records: the host took the request's own list, said about a
-page. The worker no longer rasterises anything it does not send — a sparse page's open falls from
-8.7 ms to 2.8 ms and a hostile one's from 26.5 s to 18 ms, with the two pixel-arm documents flat
-beside them as the control. The merge stayed on the transport's side for ADR 0633's own reason:
-`viewer_confined::protocol::Marks` holds each page's origin, from `Query::PageGeometry`, and
-`encode_answer` joins the pixels the viewer holds to the marks the store holds. `Answer::Frame`
-did **not** change shape, and that was the alternative worth refusing — it would have shipped an
-unreachable arm to four hosts that never answer `Listed`, and a C frame with a size and no bytes.
-**What it costs is written down rather than discovered**: a cancel stops the work the *worker*
-does, so on the marks arm it covers the interpretation and not the drawing — which was already the
-host's, and which the worker had merely been duplicating and discarding.
+**For a tier-2 window, display lists cross** (ADR 0607). A device confined at any point in the
+ordering dies on its first `ioctl`, and a process holding one cannot install Landlock under this
+crate's descriptor ceiling, so the confined process ships marks rather than holding a device; the
+raster payload stays, chosen per page by comparing two sizes the confined process can both compute.
+The choice is `viewer_confined::Framed::payload`, on the *transport's* side of the boundary, because
+which of two encodings a page crosses in is a fact about a pipe and not about what a host may ask
+(ADR 0633). What this vocabulary owed it was **`Rendered::Listed`, per page** (ADR 0640): a worker
+answering `Presented` for a page shipped as marks would set `holds_rasters` false for every page,
+silence `Query::Frame` about the pages that must still cross as pixels, and stop `MAX_PIXELS`
+bounding what a confined process is asked to draw — and inside a confinement an unbounded raster is
+an abort rather than a refusal. `viewer_confined::protocol::Marks` holds each page's origin, from
+`Query::PageGeometry`, and `encode_answer` joins the pixels the viewer holds to the marks the store
+holds. `Answer::Frame` did **not** change shape: that would have shipped an unreachable arm to the
+hosts that never answer `Listed`, and a C frame with a size and no bytes. A cancel stops the work the
+*worker* does, so on the marks arm it covers the interpretation and not the drawing, which is the
+host's.
 
 **A page drawn as §10.8.3's simulated press crosses as marks like any other**, because what it adds
-to a display list is data rather than a producer: the spot planes, each a companion list as the
-black one is, each colourant's name and its step b) samples, and the two sampled conversions around
-the multiply (`pdf_render::SpotSeparation`). The codec states it as the page's fourth blending shape,
-beside the pair, the curve and the cube, and a companion list stating one is refused on the way in,
-so the recursion stops one level down (ADR 1317). No message changed: the request is
-`Command::Separations`, and what it reaches is what the list says.
-
-What the prediction did not say, and what building it showed: **`viewer-core` needed no change at
-all**. The five rules below are a description of a confined process — no filesystem, no clock, no
-threads it was not handed — so the crate written to be free of a *toolkit* turned out to be free of
-a *kernel* too. Everything that had to be decided was on the transport's side: eleven questions
-answer with `pdf-model` types and are refused by name, and a page draws on one thread because
-`glibc`'s allocator asks the kernel how many processors there are by reading a file. ADR 0218,
-`doc/todo/34`.
+to a display list is data: the spot planes, each a companion list as the black one is, each
+colourant's name and its step b) samples, and the two sampled conversions around the multiply
+(`pdf_render::SpotSeparation`). The codec states it as the page's fourth blending shape, beside the
+pair, the curve and the cube, and a companion list stating one is refused on the way in, so the
+recursion stops one level down (ADR 1317).
 
 #### Near, and far
 
-Form-field editing landed in the hundred-and-thirty-fifth session and saving in the
-hundred-and-thirty-sixth; §14.8.2.5's logical order in the two-hundred-and-ninety-sixth, the caret
-in the three-hundred-and-seventy-first, the click that places it in the three-hundred-and-eighty-eighth
-and §12.5.6.6's free text in the four-hundred-and-first. What is left of *using* a document is one
-file, [todo 33](todo/33-annotation-editing.md), and it is two items rather than a feature: editing
-an annotation the **file** states, and Table 177's callout line. Editing the page's own text is far
-and deliberately out of scope.
+What is left of *using* a document is [todo 33](todo/33-annotation-editing.md): a flag that waits on
+a verb this program does not have. Editing the page's own text is far and deliberately out of scope.

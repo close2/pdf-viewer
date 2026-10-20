@@ -31,7 +31,7 @@
 //! > shall update the state of the original annotation for the specified user.
 //!
 //! The other two are Table 172's. `/T` "shall specify the user" and is read through
-//! [`crate::markup`], because §12.5.6.2 makes it a group attribute: a state annotation that is
+//! `crate::markup`, because §12.5.6.2 makes it a group attribute: a state annotation that is
 //! itself a group's subordinate names its user in the primary. `/IRT` "shall refer to the
 //! original annotation" — and this clause's two citations for it name Table 176, a *link*
 //! annotation's, which Errata Collection 3's Issue #479 corrects to Table 172 in both places.
@@ -50,14 +50,14 @@
 //! breadth-first, so a state deeper in the chain replaces a shallower one for the same user and
 //! the same model, while two users who never replied to each other both keep their own answer.
 //!
-//! Table 172 bounds the walk to one page — "[b]oth annotations shall be on the same page of the
+//! Table 172 bounds the walk to one page — "\[b]oth annotations shall be on the same page of the
 //! document" — so the population is the page's own `/Annots` and no other page is opened. A file
 //! whose chain loops has each annotation visited once, which is §12.6.2's rule about a
 //! self-referential structure applied to the one structure this clause builds.
 //!
 //! # What is deliberately not read
 //!
-//! Table 172 gives `/IRT` a second form: "[i]f this entry is present in an FDF file … its type
+//! Table 172 gives `/IRT` a second form: "\[i]f this entry is present in an FDF file … its type
 //! shall not be a dictionary but a text string containing the contents of the NM entry of the
 //! annotation being replied to". That is §12.7.8's forms data format rather than a page, and what
 //! this module is given is a page.

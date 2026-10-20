@@ -215,7 +215,7 @@ pub(super) struct KnockoutConstruction {
 ///   backend draws the result. ADR 1000 built this for §11.7.4.4's and §9.3.8's implicit
 ///   groups and priced this caller; ADR 1009 takes it, and `issue18032.pdf` is the page.
 ///   Tried before the construction below because two backends refuse that one.
-/// - **The group's own backdrop**: "[a] nonisolated knockout group composites its topmost
+/// - **The group's own backdrop**: "\[a] nonisolated knockout group composites its topmost
 ///   enclosing element with the group's backdrop." Where an element blends and no mode
 ///   moves, the group goes to the backends with `isolated: false` beside `knockout: true`,
 ///   every element a `Command::Shaped`, and a backend retains the initial backdrop beside

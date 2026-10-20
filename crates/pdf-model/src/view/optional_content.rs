@@ -58,11 +58,11 @@ impl ViewState {
 
     /// Sets a group's state the way a *layer panel* does, and answers whether it changed.
     ///
-    /// This is §8.11.4.5's other half — "[t]he user may manipulate optional content group states
+    /// This is §8.11.4.5's other half — "\[t]he user may manipulate optional content group states
     /// manually or by triggering set-OCG-state actions" — and the two differ in exactly one
-    /// respect, which is why they are two functions. Table 99's `/Locked` says "[t]he state of a
+    /// respect, which is why they are two functions. Table 99's `/Locked` says "\[t]he state of a
     /// locked group cannot be changed through the user interface of an interactive PDF
-    /// processor", and the clause's next sentence permits the other route: "[a]n interactive PDF
+    /// processor", and the clause's next sentence permits the other route: "\[a]n interactive PDF
     /// processor may allow the states of optional content groups to be changed by means other
     /// than the user interface, such as ECMAScript or items in the AS entry". So a lock stops
     /// this and does not stop [`crate::action::Action::SetOcgState`].

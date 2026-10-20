@@ -8,11 +8,14 @@
  * below is a resize, a timer, some keys and an answer, and each of them is one call followed by
  * the same `act_on_what_is_owed`.
  *
- *   ./drive_a_window <file.pdf> <form.pdf>
+ *   ./drive_a_window <file.pdf> <form.pdf> <script.pdf>
  *
  * The second document is the fixture `tests/a_c_program_drives_the_abi.rs` writes: a push-button
  * whose §12.7.6.2 submission the reader's default level asks about, which is how the question
- * and its answer are exercised.
+ * and its answer are exercised — and, opened again under levels this program states, how a level
+ * a host sets is shown to be the one in force (ADR 2120). The third is a text field whose
+ * validation asks with app.alert, which a window at the scripts' PROCEED level puts to this
+ * program as a record (ADR 2121).
  *
  * Exit status: 0 if every step succeeded, 1 otherwise, with the failing step named on stderr.
  */
@@ -60,6 +63,19 @@ struct seen {
     int popups;
     int strips;
     uint64_t prompted;
+    int archives;
+    size_t archive_target;
+    size_t archive_profile;
+    int scripts;
+    int withdrawn;
+    uint64_t script_document;
+    uint32_t script_icon;
+    uint32_t script_buttons;
+    uint32_t script_dismissed;
+    char script_message[128];
+    int prints;
+    size_t print_pages;
+    bool print_degraded;
     char title[256];
     char said[512];
     char question[512];
@@ -125,6 +141,52 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
             break;
         case QUORRA_OWED_STRIP:
             seen->strips += 1;
+            break;
+        case QUORRA_OWED_ARCHIVE:
+            seen->archives += 1;
+            printf("archive chooser: %s\n", text);
+            if (!check("quorra_owed_archive",
+                       quorra_owed_archive(owed, index, &seen->archive_target,
+                                           &seen->archive_profile))) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
+            break;
+        case QUORRA_OWED_SCRIPT: {
+            uint32_t asked = 0;
+            size_t length = 0;
+            seen->scripts += 1;
+            printf("script dialogue: %s\n", text);
+            if (!check("quorra_owed_document",
+                       quorra_owed_document(owed, index, &seen->script_document))
+                || !check("quorra_owed_script_question",
+                          quorra_owed_script_question(owed, index, &asked, &seen->script_icon,
+                                                      &seen->script_buttons,
+                                                      &seen->script_dismissed, NULL))
+                || !check("quorra_owed_script_text",
+                          quorra_owed_script_text(owed, index, QUORRA_SCRIPT_TEXT_MESSAGE,
+                                                  seen->script_message,
+                                                  sizeof seen->script_message, &length))
+                || asked != QUORRA_SCRIPT_QUESTION_ALERT) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
+            break;
+        }
+        case QUORRA_OWED_SCRIPT_WITHDRAWN:
+            seen->withdrawn += 1;
+            break;
+        case QUORRA_OWED_PRINT:
+            seen->prints += 1;
+            printf("print: %s\n", text);
+            if (!check("quorra_owed_print",
+                       quorra_owed_print(owed, index, &seen->print_pages, &seen->print_degraded))) {
+                free(text);
+                quorra_owed_free(owed);
+                return 0;
+            }
             break;
         case QUORRA_OWED_CLIPBOARD:
         case QUORRA_OWED_BEEP:
@@ -469,10 +531,196 @@ static int the_form(const char *path)
     return again == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER && valued == QUORRA_OK;
 }
 
+/* The three requests a toolkit answers with a dialogue, on the note at the default levels: ISO
+ * 19005's chooser closed with nothing chosen, a print let through and ended, and a script's answer
+ * with no question out (ADR 2121). */
+static int the_requests(const char *path)
+{
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    if (!check("quorra_window_open", quorra_window_open(path, NULL, &window))
+        || !check("quorra_window_resize", quorra_window_resize(window, 800, 1000, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    size_t targets = 0;
+    size_t profiles = 0;
+    char first[32] = {0};
+    size_t needed = 0;
+    if (!check("quorra_archive_targets", quorra_archive_targets(&targets))
+        || !check("quorra_archive_profiles", quorra_archive_profiles(&profiles))
+        || !check("quorra_archive_target", quorra_archive_target(0, first, sizeof first, &needed))) {
+        quorra_window_free(window);
+        return 0;
+    }
+    /* Shift + A with no conversion chosen yet: the chooser, owed as one record. */
+    uint32_t act = QUORRA_ACT_NOTHING;
+    float by = 0.0f;
+    if (!check("quorra_window_press",
+               quorra_window_press(window, QUORRA_KEY_A, true, false, &act, &by))
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t past = quorra_window_archive(window, (int32_t)targets, 0);
+    if (seen.archives != 1 || past != QUORRA_OUT_OF_RANGE
+        || !check("quorra_window_archive", quorra_window_archive(window, -1, -1))
+        || !act_on_what_is_owed(window, &seen)) {
+        fprintf(stderr, "the chooser: %d record(s), past its list %d\n", seen.archives, past);
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t twice = quorra_window_archive(window, 0, 0);
+    printf("window chooser: %zu target(s) from %s, %zu profile(s), starting on %zu and %zu, act "
+           "%s; past the list: %s; closed: %s; again: %s\n",
+           targets, first, profiles, seen.archive_target, seen.archive_profile,
+           quorra_act_name(act), quorra_status_message(past), seen.said,
+           quorra_status_message(twice));
+    /* Control + P: §7.6.4.2's bit 3 asked, at the default level let through, and ended. */
+    if (!check("quorra_window_press",
+               quorra_window_press(window, QUORRA_KEY_P, false, true, &act, &by))
+        || !act_on_what_is_owed(window, &seen) || seen.prints != 1
+        || !check("quorra_window_print_finish", quorra_window_print_finish(window))
+        || !act_on_what_is_owed(window, &seen)) {
+        fprintf(stderr, "the print: %d record(s)\n", seen.prints);
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t finished = quorra_window_print_finish(window);
+    int32_t unasked = quorra_window_answer_script(window, 1, QUORRA_SCRIPT_ANSWER_PRESSED,
+                                                  QUORRA_ALERT_BUTTON_OK, NULL);
+    printf("window print: act %s, %zu page(s), degraded %d; finished again: %s; a script answer "
+           "nobody asked for: %s\n",
+           quorra_act_name(act), seen.print_pages, seen.print_degraded ? 1 : 0,
+           quorra_status_message(finished), quorra_status_message(unasked));
+    quorra_window_free(window);
+    return twice == QUORRA_NO_ANSWER && finished == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER
+           && targets == 6 && act == QUORRA_ACT_NOTHING;
+}
+
+/* The levels a host states: words read as the four windows read theirs, a level and a
+ * restriction set by number, and the form opened under them — its push-button's submission
+ * refused without a question, where the default level asked one. */
+static int the_settings(const char *path)
+{
+    quorra_settings *settings = NULL;
+    bool taken = false;
+    bool other = true;
+    char refusal[256] = {0};
+    size_t needed = 0;
+    if (!check("quorra_settings_new", quorra_settings_new(&settings))
+        || !check("quorra_settings_take",
+                  quorra_settings_take(settings, "--submissions=refuse", &taken))
+        || !check("quorra_settings_take", quorra_settings_take(settings, "--cpu", &other))
+        || !check("quorra_settings_restrict",
+                  quorra_settings_restrict(settings, QUORRA_RESTRICTED_PRINT, QUORRA_RESTRICT_ON))
+        || !check("quorra_settings_set",
+                  quorra_settings_set(settings, QUORRA_POLICY_LINKS, QUORRA_LEVEL_REFUSE))) {
+        quorra_settings_free(settings);
+        return 0;
+    }
+    int32_t wrong = quorra_settings_take(settings, "--links=sometimes", NULL);
+    int32_t said = quorra_settings_refusal(settings, refusal, sizeof refusal, &needed);
+    int32_t between =
+        quorra_settings_set(settings, QUORRA_POLICY_SEPARATIONS, QUORRA_LEVEL_ASK);
+    printf("settings: --submissions=refuse taken %d, --cpu taken %d; --links=sometimes: %s, "
+           "\"%s\"; separations at ask: %s\n",
+           taken ? 1 : 0, other ? 1 : 0, quorra_status_message(wrong),
+           said == QUORRA_OK ? refusal : "", quorra_status_message(between));
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    int ok = taken && !other && wrong == QUORRA_WRONG_KIND && said == QUORRA_OK
+             && between == QUORRA_WRONG_KIND
+             && check("quorra_window_open_under",
+                      quorra_window_open_under(path, NULL, settings, &window));
+    quorra_settings_free(settings);
+    if (!ok || !check("quorra_window_resize", quorra_window_resize(window, 800, 1000, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    uint32_t act = QUORRA_ACT_NOTHING;
+    char refused[512] = {0};
+    for (int tabs = 0; tabs < 8 && refused[0] == 0; ++tabs) {
+        if (!press(window, QUORRA_KEY_TAB, false, &act, &seen)
+            || !press(window, QUORRA_KEY_SPACE, false, &act, &seen)) {
+            quorra_window_free(window);
+            return 0;
+        }
+        if (strstr(seen.said, "submit-form") != NULL) {
+            snprintf(refused, sizeof refused, "%s", seen.said);
+        }
+    }
+    printf("window under the stated levels: %d question(s); %s\n", seen.questions, refused);
+    quorra_window_free(window);
+    return seen.questions == 0 && refused[0] != 0;
+}
+
+/* One commit of the fixture's field, whose validation asks with app.alert. */
+static int commit_the_question(quorra_window *window, const char *value, struct seen *seen)
+{
+    return check("quorra_window_set_field_text",
+                 quorra_window_set_field_text(window, "kept", value))
+           && check("quorra_window_commit_field", quorra_window_commit_field(window, "kept"))
+           && act_on_what_is_owed(window, seen);
+}
+
+/* A script's question, at the scripts' PROCEED level a host set by number: owed as a record in
+ * Adobe's numbers, answered once, and a second one left unanswered until its wait withdraws it
+ * (ADRs 1628, 1643). */
+static int the_script(const char *path)
+{
+    quorra_settings *settings = NULL;
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    int opened = check("quorra_settings_new", quorra_settings_new(&settings))
+                 && check("quorra_settings_set",
+                          quorra_settings_set(settings, QUORRA_POLICY_SCRIPTS,
+                                              QUORRA_LEVEL_PROCEED))
+                 && check("quorra_window_open_under",
+                          quorra_window_open_under(path, NULL, settings, &window));
+    quorra_settings_free(settings);
+    if (!opened || !check("quorra_window_resize", quorra_window_resize(window, 800, 1000, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)
+        || !commit_the_question(window, "5", &seen) || seen.scripts != 1) {
+        fprintf(stderr, "the script's question: %d record(s)\n", seen.scripts);
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window script: \"%s\", icon %u, buttons %u, closed answers %u\n", seen.script_message,
+           seen.script_icon, seen.script_buttons, seen.script_dismissed);
+    if (!check("quorra_window_answer_script",
+               quorra_window_answer_script(window, seen.script_document,
+                                           QUORRA_SCRIPT_ANSWER_PRESSED, QUORRA_ALERT_BUTTON_YES,
+                                           NULL))
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window script answered: %s\n", seen.said);
+    int32_t again = quorra_window_answer_script(window, seen.script_document,
+                                                QUORRA_SCRIPT_ANSWER_PRESSED,
+                                                QUORRA_ALERT_BUTTON_YES, NULL);
+    if (!commit_the_question(window, "6", &seen) || seen.scripts != 2
+        || !run_the_timer(window, &seen)) {
+        fprintf(stderr, "the second question: %d record(s)\n", seen.scripts);
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t late = quorra_window_answer_script(window, seen.script_document,
+                                               QUORRA_SCRIPT_ANSWER_PRESSED,
+                                               QUORRA_ALERT_BUTTON_YES, NULL);
+    printf("window script again: %s; the second withdrawn %d, then answered: %s\n",
+           quorra_status_message(again), seen.withdrawn, quorra_status_message(late));
+    quorra_window_free(window);
+    return again == QUORRA_NO_ANSWER && seen.withdrawn == 1 && late == QUORRA_NO_ANSWER;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 3) {
-        fprintf(stderr, "usage: %s <file.pdf> <form.pdf>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf>\n", argv[0]);
         return 1;
     }
     if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {
@@ -505,7 +753,8 @@ int main(int argc, char **argv)
     if (unreadable != QUORRA_UNREADABLE || nothing != NULL) {
         return 1;
     }
-    if (!the_note(argv[1], argv[2]) || !the_form(argv[2])) {
+    if (!the_note(argv[1], argv[2]) || !the_form(argv[2]) || !the_requests(argv[1])
+        || !the_settings(argv[2]) || !the_script(argv[3])) {
         return 1;
     }
     printf("ok\n");

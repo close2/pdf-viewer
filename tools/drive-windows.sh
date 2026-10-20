@@ -6,7 +6,7 @@
 #
 #   tools/drive-windows.sh [--out DIR] [--window NAME]... [--step FUNCTION]... [--bin DIR] [--display :N]
 #
-# The list is `doc/verify.md`'s "Driving the three windows": open, §12.2's Table 147 entries, the
+# The list is `doc/verify.md`'s **The drive list**, under its `tools/drive-windows.sh` line: open, §12.2's Table 147 entries, the
 # outline, page turns by key and wheel, zoom, find (a Latin word, an Arabic word, a word typed
 # without the marks printed on it, and one placed under a mirroring text matrix), a popup, a link,
 # a markup, §7.5.6's save read back, the pages panel, the restrictions levels, print, §7.6.4's password, and a form's §12.5.1 tab order, check

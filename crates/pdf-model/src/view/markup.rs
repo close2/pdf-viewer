@@ -19,7 +19,7 @@ impl ViewState {
     /// > -Additional entry for annotation dictionaries in an FDF file") that shall indicate the
     /// > page of the source document to which the annotation is attached.
     ///
-    /// Table 254 spells the ordinal: "[t]he ordinal page number on which this annotation shall
+    /// Table 254 spells the ordinal: "\[t]he ordinal page number on which this annotation shall
     /// appear, where page 0 is the first page". Everything else in such a dictionary is §12.5's —
     /// an FDF annotation is an annotation — so once it names nothing of the other file there is
     /// no second reading to do and nothing outside ISO 32000-2 to read it by. ADR 1224.
@@ -30,7 +30,7 @@ impl ViewState {
     /// each into §7.5.6's update with its `/P`, and a replay clears and re-applies the import
     /// like any other log entry.
     ///
-    /// **Table 246 excludes six of Table 171's subtypes from an FDF file** — "[t]he array may
+    /// **Table 246 excludes six of Table 171's subtypes from an FDF file** — "\[t]he array may
     /// include annotations of any of the standard types listed in "Table 171 - Annotation types"
     /// except Link, Movie, Widget, PrinterMark, Screen, and TrapNet" — and one that names an
     /// excluded subtype is refused by name rather than placed, because a file that wrote one has
@@ -145,7 +145,7 @@ impl ViewState {
     ///
     /// The table gives an FDF file its own spelling of the entry — "its type shall not be a
     /// dictionary but a text string containing the contents of the NM entry of the annotation
-    /// being replied to" — and a PDF file the other: "[a] reference to the annotation that this
+    /// being replied to" — and a PDF file the other: "\[a] reference to the annotation that this
     /// annotation is "in reply to." Both annotations shall be on the same page of the document."
     /// So the name is looked for among what this import places on the same page, then among what
     /// was added to that page before it, then among the page's own `/Annots`. One found nowhere
@@ -322,17 +322,17 @@ impl ViewState {
     /// Table 177's `/Subtype` and `/DA`, both Required; Table 166's `/Rect`, `/Contents` and
     /// `/F 4`. Three of them are decisions rather than readings and are recorded as such:
     ///
-    /// - **The `/DA`.** Table 177 makes it "[t]he default appearance string that shall be used in
-    ///   formatting the text", and §12.7.4.3 states what it must contain: "[a]t a minimum, the
+    /// - **The `/DA`.** Table 177 makes it "\[t]he default appearance string that shall be used in
+    ///   formatting the text", and §12.7.4.3 states what it must contain: "\[a]t a minimum, the
     ///   string shall include a Tf (text font) operator along with its two operands, font and
     ///   size." The standard describes *reading* one and states nothing about what a processor
     ///   creating an annotation should write, so the colour is the caller's, the size is
-    ///   [`FREE_TEXT_SIZE`] and the resource name is [`FREE_TEXT_FONT`]. A size of 0 would be the
+    ///   `FREE_TEXT_SIZE` and the resource name is `FREE_TEXT_FONT`. A size of 0 would be the
     ///   clause's auto-sizing, which grows the first character to fill whatever box was dragged;
     ///   a fixed size is what a person drawing a text box means by drawing it.
     /// - **The colour goes in the `/DA` and not in Table 166's `/C`.** That entry is "the
     ///   background of the annotation's icon when closed, the title bar of the annotation's popup
-    ///   window, [and] the border of a link annotation", none of which this subtype has — the
+    ///   window, \[and] the border of a link annotation", none of which this subtype has — the
     ///   colour of the *text* is §12.7.4.3's, which is the `/DA`.
     /// - **`/F 4` is Table 167's `Print` bit**, for [`ViewState::add_markup`]'s reason exactly: a
     ///   note a person adds to send a document on means the note to survive printing.
@@ -342,7 +342,7 @@ impl ViewState {
     ///
     /// **Nothing is written to the file** until [`ViewState::save`] turns the log into §7.5.6's
     /// incremental update, which is where §12.7.4.3's `/DR` obligation is met — see
-    /// [`super::writing::Update::state_default_font`].
+    /// `super::writing::Update::state_default_font`.
     pub fn add_free_text(
         &mut self,
         document: &Document,
@@ -427,7 +427,7 @@ impl ViewState {
     /// [`ViewState::add_free_text`] created is a dictionary in the log, and its text is written
     /// into that dictionary. An annotation the *file* states is the producer's object, and what is
     /// recorded is a replacement of its `/Contents` — read back by
-    /// [`ViewState::annotation`], drawn by [`crate::annotation::decide`], and written by
+    /// [`ViewState::annotation`], drawn by `crate::annotation::decide`, and written by
     /// [`ViewState::save`] as §7.5.6's "this object now reads like this". Nothing is written to the
     /// file until then and the document itself never changes, which is `CLAUDE.md`'s rule 1.
     ///
@@ -681,7 +681,7 @@ pub(super) const FREE_TEXT_BASE_FONT: &str = "Helvetica";
 /// The size the `/DA` of a free text annotation this program creates states, in points.
 ///
 /// **A choice, and the standard states nothing about it**: §12.7.4.3 describes reading a `/DA`
-/// and says only that "[a] zero value for size means that the font shall be auto-sized". Zero is
+/// and says only that "\[a] zero value for size means that the font shall be auto-sized". Zero is
 /// therefore available and is not what a person drawing a text box means — auto-sizing grows one
 /// character until it fills whatever rectangle was dragged. Twelve points is a note.
 const FREE_TEXT_SIZE: f32 = 12.0;

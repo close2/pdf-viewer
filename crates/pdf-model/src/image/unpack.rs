@@ -78,9 +78,7 @@ pub(super) struct Prematte<'a> {
 }
 
 impl<'a> Prematte<'a> {
-    /// The pre-blending [`matte_before_samples`] found, borrowed.
-    ///
-    /// [`matte_before_samples`]: super::dispatch::matte_before_samples
+    /// The pre-blending `matte_before_samples` found, borrowed.
     pub(super) fn of((matte, alpha, opacity): &'a Premultiplied) -> Self {
         Self {
             matte,
@@ -105,7 +103,7 @@ impl<'a> Prematte<'a> {
     /// The original components of the pixel at `at`, from the pre-blended ones.
     ///
     /// `c = m + (c′ - m) ÷ α`, per component, clamped by §11.6.5.2's own closing requirement —
-    /// "[t]he resulting c value shall lie within the range of colour component values for the
+    /// "\[t]he resulting c value shall lie within the range of colour component values for the
     /// image colour space". Where α is 0 the clause's NOTE says the inversion divides by zero
     /// and "an arbitrary value for c can be chosen", because a fully transparent sample cannot
     /// affect the output; the matte colour is the value that costs nothing to justify.

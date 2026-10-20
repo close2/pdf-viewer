@@ -1380,3 +1380,51 @@ differently for the two spellings matters only on a page where the condition hol
 substitution for the processor's sake, find the condition in the clause and ask the file whether it is
 ever met.
 
+## 145. A `--keep-going` claim is checked at one job
+
+Round 1641 gave the docs gate `--keep-going` so that a failing crate no longer hides the errors of the
+crates after it, and planted an error in two crates to prove it; with cargo's full job count both errors
+showed without the flag as well, because every doc job had already started before the first failed. Only
+at `-j 1` does the missing flag hide the second crate, and only that control makes the planted test say
+anything (ADR 1938's status line). A claim about what a build flag prevents is tested under the
+scheduling that would otherwise mask it: one job, so the order is the one the claim is about.
+
+## 146. After a compaction, every ADR the old text cited is looked for in the new
+
+A compaction deletes sentences, and a sentence that cited an ADR may have been the only place a built
+capability was named: round 1645's pass over the files a kind opens left ADR 1751 — a named destination
+carried out as its page and its view — cited nowhere, and the check that looks for every old citation in
+the new texts and the other documents was what found it and restored the sentence (ADR 2126). The
+check is mechanical: the set of ADR numbers in the texts before, minus the set in the whole tree's prose
+after; each number left is a capability the compaction lost, to be put back in one sentence or shown to
+be named elsewhere.
+
+## 147. A census of refusals names the output's second verdict
+
+A conversion the converter prepares and writes can still be refused when its output is re-checked
+against the target, and that refusal carries no `Refused` decision of its own; a census that reads only
+decisions shows such a document refused with no reason. Round 1639 found thirteen at level B and
+fourteen at part 4 listed that way — the whole of the colour-family group it then built a remedy for
+(ADR 2114). A census of refusals lists the second verdict's refusals as their own kind, with the
+requirement the output failed, or it is not a census of refusals.
+
+## 148. A construction on simulation of simplicity is checked in its own perturbed world
+
+Round 1643's union-boundary walk decides ties by simulation of simplicity — every coordinate carries an
+infinitesimal perturbation so that no three points are collinear and no two crossings coincide — and its
+first check against a finite-offset brute-force ray reported thousands of mismatches wherever pieces'
+edges were collinear, which is exactly where the perturbed world and the real one disagree by design;
+the two real defects hid behind them (ADR 2122). A construction that perturbs is checked by a probe that
+perturbs the same way: an exact ray to a point on the edge, compared contour by contour against a dumped
+mark, so that a mismatch is a defect and not the tie-breaking rule seen from outside.
+
+## 149. A launch delay is read as blocked time and instructions before it is read as work
+
+Round 1644 was sent after thirty milliseconds Qt's window seemed to pay for the device lane, and found
+nine: the window's thread executed the same instructions to its first resize on both lanes to a hundredth
+of a percent, and the difference was time blocked on the dynamic loader's lock while the device thread
+loaded the Vulkan driver and its LLVM beside it (ADR 2124). Two threads that both load shared objects
+serialise on that lock, and the wait shows as neither CPU time nor anything a trace names. Before a launch
+delay is read as work to remove, sample each thread's `schedstat` to the milestone and count its
+instructions under callgrind; what is blocked is not a lever on the code that waits.
+

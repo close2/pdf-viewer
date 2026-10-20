@@ -336,7 +336,7 @@ pub(super) fn colour_space(
 /// The one difference from [`colour_space`] is the resources, and it is the whole of this
 /// function: a soft-mask image's samples are §11.6.4.3's mask values rather than colours, so
 /// §8.6.5.6's default colour space mechanism has nothing here to remap. The clause says so
-/// itself — "[c]olour values in the original device colour space shall be passed unchanged to
+/// itself — "\[c]olour values in the original device colour space shall be passed unchanged to
 /// the default colour space" — so the remapping never changes a component's *value*, only
 /// which colour that value denotes; and what §11.6.5.2 uses is the value. Table 143 fixes the
 /// entry at one word, "Required; shall be `DeviceGray`", a name no resource dictionary is

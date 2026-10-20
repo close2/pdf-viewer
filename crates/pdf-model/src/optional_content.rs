@@ -38,15 +38,15 @@
 //! # What is deliberately not here
 //!
 //! **This section listed five entries and four of them arrived**, and it went on saying they had
-//! not for as long as the panel has existed. It read: "[t]he states of groups are read from the
+//! not for as long as the panel has existed. It read: "\[t]he states of groups are read from the
 //! document and never changed. §8.11.4.5's automatic adjustment from usage application
 //! dictionaries (`/AS`), the radio-button relationships of `/RBGroups`, `/Locked`, the
 //! presentation `/Order` and the alternate `/Configs` all describe an interactive processor
 //! offering the user a layer panel … When a layer panel exists, this is the module it attaches
 //! to." The panel exists, this is the module it attached to, and the sentence stayed — which is
 //! the "capability that arrived and announced nothing" shape `doc/todo/02` §1 names. `/AS` is
-//! [`apply_event`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
-//! [`OptionalContent::is_locked`] and `/Order` is [`presentation`].
+//! `apply_event`, `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
+//! [`OptionalContent::is_locked`] and `/Order` is `presentation`.
 //!
 //! What is genuinely not here is Table 98's `/Configs` and the `/Name` and `/Creator` of a
 //! configuration, all three of which exist so that a person may choose *between* configurations
@@ -70,7 +70,7 @@ const MAX_EXPRESSION_DEPTH: usize = 32;
 
 /// What the output being produced is for: §8.11.4.4's three events, as a host states them.
 ///
-/// Table 101's `/Event` "[s]hall be one of View, Print , or Export", and §8.11.4.5 says when each
+/// Table 101's `/Event` "\[s]hall be one of View, Print , or Export", and §8.11.4.5 says when each
 /// one runs. The `View` dictionaries run when the document is opened and again whenever a factor
 /// they depend on moves; the other two run over an operation that is under way:
 ///
@@ -93,7 +93,7 @@ const MAX_EXPRESSION_DEPTH: usize = 32;
 /// every caller that says nothing gets. ADR 1173.
 ///
 /// **This is not Table 101's `/Category`**, and §8.11.4.5 NOTE 3 is why the two are separate
-/// types: "[a]lthough the event types Print and Export have identically named counterparts that
+/// types: "\[a]lthough the event types Print and Export have identically named counterparts that
 /// are usage categories, the corresponding usage application dictionaries are permitted to
 /// specify that other categories can be applied."
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -139,7 +139,7 @@ pub enum Visibility {
     Visible,
     /// Not drawn: the document's default configuration hides it.
     Hidden,
-    /// A `/VE` visibility expression nested deeper than [`MAX_EXPRESSION_DEPTH`].
+    /// A `/VE` visibility expression nested deeper than `MAX_EXPRESSION_DEPTH`.
     ///
     /// The content is drawn — of the two ways to be wrong, drawing something that should be
     /// hidden is the one a reader can see — and the interpreter reports it, because a bound
@@ -195,7 +195,7 @@ pub struct OptionalContent {
     /// The same groups with §8.11.4.5 b)'s state, before any usage application dictionary.
     ///
     /// Kept because the reapplication that clause requires has to start from somewhere that is
-    /// not the answer to the last zoom: "[t]his state shall be the initial state used by all PDF
+    /// not the answer to the last zoom: "\[t]his state shall be the initial state used by all PDF
     /// processors", and the automatic adjustment is stated as running over it.
     initial: BTreeMap<ObjectId, bool>,
     /// Every usage application dictionary the configuration states, resolved once; see
@@ -203,7 +203,7 @@ pub struct OptionalContent {
     applications: Vec<UsageApplication>,
     /// The states as a `Print` or `Export` event leaves them, or `None` under [`Purpose::View`].
     ///
-    /// §8.11.4.5 gives each of those two events a *duration* — "[t]hese changes shall persist
+    /// §8.11.4.5 gives each of those two events a *duration* — "\[t]hese changes shall persist
     /// only for the duration of the print operation; then all groups shall revert to their prior
     /// states" — so the event is an overlay over [`Self::states`] rather than a write into it,
     /// and the reverting is deleting the overlay. Nothing can drift, and no caller has to
@@ -211,7 +211,7 @@ pub struct OptionalContent {
     under_event: Option<BTreeMap<ObjectId, bool>>,
     /// Groups a manual change has pinned, which the reapplication may not touch.
     ///
-    /// §8.11.4.5: "[m]anual changes shall override the states that were set automatically. The
+    /// §8.11.4.5: "\[m]anual changes shall override the states that were set automatically. The
     /// states of these groups remain overridden and shall not be readjusted based on usage
     /// application dictionaries with event type View as long as the document is open."
     overridden: BTreeSet<ObjectId>,
@@ -231,8 +231,8 @@ pub struct OptionalContent {
     /// Table 99's `/Order`: how a user interface presents the groups, as a tree.
     ///
     /// Empty for a document that states none, which §8.11.4.3 makes decisive for the default
-    /// configuration: "[i]n the default configuration dictionary, the default value shall be an
-    /// empty array", and "[a]ny groups not listed in this array shall not be presented in any
+    /// configuration: "\[i]n the default configuration dictionary, the default value shall be an
+    /// empty array", and "\[a]ny groups not listed in this array shall not be presented in any
     /// user interface that uses the configuration". So an empty `/Order` is a document saying
     /// its layers are not a person's business, and is not the same as a missing panel.
     order: Vec<Presented>,
@@ -478,12 +478,12 @@ impl OptionalContent {
     /// is being drawn at, [`Audience`]'s answers to the `User` and `Language` categories, and
     /// [`Purpose`] — what the output is for. `None` for the magnification is
     /// `ViewState::magnification`'s own *nobody has said*, and is answered at
-    /// [`UNSTATED_MAGNIFICATION`].
+    /// `UNSTATED_MAGNIFICATION`.
     ///
     /// **Two applications, in the clause's own order and over different bases.** The `View`
-    /// dictionaries run first, over §8.11.4.5 b)'s initial state, and write [`Self::states`].
+    /// dictionaries run first, over §8.11.4.5 b)'s initial state, and write `Self::states`.
     /// Then, where the purpose is not [`Purpose::View`], that event's dictionaries run "over the
-    /// current states" and their result becomes [`Self::under_event`] — an overlay, because the
+    /// current states" and their result becomes `Self::under_event` — an overlay, because the
     /// clause gives them a duration rather than a destination. ADR 1173.
     ///
     /// Returns whether any group's state moved, so a caller can decide whether the page has to
@@ -576,7 +576,7 @@ impl OptionalContent {
 
     /// Whether a group is on, for a caller that holds the group's identity.
     ///
-    /// `None` for a group that takes no part in deciding visibility — see [`Self::state_of`],
+    /// `None` for a group that takes no part in deciding visibility — see `Self::state_of`,
     /// whose answer this is.
     #[must_use]
     pub fn state(&self, group: ObjectId) -> Option<bool> {
@@ -587,7 +587,7 @@ impl OptionalContent {
     ///
     /// Empty for every document that names none, which is all 974 in the corpus, and empty
     /// again wherever a host has answered: see [`Audience`] for the two questions and
-    /// [`apply_event`] for why the clause's "otherwise OFF" is the answer to a comparison rather
+    /// `apply_event` for why the clause's "otherwise OFF" is the answer to a comparison rather
     /// than to there being nobody to compare with.
     #[must_use]
     pub fn unresolved_usage(&self) -> &[&'static str] {
@@ -741,9 +741,9 @@ pub enum Presented {
     /// A nested array, with the optional text string the clause allows as its first element.
     ///
     /// §8.11.4.3 distinguishes the two shapes and says what each means, which is why the label
-    /// is an `Option` rather than a `String`: "[t]ext labels in nested arrays shall be used to
+    /// is an `Option` rather than a `String`: "\[t]ext labels in nested arrays shall be used to
     /// present collections of related optional content groups, and not to communicate actual
-    /// nesting of content inside multiple layers of groups", and "[t]o reflect actual nesting of
+    /// nesting of content inside multiple layers of groups", and "\[t]o reflect actual nesting of
     /// groups in the content, such as for layers with sublayers, nested arrays of groups
     /// without a text label shall be used". A panel that drew both the same way would tell a
     /// person that a heading is a layer.
@@ -789,7 +789,7 @@ const MAX_FORM_DEPTH: usize = 8;
 /// content whose visibility those groups decide.
 ///
 /// **Resources are followed into nested forms**, since a group referenced by a template placed
-/// on the page is referenced by the page. Bounded by [`MAX_FORM_DEPTH`] and by a visited set,
+/// on the page is referenced by the page. Bounded by `MAX_FORM_DEPTH` and by a visited set,
 /// both because the nesting is a document's word.
 ///
 /// This does *not* interpret the page: a `BDC /OC` naming a property this walk found is what
@@ -1068,7 +1068,7 @@ fn covers(configuration: &BTreeSet<Vec<u8>>, intent: &[u8]) -> bool {
 /// [`Purpose`] is the input that says which operation is under way.
 ///
 /// **Read once, applied many times, and that is what the next sentence of §8.11.4.5 costs**:
-/// "[w]henever there is a change to a factor that the usage application dictionaries with event
+/// "\[w]henever there is a change to a factor that the usage application dictionaries with event
 /// type View depend on (such as zoom level), the corresponding dictionaries shall be reapplied".
 /// A reapplication that re-read the document would put dictionary lookups on every step of a
 /// zoom gesture; resolving Table 100's entries here instead makes [`apply_event`] a function of
@@ -1111,7 +1111,7 @@ enum Category {
     /// A name §8.11.4.4's list does not reach, which therefore recommends nothing.
     ///
     /// Two different things land here and neither yields a state. `PageElement` and
-    /// `CreatorInfo` *are* Table 100 entries, and §8.11.4.4's "[t]he entries in the usage
+    /// `CreatorInfo` *are* Table 100 entries, and §8.11.4.4's "\[t]he entries in the usage
     /// dictionary shall be used as follows" list states no rule for either — a pagination
     /// artifact and an authoring application's private data are descriptions rather than
     /// recommendations. A name that is no Table 100 entry at all corresponds to no usage entry,
@@ -1201,15 +1201,15 @@ struct Usage {
 /// §8.11.4.4's answers about *this* processor, which a host supplies.
 ///
 /// Two of Table 100's categories ask questions no document can answer and no renderer may
-/// invent. §8.11.4.4, of `User`: "[t]he Name entry shall specify a name or names to match with
-/// the user's identification"; and of `Language`: "[t]his category shall allow the selection of
+/// invent. §8.11.4.4, of `User`: "\[t]he Name entry shall specify a name or names to match with
+/// the user's identification"; and of `Language`: "\[t]his category shall allow the selection of
 /// content based on the language and locale of the application". Both are facts about the
 /// machine and the person in front of it, so `CLAUDE.md` principle 3's rule applies — the
 /// policy is asked once, in a place a host can supply — and the surfaces are the ones
 /// ADR 1076 and ADR 1101 built for a trust anchor and a referenced file.
 ///
 /// **[`Audience::NONE`] is the default and is what every caller that says nothing gets.** Under
-/// it both categories are [`Recommendation::Unanswerable`], the configuration's own state
+/// it both categories are `Recommendation::Unanswerable`, the configuration's own state
 /// stands, and the page says which category it could not answer — which is the position this
 /// program was in before a host could answer at all. ADR 1106.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1447,7 +1447,7 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
 ///
 /// # It sets, and a category that read nothing does not make it set ON
 ///
-/// "[S]hall be set to ON" is an assignment over `base` rather than an AND with it, and the
+/// "\[S]hall be set to ON" is an assignment over `base` rather than an AND with it, and the
 /// clause's own example is what proves it: under `/BaseState /OFF` with `/ON [1 0 R]`, objects
 /// 2 and 3 start off, and the example says the `View` dictionary "specifies that all optional
 /// content groups have their states managed based on zoom level when viewing" — which a rule
@@ -1465,12 +1465,12 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
 /// gives the events different ones. For `View` it is §8.11.4.5 b)'s initial state — after
 /// `/BaseState` and the array opposite it — so that the answer is a function of the factors
 /// rather than of the order the zoom steps arrived in, which is what the reapplication requires:
-/// "[w]henever there is a change to a factor that the usage application dictionaries with event
+/// "\[w]henever there is a change to a factor that the usage application dictionaries with event
 /// type View depend on (such as zoom level), the corresponding dictionaries shall be reapplied".
 /// For `Print` and `Export` it is the states as they stand, because those two are "applied over
 /// the current states of optional content groups".
 ///
-/// `skip` is the exception the same clause writes, and it is written for `View` alone: "[m]anual
+/// `skip` is the exception the same clause writes, and it is written for `View` alone: "\[m]anual
 /// changes shall override the states that were set automatically. The states of these groups
 /// remain overridden and shall not be readjusted based on usage application dictionaries with
 /// event type View as long as the document is open". [`OptionalContent::apply`] is where a group
@@ -1487,7 +1487,7 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
 /// `User` and `Language` are questions about this processor, and [`Audience`] is where a host
 /// answers them. With an answer, §8.11.4.4's own sentences decide; with none, the category is
 /// [`Recommendation::Unanswerable`], the state stands and the page reports it. **That is the
-/// clause's own division rather than a departure from it.** Of `User` it writes "[i]f there is
+/// clause's own division rather than a departure from it.** Of `User` it writes "\[i]f there is
 /// an exact match, the ON state shall be used; otherwise OFF shall be used" — and "otherwise" is
 /// the second branch of a *comparison with the user's identification*, not a verdict on there
 /// being nobody to compare with. So a host that says who is reading gets the OFF, and a machine

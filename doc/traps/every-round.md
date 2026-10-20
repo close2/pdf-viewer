@@ -10,7 +10,8 @@ file it was told to open bites.
 
 **A row here is a lookup key and not the trap.** The incident, the evidence and the argument are in
 the group file the last column names; nothing is decided from a row alone (ADR 1036). The rows are
-the full index's rows, verbatim: a change to one is made in `README.md` and copied here.
+the full index's rows, verbatim: a change to one is made in `README.md` and copied here, and
+`cargo test -p conformance --test every_round_rows` fails on a copy that differs (ADR 2127).
 
 **Two of the ten are not optional for the round they are about.** If this round can change a pixel,
 **trap 1** is the one that has paid every session since the tenth; if it adds a report, **trap 11**

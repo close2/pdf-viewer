@@ -478,7 +478,7 @@ impl Interpreter<'_> {
     /// Closes a scope opened by [`Self::open_reading_scope`]: the enclosing record comes back
     /// untouched but for whether a seal was made, and the scope's own is the answer, with the
     /// reading in force at its end — which a text object hands on, since §9.3.8 makes
-    /// "[c]hanges made to graphics state parameters within the text object ... persist beyond
+    /// "\[c]hanges made to graphics state parameters within the text object ... persist beyond
     /// the end of the text object".
     pub(in crate::content) fn close_reading_scope(
         &mut self,

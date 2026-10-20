@@ -2304,6 +2304,99 @@ impl ScriptAnswerKind {
     }
 }
 
+/// Which of the reader's decisions `quorra_settings_set` sets: `viewer_host::policy::Policy`'s
+/// six, the acts a document asks of this machine (RFC 0010 section 5, ADR 2120).
+///
+/// The restrictions are not among them: they cross as `QUORRA_RESTRICTED_*` and
+/// `QUORRA_RESTRICT_*`, which `quorra_settings_restrict` takes as `quorra_restrict_operation` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PolicyKind {
+    /// §12.6.4.8's URI handed to another program.
+    Links = 0,
+    /// §12.6.4.3's other PDF file opened beside this one.
+    RemoteDocuments = 1,
+    /// §O.2.1's `ef` opened as a document.
+    EmbeddedDocuments = 2,
+    /// §12.7.6.2's form, or a fetched `fdf`, sent to a server.
+    Submissions = 3,
+    /// A document's scripts run.
+    Scripts = 4,
+    /// §10.8.3's separation simulation: `QUORRA_LEVEL_REFUSE` for off, `QUORRA_LEVEL_PROCEED` for on.
+    Separations = 5,
+}
+
+impl PolicyKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Links,
+            1 => Self::RemoteDocuments,
+            2 => Self::EmbeddedDocuments,
+            3 => Self::Submissions,
+            4 => Self::Scripts,
+            5 => Self::Separations,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-host` calls it.
+    #[must_use]
+    pub const fn policy(self) -> viewer_host::policy::Policy {
+        use viewer_host::policy::Policy;
+        match self {
+            Self::Links => Policy::Links,
+            Self::RemoteDocuments => Policy::RemoteDocuments,
+            Self::EmbeddedDocuments => Policy::EmbeddedDocuments,
+            Self::Submissions => Policy::Submissions,
+            Self::Scripts => Policy::Scripts,
+            Self::Separations => Policy::Separations,
+        }
+    }
+}
+
+/// A level on the scale `quorra_settings_set`'s policies share, least permissive first: each
+/// policy's own four words in their order, so `QUORRA_SCRIPTS_*` are the same numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum LevelKind {
+    /// The act is not done, and said.
+    Refuse = 0,
+    /// The act is put to the person first.
+    Ask = 1,
+    /// The act is done, and said afterwards.
+    Warn = 2,
+    /// The act is done.
+    Proceed = 3,
+}
+
+impl LevelKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Refuse,
+            1 => Self::Ask,
+            2 => Self::Warn,
+            3 => Self::Proceed,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-host` calls it.
+    #[must_use]
+    pub const fn level(self) -> viewer_host::policy::Level {
+        use viewer_host::policy::Level;
+        match self {
+            Self::Refuse => Level::Refuse,
+            Self::Ask => Level::Ask,
+            Self::Warn => Level::Warn,
+            Self::Proceed => Level::Proceed,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

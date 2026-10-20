@@ -138,6 +138,7 @@ mod kinds;
 mod panels;
 mod reads;
 mod session;
+mod settings;
 mod shapes;
 mod status;
 mod window;
@@ -152,11 +153,11 @@ pub use kinds::{
     AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
     BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
     DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, LayoutKind, MarkupKind, MeasurePart, MethodKind, NavigatorKind,
-    NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind,
-    PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RestrictedKind,
-    RowKind, ScopeKind, ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind,
-    SelectKind, ShortfallKind, TextKind, ZoomKind,
+    FolderTextKind, InitialKind, LayoutKind, LevelKind, MarkupKind, MeasurePart, MethodKind,
+    NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat,
+    PointerKind, PolicyKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
+    RestrictKind, RestrictedKind, RowKind, ScopeKind, ScriptAnswerKind, ScriptQuestionKind,
+    ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use reads::Reads;
@@ -164,6 +165,7 @@ pub use session::{
     FrameInfo, Session, clock_date, data_format_of_media_type, rasterise, rasterise_window,
     window_for,
 };
+pub use settings::Stated;
 pub use shapes::Quads;
 pub use status::Status;
 pub use window::{OwedKind, Owing, Window};

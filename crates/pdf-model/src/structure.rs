@@ -8,7 +8,7 @@
 //! # The one question a content stream can ask
 //!
 //! A content stream cannot refer to a structure element: §14.7.5.4 says so and gives the
-//! reason — "[b]ecause a stream cannot contain object references, there is no way for content
+//! reason — "\[b]ecause a stream cannot contain object references, there is no way for content
 //! items that are marked-content sequences to refer directly back to their parent structure
 //! elements". The standard's answer is the **structural parent tree**, a §7.9.7 number tree
 //! keyed by the page's own `/StructParents`, whose value is an array indexed by
@@ -125,7 +125,7 @@ impl ParentTree {
 
     /// The structure element a marked-content identifier belongs to.
     ///
-    /// Resolved here rather than when the tree was read; see [`Self::entries`].
+    /// Resolved here rather than when the tree was read; see `Self::entries`.
     #[must_use]
     pub fn element(&self, document: &Document, mcid: i64) -> Option<Dictionary> {
         let index = usize::try_from(mcid).ok()?;
@@ -198,7 +198,7 @@ const MAX_OBJECT_SEARCH: usize = 8192;
 ///
 /// and the third possibility is not a content item at all but another element, which is what
 /// makes the structure a tree. The clause's own restriction is what keeps this an enum rather
-/// than a recursive type: "[c]ontent items shall be leaf nodes of the structure tree".
+/// than a recursive type: "\[c]ontent items shall be leaf nodes of the structure tree".
 #[derive(Debug, Clone, PartialEq)]
 pub enum Child {
     /// Another structure element.
@@ -260,7 +260,7 @@ pub enum Child {
 /// element per paragraph and a child per marked-content sequence, and nothing here needs all
 /// of them at once. [`Tree::children`] is the whole traversal, and it is the same function
 /// for the root and for an element because Table 354 and Table 355 give `/K` the same
-/// meaning in both — "[t]he K entry shall specify the immediate children of the structure
+/// meaning in both — "\[t]he K entry shall specify the immediate children of the structure
 /// tree root, which shall be structure elements".
 ///
 /// # What this is for
@@ -295,7 +295,7 @@ impl Tree {
     ///
     /// `/K` is "a dictionary or array" at the root and one of four things at an element, and
     /// an array may mix all of them; a dictionary with no `/Type` is a structure element,
-    /// which Table 355 states outright — "[i]f the value of K is a dictionary containing no
+    /// which Table 355 states outright — "\[i]f the value of K is a dictionary containing no
     /// Type entry, it shall be assumed to be a structure element dictionary".
     ///
     /// `inherited_page` is the `/Pg` of the element being asked about, because Table 355
@@ -388,7 +388,7 @@ impl Tree {
     /// Every descendant of the root, depth first, with its depth.
     ///
     /// The order is §14.7.2's own: `/K` is a list, and the tree's order is what §14.8.2 calls
-    /// the document's logical reading order. Bounded by [`MAX_DEPTH`], by [`MAX_ELEMENTS`] and
+    /// the document's logical reading order. Bounded by `MAX_DEPTH`, by `MAX_ELEMENTS` and
     /// by visiting each element once, because `/K` and `/P` are references a document controls.
     ///
     /// The bound is *reported* rather than applied in silence — [`Reading::truncated`] — because a
@@ -424,7 +424,7 @@ impl Tree {
     ///
     /// # What is real content, and what is left out
     ///
-    /// §14.8.2.2.1: "[w]here artifacts are to be included in the structure tree, they shall be
+    /// §14.8.2.2.1: "\[w]here artifacts are to be included in the structure tree, they shall be
     /// included through the Artifact structure element type, and shall not be considered real
     /// content." So a sequence under an `Artifact` element gives no piece, and neither does a
     /// range of `artifacts` that §14.8.2.2.2's marked-content method declared — the running head
@@ -434,7 +434,7 @@ impl Tree {
     /// # Why it may answer `None`, which is the whole design
     ///
     /// A byte that is neither reached by the traversal nor declared an artifact is content the
-    /// structure says nothing about. §14.8.2.2.2's other sentence calls it an artifact too — "[a]ny
+    /// structure says nothing about. §14.8.2.2.2's other sentence calls it an artifact too — "\[a]ny
     /// content that is not included in the structure tree is an artifact" — but that is this
     /// reader's inference from an absence, and it cannot tell a decoration a producer left untagged
     /// from a paragraph its tree forgot. Leaving it out of what a person dragged over would make a
@@ -481,7 +481,7 @@ impl Tree {
     ///
     /// Takes the readback and its spans rather than a whole [`crate::Interpretation`], because
     /// the one caller that has a selection keeps those and not the interpretation — the same
-    /// shape [`crate::accessibility::nodes`] takes and for the same reason.
+    /// shape [`crate::accessibility::speech`] takes and for the same reason.
     #[must_use]
     pub fn logical_range(
         &self,
@@ -595,7 +595,7 @@ impl Tree {
     /// [`Self::children`], with the object each child was reached through where it was reached
     /// through one.
     ///
-    /// The identity is what [`Self::descend`] remembers, and it is deliberately not on
+    /// The identity is what `Self::descend` remembers, and it is deliberately not on
     /// [`Child`]: an element's *identity* is a fact about how the walk got there rather than
     /// about what the element is, and every other consumer of `children` wants the four forms
     /// §14.7.5.1.1 defines and nothing beside them.
@@ -650,7 +650,7 @@ struct OwnerSearch<'a> {
 
 /// A reading of the structure tree, and whether the bound cut it short.
 ///
-/// A bare `Vec` cannot say "there was more", and a walk that stops at [`MAX_ELEMENTS`] has
+/// A bare `Vec` cannot say "there was more", and a walk that stops at `MAX_ELEMENTS` has
 /// produced a *prefix* of §14.8.2.5's logical order rather than the order itself. Both readings
 /// this crate offers carry the flag, because both are §14.7.2's tree in a different shape and a
 /// consumer of either has the same thing to lose by not knowing.
@@ -658,7 +658,7 @@ struct OwnerSearch<'a> {
 pub struct Reading<T> {
     /// What was read, in the tree's own order.
     pub items: Vec<T>,
-    /// Whether [`MAX_ELEMENTS`] stopped the read before the tree ran out.
+    /// Whether `MAX_ELEMENTS` stopped the read before the tree ran out.
     ///
     /// `false` for every document in reach of this project — ISO 32000-2's tree is the largest
     /// it owns and is an order of magnitude below the bound.
@@ -800,7 +800,7 @@ pub struct LogicalPiece {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Boundary {
     /// Nothing: the two are in one run of text, whatever inline elements open or close between
-    /// them. §14.8.4.7.1 makes an inline element a part of its block's content — "[i]nline
+    /// them. §14.8.4.7.1 makes an inline element a part of its block's content — "\[i]nline
     /// structure elements and portions of actual content inside a parent structure element may
     /// occur in any combination and in any order" — so a `Span` or an `/ActualText` boundary
     /// divides no word.
@@ -819,12 +819,12 @@ impl Boundary {
     /// either. Three exceptions, each a choice (ADR 1948):
     ///
     /// - **`Link`, `Annot` and `Form` end with nothing.** Table 368 makes each one about an
-    ///   annotation — a `Link` is "[a]n association between content enclosed by the Link structure
+    ///   annotation — a `Link` is "\[a]n association between content enclosed by the Link structure
     ///   element and a corresponding link annotation" — so the content it encloses is the
     ///   surrounding text's, and a link inside a list item's body, which §14.8.4.1's rule makes
     ///   block level because `LBody` is not a block, would otherwise break its sentence where the
     ///   link ends.
-    /// - **`Sub` ends a line**, though Table 367 calls it inline: it "[e]ncloses content typically
+    /// - **`Sub` ends a line**, though Table 367 calls it inline: it "\[e]ncloses content typically
     ///   perceived as a sub-division inside a block level structure element", and every example
     ///   the table gives is a line — of a verse, of source code, of a postal address.
     /// - **An element whose type is not standard ends with nothing** and takes its parent's
@@ -852,7 +852,7 @@ impl Boundary {
 /// the document, or the clause.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListContinuation {
-    /// `/ContinuedFrom`: "[t]he ID … of the list for which this list is a continuation".
+    /// `/ContinuedFrom`: "\[t]he ID … of the list for which this list is a continuation".
     ///
     /// Table 355's `/ID` of another element, **unresolved** — [`list_predecessors`] is what turns
     /// it into a place in a walk, for the reason [`Tree::cell_headers`] returns identifiers too.
@@ -876,7 +876,7 @@ pub struct ListEntry {
     pub position: usize,
     /// How deep the list is in §14.7.2's tree, which is what "the same level" is measured in.
     pub depth: usize,
-    /// Table 355's `/ID`, where the list states one: "[t]he element identifier, a byte string
+    /// Table 355's `/ID`, where the list states one: "\[t]he element identifier, a byte string
     /// designating this structure element."
     pub id: Option<Vec<u8>>,
     /// [`Tree::list_continuation`]'s answer for this list.
@@ -888,7 +888,7 @@ pub struct ListEntry {
 /// `lists` is every `L` element the walk reached, **in walk order**, and the answer maps a
 /// continuing list's `position` to its predecessor's. A continuing list that resolves to nothing is
 /// absent from the map rather than pointed at something invented — WTPDF's own NOTE on this pair
-/// says why that is still worth reporting: "[t]here is value to the ContinuedList attribute even
+/// says why that is still worth reporting: "\[t]here is value to the ContinuedList attribute even
 /// when the previous list is not present, since it would help to explain the partial nature of the
 /// content, for example, partial numbering."
 ///
@@ -948,15 +948,15 @@ pub fn list_predecessors(lists: &[ListEntry]) -> BTreeMap<usize, usize> {
 /// §14.8.5.6's `PrintField` attributes: what a non-interactive form field *was*. Table 383.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrintField {
-    /// `/Role`, "[t]he type of form field represented".
+    /// `/Role`, "\[t]he type of form field represented".
     ///
-    /// `None` is Table 383's own default — "[d]efault value: None specified" — which is an
+    /// `None` is Table 383's own default — "\[d]efault value: None specified" — which is an
     /// element carrying the other two entries and not saying what kind of field it was.
     pub role: Option<FieldRole>,
-    /// `/Checked` (or the deprecated `/checked`), "[t]he state of a radio button or check box
+    /// `/Checked` (or the deprecated `/checked`), "\[t]he state of a radio button or check box
     /// field". Table 383's default is [`Checked::Off`].
     pub checked: Checked,
-    /// `/Desc`, "[t]he alternate name of the field", which NOTE 3 likens to an interactive
+    /// `/Desc`, "\[t]he alternate name of the field", which NOTE 3 likens to an interactive
     /// field's `/TU`.
     pub description: Option<String>,
 }
@@ -972,7 +972,7 @@ pub enum FieldRole {
     PushButton,
     /// `tv`: a text-value field.
     ///
-    /// The clause says where its value is, and it is not in the attribute: "[t]he text that is
+    /// The clause says where its value is, and it is not in the attribute: "\[t]he text that is
     /// the value of the field shall be the content of the Form structure element", so a
     /// consumer reads the element's own text — which §14.8.2.5's logical order already gives it.
     TextValue,
@@ -1317,7 +1317,7 @@ impl TableStack {
         Self::default()
     }
 
-    /// Whether [`MAX_TABLE_GRID`] stopped this walk recording cells.
+    /// Whether `MAX_TABLE_GRID` stopped this walk recording cells.
     ///
     /// `true` means [`Self::headers`] answers for a *part* of the document's tables, which is a
     /// different statement from a document whose cells state no headers. Reported rather than
@@ -1476,7 +1476,7 @@ impl TableStack {
     /// A cell that states the attribute is answered from it, expanded by Table 384's own
     /// recursion — "the headers associated with any cell shall be those in its Headers array plus
     /// those in the Headers array of any TH cells in that array, and so on recursively" — and a
-    /// cell that states none is answered by [`Self::search`].
+    /// cell that states none is answered by `Self::search`.
     ///
     /// **A header found twice is answered once.** Two searches build one list and a cell spanning
     /// both axes can be met by both of them, and the standard says nothing about the case; naming
@@ -1644,7 +1644,7 @@ impl TableStack {
 
 /// §14.7.1's mark information dictionary. Table 353.
 ///
-/// Three booleans in the catalog's `/MarkInfo`, and the first is what §14.8.1 turns on: "[a]
+/// Three booleans in the catalog's `/MarkInfo`, and the first is what §14.8.1 turns on: "\[a]
 /// tagged PDF document shall contain a mark information dictionary … with a value of true for
 /// the Marked entry." So this is how a document *says* it is tagged, as against having a
 /// structure tree — which a document may have without claiming to follow §14.8's conventions.
@@ -1652,12 +1652,12 @@ impl TableStack {
 pub struct MarkInfo {
     /// `/Marked`: "whether the document conforms to tagged PDF conventions". Default false.
     ///
-    /// The entry's own sentence bounds what the claim is worth: "[i]f `Suspects` is true, the
+    /// The entry's own sentence bounds what the claim is worth: "\[i]f `Suspects` is true, the
     /// document may not completely conform to tagged PDF conventions."
     pub marked: bool,
     /// `/UserProperties`: whether any structure element carries §14.7.6.4's user properties.
     ///
-    /// A hint rather than a fact a reader needs: the clause says it "allow[s] PDF processors to
+    /// A hint rather than a fact a reader needs: the clause says it "allow\[s] PDF processors to
     /// quickly determine whether it is necessary to search the structure tree for elements
     /// containing user properties", and `Tree::attributes` finds them either way.
     pub user_properties: bool,
@@ -1687,7 +1687,7 @@ impl MarkInfo {
 
 /// §14.8.4's standard structure types: the vocabulary a tagged document's `/S` names.
 ///
-/// §14.8.4.1 makes the vocabulary closed for a tagged document — "[a]ll structure elements
+/// §14.8.4.1 makes the vocabulary closed for a tagged document — "\[a]ll structure elements
 /// occurring within a tagged PDF document shall have a type matching one of those defined as a
 /// Standard Structure Type, or a role map providing a mapping from the non-standard type to a
 /// Standard Structure Type" — which is why [`Tree::role`] exists and why this enum is what its
@@ -1700,9 +1700,9 @@ impl MarkInfo {
 /// default: which namespace defines which type is [`Self::defined_in`] (ADR 2014).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StandardType {
-    /// `Document`: "[e]ncloses a logical document".
+    /// `Document`: "\[e]ncloses a logical document".
     Document,
-    /// `DocumentFragment` (PDF 2.0): "[e]ncloses a logical document fragment".
+    /// `DocumentFragment` (PDF 2.0): "\[e]ncloses a logical document fragment".
     DocumentFragment,
     /// `Part`: "a grouping of structure elements without consideration for their hierarchy".
     Part,
@@ -1712,9 +1712,9 @@ pub enum StandardType {
     Division,
     /// `Aside` (PDF 2.0): content "distinct from other content within its parent".
     Aside,
-    /// `NonStruct`: "[a] grouping element having no inherent structural significance".
+    /// `NonStruct`: "\[a] grouping element having no inherent structural significance".
     NonStructural,
-    /// `P`: "[a] low-level division of content", usually a paragraph.
+    /// `P`: "\[a] low-level division of content", usually a paragraph.
     Paragraph,
     /// `Hn`: a heading at a stated level.
     ///
@@ -1732,27 +1732,27 @@ pub enum StandardType {
     SubBlock,
     /// `Lbl`: a label, "content that distinguishes it from other content inside the same parent".
     Label,
-    /// `Span`: "[a] generic inline portion of content having no particular inherent
+    /// `Span`: "\[a] generic inline portion of content having no particular inherent
     /// characteristics".
     Span,
     /// `Em` (PDF 2.0): content emphasised.
     Emphasis,
     /// `Strong` (PDF 2.0): content of "strong importance".
     Strong,
-    /// `Link`: "[a]n association between content enclosed by the Link structure element and a
+    /// `Link`: "\[a]n association between content enclosed by the Link structure element and a
     /// corresponding link annotation" (§12.5.6.5), whose own subclause is §14.8.4.7.3.
     Link,
-    /// `Annot`: "[e]ncloses one or more PDF annotations and associated content, if any".
+    /// `Annot`: "\[e]ncloses one or more PDF annotations and associated content, if any".
     ///
     /// Errata Collection 3 Issue #437 rewrites this row and `Form`'s away from *association*: the
     /// annotation is what the element is for and the content is the optional part, which is the
     /// reverse of what an association reads as (ADR 0273).
     Annotation,
-    /// `Form`: "[e]ncloses a PDF widget annotation and associated content, if any" (§12.7).
+    /// `Form`: "\[e]ncloses a PDF widget annotation and associated content, if any" (§12.7).
     Form,
     /// `Ruby`: the wrapper "around an entire ruby assembly".
     Ruby,
-    /// `RB`: ruby base text, "[t]he full-size text to which the ruby annotation is applied".
+    /// `RB`: ruby base text, "\[t]he full-size text to which the ruby annotation is applied".
     RubyBase,
     /// `RT`: ruby annotation text, the smaller text placed beside the base.
     RubyText,
@@ -1766,11 +1766,11 @@ pub enum StandardType {
     WarichuPunctuation,
     /// `L`: a list.
     List,
-    /// `LI`: one member of a list, "[i]nternal to L (List) structure elements".
+    /// `LI`: one member of a list, "\[i]nternal to L (List) structure elements".
     ListItem,
-    /// `LBody`: "[t]he actual content of a list item", internal to `LI`.
+    /// `LBody`: "\[t]he actual content of a list item", internal to `LI`.
     ListItemBody,
-    /// `Table`: "[a] two-dimensional logical structure of cells".
+    /// `Table`: "\[a] two-dimensional logical structure of cells".
     Table,
     /// `TR`: a table row.
     TableRow,
@@ -1867,7 +1867,7 @@ pub enum Nonstandard {
     /// The element states no `/S`, which Table 355 makes required.
     Unstated,
     /// The name ends in a standard structure namespace, or in none, and that vocabulary does not
-    /// define it: §14.8.4.1's requirement unmet by the document, since "[a]ll structure elements
+    /// define it: §14.8.4.1's requirement unmet by the document, since "\[a]ll structure elements
     /// occurring within a tagged PDF document shall have a type matching one of those defined as
     /// a Standard Structure Type, or a role map providing a mapping from the non-standard type to
     /// a Standard Structure Type".
@@ -1919,13 +1919,13 @@ fn standard_in(
 /// the clause's own rule attached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
-    /// "[I]dentify a whole document or a fragment of a document."
+    /// "\[I]dentify a whole document or a fragment of a document."
     Document,
-    /// "[M]ake it possible to organise the overall structure of content."
+    /// "\[M]ake it possible to organise the overall structure of content."
     Grouping,
-    /// "[S]tructure types that enclose actual content, like a heading or paragraph."
+    /// "\[S]tructure types that enclose actual content, like a heading or paragraph."
     Block,
-    /// "[E]nable structural organisation of content inside block level elements."
+    /// "\[E]nable structural organisation of content inside block level elements."
     Inline,
     /// A type whose category depends on where it is used, resolved by [`Category::of`].
     Contextual,
@@ -1973,7 +1973,7 @@ impl StandardType {
 
     /// Reads a name in one standard structure namespace, or `None` for one it does not define.
     ///
-    /// §14.8.6.1 makes the vocabulary a namespace's: "[t]his schema is called the standard
+    /// §14.8.6.1 makes the vocabulary a namespace's: "\[t]his schema is called the standard
     /// structure namespace for PDF 2.0", and the PDF 1.7 one is ISO 32000-1's clause 14.8. So a
     /// `Note` is a type in the default namespace and a name nobody defined in PDF 2.0's, and an
     /// `Em` the other way round — Annex M's two lists, which [`Self::defined_in`] holds.
@@ -2187,7 +2187,7 @@ impl StandardType {
 /// other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WritingMode {
-    /// `LrTb`: "[i]nline progression from left to right; block progression from top to bottom."
+    /// `LrTb`: "\[i]nline progression from left to right; block progression from top to bottom."
     ///
     /// The default, and "the typical writing mode for Western writing systems".
     #[default]
@@ -2284,9 +2284,9 @@ impl BlockProgression {
 /// edges.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BlockSpacing {
-    /// `/SpaceBefore`: "[t]he amount of extra space preceding the before edge of the BLSE".
+    /// `/SpaceBefore`: "\[t]he amount of extra space preceding the before edge of the BLSE".
     pub before: f32,
-    /// `/SpaceAfter`: "[t]he amount of extra space following the after edge of the BLSE".
+    /// `/SpaceAfter`: "\[t]he amount of extra space following the after edge of the BLSE".
     pub after: f32,
 }
 
@@ -2307,7 +2307,7 @@ pub struct BlockSpacing {
 /// documents its negative case outright — so a producer may state one and the adjusted edges may
 /// cross. A rectangle whose lower-left is above its upper-right is not a rectangle, and every
 /// consumer of this one intersects and unions; sorting keeps those meaning what they say. It is
-/// the same reading [`normalised_rectangle`] applies to §7.9.5's arrays, one step further on.
+/// the same reading `normalised_rectangle` applies to §7.9.5's arrays, one step further on.
 #[must_use]
 pub fn allocation_rectangle(
     content: [f32; 4],
@@ -2458,7 +2458,7 @@ fn widen(band: &mut (f32, f32), span: (f32, f32)) {
 /// > Any content that is not included in the structure tree is an artifact
 ///
 /// — and the sentence goes on to say it even of content no marked-content sequence tagged
-/// `/Artifact` encloses. NOTE 2 widens the subject: "[t]he phrase 'any content' above refers
+/// `/Artifact` encloses. NOTE 2 widens the subject: "\[t]he phrase 'any content' above refers
 /// to all page content as well as annotations."
 ///
 /// `included` is every range of `text` some route into the structure tree covers — a sequence the
@@ -2469,7 +2469,7 @@ fn widen(band: &mut (f32, f32), span: (f32, f32)) {
 /// # What decides inclusion, and what deliberately does not
 ///
 /// §14.7.5.2 makes the `/MCID` the mechanism — a sequence "may be specified as a content item …
-/// [t]he marked-content sequence shall contain a property list … containing an MCID entry" — so a
+/// \[t]he marked-content sequence shall contain a property list … containing an MCID entry" — so a
 /// sequence carrying one is a producer saying *this run is in the tree*. §14.7.5.4's parent tree is
 /// the **index** back from the mark to the element, and a file may write one without the other:
 /// two corpus documents state `/MCID`s their page's parent tree entry does not resolve while some
@@ -2526,15 +2526,15 @@ fn keep(text: &str, range: std::ops::Range<usize>, out: &mut Vec<std::ops::Range
 /// §14.8.2.2's artifact: content that is on the page and is not the document's content.
 ///
 /// §14.8.2.2.1 divides a page in two. The real content is "material intentionally introduced
-/// by the document's author and necessary to understand the content of the document"; "[a]ll
+/// by the document's author and necessary to understand the content of the document"; "\[a]ll
 /// other content is considered to be artifacts, whether generated by the PDF writer in the
 /// course of pagination, layout, or other mechanical processes or introduced by the document
 /// author for decoration".
 ///
 /// Nothing here changes a mark. What it changes is what a *consumer* of the page's text may
-/// do with it, and the clause is explicit that the choice is the consumer's: "[a] text-to-speech
+/// do with it, and the clause is explicit that the choice is the consumer's: "\[a] text-to-speech
 /// engine, for instance, may decide not to speak running heads or page numbers when the page is
-/// turned", and NOTE 3 adds that "[t]he purpose of tagged PDF is not to prescribe what the PDF
+/// turned", and NOTE 3 adds that "\[t]he purpose of tagged PDF is not to prescribe what the PDF
 /// processor does, but to provide sufficient declarative and descriptive information to allow it
 /// to make appropriate choices". So this crate reads which content is an artifact and of what
 /// kind, and drops none of it.
@@ -2548,7 +2548,7 @@ pub struct Artifact {
     pub kind: Option<ArtifactKind>,
     /// `/Subtype`, which "should appear only when the `Type` entry has a value of `Pagination`"
     /// in Table 363 and "of Pagination or Inline" in Table 385 — carried as written rather than
-    /// as an enum, because the entry is open in both: "[a]dditional values may be specified for
+    /// as an enum, because the entry is open in both: "\[a]dditional values may be specified for
     /// this entry, provided they comply with the naming conventions described in Annex E".
     pub subtype: Option<String>,
     /// `/BBox`: "the rectangle that completely encloses its visible extent", in default user
@@ -2594,7 +2594,7 @@ pub enum ArtifactKind {
     /// many pages".
     ///
     /// Table 363 alone, and the property list's `/Attached` has a sentence conditioned on it:
-    /// "[u]se of this entry for background artifacts shall be limited to full-page artifacts."
+    /// "\[u]se of this entry for background artifacts shall be limited to full-page artifacts."
     Background,
     /// `Inline` (PDF 2.0): artifact content "that has context in the document's logical
     /// structure" — typically, the cell says, an artifact whose subtype is `LineNum` or
@@ -2780,7 +2780,7 @@ pub fn annotation_languages(document: &Document, page: &Dictionary) -> BTreeMap<
 /// neither clause says which pair of corners comes first. §7.9.5 is why they are sorted rather
 /// than trusted: a rectangle is "an array of four numbers giving the coordinates of a pair of
 /// diagonally opposite corners", and the `[llx lly urx ury]` order is the one it says the array
-/// "[t]ypically" takes rather than the one it requires.
+/// "\[t]ypically" takes rather than the one it requires.
 fn normalised_rectangle(document: &Document, array: &Object) -> Option<[f32; 4]> {
     let items = array.as_array()?;
     if items.len() < 4 {
@@ -2812,12 +2812,7 @@ fn normalised_rectangle(document: &Document, array: &Object) -> Option<[f32; 4]>
 ///
 /// > To facilitate conversion of documents created against versions of the PDF standard
 /// > earlier than PDF 2.0, the default standard structure namespace shall be
-/// > "http://iso.org/pdf/ssn".
-#[expect(
-    clippy::doc_markdown,
-    reason = "a verbatim quotation: the bare URL is the standard's own text, and rustdoc's \
-              preferred `<…>` form would make the conformance gate's quotation check fail"
-)]
+/// > "`http://iso.org/pdf/ssn`".
 pub const DEFAULT_STANDARD_NAMESPACE: &str = "http://iso.org/pdf/ssn";
 
 /// §14.8.6.1's standard structure namespace for PDF 2.0.
@@ -2830,7 +2825,7 @@ pub const STANDARD_NAMESPACE_2_0: &str = "http://iso.org/pdf2/ssn";
 /// §14.8.6.3's one domain-specific namespace: `MathML`.
 ///
 /// "`MathML` is the only domain-specific namespace defined in PDF 2.0", and the clause exempts
-/// it from role mapping — a namespace named here "[does] not require a `RoleMapNS` entry".
+/// it from role mapping — a namespace named here "\[does] not require a `RoleMapNS` entry".
 ///
 /// **Without a version** (ADR 0254). `doc/md/` says
 /// "`MathML` 3.0" throughout the clause and Errata Collection 3 takes the version out of every
@@ -2852,10 +2847,10 @@ pub const MATHML_MATH_TYPE: &str = "math";
 /// §14.7.4.2's namespace dictionary. Table 356.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Namespace {
-    /// `/NS`: "[t]he string defining the namespace name which this entry identifies
+    /// `/NS`: "\[t]he string defining the namespace name which this entry identifies
     /// (conventionally a uniform resource identifier, or URI)".
     ///
-    /// A string rather than a URI: NOTE 1 says "[i]t is not generally expected that a URI for
+    /// A string rather than a URI: NOTE 1 says "\[i]t is not generally expected that a URI for
     /// a namespace name will resolve. It is instead used for uniqueness", so parsing it would
     /// answer a question nobody asks and could reject a name a document uses.
     pub name: String,
@@ -2921,7 +2916,7 @@ impl Namespace {
 ///
 /// The clause's own disjunction: "all structure elements shall be in at least one of the
 /// standard structure namespaces **or in a namespace identified in 14.8.6.3**". So the two of
-/// §14.8.6.1 and the one of §14.8.6.3, and nothing else — "[a]ny other namespaces can be
+/// §14.8.6.1 and the one of §14.8.6.3, and nothing else — "\[a]ny other namespaces can be
 /// specified within a PDF document, but shall meet the requirements of role mapping described in
 /// 14.8.6.2", which is what [`Tree::resolved`] has already followed by the time this is asked.
 ///
@@ -2980,7 +2975,7 @@ pub struct AttributeObject {
     ///
     /// One of §14.8.5's standard owners, `UserProperties`, `NSO`, or a name registered under
     /// Annex E. `NSO` means the owner is the namespace in [`Self::namespace`], which the
-    /// clause states in both directions: "[i]f the value for the O entry is NSO then the NS
+    /// clause states in both directions: "\[i]f the value for the O entry is NSO then the NS
     /// entry shall be present", and §14.7.4.2 adds that a namespace name matching a standard
     /// owner's "shall be considered equivalent".
     pub owner: String,
@@ -3034,7 +3029,7 @@ impl AttributeObject {
 
     /// The owner this object's attributes are interpreted under, after §14.7.4.2's equivalence.
     ///
-    /// §14.8.5.2 makes the owner the interpretation — "[m]ultiple owners may define like-named
+    /// §14.8.5.2 makes the owner the interpretation — "\[m]ultiple owners may define like-named
     /// attributes with different value types or interpretations" — and §14.7.4.2 says how an
     /// `NSO` object names one:
     ///
@@ -3090,7 +3085,7 @@ impl AttributeObject {
     /// The clause's first three priorities, each in its own words, and the band is decided by
     /// [`Self::effective_owner`] and [`Self::from_class`] together:
     ///
-    /// 1. [`Priority::Owner`] — "[t]he value of the attribute specified in the element's A
+    /// 1. [`Priority::Owner`] — "\[t]he value of the attribute specified in the element's A
     ///    entry, owned by an owner as specified by the O entry, or, if the value of the O entry
     ///    is NSO , the NS entry, excluding Layout, PrintField, Table , List and Artifact , if
     ///    present, and if processing based on the format indicated by the owner value";
@@ -3265,7 +3260,7 @@ fn ranked(
 /// owners rank below the format-specific ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Owner {
-    /// `Layout`: "[a]ttributes governing the layout of content".
+    /// `Layout`: "\[a]ttributes governing the layout of content".
     Layout,
     /// `List`: "governing the numbering of lists".
     List,
@@ -3428,7 +3423,7 @@ pub fn expansion(document: &Document, element: &Dictionary) -> Option<String> {
 /// > A structure element's language specification. If a structure element does not have a Lang
 /// > entry, the element shall inherit its language from any parent element that has one.
 ///
-/// So the walk goes up `/P` until an element states one, the chain ends, or [`MAX_ANCESTRY`] is
+/// So the walk goes up `/P` until an element states one, the chain ends, or `MAX_ANCESTRY` is
 /// reached. `None` means no element in the chain said anything, which leaves the document
 /// catalog's default in force.
 #[must_use]

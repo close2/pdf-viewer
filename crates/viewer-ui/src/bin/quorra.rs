@@ -300,17 +300,21 @@ fn main() {
         backend_asked_for,
         opens_at,
         fragment,
+        settings,
+        reader,
+        proxy_pages,
+        supersample,
+        coverage,
+    } = arguments(launch.began);
+    let viewer_host::Settings {
         restrictions,
         links,
         remote_documents,
         embedded_documents,
         submissions,
         separations,
-        reader,
-        proxy_pages,
-        supersample,
-        coverage,
-    } = arguments(launch.began);
+        ..
+    } = settings;
     // Copied rather than moved: the policy goes to the thread that opens the document *and* stays
     // with the window, which is what the menu edits and what the next document opened inherits
     // (ADR 1145).

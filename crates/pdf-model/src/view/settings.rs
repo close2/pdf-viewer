@@ -47,7 +47,7 @@ impl ViewState {
     /// never zooms need never call this and a host that does may call it on every frame, and
     /// `Interpretation::view_dependent` says whether this page has anything that would notice.
     /// And §8.11.4.4's `Zoom` category decides whether a layer is drawn at all, which §8.11.4.5
-    /// requires to be asked again every time this moves: "[w]henever there is a change to a
+    /// requires to be asked again every time this moves: "\[w]henever there is a change to a
     /// factor that the usage application dictionaries with event type View depend on (such as
     /// zoom level), the corresponding dictionaries shall be reapplied".
     ///
@@ -132,7 +132,7 @@ impl ViewState {
     /// > shall be done relative to the dimensions specified by the page's MediaBox entry
     ///
     /// So `None` is *not known*, which is every caller that renders for a screen — §12.5.6.22
-    /// requires that one by name, "[w]hen displaying a watermark annotation on-screen,
+    /// requires that one by name, "\[w]hen displaying a watermark annotation on-screen,
     /// interactive PDF processors shall use the dimensions of the media box ... so that the
     /// scroll and zoom behaviour is the same as for other annotations" — and `Some` is a sheet
     /// somebody chose, in default user space units.
@@ -184,7 +184,7 @@ impl ViewState {
 
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
     ///
-    /// The entry is "[t]he date and time when the annotation was most recently modified", and
+    /// The entry is "\[t]he date and time when the annotation was most recently modified", and
     /// `CLAUDE.md`'s rule 3 is why it arrives this way rather than being read: a renderer with no
     /// clock cannot know when anything happened, and an instant invented here would be a claim
     /// about a machine dressed as a fact about a document.

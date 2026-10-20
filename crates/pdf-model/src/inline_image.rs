@@ -62,7 +62,7 @@
 //! no decoder at all and answers `ASCII85Decode` and `ASCIIHexDecode`; and walking the framing
 //! answers the remaining three — §7.4.5's run headers, §7.4.8's ISO/IEC 10918-1 marker segments and
 //! §7.4.6 Table 11's end-of-block bit pattern. **Which filter is asked is Table 5's answer rather
-//! than a preference**: "[m]ultiple filters shall be specified in the order in which they are to be
+//! than a preference**: "\[m]ultiple filters shall be specified in the order in which they are to be
 //! applied", so the bytes after `ID` are the *first* stage's input, `/F [/A85 /Fl]` is answered by
 //! the base-85 marker and `/F /FlateDecode` by the decoder. `pdf_syntax::Delimiting` is the five
 //! shapes the seven filters this clause admits divide into. ADRs 0464, 0466, 0467.
@@ -292,7 +292,7 @@ fn read_dictionary(
 /// be used in place of the full names", so the two spellings are one entry and a file writing
 /// both with different values has written the same key twice. **Errata Collection 3 states the
 /// rule for that outright**: Issue #3, `/State` `Review` `Completed`, whose caret inserts
-/// "[i]n the situation where both an abbreviated key name and the corresponding full key name
+/// "\[i]n the situation where both an abbreviated key name and the corresponding full key name
 /// from Table 91 are present, the abbreviated key name shall take precedence" at that
 /// paragraph. `doc/md/` carries the base text rather than the caret (ADR 0252), so the sentence
 /// is the annotation's own words and is quoted here without a blockquote for that reason.

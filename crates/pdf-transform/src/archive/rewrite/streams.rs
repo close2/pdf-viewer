@@ -26,11 +26,13 @@ impl Rewriter<'_> {
     ) -> Rewritten {
         // ISO 32000-1's 8.8.2 defines a PostScript XObject as an XObject stream whose
         // `/Subtype` is `PS`, and says that its fragments have no effect when the document is
-        // viewed on screen or printed to a non-PostScript device. So dropping one takes nothing
-        // off any page this program can draw. ISO 32000-2 defines no such object at all.
+        // viewed on screen or printed to a non-PostScript device; ISO 32000-2 defines no such
+        // object at all. So a form with no content draws on every page exactly what it drew —
+        // nothing — and, written at the same object, keeps every resource entry naming it
+        // defined, which a `Do` the producer wrote needs (`doc/adr/2115`).
         if self.wants(Rewrite::PostScriptXObject) && self.subtype_is(&stream.dict, b"PS") {
             count(applied, Rewrite::PostScriptXObject);
-            return Rewritten::Dropped;
+            return Rewritten::Changed(drawing_nothing());
         }
         // The destination profile this reader could not draw through, written as the profile a
         // file stating no intent is given, at the object every entry names (`doc/adr/2007`).
@@ -168,7 +170,8 @@ impl Rewriter<'_> {
             }
             return Rewritten::Changed(metadata_stream(&stream.dict, packet));
         }
-        if self.wants(Rewrite::ExtensionSchemaPrefixes)
+        if (self.wants(Rewrite::ExtensionSchemaPrefixes)
+            || self.wants(Rewrite::ExtensionContainerDiscarded))
             && let Some(packet) = self
                 .respelled
                 .and_then(|respelled| respelled.packets.get(&id))
@@ -407,4 +410,28 @@ impl Rewriter<'_> {
             .and_then(|completed| completed.at.get(&id))
             .cloned()
     }
+}
+
+/// The form `XObject` a PostScript `XObject` is written as: §8.10's form with an empty content
+/// stream and an empty `/BBox`, which paints nothing wherever a `Do` invokes it (`doc/adr/2115`).
+fn drawing_nothing() -> Object {
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XObject"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"Form"[..])),
+    );
+    dict.insert(
+        Name::new(&b"BBox"[..]),
+        Object::Array(vec![Object::Integer(0); 4]),
+    );
+    dict.insert(Name::new(&b"Length"[..]), Object::Integer(0));
+    Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: Vec::new().into(),
+        decryption_failed: false,
+    }))
 }

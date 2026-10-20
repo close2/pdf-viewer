@@ -23,7 +23,7 @@
 //! states of the same page.
 //!
 //! The clause's own NOTE 1 says what a state is made of, and it is a thing this program already
-//! has: "[a] single page in a PDF presentation could have a series of bullet points that could
+//! has: "\[a] single page in a PDF presentation could have a series of bullet points that could
 //! be individually turned on and off. In such an example, the bullets would be represented by
 //! optional content, and each state of the page would be represented as a navigation node."
 //!
@@ -35,7 +35,7 @@
 //! # What is deliberately not here
 //!
 //! **Nothing here turns the presentation on**, and nothing here draws one. §12.4.4.2's NOTE 3
-//! says "[a]n interactive PDF processor needs to respect navigation nodes only when in
+//! says "\[a]n interactive PDF processor needs to respect navigation nodes only when in
 //! presentation mode", and this crate has no clock to run one with. So what a page *states* about
 //! a presentation is read here and a caller with a clock drives all three of these from the
 //! values.
@@ -53,7 +53,7 @@
 //! the document's own words belong to this crate, and what a window does with them does not.
 //!
 //! NOTE 2 states the obligation that comes with driving it, and it is the reason
-//! `ViewState` is a value a caller owns rather than something this crate hides: "[i]nteractive
+//! `ViewState` is a value a caller owns rather than something this crate hides: "\[i]nteractive
 //! PDF processors need to save the state of optional content groups when a user enters
 //! presentation mode and restore it when presentation mode ends." A `ViewState` is `Clone`, and
 //! that is the whole of what saving and restoring it takes.
@@ -258,7 +258,7 @@ pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> 
 /// > If no Dur entry is specified in the page object, the page shall not advance automatically.
 ///
 /// which is what `None` means here, and it is not the same as zero. NOTE 1 says the other half:
-/// "[t]he user can advance the page manually before the specified time has expired", so this is
+/// "\[t]he user can advance the page manually before the specified time has expired", so this is
 /// a maximum rather than a schedule.
 #[must_use]
 pub fn display_duration(document: &Document, page: &Dictionary) -> Option<f32> {

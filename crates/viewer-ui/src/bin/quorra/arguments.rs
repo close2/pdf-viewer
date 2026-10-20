@@ -9,7 +9,6 @@
 use std::path::PathBuf;
 
 use render_raster::QuorraWindowRenderer;
-use viewer_core::{RestrictionLevel, RestrictionPolicy};
 // `--coverage`'s answer is the device library's type, read by the lane decision (ADR 2052).
 pub(crate) use viewer_device::lane::CoverageChoice;
 
@@ -110,41 +109,17 @@ pub(crate) struct Arguments {
     pub(crate) opens_at: Option<usize>,
     /// Annex O's fragment identifier, where the argument carried one after a `#`.
     pub(crate) fragment: Option<String>,
-    /// What this reader does with the restrictions a document asserts, from
-    /// `--restrictions=` and `--ignore-restrictions`.
+    /// The reader's levels over what a document asserts and asks, read from the words every
+    /// window takes ([`viewer_host::Settings::take`], ADR 2120).
     ///
-    /// **Not a user interface for them**, which `CLAUDE.md` says is not to be built yet: it is
-    /// the one policy value `viewer-core` asks for, supplied the way this host supplies every
-    /// other one it has — the sandbox, the backend, the page to open at. The four levels the
-    /// project owner named, and the menu that will offer them, are later.
-    pub(crate) restrictions: RestrictionPolicy,
-    /// §12.6.4.8: what this window does when a link asks for a URI, from `--links=`.
-    ///
-    /// The other direction from the entry above: what a *document* asserts over its reader there,
-    /// and what a document asks this machine to start here. `viewer_host::Links::Ask` unless a
-    /// person said otherwise, which is the level that hands nothing over without a press and still
-    /// performs the act the clause describes (ADR 1155).
-    pub(crate) links: viewer_host::Links,
-    /// §12.6.4.3: what this window does when an action names another file, from
-    /// `--remote-documents=`.
-    ///
-    /// The same four levels as the entry above and a value of its own, because the two acts are
-    /// different: one starts another program on a URL, the other opens a PDF beside this one in
-    /// this reader. `viewer_host::RemoteDocuments::Ask` unless a person said otherwise (ADR 1227).
-    pub(crate) remote_documents: viewer_host::RemoteDocuments,
-    /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, from
-    /// `--embedded-documents=` — `ask` unless a person said otherwise (ADR 1331).
-    pub(crate) embedded_documents: viewer_host::EmbeddedDocuments,
-    /// §12.7.6.2's form and Table Annex O.4's fetched `fdf`: what this window sends to a server on
-    /// a document's behalf, from `--submissions=` — `ask` unless a person said otherwise (ADRs
-    /// 1291, 1527).
-    pub(crate) submissions: viewer_host::Submissions,
-    /// §10.8.3: whether this window asks for the separation simulation, from `--separations=`.
-    ///
-    /// A preference rather than a level: the clause conditions itself on a request no file makes
-    /// and §10.8.1 leaves it "up to the processing software". Off unless a person said otherwise
-    /// (ADR 1228).
-    pub(crate) separations: bool,
+    /// **Not a user interface for them**, which `CLAUDE.md` says is not to be built yet: the
+    /// restrictions are the one policy value `viewer-core` asks for, supplied the way this host
+    /// supplies every other one it has. A link, a remote document, an embedded one and a
+    /// submission stand at `ask` unless a person said otherwise, the level that hands nothing over
+    /// without a press and still performs the act the clause describes (ADRs 1155, 1227, 1331,
+    /// 1527); §10.8.3's simulation is a preference and off (ADR 1228). Its `scripts` is
+    /// [`viewer_host::ReaderWords`]', which reads `--scripts` with the value after it.
+    pub(crate) settings: viewer_host::Settings,
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader: the reader's three
     /// policy words, read by the [`viewer_host::ReaderWords`] every window shares (ADR 1581).
     ///
@@ -203,12 +178,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend = DEFAULT_BACKEND;
     let mut backend_asked_for = false;
     let mut opens_at = None;
-    let mut restrictions = RestrictionPolicy::default();
-    let mut links = viewer_host::Links::default();
-    let mut remote_documents = viewer_host::RemoteDocuments::default();
-    let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
-    let mut submissions = viewer_host::Submissions::default();
-    let mut separations = false;
+    let mut settings = viewer_host::Settings::default();
     let mut reader = viewer_host::ReaderWords::default();
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
@@ -277,90 +247,16 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             }
         } {
             // One of the reader's three policy words, with its value taken from the words after it.
-        } else if let Some(list) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::RESTRICTIONS)
-            .map(str::to_owned)
-        {
-            // `CLAUDE.md`'s four levels, one operation at a time. A command line is not the menu
-            // `doc/todo/38` still wants; it is the channel this program has today (ADR 1144).
-            match viewer_host::restrictions(&list, restrictions) {
-                Ok(policy) => restrictions = policy,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
+        } else if match settings.take(&argument.to_string_lossy()) {
+            Ok(taken) => taken.is_some(),
+            Err(complaint) => {
+                // Refused here rather than carried and refused later, for `--backend`'s reason.
+                eprintln!("{complaint}");
+                std::process::exit(2);
             }
-        } else if let Some(level) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::LINKS)
-            .map(str::to_owned)
-        {
-            // §12.6.4.8's act, at one of the same four levels (ADR 1155).
-            match viewer_host::links(&level) {
-                Ok(chosen) => links = chosen,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
-            }
-        } else if let Some(level) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::REMOTE_DOCUMENTS)
-            .map(str::to_owned)
-        {
-            // §12.6.4.3's act, at four levels of its own (ADR 1227).
-            match viewer_host::remote_documents(&level) {
-                Ok(chosen) => remote_documents = chosen,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
-            }
-        } else if let Some(level) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::EMBEDDED_DOCUMENTS)
-            .map(str::to_owned)
-        {
-            // §O.2.1's act, at four levels of its own (ADR 1331).
-            match viewer_host::embedded_documents(&level) {
-                Ok(chosen) => embedded_documents = chosen,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
-            }
-        } else if let Some(level) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::SUBMISSIONS)
-            .map(str::to_owned)
-        {
-            // §12.7.6.2's and a fetched import's act, at four levels of its own (ADR 1527).
-            match viewer_host::submissions(&level) {
-                Ok(chosen) => submissions = chosen,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
-            }
-        } else if let Some(word) = argument
-            .to_string_lossy()
-            .strip_prefix(viewer_host::SEPARATIONS)
-            .map(str::to_owned)
-        {
-            // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
-            match viewer_host::separations(&word) {
-                Ok(chosen) => separations = chosen,
-                Err(complaint) => {
-                    eprintln!("{complaint}");
-                    std::process::exit(2);
-                }
-            }
-        } else if argument == viewer_host::IGNORE_RESTRICTIONS {
-            // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
-            // prints has to name a word every host's parser takes — and for two hosts of three it
-            // did not (ADR 0604).
-            restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
+        } {
+            // One of the words a window's settings are read from, read as every window reads
+            // them (ADR 2120).
         } else if argument == "--page" {
             // A page number as the title bar shows it, which is one-based. §12.3.2.1's
             // `/OpenAction` is the document's own answer to the same question and wins where
@@ -410,12 +306,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         backend_asked_for,
         opens_at,
         fragment,
-        restrictions,
-        links,
-        remote_documents,
-        embedded_documents,
-        submissions,
-        separations,
+        settings,
         reader,
         proxy_pages,
         coverage,

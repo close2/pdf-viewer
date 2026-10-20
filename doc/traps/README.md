@@ -2,7 +2,8 @@
 
 Status: **standing** — one row per trap, through which every citation by number resolves. What a
 round reads up front is [`every-round.md`](every-round.md), the ten rows the records cite most
-(`tools/state.sh traps` counts the citations and the share they carry); this table is opened when
+(`tools/state.sh traps` counts the citations and the share they carry), copied from this table
+verbatim — a row changed here is changed there, and `--test every_round_rows` holds the copy; this table is opened when
 a contract names a trap, or when a group file's position column bites (ADR 1639).
 
 **A row is a lookup key, not the trap.** Read the position column against what this round is about
@@ -261,6 +262,8 @@ machinery, and those are not indexed here.
 | 219 | a division defect is closed by forbidding rows in the planner | the cost is priced on every caller of the planner's rows — `Underway::in_strips` fixes even cuts before the page is read and gives up drawing ahead for a mark across one — before the fix is kept; closing the defect where the converter is called may cost nothing | pixels |
 | 220 | a round hands the orchestrator a patch for a file a sibling round also edited | the patch is applied with context (three lines, or by a named anchor), never with `--unidiff-zero` after the sibling's edits have moved the lines, and the applier compiles the crate's tests before the merge chain runs | instruments |
 | 211 | a rule is checked by a `cargo tree` command | without `--target all` the command reads only the host platform's graph, so a dependency declared for another platform passes with "nothing to print" and exit 0 — every such check says `--target all`, and is calibrated by a planted dependency under a `cfg` the host does not satisfy | instruments |
-| 221 | a fuzz target is run under the bounded wrapper | the sanitiser's shadow memory cannot be reserved inside `RLIMIT_DATA` — build with `-s none` as `doc/verify.md` says (the wrapper does not yet), and start the run from a scratch directory because `-jobs=1` writes its log into the current one | instruments |
+| 221 | a fuzz target is run under the bounded wrapper | the sanitiser's shadow memory cannot be reserved inside `RLIMIT_DATA` — build with `-s none` as `doc/verify.md` says, and start the run from a scratch directory because `-jobs=1` writes its log into the current one; `tools/fuzz.sh` does both under a data limit, a hand-run target does them itself | instruments |
 | 222 | a pixel differs with and without a clip that removes nothing | a clip can move the surface the mark is drawn on even when it removes no coverage — print each drawing's surface size and translation before blaming a converter, since the shifted origin alone flips a supersample | pixels |
 | 223 | a change touches how an image's samples are chosen | it is tested on an image placed at one sample per pixel from a half-pixel origin at a non-power-of-two size, where every pixel centre lies exactly on a sample edge — and the inverse mapping divides last, since one that divides before it multiplies moves whole columns | pixels |
+| 224 | a drive's find step is judged `wrong` on a non-Latin needle | `xdotool type` can drop a character of a non-Latin word — the needle visible in the step's shot is read before the verdict is believed, and the step is re-run once | interactive loop |
+| 225 | a test decides which converter a rectangle took | rectangles whose edges are dyadic fractions draw identically on the library's 8.8 fixed-point converter and on the closed form, so such a test passes whatever path was taken — the test's rectangle carries a fractional edge that is not dyadic | pixels |

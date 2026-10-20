@@ -35,9 +35,9 @@
 //!
 //! **`/RT`'s other value is `R` and this is not about it.** "Default value: R ", so an annotation
 //! with an `/IRT` and no `/RT` is a *reply* rather than a group member, and the clause's `shall`
-//! for those is a different one — "[i]nteractive PDF processors shall not display replies to an
+//! for those is a different one — "\[i]nteractive PDF processors shall not display replies to an
 //! annotation individually but together in the form of threaded comments". That sentence is
-//! [`crate::popup::thread_window`]'s, which climbs the same two entries the other way (ADR 1090):
+//! `crate::popup::thread_window`'s, which climbs the same two entries the other way (ADR 1090):
 //! a reply's window is the thread's rather than its own, where a group member's is the primary's.
 //! Nothing here treats a reply as a group, and [`group_source`] returns the annotation's own
 //! dictionary for one.
@@ -58,7 +58,7 @@
 //! `crate::popup` for the window's title, text, subject, dates and colour and for the two entries
 //! that open it, `crate::appearance` for the `/C` that is ink and the `/Contents` a free text
 //! annotation draws. `/DS` is the one with no reader to correct, and by argument rather than by
-//! omission: Table 177 makes it "[a] default style string, as described in Adobe XML
+//! omission: Table 177 makes it "\[a] default style string, as described in Adobe XML
 //! Architecture, XML Forms Architecture (XFA) Specification, version 3.3", which `CLAUDE.md`
 //! excludes — `crate::appearance` reports the departure on the note it would have styled
 //! (ADR 1224).
@@ -78,7 +78,7 @@ use pdf_syntax::{Dictionary, Document};
 ///
 /// The primary annotation for a subordinate in a group; the annotation itself for everything
 /// else, which is every annotation in almost every file. Those attributes, and only those, are
-/// the ten keys of [`GROUP_ATTRIBUTES`] — a caller reading anything else from the result would be
+/// the ten keys of `GROUP_ATTRIBUTES` — a caller reading anything else from the result would be
 /// reading the wrong annotation's, which is the mistake this function exists to fix in the other
 /// direction.
 ///

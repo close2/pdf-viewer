@@ -140,8 +140,10 @@ mod cmaps;
 mod component_counts;
 mod config;
 mod decision;
+mod default_rgb;
 mod destination;
 mod duplicate_profiles;
+mod extension_container;
 mod external;
 mod fonts;
 mod halftones;
@@ -1199,6 +1201,13 @@ fn apply_the_decisions(
     {
         conversion.removed.clone_from(&cleaned.removed);
     }
+    // The same condition on the same loss, where a container missing a field the file states
+    // nowhere was discarded with the properties it described.
+    if wanted.contains(&Rewrite::ExtensionContainerDiscarded)
+        && let Ok(respelled) = &prepared.respelled
+    {
+        conversion.removed.extend(respelled.removed.iter().cloned());
+    }
     // The same condition on the same kind of loss: a replaced packet leaves nothing in the
     // output to notice, so the report is the only place the stream and its fault are named
     // (`doc/adr/1245`).
@@ -1262,7 +1271,7 @@ fn apply_the_decisions(
     }
     count_signature_places(conversion, &converted.applied);
 
-    let (output, achieved) = hold_the_output_to_the_target(&converted.bytes, input, plan)?;
+    let (output, achieved) = hold_the_output_to_the_target(&converted.bytes, input, plan.target)?;
     // A departed conversion produces a file that does not conform, on purpose. It is written where
     // the *only* requirements it still fails are the ones the caller departed from and — where the
     // identification was deliberately omitted — the identification-schema requirements that omission
@@ -1572,12 +1581,12 @@ fn declined_output(plan: &ArchivePlan, achieved: &Achieved) -> Declined {
 fn hold_the_output_to_the_target(
     bytes: &[u8],
     input: &pdf_archive::Report,
-    plan: &ArchivePlan,
+    target: Target,
 ) -> Result<(Document, Achieved), Refusal> {
     let output = Document::open(bytes.to_vec()).map_err(|error| {
         Refusal::Assembly(format!("the converted document does not re-open: {error}"))
     })?;
-    let held = pdf_archive::check(&output, plan.target);
+    let held = pdf_archive::check(&output, target);
     let met: BTreeSet<&'static str> = input
         .judgements
         .iter()
@@ -1643,4 +1652,45 @@ fn version_for(document: &Document, target: Target) -> Result<Version, Because> 
          every construct PDF 2.0 added would have to be translated or refused one at a time — \
          doc/pdf-a-conversion-limits.md section 6 — and this converter translates none of them",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-page file whose content invokes `/X0`, with `resources` as the page's resources.
+    fn invoking_x0(resources: &str) -> Vec<u8> {
+        format!(
+            "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R \
+             /Resources << {resources} >> >>\nendobj\n\
+             4 0 obj\n<< /Length 6 >>\nstream\n/X0 Do\nendstream\nendobj\n\
+             5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 0 0] /Length 0 >>\nstream\n\
+             \nendstream\nendobj\ntrailer\n<< /Size 6 /Root 1 0 R >>\n"
+        )
+        .into_bytes()
+    }
+
+    /// `doc/adr/0947`'s net, held where it acts: an output failing a requirement the source met
+    /// names it as a regression, the worse of the two failures, and not only as still failing.
+    #[test]
+    fn a_requirement_the_source_met_and_the_output_fails_is_named_a_regression() {
+        let target = Target::Two(pdf_archive::Level::B);
+        let source = Document::open(invoking_x0("/XObject << /X0 5 0 R >>")).expect("opens");
+        let input = pdf_archive::check(&source, target);
+        let named = "graphics/named-resources-are-defined";
+        assert!(
+            input
+                .judgements
+                .iter()
+                .any(|judgement| judgement.id == named && judgement.outcome == Outcome::Met),
+            "the source defines the name it invokes"
+        );
+        let (_, achieved) = hold_the_output_to_the_target(&invoking_x0(""), &input, target)
+            .expect("the output re-opens");
+        assert!(!achieved.conforms);
+        assert!(achieved.still_failing.contains(&named), "{achieved:?}");
+        assert!(achieved.regressions.contains(&named), "{achieved:?}");
+    }
 }

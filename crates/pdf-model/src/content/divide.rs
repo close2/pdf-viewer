@@ -12,7 +12,7 @@
 //!
 //! # The three passes
 //!
-//! 1. **The plan** ([`Plan::of`]) lexes the stream in chunks at once. Each chunk records its
+//! 1. **The plan** (`Plan::of`) lexes the stream in chunks at once. Each chunk records its
 //!    effect on the state stack — how many levels it pops below its start, and per level it ends
 //!    at the statements whose effect lasts (a `cm`, a clip's path object, the line parameters,
 //!    the colours) — and the chunks' effects are composed in order. A cut is a point after a `Q`
@@ -23,7 +23,7 @@
 //!    statements are run by a scratch interpreter whose state, and whose clip table, the piece
 //!    begins with. The first piece is the page's own interpreter on the calling thread, so that
 //!    ADR 1855's hand-over still leaves from the thread a launch placed the read on.
-//! 3. **The join** ([`Interpreter::join`]) takes each later piece's clips into the page's table
+//! 3. **The join** (`Interpreter::join`) takes each later piece's clips into the page's table
 //!    — a clip the table already holds keeps its identifier, as `add_clip` gives it — renumbers
 //!    the piece's commands, and appends them; the notes, the counts and the list's charge are
 //!    the page's.
@@ -95,9 +95,9 @@ const MOST_KEPT: usize = 4_096;
 pub struct Division {
     /// The encoded length from which a stream is divided, in bytes.
     pub from: usize,
-    /// How many pieces, or `None` for the pool's thread count with [`PIECE_FLOOR`] each.
+    /// How many pieces, or `None` for the pool's thread count with `PIECE_FLOOR` each.
     pub pieces: Option<usize>,
-    /// Whether the pieces start as the inflate passes them ([`pipeline`]), or once the whole
+    /// Whether the pieces start as the inflate passes them (`pipeline`), or once the whole
     /// stream is inflated and planned — the second is what the first falls back to, and what an
     /// instrument prices it against.
     pub pipelined: bool,

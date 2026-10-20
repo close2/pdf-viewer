@@ -464,7 +464,7 @@ impl Call {
     /// The `printd` picture this call reads a field's value under as a date, where it is one of
     /// `AFDate_Format`, `AFDate_FormatEx`, `AFDate_Keystroke` or `AFDate_KeystrokeEx`.
     ///
-    /// What ISO 32000-2 Table 240 bit 10's NOTE 1 points at: "[t]he interpretation of a form field
+    /// What ISO 32000-2 Table 240 bit 10's NOTE 1 points at: "\[t]he interpretation of a form field
     /// as a date is not specified explicitly in the field itself but only in the ECMAScript code
     /// that processes it". A picture the menu does not have is no picture (ADR 1796).
     pub(crate) fn date_picture(&self) -> Option<String> {

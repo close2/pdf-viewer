@@ -12,14 +12,14 @@
 //! > A GoToDp action changes the view to the Start page of a specified DPart
 //!
 //! which makes a `DPart` dictionary decide **which page is shown**, exactly as §12.3.2's
-//! destinations do. That is `doc/HANDOVER.md`'s own habit arriving on schedule — "[a]n
+//! destinations do. That is `doc/HANDOVER.md`'s own habit arriving on schedule — "\[a]n
 //! `inapplicable` row decays exactly as a `silent` one does", which §12.7.4.2's field names
 //! demonstrated when §12.6.4.11's hide action made a field name decide whether an annotation is
 //! drawn.
 //!
 //! So this module reads two things, and both are read because something outside the job ticket
 //! asks for them. [`first_page`] is the first: the page a `DPart` begins at, which §12.6.4.5's
-//! `GoToDp` action needs. [`hierarchy`] is the second, and §14.13.8 is what asks — "[o]ne or more
+//! `GoToDp` action needs. [`hierarchy`] is the second, and §14.13.8 is what asks — "\[o]ne or more
 //! files may be associated with any `DPart`", and a file nothing can enumerate is a file no panel
 //! can list and no host can extract, which is the shape ADR 0295 found one clause family over.
 //! Table 408's `/DPartRoot` is therefore walked, and `crate::attachment::attachments` is where
@@ -58,7 +58,7 @@ const MAX_PARTS: usize = 65_536;
 pub struct Part {
     /// The dictionary itself, so a caller can read what Table 409 states on it.
     ///
-    /// §14.13.8's `/AF` is the entry this program has a use for — "[t]o associate files with a
+    /// §14.13.8's `/AF` is the entry this program has a use for — "\[t]o associate files with a
     /// `DPart`, the appropriate `DPart` dictionary shall contain an AF entry whose value is an
     /// array of file specification dictionaries" — and `crate::attachment::associated` reads it.
     pub dictionary: Dictionary,
@@ -71,7 +71,7 @@ pub struct Part {
     /// Table 409's `/End`: the page object that defines the last page of the same range.
     ///
     /// Absent on a leaf whose range is one page, which Table 409 states outright — the entry is
-    /// "[r]equired if there is a Start key and the page range has more than one page, not present
+    /// "\[r]equired if there is a Start key and the page range has more than one page, not present
     /// otherwise".
     pub end: Option<ObjectId>,
     /// How far below `/DPartRootNode` this node sits, counting the root node itself as zero.
@@ -101,13 +101,13 @@ pub struct Hierarchy {
     pub record_level: Option<i64>,
     /// Table 408's `/NodeNameList`, one name per level of the hierarchy, in the table's order.
     ///
-    /// Table 408 states a constraint a reader can check rather than only a writer meet: "[i]f
+    /// Table 408 states a constraint a reader can check rather than only a writer meet: "\[i]f
     /// present, the number of entries present in this array shall be equal to the number of `DPart`
     /// node levels in the document part hierarchy", which is [`Hierarchy::levels`].
     pub node_names: Vec<String>,
     /// Every `DPart` dictionary under `/DPartRootNode`, depth first, the root node first.
     ///
-    /// The order is §14.12.3's, and it is the order that makes the list mean something: "[t]he
+    /// The order is §14.12.3's, and it is the order that makes the list mean something: "\[t]he
     /// order of page objects as defined by the page tree shall be in the same order in which page
     /// objects are referenced from leaf node `DPart` dictionaries in a depth-first traversal of the
     /// document part hierarchy".
@@ -136,7 +136,7 @@ impl Hierarchy {
 /// > The root node of this hierarchy of dictionaries is identified by the DPartRoot dictionary
 /// > referenced from the catalog dictionary.
 ///
-/// with Table 408's `/DPartRootNode` — "[s]hall be an indirect reference to the `DPart` dictionary
+/// with Table 408's `/DPartRootNode` — "\[s]hall be an indirect reference to the `DPart` dictionary
 /// that is the root node of the document part tree structure" — as the second. §14.12.2's own
 /// last sentence used to make it one hop, giving the catalog's key "an indirect object reference
 /// to a `DPartRootNode` dictionary"; Errata Collection 3 Issue #609 replaces that phrase with the
@@ -154,8 +154,8 @@ impl Hierarchy {
 ///
 /// §14.12.2: "A child `DPart` dictionary shall not be referenced by more than one parent `DPart`
 /// dictionary", so a node reached twice is a malformed file and is not descended into twice. That
-/// set is what makes a cycle finite; [`MAX_DEPTH`] bounds a chain of dictionaries written inline
-/// rather than as references, and [`MAX_PARTS`] is the budget on the whole.
+/// set is what makes a cycle finite; `MAX_DEPTH` bounds a chain of dictionaries written inline
+/// rather than as references, and `MAX_PARTS` is the budget on the whole.
 #[must_use]
 pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
     let catalog = document.catalog().ok()?;
@@ -259,7 +259,7 @@ fn reference(entry: Option<&Object>) -> Option<ObjectId> {
 
 /// The page object a `DPart` dictionary's range begins at, if it names one.
 ///
-/// Table 409 makes `/Start` and `/DParts` exclusive — "[s]hall not be present if a Start key is
+/// Table 409 makes `/Start` and `/DParts` exclusive — "\[s]hall not be present if a Start key is
 /// present" and the converse — so a `DPart` is either a leaf naming a page range or a node naming
 /// children, never both. §12.6.4.5 asks for "the Start page", which a *node* does not have, and
 /// §14.12.3 is what says where to look for it:
@@ -272,7 +272,7 @@ fn reference(entry: Option<&Object>) -> Option<ObjectId> {
 /// descending to it is a reading of that sentence rather than a guess. A `GoToDp` naming a node
 /// would otherwise have nowhere to go, which the clause plainly does not intend.
 ///
-/// `/DParts` is "[a]n array of arrays", so the first child is the first element of the first
+/// `/DParts` is "\[a]n array of arrays", so the first child is the first element of the first
 /// element — a shape a first implementation flattens by accident and which changes nothing here,
 /// since either reading reaches the same first leaf. It is written out because the *count* of
 /// children would differ.

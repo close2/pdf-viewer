@@ -213,13 +213,13 @@ pub enum Operation {
     /// Putting a value into a field the document already holds —
     /// `crate::view::ViewState::set_field`.
     ///
-    /// §7.6.4.1's own words for it: "[f]illing in forms (that is, filling in existing interactive
+    /// §7.6.4.1's own words for it: "\[f]illing in forms (that is, filling in existing interactive
     /// form fields) and signing the document".
     FillInForm,
     /// Adding an annotation to a page, or changing one — `crate::view::ViewState::add_markup` and
     /// `crate::view::ViewState::set_free_text`.
     ///
-    /// §7.6.4.1's "[a]dding or modifying text annotations", and Table 257's "annotation creation,
+    /// §7.6.4.1's "\[a]dding or modifying text annotations", and Table 257's "annotation creation,
     /// deletion, and modification", which `/DocMDP` permits only at its third level. **One verb for
     /// both halves**, because both of those sentences name both: adding and modifying are one
     /// permission everywhere the standard states one.
@@ -254,19 +254,19 @@ pub enum Operation {
     /// Taking images or embedded files out of the document as files — `pdf_transform`'s
     /// `images` and `attachments --save`.
     ///
-    /// Table 22 bit 5, "[c]opy or otherwise extract text and graphics from the document".
+    /// Table 22 bit 5, "\[c]opy or otherwise extract text and graphics from the document".
     Extract,
     /// Writing something into the document that is neither an annotation, a field value nor a
     /// page — `pdf_transform`'s `attachments --attach` and `--remove`.
     ///
-    /// Table 22 bit 4, "[m]odify the contents of the document by operations other than those
+    /// Table 22 bit 4, "\[m]odify the contents of the document by operations other than those
     /// controlled by bits 6, 9, and 11". No bit *names* an embedded file; bits 6, 9 and 11 carve
     /// annotations, form filling and page assembly out of bit 4, and an embedded file is none of
     /// those three, so bit 4 is the bit that binds it (ADR 0802).
     Modify,
     /// Taking a document's pages into a new document — `pdf_transform`'s `split`.
     ///
-    /// Table 22 bit 11, and the clause names the operation in as many words: "[a]ssemble the
+    /// Table 22 bit 11, and the clause names the operation in as many words: "\[a]ssemble the
     /// document (insert, rotate, or delete pages and create document outline items or thumbnail
     /// images)". A split writes a file made of pages the source stated, which is inserting and
     /// deleting pages by any reading of that sentence.
@@ -422,7 +422,7 @@ pub enum Restriction {
     /// **Not [`Restriction::FieldLocked`] under another name, and not
     /// [`Restriction::Certified`] either.** The lock's `/Action` and `/Fields` name *fields*
     /// whose values "shall no longer be changed"; this entry names none and states instead what
-    /// may be done to the file — "[t]he new permission applies to any incremental changes to the
+    /// may be done to the file — "\[t]he new permission applies to any incremental changes to the
     /// document following the signature of which this key is part", which is what §7.5.6's update
     /// makes. And it is a different clause from §12.8.2.2's `/DocMDP`, reached without §12.8.6's
     /// permissions dictionary, so a person told the one would not have been told the other.
@@ -461,7 +461,7 @@ pub enum Restriction {
     /// **Bit 8 is the one that sounds like this and is not**, and the difference is the table's own
     /// rather than a reading of it: `Locked` is "do not allow the annotation to be deleted or its
     /// properties (including position and size) to be modified by the user", and its row ends
-    /// "[h]owever, this flag does not restrict changes to the annotation's contents, such as the
+    /// "\[h]owever, this flag does not restrict changes to the annotation's contents, such as the
     /// value of a form field". So an annotation carrying bit 8 and not bit 10 may be typed into,
     /// and nothing here consults bit 8.
     AnnotationLocked,
@@ -703,9 +703,9 @@ fn certification_permits(level: Modification, operation: Operation) -> bool {
 ///
 /// Three rules, in the order they are applied:
 ///
-/// - **The owner may do anything.** §7.6.4.1: "[o]pening the document with the correct owner
+/// - **The owner may do anything.** §7.6.4.1: "\[o]pening the document with the correct owner
 ///   password should allow full (owner) access to the document."
-/// - **Bit 6 grants both of the viewer's operations.** Table 22: "[a]dd or modify text
+/// - **Bit 6 grants both of the viewer's operations.** Table 22: "\[a]dd or modify text
 ///   annotations, fill in interactive form fields, and, if bit 4 is also set, create or modify
 ///   interactive form fields (including signature fields)."
 /// - **Bit 9 grants the narrower one, and only from revision 3.** Table 22: "( Security handlers

@@ -138,19 +138,19 @@ pub struct ViewerPreferences {
 /// lists differ by `FullScreen` alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMode {
-    /// `UseNone`: "[n]either document outline nor thumbnail images visible". The default.
+    /// `UseNone`: "\[n]either document outline nor thumbnail images visible". The default.
     #[default]
     UseNone,
-    /// `UseOutlines`: "[d]ocument outline visible".
+    /// `UseOutlines`: "\[d]ocument outline visible".
     UseOutlines,
-    /// `UseThumbs`: "[t]humbnail images visible".
+    /// `UseThumbs`: "\[t]humbnail images visible".
     UseThumbs,
-    /// `UseOC`: "[o]ptional content group panel visible".
+    /// `UseOC`: "\[o]ptional content group panel visible".
     UseOptionalContent,
-    /// `FullScreen`: "[f]ull-screen mode, with no menu bar, window controls, or any other
+    /// `FullScreen`: "\[f]ull-screen mode, with no menu bar, window controls, or any other
     /// window visible". Table 29 only.
     FullScreen,
-    /// `UseAttachments`: "[a]ttachments panel visible". PDF 1.6 in Table 29, PDF 2.0 in Table 147
+    /// `UseAttachments`: "\[a]ttachments panel visible". PDF 1.6 in Table 29, PDF 2.0 in Table 147
     /// by errata issue #275.
     UseAttachments,
 }
@@ -162,10 +162,10 @@ pub enum PageMode {
 /// and handed over, like the rest of what a document says about a window it cannot see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageLayout {
-    /// `SinglePage`: "[d]isplay one page at a time". The default.
+    /// `SinglePage`: "\[d]isplay one page at a time". The default.
     #[default]
     SinglePage,
-    /// `OneColumn`: "[d]isplay the pages in one column".
+    /// `OneColumn`: "\[d]isplay the pages in one column".
     OneColumn,
     /// `TwoColumnLeft`: "in two columns, with odd-numbered pages on the left".
     TwoColumnLeft,
@@ -409,7 +409,7 @@ fn named<T>(
 /// one.
 ///
 /// **And a number below 1 names no page**, which is the entry's third sentence rather than an
-/// inference from the first two: "[t]he first page of the PDF file shall be denoted by 1". An
+/// inference from the first two: "\[t]he first page of the PDF file shall be denoted by 1". An
 /// array holding one is in the same position as an odd-length one — it has not stated a
 /// sub-range of this file's pages — and falls to the entry's own "implementation dependent"
 /// default, which for a reader that hands the value onward is stating none.
@@ -417,7 +417,7 @@ fn named<T>(
 /// The three witnesses are why this is not hypothetical and why the answer is *not* to read
 /// them zero-based: `examples/print_preference_census --crawl` finds exactly three documents
 /// in `CC-MAIN-2021-31` stating the entry, and all three begin a pair at 0 (one of them ending
-/// it at -1). The clause's own NOTE names the confusion — "[a]lthough `PrintPageRange` uses
+/// it at -1). The clause's own NOTE names the confusion — "\[a]lthough `PrintPageRange` uses
 /// 1-based page numbering, other features of PDF use zero-based page numbering" — so a
 /// producer writing 0 is a producer that read the NOTE the wrong way round, and shifting its
 /// numbers here would be this reader guessing at an intent the file does not state.

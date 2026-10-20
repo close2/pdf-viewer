@@ -742,3 +742,12 @@ takes (ADR 2100). The final form composes the two matrices, inverts once and div
 `a_centre_on_a_samples_edge_takes_the_sample_whose_corner_it_is` walks two hundred half-pixel origins
 at a non-power-of-two size. Any change to how a sample is chosen runs that placement first.
 
+### 225. A rectangle with dyadic edges cannot tell the fixed-point converter from the closed form
+
+Round 1616's test `a_tall_page_is_cut_and_its_strips_are_the_page` passed on HEAD while a tall page's
+first strip was taking the library's 8.8 fixed-point converter where the page whole took the closed form
+(round 1640, ADR 2116): every edge of the test's rectangles was a dyadic fraction, which the 8.8 converter
+represents exactly, so the two paths agreed to the byte and the test saw nothing. A test of which
+converter a rectangle took places an edge at a coordinate the fixed point cannot hold — a third of a
+pixel, not a half — and asserts the closed form's value.
+

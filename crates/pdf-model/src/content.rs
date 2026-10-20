@@ -263,7 +263,7 @@ struct GraphicsState {
     overprint_filling: bool,
     /// Table 57's `/OPM`, §8.6.7's overprint mode.
     ///
-    /// Only the value 1 changes anything — "[w]hen the overprint mode is 1 (also called
+    /// Only the value 1 changes anything — "\[w]hen the overprint mode is 1 (also called
     /// non-zero overprint mode), a tint value of 0.0 for a source colour component shall leave
     /// the corresponding component of the previously painted colour unchanged" — and it
     /// "shall have an effect only when the overprint parameter is true". Initially 0.
@@ -298,6 +298,8 @@ struct GraphicsState {
 ///
 /// Separate from [`TextObject`], which the specification resets at every `BT` and which
 /// therefore does not survive `q`/`Q`.
+///
+/// [`TextObject`]: text::TextObject
 #[derive(Debug, Clone)]
 struct TextState {
     /// The resource name of the current font, and the font itself once loaded.
@@ -458,7 +460,7 @@ impl GraphicsState {
     /// pattern there is. A shading marks where its own colours say — where it does not is the
     /// rasteriser's question, not a report's — and a tiling pattern is a cell replayed across
     /// the area, which marks whatever the cell marks.
-    /// `None` for the transfer function: §10.5 gives "[e]ach colour component … its own separate
+    /// `None` for the transfer function: §10.5 gives "\[e]ach colour component … its own separate
     /// transfer function" and touches no alpha, and [`path::marks`] asks about alpha alone — so
     /// the answer is the same whichever function §11.7.5.2 turns out to choose for the mark, and
     /// resolving that here would ask the question twice.
@@ -542,7 +544,7 @@ pub fn interpret_with(
 /// The same as [`interpret_with`] except that §9.6's font loading may be answered out of
 /// `fonts` and adds to it. **The `Interpretation` is the same one either way**, and that is a
 /// property to state rather than a hope: a loaded font is a pure function of the document and
-/// the font dictionary, an [`ObjectId`](pdf_syntax::ObjectId) names one dictionary in one file,
+/// the font dictionary, an [`ObjectId`] names one dictionary in one file,
 /// and [`FontCache`] refuses to answer for a document other than the one it was filled from.
 /// `content::tests::a_kept_font_changes_what_a_page_costs_and_not_what_it_says` is what checks
 /// it, over the corpus's multi-page documents, against the planted defect it would take to
@@ -1009,7 +1011,7 @@ enum ProcessPlanes {
     )]
     /// A page whose group composites in one or three components: the process separation is one
     /// run in that `compositing`, and the spot planes are drawn on `spot_press`, the simulated
-    /// device's, whose process colourants no mark on this page may name — "[i]f any other colour
+    /// device's, whose process colourants no mark on this page may name — "\[i]f any other colour
     /// space has been specified for the group, the Separation or DeviceN colour space shall be
     /// converted to its alternate colour space".
     Own {
@@ -1111,7 +1113,7 @@ fn process_planes(
 /// for it — and, where that is the simulated device's press on a page drawn on the device's
 /// components and a plane cannot be drawn in it, the device's components themselves.
 ///
-/// Step a) leaves the device's process colourants to the processor — "[t]he PDF processor
+/// Step a) leaves the device's process colourants to the processor — "\[t]he PDF processor
 /// determines what process colours and possible spot colours the simulated device is to have" —
 /// and a press whose pair cannot hold a group inside the page (§11.6.6's conversion at a `Do`
 /// that the pair does not carry) is a press this page cannot be printed on. The page is drawn on
@@ -2857,7 +2859,7 @@ struct Interpreter<'a> {
     /// **Empty for every untagged page**, which is 885 of the corpus's 974, so what those pay for
     /// this is one `std::vec::Vec::is_empty` per command.
     ///
-    /// A stack rather than one accumulator because §14.7.5.1.1 forbids the nesting — "[a]
+    /// A stack rather than one accumulator because §14.7.5.1.1 forbids the nesting — "\[a]
     /// marked-content sequence corresponding to a structure content item shall not have another
     /// marked-content sequence for a structure content item nested within it" — and a file that
     /// does it anyway must not have the inner sequence's marks silently become the outer one's
@@ -2883,7 +2885,7 @@ struct Interpreter<'a> {
     /// The second thing that makes a page's *marks* a function of the magnification, and the
     /// first that is content rather than an annotation: Table 74's `/TilingType` 1 and 3 space
     /// their cells "by a multiple of a device pixel", so a tiling placed under a stated
-    /// magnification is placed differently at another one. See [`pattern::Interpreter::lattice`]
+    /// magnification is placed differently at another one. See [`Interpreter::lattice`]
     /// and ADR 1080.
     ///
     /// **It is the content half, so it does more than `view_dependent` does.** ADR 0777's
@@ -3020,7 +3022,7 @@ struct Interpreter<'a> {
     compositing: Compositing,
     /// The blending colour space in force here, named where this tree does not composite in it.
     ///
-    /// §11.3.4 makes the space part of the model rather than a property of the output — "[t]he
+    /// §11.3.4 makes the space part of the model rather than a property of the output — "\[t]he
     /// result of the computation thus depends on the colour space in which the colours are
     /// represented" — and two clauses decide which one is in force at any point. §11.4.7 roots
     /// it at the page group and §11.6.6 inherits it down the group stack, taking a group's own
@@ -3233,7 +3235,7 @@ fn line_join(code: i64) -> LineJoin {
 
 /// The miter limit, ISO 32000-2 §8.4.3.5. Set by `M` and by Table 57's `/ML`.
 ///
-/// Clamped below at 1, which §8.4.1 asks for — "[p]arameters that are numeric values, such
+/// Clamped below at 1, which §8.4.1 asks for — "\[p]arameters that are numeric values, such
 /// as the current colour, line width, and miter limit, shall be clipped into valid range".
 /// The valid range starts at 1 because the ratio the limit bounds is a miter length over a
 /// line width, and §8.4.3.5's formula makes that ratio `1 / sin(φ/2)`, which is never below

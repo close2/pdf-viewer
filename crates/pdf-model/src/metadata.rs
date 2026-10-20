@@ -6,7 +6,7 @@
 //!
 //! # Deprecated is not absent, and it is not ignorable
 //!
-//! §14.3.3 is explicit: "[i]n PDF 2.0 such use is deprecated except for two entries,
+//! §14.3.3 is explicit: "\[i]n PDF 2.0 such use is deprecated except for two entries,
 //! `CreationDate` and `ModDate`. For any other document level metadata, a metadata stream …
 //! should be used instead." That binds a *writer*. A reader's job is the file it was given, which
 //! is the same argument §8.6.5.1's withdrawn `CalCMYK` and §12.2's deprecated `/ViewArea` are
@@ -29,16 +29,16 @@ use pdf_syntax::{Date, Dictionary, Document, Object};
 
 /// Table 349's `/Trapped`, whose three values are **names and not booleans**.
 ///
-/// The clause says so twice, once per value: "[t]his shall be the name `True`, not the boolean
+/// The clause says so twice, once per value: "\[t]his shall be the name `True`, not the boolean
 /// value `true`". A file writing the boolean has not stated one of the three, and gets the
 /// stated default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Trapped {
-    /// `True`: "[t]he document has been fully trapped; no further trapping shall be needed."
+    /// `True`: "\[t]he document has been fully trapped; no further trapping shall be needed."
     Fully,
-    /// `False`: "[t]he document has not yet been trapped."
+    /// `False`: "\[t]he document has not yet been trapped."
     NotYet,
-    /// `Unknown`, which is also Table 349's stated default: "[e]ither it is unknown whether the
+    /// `Unknown`, which is also Table 349's stated default: "\[e]ither it is unknown whether the
     /// document has been trapped or it has been partly but not yet fully trapped".
     #[default]
     Unknown,
@@ -51,13 +51,13 @@ pub enum Trapped {
 /// panel shows them differently.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Information {
-    /// `/Title`, "[t]he document's title".
+    /// `/Title`, "\[t]he document's title".
     pub title: Option<String>,
-    /// `/Author`, "[t]he name of the person who created the document".
+    /// `/Author`, "\[t]he name of the person who created the document".
     pub author: Option<String>,
-    /// `/Subject`, "[t]he subject of the document".
+    /// `/Subject`, "\[t]he subject of the document".
     pub subject: Option<String>,
-    /// `/Keywords`, "[k]eywords associated with the document".
+    /// `/Keywords`, "\[k]eywords associated with the document".
     pub keywords: Option<String>,
     /// `/Creator`: the application the document was authored in, before any conversion.
     pub creator: Option<String>,
@@ -93,7 +93,7 @@ impl Information {
 
     /// The same, from a dictionary a caller already holds.
     ///
-    /// §14.3.3's last sentence is why this is public: "[d]ocument information dictionaries are
+    /// §14.3.3's last sentence is why this is public: "\[d]ocument information dictionaries are
     /// also used with `Threads`", so §12.4.3's thread `/I` is the same table read from somewhere
     /// else.
     #[must_use]

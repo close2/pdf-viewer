@@ -5810,6 +5810,7 @@ dependencies = [
 name = "viewer-gtk"
 version = "0.1.0"
 dependencies = [
+ "gate-ratchet",
  "gtk4",
  "pango",
  "pdf-model",
@@ -5850,6 +5851,7 @@ version = "0.1.0"
 dependencies = [
  "cxx",
  "cxx-qt-build",
+ "gate-ratchet",
  "pdf-model",
  "pdf-render",
  "pdf-syntax",

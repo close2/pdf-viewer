@@ -386,7 +386,7 @@ pub(crate) enum Owed {
     /// A rich text string states characters other than its plain twin's, so the plain one is
     /// drawn, in the default style.
     ///
-    /// Two pairs: a field's Table 228 `/RV` and its `/V`, where §12.7.5.3 makes `/V` hold "[t]he
+    /// Two pairs: a field's Table 228 `/RV` and its `/V`, where §12.7.5.3 makes `/V` hold "\[t]he
     /// field's text" and Table 231 bit 26 makes `/RV` "specify the rich text string" of that
     /// value; and a free text annotation's Table 177 `/RC` and its `/Contents`, which §12.5.6.2
     /// says "specifies the displayed text". A rich text string whose characters are not the
@@ -636,7 +636,7 @@ pub(crate) enum Resolution {
 /// The fourteen `/DA` resource names that denote §9.6.2.2's fourteen font programs.
 ///
 /// **A documented choice about a malformed file, not a reading of the clause.** §12.7.4.3 says
-/// "[t]he specified font value shall match a resource name in the Font entry of the default
+/// "\[t]he specified font value shall match a resource name in the Font entry of the default
 /// resource dictionary", and a file whose `/DA` names something `/DR` does not define has broken
 /// that `shall`. The standard says nothing about what to do next, so something has to be chosen,
 /// and what is chosen decides whether five corpus documents draw their free text in Helvetica or
@@ -906,7 +906,7 @@ fn with_differences(dict: &Dictionary, missing: &str) -> Option<Dictionary> {
 
 /// A font dictionary standing in for one Table 224's `/DR` does not define.
 ///
-/// §12.7.4.3 requires the document to define it — "[t]he specified font value shall match a
+/// §12.7.4.3 requires the document to define it — "\[t]he specified font value shall match a
 /// resource name in the Font entry of the default resource dictionary" — and six corpus
 /// documents do not, five of them naming `/Helv`. Refusing them drew **nothing**: a free text
 /// annotation's text is the whole of its appearance, so `freetext_no_appearance.pdf` came out
@@ -1177,12 +1177,12 @@ const MACHINE_FACE: &[u8] = b"VariableTextMachineFace";
 ///   1", which §9.7.4.2 requires wherever the program is embedded.
 /// - **The face's licence is asked**: a face whose `OS/2` `fsType` forbids embedding is not
 ///   written, and the sentence returned is what the caller reports as owed. That is the font
-///   vendor's condition, which §9.9.1 names — "[o]ne of the conditions may be that the font
+///   vendor's condition, which §9.9.1 names — "\[o]ne of the conditions may be that the font
 ///   program cannot be embedded, in which case it should not be incorporated into a PDF file" —
 ///   and not a restriction the document asserts over its reader, so no reader's level reaches it.
 ///
 /// The streams are still held directly in the dictionaries; a writer gives each a number of its
-/// own, which §7.3.8.1 requires of a file ("[a]ll streams shall be indirect objects") — the
+/// own, which §7.3.8.1 requires of a file ("\[a]ll streams shall be indirect objects") — the
 /// incremental update's [`crate::view`] and the archive conversion each do that for every stream
 /// they write. Resources with no machine face come back unchanged.
 ///
@@ -2068,7 +2068,7 @@ impl Metrics {
     /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be
     /// > a negative number.
     ///
-    /// Errata Collection 3 (Issue #190) amends that second sentence to *[t]he value shall be a
+    /// Errata Collection 3 (Issue #190) amends that second sentence to *\[t]he value shall be a
     /// number less than or equal to zero*; the blockquote keeps the published wording the
     /// quotation gate verifies.
     ///
@@ -3247,7 +3247,7 @@ pub(crate) struct DefaultAppearance {
 /// a `Tj` in a `/DA` would draw the string twice.
 ///
 /// **Marked content is admitted inside a text object and is not on this list**, which is a
-/// documented choice rather than an oversight. Errata Collection 3 strikes §14.6.1's "[t]hey may
+/// documented choice rather than an oversight. Errata Collection 3 strikes §14.6.1's "\[t]hey may
 /// not occur within a graphics object" (Issue #335) and states outright that a marked-content
 /// sequence may appear "within a text object", so Figure 9 no longer excludes `BMC`, `BDC`,
 /// `EMC`, `MP` and `DP` from where a `/DA` runs — and this list drops them, silently, on the

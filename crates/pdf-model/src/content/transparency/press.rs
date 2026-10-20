@@ -54,7 +54,7 @@ impl BeyondPress {
 /// > different colour space from the initial blending colour space.
 ///
 /// Three routes reach a press, and Annex P — informative, and the standard's own algorithm for
-/// this question — puts them in this order. A device blending space "first appl[ies] the
+/// this question — puts them in this order. A device blending space "first appl\[ies] the
 /// default colour space mechanism" (§8.6.5.6's `/DefaultCMYK`, whose value "shall be used as
 /// the colour space for the operation currently being performed"); a page group with no parent
 /// otherwise inherits "from the output device, or from the output intent" (§14.11.5), which is
@@ -322,7 +322,7 @@ impl Interpreter<'_> {
     /// `None` is "composite in what the parent composites in", and it is the answer unless
     /// **all** of the following hold, each for a stated reason:
     ///
-    /// - **The group is isolated.** §11.6.6: "[f]or non-isolated groups, or if no group
+    /// - **The group is isolated.** §11.6.6: "\[f]or non-isolated groups, or if no group
     ///   colour space is specified, the group colour space shall be inherited from the
     ///   parent group or page."
     /// - **The parent's space is one this group's result can be converted into**, which is
@@ -351,7 +351,7 @@ impl Interpreter<'_> {
     /// [`super::knockout::knockout_construction`] applies its chosen rewrite to the pair's black half as well
     /// and commits neither unless the results still [`super::knockout::paired`]. The backdrop §11.4.6
     /// composites each element against needs no conversion of its own here, because a group
-    /// reaching this function is isolated and the clause says what such a group's is: "[a]n
+    /// reaching this function is isolated and the clause says what such a group's is: "\[a]n
     /// isolated knockout group composites the element with a transparent backdrop." ADR 1103.
     ///
     /// # Why a shading pattern is no condition here, and the uncoloured cell is

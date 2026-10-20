@@ -47,7 +47,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
 use pdf_render::{DisplayList, Raster, Rasterizer as _, TargetSpec};
-use render_raster::QuorraRasterizer;
+use render_raster::{FrameCost, QuorraRasterizer};
 use viewer_core::{RenderRequest, Rendered};
 use viewer_host::drawing::{Finished, Handed, POLL, PageLane};
 
@@ -148,11 +148,14 @@ enum Message {
     Up(String, Duration),
     /// No device could be made: what refused.
     Absent(String),
-    /// A job answered: the page read back, or the device's refusal and what it is a fact about.
+    /// A job answered: the page read back, or the device's refusal and what it is a fact about,
+    /// with what raster says each of its stages cost — boxed, being several times the size of
+    /// every other variant.
     Drawn {
         serial: u64,
         outcome: Result<Raster, (String, Option<Kept>)>,
         took: Duration,
+        phases: Box<FrameCost>,
     },
     /// A job the thread could not draw because it has no device.
     NoDevice(u64),
@@ -331,6 +334,7 @@ impl ReadBack {
                 serial,
                 outcome,
                 took,
+                phases,
             } => {
                 let Some(flight) = self.in_flight.take_if(|flight| flight.serial == serial) else {
                     return;
@@ -341,6 +345,9 @@ impl ReadBack {
                     Ok(raster) => {
                         self.costs
                             .measure(pages, Lane::Device { scene_kept: false }, took);
+                        self.handed
+                            .traced
+                            .push(phases_of(flight.request.page, &phases));
                         self.handed.finished.push(Finished {
                             request: flight.request,
                             outcome: Some(Rendered::Raster(raster)),
@@ -497,6 +504,36 @@ fn placed_of(request: &RenderRequest) -> Placed {
 
 /// The first line of what the adapter said: `wgpu` writes a refused pipeline as a chain of
 /// causes, one per line, and a title is one line (ADR 1962).
+/// A page the device drew and read back, stage by stage, as `quorra`'s first frame is said.
+///
+/// **Why a page this small is slower on the device than on the processor is a question about
+/// these stages**, and the lane's one figure could not answer it: a launch's first page pays a
+/// cold device's first use, and every page pays the copy back off the device, neither of which a
+/// processor's draw has (ADR 2124). `elsewhere` is the device call's time outside the four stages
+/// raster names — the submit and the wait for the queue among it.
+fn phases_of(page: usize, cost: &FrameCost) -> String {
+    let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
+    let elsewhere = cost.device.saturating_sub(
+        cost.encode
+            .saturating_add(cost.upload)
+            .saturating_add(cost.execute)
+            .saturating_add(cost.readback),
+    );
+    format!(
+        "page {}'s phases on the graphics device, ms: scene {:.1}, device {:.1} = encode {:.1} + \
+         transfer {:.1} + execute {:.1} + read back {:.1} + elsewhere {:.1}, of {:.1} in all",
+        page.saturating_add(1),
+        ms(cost.scene),
+        ms(cost.device),
+        ms(cost.encode),
+        ms(cost.upload),
+        ms(cost.execute),
+        ms(cost.readback),
+        ms(elsewhere),
+        ms(cost.total),
+    )
+}
+
 fn first_line(said: &str) -> &str {
     said.lines().next().unwrap_or(said)
 }
@@ -548,6 +585,7 @@ fn draw_until_told_to_stop(
             serial: job.serial,
             outcome,
             took,
+            phases: Box::new(device.last_frame()),
         }) {
             return;
         }
@@ -563,6 +601,8 @@ mod tests {
     use viewer_host::drawing::PageLane as _;
 
     use std::sync::mpsc::{Receiver, Sender, channel};
+
+    use render_raster::FrameCost;
 
     use super::{Device, Job, Kept, Link, Message, ReadBack};
 
@@ -647,6 +687,7 @@ mod tests {
             serial,
             outcome: Err(("frame refused: too large".to_owned(), Some(Kept::Frame))),
             took: Duration::from_millis(3),
+            phases: Box::default(),
         });
         let handed = lane.collect(None);
         assert_eq!(handed.back.len(), 1);
@@ -674,13 +715,29 @@ mod tests {
             format: pdf_render::RasterFormat::Rgba8,
             data: vec![255; 4],
         };
+        let phases = FrameCost {
+            total: Duration::from_millis(2),
+            device: Duration::from_millis(1),
+            readback: Duration::from_micros(400),
+            ..FrameCost::default()
+        };
         lane.land(Message::Drawn {
             serial,
             outcome: Ok(raster),
             took: Duration::from_millis(2),
+            phases: Box::new(phases),
         });
         let handed = lane.collect(None);
         assert_eq!(handed.finished.len(), 1);
+        assert!(
+            handed
+                .traced
+                .iter()
+                .any(|line| line.starts_with("page 1's phases")
+                    && line.contains("read back 0.4 + elsewhere 0.6, of 2.0 in all")),
+            "the page's stages are on the frames trace: {:?}",
+            handed.traced
+        );
         assert!(handed.back.is_empty());
         assert!(
             lane.interval().is_none(),

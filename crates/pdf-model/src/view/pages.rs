@@ -367,9 +367,9 @@ struct SuppliedPage<'a> {
 
 /// Turns §12.7.8.3.2's `/APRef` into the appearance §12.5.5 places, once per named page.
 ///
-/// Table 249's entry is "[a] dictionary holding references to external PDF files containing the
+/// Table 249's entry is "\[a] dictionary holding references to external PDF files containing the
 /// pages to use for the appearances of a push-button field", and Table 253 makes its `/F`
-/// optional with a sentence about the absence: "[i]f this entry is absent, it shall be assumed
+/// optional with a sentence about the absence: "\[i]f this entry is absent, it shall be assumed
 /// that the page resides in the associated PDF file." So the entry has two branches. The one with
 /// no `/F` names a page **this** document holds under §12.7.7, which is a name lookup and a page
 /// converted to a form ([`crate::named_page::page_as_form`]); the one with a `/F` names a second
@@ -377,7 +377,7 @@ struct SuppliedPage<'a> {
 ///
 /// The result is written into [`Import::appearance`], so a resolved `/APRef` and a stated `/AP`
 /// reach the widget, the saved file and the display list by exactly one route — Table 249 makes
-/// them the same entry of Table 170 and ranks them itself ("[t]his entry shall be ignored if an
+/// them the same entry of Table 170 and ranks them itself ("\[t]his entry shall be ignored if an
 /// AP entry is present"), so a second route could only disagree with the first. ADR 1235.
 ///
 /// The name trees and the page tree are read **on first use**, which for every document anybody

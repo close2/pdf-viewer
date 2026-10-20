@@ -247,7 +247,7 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///   structural rather than a reading of `colour.rs`: the decode is *handed* a resource
 ///   dictionary holding that one entry, so a lookup of anything else finds nothing on a miss and
 ///   nothing on a hit alike. **An entry holding the whole dictionary would escape
-///   [`RASTER_BUDGET`]**: a fuzzed page naming 10 260 one-row image `XObject`s through one
+///   `RASTER_BUDGET`**: a fuzzed page naming 10 260 one-row image `XObject`s through one
 ///   dictionary would clone that dictionary — about a mebibyte, since it names all 10 260 — into
 ///   every entry while charging the eight bytes of samples, 10.60 GiB to interpret (ADR 0798
 ///   measured it, ADR 0791 took this).
@@ -274,7 +274,7 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///
 /// A decode that **failed**, for [`crate::shading::Cache`]'s reason: an error is rare, the caller
 /// reports it, and remembering one would mean deciding whether it is a property of the object or
-/// of the moment. And a raster larger than [`RASTER_BUDGET`], which is the eviction arithmetic
+/// of the moment. And a raster larger than `RASTER_BUDGET`, which is the eviction arithmetic
 /// falling out rather than a rule of its own — it is inserted, it evicts everything including
 /// itself, and the page pays what it always paid.
 ///
@@ -335,7 +335,7 @@ impl StreamIdentity {
     ///
     /// The dictionary's length rather than the dictionary: §8.9.7's dictionaries are Table 91's
     /// dozen keys and it is the data that separates two hatchings of one page. The exact
-    /// comparison in [`Cached::answers`] is what decides an entry, so this only has to spread.
+    /// comparison in `Cached::answers` is what decides an entry, so this only has to spread.
     #[must_use]
     pub fn of_inline(stream: &Stream) -> Self {
         use std::hash::{Hash as _, Hasher as _};
@@ -413,7 +413,7 @@ pub(super) const COLOUR_SPACES: &str = "ColorSpace";
 static NO_COLOUR_SPACES: Object = Object::Null;
 
 impl RasterCache {
-    /// What the cache currently charges against [`RASTER_BUDGET`], in bytes.
+    /// What the cache currently charges against `RASTER_BUDGET`, in bytes.
     ///
     /// For a test of the charge: an entry is charged what it holds, so this is bounded by the
     /// budget and the entries' own cost is bounded by this.

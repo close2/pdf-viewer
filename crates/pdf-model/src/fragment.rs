@@ -91,7 +91,7 @@ use crate::destination::View;
 
 /// One fragment identifier, read.
 ///
-/// The two lists keep the fragment's own order, which §O.2 makes normative: "[f]ragment
+/// The two lists keep the fragment's own order, which §O.2 makes normative: "\[f]ragment
 /// identifiers shall be processed and (if required) executed from left to right".
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Fragment {
@@ -234,9 +234,9 @@ pub enum Parameter {
     /// > The commentID shall be the value of an annotation name, which is defined by the NM key in
     /// > the corresponding annotation dictionary
     ///
-    /// The table also states where this parameter has to appear, and why: "[i]f the comment
+    /// The table also states where this parameter has to appear, and why: "\[i]f the comment
     /// parameter is combined with another parameter that defines a specific page to be identified,
-    /// then the comment parameter shall appear after that in the URI", because "[t]he NM key is
+    /// then the comment parameter shall appear after that in the URI", because "\[t]he NM key is
     /// unique to a specific page, but is not guaranteed to be unique to a document".
     Comment(Vec<u8>),
     /// Table Annex O.3's `ef`: §7.11.4's `/EmbeddedFiles` key, stated in §O.2.1.
@@ -484,9 +484,9 @@ impl Parameter {
 
 /// The annotation on `page` that Table 166's `/NM` names — Annex O's `comment` parameter.
 ///
-/// §12.5.2 makes the entry "[t]he annotation name, a text string uniquely identifying it among all
+/// §12.5.2 makes the entry "\[t]he annotation name, a text string uniquely identifying it among all
 /// the annotations on its page", which is the sentence behind the annex's own restriction that a
-/// `comment` parameter must follow whatever chose the page: §O.2.1 says "[t]he NM key is unique to
+/// `comment` parameter must follow whatever chose the page: §O.2.1 says "\[t]he NM key is unique to
 /// a specific page, but is not guaranteed to be unique to a document", so this asks one page.
 ///
 /// The comparison is between the fragment's bytes and §7.9.2's *decoded* text string, as UTF-8.

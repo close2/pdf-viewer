@@ -565,3 +565,11 @@ failed while meaning something else (ADR 2070). A step whose subject is one lane
 lane — `--cpu` here — in its launch and says in its comment why the lane is pinned, so that a later
 round reading a red step knows whether the lane or the behaviour moved.
 
+### 224. `xdotool type` drops a character of a non-Latin word
+
+Round 1642's drive judged GTK's `25-find-arabic` step `wrong`; the step's shot showed the needle typed
+without its ya, and a re-run found the word (ADRs 2120, 2121). The character was lost between
+`xdotool type` and the toolkit's input method, not by the window. A find verdict on a non-Latin needle
+is read against the needle visible in the shot before it is believed, and re-run once before it is
+attributed to a change (habit 143's shape for photographs applies to typed text too).
+

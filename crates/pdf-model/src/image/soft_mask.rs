@@ -64,7 +64,7 @@ pub(super) enum SoftMaskEntry {
 /// whether this crate can use one at all:
 ///
 /// - **`/Width` and `/Height` are "independent of" the parent image's** unless `/Matte` is
-///   present, and "[b]oth images shall be mapped to the unit square in user space (as are all
+///   present, and "\[b]oth images shall be mapped to the unit square in user space (as are all
 ///   images), regardless of whether the samples coincide individually". So a mask of another
 ///   size still applies; [`combine_on_the_finer_grid`] is where the choice that costs is
 ///   made, and [`PREFER_DEVICE_SCALE_ABOVE`] is where it stops being the cheaper choice —
@@ -74,7 +74,7 @@ pub(super) enum SoftMaskEntry {
 ///   mask is decoded by the ordinary image route, so a mask in some other space arrives as a
 ///   colour, and there is no clause saying which of its components is the opacity. §11.5.3's
 ///   luminosity is a rule about a *transparency group*'s colour, not about this key.
-/// - **`/ImageMask` "[s]hall be false or absent"**, which matters more than it looks: a
+/// - **`/ImageMask` "\[s]hall be false or absent"**, which matters more than it looks: a
 ///   stencil decodes to the fill colour and an alpha, carrying no grey level at all, so
 ///   reading its first component as opacity would make every such image fully transparent.
 ///   Refusing draws the image opaque, which is wrong in a way a reader can see.
@@ -451,12 +451,11 @@ fn mask_plane(document: &Document, mask: &Stream) -> Option<MaskPlane> {
 ///
 /// Admitted is what [`decode_parts`] would treat with nothing else to do: no `/ImageMask`, no
 /// `/Mask` (which a colour key would read in the table's place) and no `/SMask`,
-/// `/BitsPerComponent` read as [`samples_of`] reads it and found 8, and the space read as
+/// `/BitsPerComponent` read as `samples_of` reads it and found 8, and the space read as
 /// [`mask_colour_space`] reads it and found `DeviceGray`. The dimensions are checked as
 /// [`decode_parts`] checks them.
 ///
 /// [`decode_parts`]: super::decode_parts
-/// [`samples_of`]: super::dispatch::samples_of
 fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStream, [u8; 256])> {
     let dict = &mask.dict;
     let absent = |key: &str| matches!(document.get_key(dict, key), Object::Null);
@@ -555,7 +554,7 @@ fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane
 /// another codec, or whose frame is not one `Luma` component.
 ///
 /// **The same bytes as [`decode`]'s.** That route asks `zune-jpeg` for the frame's luminance
-/// written to the three colour channels of each pixel, and [`apply_decode_to_channels`] maps each
+/// written to the three colour channels of each pixel, and `apply_decode_to_channels` maps each
 /// by the first `/Decode` pair, which is [`grey_mask`]'s table; this asks for the luminance once and
 /// maps it by the same table. The grid is the frame's, as [`decode`]'s raster is (§7.4.8), and a
 /// `DNL` is honoured and a frame cut at its restart intervals as [`decode_jpeg`] does both.
@@ -563,7 +562,6 @@ fn grey_plane_of_samples(document: &Document, mask: &Stream) -> Option<MaskPlane
 /// `22060_A1_01_Plans.pdf` it leaves four 2 480 × 2 630 masks a byte a sample where each was
 /// 26 MB of raster (ADR 1481).
 ///
-/// [`apply_decode_to_channels`]: super::convert::apply_decode_to_channels
 /// [`decode_jpeg`]: super::dct::decode_jpeg
 fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> {
     use zune_jpeg::zune_core::colorspace::ColorSpace;
@@ -619,7 +617,7 @@ fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> 
 /// whose data will not decode leaves the image opaque, because an image visibly present and
 /// slightly wrong beats one dropped entirely. Unlike that function it also reports where the
 /// mask *is* applied, for the one requirement that is not about the mask — see
-/// [`SoftMaskEntry::Image`].
+/// `SoftMaskEntry::Image`.
 ///
 /// Reading it costs no decode, which is what makes it safe to ask of every image: the
 /// 34862×4332 mask above cost 19 seconds and 600 MB when this question was answered by

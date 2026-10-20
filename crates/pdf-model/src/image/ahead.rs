@@ -47,16 +47,14 @@ use super::{ImageError, MaskCache, Parts, decode_parts};
 
 /// How many bytes of rasters decoded ahead may wait for their `Do` at once.
 ///
-/// Twice [`RASTER_BUDGET`], because the witness this exists for —
+/// Twice `RASTER_BUDGET`, because the witness this exists for —
 /// `22060_A1_01_Plans.pdf`, four 2480 × 2630 photographs each with a soft mask — is four rasters
 /// of 26.1 MB, and a budget under their sum would hold back the fourth until the first had been
 /// drawn, which is the serial decode again. Charged at issue, from the dictionary's `/Width`
 /// and `/Height` at four bytes a sample, and released when the interpreter takes the raster:
-/// from then on the bytes are the display list's, which [`RASTER_BUDGET`]'s own argument
+/// from then on the bytes are the display list's, which `RASTER_BUDGET`'s own argument
 /// says it was going to spend anyway. What this bounds is the waste — rasters decoded for a `Do`
 /// that never comes.
-///
-/// [`RASTER_BUDGET`]: super::cache::RASTER_BUDGET
 pub(crate) const AHEAD_BUDGET: usize = 128 << 20;
 
 /// The smallest image decoded ahead, in samples.

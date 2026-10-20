@@ -162,7 +162,7 @@ pub(super) fn decode_jpx(
 /// the image and keeps the rest (§12.5.6.23's redaction) needs the step before that, because
 /// every sample outside the part it clears is to be carried as the file had it. So this stops
 /// where [`decode`]'s own JPEG 2000 route starts to convert: the components at the precision
-/// Table 87 leaves to the processor — "[t]he bit depth is determined by the PDF processor in the
+/// Table 87 leaves to the processor — "\[t]he bit depth is determined by the PDF processor in the
 /// process of decoding the JPEG 2000 image" — the colour space §7.4.9's precedence names, the
 /// `/Decode` pairs a reader maps the samples through, and `/SMaskInData`'s opacity channel apart.
 ///
@@ -179,7 +179,7 @@ pub struct JpxSamples {
     /// byte to eight, two big-endian bytes above.
     pub precision: u8,
     /// Each colour component's own depth, which its integers are at within that field — all
-    /// [`Self::precision`] unless §7.4.9's "[t]he colour components in an image may have
+    /// [`Self::precision`] unless §7.4.9's "\[t]he colour components in an image may have
     /// different numbers of bits per sample" applies (ADR 1371).
     pub depths: Vec<u8>,
     /// The opacity channel's own depth, where [`Self::opacity`] is carried.
@@ -525,7 +525,7 @@ struct KeyedSamples<'a> {
 /// many: "there shall be only one opacity channel in the JPEG 2000 data and it shall apply to all
 /// colour channels". It is read into [`SamplesOnGrid::stencil_opacity`], a plane of its own, and
 /// not into the alpha channel, because §11.6.4.2 has already given that channel the stencil's
-/// shape — "[f]or image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted
+/// shape — "\[f]or image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted
 /// areas and 0.0 for masked areas" — and the pair is carried apart for the reason an `/SMask`'s
 /// is (ADR 1218, ADR 1279).
 ///
@@ -626,7 +626,7 @@ fn jpx_stencil(
 /// 255 this replaced could not: an `Indexed` space's default is `[0 2^n − 1]`, so an index is
 /// passed through rather than turned into a fraction.
 ///
-/// The depth is the raster's own, which Table 87 makes this processor's to determine — "[t]he
+/// The depth is the raster's own, which Table 87 makes this processor's to determine — "\[t]he
 /// bit depth is determined by the PDF processor in the process of decoding the JPEG 2000
 /// image" — and which `pdf_sandbox` answers with the codestream's wherever its components
 /// agree on one (ADR 1242). §8.9.5.2's map is linear in the sample, so the pair still lands
@@ -661,7 +661,7 @@ struct JpxOpacity {
 /// Converts decoded JPEG 2000 samples into straight-alpha RGBA8.
 ///
 /// `colour_key` is §8.9.6.4's ranges, one per colour component, applied here for the reason
-/// [`jpeg_colour_key`] gives on the other lossy filter: the test is on the components "before
+/// `jpeg_colour_key` gives on the other lossy filter: the test is on the components "before
 /// decoding", which are the samples this loop reads, and the conversion below replaces them.
 ///
 /// **The samples are read at the raster's own precision**, which for a codestream of more than
@@ -670,8 +670,6 @@ struct JpxOpacity {
 /// wrote them in — and the eight-bit raster this returns is reached afterwards, through
 /// §8.9.5.2's map. The opacity channel is scaled here instead, because RGBA8 is what an
 /// `Image` carries and an alpha has no `/Decode` entry to carry it.
-///
-/// [`jpeg_colour_key`]: super::dct::jpeg_colour_key
 fn jpx_samples_to_rgba(
     raster: &pdf_sandbox::Raster,
     space: &crate::colour::ColourSpace,
@@ -938,7 +936,7 @@ fn codestream_colour_space(
 /// The bits a JPEG 2000 image's samples reach this crate at, or a sentence saying why no
 /// single domain exists.
 ///
-/// ISO 32000-2 Table 87 makes the depth this processor's to determine — "[t]he bit depth is
+/// ISO 32000-2 Table 87 makes the depth this processor's to determine — "\[t]he bit depth is
 /// determined by the PDF processor in the process of decoding the JPEG 2000 image" — and what
 /// it determines is the codestream's own, so that §8.9.6.4's ranges are compared in the domain
 /// their integers were written in (ADR 1242). `pdf_sandbox::decode` reads the same `Ssiz`

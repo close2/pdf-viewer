@@ -21,7 +21,7 @@
 //!
 //! **Chosen, and the standard states nothing about either.** That a section *number* is the
 //! leading token of an outline item's title is a convention of technical documents and not a
-//! rule of ISO 32000-2, which makes `/Title` "[t]he text that shall be displayed on the screen
+//! rule of ISO 32000-2, which makes `/Title` "\[t]he text that shall be displayed on the screen
 //! for this item" and says nothing about its shape. And that a section ends where the next
 //! outline item that is **not** one of its descendants begins is a choice among two defensible
 //! ones — the other being that it ends at the next item of any kind, which would make asking

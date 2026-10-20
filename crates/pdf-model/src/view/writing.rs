@@ -25,16 +25,16 @@ impl ViewState {
     /// # What is written
     ///
     /// One replacement object per field a value was typed into, carrying Table 226's `/V`, and
-    /// §12.7.4.3's appearance stream for each of its widgets ([`Update::write_appearance`]). Every
+    /// §12.7.4.3's appearance stream for each of its widgets (`Update::write_appearance`). Every
     /// annotation a person added, with its page's `/Annots` extended
-    /// ([`ViewState::write_additions`]); and every free text annotation of the file's **own** that
+    /// (`ViewState::write_additions`); and every free text annotation of the file's **own** that
     /// a person retyped, with Table 166's `/Contents` and a replaced appearance
-    /// ([`ViewState::write_retypings`]) — which is §7.5.6's second case, "objects that have been
+    /// (`ViewState::write_retypings`) — which is §7.5.6's second case, "objects that have been
     /// changed, replaced, or deleted", and the producer's own bytes are still in the file beneath
     /// it. Every field an import replaced and nobody typed into since, with the entries Table 249
-    /// states and the appearance the value is drawn with ([`ViewState::write_imported_values`]);
+    /// states and the appearance the value is drawn with (`ViewState::write_imported_values`);
     /// and every field §12.7.6.3's reset set back to a default its `/V` was not already
-    /// ([`ViewState::write_resets`]).
+    /// (`ViewState::write_resets`).
     ///
     /// **Table 224's `/NeedAppearances` is written for what is left over, and the entry's own row
     /// states that condition** (§12.7.3):
@@ -50,7 +50,7 @@ impl ViewState {
     /// — and the entry itself is deprecated in PDF 2.0.
     ///
     /// **Table 166's `/M` goes on every annotation this update writes, and only where a host has
-    /// said what time it is.** The entry is "[t]he date and time when the annotation was most
+    /// said what time it is.** The entry is "\[t]he date and time when the annotation was most
     /// recently modified"; `CLAUDE.md`'s rule 3 gives this crate no clock, and an instant invented
     /// here would be a claim about a machine nothing in this crate can see.
     /// [`ViewState::set_modification_time`] is where a host states one, and a host that states
@@ -453,7 +453,7 @@ impl ViewState {
     /// specification and the tree that names them — and two per file attached to a page, whose
     /// annotation [`Self::write_additions`] writes with the rest. The tree is rewritten once,
     /// holding the document's entries less the detached ones plus the attached ones, and the
-    /// objects a detached entry alone reached are the answer's first half: §7.5.6, "[d]eleted
+    /// objects a detached entry alone reached are the answer's first half: §7.5.6, "\[d]eleted
     /// objects shall be left unchanged in the PDF file, but shall be marked as deleted by means
     /// of their cross-reference entries". The second half names every detached file whose stream
     /// another home still reaches, and which therefore stays in use.
@@ -583,7 +583,7 @@ impl ViewState {
     /// nothing in the file claims any more.
     ///
     /// **That is a departure from Table 166 and is taken deliberately.** The entry's own row binds
-    /// a writer — "[a] PDF writer shall include an appearance dictionary when writing or updating
+    /// a writer — "\[a] PDF writer shall include an appearance dictionary when writing or updating
     /// the PDF file except for the two cases listed below" — and a free text annotation is neither
     /// exception (its `/Rect` is not degenerate and its `/Subtype` is not `Popup`, `Projection` or
     /// `Link`); Errata Collection 3's Issue #22 raises the same requirement into the entry's
@@ -1327,7 +1327,7 @@ fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(Objec
 /// `ViewState::add_markup` refuses an empty set of quadrilaterals and Table 166's `/C` is always
 /// written.
 ///
-/// **An annotation with no `/AP` is not legal from a writer, and Table 166 says so**: "[a] PDF
+/// **An annotation with no `/AP` is not legal from a writer, and Table 166 says so**: "\[a] PDF
 /// writer shall include an appearance dictionary when writing or updating the PDF file except for
 /// the two cases listed below", the two being a `/Rect` whose opposite corners coincide and a
 /// `/Subtype` of `Popup`, `Projection` or `Link`. Errata Collection 3's Issue #22 moves the same

@@ -141,7 +141,7 @@ pub enum XmpError {
     /// The stream would not decode — a filter this tree refuses, or a missing decryption key.
     #[error("the metadata stream would not decode")]
     Undecodable,
-    /// The packet is larger than [`MAX_BYTES`].
+    /// The packet is larger than `MAX_BYTES`.
     #[error("the metadata stream is {bytes} bytes, past this reader's {MAX_BYTES}-byte bound")]
     TooLarge {
         /// What the stream decoded to.
@@ -465,7 +465,7 @@ impl Xmp {
     ///
     /// The match is on the `xml:lang` the packet wrote, not on RFC 4647's lookup: a fallback
     /// from `en-GB` to `en` is a policy a *host* has, and inventing one here would put it out of
-    /// that host's reach. Case is [`same_language`]'s business rather than the tag's.
+    /// that host's reach. Case is `same_language`'s business rather than the tag's.
     #[must_use]
     pub fn text_in(&self, namespace: &str, local: &str, language: &str) -> Option<&str> {
         match self.value(namespace, local)? {
@@ -644,10 +644,10 @@ pub enum WriteError {
         /// How many descriptions of it this writer could extend.
         found: usize,
     },
-    /// The packet nests deeper than [`MAX_DEPTH`].
+    /// The packet nests deeper than `MAX_DEPTH`.
     #[error("the packet nests deeper than this writer follows")]
     TooDeep,
-    /// The packet is larger than [`MAX_BYTES`].
+    /// The packet is larger than `MAX_BYTES`.
     #[error("the packet is {bytes} bytes, past this writer's bound")]
     TooLarge {
         /// What the packet holds.
@@ -1554,7 +1554,7 @@ pub enum Form {
 /// One property to add to a packet that does not already state it.
 ///
 /// The prefix is carried beside the namespace because the description this writes declares its
-/// own binding — [`description`]'s rule — so the spelling has to come from somewhere, and the
+/// own binding — `description`'s rule — so the spelling has to come from somewhere, and the
 /// spelling a caller wants is the conventional one for the schema it is writing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Supplement<'a> {

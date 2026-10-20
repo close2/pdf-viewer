@@ -237,7 +237,7 @@ pub(in crate::content) fn page_own_space(
 /// simulated output device", which for this processor is the device raster's three components.
 /// So a page that states nothing composites in what this tree composites in, and a page that
 /// states a `/Group /CS` is judged by [`space_departure`] — and that entry decides the whole
-/// page, because §11.4.7 also says "[a]ll page-level compositing shall be done in the default
+/// page, because §11.4.7 also says "\[a]ll page-level compositing shall be done in the default
 /// blending colour space of the page".
 pub(in crate::content) fn page_blending_space(
     document: &Document,
@@ -387,7 +387,7 @@ impl Interpreter<'_> {
     /// Where the parent composites on the device, every one of the three is a construction
     /// this tree draws and the group's result leaves by its own conversion out. Where the
     /// parent composites in a space of its own, the group's result owes a second conversion
-    /// at its `Do` — §11.6.6: "[i]f colour conversion needs to take place in order to
+    /// at its `Do` — §11.6.6: "\[i]f colour conversion needs to take place in order to
     /// composite the group into its parent" — and [`parent_channels`] is that conversion, so
     /// the group is drawn in its own space exactly where `changed` says the space differs
     /// ([`group_blending`]) and the parent is one that function has a route into. A group

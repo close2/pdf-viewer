@@ -106,7 +106,8 @@ pub enum Kind {
     Stated,
     /// `Answer::Loses`: a rewrite the caller has to authorise.
     Loses,
-    /// `Answer::CmykUnderPartTwo`: two licences, chosen between on the profile in hand.
+    /// `Answer::CmykUnderPartTwo` and `Answer::RgbUnderPartTwoOrFour`: two licences, chosen
+    /// between on the profile in hand.
     TwoLicences,
     /// `Answer::AsUnderlying`: the requirement asks other rows' rules again, and the answer is
     /// theirs.
@@ -171,7 +172,7 @@ pub fn standing(requirement: &Requirement) -> Standing {
             Answer::Mechanical(_) => Kind::Mechanical,
             Answer::Stated(..) => Kind::Stated,
             Answer::Loses(..) => Kind::Loses,
-            Answer::CmykUnderPartTwo => Kind::TwoLicences,
+            Answer::CmykUnderPartTwo | Answer::RgbUnderPartTwoOrFour(_) => Kind::TwoLicences,
             Answer::AsUnderlying(_) => Kind::Underlying,
         });
     }

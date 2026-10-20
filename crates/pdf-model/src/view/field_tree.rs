@@ -54,7 +54,7 @@ use super::MAX_FIELD_DEPTH;
 ///
 /// **This walks every page, so it is for what a person asked of the whole document** — a value
 /// typed by name, a reset, an import, a save, a submission. What runs while a document opens, a
-/// page is drawn or the pointer moves asks [`field_table`] with a narrower [`Omitted`]: one page's
+/// page is drawn or the pointer moves asks `field_table` with a narrower `Omitted`: one page's
 /// widgets, or the calculation order's own entries (ADR 1653 section 4).
 pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
     field_table(document, Omitted::EveryPage)

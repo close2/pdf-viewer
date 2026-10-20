@@ -134,7 +134,7 @@ impl Interpreter<'_> {
     /// The two halves an image's samples, a shading's ramp and a mesh's vertices need and an
     /// operator's colour does not: those three convert *later*, in `crate::image`,
     /// `crate::shading` and `crate::mesh`, so the parameters in force have to travel with them.
-    /// §11.7.5.3 is the clause that says which parameters those are — "[t]he rendering intent,
+    /// §11.7.5.3 is the clause that says which parameters those are — "\[t]he rendering intent,
     /// black-generation, undercolour-removal and black point compensation parameters control
     /// certain colour conversions … they may need to be applied earlier than the actual
     /// rendering of colour onto the page".
@@ -207,7 +207,7 @@ impl Interpreter<'_> {
 
     /// §10.8.3's separation simulation as the reader of this interpretation asked for it.
     ///
-    /// The clause conditions itself on a person's request — "[i]f it is important for the
+    /// The clause conditions itself on a person's request — "\[i]f it is important for the
     /// colours of the display for a PDF, on a device that normally would not be used to
     /// produce separations, to more closely match those produced when using separations" — and
     /// no document states one, so the answer comes from the view state and from nowhere else
@@ -272,7 +272,7 @@ impl Interpreter<'_> {
     /// (ADR 1329).
     ///
     /// **What the group does change on a spot plane is which names are the device's.** §11.7.3
-    /// has a `Separation` or `DeviceN` naming a process colourant revert "[i]f any other colour
+    /// has a `Separation` or `DeviceN` naming a process colourant revert "\[i]f any other colour
     /// space has been specified for the group", and the process plane asks that of the group's
     /// space; the spot plane, drawing the same group in its own compositing, is told the same
     /// answer through [`crate::colour::DeviceSpots::outside_native`], so a `DeviceN` naming

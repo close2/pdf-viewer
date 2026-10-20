@@ -23,7 +23,7 @@ use super::unpack::{Painting, Samples, unpack};
 /// Two sentences, and both matter. The first says an `/EndOfBlock` of true — which is its
 /// default, so it is what a document that never mentions the entry has — *overrides* `/Rows`
 /// outright: the end-of-block pattern terminates the data, and the number of lines is whatever
-/// the pattern is reached after. The second gives `/Rows` its stopping power only "[i]f false".
+/// the pattern is reached after. The second gives `/Rows` its stopping power only "\[i]f false".
 ///
 /// So a decode bounded by `/Rows` is right in exactly one of the two cases, and the height the
 /// other case is bounded by is the image dictionary's — §8.9.5.1's `/Height`, which is the only
@@ -99,7 +99,7 @@ pub(super) fn ccitt_shortfall(
 /// disagreeing with `/Width` by more than Table 11's byte padding (below).
 ///
 /// **`/DamagedRowsBeforeError`** travels as the dictionary states it, and `pdf_ccitt` applies it:
-/// Table 11 defines it as "[t]he number of damaged rows of data that shall be tolerated before an
+/// Table 11 defines it as "\[t]he number of damaged rows of data that shall be tolerated before an
 /// error occurs", where tolerating one means "locating its end in the encoded data by searching
 /// for an `EndOfLine` pattern and then substituting decoded data from the previous row if the
 /// previous row was not damaged, or a white scan line if the previous row was also damaged", and

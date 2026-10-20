@@ -132,9 +132,22 @@ fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
 /// edge of one glyph's bar came out 0 on the page and 58 in its window (ADR 2058).
 const RECTANGLE_SURFACE_LIMIT: u32 = 8191;
 
-/// Whether `tiny-skia`'s rectangle scan converter reaches a surface `pixmap`'s size.
-fn rectangle_converter_reaches(pixmap: &tiny_skia::PixmapMut<'_>) -> bool {
-    pixmap.width() <= RECTANGLE_SURFACE_LIMIT && pixmap.height() <= RECTANGLE_SURFACE_LIMIT
+/// Whether `tiny-skia`'s rectangle scan converter reaches every surface of the page `scratch` was
+/// made for — the page's own extent, and that of `pixmap`, the surface drawn on now.
+///
+/// **Asked of the page and not of the surface alone**, because a strip of a page past the limit is
+/// a surface under it. The first strip, whose origin is the page's, then handed a rectangle to the
+/// library's 8.8 converter where the page drawn whole wrote the closed form, and the two state a
+/// fractional edge a level apart — 183 and 184 on a bar of `issue12810.pdf` at 4×, a page 10 368
+/// rows tall — so the same pixel depended on how the page was divided (trap 146, ADR 2116). Asked
+/// of the page, every strip of it takes the converter the page drawn whole takes. The surface is
+/// asked as well so that no surface past the limit is ever handed to the library's tiler, whatever
+/// page it belongs to.
+fn rectangle_converter_reaches(pixmap: &tiny_skia::PixmapMut<'_>, scratch: &Scratch) -> bool {
+    let reaches = |(width, height): (u32, u32)| {
+        width <= RECTANGLE_SURFACE_LIMIT && height <= RECTANGLE_SURFACE_LIMIT
+    };
+    reaches((pixmap.width(), pixmap.height())) && scratch.page.is_none_or(reaches)
 }
 
 /// The device rectangles a mark **is**, where `pdf_render::edge` says it is rectangles at all —
@@ -216,6 +229,23 @@ impl Exact {
     /// lies inside the range this converter's arithmetic reaches.
     fn usable(&self) -> bool {
         self.is_some() && self.iter().all(|rect| within(Some(rect)))
+    }
+
+    /// Whether a rectangle of this mark lies inside one device row and short of filling it.
+    ///
+    /// `tiny-skia`'s rectangle converter states such a rectangle by a branch of its own, the row's
+    /// coverage `bottom − top − 1` in 8.8 fixed point, and that is under the area at every
+    /// placement — on 2 079 dyadic rectangles of one row, every one, 1 519 of them by more than
+    /// half a level, and 1.5 levels at `19.6–19.9` — which is the side §10.7.4's third sentence
+    /// forbids: "\[t]he area covered by painted pixels shall always be at least as large as the
+    /// area of the original shape." [`mask_rectangle`]'s closed form is within half a level of
+    /// every one of them, so a mark holding such a rectangle is written by it (ADR 2117). Asked of
+    /// the rectangle's own extent, which a strip's whole-row origin does not change, so every
+    /// division of a page takes the same converter for it.
+    fn holds_a_rectangle_inside_one_row(&self) -> bool {
+        self.iter().any(|rect| {
+            rect.bottom() - rect.top() < 1.0 && rect.bottom() <= rect.top().floor() + 1.0
+        })
     }
 }
 
@@ -357,6 +387,20 @@ pub(crate) struct Scratch {
     /// [`crate::area`]'s accumulator, kept for the same reason and on the same terms: it grows
     /// to the largest mark the band holds and is cleared per mark, never allocated per mark.
     cells: std::cell::RefCell<crate::area::Buffers>,
+    /// The width and height of the page whose band this is, which decides the converter a
+    /// rectangle takes in every strip of it ([`rectangle_converter_reaches`], ADR 2116). `None`
+    /// where no page was stated, and the surface drawn on is then taken as the page.
+    page: Option<(u32, u32)>,
+}
+
+impl Scratch {
+    /// The buffers for one band of a page `width` by `height` pixels.
+    pub(crate) fn for_page(width: u32, height: u32) -> Self {
+        Self {
+            page: Some((width, height)),
+            ..Self::default()
+        }
+    }
 }
 
 /// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias` and
@@ -518,9 +562,14 @@ fn fill_as(
 /// - **A mark past the range**, which is `fill`'s range rule: outside [`SUPERSAMPLED_LIMIT`] the
 ///   library's rectangle converter is not asked, [`intersected`] measures the mark by
 ///   `crate::area` instead, and only a mark that declines too is drawn by the aliased converter.
-/// - **A surface past [`RECTANGLE_SURFACE_LIMIT`]**, where the library's rectangle call is its
-///   supersampled converter in disguise: [`intersected`] writes the closed form into its buffer
-///   instead, which is the construction a clipped rectangle already takes (ADR 2058).
+/// - **A page or a surface past [`RECTANGLE_SURFACE_LIMIT`]**, where the library's rectangle call
+///   is its supersampled converter in disguise: [`intersected`] writes the closed form into its
+///   buffer instead, which is the construction a clipped rectangle already takes (ADR 2058) — on
+///   every surface of such a page, so that a strip of it under the limit states its rectangles as
+///   the page drawn whole does (ADR 2116).
+/// - **A rectangle inside one device row**, which the library's converter states under its area
+///   ([`Exact::holds_a_rectangle_inside_one_row`]): [`intersected`] writes the closed form for the
+///   mark instead (ADR 2117).
 /// - **Nothing else.** Every blend mode and every shader is safe, because `fill_rect_aa` and
 ///   `fill_path` hand their coverage to the *same* `RasterPipelineBlitter` — as alpha runs and as
 ///   one-pixel masks — so the composition each pixel receives is the same function of its
@@ -656,10 +705,12 @@ fn intersected(
     // §10.7.4's own reason, which is the third and the commonest: a mark that is not rectangles
     // is measured as area by [`crate::area`], and that measurement is a coverage buffer rather
     // than a run of alpha the library's converter hands its blitter. ADR 1082. Rectangles are
-    // measured by the library's rectangle converter where it reaches the surface, and written by
-    // [`mask_rectangle`] into the buffer where it does not (ADR 2058).
+    // measured by the library's rectangle converter where it reaches every surface of the page,
+    // and written by [`mask_rectangle`] into the buffer where it does not (ADRs 2058, 2116) and
+    // where the converter's one-row branch would state a rectangle under its area (ADR 2117).
     let exactly = if exact.usable() {
-        !rectangle_converter_reaches(pixmap)
+        !rectangle_converter_reaches(pixmap, clip.scratch())
+            || exact.holds_a_rectangle_inside_one_row()
     } else {
         crate::area::region(path, at, (pixmap.width(), pixmap.height())).is_some()
     };

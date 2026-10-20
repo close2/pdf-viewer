@@ -94,7 +94,7 @@ impl ViewState {
     ///
     /// A dictionary holding whichever of the two the file stated, which is what
     /// [`crate::action::for_annotation`] reads: Table 197 states a precedence *between* the two
-    /// entries — "[f]or backward compatibility, the A entry in an annotation dictionary, if
+    /// entries — "\[f]or backward compatibility, the A entry in an annotation dictionary, if
     /// present, takes precedence over this entry" — so a caller composes this over the widget's
     /// own dictionary and asks the one function, rather than deciding the precedence twice.
     ///

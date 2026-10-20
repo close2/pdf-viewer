@@ -94,7 +94,8 @@ pub enum Rewrite {
     FormOpi,
     /// A form `XObject`'s `/PS`, and a `/Subtype2` whose value is `PS`, are removed.
     FormPostScript,
-    /// Every PostScript `XObject` is dropped, and with it the resource entries naming it.
+    /// Every PostScript `XObject` is written as a form `XObject` with no content, which draws
+    /// what it drew and keeps the resource entries naming it defined (`doc/adr/2115`).
     PostScriptXObject,
     /// The catalog's `/Requirements` is removed.
     RequirementsDictionary,
@@ -140,6 +141,12 @@ pub enum Rewrite {
     /// **Nothing on any page moves**: the content stream still says what its producer wrote, and
     /// a `/DefaultCMYK` only tells a reader how to read the four numbers already there.
     DefaultCmyk,
+    /// `/DefaultRGB`, written as an `ICCBased` space over the shipped sRGB profile, where the
+    /// destination profile in hand is of another family (`doc/adr/2114`).
+    ///
+    /// A `Decision::Stated` for `DefaultCmyk`'s reason: the content stream is the producer's, and
+    /// the entry says how its three numbers are read — as sRGB, which this reader drew them as.
+    DefaultRgb,
     /// The catalog states `/MarkInfo` with `/Marked true`, where the file already carries a
     /// structure tree.
     ///
@@ -244,6 +251,10 @@ pub enum Rewrite {
     /// packet does not state at all is not this rewrite's**: nothing in the file says what its
     /// value would be, and `super::prepare` refuses the document rather than half-correcting it.
     ExtensionSchemaPrefixes,
+    /// An extension schema container missing a field nothing in the file states is discarded,
+    /// and every property in a namespace it described goes with it — section 3.9's loss, named
+    /// per property (`super::extension_container`).
+    ExtensionContainerDiscarded,
     /// The identification schema loses an amendment or corrigendum identifier of the wrong form.
     ///
     /// ISO 19005-2 section 6.6.4 makes `pdfaid:amd` and `pdfaid:corr` optional and fixes their
@@ -1149,7 +1160,8 @@ impl Rewrite {
             Self::FormOpi => "a form XObject's /OPI is removed",
             Self::FormPostScript => "a form XObject's /PS and PostScript /Subtype2 are removed",
             Self::PostScriptXObject => {
-                "a PostScript XObject is dropped, and the resource entries naming it with it"
+                "a PostScript XObject is written as a form XObject with no content, which draws \
+                 what it drew - nothing - and keeps every name for it defined"
             }
             Self::RequirementsDictionary => "the catalog's /Requirements is removed",
             Self::AlternatePresentations => {
@@ -1182,6 +1194,11 @@ impl Rewrite {
                  DefaultCMYK: a DeviceN over Cyan, Magenta, Yellow and Black whose tint \
                  transform is ISO 32000-2 \u{a7}10.4.2.5's, over this file's ICC sRGB alternate"
             }
+            Self::DefaultRgb => {
+                "every resource dictionary explicitly associated with a content stream states a \
+                 DefaultRGB: an ICCBased space over the ICC sRGB profile, beside a destination \
+                 profile of another colour family"
+            }
             Self::MarkInfo => {
                 "the catalog states MarkInfo with Marked true, which the structure tree this \
                  file already carries had demonstrated"
@@ -1212,6 +1229,11 @@ impl Rewrite {
                 "an extension schema container field stated with another prefix is respelled \
                  with the one its table requires, the declaration that bound the old prefix \
                  along with it, leaving every other byte of the packet as its producer wrote it"
+            }
+            Self::ExtensionContainerDiscarded => {
+                "an extension schema container leaving out a field the file states nowhere is \
+                 discarded, and every property in a namespace it described goes with it, each \
+                 named in the report and in the file's xmpMM:History"
             }
             Self::AmendmentIdentifierRemoved => {
                 "an amendment or corrigendum identifier whose value is not the number and the \
@@ -1570,6 +1592,7 @@ impl Rewrite {
             Self::OutputIntent => "output-intent",
             Self::IdentificationSchema => "identification-schema",
             Self::DefaultCmyk => "default-cmyk",
+            Self::DefaultRgb => "default-rgb",
             Self::MarkInfo => "mark-info",
             Self::AssociatedFileNames => "associated-file-names",
             Self::AssociatedFileRelationship => "associated-file-relationship",
@@ -1577,6 +1600,7 @@ impl Rewrite {
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
             Self::FreshMetadataPacket => "fresh-metadata-packet",
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
+            Self::ExtensionContainerDiscarded => "extension-container-discarded",
             Self::AmendmentIdentifierRemoved => "amendment-identifier-removed",
             Self::ExtensionSchemaDescribed => "extension-schema-described",
             Self::ExtensionFieldDescribed => "extension-field-described",
@@ -1741,6 +1765,7 @@ impl<'a> Rewriter<'a> {
             intent: prepared.intent.as_ref().ok(),
             metadata: prepared.metadata.as_ref().ok(),
             default_cmyk: prepared.default_cmyk.as_ref().ok(),
+            default_rgb: prepared.default_rgb.as_ref().ok(),
             to_unicode: prepared.to_unicode.as_ref().ok(),
             fresh: prepared.fresh.as_ref().ok(),
             amended: prepared.amended.as_ref().ok(),
@@ -1898,10 +1923,19 @@ fn count_what_has_no_place(
     }
     // The same, for the same reason: a packet may respell five fields of one description, and a
     // report saying "1 done" would be counting the stream rather than the spellings.
-    if wanted.contains(&Rewrite::ExtensionSchemaPrefixes)
+    if (wanted.contains(&Rewrite::ExtensionSchemaPrefixes)
+        || wanted.contains(&Rewrite::ExtensionContainerDiscarded))
         && let Ok(respelled) = &prepared.respelled
     {
         applied.insert(Rewrite::ExtensionSchemaPrefixes, respelled.fields);
+        // A container and each property it took with it are a place apiece, and every one of
+        // them is in the removed list.
+        if respelled.discarded > 0 {
+            applied.insert(
+                Rewrite::ExtensionContainerDiscarded,
+                respelled.removed.len(),
+            );
+        }
     }
     // The three writers `doc/adr/1245` and `doc/adr/1246` added, counted from the preparation
     // rather than from the walk. **A packet the identification schema is also restated into is
@@ -2001,11 +2035,8 @@ fn walk(
 
 /// Puts one object into the assembly, rewritten where the conversion changes it.
 ///
-/// `Ok(None)` for an object the conversion **drops** — a PostScript `XObject` — which is not an
-/// error: §7.3.10 makes a reference to an object the file does not hold "a reference to the null
-/// object", the serializer writes that null, and §7.3.7 makes a dictionary entry whose value is
-/// null the same as an absent one. So the resource entry that named it disappears with it,
-/// without anything here having to find the dictionary it sat in.
+/// `Ok(None)` for an object the file does not hold, which is not an error: §7.3.10 makes a
+/// reference to one "a reference to the null object", and the serializer writes that null.
 fn enter(
     rewriter: &Rewriter<'_>,
     assembly: &mut Assembly<'_>,
@@ -2031,7 +2062,6 @@ fn enter(
         return Ok(None);
     }
     match rewriter.rewrite(id, &value, applied) {
-        Rewritten::Dropped => Ok(None),
         Rewritten::Carried => {
             let placed = assembly.copy(0, id)?;
             queue.push_back(id);
@@ -2154,8 +2184,8 @@ struct Sites {
 
     /// Every annotation object a page's `/Annots` names, except a `Popup`.
     annotations: BTreeSet<ObjectId>,
-    /// Where a `/DefaultCMYK` has to be written, where one is being written.
-    default_cmyk: CmykSites,
+    /// Where a `/DefaultCMYK` or a `/DefaultRGB` has to be written, where one is being written.
+    defaults: DefaultSites,
 }
 
 impl Sites {
@@ -2171,13 +2201,14 @@ impl Sites {
             .into_iter()
             .filter_map(|page| page.and_then(|page| page.id))
             .collect();
-        let default_cmyk = if wanted.contains(&Rewrite::DefaultCmyk) {
-            CmykSites::of(document, &tree)
-        } else {
-            // Nothing is walked that no failed requirement asked for, which is `doc/adr/0947`'s
-            // first rule applied to a *reading* rather than to a rewrite.
-            CmykSites::default()
-        };
+        let defaults =
+            if wanted.contains(&Rewrite::DefaultCmyk) || wanted.contains(&Rewrite::DefaultRgb) {
+                DefaultSites::of(document, &tree)
+            } else {
+                // Nothing is walked that no failed requirement asked for, which is `doc/adr/0947`'s
+                // first rule applied to a *reading* rather than to a rewrite.
+                DefaultSites::default()
+            };
         let annotations = if wanted.contains(&Rewrite::AnnotationFlags) {
             annotation_objects(document, &tree)
         } else {
@@ -2201,14 +2232,14 @@ impl Sites {
             pages,
             root_of_the_pages,
             annotations,
-            default_cmyk,
+            defaults,
         }
     }
 }
 
 /// Every annotation §12.5.2's page `/Annots` array names, except the subtype ISO 19005 exempts.
 ///
-/// **A structural walk rather than the validator's list**, for [`CmykSites`]'s reason: a findings
+/// **A structural walk rather than the validator's list**, for [`DefaultSites`]'s reason: a findings
 /// list is capped, and a document with more annotations than the cap is one this rewrite would
 /// otherwise half-finish. An annotation written directly into the array rather than as an object
 /// of its own is not reached — this walk rewrites objects — and the requirement then stays failed,
@@ -2249,7 +2280,8 @@ fn annotation_objects(document: &Document, tree: &Pages<'_>) -> BTreeSet<ObjectI
 /// §12.5.3's Table 167 `Print` bit, at bit position 3 counted from the low-order bit.
 const PRINT: i64 = 4;
 
-/// Every dictionary a `/DefaultCMYK` has to reach, found once before the walk starts.
+/// Every dictionary a `/DefaultCMYK` or a `/DefaultRGB` has to reach, found once before the walk
+/// starts.
 ///
 /// # Why this is a structural walk rather than a list of failures
 ///
@@ -2267,7 +2299,7 @@ const PRINT: i64 = 4;
 /// worse file than the one that came in. Adding the entry where nothing selects `DeviceCMYK`
 /// changes no mark at all: §8.6.5.6's remapping happens when a device space is *used*.
 #[derive(Debug, Default)]
-struct CmykSites {
+struct DefaultSites {
     /// `/ColorSpace` subdictionaries reached by reference, which receive the entry themselves.
     spaces: BTreeSet<ObjectId>,
     /// Resource dictionaries reached by reference whose `/ColorSpace` is direct or absent.
@@ -2286,7 +2318,7 @@ struct CmykSites {
     pages: BTreeMap<ObjectId, Object>,
 }
 
-/// How many objects [`CmykSites`] visits before it stops.
+/// How many objects [`DefaultSites`] visits before it stops.
 ///
 /// A bound rather than a reading (principle 3): the walk follows a resource graph whose shape is
 /// the document's, and a file can nest form `XObject`s inside patterns inside forms as deep as it
@@ -2294,7 +2326,7 @@ struct CmykSites {
 /// what reports that the requirement is not met — which is the net `doc/adr/0947` built.
 const MAX_RESOURCE_SITES: usize = 65_536;
 
-impl CmykSites {
+impl DefaultSites {
     /// The four dictionaries A003 names, reached from every page.
     fn of(document: &Document, tree: &Pages<'_>) -> Self {
         let mut found = Self::default();
@@ -2534,8 +2566,6 @@ enum Rewritten {
     Carried,
     /// Changed, in the source's numbering.
     Changed(Object),
-    /// Not written at all.
-    Dropped,
 }
 
 /// Table 225's `AppendOnly` bit of `/SigFlags`: "[i]f set, the document contains signatures
@@ -2579,6 +2609,8 @@ struct Rewriter<'a> {
     metadata: Option<&'a Metadata>,
     /// The `/DefaultCMYK` to write, where one is being written.
     default_cmyk: Option<&'a DefaultCmyk>,
+    /// The `/DefaultRGB` to write, where one is being written (`doc/adr/2114`).
+    default_rgb: Option<&'a super::default_rgb::DefaultRgb>,
     /// The `/ToUnicode` `CMap` each font is to name, where any are being written.
     to_unicode: Option<&'a DerivedMaps>,
     /// The packet each metadata stream is to carry in place of one this tree cannot read.
@@ -2881,7 +2913,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::SuppliedMediaType);
             changed = true;
         }
-        changed |= self.write_default_cmyk(id, &mut out, applied);
+        changed |= self.write_defaults(id, &mut out, applied);
         changed |= self.complete_file_specification(&mut out, applied);
         changed |= self.owed_rewrites(id, &mut out, applied);
         changed |= self.unsign(id, &mut out, applied);
@@ -3046,9 +3078,10 @@ impl Rewriter<'_> {
 
     /// Whether the document's XMP packet is being written.
     ///
-    /// Seven rewrites reach it and each for its own reason: the identification schema is the
+    /// Eight rewrites reach it and each for its own reason: the identification schema is the
     /// file's claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48` requires
-    /// recorded in `xmpMM:History`, a removed property is both an edit to the packet and
+    /// recorded in `xmpMM:History`, a removed property — misused, or described by a discarded
+    /// container — is both an edit to the packet and
     /// `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it, the replacement, the
     /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added, and
     /// the information dictionary's entries are supplemented into it (`doc/adr/1269`). Any one
@@ -3058,6 +3091,7 @@ impl Rewriter<'_> {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)
             || self.wants(Rewrite::PropertyOutsideItsSchema)
+            || self.wants(Rewrite::ExtensionContainerDiscarded)
             || self.wants(Rewrite::FreshMetadataPacket)
             || self.wants(Rewrite::AmendmentIdentifierRemoved)
             || self.wants(Rewrite::ExtensionSchemaDescribed)
@@ -3066,29 +3100,34 @@ impl Rewriter<'_> {
     }
 }
 
-/// One `/ColorSpace` subdictionary with §8.6.5.6's `/DefaultCMYK` added.
+/// One `/ColorSpace` subdictionary with §8.6.5.6's `/DefaultCMYK` or `/DefaultRGB` added, as
+/// `key` names.
 ///
 /// `None` where it already states one, which is the producer's and stays theirs.
-fn with_default_cmyk(spaces: &Dictionary, space: ObjectId) -> Option<Dictionary> {
-    if spaces.get("DefaultCMYK").is_some() {
+fn with_default(spaces: &Dictionary, key: &str, space: ObjectId) -> Option<Dictionary> {
+    if spaces.get(key).is_some() {
         return None;
     }
     let mut out = spaces.clone();
-    out.insert(Name::new(&b"DefaultCMYK"[..]), Object::Reference(space));
+    out.insert(Name::new(key.as_bytes()), Object::Reference(space));
     Some(out)
 }
 
 /// One resource dictionary whose `/ColorSpace` states the default.
 ///
 /// `None` where the entry is already there, and where `/ColorSpace` is another object — that
-/// object is [`CmykSites::spaces`]'s business and this dictionary is left alone.
-fn resources_with_default_cmyk(resources: &Dictionary, space: ObjectId) -> Option<Dictionary> {
+/// object is [`DefaultSites::spaces`]'s business and this dictionary is left alone.
+fn resources_with_default(
+    resources: &Dictionary,
+    key: &str,
+    space: ObjectId,
+) -> Option<Dictionary> {
     let spaces = match resources.get("ColorSpace") {
         None => Dictionary::new(),
         Some(Object::Dictionary(spaces)) => spaces.clone(),
         Some(_) => return None,
     };
-    let spaces = with_default_cmyk(&spaces, space)?;
+    let spaces = with_default(&spaces, key, space)?;
     let mut out = resources.clone();
     out.insert(Name::new(&b"ColorSpace"[..]), Object::Dictionary(spaces));
     Some(out)

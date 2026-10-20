@@ -16,7 +16,6 @@ use pdf_model::view::WidgetAppearances;
 
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
-use viewer_core::{RestrictionLevel, RestrictionPolicy};
 use viewer_gtk::{Host, Opening};
 use viewer_host::native_window::NativeWindow;
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
@@ -33,38 +32,12 @@ struct Arguments {
     topics: u8,
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
-    /// What this reader does with the restrictions a document asserts, per
-    /// [`viewer_host::RESTRICTIONS`] and [`viewer_host::IGNORE_RESTRICTIONS`].
-    ///
-    /// One level per operation, all six [`RestrictionLevel::Off`] unless a person said otherwise:
-    /// `CLAUDE.md` is why — "it shall always be possible to turn them off" — and until ADR 0604
-    /// this program printed the word and then refused it. A command line is not the menu
-    /// `doc/todo/38` still wants, and it is the channel a window has today (ADR 1144).
-    restrictions: RestrictionPolicy,
-    /// §12.6.4.8: what this window does when a link asks for a URI, per [`viewer_host::LINKS`].
-    ///
-    /// The other direction from the entry above: what a *document* asserts over its reader there,
-    /// and what a document asks this machine to start here. `viewer_host::Links::Ask` unless a
-    /// person said otherwise, which is the level that hands nothing over without a press and still
-    /// performs the act the clause describes (ADR 1155).
-    links: viewer_host::Links,
-    /// §12.6.4.3: what this window does when an action names another file, per
-    /// [`viewer_host::REMOTE_DOCUMENTS`].
-    ///
-    /// The same four levels as the entry above and a value of its own: one starts another program
-    /// on a URL, the other opens a PDF beside this one in this reader (ADR 1227).
-    remote_documents: viewer_host::RemoteDocuments,
-    /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, per
-    /// [`viewer_host::EMBEDDED_DOCUMENTS`] — `ask` unless a person said otherwise (ADR 1331).
-    embedded_documents: viewer_host::EmbeddedDocuments,
-    /// §12.7.6.2's form and Table Annex O.4's fetched `fdf`, per [`viewer_host::SUBMISSIONS`] —
-    /// `ask` unless a person said otherwise (ADRs 1291, 1527).
-    submissions: viewer_host::Submissions,
-    /// §10.8.3: whether this window asks for the separation simulation, per
-    /// [`viewer_host::SEPARATIONS`].
-    ///
-    /// A preference rather than a level, and off unless a person said otherwise (ADR 1228).
-    separations: bool,
+    /// The reader's levels over what a document asserts and asks, read from the words every
+    /// window takes ([`viewer_host::Settings::take`], ADR 2120): `CLAUDE.md`'s four levels per
+    /// restriction, all `off` unless a person said otherwise, and the acts a document asks of
+    /// this machine at `ask`. Its `scripts` is [`viewer_host::ReaderWords`]' and is taken from
+    /// there when the window opens.
+    settings: viewer_host::Settings,
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words
     /// `quorra` takes and read by the same [`viewer_host::ReaderWords`] (ADRs 1580, 1581).
     reader: viewer_host::ReaderWords,
@@ -81,12 +54,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut documents: Vec<viewer_host::Named> = Vec::new();
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
-    let mut restrictions = RestrictionPolicy::default();
-    let mut links = viewer_host::Links::default();
-    let mut remote_documents = viewer_host::RemoteDocuments::default();
-    let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
-    let mut submissions = viewer_host::Submissions::default();
-    let mut separations = false;
+    let mut settings = viewer_host::Settings::default();
     let mut reader = viewer_host::ReaderWords::default();
     let mut proxy_pages = viewer_host::stand_in::RETAINED_PAGES;
     let mut processor = false;
@@ -97,26 +65,9 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             // it — the reading every window shares (ADR 1581).
         } else if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
-        } else if word == IGNORE_RESTRICTIONS {
-            restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
-        } else if let Some(list) = word.strip_prefix(viewer_host::RESTRICTIONS) {
-            // `CLAUDE.md`'s four levels, one operation at a time (ADR 1144).
-            restrictions = viewer_host::restrictions(list, restrictions)?;
-        } else if let Some(level) = word.strip_prefix(viewer_host::LINKS) {
-            // §12.6.4.8's act, at one of the same four levels (ADR 1155).
-            links = viewer_host::links(level)?;
-        } else if let Some(level) = word.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
-            // §12.6.4.3's act, at four levels of its own (ADR 1227).
-            remote_documents = viewer_host::remote_documents(level)?;
-        } else if let Some(level) = word.strip_prefix(viewer_host::EMBEDDED_DOCUMENTS) {
-            // §O.2.1's act, at four levels of its own (ADR 1331).
-            embedded_documents = viewer_host::embedded_documents(level)?;
-        } else if let Some(level) = word.strip_prefix(viewer_host::SUBMISSIONS) {
-            // §12.7.6.2's and a fetched import's act, at four levels of its own (ADR 1527).
-            submissions = viewer_host::submissions(level)?;
-        } else if let Some(setting) = word.strip_prefix(viewer_host::SEPARATIONS) {
-            // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
-            separations = viewer_host::separations(setting)?;
+        } else if settings.take(&word)?.is_some() {
+            // One of the words a window's settings are read from, read as every window reads
+            // them (ADR 2120).
         } else if word == viewer_host::stand_in::RETAINED_PAGES_WORD {
             proxy_pages = viewer_host::stand_in::retained_pages(words.next().as_deref())?;
         } else if word == "--cpu" {
@@ -153,12 +104,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         also: documents.collect(),
         topics,
         widget_appearances,
-        restrictions,
-        links,
-        remote_documents,
-        embedded_documents,
-        submissions,
-        separations,
+        settings,
         reader,
         proxy_pages,
         processor,
@@ -181,13 +127,8 @@ fn main() -> glib::ExitCode {
     };
     trace.say(Topic::Launch, format_args!("arguments read"));
     let settings = viewer_host::Settings {
-        restrictions: arguments.restrictions,
-        links: arguments.links,
-        remote_documents: arguments.remote_documents,
-        embedded_documents: arguments.embedded_documents,
-        submissions: arguments.submissions,
-        separations: arguments.separations,
         scripts: arguments.reader.scripts,
+        ..arguments.settings
     };
     // **The document opens, and page one is interpreted, before GTK is asked for anything**
     // (ADR 1539): the display, the theme and the window take longer than the open does, and
@@ -339,7 +280,7 @@ mod tests {
     fn the_level_a_link_is_opened_at_is_the_readers_to_set() {
         let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
         assert_eq!(
-            asked.links,
+            asked.settings.links,
             viewer_host::Links::Ask,
             "nothing is handed to another program without a keypress, and nothing has to be \
              configured before a link works"
@@ -348,7 +289,7 @@ mod tests {
             let word = format!("{}{}", viewer_host::LINKS, level.as_str());
             let asked = arguments([word.clone(), "x.pdf".to_owned()].into_iter())
                 .unwrap_or_else(|complaint| panic!("{word}: {complaint}"));
-            assert_eq!(asked.links, level);
+            assert_eq!(asked.settings.links, level);
         }
         let complaint = arguments(
             [
@@ -389,12 +330,12 @@ mod tests {
         )
         .expect("a document");
         assert_eq!(
-            asked.restrictions,
+            asked.settings.restrictions,
             RestrictionPolicy::uniform(RestrictionLevel::Off)
         );
         let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
         assert_eq!(
-            asked.restrictions,
+            asked.settings.restrictions,
             RestrictionPolicy::default(),
             "every operation off, because `CLAUDE.md` says a document's restrictions are low \
              priority and that turning them off shall always be possible"
@@ -404,11 +345,11 @@ mod tests {
             arguments(["--restrictions=copy:warn".to_owned(), "x.pdf".to_owned()].into_iter())
                 .expect("a document");
         assert_eq!(
-            asked.restrictions.level(Operation::Extract),
+            asked.settings.restrictions.level(Operation::Extract),
             RestrictionLevel::Warn
         );
         assert_eq!(
-            asked.restrictions.level(Operation::Annotate),
+            asked.settings.restrictions.level(Operation::Annotate),
             RestrictionLevel::Off,
             "an operation the list did not name keeps the level it had"
         );

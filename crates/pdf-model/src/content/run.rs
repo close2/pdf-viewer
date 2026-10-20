@@ -233,6 +233,8 @@ impl Interpreter<'_> {
     /// than passed on: a form reached through `/XObject` has no part index, and putting a
     /// zero there would say something about `/Contents` that is not true. ADR 0359 made the
     /// same distinction for the damage report and this is the rest of it.
+    ///
+    /// [`ContentIssue`]: crate::page::ContentIssue
     fn note_nested(&mut self, issue: crate::page::ContentIssue, what: &str) {
         match issue {
             // ADR 0343's sentence, in the same words the whole-decode route uses — see

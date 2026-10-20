@@ -67,15 +67,15 @@ impl Tree {
     /// structure: a form that is a content item *in its entirety*
     /// carries `/StructParent`, and a form whose stream "may contain one or more marked-content
     /// sequences that are associated with structure elements" carries `/StructParents` instead —
-    /// which Table 359 says in so many words, quoted under [`Self::stream_owners`].
+    /// which Table 359 says in so many words, quoted under `Self::stream_owners`.
     /// An element reached only that way would otherwise be pruned as belonging to another page, so
-    /// a figure tagged inside a form would reach no screen reader at all. [`Self::stream_owners`]
+    /// a figure tagged inside a form would reach no screen reader at all. `Self::stream_owners`
     /// is the lookup; ADR 0488.
     ///
     /// **The fifth is an annotation's appearance streams.** §12.5.5 makes an appearance stream a
     /// form `XObject`, so Table 359's words already covered it — but the `XObject` walk below
     /// starts from the page's *resources*, and an `/AP` entry is not a resource.
-    /// [`Self::appearance_owners`] is the walk; ADR 0719.
+    /// `Self::appearance_owners` is the walk; ADR 0719.
     ///
     /// # Why a generous answer costs nothing, and why `None` is not an empty one
     ///
@@ -98,7 +98,7 @@ impl Tree {
     ///
     /// **A page that states the entry answers `None` too where the parent tree holds no array
     /// under that key**, and a caller that reports the first reason for the second is saying
-    /// something false about the file. [`Self::parent_tree_array`] is where the two forms
+    /// something false about the file. `Self::parent_tree_array` is where the two forms
     /// §7.3.10 allows the array to be written are read as one.
     ///
     /// **The sixth route runs backwards, and only for a file that broke a `shall`**:
@@ -164,10 +164,10 @@ impl Tree {
     /// > real content of the document.
     ///
     /// Its neighbours in the same table are permissions rather than obligations. `Annot` is
-    /// "[e]ither an association between the content enclosed by the Annot structure element and
+    /// "\[e]ither an association between the content enclosed by the Annot structure element and
     /// one or more corresponding PDF annotations …, or a mechanism to include one or more PDF
-    /// annotations in the structure tree", and "[a]ll other annotation types may be referenced by
-    /// this structure element"; `Link` is "[a]n association between content enclosed by the Link
+    /// annotations in the structure tree", and "\[a]ll other annotation types may be referenced by
+    /// this structure element"; `Link` is "\[a]n association between content enclosed by the Link
     /// structure element and a corresponding link annotation", which says what a `Link` element
     /// means and not that one has to exist. So a link or a text annotation that states no
     /// `/StructParent` is a file saying it is not a content item — and a *widget* that states
@@ -185,7 +185,7 @@ impl Tree {
     /// > ("Table 358 -Entries in an object reference dictionary").
     ///
     /// and that is a statement the *element* makes, needing no parent tree. §14.7.5.4 asks for
-    /// both halves — "[t]he tree shall contain an entry for each object that is a content item of
+    /// both halves — "\[t]he tree shall contain an entry for each object that is a content item of
     /// at least one structure element" — so a file missing the key has contradicted itself, and
     /// the half still standing is the `/K`.
     ///
@@ -193,7 +193,7 @@ impl Tree {
     ///
     /// Finding an element by its content is a search, which is the cost ADR 0325 took off a page
     /// turn, so this is spent only where the page states such a widget and is bounded at
-    /// [`MAX_OBJECT_SEARCH`] elements. An element the search cannot name by identity is passed
+    /// `MAX_OBJECT_SEARCH` elements. An element the search cannot name by identity is passed
     /// over rather than descended into, because [`Self::ancestry`] and the walk that consumes
     /// this both work in identities: an element inside its parent's `/K` is one no page-scoped
     /// walk could enter even if this found something below it.
@@ -222,7 +222,7 @@ impl Tree {
     }
 
     /// The page's `/Widget` annotations that state none of §14.7.5.4 Table 359's `/StructParent`,
-    /// which that table makes "[r]equired for all objects that are structural content items".
+    /// which that table makes "\[r]equired for all objects that are structural content items".
     fn unkeyed_widgets(document: &Document, page: &Dictionary) -> BTreeSet<ObjectId> {
         let mut out = BTreeSet::new();
         let Object::Array(annotations) = document.get_key(page, "Annots") else {
@@ -352,7 +352,7 @@ impl Tree {
     /// The entry is *required* and "shall be an indirect reference", and that second half is what
     /// makes this answerable at all: a chain of identities rather than of dictionaries, so a walk
     /// coming down from the root can recognise the elements it must descend into. Bounded by
-    /// [`MAX_ANCESTRY`], and a chain that meets an element already in the set stops there — the
+    /// `MAX_ANCESTRY`, and a chain that meets an element already in the set stops there — the
     /// set is the union of the paths to one root.
     ///
     /// The root itself is not in the answer, which is the other half of the sentence quoted above:
@@ -414,7 +414,7 @@ impl Tree {
     /// > elements.
     ///
     /// The array is the entry's **value**, and §7.3.10 puts no condition on how a value is
-    /// written — "[a]ny object in a PDF file may be labelled as an indirect object" — so
+    /// written — "\[a]ny object in a PDF file may be labelled as an indirect object" — so
     /// §14.7.5.4's own EXAMPLE 2 spells one `/Nums` both ways, `6 [1 0 R]` beside `0 101 0 R`.
     /// A reference to the array and the array itself are therefore two spellings of one entry,
     /// and this resolves before matching.
@@ -435,9 +435,9 @@ impl Tree {
 
     /// Whether §14.7.5.3's object-reference route reaches this object.
     ///
-    /// §14.7.5.1.1 makes "[c]omplete PDF objects such as annotations and `XObjects`" one of the two
+    /// §14.7.5.1.1 makes "\[c]omplete PDF objects such as annotations and `XObjects`" one of the two
     /// kinds of content item, and §14.7.5.4 Table 359 gives such an object its own `/StructParent`
-    /// — "[f]or an object identified as a content item by means of an object reference …, the value
+    /// — "\[f]or an object identified as a content item by means of an object reference …, the value
     /// shall be an indirect reference to the parent structure element". So this is the whole of
     /// what the *object* side of §14.8.2.2.2's "all page content as well as annotations" asks: is
     /// this annotation in the tree.

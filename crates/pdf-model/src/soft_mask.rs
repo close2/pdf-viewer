@@ -489,7 +489,7 @@ fn luminance_derivation(space: &ColourSpace, transfer: Option<&Transfer>) -> Tra
 /// `DeviceGray` counts as subtractive here, which is worth the sentence: §10.4.2.3 calls a
 /// grey level "the complement of the black component of CMYK", and a `k` operator inside a
 /// `/DeviceGray` mask group is the same conversion one component narrower. It is also why
-/// the two spaces get *different* scales rather than one: §11.6.6's `/CS` is "[t]he colour
+/// the two spaces get *different* scales rather than one: §11.6.6's `/CS` is "\[t]he colour
 /// space into which colours shall be converted when painted into the group", and converting
 /// into `DeviceGray` applies §10.4.2.3's `min` on the way in, so nothing in such a group can
 /// weigh more than one unit. A `DeviceCMYK` group keeps four components until §11.5.3 and can

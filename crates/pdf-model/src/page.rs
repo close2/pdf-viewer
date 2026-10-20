@@ -33,7 +33,7 @@ const MAX_NODES_VISITED: usize = 1 << 20;
 
 /// What one walk of the page tree has spent, and the nodes it is beneath.
 ///
-/// §7.7.3.2 makes the page tree a *tree*: `/Kids` is "[a]n array of indirect references to the
+/// §7.7.3.2 makes the page tree a *tree*: `/Kids` is "\[a]n array of indirect references to the
 /// immediate children of this node", and each child names this node as its `/Parent`. So a node
 /// met again beneath itself is a cycle, which stands for no pages. Walked as though it were one
 /// more subtree it branched at every level it was named, until `MAX_NODES_VISITED`: two nodes of
@@ -314,7 +314,7 @@ fn rectangle(document: &Document, array: &Object) -> Option<[f32; 4]> {
 ///
 /// **Only the media box asks the second question**, and that asymmetry is the clause's rather
 /// than this reader's convenience: §14.11.2.1 gives the crop, bleed, trim and art boxes a
-/// *default* — "[t]he default value is the page's media box", "the page's crop box" — so an empty
+/// *default* — "\[t]he default value is the page's media box", "the page's crop box" — so an empty
 /// one falls back to a
 /// larger box that is already known good, and [`build_page`] has done exactly that for all four
 /// since they were read. The media box is what they fall back *to*, so there is nothing behind
@@ -507,7 +507,7 @@ pub struct Page {
     /// The region rendered onto paper: §12.2's `/PrintArea` boundary, the crop box by default.
     ///
     /// The print half of the pair above, and a separate field for the reason there are two
-    /// entries: Table 147 states `/PrintArea` as "[t]he name of the page boundary representing
+    /// entries: Table 147 states `/PrintArea` as "\[t]he name of the page boundary representing
     /// the area of a page that shall be rendered when printing the document", against
     /// `/ViewArea`'s "when viewing the document on the screen", so one page has both answers at
     /// once and which of them is drawn is decided by what the output is for.
@@ -515,7 +515,7 @@ pub struct Page {
     pub print_box: [f32; 4],
     /// The region paper contents are clipped to: §12.2's `/PrintClip` boundary.
     ///
-    /// [`Self::clip_box`]'s print half, on the same footing: "[t]he name of the page boundary to
+    /// [`Self::clip_box`]'s print half, on the same footing: "\[t]he name of the page boundary to
     /// which the contents of a page shall be clipped when printing the document". ADR 1227.
     pub print_clip_box: [f32; 4],
     /// Clockwise rotation in degrees, normalised to 0, 90, 180 or 270.
@@ -567,9 +567,9 @@ impl Page {
     /// it onto paper.
     ///
     /// §12.2 states two pairs of §14.11.2 boundaries and the difference between them is which
-    /// output each is about. `/ViewClip` is "[t]he name of the page boundary to which the
+    /// output each is about. `/ViewClip` is "\[t]he name of the page boundary to which the
     /// contents of a page shall be clipped when viewing the document on the screen" and
-    /// `/PrintClip` "[t]he name of the page boundary to which the contents of a page shall be
+    /// `/PrintClip` "\[t]he name of the page boundary to which the contents of a page shall be
     /// clipped when printing the document"; `/ViewArea` and `/PrintArea` are the same sentence
     /// about the area displayed. So one page holds both answers and which of them
     /// [`Self::display_box`] and [`Self::clip_box`] carry is decided by what the output is for
@@ -591,7 +591,7 @@ impl Page {
     /// The rectangle one of §14.11.2's five boundaries names on this page.
     ///
     /// Every one of them has been defaulted and intersected with the media box already, which
-    /// is §14.11.2.1's own rule for all four of the others: "[i]f the bounds of the crop,
+    /// is §14.11.2.1's own rule for all four of the others: "\[i]f the bounds of the crop,
     /// trim, bleed or art box extends outside of the bounds of the media box, a processor
     /// shall treat the box as its intersection with the media box."
     #[must_use]
@@ -1264,7 +1264,7 @@ fn a_page_only_entry(document: &Document, dict: &Dictionary) -> Option<&'static 
 /// Every object number the page tree's own `/Kids` arrays name, root included.
 ///
 /// **This is the *tree* asking, which is why it descends from the catalogue's `/Pages` rather
-/// than reading every `/Kids` in the file.** Table 29 makes that entry "[t]he page tree node that
+/// than reading every `/Kids` in the file.** Table 29 makes that entry "\[t]he page tree node that
 /// shall be the root of the document's page tree", so the root is a node by the catalogue's
 /// declaration whatever its own `/Type` says — which matters, because three of the five corpus
 /// witnesses have a root that states no `/Type` at all. A scan of every array called `/Kids`
@@ -1928,7 +1928,7 @@ pub enum ContentIssue {
     },
     /// A `/Contents` entry naming an object this reader could not reach.
     ///
-    /// ISO 32000-2 §7.3.10 makes this *conforming* rather than an error — "[a]n indirect
+    /// ISO 32000-2 §7.3.10 makes this *conforming* rather than an error — "\[a]n indirect
     /// reference to an undefined object shall not be considered an error by a PDF processor;
     /// it shall be treated as a reference to the null object" — and §7.3.9 then makes a null
     /// value "equivalent to omitting the entry". So the standard permits drawing nothing.

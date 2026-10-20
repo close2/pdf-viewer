@@ -310,7 +310,7 @@ arms_at_open() {
 # (`doc/todo/02` section 2, "Run the sequence on a quiet machine") — so it takes both of the lock's
 # lanes and runs alone. Every other gate is a large walk, under the 12 GiB ceiling the gates were
 # always run under, on the first lane (ADR 1684).
-clock_gates="t2-transform-gate t2-turn_path t2-launch_path t3-oracle t3-text_extract t3-render_raster t3-foreign_corpus"
+clock_gates="t2-transform-gate t2-turn_path t2-launch_path t2-toolkit_launch t3-oracle t3-text_extract t3-render_raster t3-foreign_corpus"
 run() {
     local name=$1; shift; local out rc asked ended wall clock=
     [[ " $clock_gates " == *" $name "* ]] && clock=1
@@ -398,6 +398,9 @@ gates() {
     run build-launch-script  cargo build --release -p pdf-script-worker --features engine --bins
     run t2-launch_path    env PDFVIEWER_LAUNCH_CLOCKS=1 \
         cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+    # The toolkit windows' launch, banded on both lanes by the harness the two crates share; its band
+    # file `doc/checks/toolkit-launch.toml` spells this command line (ADR 2125).
+    run t2-toolkit_launch cargo test --release -p viewer-qt -p viewer-gtk --test launch_path -- --ignored --nocapture
     # `release`, as CI's job builds them. The tree ceiling is a walk's 12 GiB, not a build's 8: the
     # release build of `raster-gpu`'s examples peaked at 7.85 GiB over the tree when it was measured,
     # inside a build's ceiling by too little to survive a heavier dependency (ADR 1575).

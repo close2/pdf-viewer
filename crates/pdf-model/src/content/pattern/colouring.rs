@@ -15,7 +15,7 @@ use super::{ShadingDefinition, ShadingPattern};
 ///
 /// One quantity, put here by a clause of its own: **§11.7.2's compositing target**, inside
 /// [`crate::colour::Conversion`]. §11.6.7 makes the pattern's definition a non-isolated group and
-/// §11.7.2 says "[n]on-isolated groups shall inherit their colour space from the nearest ancestor
+/// §11.7.2 says "\[n]on-isolated groups shall inherit their colour space from the nearest ancestor
 /// isolated parent group" — which for a pattern painted inside a group is *that* group, not
 /// whichever one the `scn` stood in.
 ///

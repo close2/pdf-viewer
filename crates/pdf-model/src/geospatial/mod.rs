@@ -391,12 +391,12 @@ impl Geospatial {
     }
 
     /// A position of [`Self::coordinate_system`]'s own geographic system, in the system Table
-    /// 269's `/DCS` names — "[a] projected or geographic coordinate system that shall be used for
+    /// 269's `/DCS` names — "\[a] projected or geographic coordinate system that shall be used for
     /// the display of position values".
     ///
     /// Without a `/DCS` the position is displayed as it is. With one, the position is carried to
     /// the display system's geographic system — the system itself, or a projected system's base —
-    /// by [`datum::transform`]: on the same datum and ellipsoid as `/GCS`'s it is the same
+    /// by `datum::transform`: on the same datum and ellipsoid as `/GCS`'s it is the same
     /// latitude, its longitude moved by the difference of the two prime meridians, and on another
     /// datum — the clause's own example, a 1927 datum displayed in WGS84 — it goes through the
     /// Helmert transformations the two strings' `TOWGS84` clauses state (ADR 1958). A projected

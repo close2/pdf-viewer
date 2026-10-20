@@ -34,7 +34,7 @@ pub(in crate::content) enum Painted {
 impl Painted {
     /// Which kind a fill or a stroke is, given the state it is painted under.
     ///
-    /// §8.7.2 makes a pattern a colour — "[a]ll patterns shall be treated as colours" — and the
+    /// §8.7.2 makes a pattern a colour — "\[a]ll patterns shall be treated as colours" — and the
     /// three answers differ only in which of §11.7.5.2's six conditions they can fail. A tiling
     /// pattern is not a paint at all, so it never reaches a call site of this.
     ///

@@ -26,7 +26,7 @@ impl Interpreter<'_> {
     /// named /F1" and `sh` says "/Sh0 is not in /Shading", and a silent undefined `XObject` would
     /// be the one resource category out of the three whose absence looks exactly like a page the
     /// producer meant to leave sparse (ADR 0255). §7.8.3 makes the file
-    /// wrong rather than this reader — "[a] content stream's named resources shall be defined
+    /// wrong rather than this reader — "\[a] content stream's named resources shall be defined
     /// by a resource dictionary, which shall enumerate the named resources needed by the
     /// operators in the content stream" — and this tree's rule for a malformed file is to draw
     /// what can be drawn and say what could not.

@@ -337,11 +337,14 @@ section_conformance() {
 # linking a private item fail here rather than on a reader's page (ADR 1938). The list below is the
 # whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A small
 # walk, because it checks every dependency of the six: 2.1 GiB at its peak when it held three.
+# `--keep-going`, because without it the first crate that fails ends the build and the crates after
+# it report nothing: one failing crate would hide the next one's errors (ADR 1938).
 section_docs() {
     run "rustdoc with warnings denied, over the crates held at zero (ADR 1938)" \
         '^(error|warning)|Generated|Finished' \
-        walk small -- env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items \
-        -p render-cpu -p raster-gpu -p viewer-ui -p viewer-device -p pdf-font -p viewer-confined
+        walk small -- env RUSTDOCFLAGS="-D warnings" cargo doc --keep-going --no-deps \
+        --document-private-items -p render-cpu -p raster-gpu -p viewer-ui -p viewer-device \
+        -p pdf-font -p viewer-confined -p pdf-model
 }
 
 section_tests() {
@@ -503,6 +506,20 @@ section_launch() {
         '^launch-path:' \
         walk clock --build '--release -p pdf-script-worker --features engine --bins' -- \
         cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
+}
+
+# The toolkit windows' launch on both lanes, banded in doc/checks/toolkit-launch.toml by the harness
+# the two crates share (ADR 2125); the merge's `t2-toolkit_launch` runs the same command in a clock
+# hold of its own. The harness starts its own X server.
+section_toolkit_launch() {
+    run "the Qt window's launch (both lanes, doc/checks/toolkit-launch.toml)" \
+        '^toolkit launch' \
+        walk clock -- \
+        cargo test --release -p viewer-qt --test launch_path -- --ignored --nocapture
+    run "the GTK window's launch (both lanes, doc/checks/toolkit-launch.toml)" \
+        '^toolkit launch' \
+        walk clock -- \
+        cargo test --release -p viewer-gtk --test launch_path -- --ignored --nocapture
 }
 
 # Principle 2's fifth number, which is the one a person feels after the launch: what a *frame*
@@ -1413,7 +1430,8 @@ section_traps() {
         sort | uniq -c | sort -k1,1nr -k2,2n |
         awk -v rows="$rows" '
             BEGIN { n = split(rows, r, "\n"); for (i = 1; i <= n; i++) known[r[i]] = 1 }
-            { count[NR] = $1; number[NR] = $2; total += $1; if (!($2 in known)) unknown = unknown " " $2 }
+            { count[NR] = $1; number[NR] = $2; total += $1
+              if (!($2 in known)) { strays++; unknown = unknown (strays > 1 ? ", " : "") "trap " $2 } }
             END {
                 printf "citations in doc/history/: %d, of %d distinct traps\n", total, NR
                 running = 0
@@ -1423,7 +1441,9 @@ section_traps() {
                     if (!reached && running * 5 >= total * 4) { reached = i }
                 }
                 printf "traps carrying 80%% of citations: %d\n", reached
-                printf "cited with no row in the index:%s\n", (unknown == "" ? " none" : unknown)
+                # A count, then the numbers as citations: a bare "0 632" read as one figure.
+                if (strays == 0) printf "cited with no row in the index: none\n"
+                else printf "cited with no row in the index: %d (%s)\n", strays, unknown
             }'
 }
 
@@ -1821,7 +1841,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation superlatives gods comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
+all="ledger departures flags names cited last-sentences navigation superlatives gods comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held fuzz-stale tests corpus golden ahead ahead-strips oracle text selection accessibility quorra fixed transform writer archive vfs confined launch toolkit-launch frame turn heavy dates xmp scripts save actions on-disk jpeg2000 instruments"
 quick="ledger departures flags names cited last-sentences navigation superlatives gods comments prose conformance docs annex-o governing questions records counts fuzz main-checkout gates-cost batches drive traps hosts windows binaries disk oracle-held instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -1881,6 +1901,7 @@ for section in $sections; do
     writer) section_writer ;;
     vfs) section_vfs ;;
     launch) section_launch ;;
+    toolkit-launch) section_toolkit_launch ;;
     frame) section_frame ;;
     turn) section_turn ;;
     heavy) section_heavy ;;

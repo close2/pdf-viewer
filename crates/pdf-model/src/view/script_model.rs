@@ -29,7 +29,7 @@ pub enum ScriptSite {
     Page(PageTrigger),
     /// Table 29's `/OpenAction`, where it is an ECMAScript action.
     OpenAction,
-    /// One entry of Table 32's `/JavaScript` name tree, which §12.6.4.17 has executed "[w]hen the
+    /// One entry of Table 32's `/JavaScript` name tree, which §12.6.4.17 has executed "\[w]hen the
     /// document is opened".
     Library,
     /// Table 200: the document as a whole about to close, or around a save or a print.
@@ -154,7 +154,7 @@ impl CommitKey {
 /// One of a push-button's three captions, which Table 192 keeps in its widget's `/MK`.
 ///
 /// Adobe's `nFace` numbers them 0, 1 and 2 on the "Field methods" page's `buttonSetCaption`; the
-/// entries are the standard's: `/CA` "[t]he widget annotation's normal caption", `/AC` its
+/// entries are the standard's: `/CA` "\[t]he widget annotation's normal caption", `/AC` its
 /// "alternate (down) caption", `/RC` its "rollover caption".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {

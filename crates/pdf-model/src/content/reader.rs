@@ -963,7 +963,7 @@ impl Window {
     /// Steps over a token no buffer of [`CEILING`] bytes can hold.
     ///
     /// A string is stepped over to its own end, by the grammar that ends it: §7.3.4.2's
-    /// literal string at the right parenthesis that balances its first — "[b]alanced pairs of
+    /// literal string at the right parenthesis that balances its first — "\[b]alanced pairs of
     /// parentheses within a string require no special treatment" — with a REVERSE SOLIDUS
     /// escaping the byte after it, and §7.3.4.3's hexadecimal string at its `>`. Both hold white
     /// space, so stepping to the next white-space byte instead would read the rest of the string

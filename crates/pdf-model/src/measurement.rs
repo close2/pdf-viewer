@@ -34,7 +34,7 @@
 //! [`Viewports::at`] is that sentence, and a reader that searched forwards would answer with the
 //! background scale on every page that has an inset.
 //!
-//! There is a second sentence of the same kind: "[a]ny measurement that potentially involves
+//! There is a second sentence of the same kind: "\[a]ny measurement that potentially involves
 //! multiple viewports, such as one specifying the distance between two points, shall use the
 //! information specified in the viewport of the *first* point" — which is why
 //! [`Viewports::at`] takes one point.
@@ -52,7 +52,7 @@
 //!
 //! A number format *array* is a sequence of units in descending granularity — miles, then feet,
 //! then inches — and §12.9.2 turns a number into "1 mi 2,378 ft 7 5/8 in" by walking it,
-//! carrying the fractional remainder from each unit into the next. [`format`] is those five
+//! carrying the fractional remainder from each unit into the next. [`format()`] is those five
 //! steps, and the clause's EXAMPLE is its test.
 //!
 //! # The corpus's one witness
@@ -99,16 +99,16 @@ const MAX_POINTS: usize = 1 << 16;
 /// A rectangular region of a page with its own measuring system. Table 265.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Viewport {
-    /// Table 265's `/BBox`, "[a] rectangle in default user space coordinates specifying the
+    /// Table 265's `/BBox`, "\[a] rectangle in default user space coordinates specifying the
     /// location of the viewport on the page".
     ///
     /// **Not normalised here**, unlike every other rectangle in this crate. The clause requires
-    /// the file to state it lower-left first and then makes the ordering load-bearing: "[t]his
+    /// the file to state it lower-left first and then makes the ordering load-bearing: "\[t]his
     /// ordering shall determine the orientation of the measuring coordinate system (that is,
     /// the direction of the positive x and y axes) in this viewport, which may have a different
     /// rotation from the page". Sorting the corners would throw that away.
     pub bbox: [f32; 4],
-    /// Table 265's `/Name`, "[a] descriptive text string or title of the viewport, intended for
+    /// Table 265's `/Name`, "\[a] descriptive text string or title of the viewport, intended for
     /// use in a user interface".
     pub name: Option<String>,
     /// Table 265's `/Measure`, the scale and units inside this rectangle.
@@ -136,7 +136,7 @@ impl Viewport {
     /// Where a point in default user space falls in this viewport's **unit square**.
     ///
     /// §12.10 states two of its arrays in that square rather than on the page: `/LPTS` holds
-    /// "points in a 2D unit square" and says which square — "[t]he unit square is mapped to the
+    /// "points in a 2D unit square" and says which square — "\[t]he unit square is mapped to the
     /// rectangular bounds of the `Viewport`, image `XObject`, or forms `XObject` that contains
     /// the measure dictionary" — and `/Bounds`'s numbers "are expressed relative to a unit
     /// square that describes the `BBox` associated with a `Viewport`". So this is the one leg of
@@ -293,11 +293,11 @@ impl Viewports {
     ///
     /// **The arithmetic is Table 267's `/D` cell and not a `hypot` of the page.** That cell says
     /// the array's first element converts "from units represented by the first element in `X`",
-    /// and states the order outright: "[t]he scale factors from `X`, `Y` (if present) and `CYX`
+    /// and states the order outright: "\[t]he scale factors from `X`, `Y` (if present) and `CYX`
     /// (if `Y` is present) shall be used to convert from default user space to the appropriate
     /// units **before** applying the distance function". So each axis is scaled by its own array's
     /// first conversion, `/CYX` brings the y result into x's units where the two differ, the
-    /// distance is taken there, and [`format`] walks `/D` over the result. Taking the distance
+    /// distance is taken there, and [`format()`] walks `/D` over the result. Taking the distance
     /// first and scaling afterwards is a different number on every drawing whose axes differ, and
     /// is what the word *before* forbids.
     ///
@@ -312,7 +312,7 @@ impl Viewports {
     /// with no `/CYX`, which Table 267 makes a refusal rather than a gap — "if not specified,
     /// these calculations may not be performed (which would be the case in situations such as x
     /// representing time and y representing temperature)". An empty `/D` answers with the empty
-    /// string, which is [`format`]'s documented answer to an array stating no units.
+    /// string, which is [`format()`]'s documented answer to an array stating no units.
     #[must_use]
     pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
         self.at(from)
@@ -392,7 +392,7 @@ impl Viewports {
 ///
 /// **The empty string is not a measurement**, and the distinction is Table 267's: each of its
 /// four number format arrays is *(Optional)*, so a measure dictionary stating no `/S` has said
-/// nothing about how a slope should be displayed — while [`format`] answers an absent array with
+/// nothing about how a slope should be displayed — while [`format()`] answers an absent array with
 /// the empty string, because that is what §12.9.2's algorithm produces when it has no unit to
 /// walk. The two are different answers and only one of them belongs in a user interface: a window
 /// showing a blank beside the word *slope* would be claiming the document has a gradient of
@@ -409,10 +409,10 @@ fn stated(value: Option<String>) -> Option<String> {
 /// presentation in a graphical user interface". A host shows what it has room for.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Traced {
-    /// Table 265's `/Name`, "[a] descriptive text string or title of the viewport, intended for
+    /// Table 265's `/Name`, "\[a] descriptive text string or title of the viewport, intended for
     /// use in a user interface" — which is this.
     pub viewport: Option<String>,
-    /// Table 267's `/R`, "[a] text string expressing the scale ratio of the drawing", such as
+    /// Table 267's `/R`, "\[a] text string expressing the scale ratio of the drawing", such as
     /// `1/4 in = 1 ft`. Stated by the producer for a person and passed through unparsed.
     pub ratio: Option<String>,
     /// The path's total length, formatted by `/D`.
@@ -496,7 +496,7 @@ pub enum Measure {
     Geospatial(Box<Geospatial>),
     /// A `/Subtype` this reader does not know.
     ///
-    /// The clause invites them — "[o]ther subtypes may be used, providing the flexibility to
+    /// The clause invites them — "\[o]ther subtypes may be used, providing the flexibility to
     /// measure using other types of coordinate systems" — so an unknown name is a document
     /// using a later standard rather than a malformed one.
     Other(String),
@@ -507,11 +507,11 @@ impl Measure {
     ///
     /// **The arithmetic is Table 267's `/D` cell and not a `hypot` of the page.** That cell says
     /// the array's first element converts "from units represented by the first element in `X`",
-    /// and states the order outright: "[t]he scale factors from `X`, `Y` (if present) and `CYX`
+    /// and states the order outright: "\[t]he scale factors from `X`, `Y` (if present) and `CYX`
     /// (if `Y` is present) shall be used to convert from default user space to the appropriate
     /// units **before** applying the distance function". So each axis is scaled by its own
     /// array's first conversion, `/CYX` brings the y result into x's units where the two differ,
-    /// the distance is taken there, and [`format`] walks `/D` over the result. Taking the
+    /// the distance is taken there, and [`format()`] walks `/D` over the result. Taking the
     /// distance first and scaling afterwards is a different number on every drawing whose axes
     /// differ, and is what the word *before* forbids.
     ///
@@ -519,9 +519,9 @@ impl Measure {
     /// rather than an omission: an origin is a translation and the corner order an orientation,
     /// and a distance between two points is invariant under both.
     ///
-    /// `None` where [`Rectilinear::axes`] states no conversion, and where the subtype is `GEO` or
+    /// `None` where `Rectilinear::axes` states no conversion, and where the subtype is `GEO` or
     /// a name later than this standard — §12.10's distance is an ellipsoid's, not this
-    /// arithmetic. An empty `/D` answers with the empty string, which is [`format`]'s documented
+    /// arithmetic. An empty `/D` answers with the empty string, which is [`format()`]'s documented
     /// answer to an array stating no units.
     #[must_use]
     pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
@@ -536,7 +536,7 @@ impl Measure {
     /// The same `/D` arithmetic as [`Self::distance`], applied to each leg and summed in the
     /// measuring system's own units rather than in user space: Table 267 puts the conversion
     /// *before* the distance function, so scaling once at the end would be a different number on
-    /// any drawing whose axes differ. [`format`] is a display step and runs once, over the total.
+    /// any drawing whose axes differ. [`format()`] is a display step and runs once, over the total.
     ///
     /// Fewer than two points state no path and answer `None` rather than a length of zero — a
     /// caller may not be told that a shape this could not read measures nothing.
@@ -563,8 +563,8 @@ impl Measure {
     /// The area these points enclose, in the units this measure states.
     ///
     /// Table 267's `/A` cell states the same conversion order as `/D` does and squares the unit:
-    /// "[t]he first element in the array shall specify the conversion to the largest area unit
-    /// from units represented by the first element in `X`, squared", and again "[t]he scale
+    /// "\[t]he first element in the array shall specify the conversion to the largest area unit
+    /// from units represented by the first element in `X`, squared", and again "\[t]he scale
     /// factors from `X`, `Y` (if present) and `CYX` (if `Y` is present) shall be used to convert
     /// from default user space to the appropriate units before applying the area function". So
     /// each coordinate is scaled into the measuring system first and the enclosed area taken
@@ -606,18 +606,18 @@ impl Measure {
     /// **The initial value is degrees, which §12.9.2 states outright**: step a) says the entry
     /// referencing a number format array "determines the meaning of the initial measurement
     /// value" and gives this very entry as its example — "the `T` entry specifies degrees". So
-    /// the angle is taken in degrees and [`format`] applies Table 267's `/T`, whose first
+    /// the angle is taken in degrees and [`format()`] applies Table 267's `/T`, whose first
     /// element "shall specify the conversion to the largest angle unit from degrees".
     ///
     /// **The angle is taken in the measuring system and not on the page**, which is the other
-    /// half of that cell: "[t]he scale factor from `CYX` (if present) shall be used to convert
+    /// half of that cell: "\[t]he scale factor from `CYX` (if present) shall be used to convert
     /// from default user space to the appropriate units before applying the angle function".
-    /// [`Rectilinear::axes`] is the pair of factors that conversion comes to — where `/Y` is
+    /// `Rectilinear::axes` is the pair of factors that conversion comes to — where `/Y` is
     /// absent both are `/X`'s and cancel, so the angle is the page's own; where `/Y` is present
     /// the ratio between them is what `/CYX` supplies, and a drawing whose axes carry different
     /// units has angles that are not the page's.
     ///
-    /// `None` where [`Rectilinear::axes`] states no conversion — which includes Table 267's own
+    /// `None` where `Rectilinear::axes` states no conversion — which includes Table 267's own
     /// refusal for a `/Y` with no `/CYX`, and that refusal covers this quantity by name: `/CYX`
     /// "shall be used for calculations (distance, area, and angle) where the units are be
     /// equivalent; if not specified, these calculations may not be performed". `None` also where
@@ -653,14 +653,14 @@ impl Measure {
     ///
     /// Table 267's `/S`: its first element "shall specify the conversion to the largest slope
     /// unit from units represented by the first element in `Y` divided by the first element in
-    /// `X`". So the value [`format`] is given is a change along y in the y array's largest units
+    /// `X`". So the value [`format()`] is given is a change along y in the y array's largest units
     /// over a change along x in the x array's largest units, and the label the file puts on it
     /// is a label on that ratio.
     ///
     /// **`/CYX` takes no part, and that is Table 267 saying so rather than an omission.** The
     /// `/S` cell names all three factors together, and the `/CYX` cell then separates them: that
     /// entry "shall be used for calculations (distance, area, and angle) where the units are be
-    /// equivalent", and "[o]ther calculations (change in x , change in y , and slope) shall not
+    /// equivalent", and "\[o]ther calculations (change in x , change in y , and slope) shall not
     /// require this value". A slope is a ratio *between* the two axes' own units and never a
     /// length in one of them, so the entry that makes the two commensurable has nothing to do —
     /// which is why [`Self::slope`] answers on a drawing where [`Self::distance`] refuses, and
@@ -699,12 +699,12 @@ impl Measure {
 /// A rectilinear measuring system. Table 267.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Rectilinear {
-    /// `/R`, "[a] text string expressing the scale ratio of the drawing", such as
+    /// `/R`, "\[a] text string expressing the scale ratio of the drawing", such as
     /// `1/4 in = 1 ft`. Stated for a person, and this reader does not parse it.
     pub ratio: String,
     /// `/X`, the number format array for change along the x axis.
     pub x: Vec<NumberFormat>,
-    /// `/Y`, "[r]equired when the x and y scales have different units or conversion factors".
+    /// `/Y`, "\[r]equired when the x and y scales have different units or conversion factors".
     pub y: Vec<NumberFormat>,
     /// `/D`, for measurement of distance in any direction.
     pub distance: Vec<NumberFormat>,
@@ -755,7 +755,7 @@ impl Rectilinear {
     ///
     /// Table 267 puts slope on the other side of its own division: `/CYX` "shall be used for
     /// calculations (distance, area, and angle) where the units are be equivalent", and
-    /// "[o]ther calculations (change in x , change in y , and slope) shall not require this
+    /// "\[o]ther calculations (change in x , change in y , and slope) shall not require this
     /// value". So a gradient is a `/Y` unit over an `/X` unit, and the entry that would make the
     /// two commensurable is the one thing that must not be applied to it — which also means a
     /// drawing stating `/Y` and no `/CYX` has a slope where it has no distance.
@@ -774,10 +774,10 @@ impl Rectilinear {
 /// One unit in a number format array. Table 268.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NumberFormat {
-    /// `/U`, "[a] text string specifying a label for displaying the units represented by this
+    /// `/U`, "\[a] text string specifying a label for displaying the units represented by this
     /// dictionary in a user interface".
     pub unit: String,
-    /// `/C`, "[t]he conversion factor used to multiply a value in partial units of the previous
+    /// `/C`, "\[t]he conversion factor used to multiply a value in partial units of the previous
     /// number format array element to obtain a value in the units of this dictionary".
     pub conversion: f64,
     /// `/F`, how a fractional value is shown. Table 268's default is [`Fraction::Decimal`].
@@ -789,9 +789,9 @@ pub struct NumberFormat {
     pub denominator: u32,
     /// `/FD`: when true, a denominator may not be reduced nor low-order zeros truncated.
     pub keep_denominator: bool,
-    /// `/RT`, "[t]ext that shall be used between orders of thousands". Default `,`.
+    /// `/RT`, "\[t]ext that shall be used between orders of thousands". Default `,`.
     pub thousands: String,
-    /// `/RD`, "[t]ext that shall be used as the decimal position". Default `.`.
+    /// `/RD`, "\[t]ext that shall be used as the decimal position". Default `.`.
     pub decimal_point: String,
     /// `/PS`, text concatenated to the left of the label. Default a single space.
     pub prefix_spacing: String,
@@ -804,27 +804,27 @@ pub struct NumberFormat {
 /// Table 268's `/F`: whether and how a fractional value is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Fraction {
-    /// `D` — "[s]how as decimal to the precision specified by the D entry". The default.
+    /// `D` — "\[s]how as decimal to the precision specified by the D entry". The default.
     #[default]
     Decimal,
-    /// `F` — "[s]how as a fraction with denominator specified by the D entry".
+    /// `F` — "\[s]how as a fraction with denominator specified by the D entry".
     Fractional,
-    /// `R` — "[n]o fractional part; round to the nearest whole unit".
+    /// `R` — "\[n]o fractional part; round to the nearest whole unit".
     Round,
-    /// `T` — "[n]o fractional part; truncate to achieve whole units".
+    /// `T` — "\[n]o fractional part; truncate to achieve whole units".
     Truncate,
 }
 
 /// §12.9.2's algorithm: a value and a number format array become a string.
 ///
 /// The clause's five steps, in order. Each element converts the *fractional remainder* left by
-/// the one before it — step e), "[m]ultiply its C entry by the fractional result from the
+/// the one before it — step e), "\[m]ultiply its C entry by the fractional result from the
 /// previous step" — so the array walks from the coarsest unit to the finest and stops as soon as
 /// nothing is left over (step c) or the units run out (step d).
 ///
 /// The result of the clause's own EXAMPLE is `1 mi 2,378 ft 7 5/8 in`, which is this function's
 /// test. Two things about that string are decisions rather than arithmetic, and both are
-/// documented on [`unit`]: the spacing between elements comes from `/PS` and `/SS`, and the
+/// documented on `unit`: the spacing between elements comes from `/PS` and `/SS`, and the
 /// trailing one is trimmed.
 ///
 /// An empty array produces an empty string: an array is "one or more number format
@@ -943,7 +943,7 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
 /// So the label carries its own spacing on both sides and `/O` decides which side of the value
 /// the whole of it goes. The defaults are a single space each, which is what makes the clause's
 /// EXAMPLE concatenate to `1 mi 2,378 ft 7 5/8 in` — every element ends with a space, and
-/// [`format`] trims the last one. **Trimming is a documented choice**: the clause states the
+/// [`format()`] trims the last one. **Trimming is a documented choice**: the clause states the
 /// concatenation and says nothing about what to do with the space its own example does not
 /// show.
 fn unit(value: &str, format: &NumberFormat) -> String {
@@ -995,7 +995,7 @@ pub struct Geospatial {
     /// illustrates with a map drawn on a 1927 datum showing WGS84 values "corresponding to
     /// values reported by a GPS device".
     pub display_system: Option<CoordinateSystem>,
-    /// `/PDU`, "[p]referred [d]isplay [u]nits": a linear, an area and an angular unit, in that
+    /// `/PDU`, "\[p]referred \[d]isplay \[u]nits": a linear, an area and an angular unit, in that
     /// order.
     pub display_units: Option<[String; 3]>,
     /// `/GPTS`, points in geographic space, "as degrees of latitude and longitude, respectively"
@@ -1148,7 +1148,7 @@ impl Geospatial {
     /// Whether a point of the object's unit square lies inside `/Bounds`.
     ///
     /// Table 269 gives that entry one job: its points "describe the bounds of an area for which
-    /// geospatial transformations are valid", and "[f]or maps, this bounding polygon is known as
+    /// geospatial transformations are valid", and "\[f]or maps, this bounding polygon is known as
     /// a neatline". So this is the question a measuring tool asks before it says anything about
     /// where a point is on the earth — outside the neatline the file has said its own
     /// registration does not apply, and an answer taken there would be a coordinate the document
@@ -1200,13 +1200,13 @@ impl Geospatial {
 pub struct CoordinateSystem {
     /// Whether this is a `PROJCS` (`true`) or a `GEOGCS` (`false`).
     pub projected: bool,
-    /// `/EPSG`, "[a]n EPSG reference code specifying the … coordinate system".
+    /// `/EPSG`, "\[a]n EPSG reference code specifying the … coordinate system".
     pub epsg: Option<i64>,
-    /// `/WKT`, "[a] string of Well Known Text describing the … coordinate system".
+    /// `/WKT`, "\[a] string of Well Known Text describing the … coordinate system".
     ///
     /// The format is ISO 19162's, and this reader keeps the string. Both tables say the two
-    /// entries exclude each other — `/EPSG` "[s]hall not be present if WKT is present" — while
-    /// §12.10.3's closing sentence requires one of them: "[e]ither an EPSG code or a WKT string
+    /// entries exclude each other — `/EPSG` "\[s]hall not be present if WKT is present" — while
+    /// §12.10.3's closing sentence requires one of them: "\[e]ither an EPSG code or a WKT string
     /// shall be present". [`CoordinateSystem::is_stated`] is that requirement.
     pub wkt: Option<String>,
 }
@@ -1595,7 +1595,7 @@ impl Measured {
 ///
 /// # What each subtype's geometry is, and where each comes from
 ///
-/// - §12.5.6.7's `Line` is Table 178's `/L`, "[a]n array of four numbers … specifying the
+/// - §12.5.6.7's `Line` is Table 178's `/L`, "\[a]n array of four numbers … specifying the
 ///   starting and ending coordinates of the line in default user space". **`/LL` does not change
 ///   the length**, and that is worth stating because it changes what the two points *are*: with
 ///   leader lines present they "represent the endpoints of the leader lines rather than the

@@ -22,19 +22,19 @@
 //! based on XML as defined by ISO 19444-1", and "PDF (in this case, the entire document shall be
 //! submitted rather than individual fields and values)". All four are composed:
 //!
-//! - **FDF** is §12.7.8's own structure and this crate already reads it; [`fdf`] writes the same
+//! - **FDF** is §12.7.8's own structure and this crate already reads it; `fdf` writes the same
 //!   thing — a `%FDF-` header, one catalog object, a trailer naming it — with the fields as
 //!   Table 249's dictionaries, nested down `/Kids` exactly as §12.7.4.2's qualified names nest.
 //! - **HTML Form format** is "described in the HTML 4.01 Specification", whose section 17.13.4
 //!   defines both of the content types a form is submitted with: section 17.13.4.1's
-//!   `application/x-www-form-urlencoded`, which [`urlencoded`] is, and section 17.13.4.2's
-//!   `multipart/form-data`, which [`multipart`] is. The second is §12.7.5.3's, required of any
+//!   `application/x-www-form-urlencoded`, which `urlencoded` is, and section 17.13.4.2's
+//!   `multipart/form-data`, which `multipart` is. The second is §12.7.5.3's, required of any
 //!   submission holding a file-select control, and it is why [`Submission::media_type`] is a
 //!   string rather than [`Format::content_type`]'s constant. That specification is not a document
 //!   this tree holds a copy of; it is a free W3C Recommendation at
 //!   <https://www.w3.org/TR/html401/interact/forms.html>, and the quotations below were taken
 //!   from it rather than from any reader's behaviour.
-//! - **XFDF** is that same field tree in ISO 19444-1's XML; [`xfdf`] writes it and
+//! - **XFDF** is that same field tree in ISO 19444-1's XML; `xfdf` writes it and
 //!   [`crate::xfdf`] reads one back. That standard is a licensed text and this tree holds a
 //!   preview of it, so the comments here cite its sections and paraphrase rather than quote
 //!   (`doc/third-party-data.md`); ADR 1108 is the argument for what is built from it and what is
@@ -55,11 +55,11 @@
 //! | 3 | `ExportFormat` | applied: HTML Form format against FDF, and §12.7.5.3 decides which of that format's two content types |
 //! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids, and where §12.7.5.3's body leaves a GET nowhere to put it |
 //! | 5 | `SubmitCoordinates` | applied from the click, where there was one |
-//! | 6 | `XFDF` | applied: [`xfdf`] writes the body, and it outranks bit 3 because bit 3 is meaningful only where it is clear |
+//! | 6 | `XFDF` | applied: `xfdf` writes the body, and it outranks bit 3 because bit 3 is meaningful only where it is clear |
 //! | 7 | `IncludeAppendSaves` | applied: Table 246's `/Differences` holds what the update appended |
 //! | 8 | `IncludeAnnotations` | applied: §12.7.8.3.4's annotation dictionaries, with Table 254's `/Page` |
 //! | 9 | `SubmitPDF` | applied |
-//! | 10 | `CanonicalFormat` | applied by [`canonical_dates`] to a field whose format or keystroke script is one of the library's date calls, the code its NOTE 1 names; owed by name for one that does not parse, states no year, or whose script is not one call |
+//! | 10 | `CanonicalFormat` | applied by `canonical_dates` to a field whose format or keystroke script is one of the library's date calls, the code its NOTE 1 names; owed by name for one that does not parse, states no year, or whose script is not one call |
 //! | 11 | `ExclNonUserAnnots` | owed: the name it narrows by is the *server*'s, so bit 8's annotations are withheld whole rather than sent past the narrowing |
 //! | 12 | `ExclFKey` | applied: it is what bit 14's `/F` is written against |
 //! | 14 | `EmbedForm` | applied: §7.11.4's embedded file stream, minus the path Table 43 asks for and this crate has none of |
@@ -70,7 +70,7 @@
 //! one a longer script states is named (ADR 1796). Every other row is
 //! applied on the path the table makes it meaningful on — and where a document sets one the table
 //! puts aside in the format it asked for, it is named on [`Submission::owed`] by its bit number
-//! rather than obeyed or dropped. [`excluded_by_xfdf`] does that for bit 6's path and [`Carried`]
+//! rather than obeyed or dropped. `excluded_by_xfdf` does that for bit 6's path and `Carried`
 //! for the FDF one.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -129,7 +129,7 @@ pub enum Format {
     /// "HTML Form format (described in the HTML 4.01 Specification)".
     HtmlForm,
     /// "XFDF, a version of FDF based on XML as defined by ISO 19444-1", which
-    /// [`crate::xfdf`] reads and [`xfdf`] writes.
+    /// [`crate::xfdf`] reads and `xfdf` writes.
     Xfdf,
     /// "PDF (in this case, the entire document shall be submitted rather than individual fields
     /// and values)".
@@ -154,7 +154,7 @@ impl Format {
     /// the specification is the source of truth, and a registry is evidence beside it (ADR 1291).
     /// ISO 32000-2 states none for XFDF, whose `application/xfdf` is the registry's — its
     /// registration names ISO Technical Committee 171, Sub-Committee 2, Working Group 8 as the
-    /// body that standardizes XFDF, and makes `application/vnd.adobe.xfdf` a "[d]eprecated
+    /// body that standardizes XFDF, and makes `application/vnd.adobe.xfdf` a "\[d]eprecated
     /// alias".
     #[must_use]
     pub const fn content_type(self) -> &'static str {
@@ -177,9 +177,9 @@ pub enum Refusal {
     Unsavable(#[from] pdf_syntax::write::UpdateError),
     /// §12.7.5.3's multipart body has no delimiter its own parts do not contain.
     ///
-    /// HTML 4.01 section 17.13.4.2 requires that "[p]art boundaries should not occur in any of
+    /// HTML 4.01 section 17.13.4.2 requires that "\[p]art boundaries should not occur in any of
     /// the data" and says outright that "how this is done lies outside the scope of this
-    /// specification". [`MAX_BOUNDARY_TRIES`] is how far this composition looks; a body that
+    /// specification". `MAX_BOUNDARY_TRIES` is how far this composition looks; a body that
     /// contains every delimiter it would try is one no server could split back into parts, and
     /// writing it anyway would hand over a request that silently means something else.
     #[error(
@@ -233,7 +233,7 @@ struct Entry {
 /// so by field name rather than submitting the pathname as though it were the contents.
 struct SelectedFile {
     /// The specification's own name, for HTML 4.01 section 17.13.4.2's `filename` parameter —
-    /// "[t]he user agent should attempt to supply a file name for each submitted file".
+    /// "\[t]he user agent should attempt to supply a file name for each submitted file".
     name: Option<String>,
     /// Table 44's `/Subtype`, the embedded file stream's own media type.
     ///
@@ -345,7 +345,7 @@ pub fn compose(
 /// > (PDF 1.4) If set, any submitted field values representing dates shall be converted to the
 /// > standard format described in 7.9.4, "Dates".
 ///
-/// The bit's NOTE 1 says where a date is stated: "[t]he interpretation of a form field as a date
+/// The bit's NOTE 1 says where a date is stated: "\[t]he interpretation of a form field as a date
 /// is not specified explicitly in the field itself but only in the ECMAScript code that processes
 /// it". That code is the field's Table 199 `/F` or `/K` script, and where it is one call of
 /// `AFDate_Format`, `AFDate_FormatEx`, `AFDate_Keystroke` or `AFDate_KeystrokeEx` its picture says
@@ -567,7 +567,7 @@ fn html_body(
 /// Which of §12.7.6.2's four formats these flags ask for, with bit 9's already answered.
 ///
 /// The table ranks them itself and this is that ranking, not a preference: bit 6's XFDF "shall be
-/// used only if the `SubmitPDF` flags are clear", and bit 3's HTML Form format is "[m]eaningful only
+/// used only if the `SubmitPDF` flags are clear", and bit 3's HTML Form format is "\[m]eaningful only
 /// if the `SubmitPDF` and XFDF flags are clear" — so a document setting both 6 and 3 has asked for
 /// XFDF, and [`excluded_by_xfdf`] is where it is told which of its bits the table put aside.
 fn format_of(flags: crate::action::SubmitFlags) -> Format {
@@ -1120,7 +1120,7 @@ impl Carried {
     /// Bits 7 and 14, which are one save between them.
     ///
     /// Table 246's `/Differences` row states the save as a requirement rather than as a
-    /// convenience — "[a]n incremental update shall be automatically performed just before the
+    /// convenience — "\[a]n incremental update shall be automatically performed just before the
     /// submission takes place, in order to capture all changes made to the document" — and bit
     /// 14's embedded file is "the PDF file from which the FDF is being submitted", which after
     /// that sentence is the same bytes. So [`ViewState::save`] runs once and both read it.
@@ -1235,7 +1235,7 @@ impl Carried {
 /// > Each annotation dictionary in an FDF file shall have a Page entry … that shall indicate the
 /// > page of the source document to which the annotation is attached.
 ///
-/// Table 254 gives that entry its origin — "[t]he ordinal page number on which this annotation
+/// Table 254 gives that entry its origin — "\[t]he ordinal page number on which this annotation
 /// shall appear, where page 0 is the first page" — which is the page *index*, not §7.7.3.3's
 /// label and not the object number.
 ///
@@ -1322,7 +1322,7 @@ pub(crate) fn is_markup(document: &Document, annotation: &Dictionary) -> bool {
 
 /// One annotation as §12.7.8.3.4 writes it: its own entries, and Table 254's `/Page`.
 ///
-/// Table 166's `/P` is left out rather than carried, and the two entries are why: `/P` is "[a]n
+/// Table 166's `/P` is left out rather than carried, and the two entries are why: `/P` is "\[a]n
 /// indirect reference to the page object with which this annotation is associated", where
 /// `/Page` is an ordinal. An FDF that kept the reference would name an object of a file it is not
 /// part of.
@@ -1457,9 +1457,9 @@ impl Node {
 /// §12.7.8.2.2's header, §12.7.8.2.3's body — Table 245's catalog with its Required `/FDF`,
 /// holding Table 246's `/Fields` and, where this document's trailer states one, its `/ID`, plus
 /// one indirect object for each stream [`Carried`] holds — §7.5.4's cross-reference table, and
-/// §12.7.8.2.4's trailer, "[t]he only required key is Root". The header's version is `1.2`, and
+/// §12.7.8.2.4's trailer, "\[t]he only required key is Root". The header's version is `1.2`, and
 /// that is the only number available rather than a choice between several: the `application/fdf`
-/// registration, written by ISO TC 171/SC 2, states that "[o]nly a single version of FDF has ever
+/// registration, written by ISO TC 171/SC 2, states that "\[o]nly a single version of FDF has ever
 /// been defined, which is version 1.2 that was introduced with PDF 1.2".
 ///
 /// **The cross-reference table is written even though §12.7.8.2.1 calls it optional**, and Table
@@ -1707,7 +1707,7 @@ fn hexadecimal(bytes: &[u8]) -> String {
 /// Five of them say it in the same words — each "shall be used only when the form is being
 /// submitted in Forms Data Format (that is, when both the XFDF and `ExportFormat` flags are
 /// clear)"
-/// — and three more reach the same place by the chain bit 3 starts: bit 3 is "[m]eaningful only if
+/// — and three more reach the same place by the chain bit 3 starts: bit 3 is "\[m]eaningful only if
 /// the `SubmitPDF` and XFDF flags are clear", and bits 4 and 5 are meaningful only when bit 3 is
 /// set. A document setting one of them beside bit 6 has asked for something the table forbids, so
 /// what it gets is a sentence rather than a silence. Bit 10 is not among them: no format restricts
@@ -1794,13 +1794,13 @@ fn stream(mut dict: Dictionary, data: Vec<u8>) -> Object {
 /// control's `/V` is "a file specification (7.11, "File specifications") identifying the selected
 /// file". One shape answers both.
 ///
-/// §7.11.3's dictionary form, with Table 43's `/Type` — "[r]equired if an EF, EP or RF entry is
+/// §7.11.3's dictionary form, with Table 43's `/Type` — "\[r]equired if an EF, EP or RF entry is
 /// present" — and the `/EF` dictionary whose value "shall be an embedded file stream (see 7.11.4,
 /// "Embedded file streams") containing the corresponding file".
 ///
 /// **Table 43's own `/F` is written only where the caller knows a name**, and the two callers
-/// differ for a reason rather than by omission. The entry is "[r]equired if the DOS, Mac, and Unix
-/// entries are all absent", and it is "[a] file specification string of the form described in
+/// differ for a reason rather than by omission. The entry is "\[r]equired if the DOS, Mac, and Unix
+/// entries are all absent", and it is "\[a] file specification string of the form described in
 /// 7.11.2" — a *path*. For bit 14 that path is the machine this program is running on and this
 /// crate has none: `pdf_syntax::FileBytes` keeps the bytes and not the name it read them under,
 /// deliberately, because `viewer_core`'s rule 2 gives the layers above no filesystem either, and
@@ -1831,14 +1831,14 @@ fn embedded_file_spec(stream: ObjectId, name: Option<&str>) -> Object {
 
 /// Table 44's entries for the stream that `/EF` names.
 ///
-/// `/Subtype` is the media type, which the table requires be one: "[t]he value of this entry
+/// `/Subtype` is the media type, which the table requires be one: "\[t]he value of this entry
 /// shall conform to the MIME media type names defined in Internet RFC 2046, with the provision
 /// that characters not permitted in names shall use the 2-character hexadecimal code format
 /// described in 7.3.5". Table 240 bit 9 states PDF's own — `application/pdf` — and a file-select
 /// control's file states whatever its own `/Subtype` said; §7.3.5 is what turns a SOLIDUS into
 /// `#2F`, inside `Name::escaped` rather than here.
 ///
-/// Table 45's `/Size` is "[t]he size of the uncompressed embedded file, in bytes", which is the
+/// Table 45's `/Size` is "\[t]he size of the uncompressed embedded file, in bytes", which is the
 /// data's own length because nothing here writes a `/Filter`.
 fn embedded_file_dictionary(size: usize, media_type: &str) -> Dictionary {
     let mut params = Dictionary::new();
@@ -1866,7 +1866,7 @@ fn embedded_file_dictionary(size: usize, media_type: &str) -> Dictionary {
 /// same substitution of markup this project's own quotation checker makes on both sides:
 ///
 /// 1. "Control names and values are escaped. Space characters are replaced by `+`, and then
-///    reserved characters are escaped as described in [RFC1738], section 2.2: Non-alphanumeric
+///    reserved characters are escaped as described in \[RFC1738], section 2.2: Non-alphanumeric
 ///    characters are replaced by `%HH`, a percent sign and two hexadecimal digits representing
 ///    the ASCII code of the character. Line breaks are represented as "CR LF" pairs (i.e.,
 ///    `%0D%0A`)."
@@ -1938,7 +1938,7 @@ fn escape(bytes: &[u8], out: &mut String) {
 
 /// How many delimiters this composition tries before it refuses to write a multipart body.
 ///
-/// HTML 4.01 section 17.13.4.2 leaves the choice open — "[p]art boundaries should not occur in
+/// HTML 4.01 section 17.13.4.2 leaves the choice open — "\[p]art boundaries should not occur in
 /// any of the data; how this is done lies outside the scope of this specification" — so the bound
 /// is this program's and is written down as one. Each candidate is a distinct string, so a body
 /// that defeats all of them is a body constructed to; the alternative to a bound is scanning the
@@ -1959,7 +1959,7 @@ const MAX_BOUNDARY_TRIES: u32 = 1024;
 ///
 /// Each part carries "a "Content-Disposition" header whose value is "form-data"" and "a name
 /// attribute specifying the control name of the corresponding control"; a part carrying a file
-/// adds the section's `filename` parameter — "[t]he user agent should attempt to supply a file
+/// adds the section's `filename` parameter — "\[t]he user agent should attempt to supply a file
 /// name for each submitted file" — and its content type, since "the file input should be
 /// identified by the appropriate content type". RFC 2046 section 5.1.1 supplies the delimiter
 /// line: "two hyphen characters … followed by the boundary parameter value … and a terminating
@@ -2096,7 +2096,7 @@ fn boundary(parts: &[(String, Vec<u8>)]) -> Option<String> {
 /// One name as a quoted string, or `None` for text no header field can hold.
 ///
 /// RFC 2045 section 5.1 writes a parameter value as `value := token / quoted-string` and lists
-/// the REVERSE SOLIDUS and the QUOTATION MARK among the `tspecials` that "[m]ust be in
+/// the REVERSE SOLIDUS and the QUOTATION MARK among the `tspecials` that "\[m]ust be in
 /// quoted-string, to use within parameter values"; the quoted string itself is RFC 822's, where a
 /// `quoted-pair` is a REVERSE SOLIDUS before the character it protects. So both are escaped that
 /// way. A carriage return, a line feed or a NUL is not escapable at all — a header field ends at
@@ -2222,7 +2222,7 @@ struct Placed {
     down: i64,
 }
 
-/// Table 226's `/TM`, "[t]he mapping name that shall be used when exporting interactive form
+/// Table 226's `/TM`, "\[t]he mapping name that shall be used when exporting interactive form
 /// field data from the document", from the nearest dictionary up the `/Parent` chain that states
 /// it.
 fn mapping_name(document: &Document, widget: &Dictionary) -> Option<String> {

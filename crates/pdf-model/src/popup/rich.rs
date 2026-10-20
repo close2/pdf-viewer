@@ -219,7 +219,7 @@ pub struct RichNote {
 ///
 /// `source` is the dictionary §12.5.6.2's group attributes come from — "Contents (or RC and DS )"
 /// are among them — and `contents` its Table 166 `/Contents`. **`/Contents` wins where the two
-/// disagree**: Table 166 makes it the "[t]ext that shall be displayed for the annotation" and
+/// disagree**: Table 166 makes it the "\[t]ext that shall be displayed for the annotation" and
 /// §12.5.6.2's NOTE 1 expects the two to be textually equivalent, so the window shows the plain
 /// text of a file that broke that expectation — the rule a free text annotation's appearance
 /// already follows (ADR 1635), read through the same function so the two cannot come apart.

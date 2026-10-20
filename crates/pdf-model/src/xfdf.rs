@@ -2,7 +2,7 @@
 //!
 //! ISO 32000-2 names this format three times and defines it nowhere. §12.7.6.2's Table 240 bit 6
 //! says "field names and values shall be submitted as XFDF"; §12.7.6.4's Table 243 makes `/F`
-//! "[t]he FDF, XFDF or any other data format file from which to import the data"; and the list of
+//! "\[t]he FDF, XFDF or any other data format file from which to import the data"; and the list of
 //! submission formats calls it "XFDF, a version of FDF based on XML as defined by ISO 19444-1".
 //! So the grammar is that standard's, and this module is written against it: the second edition,
 //! `doc/md/ISO-19444-1-2019-preview.md`, whose divisions are cited here as ISO 19444-1 section

@@ -1423,8 +1423,7 @@ impl Conversion {
         if !self.removed.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} metadata propert(ies) removed, because the predefined schema each names \
-                 does not define the value it held:",
+                "  {} metadata propert(ies) removed, each for the reason beside it:",
                 self.removed.len()
             );
             for property in &self.removed {

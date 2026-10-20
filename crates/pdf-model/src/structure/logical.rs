@@ -16,7 +16,7 @@ impl Tree {
     /// > Logical content order -the ordering for semantic purposes -shall be defined by a
     /// > depth-first traversal of the document's logical structure hierarch y.
     ///
-    /// against which the other order is the stream's: "[p]age content order shall be defined by
+    /// against which the other order is the stream's: "\[p]age content order shall be defined by
     /// the sequencing of graphics objects within a page's content stream". The clause says the
     /// two "should coincide" and then spends a NOTE explaining when they cannot — overlapping
     /// objects, a headline spanning two pages, two articles beginning on one page — so a
@@ -25,7 +25,7 @@ impl Tree {
     ///
     /// The items are this page's only, in the tree's order, and **annotations are among them**:
     /// §14.8.2.5.2 says an annotation "is not interleaved within the page's content stream" and
-    /// that "[t]he position of an annotation in the logical content order is determined from the
+    /// that "\[t]he position of an annotation in the logical content order is determined from the
     /// document's logical structure", which is exactly the object references this walk already
     /// returns.
     ///
@@ -58,7 +58,7 @@ impl Tree {
     /// text each one covered in [`crate::Interpretation::text`]. Sequences the tree does not
     /// reach are **left out**, which is the clause's own position twice over: only structure
     /// elements are part of the logical content order, and §14.8.2.5.1 NOTE 3 says of the one
-    /// case a reader might expect otherwise that "[a]rtifacts not contained within an Artifact
+    /// case a reader might expect otherwise that "\[a]rtifacts not contained within an Artifact
     /// structure element are not considered part of the logical content order".
     ///
     /// Annotations are in [`Self::logical_order`] and not here. This is the page's *content

@@ -475,7 +475,7 @@ impl<'a> Interpreter<'a> {
     /// its `/I` and `/K` are not values §11.6.6 gives a meaning to.
     ///
     /// Table 145's `/CS` needs nothing said about it here for the same clause: §11.6.6 gives
-    /// a group colour space only to an isolated group — "[f]or non-isolated groups, or if no
+    /// a group colour space only to an isolated group — "\[f]or non-isolated groups, or if no
     /// group colour space is specified, the group colour space shall be inherited from the
     /// parent group or page" — and [`group_blending`] already applies exactly that test.
     pub(super) fn appearance_group(&mut self, dict: &Dictionary) -> TransparencyGroup {

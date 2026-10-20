@@ -16,7 +16,7 @@
 //!   the file's, and a compression this crate chose would be a second decision in a writer whose
 //!   one job is to say what was attached.
 //! - [`file_specification`] — §7.11.3's Table 43, indirect because the table requires it where
-//!   `/EF` is present; `/F` and `/UF` both the filing name ("[t]he UF entry should be used in
+//!   `/EF` is present; `/F` and `/UF` both the filing name ("\[t]he UF entry should be used in
 //!   addition to the F entry"), `/EF` naming the one stream under both keys, `/Desc` where given.
 //! - [`file_attachment_annotation`] — §12.5.6.15's Table 187: `/Subtype /FileAttachment`, the
 //!   required `/FS`, and `/Name`, which "PDF writers should include" and which is therefore always
@@ -25,7 +25,7 @@
 //! - [`Tree`] and [`point_holder_at_tree`] — §7.7.4's `/EmbeddedFiles` name tree, rewritten as one
 //!   `/Names` node holding every entry in §7.9.6's order, and whichever object held the tree
 //!   pointed at the new root. **The whole tree is rewritten as one node rather than one leaf
-//!   edited in place, and that is a choice with a cost**: §7.9.6 permits it — "[i]f the root node
+//!   edited in place, and that is a choice with a cost**: §7.9.6 permits it — "\[i]f the root node
 //!   has a Names entry, it shall be the only node in the tree" — and it makes the update the same
 //!   objects whatever shape the producer chose; the cost is a document with thousands of embedded
 //!   files paying for all of them in one array, which no corpus document has.
@@ -133,7 +133,7 @@ pub fn rect_around(point: (f32, f32)) -> [f32; 4] {
 
 /// §7.11.4's embedded file stream, Tables 44 and 45.
 ///
-/// `/CheckSum` is Table 45's — "[t]he checksum shall be calculated by applying the standard MD5
+/// `/CheckSum` is Table 45's — "\[t]he checksum shall be calculated by applying the standard MD5
 /// message-digest algorithm (defined in Internet RFC 1321) to the bytes of the embedded file
 /// stream" — and `/Size` its "size of the uncompressed embedded file, in bytes". `/Subtype` is
 /// Table 44's media type, written as the name §7.3.5 makes of it where the caller states one;
@@ -150,7 +150,7 @@ pub fn embedded_file_stream(bytes: &[u8], media_type: Option<&str>, date: Option
 /// The same stream [`embedded_file_stream`] writes, for a caller that knows one of the dates and
 /// not the other. §14.13.2 is where that happens: it recommends a `/Params` holding at least a
 /// `/ModDate`, whose value it fixes as the source file's latest modification date, and says
-/// nothing at all about the creation date — which Table 45 makes "[t]he date and time when the
+/// nothing at all about the creation date — which Table 45 makes "\[t]he date and time when the
 /// embedded file was created" and which a caller carrying somebody else's bytes has no way to
 /// know.
 #[must_use]
@@ -207,7 +207,7 @@ pub fn embedded_file_stream_dated(
 /// §7.11.3's file specification dictionary, Table 43, for a file embedded under both of the
 /// table's names.
 ///
-/// `/F` and `/UF` are both written, as the table asks — "[t]he UF entry should be used in
+/// `/F` and `/UF` are both written, as the table asks — "\[t]he UF entry should be used in
 /// addition to the F entry" — and both are the filing name; `/EF` names the one stream under
 /// both keys, which is "a subset of the F and UF keys corresponding to the entries by those
 /// names". `/Type` is required "if an EF, EP or RF entry is present".
@@ -288,7 +288,7 @@ pub fn file_attachment_annotation(
 
 /// One `/Names` node holding every entry, in §7.9.6's order.
 ///
-/// "[T]he keys shall be sorted in lexical order", and "[s]horter keys shall appear before longer
+/// "\[T]he keys shall be sorted in lexical order", and "\[s]horter keys shall appear before longer
 /// ones beginning with the same byte sequence" — which is what a byte vector's own ordering does.
 ///
 /// **The one place this tree writes a §7.9.6 `/Names` node**, which is what makes Errata

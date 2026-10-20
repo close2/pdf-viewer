@@ -1187,21 +1187,29 @@ fn a_container_already_spelling_every_field_correctly_is_not_rewritten() {
     assert_eq!(output, source, "and is copied byte for byte");
 }
 
-/// A field the packet does not state is refused by name, because nothing in the file says what it
-/// would hold.
+/// A field the packet does not state is not invented: the container is discarded with the
+/// properties it described, a loss the caller authorises and the file's history records.
 #[test]
-fn a_container_missing_a_field_outright_is_refused_rather_than_invented() {
+fn a_container_missing_a_field_outright_is_discarded_with_what_it_described() {
     // The same description with `pdfaProperty:category` taken out — the field ISO 19005-2 section
     // 6.6.2.3.3's Table 4 uses to say whether a value is derived from the document or supplied
     // from outside it. Nothing in the file answers that, so writing one would be this converter
-    // inventing metadata about metadata; `doc/pdf-a-mitigations.md`'s entry leaves the two honest
-    // answers — an operator's own `supply`, or a `discard` that loses the container — to a
-    // configuration.
+    // inventing metadata about metadata; `doc/pdf-a-mitigations.md`'s `discard` is what is left —
+    // the container goes, and the one property it described goes with it, because section
+    // 6.6.2.3.1 admits a property only where its schema is described.
     let whole = container_packet("pdfaSchema", "pdfaProperty", "pdfaType", "pdfaField");
-    let packet = whole.replace(
-        "<pdfaProperty:category>external</pdfaProperty:category>\n",
-        "",
-    );
+    let packet = whole
+        .replace(
+            "<pdfaProperty:category>external</pdfaProperty:category>\n",
+            "",
+        )
+        .replace(
+            "</rdf:RDF>",
+            "<rdf:Description rdf:about=\"\" xmlns:mc=\"http://example.invalid/ns/machines/\" \
+             xmlns:pt=\"http://example.invalid/ns/part/\">\n\
+             <mc:Serial rdf:parseType=\"Resource\"><pt:Digits>42</pt:Digits></mc:Serial>\n\
+             </rdf:Description>\n</rdf:RDF>",
+        );
     assert_ne!(packet, whole, "the field was there to take out");
     let source = Conforming {
         metadata: Packet::Stated(packet),
@@ -1210,18 +1218,52 @@ fn a_container_missing_a_field_outright_is_refused_rather_than_invented() {
     .build();
     let target = Target::Two(Level::B);
 
+    // Nothing authorised: the loss is a question put to the caller, and nothing is written.
     let (report, output) = convert(&source, target, Authorisations::default());
     assert!(output.is_none(), "nothing is written");
-    assert_eq!(report.exit(false, false), Exit::Refused);
-    let Decision::Refused(because) =
-        decision(&report, "metadata/extension-schema-container-fields")
-    else {
-        panic!("a field nothing in the file states is refused by name");
-    };
-    let said = because.sentence();
+    let decided = decision(&report, "metadata/extension-schema-container-fields");
     assert!(
-        said.contains("leaves out a field") && said.contains("category"),
-        "and the sentence says which kind of field and why: {said}"
+        matches!(
+            decided,
+            Decision::Unauthorised {
+                loss: Loss::MetadataProperty,
+                ..
+            }
+        ),
+        "the discard is section 3.9's loss, asked of the caller: {decided:?}"
+    );
+
+    // Authorised: the container and the property go, each named, and the history says so.
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MetadataProperty);
+    let (report, output) = convert(&source, target, authorised);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let removed: Vec<&str> = conversion(&report)
+        .removed
+        .iter()
+        .map(|property| property.spelled.as_str())
+        .collect();
+    assert_eq!(removed, vec!["pdfaExtension:schemas", "mc:Serial"]);
+    let bytes = document_packet(&output);
+    let read = pdf_model::xmp::Xmp::parse(&bytes).expect("it parses");
+    assert!(
+        read.value("http://www.aiim.org/pdfa/ns/extension/", "schemas")
+            .is_none()
+    );
+    assert!(
+        read.value("http://example.invalid/ns/machines/", "Serial")
+            .is_none()
+    );
+    let packet = String::from_utf8(bytes).expect("the packet is UTF-8");
+    assert!(
+        packet.contains("6.6.2.3.3") && packet.contains("was discarded"),
+        "the file's own history names the clause and the discard: {packet}"
     );
 }
 
@@ -1278,11 +1320,8 @@ fn a_postscript_xobject_no_page_invokes_is_exempt_rather_than_dropped() {
     // fragments "shall have no effect either when viewing the document on-screen or when printing
     // it to a non-PostScript device". So no page invokes one and the entry is always exempt.
     //
-    // The drawn case is `a_conversion_that_would_break_what_the_source_met_writes_nothing` two
-    // hundred lines down, and it **refuses**: the object has to go, the `Do` that names it may
-    // not be edited, and the removal would leave a named resource undefined. So between the two
-    // of them `Rewrite::PostScriptXObject` is reachable by no document — `doc/questions/Q62`
-    // puts that to the owner rather than deciding it here.
+    // The drawn case is `an_invoked_postscript_xobject_is_written_as_a_form_that_draws_nothing`
+    // two hundred lines down.
     let source = Conforming {
         objects: vec![
             String::from_utf8_lossy(&stream("/Type /XObject /Subtype /PS /Length 1", b" "))
@@ -1465,12 +1504,12 @@ fn the_json_report_names_the_target_the_decisions_and_the_outcome() {
 }
 
 #[test]
-fn a_conversion_that_would_break_what_the_source_met_writes_nothing() {
-    // The property that makes the report's claim about the output a measurement rather than a
-    // promise. A PostScript XObject a content stream *invokes* is the case that reaches it: the
-    // object has to go (ISO 19005-2 section 6.2.9.3) and the `Do` that names it may not be
-    // edited (doc/pdf-a-conversion-limits.md section 5.2), so the removal leaves the named resource
-    // undefined, which ISO 19005-2 section 6.2.2 forbids.
+fn an_invoked_postscript_xobject_is_written_as_a_form_that_draws_nothing() {
+    // ISO 19005-2 section 6.2.9.3 forbids a PostScript XObject, and the `Do` that names it may not
+    // be edited (doc/pdf-a-conversion-limits.md section 5.2) — so the object keeps its number and
+    // becomes §8.10's form with no content: it draws what it drew, which ISO 32000-1 8.8.2 says is
+    // nothing on a screen, and the name stays defined, which removing the object would have broken
+    // (`doc/adr/2115`). veraPDF's `6-2-9-3-t01-fail-a` is this shape.
     let source = Conforming {
         objects: vec![
             String::from_utf8_lossy(&stream("/Type /XObject /Subtype /PS /Length 0", b""))
@@ -1481,20 +1520,41 @@ fn a_conversion_that_would_break_what_the_source_met_writes_nothing() {
         ..Conforming::part_two()
     }
     .build();
-    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
-    assert!(output.is_none(), "nothing is written");
-    assert_eq!(report.exit(false, false), Exit::Refused);
-    let achieved = conversion(&report)
-        .achieved
-        .as_ref()
-        .expect("the output was assembled and then held to the target");
-    assert!(!achieved.conforms);
-    assert!(
-        achieved
-            .regressions
-            .contains(&"graphics/named-resources-are-defined"),
-        "and the report names the requirement the conversion would have broken: {achieved:?}"
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, "graphics/no-postscript-xobjects").rewrite(),
+        Some(Rewrite::PostScriptXObject)
     );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let resources = document
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's resources");
+    let forms = document
+        .get_key(&resources, "XObject")
+        .as_dict()
+        .cloned()
+        .expect("the XObject subdictionary");
+    let form = document.get_key(&forms, "Ps0");
+    let form = form.as_stream().expect("the name still names a stream");
+    assert_eq!(
+        document
+            .get_key(&form.dict, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Form".to_vec())
+    );
+    assert!(form.data.is_empty(), "a form with no content draws nothing");
 }
 
 #[test]
@@ -13334,5 +13394,133 @@ fn relocated_marks_are_placed_by_the_matrix_the_annotation_was_drawn_with() {
         read,
         vec![1.0, 0.0, 0.0, 1.0, 20.0341_f32, 30.288_f32],
         "the relocated matrix reads back as the one the annotation was drawn with: {line}"
+    );
+}
+
+/// The `/DefaultRGB` a converted page's own resources state, resolved to its array.
+fn default_rgb(document: &Document) -> Vec<pdf_syntax::Object> {
+    let page = pdf_model::Pages::new(document).get(0).expect("one page");
+    let resources = document
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's own resources");
+    let spaces = document
+        .get_key(&resources, "ColorSpace")
+        .as_dict()
+        .cloned()
+        .expect("a ColorSpace subdictionary");
+    document
+        .get_key(&spaces, "DefaultRGB")
+        .as_array()
+        .map(<[pdf_syntax::Object]>::to_vec)
+        .expect("a DefaultRGB colour space array")
+}
+
+/// Asserts that `space` is an `ICCBased` array over a three-component profile stream.
+fn is_icc_rgb(document: &Document, space: &[pdf_syntax::Object]) {
+    assert_eq!(
+        space
+            .first()
+            .and_then(|first| first.as_name())
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"ICCBased".to_vec())
+    );
+    let stream = document.resolve(space.get(1).expect("a profile stream"));
+    let stream = stream.as_stream().expect("a stream");
+    assert_eq!(document.get_key(&stream.dict, "N").as_integer(), Some(3));
+}
+
+#[test]
+fn device_rgb_beside_the_files_own_cmyk_intent_takes_a_default_rgb() {
+    // ISO 19005-4 section 6.2.4.3 licenses DeviceRGB through an RGB destination profile or a
+    // device independent DefaultRGB, and section 6.2.3 lets the file state one profile — here its
+    // own press's CMYK one. So the first licence is closed and the converter writes the second:
+    // an ICCBased space over the ICC sRGB profile, which is what this reader drew DeviceRGB as
+    // beside a CMYK intent (`doc/adr/2114`). The intent stays the producer's.
+    let source = a_duplicated_profile(true, "", "", "1 0 0 rg 0 0 10 10 re f", &[]);
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(
+        &report,
+        "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+    );
+    let Decision::Stated { rewrite, .. } = decided else {
+        panic!("the default states an interpretation: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::DefaultRgb);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    is_icc_rgb(&document, &default_rgb(&document));
+    let catalog = document.catalog().expect("a catalog");
+    let intents = document.get_key(&catalog, "OutputIntents");
+    let intents = intents.as_array().expect("the producer's intents");
+    assert_eq!(intents.len(), 1, "no second intent is written");
+}
+
+#[test]
+fn a_group_blending_in_device_rgb_beside_a_cmyk_intent_takes_the_default_too() {
+    // ISO 19005-4 section 6.2.9 holds a group's CS to section 6.2.4, and ISO 32000-2 §11.6.6's
+    // Table 145 remaps a group's device space through the defaults of the current resource
+    // dictionary — so the page's DefaultRGB answers the page group's DeviceRGB, which no CMYK
+    // intent can. The content paints in DeviceCMYK, which the intent licenses: only the group row
+    // fails, and it states no family of its own.
+    let source = a_duplicated_profile(
+        true,
+        "",
+        "/Group << /S /Transparency /CS /DeviceRGB >>",
+        "0 0 0 1 k 0 0 10 10 re f",
+        &[],
+    );
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(
+        &report,
+        "graphics/transparency-group-colour-spaces-obey-the-colour-rules-of-part-four",
+    );
+    let Decision::Stated { rewrite, .. } = decided else {
+        panic!("the default states an interpretation: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::DefaultRgb);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    is_icc_rgb(&document, &default_rgb(&document));
+}
+
+#[test]
+fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_stays_refused() {
+    // The mirror has no such licence written: a DeviceN DefaultCMYK cannot remap a blending
+    // space, which Table 145 says shall not be DeviceN, and an ICC CMYK default would state a
+    // press this reader does not draw DeviceCMYK through. So no DefaultRGB is prepared — nothing
+    // draws in DeviceRGB beside an RGB intent — and the output's own verdict refuses the file.
+    let source = Conforming {
+        page: "/Group << /S /Transparency /CS /DeviceCMYK >>".to_owned(),
+        contents: Some(paints_in_device_rgb()),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    let achieved = conversion(&report)
+        .achieved
+        .as_ref()
+        .expect("the output was assembled and then held to the target");
+    assert!(
+        achieved
+            .still_failing
+            .contains(&"graphics/transparency-group-colour-spaces-obey-the-colour-rules"),
+        "{achieved:?}"
     );
 }

@@ -168,7 +168,7 @@ impl Tree {
     /// # Two sentences in the cells that are a layout engine's and are not applied here
     ///
     /// "If the preceding BLSE has a `SpaceAfter` attribute, the greater of the two attribute
-    /// values shall be used" collapses the gap *between* two elements, and "[t]his attribute
+    /// values shall be used" collapses the gap *between* two elements, and "\[t]his attribute
     /// shall be disregarded for the first BLSE placed in a given reference area" drops it at the
     /// edge of an area. Both are about a sequence of elements being stacked into a reference
     /// area — §14.8.3.2's, which this program does not lay out — rather than about one element's
@@ -206,7 +206,7 @@ impl Tree {
 
     /// Table 378's `/WritingMode` for this element, or §14.8.3.3's default.
     ///
-    /// "(Optional; inheritable)", and the cell says how far it reaches: "[t]he specified layout
+    /// "(Optional; inheritable)", and the cell says how far it reaches: "\[t]he specified layout
     /// directions shall apply to the given structure element and all of its descendants" —
     /// §14.8.5.3's fourth priority, which is [`Self::inherited_attribute`]. The cell's default is
     /// `LrTb`, which §14.8.3.3 describes as the Western one: "the block direction is from top to
@@ -234,7 +234,7 @@ impl Tree {
     /// > element that shall be used as a header associated with this cell.
     ///
     /// The identifiers are returned **unresolved**, in the document's own order, because the
-    /// clause makes that order part of the answer: "[t]he order in which the entries in the
+    /// clause makes that order part of the answer: "\[t]he order in which the entries in the
     /// Headers array are listed shall be row IDs followed by column IDs" and those "shall be
     /// ordered from most specific to most general". Resolving them is [`TableStack`]'s, which is
     /// the only thing that knows which cell a walk gave each identifier to.
@@ -247,6 +247,8 @@ impl Tree {
     ///
     /// Not inheritable, which is why this asks [`Self::attribute`]: a cell inside a cell's own
     /// table would otherwise take the enclosing cell's headers.
+    ///
+    /// [`TableStack`]: crate::structure::TableStack
     #[must_use]
     pub fn cell_headers(&self, document: &Document, element: &Dictionary) -> Option<Vec<Vec<u8>>> {
         let stated = self.attribute(document, element, "Headers")?;
@@ -272,9 +274,9 @@ impl Tree {
     ///
     /// > (Optional; not inheritable; PDF 1.7) A summary of the table's purpose and structure.
     ///
-    /// and the entry's own NOTE says who it is for: "[f]or use in non-visual rendering such as
+    /// and the entry's own NOTE says who it is for: "\[f]or use in non-visual rendering such as
     /// speech or braille." It is the one entry of the table that describes the *table* rather
-    /// than a cell — "[t]his entry shall only be used within Table structure elements" — and
+    /// than a cell — "\[t]his entry shall only be used within Table structure elements" — and
     /// that condition is the caller's to apply, exactly as a `TH`-only entry's is: which
     /// standard type an element maps to is §14.7.3's question, answered where the role is
     /// already in hand, and this reader would otherwise re-derive it per ask.
@@ -305,7 +307,7 @@ impl Tree {
     /// > structure element's content.
     ///
     /// The entry's EXAMPLE is what it is for: when a cell's header cells are read to a person,
-    /// "[i]t can become cumbersome for a user to repeatedly have to listen to the full contents
+    /// "\[i]t can become cumbersome for a user to repeatedly have to listen to the full contents
     /// of a TH structure element", and this is the author's own abbreviation of that repetition.
     /// "This entry shall only have an effect for structure elements of type of TH" is the
     /// caller's condition to apply, for the reason [`Self::table_summary`] gives.
@@ -340,11 +342,11 @@ impl Tree {
     ///
     /// # What states a continuation
     ///
-    /// `/ContinuedList` is "[a] flag specifying whether the list is a continuation of a previous
+    /// `/ContinuedList` is "\[a] flag specifying whether the list is a continuation of a previous
     /// list in the structure tree ( true ), or not ( false )", with "Default value: false".
     ///
     /// **A list stating `/ContinuedFrom` and no flag is read as continuing too, and that is a
-    /// choice rather than a reading.** The entry is "[t]he ID … of the list for which this list is
+    /// choice rather than a reading.** The entry is "\[t]he ID … of the list for which this list is
     /// a continuation", so its presence asserts what the flag would; the standard does not say
     /// which of the two an inconsistent file means, and discarding the only statement it made
     /// would be the silence this reader exists to end. An explicit `/ContinuedList false` wins over
@@ -355,7 +357,7 @@ impl Tree {
     /// [`ListContinuation::From`] where `/ContinuedFrom` names one, unresolved — the identifier is
     /// Table 355's `/ID` of another element, and resolving it needs the walk, which is
     /// [`list_predecessors`]. Otherwise [`ListContinuation::Preceding`], because the clause names
-    /// the predecessor itself in that case: "[i]f the ContinuedFrom attribute is not present, the
+    /// the predecessor itself in that case: "\[i]f the ContinuedFrom attribute is not present, the
     /// continuation is from the preceding list at the same level in the structure hierarchy."
     ///
     /// # Not inheritable, and only since an erratum said so
@@ -368,6 +370,8 @@ impl Tree {
     ///
     /// Whether the element is an `L` at all is the caller's condition to apply, for the reason
     /// [`Self::table_summary`] gives: §14.7.3's mapped type is answered where the role is in hand.
+    ///
+    /// [`list_predecessors`]: crate::structure::list_predecessors
     #[must_use]
     #[expect(
         clippy::doc_markdown,
@@ -399,6 +403,8 @@ impl Tree {
     /// entry costs a walk of §14.7.6's attribute objects and §14.7.6.2's class map; a tagged
     /// document's elements are overwhelmingly paragraphs and spans, so this is asked only where
     /// the element has turned out to be a cell.
+    ///
+    /// [`TableStack`]: crate::structure::TableStack
     #[must_use]
     pub fn cell_facts(&self, document: &Document, element: &Dictionary) -> CellFacts {
         let (row_span, column_span) = self.cell_span(document, element);

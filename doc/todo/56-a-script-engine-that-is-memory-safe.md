@@ -1,97 +1,33 @@
 # A script engine that is memory-safe, and the exclusion it invites the owner to re-read
 
-Status: **the owner accepted `doc/rfc/0008` in answer A193, and its Tier 0 is built.**
-`pdf_model::aform` runs Adobe's `AF*` form library natively where a field's Table 199 script is
-textually one call with literal arguments; `ViewState` raises `/K` as a person types, runs `/K`'s
-commit form and `/V` at `ViewState::commit_field`, lays a value out through its `/F`, and walks
-Table 224's `/CO` in order after every value change; `crates/pdf-model/tests/script_corpus.rs` holds
-every scripted field's displayed value over RFC 0008 section 3's population (ADRs 1578, 1579).
-**Tier 1's first step is built too** (ADRs 1590, 1591): `crates/pdf-script` evaluates a field's
-`/K` and `/F` in Boa behind the `engine` feature, off by default, under the budgets ADR 1590 tables,
-against a bridge that carries `event`, the field's `value`, `getField` of that field,
-`console.println` and the `AF*` library as natives over `pdf_model::aform`, and refuses every other
-member of RFC 0008 sections 4.2 and 4.3 by name; `ViewState::run_scripts_with` is the hook a host
-supplies it through, and every window does, at the reader's `Scripts` level (ADR 1616). **Items (b) and (c) are built** (ADRs 1602, 1603): a
-document's scripts share one `pdf_script::Realm`; `ViewState::run_open_scripts` runs Table 32's
-name tree, the `/OpenAction` and page one's `/O` and `/PO` into it once the first page is presented
-— which every window says with `Command::Presented`, beside `Command::Report` (ADR 1604) —
-`run_page_scripts` and `run_annotation_scripts` are the requests a host raises at a page turn and
-at a widget's pointer and focus — Table 197's `/PO`, `/PV`, `/PC` and `/PI` riding with the page's
-`/O` and `/C`, nothing run before the open sequence (ADR 1750) — beside the actions a window
-performs, and a commit runs `/V` and every `/CO` entry's `/C` with `event.rc`
-honoured, then `/F`, whose display the drawn and saved appearance read; a script reaches every
-field's value and appearance properties, and its writes land in the edit log. **Item (d) is built**
-(ADR 1614): `ViewState::run_document_scripts` runs Table 200's five at the moment a host marks — a
-close, before and after a save, before and after a print — with `event.rc` false reported and never
-obeyed; and the bridge carries `util.printx` and `util.printd`, `app`'s six properties naming the
-viewer as this program, a field's `getArray` and `setFocus` (a request the host takes with
-`ViewState::take_focus_request`) and its four text flags' writes (ADR 1615). The Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features
-engine`) ranks its uncaught throws by message and by document, and its `one_document` test prints
-one document's throws with their scripts and the sentences its reader is told; *The Tier 1
-column's throws, by cause* below is what that reading found. **Item (e) is built** (ADR 1616): the `Scripts` level —
-`off`, `ask`, `warn`, `on`, `off` by default and `quorra-confined` pinned there — is in every
-window's menu and on every command line as `--scripts`, the runner at `on`, `warn` and an answered
-`ask` is `pdf_script_worker::ScriptWorker`, *ask* puts one question per document at its first
-script, and the viewer calls ADR 1614's five moments at the close, the save and the print and
-carries out a script's focus request. **The properties a script sets are drawn** (ADR 1617): `textColor`,
-`fillColor`, `strokeColor`, `borderStyle`, `alignment` and `charLimit` are read as the entries the
-standard draws a widget from — `/DA`'s colour, Table 192's `/BG` and `/BC`, Table 168's `/S`, `/Q`,
-`/MaxLen` — the widget's appearance constructed from them, and a save writes them with `required`'s
-`/Ff` bit where the field and the widget keep them. **The census's refusals are carried** (ADRs
-1626, 1627): `global` per realm, `event.commitKey`, `fieldFull` and `changeEx`, `this.dirty` against
-the view state's last save, `this.info`, `this.getOCGs` switching only what a person could, `util.printf`
-on the library's number writers, the button captions as Table 192's entries, and `app.alert` and
-`app.response` held in the worker until the window's answer comes; a script's depth is bounded
-before Boa parses it, and Boa's optimizer is off. A write to `this.pageNum` is a page turn the host makes (ADR 1640), and a question the
-worker's wait withdraws is an event a window drops its card on, its late answer never handed to the
-question asked after it (ADR 1641). `getField("name.N")` is a `Field` of that one widget, a
-field's state carrying one state per widget (ADR 1664), and `Field.style` redraws a check box's
-glyph while `app.fs` is refused by name (ADR 1665); `this.getAnnots` answers the document's markup
-annotations, whose `hidden`, `popupOpen` and free-text `contents` a script writes as a reader's edit
-(ADR 1700). The pages' labels, boxes and rotations, `gotoNamedDest` as its destination's page and
-Table 149 view in one `ViewChange` (ADR 1751), `title`,
-`calculate` and `app.activeDocs` are read from the view state, and `documentFileName` is refused by
-name with a reason in `surface::REFUSED` (ADR 1724); the window's `zoom`, `zoomType` and `layout`
-are told to the realm with every event and a script's write to them or its `scroll` is a request
-`viewer-core` carries out, while `app.goBack`/`goForward` stay refused because the viewer keeps no
-history of views (ADR 1736); a choice field's items are read from `/Opt`, `currentValueIndices` is a
-person's choice (ADR 1725), and the four methods that rewrite `/Opt` set one property the page, a
-host's control and the save read (ADR 1737). The census walk through the worker raises every
-annotation's pointer and focus events and turns the pages (ADR 1750). **The last 21 members RFC
-0008 section 4.2 admits are bridged** (ADR 1762): `event.shift`, `modifier` and `keyDown` from the
-keys a host tells, `richValue` and `richChange` read-only as spans of the field's `/RV`, a field's
-`lineWidth`, `textSize` and `textFont` from `/BS` and the `/DA`'s `Tf`, `console`'s three as
-requests a host takes, the page's words read once for a script that spells the pair, `util`'s seven
-as pure functions, and `OCG.getIntent`; `surface::NOT_BRIDGED` is empty, and the two runners answer
-whether a page changed beside how many scripts ran. **What is next** is chosen from the throws'
-causes below, within `CLAUDE.md`'s exclusion as the owner amended it in answer to `doc/questions/Q286` (A286,
-ADR 1904). Every window commits through
-`viewer-core` — Table 197's `/Bl` wherever the focus leaves a widget, `Command::CommitField` for
-Enter in a single-line field and for a toolkit control losing the keyboard — and says a refusal
-(ADR 1592); `Query::Fields` carries what a field displays beside its characters, and the two toolkit
-windows show the first in a control without the keyboard and the second in one with it (ADR 1604). The premise this file was commissioned to test — *is it true that there is now a safe
-ECMAScript library?* — is **true, with one qualification that matters and is stated in full
-below**; the file keeps its 2026-08-28 numbers as what was found then, and the RFC re-measured what
-it could.
-Priority: 56 — band 50–59. A193's `Owes` line is the order of work: the exclusion in `CLAUDE.md`
-amended with RFC 0008 section 10's sentence beside Tier 1, never by a round on its own.
+Status: **built.** The owner accepted `doc/rfc/0008` (`doc/questions/A193`) and ratified the
+exclusion's amendment (A286, ADR 1904), and RFC 0008 section 11's order is run to its end: Tier 0's
+`AF*` library runs natively in `pdf_model::aform` where a field's Table 199 script is one call with
+literal arguments (ADRs 1578, 1579), and Tier 1 evaluates a document's scripts in Boa behind
+`pdf-script`'s `engine` feature, in a third confined worker under budgets, at the reader's `Scripts`
+level, `off` by default (ADRs 1590, 1591, 1608, 1609, 1616). What each site and member does is
+`doc/state-of-play.md`'s to say; `pdf_script::surface::NOT_BRIDGED` is empty (ADR 1762), and the
+Tier 1 column (`crates/pdf-script/tests/script_corpus.rs`, run with `--features engine`) is a merge
+gate whose `one_document` test prints one document's throws with their scripts (ADR 1625). **What is
+next** is chosen from *The Tier 1 column's throws, by cause* below, within `CLAUDE.md`'s exclusion as
+amended; A193's rule holds — the target is as much of the pinned reference's surface as is secure
+and reasonable, the census ranking the work and never capping it.
 
-**Both questions this file left are answered.** Where the host object model is read from is the
-owner's earlier ruling, recorded under *The source, settled by the owner* below; whether the
-project wants the capability is A193's acceptance of the RFC, with the owner's rule that the target
-is as much of the pinned reference's surface as is secure and reasonable, the census ranking the
-work and never capping it.
+The rest of this file is the study of 2026-08-28 that RFC 0008 builds on and cites by section — the
+engines graded, the clause read, the source the owner settled and how a round cites it — and its
+figures are what was found then. Its premise, *is there now a safe ECMAScript library?*, held, with
+the qualification section 1 states.
+Priority: 56 — band 50–59.
 
 Corpus: **run the census rather than reading a number here.** The instrument that answers *at
 which site* and *what each script calls* is `crates/pdf-model/examples/javascript_census.rs`
-(RFC 0008 §3 has its command); the two below answer *how many*, and existed
-before this file did — `refused_action_census` walks every object the cross-reference table lists
-and every dictionary inside one, so it sees a script action inside an object stream, which a
-byte-level `grep` cannot:
+(RFC 0008 §3 has its command); the two below answer *how many* — `refused_action_census` walks
+every object the cross-reference table lists and every dictionary inside one, so it sees a script
+action inside an object stream, which a byte-level `grep` cannot:
 
 ```sh
-find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths-56
-cargo run --release -p pdf-model --example refused_action_census -- @/tmp/paths-56
+find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > scratchpad/r<round>/paths-56
+cargo run --release -p pdf-model --example refused_action_census -- @scratchpad/r<round>/paths-56
 
 # and for the entries that are not actions — /AA, /CO, the /JavaScript name tree —
 # the objects layer, which sees a name inside a §7.5.7 object stream:
@@ -112,8 +48,10 @@ the document catalog's), §12.6.4 (Table 201), §7.7.4 (Table 32's `/JavaScript`
 Code as it stands: `crates/pdf-model/src/aform/` (Tier 0's library, its one-call grammar and where
 a field's script is read), `crates/pdf-model/src/view/scripts.rs` (Table 199's triggers raised,
 `/CO` walked, and the `ScriptRunner` hook), `crates/pdf-script/` (Tier 1's engine, bridge, budgets
-and wire), `crates/pdf-model/src/action.rs` (the refusal), `crates/pdf-model/src/view.rs`
-(`ViewState::perform_all`, the action log beside the document), `crates/pdf-model/src/forms_data.rs`,
+and wire), `crates/pdf-script-worker/` (the third confined program that runs it),
+`crates/pdf-model/src/action.rs` (Table 201 read, and the sentence a script action gets where no
+runner runs it), `crates/pdf-model/src/view/actions.rs` (`ViewState::perform_all`, the actions
+performed beside the document), `crates/pdf-model/src/forms_data.rs`,
 `crates/pdf-model/src/requirements.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs` (the budgets),
 `crates/viewer-confined/`, `crates/pdf-model/examples/refused_action_census.rs` (the instrument).
 
@@ -220,7 +158,8 @@ three.
 apart from rquickjs and the v8 crate**, which are not Rust engines at all but Rust *interfaces to*
 a C and a C++ engine. For a project whose principle 3 says "[a]ny C dependency … must be isolated
 in the sandboxed process and justified in writing", the last two are not shortcuts — they are the
-thing the principle is about.
+thing the principle is about. The count over the `boa_engine` this tree pins is ADR 1590 section
+2's, with the command that re-takes it.
 
 ### 2.3 Maintenance and provenance
 
@@ -273,19 +212,25 @@ built-in: `new Array(1e9).fill(0)`, a quadratic string concatenation, a catastro
 expression. There is no wall-clock interrupt and no memory ceiling, and the one true fuel counter
 is compiled out unless you enable a feature named `fuzz`.
 
-**This is not the obstacle it looks like, and the reason is that this tree already solved it one
-layer up.** `crates/pdf-sandbox/src/lockdown_linux.rs` puts `RLIMIT_AS` on a worker process — "so a
-decompression bomb fails an allocation instead of taking the machine's memory" — with `RLIMIT_NOFILE`
-and `RLIMIT_FSIZE` of zero beside it, under seccomp-BPF and Landlock; and `pdf_sandbox`'s channel
-waits with "what is left of the budget", which is what makes `SandboxError::TimedOut` reachable at
-all. **A process boundary is a memory budget and a time budget that no engine API has to provide**,
-and it is enforced by the kernel rather than by the engine's own correctness — which is strictly
-the stronger guarantee, because an engine that mis-accounts its own fuel has defeated its own
-limit and cannot defeat `RLIMIT_AS`.
+**This is not the obstacle it looks like, because this tree bounds a run one layer up.**
+`crates/pdf-sandbox/src/lockdown_linux.rs` puts `RLIMIT_AS` on a worker process — "so a
+decompression bomb fails an allocation instead of taking the machine's memory" — with
+`RLIMIT_FSIZE` of zero and a descriptor ceiling per profile beside it (none at all for the script
+worker, ADR 1608), under seccomp-BPF and Landlock; and `pdf_sandbox`'s channel waits with what is
+left of the budget, which is what makes `SandboxError::TimedOut` reachable at all. **A process
+boundary is a memory budget and a time budget that no engine API has to provide**, and it is
+enforced by the kernel rather than by the engine's own correctness — the stronger guarantee,
+because an engine that mis-accounts its own fuel has defeated its own limit and cannot defeat
+`RLIMIT_AS`. So the containment column is not "Boa fails and QuickJS passes". It is: **QuickJS can
+be contained in-process and Boa cannot; this project contains nothing in-process.**
 
-So the containment column is not "Boa fails and QuickJS passes". It is: **QuickJS can be contained
-in-process and Boa cannot; this project does not want to contain anything in-process, and already
-does not.**
+**The ceilings a run is held to, as built**, are ADR 1590 section 4's `Budget::FIELD_EVENT`
+(`crates/pdf-script/src/request.rs`): a wall time and a step count polled between the slices
+`Script::evaluate_async_with_budget` yields — the fuel the `fuzz` feature withholds, recovered
+without it — Boa's `RuntimeLimits` with the loop limit turned on, and guards before the built-ins an
+argument can make large; past them, the script worker's deadline and `RLIMIT_AS` (ADRs 1608, 1609).
+ADR 1590 names what no engine-side budget bounds — a native call that calls back into script many
+times, growth through an operator — and those are the process's.
 
 ## 3. What the standard actually requires
 
@@ -302,8 +247,8 @@ and, on the document-level name tree:
 Two `shall`s, both addressed to the PDF processor, in a clause of clause 12. `CLAUDE.md`'s in-scope
 list says "**Clause 12, everything that displays**", and §12.6.4.17's own sentence says what a
 script does: "[d]epending on the nature of the script, various interactive form fields in the
-document may update their values or **change their visual appearances**." So this is not a clause
-that sits outside what displays; it is a clause that reaches what displays through a field's value.
+document may update their values or **change their visual appearances**." So it is a clause that
+reaches what displays through a field's value.
 
 **The finding that changes the shape of the argument is the normative reference.** §12.6.4.17 does
 not point at Adobe's *JavaScript for Acrobat API Reference*; it points at an ISO standard:
@@ -316,50 +261,41 @@ ECMA and ISO publications related to ECMAScript in PDF 2.0". **`ISO/DIS` is what
 printed while the document was a Draft International Standard; it was published as ISO 21757-1:2020
 in December 2020, first edition** (<https://www.iso.org/standard/71559.html>, read 2026-08-28).
 
-That matters for principle 5 more than for anything else. This file's commission anticipated that
-"Adobe's JavaScript for Acrobat API is a *host object model* on top of the language — the half the
-standard does not define". **It is defined, and by a normative reference of the standard this
-project implements.** From the published document's own front matter (ISO 21757-1:2020, read from
-the publicly available ISO preview, 2026-08-28):
-
-> This document defines a set of ECMAScript object types for automating and interacting with PDF
-> documents and the contents of such documents.
+That matters for principle 5 more than for anything else. The host object model on top of the
+language — `event`, `Field`, `Doc`, `util` — **is defined, and by a normative reference of the
+standard this project implements**: ISO 21757-1:2020's scope, as the front matter of its publicly
+available preview states it (read 2026-08-28), is a set of ECMAScript object types for automating
+and interacting with PDF documents and their contents.
 
 Its normative references for the language itself are **ISO/IEC 22275:2018** (the ECMAScript
 Specification Suite) and ISO/IEC 22537:2006 — so "conformance to test262" is the right instrument
 for the language half, and ISO 21757-1 is the source of truth for the host half. There is no point
 in this design where another implementation has to be treated as the definition of correct.
 
-**ISO 32000-2 refers to no other document for any of this, and that is checkable**: `grep` for
-`ECMA-262`, `ECMA 262`, `JavaScript for Acrobat` and `32004` over `doc/md/` returns **nothing**. Its
+**ISO 32000-2 refers to no other document for any of this, and that is checkable**: `grep -cE
+'ECMA-262|ECMA 262|JavaScript for Acrobat|32004' doc/md/ISO_32000-2_sponsored_EC3.md` prints 0. Its
 one normative reference for the language and the API alike is the ISO 21757-1 line above. So the
 division of labour is exact: **ISO 32000-2 specifies the *dispatch*** — where a script hangs, when
 it fires, in what order — **and not one API name**; ISO 21757-1 specifies the API. An engine built
 from ISO 32000-2 alone would execute correct ECMAScript against an empty host object graph, which is
-the single sharpest reason this file's commission asked where the API is to be read from at all. The
-owner has since answered that, and the answer and its cost are the three subsections at the end of
-this clause.
+why where the API is read from had to be settled; the owner's answer and its cost are the
+subsections at the end of this section.
 
-The word counts say the same thing about where the work is: "ECMAScript" appears 95 times and
-"JavaScript" 13, but the clusters are few — §12.6.4.17 (15), Table 246's FDF dictionary (14),
-§12.6.3 (11), §12.11.2 (8), §12.11.5 (6) — and everything under clause 13 (18 occurrences) is
-already excluded. **The in-scope surface is three clauses and six tables**: 197, 199, 200, 221, 224
+Where the words fall says the same thing about where the work is: `grep -o ECMAScript
+doc/md/ISO_32000-2_sponsored_EC3.md | wc -l` counts them, and they cluster in §12.6.4.17, Table
+246's FDF dictionary, §12.6.3, §12.11.2 and §12.11.5, with clause 13's under the clause 13
+exclusion. **The in-scope surface is three clauses and six tables**: 197, 199, 200, 221, 224
 and Table 32's name tree.
 
 **And the security model is in the standard too**, which is the part this project should care about
-most. ISO 21757-1:2020 clause 9, *Privileged versus non-privileged context*:
-
-> Some ECMAScript methods, identified with a [Security] note, have security restrictions. These
-> methods can be executed only in a privileged context, which includes console, batch and
-> application initialization events. All other events (for example, page open and mouse-up events)
-> are considered non-privileged.
-
-That is the standard drawing the line this project would want drawn, at the same place: a script
-that runs because a *document* was opened or a *widget* was clicked is non-privileged by the
-standard's own definition. Clause 7, *Safe path*, is weaker and says so — "[d]evelopers of PDF
-Processor software implementing ECMAScript support are **encouraged** to support the concept of a
-safe path" — a permission-shaped clause, not a `shall`, and this project would go further than it
-asks anyway.
+most. ISO 21757-1:2020 clause 9, *Privileged versus non-privileged context*, marks the methods that
+carry a security note and lets them run only in a privileged context — the console, a batch, the
+application's initialisation — and makes every other event, a page's open and a mouse-up among
+them, non-privileged. That is the line this project would draw, at the same place: a script that
+runs because a *document* was opened or a *widget* was clicked is non-privileged by the standard's
+own definition. Clause 7, *Safe path*, is weaker and says so: it encourages a processor to support a
+safe path and requires nothing — a permission-shaped clause, and this project goes further than it
+asks.
 
 ### The `shall`s are not one clause's — §12.6.3 states four more, per field
 
@@ -369,7 +305,7 @@ action outright**:
 
 | table | dictionary | entries that name an ECMAScript action |
 |---|---|---|
-| **197** | an annotation's additional-actions | `/E` `/X` `/D` `/U` `/Fo` `/Bl` `/PO` `/PC` `/PV` `/PI` — actions of any type; this tree already **raises** four of the ten |
+| **197** | an annotation's additional-actions | `/E` `/X` `/D` `/U` `/Fo` `/Bl` `/PO` `/PC` `/PV` `/PI` — actions of any type; all ten are read and raised (§12.6.3's ledger row, ADR 1750) |
 | **198** | a page object's additional-actions | `/O` `/C` |
 | **199** | **a form field's** additional-actions | **`/K` `/F` `/V` `/C` — all four are ECMAScript actions by the table's own text** |
 | **200** | the document catalog's additional-actions | `/WC` `/WS` `/DS` `/WP` `/DP` — five, all ECMAScript actions |
@@ -396,11 +332,10 @@ entry; PDF 1.3) An array of indirect references to field dictionaries with calcu
 defining the calculation order in which their values will be recalculated when the value of any
 field changes".
 
-**So the count of `shall`s the exclusion closes is not one but fourteen or so**, spread over five
+**So the count of `shall`s the exclusion closed was not one but fourteen or so**, spread over five
 tables — nine of which (Table 199's four, Table 200's five) name ECMAScript in the table cell
-itself. **Table 200's five are all about saving, closing and printing**, and this project prints
-nothing and writes only §7.5.6's incremental update, so they are the ones that would stay refused
-longest for reasons that are this tree's rather than the standard's.
+itself. **Table 200's five are a close, a save and a print**, run at the moments a host marks, a
+script's `event.rc` reported and never obeyed (ADR 1614).
 
 ### The size of the other half, measured
 
@@ -445,13 +380,11 @@ Three decisions, and they are the owner's:
    model**, on the argument that ISO 21757-1 standardised Adobe's existing model directly.
 3. **`https://github.com/pdf-association/pdf-issues` is a secondary reference.**
 
-§9's step 4 asked a round to acquire the standard and called that step not optional. It is answered,
-and it is rewritten there. What is *not* answered is anything in §8: the exclusion still stands.
+The exclusion's amendment was a separate question, ratified in A286 (section 8).
 
 ### What principle 5 makes of a vendor document a standard adopted
 
-This is the part worth the words, because principle 5's usual answer is the wrong one here and the
-reason it is wrong is worth being able to state.
+Principle 5's usual answer is the wrong one here, and the reason is worth being able to state.
 
 **The owner's argument, written out.** `CLAUDE.md` principle 5 demotes poppler, mupdf, ghostscript,
 pdf.js and Acrobat to *evidence about our reading*, never the definition of correct. What puts them
@@ -511,11 +444,10 @@ comment on its `ForeignCitation`, which exists for the one failure that matters 
 citation of something else, which "checks as ISO 32000-2's §5.2, which exists, so it passes in
 silence". (**A `§` that names one of this project's own sections is the other exception**:
 `` `doc/todo/02` §2 `` and `doc/oracle-and-corpus.md`
-§3d are how this project cites *itself*, across the crates and the ledger's notes alike, and every
-one of them was being resolved against ISO 32000-2 and passing by landing on a clause. They are now classified as
-`citation::ProjectSection` — counted and printed, checked against nothing. ADR 0987.) Taking a
-second and a third source therefore has an instrument cost, and this round priced it by running the
-scanner rather than by reasoning about it (trap 13). Each line below was fed to
+§3d are how this project cites *itself*, classified as `citation::ProjectSection` — counted and
+printed, checked against nothing, ADR 0987.) Taking a second and a third source therefore has an
+instrument cost, priced by running the scanner rather than by reasoning about it (trap 13): each
+line below was fed to
 `conformance::citation::scan` and its verdict read off, with the clause index asked whether the
 number it landed on exists:
 
@@ -561,14 +493,13 @@ Read 2026-08-28, by fetching rather than by searching.
 
 **The PDF edition is retired and the document is now an HTML page tree.**
 `https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/js_api_reference.pdf` answers 301 to
-the SDK landing page; so does `js_developer_guide.pdf`. What was live on
-2026-08-28 was
+the SDK landing page; so does `js_developer_guide.pdf`. The page tree is served at
 <https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/index.html>, retitled *Acrobat
-JavaScript API Reference* — **and on 2026-09-30 that URL answers 404**: the content is now one
-page per topic under `docs/acrobatsdk/html2015/Acro12_MasterBook/JS_API_AcroJS/` in the
-repository named below, at commit `ab3b42a7` (2026-01-22), which is the pinning rule below
-proving its worth within a month. As read on 2026-08-28 the body of it was **two pages**: `JS_API_AcroJS.html`, 2 727 020
-bytes, holding every object type except `Doc`, and `doc.html`, 891 KB, holding `Doc`. Objects are
+JavaScript API Reference* — a URL that answered on 2026-08-28, gave 404 on 2026-09-30 and answers
+again on 2026-10-20 — and its source is one page per topic under
+`docs/acrobatsdk/html2015/Acro12_MasterBook/JS_API_AcroJS/` in the repository named below, whose
+newest commit is `ab3b42a7` (2026-01-22). As read on 2026-08-28 the body was **two pages**:
+`JS_API_AcroJS.html`, every object type except `Doc`, and `doc.html`, `Doc`. Objects are
 addressable by fragment — `#app`, `#color`, `#event`, `#field`, `#util`.
 
 **It is floating rather than versioned, and there is no edition to cite.** No version number, no
@@ -660,9 +591,8 @@ adopting it.** `tools/spec-errata` reads the annotated PDFs in `doc/`, which are
 Association's *errata collection* — the same resolutions delivered as annotations on the standard
 itself — and every annotation carries the issue number. That is what the `#181`, `#293`, `#236` and
 `#374` in `doc/errata-read.md`'s tables **are**: `pdf-association/pdf-issues` issue numbers, read by
-this project since ADR 0252 without the repository ever being named. So the owner's "secondary
-reference" is not a new source. It is the upstream of an instrument this tree has had for four
-hundred rounds, named at last.
+this project since ADR 0252. So the owner's "secondary reference" is not a new source: it is the
+upstream of an instrument this tree already has.
 
 **Which makes the duplication question worth answering precisely, because there is one and it has a
 clean boundary:**
@@ -718,315 +648,149 @@ type in Table 32 from name strings to strings, which is a typing fix rather than
 
 ### 4.1 The ledger
 
-`doc/conformance/ledger.toml` holds 875 rows. 113 are `out-of-scope`, and their `exclusion` tags
-split:
+**Every row the exclusion once cost is settled, and the ledger is read rather than this file**
+(`grep -nE '^clause = "(12\.6\.4\.17|12\.6\.3|12\.7\.3|7\.7\.4|12\.11\.[125])"' -A2
+doc/conformance/ledger.toml`): §12.6.4.17 is `implemented` at the reader's `Scripts` level, `off` by
+default (A100's ruling, applied by A286), and §7.7.4, §12.6.3, §12.6.4, §12.7.3 and §12.7.8.3.1
+carry no script debt; RFC 0008 section 7 reads each row in both directions.
 
-```
-   86  clause-13-multimedia
-   23  writer-side
-    3  xfa
-    1  script-behaviour
-```
-
-**Exactly one row is out-of-scope because of the JavaScript exclusion**, and it is §12.6.4.17
-itself. (The `partial` statuses in the table below are the ledger's of 2026-08-28; §12.6.3,
-§12.7.3, §7.7.4 and §12.6.4 are `implemented` since, each note naming the script half as excluded
-rather than owed — RFC 0008 §7 has the rows as they stand.) Its note, verbatim from the ledger:
-
-> ECMAScript actions run a script. Principle 5's closed list excludes "JavaScript and script-driven
-> form behaviour — a sandboxed script engine is a separate project with its own security argument".
-> This is the row that exclusion was written for, and the one place in clause 12 where being
-> unimplemented is a decision rather than a debt.
-
-**That is the whole of the exclusion's visible cost, and it is the wrong place to look.** The
-exclusion's actual cost is distributed across `partial` rows that name it as part of what they still
-owe. Fourteen rows mention a script, ECMAScript, `/JS`, a calculation order or an additional-actions
-dictionary; of those, these name the exclusion as a *debt* rather than in passing:
-
-| row | status | what the exclusion costs it |
-|---|---|---|
-| §12.6.4.17 | `out-of-scope` | the clause entire |
-| §7.7.4 | `partial` | Table 32's `/JavaScript` name tree, one of the three trees this row still owes |
-| §12.6.4 | `partial` | one of the nine refused action types in the Table 201 summary |
-| §12.7.3 | `partial` | Table 224's `/CO`, "which is §12.6.3's calculation order and needs the script engine principle 5 excludes" |
-| §12.7.8.3.1 | `partial` | Table 246's `/JavaScript` in an FDF file |
-| §12.11.5 | `out-of-scope` | the clause entire. **It was `partial` on the premise "[t]his program runs no ECMAScript (principle 5), so there is nothing to disable" until ADR 0896 read the clause**, which and found every requirement in it addressed to a processor that *invokes* a handler — Table 276 admits only `JS` and `NoOp` — so the exclusion covers it whole rather than leaving a debt (ADR 0896) |
-| §12.6.3 | `partial` | Table 197–200's triggers are *read and raised*; what is missing is what an `/AA` entry's ECMAScript would do |
-
-**§12.6.3's row is the highest-leverage of them and says so in its own words**, which is worth
-quoting because it is this project telling itself what it decided:
-
-> Tables 199 and 200 are excluded rather than owed: every entry of both is an ECMAScript action,
-> which is on principle 5's closed exclusion list, and saying so is the difference between an
-> exclusion and an oversight.
-
-All ten of Table 197's events are *raised* already and Table 198's two are read. **The plumbing
-exists and the payload is what is missing**, which is a much cheaper starting position than any
-other refusal in this tree.
-
-**Two rows would move the wrong way, and a proposal that hid that would be worth nothing.**
-§12.11.1 and §12.11.2 are `implemented` and §12.11.5 is `out-of-scope` — `partial` when this was written, and moved by ADR 0896 — *because* nothing runs. §12.11.1's
-note says it outright: Table 273's `/RH` "is unread, and the requirement it carries is met by
-construction rather than skipped … `CLAUDE.md` excludes ECMAScript, so every handler a file could
-name is disabled here whatever the file says." Add an engine and that construction collapses: `/RH`
-becomes an entry that must be found and evaluated, the `JS`/`NoOp` distinction becomes operative,
-§12.11.2's `EnableJavaScripts` requirement becomes one this program meets rather than declines, and
-§12.11.1's "[a] PDF processor that supports document requirements shall evaluate them before
-execution of any ECMAScripts" becomes an **ordering obligation nothing in this tree schedules**.
-**A capability that arrives turns two settled rows into debts**, which is `doc/habits.md`'s ledger
-section from the other direction and is the kind of cost an amendment argument has to carry.
-
-**Judgement, marked as judgement**: on a first step of the shape recommended in §7 below,
-§12.6.4.17 would move `out-of-scope` → `partial` (the action executes; the API is a subset),
-§12.7.3 would lose its `/CO` debt, §7.7.4 would lose one of its three trees, §12.6.4's summary
-would move a name from the refused list to the performed one, and §12.11.5 would need rewriting
-from the ground up — and would have to come back *into* scope, which is a sharper cost than it was when this said `partial`, because its argument is that there is nothing to disable. §12.7.8.3.1's debt is
-an FDF import and would not move.
-
-**So the compliance case is real but small: one row settled, five amended, and three that go
-backwards.** A round that argued for this on the ledger alone would be overselling it, and this file
-says so on purpose.
+**The cost this section predicted was the one paid.** §12.11.1, §12.11.2 and §12.11.5 were
+satisfied *because* nothing ran, every handler a file could name disabled by construction. An
+engine made Table 273's `/RH` an entry to find and act on: the open
+sequence now passes over every handler a checked requirement names, and §12.11.5 came back into
+scope and is `implemented` (ADR 1923). **A capability that arrives turns settled rows into debts**,
+which is `doc/habits/the-ledger-and-claims-about-this-tree.md`'s subject from the other direction,
+and an amendment argument has to carry that cost in front of the owner.
 
 ### 4.2 The corpus
 
-Measured 2026-08-28 with `refused_action_census` — the object-walking instrument, not a `grep`:
+The census commands at the head of this file are the figures, and RFC 0008 section 3 re-took them
+over its own population. Three findings of 2026-08-28 outlive their numbers:
 
-| population | opened | documents stating `/S /JavaScript` | dictionaries |
-|---|---|---|---|
-| `doc/pdf.js/test/pdfs` | 964 of 974 | **57** (5.9%) | 250 |
-| `doc/corpora/*` + `corpus-cache/openpreserve` | 537 of 542 | **7** (1.3%) | 21 |
-| `corpus-cache/safedocs` | **65 703 of 65 944** | **276** (0.42%) | 9 442 |
-
-**On the SafeDocs crawl, `/S /JavaScript` is the most-refused action type this program has, by
-document count** — 276, against 115 for `/GoToR`, 93 for `/Launch`, 34 for `/SubmitForm` and 7 for
-`/Rendition`. On the pdf.js corpus the gap is wider still: 57 against 2, 1 and 1. Whatever else is
-true, this is not a refusal nobody meets.
-
-`/CO` and `/AA` are not action dictionaries, so `refused_action_census` does not see them — and this
-file's first draft recorded them as raw-byte `grep` counts. **That was wrong twice over and the
-instrument already existed**: `crates/pdf-model/examples/witness_census.rs` asks a term at three
-layers, and its `objects` layer walks every object the cross-reference table names *including the
-ones inside §7.5.7 object streams*, matching a `Name` as a **token** rather than as text. Over the
-974:
-
-```sh
-cargo run --release -p pdf-model --example witness_census -- --pdfjs JavaScript AA CO XFA AcroForm
-```
-
-| term | `raw` (what a `grep -a` sees) | **`objects` — what the document *states*** | `streams` |
-|---|---|---|---|
-| `/JavaScript` | 18 | **57** | 46 |
-| `/AA` | 354 | **32** | 273 |
-| `/CO` | 224 | **12** | 199 |
-| `/XFA` | 5 | **7** | 9 |
-| `/AcroForm` | 163 | **165** | 6 |
-| `/ObjStm` | 281 | **276 (28.3%)** | 2 |
-
-**A byte `grep` is wrong in both directions here, which is why neither direction bounds the other.**
-It undercounts `/JavaScript` by 68% (18 against 57) because 28.3% of these documents put their
-objects in streams; and it *over*counts `/AA` elevenfold (354 against 32), because `AA` is a
-substring of arbitrary compressed bytes. A lower bound and an upper bound at once is not a bound.
-ADR 0403 is the round that paid for this lesson the first time — a ledger row spent thirty-one
-rounds recording a measurement of `grep` rather than of the corpus.
-
-Two structural counts the `objects` layer cannot separate on its own — a `/JavaScript` name-tree key
-from a `/JavaScript` action value, an AcroForm `/CO` from §12.5.6.7's line-annotation caption offset
-of the same name — were settled by dumping the object graph structurally (`qpdf --json`, as an
-instrument and nothing else, in the role `pdftotext` already plays in the text gate). 944 of the 974
-parse there; 30 are fuzzed or damaged. **19 documents state a document-level `/JavaScript` name tree**
-(a floor: two of the 30 unparseable ones do state JavaScript), **3 carry an `/AA` on the catalog
-itself** — Table 29's entry, whose value is the Table 200 dictionary — and **all 12 of the `/CO`s
-are AcroForm calculation orders — not one is a line
-annotation's caption offset**, which is worth knowing because the ledger flags that collision.
-
-The same instrument over the crawl (`--crawl`, 65 703 of 65 944 opened):
-
-| term, as a stated name | pdf.js (964 opened) | share | SafeDocs (65 703 opened) | share |
-|---|---|---|---|---|
-| `/JavaScript` | 57 | 5.91% | **378** | 0.58% |
-| `/AA` | 32 | 3.32% | **210** | 0.32% |
-| `/CO` | 12 | 1.24% | **82** | 0.12% |
-| `/XFA` | 7 | 0.73% | 37 | 0.06% |
-| `/AcroForm` | 165 | 17.1% | **4 766** | 7.25% |
-
-**Three things fall out of that table and none of them was guessable.**
-
-- **This is a forms feature, not a corpus-wide one.** Against the population that has an `/AcroForm`
-  at all, the script action is **34.5% in pdf.js (57 of 165)** and **5.8% in the crawl (276 of
-  4 766)**. Both figures are right and they answer `CLAUDE.md`'s two different questions: pdf.js's
-  corpus is the regression suite of *a viewer that implements JavaScript*, so it over-samples the
-  feature by construction, and the crawl is the honest denominator for robustness. The ratio between
-  them — a factor of six on the forms-relative figure, fourteen on the whole-corpus one — is itself
-  a measurement of that bias, and it is the reason this file quotes both.
-- **`/AA` is *not* where most of the world's scripts hang.** The crawl states a script action in 276
-  documents and an additional-actions dictionary in only 210. So a majority of real script actions
-  are reached through `/OpenAction`, an outline item's `/A`, a link, or §7.7.4's name tree — not
-  through a field trigger. §12.3.3's ledger row already recorded the outline half of that: of 281
-  corpus outline items carrying an `/A`, **18 are JavaScript**. **A first step scoped to `/AA /F`
-  and `/AA /K` therefore reaches a minority of the demand on purpose**, and §7 should be read
-  knowing that — it is scoped by *safety*, not by coverage.
-- **`/CO` is rarer than `/AA`**, 82 against 210 in the crawl. Calculation chains are the smaller half
-  of what forms scripting is used for, which ranks §7's second step below its first for demand as
-  well as for risk.
+- **On the SafeDocs crawl `/S /JavaScript` was the most-refused action type this program had, by
+  document count**, ahead of `/GoToR`, `/Launch`, `/SubmitForm` and `/Rendition`, and on the pdf.js
+  corpus by a wider margin: never a refusal nobody meets.
+- **A byte `grep` is wrong in both directions for these names, so neither direction bounds the
+  other.** It undercounts `/JavaScript`, because a document can put its objects in §7.5.7 object
+  streams, and overcounts `/AA`, a substring of arbitrary compressed bytes; `witness_census`'s
+  `objects` layer, which walks every object the cross-reference table names and matches a name as a
+  token, is the instrument (ADR 0403 paid for the lesson first). Two collisions it cannot separate —
+  a `/JavaScript` name-tree key from an action value, an AcroForm `/CO` from §12.5.6.7's
+  line-annotation caption offset of the same name — were settled by dumping the object graph
+  structurally (`qpdf --json`, as an instrument and nothing else): every `/CO` in the pdf.js corpus
+  was a calculation order.
+- **This is a forms feature, and `/AA` is not where most scripts hang.** Against the documents with
+  an `/AcroForm`, the script action's share was about six times higher in pdf.js than in the crawl:
+  pdf.js's corpus is the regression suite of a viewer that implements JavaScript, so it over-samples
+  the feature by construction, and the crawl is the honest denominator for robustness — `CLAUDE.md`'s
+  two questions. The crawl stated a script action in more documents than an additional-actions
+  dictionary, so most scripts reach a reader through `/OpenAction`, an outline item's or a link's
+  `/A`, or §7.7.4's name tree rather than a field trigger; RFC 0008 section 3.2 confirmed it.
 
 ## 5. What it would mean for functionality
 
-**What a reader gains**, and each of these is a thing a person can see:
+**What a reader gains**, each a thing a person can see and each built (`doc/state-of-play.md`): a
+field's formatting — a stored `1234.5` displayed as `$1,234.50` because `/AA /F` runs
+`AFNumber_Format` — validation (`/AA /V`), the keystroke mask (`/AA /K`), the calculation chain
+(Table 224's `/CO` the order, `/AA /C` the arithmetic), which is what makes a form *work* rather
+than merely accept typing, and the document-level library §7.7.4's name tree defines, run once the
+first page is presented rather than on the launch path (ADR 1602).
 
-- **Field formatting.** A currency or date field whose stored value is `1234.5` displays as
-  `$1,234.50` because `/AA /F` runs `AFNumber_Format`. Today this program draws the raw value —
-  correctly, per the appearance stream it is given, and differently from every other reader.
-- **Field validation** (`/AA /V`) — a value out of range is refused as the document asks.
-- **Keystroke handling** (`/AA /K`) — the mask that stops a letter reaching a numeric field.
-- **Calculation chains** — Table 224's `/CO` says the order, `/AA /C` says the arithmetic; a total
-  field that updates when a line item changes. This is the one that makes a form *work* rather than
-  merely accept typing, and this tree already lets a person fill a field.
-- **Document-level scripts** (§7.7.4's name tree) — the function library the field scripts call.
-  Note that these are `shall`-executed on open, which puts them on the *launch path*, and
-  `CLAUDE.md` principle 2 has something to say about that (§8 below).
+**What it does not gain**: no pixel is drawn by the engine — a script changes a *value*, and the
+appearance is still §12.7.4.3's variable text; nothing of clause 13 (ISO 21757-1's 3D API); no XFA
+(Annex K, on the permission §K.1 grants); and nothing for a document with no script, which is most
+of the world's files (section 4.2's census).
 
-**What it does not gain, and this list is as important:**
+**The obligations it created, each met as built:**
 
-- **No new pixel is drawn by the engine.** A script changes a *value*; the appearance is still
-  constructed by §12.7.4.3's variable-text machinery, which this tree already has. The engine is
-  upstream of drawing, never inside it.
-- **Nothing in clause 13.** ISO 21757-1's clauses 11–12 are the 3D API and stay excluded.
-- **No XFA.** Annex K stays excluded on the permission §K.1 grants, and the AcroForm this tree
-  reads is still the form.
-- **Nothing for a document that has no script**, which the census says is 99.6% of the world's
-  files and 94% of the pdf.js corpus. This buys the tail, not the body.
-
-**And the obligations it creates, each of which is a decision somebody has to take:**
-
-1. **A script that changes a field's value must reach appearance regeneration.** This is the
-   architectural constraint and it is already satisfied in shape: `CLAUDE.md` requires
-   `pdf_syntax::Document` to stay immutable, and `view.rs` already keeps an *action log beside the
-   document* for §12.6.4's actions. A script's effect is another entry in that log; `interpret`
-   stays a pure function of the bytes, the viewer state and what the user did — which the oracle's
-   whole comparison rests on. **Any design that lets a script mutate the document is wrong on this
-   tree** and should be refused at the first sketch.
+1. **A script's effect is an entry in a log beside the document**, never a change to
+   `pdf_syntax::Document`, so `interpret` stays a pure function of the bytes, the viewer state and
+   what the user did, which the oracle's comparison rests on: a script's write to a field is an edit
+   (ADR 1603). Any design that lets a script mutate the document is wrong on this tree.
 2. **A script that opens a URL, writes a file, submits a form or mails a document is a security
-   decision, not a feature.** ISO 21757-1 clause 9 already classifies these; `CLAUDE.md`'s
-   *A document's restrictions are the reader's to set* already says such a thing is asked of a
-   *policy* a host supplies, with four levels — `off`, `on`, ask, warn. **The four-level shape is
-   the right home for every privileged method in ISO 21757-1**, and this is the strongest reason
-   the two rules were written: a refusal that cannot become an "ask" is exactly what the standard's
-   privileged-context clause needs.
-3. **`app.alert`, `app.response`, a `Dialog`** — these need a host, and `doc/ui-boundary.md`'s rules
-   apply. The confined window refuses everything outside its scope by name (ADR 0713); a script
-   asking for a dialogue is one more thing it refuses in words.
+   decision, not a feature.** ISO 21757-1 clause 9 classifies these, and `CLAUDE.md`'s *A document's
+   restrictions are the reader's to set* gives them the host's four-level policy; RFC 0008 section
+   4's tiers say what crosses, and Tier 2 is refused by name.
+3. **`app.alert` and `app.response` need a host**, under `doc/ui-boundary.md`'s rules: a question is
+   an event out and a command back, held in the worker until answered, the window's thread never
+   waiting (ADRs 1627, 1628).
 4. **A panic in the engine must not be a crash in the viewer.** RUSTSEC-2024-0444's own workaround
-   is `std::panic::catch_unwind`. `CLAUDE.md` principle 1 forbids `unwrap()` outside tests; Boa's
-   `core/engine/src` contains 253 `.unwrap()`, 219 `.expect(`, 90 `unreachable!(`, 31 `panic!(` and
-   294 `assert!(` in 153 266 lines. **This is a dependency whose panics are reachable from hostile
-   input**, which is the fourth independent argument for the process boundary in §6.
+   is `std::panic::catch_unwind`, and Boa's sources carry hundreds of reachable panics (`grep -rhoE
+   --include=*.rs '\.unwrap\(\)|\.expect\(|unreachable!\(|panic!\(|assert!\('
+   ~/.cargo/registry/src/*/boa_engine-0.22.0/src | sort | uniq -c` counts them); a release build
+   aborts on one, so the boundary is the third worker's process (ADRs 1590, 1608) — the fourth
+   argument for it in section 6.
 
 ## 6. The security argument, which is what the exclusion is actually about
 
-The exclusion's stated reason is one sentence: "a sandboxed script engine is a separate project with
-its own security argument." **The claim to test is whether it is still a separate project.** When
-that sentence was written this tree had no sandbox. It now has:
+The exclusion's stated reason was one sentence: "a sandboxed script engine is a separate project
+with its own security argument." It stopped being a separate project because the tree had, by
+then, built the machinery for another reason:
 
 - **`pdf-sandbox`** — a separate binary under seccomp-BPF and Landlock, with `RLIMIT_AS`,
-  `RLIMIT_NOFILE` and `RLIMIT_FSIZE` of zero, and a channel that waits with a wall-clock budget and
-  reports `SandboxError::TimedOut`. There is deliberately no in-process fallback.
+  `RLIMIT_FSIZE` of zero and a descriptor ceiling, and a channel that waits with a wall-clock budget
+  and reports `SandboxError::TimedOut`. There is deliberately no in-process fallback.
 - **`viewer-confined` + `pdf-view-worker`** — the *whole viewer* confined, with the host holding
   only a window (ADRs 0218, 0223, 0607, 0626, 0633, 0713).
 - **an interruptible drawing path** — `pdf_render::Interrupt`, with the policy for stopping decided
   (ADRs 0650, 0657).
 
-So the honest answer is: **the security argument is no longer a separate project; it is a placement
-question with three candidates, and the machinery for two of them already exists.**
+So the security argument became a placement question with three candidates, and the machinery for
+two of them already existed.
 
 ### Where it would sit
 
-**(a) Inside the confined worker (`pdf-view-worker`).** The script engine is a library of the crate
-that already interprets the document, in the process that is already under seccomp and Landlock with
-no filesystem and no network. `RLIMIT_AS` is the memory budget Boa does not have; the channel
-timeout is the wall clock it cannot be interrupted on; a panic kills a process the host already
-knows how to lose.
-*Against*: the worker is also what draws, so a script that spins takes the page with it — the
-budget kills the wrong thing. Mitigable by running scripts on a thread the render loop does not
-share, but then the `RLIMIT_AS` is shared and a script's allocation can starve a raster.
+**(a) Inside the confined worker (`pdf-view-worker`).** The engine in the process that already
+interprets the document under seccomp and Landlock; `RLIMIT_AS` the memory budget Boa does not have,
+the channel timeout the wall clock it cannot be interrupted on, a panic a process the host knows how
+to lose. *Against*: that worker also draws, so a script that spins takes the page with it — the
+budget kills the wrong thing — and on a thread of its own the `RLIMIT_AS` is shared, so a script's
+allocation can starve a raster.
 
-**(b) A third process of its own — `pdf-script-worker`.** One more binary on the pattern
-`pdf-sandbox` already established: its own seccomp filter (much tighter — a script needs no
-`mmap` beyond the heap and no file descriptors at all), its own `RLIMIT_AS` sized for a script
-rather than for a page, its own wall-clock budget per invocation, and a typed protocol carrying
-*only* the ISO 21757-1 operations the host chose to expose. A runaway script is killed without
-touching a raster; a compromised engine has reached a process holding no document bytes it was not
-handed and no pixels at all.
-*Against*: a third worker is a new part of this tree (ADR 0709's sweep population), a launch-path
-cost if it is spawned eagerly, and a protocol to design.
+**(b) A third process of its own — `pdf-script-worker`.** One more binary on `pdf-sandbox`'s
+pattern: a much tighter filter, an `RLIMIT_AS` sized for a script rather than a page, a wall-clock
+budget per invocation, and a typed protocol carrying only the operations the host chose to expose. A
+runaway script is killed without touching a raster; a compromised engine has reached a process
+holding no document bytes it was not handed and no pixels at all.
 
-**(c) Host-side.** Refused outright. The host is the process with the window, the display
-connection, the filesystem and whatever the toolkit dragged in. Running a document's script there
-inverts the whole of principle 3.
+**(c) Host-side.** Refused outright: the host is the process with the window, the display
+connection, the filesystem and whatever the toolkit dragged in, and running a document's script
+there inverts the whole of principle 3.
 
-**This file's reading is that (b) is right and that (a) is the tempting wrong answer**, for the
-reason `pdf-sandbox` exists at all: the budget must bound the *hostile* thing without bounding the
-work the user is waiting for, and a shared process cannot do that. But this is a design decision
-and belongs in an RFC the owner rules on, not in a todo file — see §9.
+**(b) is right and (a) is the tempting wrong answer**, for the reason `pdf-sandbox` exists at all:
+the budget must bound the *hostile* thing without bounding the work the user is waiting for. RFC
+0008 section 6.2 agreed, and (b) is built — the narrowest of `pdf_sandbox`'s profiles, started at a
+document's first trigger rather than at launch (ADRs 1608, 1609).
 
 ### What it would be allowed to reach
 
-The answer that follows from ISO 21757-1 clause 9 and from `CLAUDE.md`'s four-level rule together:
-
-- **the document's own field values and their appearance-relevant properties** — always;
-- **`util`'s pure formatting helpers, `color`, `this`, `event`** — always, they reach nothing;
-- **`app.alert` and friends** — a message to the host, which the host may decline; never a modal the
-  document controls;
-- **`Net`, `SOAP`, `Doc.mailDoc`, `Doc.submitForm`, `Doc.saveAs`, `Doc.exportDataObject`, `Doc.print`,
-  the `security` and `SecurityHandler` objects** — every one of them asked of a *policy* the host
-  supplies, defaulting to `off`, capable of becoming *ask*;
-- **the filesystem and the network** — nothing, at any level, because the process has neither. The
-  policy above decides whether the *host* performs the operation, never whether the engine can.
-
-That last line is the whole design in one sentence, and it is why the placement matters more than
-the engine.
+What a script reaches is `CLAUDE.md`'s exclusion as amended — this document's field values and
+appearance properties and this viewer's state — with RFC 0008 section 4's tiers member by member,
+and `pdf_script::surface::REFUSED` naming every refusal with its reason. The design in one sentence,
+which the build kept: **the filesystem and the network are nothing, at any level, because the
+process has neither; a policy decides whether the *host* performs an operation, never whether the
+engine can.**
 
 ## 7. The recommendation
 
-**Worth doing — and worth doing in a strict order, with a first step small enough to be judged.**
-The reasoning, in the order the evidence supports it:
+**Worth doing, in a strict order, with a first step small enough to be judged** — on four grounds
+in the order the evidence supported them: the standard's `shall`s (§12.6.4.17's two and the nine of
+§12.6.3's Tables 199 and 200); a memory-safe engine ahead of the C engine everyone embeds, with one
+denial-of-service advisory against QuickJS's memory-corruption CVEs (sections 1 and 2); the largest
+corpus demand of any refusal (section 4.2); and a security argument already built for another reason
+(section 6).
 
-1. The specification states two `shall`s at a PDF processor in §12.6.4.17 and nine more in
-   §12.6.3's Tables 199 and 200, and it defines the entire host API in a normative reference that
-   is a published ISO standard. Principle 5 has a source of truth here, which it did not appear to
-   have when the exclusion was written.
-2. The corpus demand is the largest of any refusal this program has — 276 SafeDocs documents, 57 of
-   the pdf.js corpus.
-3. A memory-safe engine at 95.21% of test262 exists, is ahead of the C engine everyone embeds, and
-   has one DoS advisory against QuickJS's four memory-corruption CVEs in two years.
-4. The security argument the exclusion deferred has been built in the meantime, for another reason.
-
-**The smallest useful first step**, and it is deliberately narrower than the commission's guess:
-
-> **Formatting only, and only on a value the user already changed.** `/AA /F` (format) and `/AA /K`
-> (keystroke) on a *single* field, evaluated in a third worker process with a wall-clock budget of a
-> few milliseconds and an `RLIMIT_AS` in the low megabytes; the host object model limited to `event`,
-> `this`, `util` and the read-only parts of `Field`; **no document-level scripts** (they are the
-> launch-path risk and the `shall` that runs on open); no `/AA /V`, no `/CO`, no `app`, no `Doc`, no
-> network, no filesystem, no dialogue. A script that exceeds any budget, throws, or names anything
-> outside that set is **refused by name and reported**, which is trap 5 and is what this tree does
-> with every other refusal.
-
-That step is judgeable: it either makes a currency field read `$1,234.50` on the 32 pdf.js documents
-that state an `/AA` at all, or it does not, and it costs one worker, one protocol and a subset of
-`util`. It touches no pixel that a document without a script draws. **If it lands and the report
-stays quiet, the calculation chain (`/CO` + `/AA /C`) is the second step**, on a smaller population
-(12 documents in pdf.js, 82 in the crawl) and with the harder obligation — a chain has an order, and
-Table 224 makes stating that order the *document's* duty rather than the reader's.
+The first step proposed was **formatting only, on a value the user already changed**: `/AA /F` and
+`/AA /K` on a single field, in a third worker under a wall-clock budget of a few milliseconds and an
+`RLIMIT_AS` in the low megabytes, the object model limited to `event`, `this`, `util` and the
+read-only parts of `Field`, no document-level scripts, and everything else refused by name and
+reported (trap 5); the calculation chain (`/CO` + `/AA /C`) second, with the harder obligation that
+Table 224 makes stating the order the *document's* duty.
 
 ### The step re-priced against the settled source — and as written it fails its own test
 
-The step above was written before the API source was decided. Reading it against what Adobe's
-reference actually documents makes it a **short, checkable list** rather than a gesture, and it also
-finds that **the step as stated cannot pass the criterion it sets for itself**. Both halves are
-below; the second is the finding.
-
-**What the step needs and Adobe documents.** Every member here is in the reference, under the
-section named beside it, and a round can tick them off:
+Read against what Adobe's reference documents, the step is a short, checkable list, every member in
+the reference under the section named beside it:
 
 | member | what the step needs it for | Adobe's section |
 |---|---|---|
@@ -1049,147 +813,52 @@ section named beside it, and a round can tick them off:
 | `util.printx`, `util.scand` | the date round trip, including `scand`'s two-digit-year horizon | util |
 
 **Seventeen members over three objects, and every one of them is documented.** `color` and `app` are
-not needed by this step and `Doc` is needed only for `getField`, which the step excludes; the owner's
-six objects are therefore three-and-a-fraction for a first step, which is a smaller surface than §7
-guessed and is good news.
+not needed by this step and `Doc` only for `getField`, which the step excludes.
 
-**Now the bad news, and it is the round's real finding.** The step is judged on whether a currency
-field reads `$1,234.50`. What makes a field read that is `AFNumber_Format`, because a field's `/AA
-/F` value in a real document is almost always a single call to one of the `AF*` functions and
-nothing else. And:
+**And the step as written cannot pass its own criterion**, a currency field reading `$1,234.50`.
+What makes a field read that is `AFNumber_Format`, because a real document's `/AA /F` is almost
+always one call to an `AF*` function and nothing else; and `AF*` is in neither source (section 3:
+none in Adobe's reference, none in ISO 21757-1's contents, issue #100 declined), Acrobat supplies it
+from its own shipped library, and the step excluded the document-level scripts that could have. **A
+worker holding `event`, `this`, `util` and a read-only `Field` raises a reference error on
+`AFNumber_Format(2, 0, 0, 0, "$", true);` on every document the step is aimed at** — the criterion
+was chosen before the source was known.
 
-- **`AF*` is in neither source.** Not in Adobe's reference (measured: zero occurrences), not in ISO
-  21757-1's contents, and issue #100 records the working group declining to specify it — see §3.
-- **Acrobat supplies those functions from its own shipped script library**, which is why the calls
-  work there and why a document does not carry them.
-- **The step excludes document-level scripts**, correctly, for the launch-path reason §7 gives. So
-  there is no route by which the document could supply them either.
+Three ways out were weighed: (1) implement the `AF*` family in the host, every line of it a
+documented choice, since the only published description is an argument table with no algorithm;
+(2) narrow the step to what the sources decide — *the script runs, the budget holds, the log stays
+beside the document, every refusal is named* — and make `AF*` its own step; (3) `AFNumber_Format` and
+`AFNumber_Keystroke` alone, rejected because even one function is mostly choice and a step scoped
+by safety would hide that. **RFC 0008 took the first two together**: the `AF*` library as Tier 0,
+native and with no engine, each rule a documented choice (ADRs 1578, 1579), and Tier 1's first step
+judged on the second's four criteria (RFC 0008 section 11 item 3 (a), ADR 1591).
 
-Put together: **a worker holding `event`, `this`, `util` and a read-only `Field` will evaluate
-`AFNumber_Format(2, 0, 0, 0, "$", true);` and raise a reference error, on every document the step is
-aimed at.** The step is judgeable, and judged as designed it fails. That is not an argument against
-the step; it is an argument that its *criterion* was chosen before its source was known.
-
-**The adjustment, with the option this file recommends named.** Three ways out, and they differ in
-how much of the result is a documented choice:
-
-1. **Implement the `AF*` family in the host.** It is what makes the step's criterion reachable, and
-   it is what the two implementations in issue #100's thread did. **Every line of it is a documented
-   choice**: the only published description is an argument table with no algorithm, which documents
-   one argument's values partially, mislabels another and omits half the family — so the rounding
-   rule, the locale, the separator styles and what counts as a valid telephone number are all this
-   project's, decided with nothing to derive them from. It would be the largest block of
-   documented-choice code this tree has ever taken on, and it should not arrive attached to a step
-   whose purpose is to prove a worker and a protocol.
-2. **Narrow the step to what the documented sources decide, and recommend it.** Run the trigger,
-   evaluate the script in the third worker under its budgets, apply an assignment to `event.value`
-   through the action log beside the document, and **refuse anything the object model above does not
-   hold — by name, out loud**, which is trap 5 and is what this tree does with every other refusal.
-   On the documents §7 aims at, that reports `AFNumber_Format` refused rather than a formatted
-   field. **The criterion changes with it, and that is the point**: the step is then judged on
-   whether the script runs, whether the budget holds, whether the log stays beside the document, and
-   whether every refusal is named — four things the two sources fully determine — instead of on a
-   formatting result that nothing specifies. The `AF*` layer becomes the second step, ahead of the
-   calculation chain, with its own argument and its own documented choices.
-3. **Implement `AFNumber_Format` and `AFNumber_Keystroke` alone.** Rejected: the argument table
-   documents the separator argument for two of its four values, so even one function is mostly
-   choice, and doing it inside a step scoped by safety hides that.
-
-**So §7's ordering stands and its first step's criterion does not.** The recommendation is option 2,
-and the step's own sentence above — that it either makes a currency field read `$1,234.50` or it does
-not — should be read as the thing this subsection corrects.
-
-**It is scoped by safety and not by coverage, and §4.2's second bullet says what that costs**: most
-of the world's script actions hang off `/OpenAction`, an outline item or the name tree rather than
-off a field trigger, so this step reaches a minority of the demand deliberately. The step that
-reaches the majority is the document-level one, and it is the one that must not be first.
-
-**What must not be done first**, each for a stated reason:
-
-- **not document-level scripts** — §7.7.4's tree is `shall`-executed on open, so it is on the launch
-  path, which principle 2 protects hardest; and it is the largest attack surface for the smallest
-  visible gain;
-- **not rquickjs or the `v8` crate**, however much better their containment APIs are — they are the
-  C and C++ dependency principle 3 is about, and this file's whole finding is that the Rust option
-  has become viable;
-- **not an engine written in this tree.** The `bigint` precedent settles it: the owner chose
-  reviewed dependencies over in-tree arithmetic for cryptography, and an ECMAScript engine is a
-  larger and less-testable thing than a bignum.
-
-**And if the owner declines**, the finding that survives regardless is §4.2's last paragraph: `/CO`
-and `/AA` have never been counted with a real instrument, and a census in the shape of
-`refused_action_census` is owed either way.
+**It was scoped by safety and not by coverage**: most of the world's script actions hang off
+`/OpenAction`, an outline item or the name tree (section 4.2), and the step that reaches them — the
+document-level one — was the one that must not be first, since §7.7.4's tree is `shall`-executed on
+open and principle 2 protects the launch path hardest; it runs after the first present (ADR 1602).
+The other two things not to do stand as RFC 0008 decided them: not rquickjs or the `v8` crate,
+which are the C and C++ dependency principle 3 is about (QuickJS is A193's named alternative, ADR
+1590), and not an engine written in this tree (RFC 0008 section 5.2 prices it; the owner's choice
+of reviewed dependencies over in-tree arithmetic for cryptography is the precedent).
 
 ## 8. The amendment argument, for the owner to ratify or refuse
 
-`CLAUDE.md` says an exclusion is revisited "by argument, never by attrition", and this section is
-the argument in the form the owner would have to accept. It is written to be *refusable*: three of
-the four claims below cut against it.
+**Ratified.** The owner answered `doc/questions/Q286` (A286), and `CLAUDE.md`'s exclusion reads as
+amended: a script runs in scope as far as it reaches this document's field values and appearance
+properties and this viewer's state, in a confined worker under a memory and a wall-clock budget, at
+the level the reader sets; ADR 1904 names what is built under each half.
 
-**The exclusion as it stands:**
-
-> **JavaScript and script-driven form behaviour** — a sandboxed script engine is a separate project
-> with its own security argument. Field *appearance* is not excluded; field *behaviour* is.
-
-**What has changed since it was written, in the order that matters:**
-
-1. **The security argument is no longer separate.** It was written when nothing in this tree was
-   sandboxed. `pdf-sandbox` and `viewer-confined` are now built, and §6 shows the placement is a
-   design question with existing machinery, not a project. **This is the sentence the exclusion
-   rests on, and it has expired** — the same shape as the entry that said transfer functions
-   "describe a marking device", and the same shape as the XFA entry whose second half was wrong.
-2. **The half the standard was thought not to define is defined.** ISO 21757-1:2020 is a normative
-   reference of ISO 32000-2 and specifies the whole host object model in 190 in-scope pages. Not
-   Adobe's convention; an ISO standard. Principle 5's "find the clause" has a clause to find.
-3. **It is not one clause and not one `shall`.** §12.6.4.17 states two, and §12.6.3's Tables 199
-   and 200 state nine more that name an ECMAScript action in the table cell itself — including the
-   four field triggers that decide what a filled form *shows*. All of it is in clause 12, which
-   `CLAUDE.md` puts in scope as "everything that displays", and §12.6.4.17's own sentence says a
-   script may "change their visual appearances".
-4. **The demand is measured and is the largest of any refusal**: §4.2.
-
-**What cuts against it, honestly:**
-
-- **The standard itself contemplates a processor that cannot run script, and provides for it in as
-  many words.** §12.6.4.14's rendition action, Table 218: "Either the JS entry or the OP entry shall
-  be present. If both are present, OP is considered a fallback that shall be executed if the
-  interactive PDF processor is unable to execute ECMAScripts." That is not a licence to decline —
-  §6.3.2.1's conformance clause is the floor and `CLAUDE.md` says so — but it is the standard
-  admitting the category, and an honest amendment argument has to put it in front of the owner
-  rather than leave it for them to find.
-- **The ledger delta is one row settled and three made worse.** §12.11.1, §12.11.2 and §12.11.5 are
-  satisfied *because* nothing runs; §4.1 has the mechanism. Anyone arguing this on coverage is
-  overselling; the argument is the corpus's and the `shall`'s, not the ledger's.
-- **No engine can satisfy principle 3's `#![forbid(unsafe_code)]`**, and this would be the first
-  crate in the render path whose transitive graph contains a hand-written garbage collector. That
-  is a genuine weakening of a compiler-enforced rule into a process-enforced one, and it should be
-  written down as a deliberate decision with its cost, not smuggled in.
-- **The dependency is large and lightly funded**: 54 new packages in the lock file (measured — see
-  below), a codebase of 242 401 lines calling itself experimental, no OSS-Fuzz seat, ~500 commits a
-  year, donation-funded.
-- **99.6% of the world's PDFs would be unaffected.** This is a tail feature, and principle 2's
-  launch-path rules mean it must cost nothing at all for the documents that have no script.
-
-**The dependency, measured** (2026-08-28, `cargo tree` against this tree's `Cargo.lock`):
-`boa_engine` with `default-features = false` pulls **122 transitive packages**, of which **68 are
-already in this workspace's 521** and **54 would be new** — 9 of them Boa's own crates, the rest
-`icu_*` (10), `time`/`num-*`/`rand` and small utilities. With default features it is 124. That is a
-14% growth in the third-party graph for a feature 0.42% of documents use, and `doc/stack.md`'s
-question deserves that number in front of it.
-
-**The amendment this file proposes, if the owner is persuaded** — narrower than deleting the
-exclusion:
-
-> **JavaScript and script-driven form behaviour** — in scope as far as §12.6.4.17's `shall` and ISO
-> 21757-1's non-privileged API reach a field's value and therefore its appearance, evaluated in a
-> confined worker under a memory and a wall-clock budget. Every privileged method ISO 21757-1
-> clause 9 identifies is asked of the host's policy under *A document's restrictions are the
-> reader's to set*, defaulting to `off`. ISO 21757-1's clauses 11–12 (the 3D API) stay excluded
-> under clause 13. **Excluded still**: any script effect that would mutate `pdf_syntax::Document`,
-> and any engine that is not memory-safe in the sense §2.2 measures.
-
-**The owner decides. Nothing in this file changes a ledger status, a `Cargo.toml` or the exclusion,
-and the round that wrote it added no dependency and no engine.**
+The argument rested on four changes — the security argument built in the meantime (section 6), the
+host half defined by a normative reference (section 3), a dozen `shall`s across §12.6.3's tables
+rather than one, and the largest measured demand of any refusal (section 4.2) — and was written to
+be refusable, with what cuts against it in front of the owner. Those costs stand, and RFC 0008
+section 8 writes them down: the standard contemplates a processor that cannot run script (§12.6.4.14's
+Table 218 makes `/OP` the fallback for one that cannot), §12.11's rows were satisfied because
+nothing ran (section 4.1), no engine meets principle 3's `#![forbid(unsafe_code)]`, so a
+compiler-enforced rule is weakened to a process-enforced one (ADR 1590 section 2), the dependency is
+large and lightly funded (ADR 1590 section 1 counts its packages), and a tail feature must cost
+nothing for a document with no script.
 
 ## The Tier 1 column's throws, by cause
 
@@ -1197,8 +866,9 @@ Read against each document's scripts with the column's `one_document` test; the 
 column's to print, and a class is named here with what a reader of this program meets and whether
 the producer's own viewer is evidence of meeting something else. Every throw leaves the run's
 trigger as though the script had not run — a calculated value not set, a keystroke not filtered, a
-format not applied — and puts one sentence per field in the view state's report, at most 256 of
-them, so a document whose scripts throw on every field fills the report with its first fields'.
+format not applied — and puts one sentence per field in the view state's report, at most
+`MAX_REPORTS` of them (`crates/pdf-model/src/view/scripts.rs`), so a document whose scripts throw on
+every field fills the report with its first fields'.
 
 1. **A function no file defines** (`TFMC` in one document carries nearly all of the column's runs,
    one `/C` on hundreds of fields walked at every commit; `goNext`, `f_insert`, `aaa`; a test file
@@ -1221,69 +891,50 @@ them, so a document whose scripts throw on every field fills the report with its
    (one PDFBOX form: most of its root fields). **Answered for the whole form**: such a root is
    recovered from the pages its widgets are on and walked as a `/Fields` entry would be, so the
    realm, a host's controls, a submission and a save all hold it (ADR 1653;
-   `examples/orphan_field_census` counts 79 documents).
+   `crates/pdf-model/examples/orphan_field_census.rs` counts the documents).
 6. **A legacy engine extension the language standard does not have**: `fn.arguments` read on a
    sloppy function (`checkSSN.arguments.length`, `SYS_CB_HDL_STATE.arguments[0]`, four documents).
    ECMA-262 gives `%Function.prototype%` throwing `caller` and `arguments` accessors, and Boa follows
    it; the producer's engine kept the extension. Carrying it would be an engine change, priced
    against ADR 1590's choice of Boa.
-7. **A Tier 1 member not yet bridged**: `AFSpecial_FormatEx`, which neither library has (class
-   3). `AFExactMatch`, the `style` constants and the `cursor` constants are carried, each rule a
-   documented choice (ADR 1652). `Field.style` is a check box's or radio button's glyph, Table
-   192's `/CA` holding Table D.6's code, drawn by constructing the widget (ADR 1665) and saved as
-   both of §12.7.5.2.3's states constructed, under the names the widget selects them by, so the
-   next reader needs no `/NeedAppearances` for it (ADR 1676); `app.fs`, which the `cursor`
-   constants are written to, is the application's full-screen preferences and is refused by name
-   (ADR 1665). The reference's widget addressing — `getField("myRadio.0")` is one widget — is
-   answered: a field's state is its own members and one state per widget across the wire, a
-   widget member set through one widget's `Field` reaches that widget alone, and the value stays
-   the field's (ADR 1664). `setFocus` is a widget's too: the request carries the widget's place in
-   the field table's order across the wire and through `ViewState::take_focus_request`, and the
-   host focuses that widget and turns to the page its `/P` names (ADR 1688). A check box's
-   `isBoxChecked` and `checkThisBox` read and set the value by each widget's §12.7.5.2.3 on state,
-   which crosses with the widget; what the column's `not bridged` lines and the static census rank
-   after them — `getAnnots`, `app.beep`, the timers — is ADR 1689's tail. `this.getAnnots`,
-   `getAnnot` and `syncAnnotScan` are bridged: every page's markup annotations cross to the realm
-   at its first telling, each `Annotation` reads ten properties from §12.5.2's entries, and
-   `hidden`, `popupOpen` and a free text annotation's or a text note's `contents` are a reader's
-   edits that a save writes by §7.5.6 (ADRs 1700, 1721); a window's state is the later of a
-   person's click and a script's write (ADR 1720); the print, view and edit filters read Table 167
-   as the page is drawn, and the pane, summary and export filters are refused by name (ADR 1721).
-   No run of the column reaches them: the static census's documents call them from Adobe's
-   attachments shim, which calls `getAnnots` only for a `viewerVersion` from 6 to below 7 and so
-   never here, where it answers 0.1 (ADR 1615), and from annotation events the column does not
+7. **An `AF*` function neither library has**: `AFSpecial_FormatEx`, in neither Tier 0's
+   `pdf_model::aform` nor the realm, and in neither source (class 3's reading). Every member the
+   column once met unbridged is carried (`surface::NOT_BRIDGED` is empty, ADR 1762): `AFExactMatch`
+   and the `style` and `cursor` constants as documented choices (ADR 1652); `getField("myRadio.0")`
+   as one widget, a field's state one state per widget across the wire (ADR 1664); `Field.style` a
+   check box's or radio button's glyph, Table 192's `/CA` holding Table D.6's code, drawn and saved
+   as both of §12.7.5.2.3's states constructed (ADRs 1665, 1676); `setFocus` naming its widget, the
+   host turning to the page its `/P` names (ADR 1688); `isBoxChecked` and `checkThisBox` by each
+   widget's §12.7.5.2.3 on state (ADR 1689); and `this.getAnnots`, `getAnnot` and `syncAnnotScan`,
+   ten properties per `Annotation` from §12.5.2's entries, the reader's edits a save writes by §7.5.6
+   and Table 167's filters read as the page is drawn (ADRs 1700, 1720, 1721). `app.fs`, the
+   application's full-screen preferences the `cursor` constants are written to, is refused by name
+   (ADR 1665). No run of `script_corpus` reaches the annotation members: the static census's
+   documents call them from Adobe's attachments shim, which calls `getAnnots` only for a
+   `viewerVersion` from 6 to below 7 and so never here, where it is the workspace's release
+   (`pdf_script::viewer::version`, ADR 1615), and from annotation events `script_corpus` does not
    raise.
 
 No throw is a Tier 2 member's: every refusal the column meets is caught or carried.
 
 ## 9. What a round would do next, and in what order
 
-1. **The owner rules on §8.** Nothing below may start first.
-2. **An RFC, not a todo.** Written: `doc/rfc/0008-a-script-is-a-document-acting-on-its-reader.md`
-   (RFC 0008, commissioned by the owner on 2026-09-30), with the placement question of §6, the
-   tiers, the engine measurements and ten questions for the owner; `doc/questions/Q193` points at
-   them.
-3. **The `/CO` and `/AA` census** — built: `crates/pdf-model/examples/javascript_census.rs`, which
-   also tokenises what each script calls.
-4. ~~**Acquire ISO 21757-1:2020.**~~ **Answered by the owner, and answered against acquiring it.**
-   This step used to read that the standard had to be bought and that principle 5 could not be
-   satisfied without it. The owner has decided otherwise: ISO 21757-1:2020 will not be obtained,
-   Adobe's *JavaScript for Acrobat API Reference* is the working source for the object model, and
-   `pdf-association/pdf-issues` is a secondary reference — §3's *The source, settled by the owner*.
-   What replaces the step is not nothing, and it is three obligations rather than a purchase:
-   - **The API source is Adobe's and its details are documented choices**, never derivations. §3's
-     *What principle 5 makes of a vendor document a standard adopted* is the argument and its limit;
-     a round that writes an API member without that framing has quietly promoted a vendor document
-     to a standard.
-   - **The citation shapes in §3 bind**, because two of the four wrong spellings pass the checker in
-     silence and land on real clauses of the wrong standard. Nothing will tell a round it got this
-     wrong.
-   - **The language version comes from the errata, not from either standard.** ISO 21757-1 as
-     published pins no ECMAScript version; issue #185 replaces its normative reference with
-     ECMA-262's eleventh edition. Any engine-conformance claim is against that.
-5. Only then: the worker, the protocol, the subset, the budgets, the report — and §7's re-priced
-   first step rather than its original one, since the original's criterion needs a function neither
-   source specifies.
+RFC 0008 section 11's order is run to its end: the owner ruled on section 8 (A286), the RFC is
+written and accepted (A193), the census is `javascript_census`, and Tier 0, Tier 1's (a)–(e), the
+third worker, the `script` fuzz target and the `script_open` cost line are built. Three obligations
+stand in place of buying ISO 21757-1, and they bind every round that writes an API member:
+
+- **The API source is Adobe's and its details are documented choices**, never derivations —
+  section 3's *What principle 5 makes of a vendor document a standard adopted* is the argument and
+  its limit; a round that writes a member without that framing has quietly promoted a vendor
+  document to a standard.
+- **The citation shapes in section 3 bind**, because two of the four wrong spellings pass the
+  checker in silence and land on real clauses of the wrong standard.
+- **The language version comes from the errata, not from either standard.** ISO 21757-1 as
+  published pins no ECMAScript version; issue #185 replaces its normative reference with ECMA-262's
+  eleventh edition, and any engine-conformance claim is against that.
+
+What is next is chosen from the throws' causes above.
 
 ## Sources, all read 2026-08-28
 

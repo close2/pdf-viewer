@@ -74,7 +74,7 @@ pub enum Unsupported {
     /// The nesting bound was reached by a chain of content streams that re-enters one it is
     /// already running, so no value of the bound would have finished it.
     ///
-    /// §9.6.4, as Errata Collection 3 inserts it, says of the Type 3 case that "[t]he result in
+    /// §9.6.4, as Errata Collection 3 inserts it, says of the Type 3 case that "\[t]he result in
     /// all such cases is implementation-dependent", and §C.2's Table C.1 says as much of nested
     /// `XObject`s; this is that result, said by name. The run is refused at `MAX_FORM_DEPTH`
     /// exactly as [`Self::LimitReached`]'s is — ADR 0793 is why a re-entry is not refused sooner
@@ -103,7 +103,7 @@ pub enum Unsupported {
     /// This renderer composites each glyph against what is already there — the `Tk` false
     /// model — which differs only where two glyphs of one object overlap under a constant
     /// alpha below one or a blend mode other than Normal. Reported for exactly those
-    /// objects; see [`Interpreter::end_text_object`].
+    /// objects; see `Interpreter::end_text_object`.
     TextKnockout {
         /// How many glyphs the object marked the page with under such a paint.
         glyphs: usize,
@@ -118,7 +118,7 @@ pub enum Unsupported {
     /// `B` and its three relatives fill *and* stroke one path, and a centred stroke always
     /// covers the edge of what the fill painted. This renderer emits two commands, so under a
     /// paint that composites the overlap is painted twice where the clause asks for once.
-    /// Reported for exactly those paths; see [`Interpreter::end_path`]. §9.3.8's text knockout
+    /// Reported for exactly those paths; see `Interpreter::end_path`. §9.3.8's text knockout
     /// is the same sentence's exception for a text object, reported separately because its
     /// condition is different.
     CompositedInParts {
@@ -162,7 +162,7 @@ pub enum Unsupported {
     /// the display list too, for the elements whose shape a backend can draw or state. What
     /// is reported is the residue of each, plus a group blending colour space that is not
     /// the device's, and each only where it can change a pixel. See
-    /// [`Interpreter::note_group_departures`] for each condition and the clause it is from.
+    /// `Interpreter::note_group_departures` for each condition and the clause it is from.
     TransparencyGroup {
         /// What the group asked for.
         detail: String,
@@ -188,7 +188,7 @@ pub enum Unsupported {
         /// Table 34's resource category the name was looked up in.
         ///
         /// `XObject`, `Pattern` or `ExtGState` — the three of Table 34's eight that reach the
-        /// page through [`Interpreter::resource`]. The other five already say it in their own
+        /// page through `Interpreter::resource`. The other five already say it in their own
         /// words: `Font` reports "no /Font resource named /F1", `Shading` reports "/Sh0 is not
         /// in /Shading", `ColorSpace` reports the space by name, `ProcSet` is deprecated in
         /// PDF 2.0 and names nothing that can be drawn, and a `Properties` list that is missing
@@ -198,7 +198,7 @@ pub enum Unsupported {
         ///
         /// What it does leave behind is silent and is not a mark: §14.9's `/ActualText`, `/Alt`,
         /// `/E` and `/Lang`, §14.7.5.2's `/MCID`, Table 363's artifact entries and §14.13.5's
-        /// associated files all arrive through [`Interpreter::property_list`], and a `BDC` naming
+        /// associated files all arrive through `Interpreter::property_list`, and a `BDC` naming
         /// a list the resource dictionary does not define loses every one of them. §14.6.2's
         /// ledger row carries that as half of what it owes; this comment named only the two
         /// accessibility entries and the group for as long as the readers for the rest existed,
@@ -378,10 +378,10 @@ pub enum Unsupported {
     /// paragraph above it says "the first one invoked shall be m or re to begin a new subpath",
     /// so `l`, `c`, `v` and `y` cannot begin one. What this program does is therefore a
     /// **documented choice** and not a reading: the operator adds nothing, and since the current
-    /// point is "[t]he trailing endpoint of the segment most recently added", it stays undefined
+    /// point is "\[t]he trailing endpoint of the segment most recently added", it stays undefined
     /// and the segments after it are refused for the same reason, until an `m` or an `re`. So a
     /// run of segments after the error vanishes whole rather than hanging off a point the file
-    /// never stated. See [`crate::content::path::extend_subpath`] for the other two candidates
+    /// never stated. See `Interpreter::extend_subpath` for the other two candidates
     /// and why the clause rejects them.
     ///
     /// **The thirteenth place this program reports while drawing** (trap 5), and it is the *error*
@@ -393,7 +393,7 @@ pub enum Unsupported {
     /// **Table 58's `h` is deliberately not counted here, and that asymmetry is the finding.** One
     /// sentence, two costs: `h` on an empty path has no "starting point of the subpath" to close
     /// to either, so it adds no segment on that invocation and
-    /// [`crate::content::path::close_subpath`] already pushes nothing — the page is complete, and
+    /// `crate::content::path::close_subpath` already pushes nothing — the page is complete, and
     /// saying otherwise would take it out of the oracle's judgement for a mark nobody lost
     /// (trap 11). ADR 0563.
     UndefinedCurrentPoint {
@@ -661,7 +661,7 @@ pub struct Interpretation {
     ///
     /// One entry per marked-content sequence tagged `/Artifact`, with whatever Table 363's
     /// property list stated about it. **Nothing is removed from the text**: the clause leaves
-    /// what to do with an artifact to the consumer — "[a] text-to-speech engine, for instance,
+    /// what to do with an artifact to the consumer — "\[a] text-to-speech engine, for instance,
     /// may decide not to speak running heads or page numbers" — so this says which ranges a
     /// consumer *may* drop and drops none of them itself.
     ///
@@ -683,7 +683,7 @@ pub struct Interpretation {
     /// §14.7.5.2's marked-content sequences over [`Self::text`], in the order they closed.
     ///
     /// One entry per `BDC` … `EMC` whose property list stated an `/MCID`, which is the
-    /// identifier §14.7.5.2 uses to tie page content to a structure element: "[t]he marked-content
+    /// identifier §14.7.5.2 uses to tie page content to a structure element: "\[t]he marked-content
     /// sequence … shall be identified by an integer marked-content identifier". Recorded because
     /// §14.8.2.5.1 defines a *second* order over the same content — the logical one, which is a
     /// depth-first walk of the structure tree — and turning one into the other needs to know
@@ -699,7 +699,7 @@ pub struct Interpretation {
     /// The other half of [`Self::marked`]. An appearance stream carries no `/MCID`, so an
     /// annotation's text reaches the structure only as a whole object, by §14.7.5.3's object
     /// reference and Table 359's `/StructParent`; [`crate::structure::Tree::logical_range`] places
-    /// it where the tree's `OBJR` names it, which is §14.8.2.5.2's rule — "[t]he position of an
+    /// it where the tree's `OBJR` names it, which is §14.8.2.5.2's rule — "\[t]he position of an
     /// annotation in the logical content order is determined from the document's logical
     /// structure" (ADR 1970). One entry per annotation whose appearance read back anything, in
     /// `/Annots` order.
@@ -776,7 +776,7 @@ pub struct ArtifactSpan {
 ///
 /// §14.8.2.2.2 states both. The first is a *method* a producer uses — "an artifact should be
 /// explicitly distinguished from real content through either of the following methods" — and the
-/// second is a rule about everything else: "[a]ny content that is not included in the structure
+/// second is a rule about everything else: "\[a]ny content that is not included in the structure
 /// tree is an artifact", whether or not a marked-content sequence tagged `/Artifact` encloses it.
 ///
 /// A consumer subtracting artifacts wants both and needs no distinction. One reporting on a
@@ -1036,7 +1036,7 @@ pub struct MarkedSpan {
     /// "derived from the shape of the enclosed content", and §14.8.5.4.5 states that derivation
     /// for the cases that are marks rather than layout — a table cell's rectangle is "determined
     /// from the bounding box of all graphics objects in the cell's content". This is that union,
-    /// taken as the sequence's commands were emitted; [`crate::content::Interpreter::draw`] has
+    /// taken as the sequence's commands were emitted; `crate::content::Interpreter::draw` has
     /// the argument and what it costs.
     ///
     /// **A derived extent and never a stated one.** Table 379's `/BBox` is what a *producer* says

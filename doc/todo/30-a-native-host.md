@@ -35,13 +35,15 @@ holds and not which (ADR 0545).
 
 ## Where the `unsafe` is
 
-Two crates lift `deny(unsafe_code)` and no more: `viewer-qt`, for `#[cxx::bridge]`'s expansion,
-with **one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, an
+Three crates lift `deny(unsafe_code)` and no more: `viewer-qt`, for `#[cxx::bridge]`'s expansion,
+with **one** hand-written token; `viewer-ffi`, whose `src/abi.rs` holds one lint lift, an
 `#[unsafe(no_mangle)]` attribute per entry point (`tools/state.sh hosts` counts them) and **no
-`unsafe` block at all**. Each has a test that reads its own sources back. `viewer-ffi`'s also
-asserts that `pdf-syntax`, `pdf-model`, `pdf-font`, `pdf-render`, `render-cpu`, `viewer-core` and
-`viewer-host` still hold `#![forbid(unsafe_code)]`. A third name appearing in either list is a
-change to a rule the project owner stated and belongs in an ADR.
+`unsafe` block at all**; and `pdf-vfs-ffi`, RFC 0003's C boundary for the file-system faces, whose
+one `abi` module carries the lift and no PDF parsing. Each has a `tests/unsafe_position.rs` that
+reads its own sources back, and `viewer-ffi`'s also asserts that `pdf-syntax`, `pdf-model`,
+`pdf-font`, `pdf-render`, `render-cpu`, `viewer-core` and `viewer-host` still hold
+`#![forbid(unsafe_code)]`. A fourth name appearing in either list is a change to a rule the
+project owner stated and belongs in an ADR.
 
 ## What `viewer-host` is, and what it is not
 
@@ -162,17 +164,13 @@ These are the places where a native host's shape differs from the tier-2 host's,
   last frame meets the page without a seam (ADR 1865). **A page zoomed until its largest window — the
   viewport and a quarter round it — keeps at most seven eighths of its commands or half its pixels
   is drawn as the window shows it**, and so is one past `viewer_core::MAX_PIXELS`
-  (`viewer_host::oversize`, `Command::Oversize`, ADRs 1892, 1930, 1994): what is drawn and copied into the toolkit is the window, answered `Rendered::Listed`. **A
-  page drawn whole of which the window shows less than half the rows has those rows drawn first**,
-  as a look of their own over the stand-in, and the page whole after as the frame
-  (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**: its
-  worker sends the marks, the device draws them at the window's size and the processor (`--cpu`, a
-  refused frame) draws the window and its margin (ADR 1944), under the bound too wherever the
-  toolkits' rule holds of the marks that crossed (ADR 2026); a page whose marks cannot cross is
-  drawn by the worker as the window shows it, and that window crosses (ADR 1986), under the bound
-  too wherever the toolkits' seven eighths or half holds (ADR 2016); and a page past the bound whose
-  marks cross takes the route the window prices, its marks or the worker's window, the crossing
-  counted in the device's prediction (ADR 2017, `doc/questions/A477`). What is still owed: a page
+  (`viewer_host::oversize`, `Command::Oversize`, answered `Rendered::Listed`; ADRs 1892, 1930,
+  1994). **A page drawn whole of which the window shows less than half the rows has those rows
+  drawn first**, as a look of their own over the stand-in, and the page whole after as the frame
+  (`Drawing::ask_showing`, ADR 1868). **The confined window draws a page past the bound too**, by
+  the marks its worker sends or by the window its worker draws, as the window prices the two, the
+  toolkits' rule applied to either (ADRs 1944, 1986, 2016, 2017, 2026, `doc/questions/A477`).
+  What is still owed: a page
   never drawn before that a notch out brings on screen has no picture of any kind until it is
   drawn.
 - **Table 29's arrangements, §12.4.4's presentation and its clock** are shared policy
@@ -190,35 +188,19 @@ These are the places where a native host's shape differs from the tier-2 host's,
   (`viewer_host::Miniatures`), never at the launch (ADR 0564). §12.5.6.14's popup windows are an
   unmeasured `GtkOverlay` child and a layout-free Qt widget, because a popup's `/Rect` is the
   document's and must not size the window (ADR 0613, trap 19). A note's `/RC` is drawn formatted in
-  all three from `viewer_host::popup`'s shared readings of each run (ADR 1642) — `quorra` setting each
-  run in its own face, ordering a right-to-left paragraph across its runs and drawing its spacing and
-  scales (ADR 1654), all three setting a paragraph's tab stops and a list tag at its start edge, and
-  `quorra-qt` the scales through a document built format by format; Pango states no per-run glyph
-  scale, so `quorra-gtk` says one (ADR 1666); all three draw a stop's leader, the toolkits
-  painting it over their own line from the tab's extent there (ADRs 1679, 1722); all three lay a right-to-left paragraph's tabs leftward, the toolkits from stops
-  handed per width as distances from the line's right edge, and both toolkits say a decimal stop
-  there, which each places as though the number read right to left (ADR 1690) — and the C ABI hands
-  the runs, the stops and each stop's leader over, with the grid the windows break a leader on
-  (ADRs 1655, 1667, 1726). A text note is retyped in its window in all three — a text view placed
-  over it in the toolkits, a caret a press places and the arrows move in `quorra`, a note drawn
-  from `/RC` included, at the glyph its runs drew (ADRs 1739, 1770); the toolkits' editor starts
-  at the character the press was on, read from Pango's layout in GTK and from the note's
-  `QTextDocument` in Qt, for both kinds of note, and sets each rich run's face over its characters
-  while it is typed into, plain where the window would be, saying what of the paragraphs it does
-  not draw (ADR 1782) — and a reply stating no popup is a comment in its note's window
-  (ADRs 1726, 1727). §12.3.5's collection is shown in all three. A signature's published policy is
-  fetched in all three under the submissions level and a bound copy opened beside, declined in
-  `quorra-confined`; a C caller fetches the copy and `quorra_event_policy_bind` binds it (ADRs
-  1738, 1753). A widget's and a page's `/AA` scripts are raised in all three, a press on a
-  toolkit's own control included (ADR 1752); a script that changes nothing drawn leaves the page
-  interpreted, a timer's included, a script reads each window's Shift and Control, and its console
-  requests are said by name, every window's console being its log (ADR 1771). A choice field's
-  selection runs its Table 199 `/K` once, and every window says when an arrow made it, so the
-  script reads `event.keyDown` true there: `quorra`'s drawn list takes Up and Down, GTK's list, its
-  drop-down's open list and its editable combo box's list, and Qt's list and closed combo box take
-  theirs (ADRs 1786, 1787, 1799). A carriage return followed by a line feed is one paragraph break
-  in every note window, the replies' thread included, split once by `viewer_host::popup::paragraphs`
-  (ADR 1798).
+  all three from `viewer_host::popup`'s shared readings of each run — faces, right-to-left order,
+  spacing and scales, tab stops with their leaders, a list tag — and the C ABI hands the runs, the
+  stops and the leaders over (ADRs 1642, 1654, 1655, 1667, 1679, 1690, 1722, 1726); Pango states no
+  per-run glyph scale, so `quorra-gtk` says one (ADR 1666). A text note is retyped in its window in
+  all three, the editor starting at the character the press was on (ADRs 1739, 1770, 1782); a
+  reply stating no popup is a comment in its note's window (ADRs 1726, 1727); and a carriage return
+  followed by a line feed is one paragraph break in every note window, split once by
+  `viewer_host::popup::paragraphs` (ADR 1798). §12.3.5's collection is shown in all three. A
+  signature's published policy is fetched in all three under the submissions level, declined in
+  `quorra-confined`, and `quorra_event_policy_bind` binds a C caller's copy (ADRs 1738, 1753). A
+  widget's and a page's `/AA` scripts are raised in all three, a press on a toolkit's own control
+  included, every window's console being its log (ADRs 1752, 1771); a choice field's selection runs
+  its Table 199 `/K` once, with `event.keyDown` true where an arrow made it (ADRs 1786, 1787, 1799).
 - **A password is asked in all three**, and a document with no pages or one that failed to open is
   said rather than shown blank (`viewer_host::cannot_open`, `no_pages`, ADRs 0545, 0564).
 - **`?` shows `viewer_host::NOTICE`** in all three, because the compiled-in standard 14 font
@@ -264,16 +246,21 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   `quorra_key_press`, which acts on a press where every window acts and returns what only a window can
   do, its modifier named by role (Ctrl here, ⌘ on macOS) (ADR 2072); `quorra_window`, RFC 0010's
   N2, runs the loop the toolkit windows share and hands over the panels' rows, the controls and the
-  marks over the page, with their commits (ADRs 2088, 2104). What it still owes is the archive
-  chooser, a script's dialogue and a print grant, each declined aloud, and the reader's policy
-  flags; then N3a, the WinUI 3 window the owner chose (`doc/questions/A501`).
-- **`quorra-gtk` and `quorra-qt` keep a device path** (ADR 2049). First the device renderer leaves
-  `quorra`'s binary for a library; then both windows draw on the device and read the frame back into
-  the `MemoryTexture` and `QImage` they show today. A dmabuf texture in GTK and a `QRhiWidget` in Qt
-  wait for a profile showing the read-back and the copy hold the time.
-- **`viewer-ffi` cannot stop a draw it has handed a caller.** A C caller is told to move the request
-  to a thread of its own, so the structure is right; what is missing is an entry point to raise a
-  flag with, which is a header change and a levelness question of its own.
+  marks over the page, with their commits (ADRs 2088, 2104), opens under the levels a host states
+  (`quorra_settings_*`, read as the four binaries read their words, ADR 2120), and puts the archive
+  chooser, a script's dialogue and a print grant to its caller as records it answers (ADR 2121).
+  What it still owes is the reader's other words — anchors, target documents, the audience — for a
+  window; then N3a, the WinUI 3 window the owner chose (`doc/questions/A501`).
+- **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
+  which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
+  windows draw on the device, page one by default, and read the frame back into the
+  `MemoryTexture` and `QImage` they show (ADRs 2070, 2071). They wait for a profile showing the
+  read-back and the copy hold the time: on the drive's small page they do not — the read back is 0.5
+  to 1.3 ms of a 4.4 to 10.2 ms page and the copy into the toolkit's image about 1 ms (ADR 2124).
+- **A C caller cannot stop a draw it was handed.** `quorra_window`'s loop abandons one on
+  `QUORRA_ACT_ABORT_DRAWING` as every window does, but a request a caller rasterises itself is
+  moved to a thread of its own, as `quorra.h` says, and has no flag to raise: that entry point is a
+  header change and a levelness question of its own.
 
 ## Decided rather than owed
 

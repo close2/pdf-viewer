@@ -18,7 +18,7 @@
 //! > Rotate entry.
 //!
 //! So "the topmost row" is topmost *on the screen*, not in the file's coordinates — a page with
-//! `/Rotate 90` has its rows running down the paper. [`rotated`] is the whole of that: a `/Rect`'s
+//! `/Rotate 90` has its rows running down the paper. `rotated` is the whole of that: a `/Rect`'s
 //! corners are put through §7.7.3.3's rotation before anything is sorted.
 //!
 //! # And where the direction comes from
@@ -73,19 +73,19 @@ const ROW_TOLERANCE: f32 = 0.5;
 /// Table 31's `/Tabs`, as §12.5.1 defines the five values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tabs {
-    /// `R`: "[a]nnotations shall be visited in rows running horizontally across the page."
+    /// `R`: "\[a]nnotations shall be visited in rows running horizontally across the page."
     Row,
-    /// `C`: "[a]nnotations shall be visited in columns running vertically up and down the page."
+    /// `C`: "\[a]nnotations shall be visited in columns running vertically up and down the page."
     Column,
-    /// `S`: "[a]nnotations shall be visited in the order in which they appear in the structure
+    /// `S`: "\[a]nnotations shall be visited in the order in which they appear in the structure
     /// tree."
     Structure,
-    /// `A`: "[a]ll annotations shall be visited in the order in which they appear in the page
+    /// `A`: "\[a]ll annotations shall be visited in the order in which they appear in the page
     /// `Annots` array." New in PDF 2.0, **and this crate's default for a page that states none** —
     /// see the module comment for why that is a choice rather than a reading.
     #[default]
     Array,
-    /// `W`: "[w]idget annotations shall be visited in the order in which they appear in the page
+    /// `W`: "\[w]idget annotations shall be visited in the order in which they appear in the page
     /// `Annots` array, followed by other annotation types in row order." New in PDF 2.0.
     Widgets,
 }

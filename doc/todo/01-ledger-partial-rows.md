@@ -23,7 +23,7 @@ Each row's note states one current reason and what would move it (ADR 1574); thi
 reading in one line per row, and the note is where it is argued. The membership is
 `grep -B3 'status = "partial"\|status = "reported"' doc/conformance/ledger.toml`, never this list.
 
-- **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10** — headings whose status their leaves
+- **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4** — headings whose status their leaves
   derive (ADR 1599); each moves when the last row below it that owes does.
 - **§7.4.9** — e-sRGB, e-sYCC, CIE Jab and non-D50 CIE Lab take the device fallback because their
   defining texts are not held; moves on a text the owner buys, or a document `jpx_colour_census`
@@ -34,9 +34,6 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).
-- **§12.10.2** — every projected map in the census writes its `/GPTS` as degrees, refused by name
-  until `doc/questions/Q271` is answered; the forward projection is built beside each inverse (ADRs
-  1586, 1587, 1672), and a `/DCS` on another datum is a datum transformation A171 leaves out.
 
 §12.1 states no requirement and is `implemented` (ADR 1573).
 
@@ -227,8 +224,7 @@ wording it retired. It is marked rather than dropped wherever a sweep can recogn
     `every_table_designation_names_a_table_the_standard_captions` reads
     `conformance::citation::Scan::designations`, and a foreign standard's table names its document.
     `doc/errata-read.md` records what each erratum read came to.
-13. *No sweep holds this number.* It was given to two proposals in turn, both now in *What is still
-    owed*, and the count of sweeps is kept apart from the count of committed programs (ADR 0475).
+13. *No sweep holds this number* (ADR 0475).
 14. **The status whose own definition promises a debt** — `cargo run -p conformance --bin owed`,
     seconds (ADR 0397). A `partial` row must say which requirements are not executed; a debt names a
     **thing**, and a thing this tree lacks is a name no source carries — the seventh sweep's
@@ -431,7 +427,7 @@ What the plants teach:
 
   ```sh
   # 1. the annotations, keyed to page and clause. Not committable: ADR 0187.
-  cargo run --release -p spec-errata -- emit doc/ISO_32000-2_sponsored_EC3.pdf > /tmp/emit.md
+  cargo run --release -p spec-errata -- emit doc/ISO_32000-2_sponsored_EC3.pdf > scratchpad/r<round>/emit.md
   # 2. every issue number this tree names. Two greps, because neither is right alone — see below.
   grep -rhoIE 'Issues? #[0-9]+(,? (and )?#[0-9]+)*' crates doc tools fuzz \
     --exclude-dir=md --exclude-dir=pdf.js --exclude-dir=corpora \
@@ -505,17 +501,15 @@ What the plants teach:
   that would be the instrument choosing what the ledger may say (ADR 0490 section 6).
 - **Taking the *before* half of a run.** Every sweep binary resolves the tree from
   `CARGO_MANIFEST_DIR`, not from the working directory, so a binary run inside a copy of the base
-  measures the worktree. Give the base commit a checkout of its own and build the sweep binaries
-  inside it (`git worktree add --detach <dir> <base>`, then `cargo build -p conformance --bins
-  --target-dir <its own>`), with `doc/md/`, `doc/*.pdf` and the two submodules symlinked in from the
-  main tree; remove the checkout *and* its build directory afterwards. Checking files out at the base
-  in place restores the last **commit** and throws away every edit since the round's own checkpoint.
+  measures the worktree. The base is `tools/batch.sh export <session> --as base` with no path — HEAD
+  in a tree of its own, the untracked inputs linked in and its own target directory (ADR 1890) —
+  and the sweep binaries are built inside it. Checking files out at the base in place restores the
+  last **commit** and throws away every edit since the round's own checkpoint.
 
 ## What is still owed
 
 - **The fifth sweep's second population**, still a by-hand run: every `viewer-core` `Command`,
-  `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it — the run that found
-  `Query::Find` and `Query::LogicalSelection` reaching no program.
+  `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it.
 - **The sixth sweep as a program.** It is four lines of Python and has never printed noise, which is
   why it is the one still a description.
 - **A cited precedent's status against the citing row's** — the population is every row whose note
@@ -527,9 +521,6 @@ What the plants teach:
 - **An artifact census.** No command counts the documents whose page one marks an artifact (a `BDC`
   tag read by the interpreter, broken down by Table 363's `/Type`); `witness_census` counts names.
   The same pass would settle the per-site `/AF` counts §14.13, §14.13.3 and §14.13.6 each state.
-- **§12.8.2.4's transform, named rather than built**: the recognition half is the transform method
-  `FieldMDP` with Table 259's `/Action` and `/Fields` beside `UsageRights`; the validation half is
-  §12.8.2.2.2's and needs the signed revision reconstructed.
 - **`absence_audit`'s blocks**: one block per claim, and there are always more — a flag's bit, a
   value's range, a group's colour space, a producer's arithmetic. A round adding one adds a block,
   not a heuristic.

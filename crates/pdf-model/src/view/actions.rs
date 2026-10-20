@@ -111,7 +111,7 @@ impl ViewState {
     /// Three shapes, all Table 241's and Table 242's:
     ///
     /// - no `/Fields` at all: "all fields in the document's interactive form are reset";
-    /// - `/Fields` with the flag clear: those fields, "[a]ll descendants of the specified fields
+    /// - `/Fields` with the flag clear: those fields, "\[a]ll descendants of the specified fields
     ///   in the field hierarchy" included — which §12.7.4.2's naming makes a prefix test for the
     ///   table's name form, since a descendant's fully qualified name is its ancestor's with `.`
     ///   and more appended, and which [`widgets_under`] makes a walk down `/Kids` for its
@@ -198,7 +198,7 @@ impl ViewState {
 
     /// Whether this widget's value has been reset to its default (§12.7.6.3).
     ///
-    /// A widget rather than a field, for [`Self::reset_form`]'s reason. `false` for every
+    /// A widget rather than a field, for `Self::reset_form`'s reason. `false` for every
     /// annotation in every document that has performed no reset, which is all of them until a
     /// person clicks a button.
     #[must_use]

@@ -26,10 +26,13 @@
 //! every page on the drawing thread, and asks to be looked at again on a tick whose interval it
 //! states; a key goes through `viewer_host::keys` as every window's does, and the acts the shared
 //! trait can carry out it carries out. What only a toolkit can do — the find bar, the panel, the
-//! file chooser, a print dialogue — comes back as the `QUORRA_ACT_*` [`crate::ActKind`] names, as
+//! file chooser — comes back as the `QUORRA_ACT_*` [`crate::ActKind`] names, as
 //! `quorra_key_press` hands it back. The pointer, the find bar's search and the strip of open
 //! documents are the window's too, and the panels' rows, the controls placed over the page and the
-//! marks over it are read and committed through it (`shown`, ADR 2104).
+//! marks over it are read and committed through it (`shown`, ADR 2104). The three requests a
+//! toolkit answers with a dialogue — ISO 19005's chooser, a script's question and a print let
+//! through — are records the caller answers, the window asking each as every window asks it (ADR
+//! 2121).
 
 mod owed;
 mod shown;
@@ -79,12 +82,21 @@ pub struct Window {
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
     /// The controls and popups the caller was last told of (ADR 2104).
     shown: shown::Shown,
+    /// ISO 19005's chooser while it is out, answered once by [`Self::archive`] (ADR 2121).
+    choosing: Option<viewer_host::archiving::Choosing>,
+    /// A script's question while it is out, and when the window last looked for its withdrawal:
+    /// answered once by [`Self::answer_script`], or withdrawn by the core past its wait (ADR 1643).
+    script: Option<(DocumentId, viewer_core::ScriptQuestion, std::time::Instant)>,
+    /// The pages of the print §7.6.4.2's bit 3 let through, while it stands: until
+    /// [`Self::print_finish`] or the key pressed again.
+    printing: Option<usize>,
 }
 
 impl Window {
     /// Reads `path`'s bytes from disk and starts opening the document on a thread of its own, at
-    /// the levels and the policies a window with no command line holds (`viewer_host::Settings`'
-    /// defaults, the reader's words unsaid).
+    /// the levels and the policies `settings` states — `viewer_host::Settings`' defaults where a
+    /// host stated none, as a window with no command line holds them (ADR 2120). The reader's
+    /// other words are unsaid: no anchor, no target document, nobody reading.
     ///
     /// **Nothing is drawn until the first [`Self::resize`]**, which joins the open: the viewport
     /// decides the resolution page one is drawn at, which is `viewer-qt`'s shape and the reason
@@ -93,9 +105,12 @@ impl Window {
     /// # Errors
     ///
     /// [`Status::Unreadable`] where the file cannot be opened.
-    pub fn open(path: &Path, fragment: Option<String>) -> Result<Self, Status> {
+    pub fn open(
+        path: &Path,
+        fragment: Option<String>,
+        settings: viewer_host::Settings,
+    ) -> Result<Self, Status> {
         let bytes = pdf_syntax::FileBytes::on_disk(path).map_err(|_| Status::Unreadable)?;
-        let settings = viewer_host::Settings::default();
         let widget_appearances = WidgetAppearances::Delegated;
         let commands = viewer_host::native_window::opening_commands(
             viewer_host::native_window::standing(settings).window(),
@@ -107,7 +122,12 @@ impl Window {
         );
         let ahead = viewer_host::Ahead::page_sized();
         let drawing_ahead = ahead.clone();
-        let reader = viewer_host::ReaderWords::default();
+        // The scripts' level is sent as the reader's words send it, so the core's level and the
+        // window's are one (`Command::Scripts`, ADR 1581).
+        let reader = viewer_host::ReaderWords {
+            scripts: settings.scripts,
+            ..viewer_host::ReaderWords::default()
+        };
         let anticipated = viewer_host::Loading::start(move || {
             // No viewport: the core renders nothing into one with no extent, and it is moved back
             // whole, so it is still single-threaded (ADR 0182).
@@ -144,6 +164,9 @@ impl Window {
             bar_said: false,
             preparing: None,
             shown: shown::Shown::default(),
+            choosing: None,
+            script: None,
+            printing: None,
         })
     }
 
@@ -222,6 +245,7 @@ impl Window {
         }
         self.take_the_answers();
         self.take_the_preparation();
+        self.look_for_the_withdrawal();
         // Annex O's search, one page per tick, as `viewer-qt`'s zero-length timer steps it.
         if self.state.pages_left > 0 {
             self.dispatch(Command::Find(viewer_core::Find::Continue));
@@ -258,6 +282,12 @@ impl Window {
         if self.state.awaiting.is_some() {
             let tick = viewer_host::loading::TICK;
             interval = Some(interval.map_or(tick, |interval| interval.min(tick)));
+        }
+        // A script's question wakes the window once its wait has passed, to have it withdrawn
+        // (ADR 1643): `viewer-gtk`'s one timeout, as an interval.
+        if let Some((.., looked)) = self.script.as_ref() {
+            let left = viewer_host::script_asks::wake_after().saturating_sub(looked.elapsed());
+            interval = Some(interval.map_or(left, |interval| interval.min(left)));
         }
         // A search with pages left takes its next page as soon as the caller's loop is idle.
         if self.state.pages_left > 0 {
@@ -458,6 +488,92 @@ impl Window {
         Ok(())
     }
 
+    /// The person chose in ISO 19005's chooser: the target and the profile at these indices, or —
+    /// either negative — closed it having chosen nothing, which is said (ADR 1966). Taking the
+    /// chooser is what makes a dialogue closed twice answer once.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no chooser is out, and [`Status::OutOfRange`] for an index past
+    /// its lists, which leaves it out.
+    pub fn archive(&mut self, target: i32, profile: i32) -> Result<(), Status> {
+        let mut choosing = self.choosing.take().ok_or(Status::NoAnswer)?;
+        let (Ok(target), Ok(profile)) = (usize::try_from(target), usize::try_from(profile)) else {
+            self.say(viewer_host::archiving::NOT_CHOSEN);
+            return Ok(());
+        };
+        if target >= choosing.targets().len() || profile >= choosing.profiles().len() {
+            self.choosing = Some(choosing);
+            return Err(Status::OutOfRange);
+        }
+        choosing.set_target(target);
+        choosing.set_profile(profile);
+        NativeWindow::archive_chosen(self, choosing.chosen());
+        self.settle();
+        Ok(())
+    }
+
+    /// The person answered the script question `document` asked, as `viewer-qt`'s dialogue answers
+    /// it: said, then sent (ADR 1628).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no question from that document is out — a dialogue closed twice,
+    /// or one whose question was withdrawn.
+    pub fn answer_script(
+        &mut self,
+        document: u64,
+        answer: viewer_core::ScriptAnswer,
+    ) -> Result<(), Status> {
+        let (asked, question, _) = self
+            .script
+            .take_if(|(asked, ..)| asked.0 == document)
+            .ok_or(Status::NoAnswer)?;
+        let password = matches!(
+            question,
+            viewer_core::ScriptQuestion::Response { password: true, .. }
+        );
+        self.say(&viewer_host::script_asks::answered(&answer, password));
+        self.dispatch(Command::AnswerScript {
+            document: asked,
+            answer,
+        });
+        self.settle();
+        Ok(())
+    }
+
+    /// The print the window owed a `PRINT` for is over, however it ended: §8.11.4.5's groups
+    /// revert and the pages go back to the screen's reading (`Printing::Finish`, as the toolkit
+    /// windows end theirs).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no print is standing.
+    pub fn print_finish(&mut self) -> Result<(), Status> {
+        if self.printing.take().is_none() {
+            return Err(Status::NoAnswer);
+        }
+        self.dispatch(Command::Print(viewer_core::Printing::Finish));
+        self.settle();
+        Ok(())
+    }
+
+    /// A tick of no time once a script's question has waited past its wait, after which the core
+    /// withdraws a question nobody answered; looked for again a wait later, so a runner that has
+    /// not withdrawn it yet is not asked on every tick.
+    fn look_for_the_withdrawal(&mut self) {
+        let due = self.script.as_mut().is_some_and(|(.., looked)| {
+            let due = looked.elapsed() >= viewer_host::script_asks::wake_after();
+            if due {
+                *looked = std::time::Instant::now();
+            }
+            due
+        });
+        if due {
+            self.dispatch(Command::Tick { millis: 0 });
+        }
+    }
+
     /// The caller put the page area on the screen: the launch's first frame is counted from the
     /// first of these that shows a page, and the documents waiting behind it may start then and
     /// not one moment sooner (`CLAUDE.md` section 2).
@@ -606,6 +722,19 @@ impl Window {
                 ));
                 self.restate();
             }
+            // §7.6.4.2's bit 3 asked on the platform's default sheet, as `viewer-qt` and `quorra`
+            // ask it, and the grant comes back as a `PRINT` record; the same key ends a print that
+            // stands, so print intent is never left without a way out (ADRs 1180, 2121).
+            WindowAct::Print => {
+                if self.printing.take().is_some() {
+                    self.dispatch(Command::Print(viewer_core::Printing::Finish));
+                    self.say("the printed page is no longer what this window shows");
+                } else {
+                    self.dispatch(Command::Print(viewer_core::Printing::Start(
+                        viewer_host::printing::unknown_sheet(None),
+                    )));
+                }
+            }
             WindowAct::Archive => self.ask_to_archive(),
             WindowAct::ChooseArchive => self.choose_the_archive_again(),
             WindowAct::AbortDrawing => self.stop_the_long_draw(),
@@ -617,7 +746,6 @@ impl Window {
             | WindowAct::Notices
             | WindowAct::Present
             | WindowAct::LeaveFullScreen
-            | WindowAct::Print
             | WindowAct::FitControls
             | WindowAct::FreeText
             | WindowAct::NextDocument
@@ -781,14 +909,18 @@ impl NativeWindow for Window {
         self.owing.owe(Owed::Title(title));
     }
 
-    fn offer_to_archive(&mut self, _choosing: viewer_host::archiving::Choosing) {
-        // The chooser is a dialogue of six targets and the shipped profiles, which this layer
-        // does not yet put to its caller (RFC 0010 section 6, N2's second round): the choice it
-        // starts on is said rather than made, so nothing converts that the person did not choose.
-        self.say(
-            "this window cannot offer the choice of an ISO 19005 conversion yet — the chooser \
-             reaches quorra_window in RFC 0010's second N2 round",
-        );
+    /// Held, and owed as one record on the target and the profile it starts on; the lists are
+    /// `quorra_archive_target`'s and `quorra_archive_profile`'s, which are the chooser's own
+    /// (ADRs 1966, 2121).
+    fn offer_to_archive(&mut self, choosing: viewer_host::archiving::Choosing) {
+        use viewer_host::archiving::{CHOOSING, CHOOSING_TITLE};
+        self.say(&format!("{CHOOSING_TITLE}: {CHOOSING}"));
+        self.owing.owe(Owed::Archive {
+            target: choosing.target_index(),
+            profile: choosing.profile_index(),
+            words: format!("{CHOOSING_TITLE}\n{CHOOSING}"),
+        });
+        self.choosing = Some(choosing);
     }
 
     fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
@@ -840,15 +972,34 @@ impl NativeWindow for Window {
         }
     }
 
-    fn print(&mut self, pages: usize, _fidelity: viewer_core::Fidelity) {
-        // §7.6.4.2's bit 3 was granted, and this layer has no print path to its caller yet
-        // (RFC 0010 section 6, N4): said, and the operation ended, so that §8.11.4.5's print
-        // intent is not left standing over a page nobody prints.
-        self.say(&format!(
-            "{pages} page(s) would print, and this window cannot print yet — printing reaches \
-             quorra_window in RFC 0010's N4"
-        ));
-        self.dispatch(Command::Print(viewer_core::Printing::Finish));
+    /// The grant, owed as one record and standing until the caller ends it: the pages on the
+    /// screen are what would print meanwhile, §8.11.4.5's `Print` event in force, as `viewer-qt`
+    /// shows them (ADRs 1180, 2121). The notes the toolkit windows say before their dialogue are
+    /// said before the record.
+    fn print(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
+        let defaults = match self.state.viewer.query(Query::Preferences) {
+            Answer::Preferences(preferences) => viewer_host::PrintDefaults::of(&preferences),
+            _ => viewer_host::PrintDefaults::of(
+                &pdf_model::viewer_preferences::ViewerPreferences::default(),
+            ),
+        };
+        if let Some(note) = defaults.enforcement_note() {
+            self.say(note);
+        }
+        if let Some(note) = viewer_host::printing::destination_refused(fidelity) {
+            self.say(note);
+        }
+        let words = format!(
+            "printing, over {pages} page(s) — the pages on the screen are what would print until \
+             the print is finished"
+        );
+        self.printing = Some(pages);
+        self.owing.owe(Owed::Print {
+            pages,
+            degraded: fidelity == viewer_core::Fidelity::Degraded,
+            words: words.clone(),
+        });
+        self.say(&words);
     }
 
     fn to_clipboard(&mut self, text: String) {
@@ -872,18 +1023,29 @@ impl NativeWindow for Window {
         self.question.is_some()
     }
 
+    /// Held, and owed as one record in Adobe's numbers (ADR 2060 decision 5): a dialogue of its
+    /// own, since its buttons are the script's and an entry may stand under its text (ADR 1628).
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {
-        // `app.alert`'s buttons are the script's and an entry may stand under its text, which is
-        // a dialogue this layer does not yet put to its caller: the question is said and answered
-        // as a dialogue closed unanswered is, which the script is written to expect (ADR 1628).
         let name = self.state.documents.label_of(document);
         self.say(&viewer_host::script_asks::put(&name, &question));
-        let answer = viewer_core::ScriptAnswer::dismissed(&question);
-        self.say(&viewer_host::script_asks::answered(&answer, false));
-        self.dispatch(Command::AnswerScript { document, answer });
+        self.owing.owe(Owed::Script {
+            document,
+            title: viewer_host::script_asks::title(&name, &question),
+            question: question.clone(),
+        });
+        self.script = Some((document, question, std::time::Instant::now()));
     }
 
+    /// The question is taken, so an answer afterwards reaches nothing, and the caller is owed the
+    /// closing of its dialogue (ADR 1643).
     fn withdraw_script_question(&mut self, document: DocumentId) {
+        if self
+            .script
+            .take_if(|(asked, ..)| *asked == document)
+            .is_some()
+        {
+            self.owing.owe(Owed::ScriptWithdrawn { document });
+        }
         let name = self.state.documents.label_of(document);
         self.say(&viewer_host::script_asks::withdrawn(&name));
     }

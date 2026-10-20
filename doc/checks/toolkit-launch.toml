@@ -1,0 +1,67 @@
+# The toolkit windows' launch figures, and the bands they are held to (ADR 2125).
+#
+# `CLAUDE.md` principle 2 makes time-to-first-page a gate and cold graphics bring-up "its own gate,
+# separate from time-to-first-page, so that a regression in the driver, the adapter selection or
+# the shader set is legible as itself rather than as a slower page". `launch-path.toml` holds that
+# for `quorra`; this file holds it for `quorra-gtk` and `quorra-qt`, which draw page one on the
+# device and read it back (ADRs 2070, 2071). The harness is `crates/viewer-host/tests/
+# toolkit_launch/mod.rs`, whose module comment says what each figure contains, and each window's
+# `tests/launch_path.rs` runs it. A clock, so it takes both lanes of the lock:
+#
+#   ulimit -u 8192; tools/bounded.sh --lock --clock --round <session> --tree 6 -- \
+#       cargo test --release -p viewer-qt -p viewer-gtk --test launch_path -- --ignored --nocapture
+#
+# **Each figure is the minimum of nine fresh launches per lane, the lanes interleaved, each window
+# pinned to the fastest cores on a display of the harness's own**, on `doc/PDF20_AN001-BPC.pdf` —
+# the drive's small page, the one ADR 2071 measured on — with a warm page cache. A run above one
+# runnable task per physical core prints its figures and judges none.
+#
+# **Every band is `launch-path.toml`'s clock rule over three runs of the gate in one hold**: the
+# smallest of the three × 0.85 to the largest × 1.20, rounded outward to a tenth of a millisecond
+# (ADR 1969's method). The three are written above each band. They were taken on 2026-10-20 in one
+# `--clock` hold at a one-minute load of 9.1 to 10.4, interleaved with three runs of HEAD's export
+# measured by the same harness (`TOOLKIT_LAUNCH_BINARY`), whose minima fell inside every band
+# below; each window's gate then ran once more on each export against these bands and exited 0.
+#
+# **What the device lane costs, read from the two lanes' rows together** (ADR 2124): on Qt the
+# window is 4 to 9 ms later on the device lane — its thread waits on the dynamic loader's lock
+# while the device's thread loads the Vulkan driver and `libLLVM`, and runs a little slower beside
+# it — and page one is about 6 ms dearer, so the first frame is 11 to 18 ms later; on GTK the
+# window is not later, because GTK's own start loads Mesa's `libLLVM` too and the device's thread
+# has loaded it first, and the first frame differs by the page. A regression in the toolkit's
+# start moves both lanes' `window_ms`; one in the device's bring-up moves `device_up_ms` and,
+# through the lock, `device_window_ms`; one in the page moves `page_one_ms`.
+
+[[window]]
+name = "quorra-gtk"
+# 73.0, 70.0, 74.0
+device_window_ms = 59.5 .. 88.8
+# 28.4, 27.9, 29.0
+device_up_ms = 23.7 .. 34.8
+# 8.9, 8.7, 8.6
+device_page_one_ms = 7.3 .. 10.7
+# 91.2, 87.2, 91.8
+device_first_frame_ms = 74.1 .. 110.2
+# 81.0, 81.0, 83.0
+processor_window_ms = 68.8 .. 99.6
+# 2.2, 2.2, 2.2
+processor_page_one_ms = 1.8 .. 2.7
+# 90.7, 90.7, 93.5
+processor_first_frame_ms = 77.0 .. 112.2
+
+[[window]]
+name = "quorra-qt"
+# 76.0, 76.0, 75.0
+device_window_ms = 63.7 .. 91.2
+# 42.0, 42.9, 42.0
+device_up_ms = 35.6 .. 51.5
+# 8.7, 8.1, 8.3
+device_page_one_ms = 6.8 .. 10.5
+# 93.9, 91.1, 91.3
+device_first_frame_ms = 77.4 .. 112.7
+# 69.0, 72.0, 71.0
+processor_window_ms = 58.6 .. 86.4
+# 2.2, 2.3, 2.1
+processor_page_one_ms = 1.7 .. 2.8
+# 76.2, 80.0, 79.8
+processor_first_frame_ms = 64.7 .. 96.0

@@ -22,8 +22,8 @@
 //!
 //! # Where the two routes meet
 //!
-//! §7.11.4.1 gives an embedded file two homes — "[a]ny file specification dictionary in the
-//! document may have an EF entry", and "[e]mbedded file streams may be associated with the
+//! §7.11.4.1 gives an embedded file two homes — "\[a]ny file specification dictionary in the
+//! document may have an EF entry", and "\[e]mbedded file streams may be associated with the
 //! document as a whole through the `EmbeddedFiles` entry in the PDF file's name dictionary".
 //! [`attachments`] walks the second, which is a *list* a panel shows; [`of_annotation`] reads
 //! the first as §12.5.6.15's file attachment annotation states it, which is a file a person
@@ -38,7 +38,7 @@
 //! catalog, a page, a graphics object, a structure element, an `XObject`, a `DPart`, an
 //! annotation, and a metadata stream, which is the one it gives no subclause of its own.
 //! [`associated`] reads such an array from any dictionary, which is sound for seven of them
-//! because the clause says the same sentence about each: "[t]he relationship that the associated
+//! because the clause says the same sentence about each: "\[t]he relationship that the associated
 //! files have to the … is supplied by the `AFRelationship` key in each file specification
 //! dictionary".
 //!
@@ -48,7 +48,7 @@
 //! reader that believed the "same sentence about every one" summary would state seven sites and
 //! find six.
 //!
-//! **And an associated file has two forms rather than one.** §14.13.2: "[t]he file specification
+//! **And an associated file has two forms rather than one.** §14.13.2: "\[t]he file specification
 //! for an associated file represents either a file external to the PDF file or an embedded file
 //! stream … within the PDF file", with NOTE 1 recommending the second rather than requiring it.
 //! [`associated`] answers the recommended form and [`external_associated`] the other: a
@@ -103,7 +103,7 @@ pub struct Attachment {
     pub name: String,
     /// Table 43's `/UF`, or `/F` where the file states no Unicode form.
     ///
-    /// `/UF` first because Table 43 says so — it is "[a] Unicode text string that provides file
+    /// `/UF` first because Table 43 says so — it is "\[a] Unicode text string that provides file
     /// specification", and the clause's own note is that `/F` is a byte string in a
     /// platform-dependent encoding. Neither is a path this program will open; what they are for
     /// here is telling a person which file this is.
@@ -145,12 +145,12 @@ pub struct Attachment {
     /// until somebody has decoded the stream. [`Self::checksum_matches`] is what asks it, and
     /// the one caller that has the bytes anyway is extraction.
     ///
-    /// The clause is explicit about what an answer is worth: "[t]his is strictly a checksum, and
+    /// The clause is explicit about what an answer is worth: "\[t]his is strictly a checksum, and
     /// is not used for security purposes."
     pub checksum: Option<Vec<u8>>,
     /// Table 43's `/AFRelationship`, **default `Unspecified`**, which is §14.13's whole point.
     pub relationship: Relationship,
-    /// Table 43's `/Thumb`: "[a] stream object defining the thumbnail image for the file
+    /// Table 43's `/Thumb`: "\[a] stream object defining the thumbnail image for the file
     /// specification", **undecoded**.
     ///
     /// The stream rather than the picture, and `CLAUDE.md` principle 2 is why: listing a
@@ -238,7 +238,7 @@ pub fn checksum_matches(stated: Option<&[u8]>, bytes: &[u8]) -> Option<bool> {
 
 /// Table 43's `/AFRelationship`: what an associated file is *to* the object that names it.
 ///
-/// The clause is careful about what this is for, and it is not processing: "[t]he value of
+/// The clause is careful about what this is for, and it is not processing: "\[t]he value of
 /// `AFRelationship` does not explicitly provide any processing instructions for a PDF processor.
 /// It is provided for information and semantic purposes for those processors that are able to
 /// use such additional information."
@@ -344,7 +344,7 @@ pub struct ExternalAssociatedFile {
 /// lift", and it was two claims in one coat.** §7.11's own row states the distinction the sentence
 /// elided: following a file this program has no filesystem for is refused by architecture, while
 /// *naming* one needs no filesystem at all — and the clause states both forms in its first
-/// sentence, "[t]he file specification for an associated file represents either a file external to
+/// sentence, "\[t]he file specification for an associated file represents either a file external to
 /// the PDF file or an embedded file stream … within the PDF file". So an external associated file
 /// is read and named rather than dropped in silence, and only its bytes are refused. ADR 0918.
 #[must_use]
@@ -354,7 +354,7 @@ pub fn associated(document: &Document, dict: &Dictionary) -> Vec<Attachment> {
 
 /// §14.13's associated files whose specification carries no `/EF` — the external form.
 ///
-/// §14.13.2 gives an associated file two forms and prefers one of them: "[b]oth types are allowed
+/// §14.13.2 gives an associated file two forms and prefers one of them: "\[b]oth types are allowed
 /// for associated files but the embedded form is recommended". The recommended one is
 /// [`associated`]; this is the other, and what it can answer is what an external specification
 /// actually carries — the file's own name and the relationship the producer asserted. The bytes
@@ -380,7 +380,7 @@ pub fn external_associated(document: &Document, dict: &Dictionary) -> Vec<Extern
 ///
 /// Errata Collection 3 states the key: Issue #374, `/State` `Review` `Completed`, whose caret puts
 /// "a dictionary with an MCAF entry defining" in front of that sentence and makes the following
-/// one read "[t]he named resource in the Property List … shall specify this dictionary", against
+/// one read "\[t]he named resource in the Property List … shall specify this dictionary", against
 /// "Table 409a - Property list entries for associated files". `doc/md/` carries the table, under
 /// its `Issue #374` heading, though not the caret (ADR 0253): its one row is `MCAF`, an optional
 /// PDF 2.0 array of file specification dictionaries, each with an `AFRelationship`, denoting the
@@ -552,7 +552,7 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
 /// > shall be embedded in the PDF file (see 7.11.4, "Embedded file streams").
 ///
 /// Table 187 makes `/FS` **required**, and it is the second of the two homes §7.11.4.1 gives an
-/// embedded file: "[a]ny file specification dictionary in the document may have an EF entry",
+/// embedded file: "\[a]ny file specification dictionary in the document may have an EF entry",
 /// beside the document-wide `/EmbeddedFiles` tree [`attachments`] walks. A document may use
 /// either, and the corpus's own file attachment annotation uses the one the tree cannot reach —
 /// as do the six in ISO 32000-2's own PDF, counted by

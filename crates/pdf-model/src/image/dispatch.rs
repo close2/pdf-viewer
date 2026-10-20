@@ -426,9 +426,7 @@ pub(super) struct SamplesOnGrid {
     ///
     /// §11.6.4.2 makes a stencil's painted areas its shape and §11.6.4.3 makes an opacity that
     /// arrived with the samples the other quantity, so the pair is carried to the device the
-    /// way an `/SMask`'s is (ADR 1218, ADR 1279). `None` on every route but [`jpx_stencil`]'s.
-    ///
-    /// [`jpx_stencil`]: super::jpx::jpx_stencil
+    /// way an `/SMask`'s is (ADR 1218, ADR 1279). `None` on every route but `jpx_stencil`'s.
     pub(super) stencil_opacity: Option<SoftMaskAtDeviceScale>,
     /// The filter's sentence where it stopped short of the grid on damaged data; see
     /// [`Parts::shortfall`]. Only the `CCITTFaxDecode` arm produces one.

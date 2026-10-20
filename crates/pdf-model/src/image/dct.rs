@@ -18,10 +18,8 @@ pub(super) mod restart;
 
 /// Decodes a `DCTDecode` image: §7.4.8's frame, converted from the space its dictionary names.
 ///
-/// One of [`samples_of`]'s five routes, split out for the same reason the other four are: what a
+/// One of `samples_of`'s five routes, split out for the same reason the other four are: what a
 /// route does with the bytes is its own, and everything around it is about masks.
-///
-/// [`samples_of`]: super::dispatch::samples_of
 pub(super) fn decode_dct(
     at: Dictionaries,
     source: &ImageStream,
@@ -146,12 +144,10 @@ pub(super) fn samples_of_frame(
 /// in. The flags cost a quarter of what the raster beside them does.
 ///
 /// `ranges` has one entry per component of the image's *colour space*, which
-/// [`colour_key_entry`] checked against the array's length; the first that many bytes of a
+/// `colour_key_entry` checked against the array's length; the first that many bytes of a
 /// pixel are the components [`convert_channels`] goes on to read, in each of the three
 /// pairings of space and frame it converts. A longer `ranges` than a pixel has bytes belongs
 /// to a space that conversion refuses outright, so the flags it produces are never applied.
-///
-/// [`colour_key_entry`]: super::mask::colour_key_entry
 fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
     rgba.chunks_exact(4)
         .map(|pixel| {
@@ -199,7 +195,7 @@ fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
 /// **The inversion is not undone here, and that is the point.** An Adobe four-component JPEG
 /// stores CMYK inverted whichever transform it uses, and a PDF that means the ordinary reading
 /// says so with `/Decode [1 0 1 0 1 0 1 0]` — §8.9.5.2's entry, applied by
-/// [`apply_decode_to_channels`] one step later. A decoder that un-inverted here would undo the
+/// `apply_decode_to_channels` one step later. A decoder that un-inverted here would undo the
 /// file's `/Decode` twice. What this function owes is only that transform 2 and transform 0
 /// deliver the *same convention*, which is what libjpeg's `ycck_cmyk_convert` also does.
 ///
@@ -209,8 +205,6 @@ fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
 ///
 /// The witness is outside this repository — a 92-page commercial catalogue whose every page is one
 /// such image, and which drew nothing at all until this (`doc/todo/28`).
-///
-/// [`apply_decode_to_channels`]: super::convert::apply_decode_to_channels
 fn ycck_to_cmyk(pixels: &mut [u8]) {
     for pixel in pixels.chunks_exact_mut(4) {
         let (Some(y), Some(cb), Some(cr)) = (
@@ -286,13 +280,13 @@ fn jfif_inverse(y: u8, cb: u8, cr: u8) -> [u8; 3] {
 ///
 /// The ranking is the clause's, in its order:
 ///
-/// - **The marker.** "[T]he colours shall be transformed, or not, after the DCT decoding has
+/// - **The marker.** "\[T]he colours shall be transformed, or not, after the DCT decoding has
 ///   been performed according to the value provided in the encoded data and the value of this
 ///   dictionary entry shall be ignored." The *value* is Adobe's rather than Table 13's, which is
 ///   what §7.4.8 defers to Adobe Technical Note #5116 for — 0 is no transformation, 1 names a
 ///   three-channel one and 2 a four-channel one — and a code naming a channel count the frame
 ///   does not have states nothing about this frame.
-/// - **The entry**, "[i]f the Adobe-defined marker code in the encoded data indicating the
+/// - **The entry**, "\[i]f the Adobe-defined marker code in the encoded data indicating the
 ///   ColorTransform value is not present". Its values *are* Table 13's, and Table 13 states them
 ///   in terms of the frame: 1 is `YCbCr → RGB` for three components and `YCbCrK → CMYK` for
 ///   four, 0 is "No transformation", and the option "shall be ignored if the image has one or
@@ -547,7 +541,7 @@ pub(super) fn first_scan(data: &[u8]) -> Option<FirstScan> {
 /// The number of lines a codestream's first scan ends by defining, and where the frame header
 /// states it.
 ///
-/// §7.4.8 puts a JPEG's dimensions in the encoded data — "[t]he values of these parameters,
+/// §7.4.8 puts a JPEG's dimensions in the encoded data — "\[t]he values of these parameters,
 /// which include the dimensions of the image […] shall be stored in the encoded data" — and
 /// ISO/IEC 10918-1 gives the encoded data two places to state its number of lines: the frame
 /// header's `Y`, and a `DNL` marker segment at the end of the first scan, which section B.2.5 of that

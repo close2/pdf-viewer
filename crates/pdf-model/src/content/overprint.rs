@@ -3,7 +3,7 @@
 //! # Where overprinting can change a pixel here, and where it cannot
 //!
 //! §8.6.7 is the *opaque* imaging model, and on this device its own sentences settle it: the
-//! marks go to three additive colourants and no separations, so "[i]f overprinting is not
+//! marks go to three additive colourants and no separations, so "\[i]f overprinting is not
 //! supported, the value of the overprint parameter shall be ignored" (NOTE 1), and the
 //! overprint mode "shall not apply if the native colour space of the output device does not
 //! include CMYK device colourants; in that case, source colours shall be converted to the
@@ -21,7 +21,7 @@
 //! > been converted to the device colour space.
 //!
 //! — and §11.7.4.5's NOTE 1 names this exact circumstance as the one where the two models
-//! part company: "[t]his difference between opaque and transparent overprinting and erasing
+//! part company: "\[t]his difference between opaque and transparent overprinting and erasing
 //! rules arises only within a transparency group (including the page group, if its colour
 //! space is different from the native colour space of the output device)."
 //!
@@ -45,7 +45,7 @@
 //! group of one or three components by `DeviceSpots::overprint_beside` (ADRs 1311, 1329).
 //!
 //! **Reverting is what puts such a space in the first row rather than outside the table.**
-//! §11.7.4.3's NOTE 2 makes the current colour space of a space "that revert[s] to [its]
+//! §11.7.4.3's NOTE 2 makes the current colour space of a space "that revert\[s] to \[its]
 //! alternate colour space" *be* that alternate, so a `Separation` or `DeviceN` over a
 //! `DeviceCMYK` alternate meets the first bullet on the four components the alternate
 //! receives. §8.6.7's own EXAMPLE requires it: under `OP true` and `OPM 1` that clause calls
@@ -378,7 +378,7 @@ impl Interpreter<'_> {
     ///
     /// The object keeps its own alpha and soft mask inside the group, because the clause moves
     /// the *blend mode* and says nothing of either — and its NOTE 3 is what checks that
-    /// reading: "[i]t is not necessary to create such an implicit transparency group if the
+    /// reading: "\[i]t is not necessary to create such an implicit transparency group if the
     /// current blend mode is Normal ; simply substituting the special blend mode while painting
     /// the object produces equivalent results". A non-isolated group composited onto its own
     /// backdrop at an alpha of 1.0 under Normal returns its elements unchanged (§11.4.4 NOTE

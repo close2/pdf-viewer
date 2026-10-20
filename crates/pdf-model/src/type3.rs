@@ -225,7 +225,7 @@ pub struct Type3Font {
     ///
     /// **This comment used to say a Type 3 glyph name "names a procedure, so — unlike every
     /// other simple font — the name is no evidence at all about the character".** It names a
-    /// procedure *and* a character: §9.6.4's step b) is "[g]et the glyph name from the Encoding
+    /// procedure *and* a character: §9.6.4's step b) is "\[g]et the glyph name from the Encoding
     /// entry", which is the glyph selection algorithm §9.10.2's second method asks about, and a
     /// producer that calls its procedure `/colon` has said which character it draws. See
     /// [`Type3Font::text`] for the two methods that follow this one.
@@ -633,7 +633,7 @@ fn matrix(document: &Document, dict: &Dictionary) -> Option<Transform> {
 ///
 /// # The entry may be a name, and reading only the dictionary lost whole pages
 ///
-/// Table 110's `/Encoding` cell is a requirement on the **file** — "[a]n encoding dictionary
+/// Table 110's `/Encoding` cell is a requirement on the **file** — "\[a]n encoding dictionary
 /// whose Differences array shall specify the complete character encoding for this font" — and
 /// this function used to treat it as the shape of the *lookup* too, returning an empty table
 /// for anything that is not a dictionary. §9.6.4's step a) says otherwise, and it is the step

@@ -29,7 +29,7 @@ enum Component {
     /// The halftone dictionary has no `TransferFunction` for this component.
     #[default]
     Unsaid,
-    /// It names `Identity`: "[t]he name Identity may be used to specify the identity function."
+    /// It names `Identity`: "\[t]he name Identity may be used to specify the identity function."
     Identity,
     /// It carries a function.
     Function(Arc<crate::function::Function>),
@@ -49,10 +49,10 @@ enum Component {
 /// **Why a screen owes the second bullet, when §10.6 is `inapplicable` here.** A halftone
 /// dictionary holds two unrelated things: a *screen* — a frequency, an angle, a spot function, a
 /// threshold array — and a `TransferFunction`. §10.1's list of rendering steps makes only the first
-/// conditional on the device: "[i]f the raster output device supports PDF-defined halftoning, apply
-/// halftoning according to 10.6", against an unconditional "[f]or any object for which transfer
+/// conditional on the device: "\[i]f the raster output device supports PDF-defined halftoning, apply
+/// halftoning according to 10.6", against an unconditional "\[f]or any object for which transfer
 /// functions are in effect, apply those transfer functions". §10.6.1 then says outright what a
-/// device needing no screen still owes: "[h]alftoning is not required for such devices; **after
+/// device needing no screen still owes: "\[h]alftoning is not required for such devices; **after
 /// gamma correction by the transfer functions**, the colour components shall be transmitted
 /// directly to the device." So the screen is inapplicable and the entry beside it is not — the
 /// dictionary is the *carrier*, and this module reads that one entry out of it and nothing else.
@@ -128,13 +128,13 @@ impl TransferState {
 /// - **any other dictionary or stream**, whose single `TransferFunction` applies to every
 ///   component. §10.6.5.6 used to say so in a sentence contrasting the two uses of a component
 ///   dictionary, and **erratum #311 strikes that whole paragraph**, so the reason is the one that
-///   survives it: Table 52's parameter is "[a] halftone screen for gray and colour rendering", one
+///   survives it: Table 52's parameter is "\[a] halftone screen for gray and colour rendering", one
 ///   per graphics state, and §10.6.5.6 opens by saying Type 5 is what exists for the other case —
-///   "[s]ome devices, particularly colour printers, require separate halftones for each individual
+///   "\[s]ome devices, particularly colour printers, require separate halftones for each individual
 ///   colourant". A halftone that is not Type 5 governs the rendering rather than a colourant, so
 ///   "the same component" in Tables 128 to 131 is every one of them.
 ///
-/// `HalftoneName` needs no case of its own and the reason is the clause's: "[i]f there is no
+/// `HalftoneName` needs no case of its own and the reason is the clause's: "\[i]f there is no
 /// `HalftoneName` entry, **or if the requested halftone name does not exist on the device**, the
 /// halftone's parameters may be defined by the other entries in the dictionary". This device has no
 /// halftones of its own to name, so the second branch is always the one taken.
@@ -502,7 +502,7 @@ impl Interpreter<'_> {
     ///
     /// ISO 32000-2 Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`, read for the one question this
     /// tree asks of them: does the file replace the *device's* functions, or name them? §10.4.2.4
-    /// settles what counts as stating one — "[t]he black-generation and undercolour-removal
+    /// settles what counts as stating one — "\[t]he black-generation and undercolour-removal
     /// functions shall be defined as PDF function dictionaries (see 7.10, \"Functions\")" — so a
     /// dictionary or a stream is a function and nothing else is.
     ///
@@ -512,7 +512,7 @@ impl Interpreter<'_> {
     /// state naming it departs from nothing. Any other name names a function the file did not
     /// supply.
     ///
-    /// Table 57's own precedence decides which of each pair is in force: "[i]f both BG and BG2 are
+    /// Table 57's own precedence decides which of each pair is in force: "\[i]f both BG and BG2 are
     /// present in the same graphics state parameter dictionary, BG2 shall take precedence" — so a
     /// `/BG2 /Default` beside a `/BG` function puts the device's function back.
     pub(super) fn states_black_generation(&self, dict: &Dictionary) -> bool {

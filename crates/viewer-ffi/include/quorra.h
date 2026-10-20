@@ -1077,6 +1077,10 @@ int32_t quorra_archive_profiles(size_t *count);
 int32_t quorra_archive_profile(size_t index, char *out, size_t cap, size_t *needed);
 /* One shipped profile's sentence about itself, which the windows offer beside its name. */
 int32_t quorra_archive_profile_sentence(size_t index, char *out, size_t cap, size_t *needed);
+/* The targets the conversion writes, in the order every window's chooser offers them, each named
+ * as the chooser names it (PDF/A-2b, ...), which quorra_archive also takes. */
+int32_t quorra_archive_targets(size_t *count);
+int32_t quorra_archive_target(size_t index, char *out, size_t cap, size_t *needed);
 /* Asks for the focused document as ISO 19005 at `target` (2b, 2u, 2a, 4, 4f, 4e) under a shipped
  * profile. Table 22's bit 11 is asked at the reader's level; where it is granted the conversion
  * runs on the calling thread before this returns (inside quorra_answer at the ask level).
@@ -1893,7 +1897,8 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  * it stood.
  *
  * The loop, whole:
- *   quorra_window_open(path, NULL, &window);
+ *   quorra_window_open(path, NULL, &window), or quorra_window_open_under with the levels the
+ *   host states;
  *   on every resize:   quorra_window_resize(window, width, height, scale);
  *   on every key:      quorra_window_press(window, QUORRA_KEY_*, shift, command, &act, &by);
  *                      and do `act` where it is not QUORRA_ACT_NOTHING;
@@ -1912,7 +1917,10 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *                      committed with quorra_window_set_field_text, _set_field_options,
  *                      _clear_field, _commit_field or _toggle_field; a push-button is the page's,
  *                      and a row's object is quorra_window_activate's;
- *   on POPUPS:         quorra_window_popups_read; on STRIP: quorra_window_document_count.
+ *   on POPUPS:         quorra_window_popups_read; on STRIP: quorra_window_document_count;
+ *   on ARCHIVE, SCRIPT and PRINT: the chooser, the script's dialogue and the print dialogue,
+ *                      answered with quorra_window_archive, quorra_window_answer_script and
+ *                      quorra_window_print_finish (ADR 2121).
  *
  * What a record says is "again"; what it changed to is read with the same handles the calls
  * above hand over — a quorra_outline, a quorra_panel, quorra_fields, quorra_popups, quorra_quads,
@@ -1940,12 +1948,69 @@ typedef struct quorra_owed quorra_owed;
 #define QUORRA_OWED_POPUPS    11u  /* §12.5.6.14's open popup windows changed, or one moved */
 #define QUORRA_OWED_STRIP     12u  /* the strip of open documents: one added, closed, or brought
                                     * to the front */
-#define QUORRA_OWED_KIND_COUNT 13u
+#define QUORRA_OWED_ARCHIVE   13u  /* ISO 19005's chooser: its title, a line feed, its sentence;
+                                    * quorra_owed_archive; quorra_window_archive */
+#define QUORRA_OWED_SCRIPT    14u  /* app.alert or app.response for quorra_owed_document: the
+                                    * dialogue's title; quorra_owed_script_question and
+                                    * quorra_owed_script_text; quorra_window_answer_script */
+#define QUORRA_OWED_SCRIPT_WITHDRAWN 15u  /* that document's script question was withdrawn
+                                           * unanswered: close its dialogue */
+#define QUORRA_OWED_PRINT     16u  /* §7.6.4.2's bit 3 let a print through: the sentence;
+                                    * quorra_owed_print; quorra_window_print_finish */
+#define QUORRA_OWED_KIND_COUNT 17u
+
+/*
+ * The reader's levels a window opens under (RFC 0010 section 5, ADR 2120), stated before it opens
+ * on a handle built one call at a time — no struct crosses, so a policy added later is a constant
+ * an old caller never passes. A new handle holds what a window with no command line holds: every
+ * restriction off, a link, a remote document, an embedded one and a submission at ASK, scripts at
+ * REFUSE (off) and the separation simulation off.
+ *
+ * quorra_settings_take reads a command-line word as quorra, quorra-gtk, quorra-qt and
+ * quorra-confined read theirs, so a host with a command line takes the same words with the same
+ * refusals; quorra_settings_set and quorra_settings_restrict set the same levels by number.
+ */
+typedef struct quorra_settings quorra_settings;
+
+/* The acts a document asks of this machine, each at a QUORRA_LEVEL_*. */
+#define QUORRA_POLICY_LINKS              0u  /* §12.6.4.8: a URI handed to another program */
+#define QUORRA_POLICY_REMOTE_DOCUMENTS   1u  /* §12.6.4.3: another PDF file opened beside */
+#define QUORRA_POLICY_EMBEDDED_DOCUMENTS 2u  /* §O.2.1's ef: an embedded file opened */
+#define QUORRA_POLICY_SUBMISSIONS        3u  /* §12.7.6.2: a form or a fetched fdf sent */
+#define QUORRA_POLICY_SCRIPTS            4u  /* a document's scripts run */
+#define QUORRA_POLICY_SEPARATIONS        5u  /* §10.8.3's simulation: REFUSE is off, PROCEED on */
+/* Least permissive first, each policy's own four words in their order: refuse, ask, warn, open
+ * for a link; refuse ... send for a submission; off, ask, warn, on for scripts, which are the
+ * QUORRA_SCRIPTS_* numbers. */
+#define QUORRA_LEVEL_REFUSE   0u
+#define QUORRA_LEVEL_ASK      1u
+#define QUORRA_LEVEL_WARN     2u
+#define QUORRA_LEVEL_PROCEED  3u
+
+int32_t quorra_settings_new(quorra_settings **settings);
+void quorra_settings_free(quorra_settings *settings);
+/* A QUORRA_POLICY_* at a QUORRA_LEVEL_*. QUORRA_WRONG_KIND for a number neither names, and for
+ * SEPARATIONS at ASK or WARN; nothing changes. */
+int32_t quorra_settings_set(quorra_settings *settings, uint32_t policy, uint32_t level);
+/* A QUORRA_RESTRICTED_* operation at a QUORRA_RESTRICT_* level, as quorra_restrict_operation. */
+int32_t quorra_settings_restrict(quorra_settings *settings, uint32_t operation, uint32_t level);
+/* One command-line word: `*taken` is true where it was --restrictions=, --ignore-restrictions,
+ * --links=, --remote-documents=, --embedded-documents=, --submissions= or --separations= and is
+ * now in force, false where it is none of them. QUORRA_WRONG_KIND where it names no level its
+ * word takes, with the sentence every window prints from quorra_settings_refusal. */
+int32_t quorra_settings_take(quorra_settings *settings, const char *word, bool *taken);
+/* Why the last word was refused; QUORRA_NO_ANSWER where it was not. */
+int32_t quorra_settings_refusal(const quorra_settings *settings, char *out, size_t cap,
+                                size_t *needed);
 
 /* Opens a window on the file at `path`; nothing is drawn until the first quorra_window_resize,
  * which joins the open. `fragment` (Annex O) may be null. QUORRA_UNREADABLE where the file cannot
  * be opened for reading. The window opens at the levels a window with no command line holds. */
 int32_t quorra_window_open(const char *path, const char *fragment, quorra_window **window);
+/* The same, at the levels `settings` states. The window takes a copy; `settings` stays the
+ * caller's. */
+int32_t quorra_window_open_under(const char *path, const char *fragment,
+                                 const quorra_settings *settings, quorra_window **window);
 void quorra_window_free(quorra_window *window);
 /* The viewport in device pixels, at `scale` device pixels per logical pixel.
  * QUORRA_NUMBER_OUT_OF_RANGE for an empty viewport or a scale that is not finite and positive. */
@@ -1988,6 +2053,20 @@ int32_t quorra_window_close_document(quorra_window *window, bool *last);
 int32_t quorra_window_password(quorra_window *window, uint64_t document, const char *password);
 /* The answer to a QUORRA_OWED_QUESTION: true to go ahead. QUORRA_NO_ANSWER where none waits. */
 int32_t quorra_window_answer(quorra_window *window, bool proceed);
+/* The answer to a QUORRA_OWED_ARCHIVE: the target and the profile at these indices into
+ * quorra_archive_target's list and quorra_archive_profile's, or either negative for a chooser
+ * closed with nothing chosen. The window keeps the choice for its life and converts.
+ * QUORRA_NO_ANSWER where no chooser is out; QUORRA_OUT_OF_RANGE past a list, the chooser still
+ * out. */
+int32_t quorra_window_archive(quorra_window *window, int32_t target, int32_t profile);
+/* The answer to a QUORRA_OWED_SCRIPT, as quorra_answer_script takes it: QUORRA_SCRIPT_ANSWER_*,
+ * `button` for PRESSED and `text` for TYPED. QUORRA_NO_ANSWER where no question from `document`
+ * is out — answered already, or withdrawn. */
+int32_t quorra_window_answer_script(quorra_window *window, uint64_t document, uint32_t how,
+                                    uint32_t button, const char *text);
+/* The print a QUORRA_OWED_PRINT let through is over, however it ended. QUORRA_NO_ANSWER where
+ * none is standing. */
+int32_t quorra_window_print_finish(quorra_window *window);
 /* The page area is on the screen; the first call that shows a page is the launch's first frame. */
 int32_t quorra_window_presented(quorra_window *window);
 int32_t quorra_window_title(const quorra_window *window, char *out, size_t cap, size_t *needed);
@@ -2006,11 +2085,25 @@ int32_t quorra_window_take_owed(quorra_window *window, quorra_owed **owed);
 void quorra_owed_free(quorra_owed *owed);
 size_t quorra_owed_count(const quorra_owed *owed);
 int32_t quorra_owed_kind(const quorra_owed *owed, size_t index, uint32_t *kind);
-/* A SAID, TITLE, PASSWORD, QUESTION or CLIPBOARD record's text; QUORRA_WRONG_KIND for others. */
+/* A SAID, TITLE, PASSWORD, QUESTION, CLIPBOARD, ARCHIVE, SCRIPT or PRINT record's text;
+ * QUORRA_WRONG_KIND for others. */
 int32_t quorra_owed_text(const quorra_owed *owed, size_t index, char *out, size_t cap,
                          size_t *needed);
-/* A PASSWORD record's document; QUORRA_WRONG_KIND for others. */
+/* A PASSWORD, SCRIPT or SCRIPT_WITHDRAWN record's document; QUORRA_WRONG_KIND for others. */
 int32_t quorra_owed_document(const quorra_owed *owed, size_t index, uint64_t *document);
+/* An ARCHIVE record's starting target and profile, as indices into quorra_archive_target's and
+ * quorra_archive_profile's lists. */
+int32_t quorra_owed_archive(const quorra_owed *owed, size_t index, size_t *target,
+                            size_t *profile);
+/* A SCRIPT record's question and strings, as quorra_event_script_question and
+ * quorra_event_script_text give an event's. */
+int32_t quorra_owed_script_question(const quorra_owed *owed, size_t index, uint32_t *kind,
+                                    uint32_t *icon, uint32_t *buttons, uint32_t *dismissed,
+                                    bool *password);
+int32_t quorra_owed_script_text(const quorra_owed *owed, size_t index, uint32_t part, char *out,
+                                size_t cap, size_t *needed);
+/* A PRINT record's pages, and whether §7.6.4.2's bit 12 limits the quality. */
+int32_t quorra_owed_print(const quorra_owed *owed, size_t index, size_t *pages, bool *degraded);
 uint32_t quorra_owed_kind_count(void);
 const char *quorra_owed_kind_name(uint32_t kind);
 

@@ -6,7 +6,7 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::super::sites;
 use super::super::sites::{RELATIVE_COLORIMETRIC, RENDERING_INTENTS};
-use super::{Entry, Rewrite, Rewriter, count, resources_with_default_cmyk, with_default_cmyk};
+use super::{Entry, Rewrite, Rewriter, count, resources_with_default, with_default};
 
 impl Rewriter<'_> {
     /// A dictionary object, rewritten where its position asks for it.
@@ -435,43 +435,72 @@ impl Rewriter<'_> {
         true
     }
 
-    /// §8.6.5.6's `/DefaultCMYK`, written wherever [`CmykSites`] found a place for it.
+    /// §8.6.5.6's `/DefaultCMYK` and `/DefaultRGB`, each written wherever [`DefaultSites`] found
+    /// a place for it, where this conversion writes it.
     ///
     /// Four places, and they are one rule read through four shapes a document can take: the
     /// `/ColorSpace` subdictionary itself where it is an object, the resource dictionary where
     /// that subdictionary is direct or absent, the holder where the resource dictionary itself is
     /// direct, and a page that has no resource dictionary of its own at all.
     ///
-    /// **An entry the producer already wrote is never replaced.** A `/DefaultCMYK` in the file is
-    /// the producer saying how their `DeviceCMYK` is to be read, and overwriting it would be
+    /// **An entry the producer already wrote is never replaced.** A default in the file is the
+    /// producer saying how their device colour is to be read, and overwriting it would be
     /// changing what the file says rather than adding what ISO 19005 requires it to say. Where
     /// such an entry is one the clause does not license, the requirement stays failed and
     /// `doc/adr/0947`'s third stage refuses to write the file.
-    pub(super) fn write_default_cmyk(
+    ///
+    /// [`DefaultSites`]: super::DefaultSites
+    pub(super) fn write_defaults(
         &self,
         id: ObjectId,
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let Some(default) = self
+        let cmyk = self
             .default_cmyk
             .filter(|_| self.wants(Rewrite::DefaultCmyk))
-        else {
-            return false;
-        };
-        let sites = &self.sites.default_cmyk;
+            .map(|default| (Rewrite::DefaultCmyk, "DefaultCMYK", default.space));
+        let rgb = self
+            .default_rgb
+            .filter(|_| self.wants(Rewrite::DefaultRgb))
+            .map(|default| (Rewrite::DefaultRgb, "DefaultRGB", default.space));
+        let mut changed = false;
+        for (rewrite, key, space) in [cmyk, rgb].into_iter().flatten() {
+            if self.write_default(id, out, key, space) {
+                count(applied, rewrite);
+                changed = true;
+            }
+        }
+        // A page given an inherited dictionary whose own `/ColorSpace` is another object has
+        // still been changed: the entry itself goes into that object.
+        changed || (cmyk.is_some() || rgb.is_some()) && self.sites.defaults.pages.contains_key(&id)
+    }
+
+    /// One default, `key` naming `space`, written at `id` where the sites put one; whether it
+    /// was written here.
+    fn write_default(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        key: &str,
+        space: ObjectId,
+    ) -> bool {
+        let sites = &self.sites.defaults;
         let written = if sites.spaces.contains(&id) {
-            with_default_cmyk(out, default.space).map(|spaces| {
+            with_default(out, key, space).map(|spaces| {
                 *out = spaces;
             })
         } else if sites.resources.contains(&id) {
-            resources_with_default_cmyk(out, default.space).map(|resources| {
+            resources_with_default(out, key, space).map(|resources| {
                 *out = resources;
             })
         } else {
-            // A page that states none of its own is given one first, and the entry then goes
-            // into that dictionary by the same rule as any other direct one.
-            if let Some(resources) = sites.pages.get(&id) {
+            // A page that states none of its own is given one first — once, so that a second
+            // default goes into the dictionary the first was written into — and the entry then
+            // goes into that dictionary by the same rule as any other direct one.
+            if let Some(resources) = sites.pages.get(&id)
+                && out.get("Resources").is_none()
+            {
                 out.insert(Name::new(&b"Resources"[..]), resources.clone());
             }
             sites
@@ -479,18 +508,12 @@ impl Rewriter<'_> {
                 .contains(&id)
                 .then(|| out.get("Resources").and_then(Object::as_dict).cloned())
                 .flatten()
-                .and_then(|resources| resources_with_default_cmyk(&resources, default.space))
+                .and_then(|resources| resources_with_default(&resources, key, space))
                 .map(|resources| {
                     out.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
                 })
         };
-        if written.is_some() {
-            count(applied, Rewrite::DefaultCmyk);
-            return true;
-        }
-        // A page given an inherited dictionary whose own `/ColorSpace` is another object has
-        // still been changed: the entry itself goes into that object.
-        sites.pages.contains_key(&id)
+        written.is_some()
     }
 
     /// ISO 19005-2 section 6.7.4 at a dictionary: the catalog's `/Lang`, a structure element's,

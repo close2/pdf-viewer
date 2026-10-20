@@ -43,7 +43,7 @@
 //! its fields as a tree and a target document matches them by the flattened name.
 //!
 //! The words "unless otherwise indicated" are the flag entries, and Table 249 indicates
-//! precisely: `/Ff` replaces, `/SetFf` and `/ClrFf` modify, and "[t]his entry shall be ignored
+//! precisely: `/Ff` replaces, `/SetFf` and `/ClrFf` modify, and "\[t]his entry shall be ignored
 //! if an `Ff` entry is present". [`FlagChange`] is that arithmetic, once, for both the field
 //! flags and the widget's annotation flags.
 //!
@@ -54,7 +54,7 @@
 //!
 //! # An FDF file may carry FDF files, and each of them is a file
 //!
-//! Table 246's `/EmbeddedFDFs` is "[a]n array of file specifications … representing other FDF
+//! Table 246's `/EmbeddedFDFs` is "\[a]n array of file specifications … representing other FDF
 //! files embedded within this one", an ordinary PDF 1.4 entry with no deprecation marker of any
 //! kind. Each element is §7.11's specification over §7.11.4's embedded file stream, and what
 //! comes out of the stream is an FDF file — so it is decoded and read by [`FormsData::read`],
@@ -83,7 +83,7 @@
 //! - **`/APRef` naming another file**: Table 253's `/F` makes the page a *document* named, which
 //!   is §12.7.6.4's hazard — the bytes may come only from a directory a person supplied
 //!   (ADR 1155) — and this crate has no filesystem and must not acquire one. A reference stating
-//!   **no** `/F` is a different entry: Table 253 says "[i]f this entry is absent, it shall be
+//!   **no** `/F` is a different entry: Table 253 says "\[i]f this entry is absent, it shall be
 //!   assumed that the page resides in the associated PDF file", so the page is one *this*
 //!   document holds under §12.7.7, and `crate::view::ViewState::import` makes the widget's
 //!   appearance out of it (ADR 1235).
@@ -92,14 +92,14 @@
 //! text string and an icon fit dictionary states names, numbers and a boolean and nothing else, so
 //! each crosses whole: the first replaces Table 228's `/RV` on the field ([`Import::rich_value`],
 //! ADR 1648), the second Table 192's `/IF` on the widget (ADR 1186). The other three cross by
-//! [`carry`], which is the rule below (ADR 1223).
+//! `carry`, which is the rule below (ADR 1223).
 //!
 //! # How an entry whose value lives in the other file crosses
 //!
 //! Table 249's `/AP` streams, its `/A` and `/AA` action dictionaries and Table 254's whole
 //! annotation dictionaries all name objects of the **FDF** file, and §12.7.8.3.2 says their
 //! values replace the target document's. A value that is an indirect reference into another file
-//! is not a value this document can hold, so [`carry`] resolves every reference and copies what
+//! is not a value this document can hold, so `carry` resolves every reference and copies what
 //! it finds in its place: what crosses is a tree of direct objects that names nothing of the
 //! other file. `pdf_syntax::Document` therefore stays immutable and singular — the interpreter
 //! never holds two documents — and the copy lives in the log beside it
@@ -193,10 +193,10 @@ pub enum FormsDataError {
 /// One FDF file, read.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormsData {
-    /// Table 245's `/Version`, "[t]he version of the FDF specification to which this FDF file
+    /// Table 245's `/Version`, "\[t]he version of the FDF specification to which this FDF file
     /// conforms … if later than the version specified in the file's header".
     ///
-    /// A name in the file rather than a number, which the table says in as many words: "[t]he
+    /// A name in the file rather than a number, which the table says in as many words: "\[t]he
     /// value of this entry is a name object, not a number".
     pub version: Option<String>,
     /// The version this file **conforms to**, which is the ranking §12.7.8.3.1's Table 245 states
@@ -214,7 +214,7 @@ pub struct FormsData {
     ///
     /// `None` where the file states neither, which is a file that never said.
     pub conforms_to: Option<pdf_syntax::Version>,
-    /// Table 246's `/F`: "[t]he source file or target file", as the file spells it.
+    /// Table 246's `/F`: "\[t]he source file or target file", as the file spells it.
     ///
     /// A name for a person, not a path this program will open — the same position `/UF` and
     /// `/F` take in [`crate::attachment`]. A caller deciding whether this FDF belongs with the
@@ -234,7 +234,7 @@ pub struct FormsData {
     pub identifier: Option<[Vec<u8>; 2]>,
     /// Table 246's `/Fields`, flattened to §12.7.4.2's fully qualified names.
     pub fields: Vec<FdfField>,
-    /// Table 246's `/Status`: "[a] status string that shall be displayed indicating the result
+    /// Table 246's `/Status`: "\[a] status string that shall be displayed indicating the result
     /// of an action, typically a submit-form action".
     ///
     /// *Shall be displayed* — so this is not diagnostics, it is a message the server sent to the
@@ -246,7 +246,7 @@ pub struct FormsData {
     pub annotations: Vec<FdfAnnotation>,
     /// Table 246's `/Pages`: the template pages this file adds to the target document.
     pub pages: Vec<FdfPage>,
-    /// Table 246's `/Target`, "[t]he name of a browser frame in which the underlying PDF
+    /// Table 246's `/Target`, "\[t]he name of a browser frame in which the underlying PDF
     /// document shall be opened".
     pub target: Option<String>,
     /// Table 246's `/EmbeddedFDFs`, each read as the FDF file it is, in the array's order.
@@ -308,7 +308,7 @@ impl Encoding {
     ///
     /// The marker test is the clause's: a string beginning U+FEFF is a text string by
     /// §7.9.2.2.1 and this entry does not reach it. Everything else takes `/Encoding`, whose
-    /// default and whose two Unicode values are all [`pdf_syntax::text_string`] — which chooses
+    /// default and whose two Unicode values are all [`pdf_syntax::text_string()`] — which chooses
     /// among exactly those three by the same prefix rule.
     fn decode(&self, bytes: &[u8]) -> Result<String, &str> {
         const UTF16BE_MARKER: [u8; 2] = [254, 255];
@@ -329,7 +329,7 @@ pub struct FdfField {
     /// Table 249 makes `/T` required, and a field without one has no name to match against the
     /// target document — so such a node contributes its `/Kids` and nothing of its own.
     pub name: String,
-    /// Table 249's `/V`, "[t]he field's value, whose format varies depending on the field type".
+    /// Table 249's `/V`, "\[t]he field's value, whose format varies depending on the field type".
     ///
     /// Held as the object the file states rather than a string, because the format is the field
     /// type's: a text field's value is a string, a check box's is a name, a list box's is an
@@ -339,13 +339,13 @@ pub struct FdfField {
     pub flags: FlagChange,
     /// `/F`, `/SetF` and `/ClrF`: the same arithmetic over §12.5.3's annotation flags.
     pub annotation_flags: FlagChange,
-    /// Table 249's `/Opt`, "[r]equired; choice fields only", as the strings it presents.
+    /// Table 249's `/Opt`, "\[r]equired; choice fields only", as the strings it presents.
     ///
-    /// Each element is "[a] text string representing one of the available options" or "[a]
+    /// Each element is "\[a] text string representing one of the available options" or "\[a]
     /// two-element array consisting of a text string … and a default appearance string"; the
     /// first element of the pair is the option either way, which is what this holds.
     pub options: Option<Vec<String>>,
-    /// Table 249's `/IF`, "[a]n icon fit dictionary … specifying how to display a button field's
+    /// Table 249's `/IF`, "\[a]n icon fit dictionary … specifying how to display a button field's
     /// icon within the annotation rectangle of its widget annotation".
     ///
     /// Held as the dictionary the file states, because Table 250's four entries are names,
@@ -353,8 +353,8 @@ pub struct FdfField {
     /// carries across to the target document whole. That is what separates this entry from the
     /// other four Table 249 states beside it, and [`FdfField::owed`] names those. ADR 1186.
     pub icon_fit: Option<Dictionary>,
-    /// Table 249's `/AP`, "[a]n appearance dictionary specifying the appearance of a push-button
-    /// field", carried into this document's own space by [`carry`].
+    /// Table 249's `/AP`, "\[a]n appearance dictionary specifying the appearance of a push-button
+    /// field", carried into this document's own space by `carry`.
     ///
     /// The table's own exception is what makes this entry different from every other appearance
     /// dictionary a reader meets: its `/N`, `/R` and `/D` entries "shall all be streams", and
@@ -368,7 +368,7 @@ pub struct FdfField {
     pub appearance: Option<Dictionary>,
     /// Table 249's `/APRef`, as the Table 253 named page references its `/N`, `/R` and `/D` hold.
     ///
-    /// The entry is "[a] dictionary holding references to external PDF files containing the pages
+    /// The entry is "\[a] dictionary holding references to external PDF files containing the pages
     /// to use for the appearances of a push-button field", "similar to an appearance dictionary …
     /// except that the values of the N, R , and D entries shall all be named page reference
     /// dictionaries". So what is read here is a name per appearance state, and resolving it is
@@ -376,9 +376,9 @@ pub struct FdfField {
     /// §12.7.7 trees, which this reader of the FDF file has not got.
     ///
     /// Empty where the field states no `/APRef`, and **also where it states an `/AP`**: Table 249
-    /// says "[t]his entry shall be ignored if an AP entry is present." ADR 1235.
+    /// says "\[t]his entry shall be ignored if an AP entry is present." ADR 1235.
     pub appearance_reference: Vec<(&'static str, crate::named_page::Reference)>,
-    /// Table 249's `/A` and `/AA`, carried by [`carry`] and held under those two key names.
+    /// Table 249's `/A` and `/AA`, carried by `carry` and held under those two key names.
     ///
     /// A dictionary rather than two fields because that is exactly what §12.6.3 and Table 197
     /// read: `crate::action::for_annotation` takes an *annotation dictionary* and applies the one
@@ -389,7 +389,7 @@ pub struct FdfField {
     ///
     /// `None` where the field states neither, and where the copy exceeded its budget.
     pub actions: Option<Dictionary>,
-    /// Table 249's `/RV`, "[a] rich text string, as in Adobe XML Architecture, XML Forms
+    /// Table 249's `/RV`, "\[a] rich text string, as in Adobe XML Architecture, XML Forms
     /// Architecture (XFA) Specification, version 3.3", decoded as §7.9.2.2's text string.
     ///
     /// A text string names nothing in the FDF file, so it crosses whole, and Table 228's `/RV` on
@@ -415,10 +415,10 @@ pub enum FlagChange {
     /// `/Ff` or `/F`, which "shall replace that of the … entry in the form's corresponding"
     /// dictionary.
     Replace(i64),
-    /// `/SetFf` then `/ClrFf`, in that order — "[i]f a `SetFf` entry is also present … it shall
+    /// `/SetFf` then `/ClrFf`, in that order — "\[i]f a `SetFf` entry is also present … it shall
     /// be applied before this entry".
     Modify {
-        /// Bits to turn on: "[b]its equal to 1 in `SetFf` shall cause the corresponding bits in
+        /// Bits to turn on: "\[b]its equal to 1 in `SetFf` shall cause the corresponding bits in
         /// `Ff` to be set to 1".
         set: i64,
         /// Bits to turn off, applied second.
@@ -473,7 +473,7 @@ impl FlagChange {
 /// carrying pages does not carry any page content — it names pages that are already there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FdfPage {
-    /// Table 251's `/Templates`, "[r]equired", the named pages that serve as templates on it.
+    /// Table 251's `/Templates`, "\[r]equired", the named pages that serve as templates on it.
     pub templates: Vec<FdfTemplate>,
     /// Whether Table 251's optional `/Info` page information dictionary is present.
     ///
@@ -485,9 +485,9 @@ pub struct FdfPage {
 /// One template on an FDF page. Table 252.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FdfTemplate {
-    /// Table 252's `/TRef`, "[r]equired", the named page reference specifying its location.
+    /// Table 252's `/TRef`, "\[r]equired", the named page reference specifying its location.
     pub reference: crate::named_page::Reference,
-    /// Table 252's `/Fields`, "[a]n array of references to FDF field dictionaries … describing
+    /// Table 252's `/Fields`, "\[a]n array of references to FDF field dictionaries … describing
     /// the root fields that shall be imported (those with no ancestors in the field hierarchy)".
     ///
     /// *Imported*, which is into the target document — the same act §12.7.8.3.2 defines and the
@@ -530,11 +530,11 @@ pub struct FdfAnnotation {
     /// `Widget`, `PrinterMark`, `Screen` and `TrapNet` — and this keeps whatever the file wrote,
     /// because a reader that silently drops an excluded subtype has hidden a malformed file.
     pub subtype: Option<String>,
-    /// The annotation dictionary, **carried** into this document's own space by [`carry`].
+    /// The annotation dictionary, **carried** into this document's own space by `carry`.
     ///
     /// §12.7.8.3.4 states one entry of its own and everything else in the dictionary is §12.5's,
     /// read by the clauses that read any annotation — so what stops one being drawn is only that
-    /// its `/AP` and its resources are objects of the FDF file. [`carry`] is that answer: the
+    /// its `/AP` and its resources are objects of the FDF file. `carry` is that answer: the
     /// copy names nothing of the other file, and `crate::view::ViewState::import` puts it on the
     /// page Table 254's `/Page` states. ADR 1223.
     ///
@@ -716,7 +716,7 @@ impl FormsData {
 
     /// Every `/Status` this file and its embedded files state, in [`Self::files`]'s order.
     ///
-    /// Table 246 makes the entry "[a] status string that shall be displayed", and an embedded FDF
+    /// Table 246 makes the entry "\[a] status string that shall be displayed", and an embedded FDF
     /// is an FDF — so a status inside one is a message to the person at the screen on the same
     /// sentence's authority, and a caller that displayed only the outermost would have dropped it.
     #[must_use]
@@ -750,7 +750,7 @@ impl FormsData {
 ///
 /// One object for the whole nesting rather than one per level: a file that embeds two FDFs each
 /// embedding two more has written four decodes, and a per-level bound would let it write as many
-/// as it liked. `CLAUDE.md` principle 3 — "[m]emory safety is not enough" — is why the bytes are
+/// as it liked. `CLAUDE.md` principle 3 — "\[m]emory safety is not enough" — is why the bytes are
 /// counted at all, since every one of them is a decode this reader performs on the file's say-so.
 struct Budget {
     /// How many more FDF files may be read out of embedded streams.
@@ -1328,7 +1328,7 @@ fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<F
 /// and states no dictionary, which is what `FormsData::owed` then names. ADR 1223.
 ///
 /// **Two entries are links between annotations rather than values, and they are read as links.**
-/// Table 172's `/Popup` is "[a]n indirect reference to a popup annotation" and Table 186's
+/// Table 172's `/Popup` is "\[a]n indirect reference to a popup annotation" and Table 186's
 /// `/Parent` names the annotation a popup belongs to, so a popup and its parent name each other —
 /// and a copy that followed either would follow the pair round until its depth bound refused the
 /// whole annotation. They cross as positions in the list instead ([`FdfAnnotation::popup`],
@@ -1336,7 +1336,7 @@ fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<F
 /// itself is carried beside the annotation that opens it, on that annotation's page where it
 /// states none of its own. ADR 1297.
 ///
-/// **Table 172's `/IRT` is the third**, and the table settles its type for this file format: "[i]f
+/// **Table 172's `/IRT` is the third**, and the table settles its type for this file format: "\[i]f
 /// this entry is present in an FDF file (see 12.7.8, "Forms data format"), its type shall not be a
 /// dictionary but a text string containing the contents of the NM entry of the annotation being
 /// replied to". A string crosses as it is and the import resolves it; anything else has broken
@@ -1467,7 +1467,7 @@ pub struct Import {
     ///
     /// Both entries name the same Table 250 icon fit dictionary — the table is printed under
     /// §12.7.8.3.2 and §12.5.6.19's Table 192 points at it — so importing one is §12.7.8.3.2's
-    /// replacing sentence applied to "the corresponding entrie[s] in the field with the same
+    /// replacing sentence applied to "the corresponding entrie\[s] in the field with the same
     /// fully qualified name in the target document", and the icon it fits is the widget's own
     /// `/MK /I`. ADR 1186.
     pub icon_fit: Option<Dictionary>,

@@ -2,9 +2,9 @@
 //!
 //! Adobe's *JavaScript for Acrobat API Reference*, "util methods", describes each conversion as
 //! `%[,nDecSep][cFlags][nWidth][.nPrecision]cConvChar` — a separator style from the same table
-//! `AFNumber_Format`'s `sepStyle` reads ([`Separators`]), the flags `+`, space, `0` and `#`, a
+//! `AFNumber_Format`'s `sepStyle` reads (`Separators`), the flags `+`, space, `0` and `#`, a
 //! minimum width padded on the left, a number of decimal places, and one of `d`, `f`, `s` and `x`
-//! — and gives one example, which `tests` holds. The digits are [`digits_with`]'s, so a script's
+//! — and gives one example, which `tests` holds. The digits are `digits_with`'s, so a script's
 //! `util.printf("%,0.2f", n)` and a one-call `AFNumber_Format(2, 0, …)` write the same characters.
 //! What the page leaves unsaid is a documented choice each (ADR 1626):
 //!

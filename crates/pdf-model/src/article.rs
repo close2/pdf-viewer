@@ -7,7 +7,7 @@
 //!
 //! A story starting on page one and continuing on page seven is one *article*, whose flow is
 //! an **article thread** and whose pieces are **beads** on that thread. What a viewer does
-//! with them is stated as a permission — "[i]nteractive PDF processors may provide navigation
+//! with them is stated as a permission — "\[i]nteractive PDF processors may provide navigation
 //! facilities to allow the user to follow a thread from one bead to the next" — so this module
 //! reads the structure and offers the step; following it is a window's.
 //!
@@ -19,8 +19,8 @@
 //! > shall be chained together sequentially in a doubly linked list through their N (next) and
 //! > V (previous) entries.
 //!
-//! and Table 163 closes the ring at both ends: `/N` "[i]n the last bead … shall refer to the
-//! first bead", `/V` "[i]n the first bead … shall refer to the last bead". So the walk cannot
+//! and Table 163 closes the ring at both ends: `/N` "\[i]n the last bead … shall refer to the
+//! first bead", `/V` "\[i]n the first bead … shall refer to the last bead". So the walk cannot
 //! stop at "no next" the way §12.3.3's outline does — it stops when it comes back to where it
 //! started, and refuses to visit an object twice so that a producer's broken `/N` ends the
 //! thread instead of the process. Only `/N` is followed, for [`crate::outline`]'s reason:
@@ -29,14 +29,14 @@
 //! # The document states the beads twice, and an erratum decided what order they are in
 //!
 //! Table 31's `/B` on a *page* is the same set of beads reached the other way — and its NOTE 2
-//! says so outright: "[t]he information in this entry can be created or recreated from the
+//! says so outright: "\[t]he information in this entry can be created or recreated from the
 //! information obtained from the Threads key in the catalog dictionary". That makes it
 //! checkable against the thread walk, which is the habit an outline's `/Count` and an LZW
 //! stream's length taught here: *what does this file say about itself twice, and does it
 //! agree?*
 //!
 //! **As published the two clauses disagree about the order**, which is the standard
-//! contradicting itself rather than a file doing it. Table 31: "[t]he beads shall be listed in
+//! contradicting itself rather than a file doing it. Table 31: "\[t]he beads shall be listed in
 //! the array in natural reading order." §12.4.3: "the page object … shall contain a B entry
 //! whose value is an array of indirect references to the beads on the page, in drawing order."
 //! Errata Collection 3's Issue #320 strikes *natural* from the first and replaces *drawing*
@@ -56,7 +56,7 @@
 //!
 //! # Where the bead's rectangle is applied
 //!
-//! A bead's `/R` is "[a] rectangle specifying the location of this bead on the page in default
+//! A bead's `/R` is "\[a] rectangle specifying the location of this bead on the page in default
 //! user space" — the region a viewer shows when it follows the thread there. This module reads
 //! it; applying it is [`crate::action`]'s and [`crate::destination`]'s, because Table 149's
 //! `/FitR` makes the same statement about a window and following a thread composes one of
@@ -107,13 +107,13 @@ const MAX_BEADS: usize = 1 << 16;
 pub struct Bead {
     /// The bead dictionary's own object, so a `/B` array can be compared against it.
     pub id: ObjectId,
-    /// Table 163's `/P`, "[t]he page object representing the page on which this bead appears".
+    /// Table 163's `/P`, "\[t]he page object representing the page on which this bead appears".
     ///
     /// Kept as the reference the file wrote rather than as an index, because that is what
     /// identifies a page here — and resolved to an index by [`Bead::page_index`], which needs
     /// the page tree.
     pub page: Option<ObjectId>,
-    /// Table 163's `/R`, "[a] rectangle specifying the location of this bead on the page in
+    /// Table 163's `/R`, "\[a] rectangle specifying the location of this bead on the page in
     /// default user space", normalised so that `[x0, y0]` is the lower-left corner.
     ///
     /// §7.9.5 states that normalisation for rectangles generally — "the rectangle … shall be
@@ -126,7 +126,7 @@ impl Bead {
     /// The zero-based index of the page this bead is on, or `None`.
     ///
     /// `None` is a bead whose `/P` is absent, or names an object the page tree does not hold —
-    /// which Table 163 forbids ("[r]equired; shall be an indirect reference") and a file may
+    /// which Table 163 forbids ("\[r]equired; shall be an indirect reference") and a file may
     /// still write.
     #[must_use]
     pub fn page_index(&self, pages: &Pages<'_>) -> Option<usize> {
@@ -141,7 +141,7 @@ pub struct Thread {
     pub id: ObjectId,
     /// `/Title` from Table 162's `/I` thread information dictionary, where there is one.
     ///
-    /// The clause says of `/I` that "[t]he contents of this dictionary shall conform to the
+    /// The clause says of `/I` that "\[t]he contents of this dictionary shall conform to the
     /// syntax for the document information dictionary (see 14.3.3)", so its `/Title` is a
     /// §7.9.2.2 text string and is decoded as one. §12.6.4.7 names a thread *by* this title,
     /// which is the one place it is load-bearing rather than decorative.
@@ -155,7 +155,7 @@ pub struct Thread {
 pub struct Articles {
     /// The threads, in the order the catalog's `/Threads` array holds them.
     ///
-    /// The order is load-bearing: §12.6.4.7 lets a thread action name "[t]he index of the
+    /// The order is load-bearing: §12.6.4.7 lets a thread action name "\[t]he index of the
     /// thread within the Threads array", and resolves a duplicated title by taking "the one
     /// appearing first in the document catalog's Threads array".
     pub threads: Vec<Thread>,
@@ -197,7 +197,7 @@ impl Articles {
 
     /// The bead following a given one in its thread, wrapping at the end.
     ///
-    /// The clause's ring is the reason this always answers: `/N` "[i]n the last bead … shall
+    /// The clause's ring is the reason this always answers: `/N` "\[i]n the last bead … shall
     /// refer to the first bead", so following a thread past its end returns to its start. The
     /// caller decides whether that is a wrap it wants to make; a viewer showing "next in this
     /// article" usually does.
@@ -216,7 +216,7 @@ impl Articles {
 
     /// Where a bead sits: its thread's index in `/Threads`, and its own index in that thread.
     ///
-    /// §12.6.4.7's `/B` names a bead by exactly this second number — "[t]he index of the bead
+    /// §12.6.4.7's `/B` names a bead by exactly this second number — "\[t]he index of the bead
     /// within its thread. The first bead in a thread has index 0" — so the pair is the
     /// coordinate this family is addressed by.
     #[must_use]

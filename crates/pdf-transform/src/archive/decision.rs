@@ -944,6 +944,16 @@ pub(super) enum Answer {
     /// `DeviceCMYK` under PDF/A-4 is refused unless a CMYK profile is supplied. That is the
     /// standard's difference rather than this converter's.
     CmykUnderPartTwo,
+    /// ISO 19005 section 6.2.4.3's `DeviceRGB` sentence, and every row that sends a space to it,
+    /// which admits a device independent `/DefaultRGB` beside an RGB output intent (`doc/adr/2114`).
+    ///
+    /// Both parts state the two licences, so one variant serves both. [`decide`] takes the
+    /// `/DefaultRGB` where the preparation built one — the profile in hand is of another family
+    /// and the document draws in `DeviceRGB` — and otherwise the row's answer is the output
+    /// intent's, exactly as [`Self::Stated`] with this family would give it. `Some(Rgb)` for the
+    /// two rows that are `DeviceRGB`'s own; `None` for the rows — a group's `CS`, a base, an
+    /// alternate — whose family is the document's, which the output's own verdict settles.
+    RgbUnderPartTwoOrFour(Option<DeviceFamily>),
     /// The requirement asks other requirements' rules again of a narrower population, and its
     /// answer is theirs.
     ///
@@ -972,6 +982,9 @@ impl Answer {
                 [Some(rewrite), None]
             }
             Self::CmykUnderPartTwo => [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultCmyk)],
+            Self::RgbUnderPartTwoOrFour(_) => {
+                [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultRgb)]
+            }
             // None of its own: the rewrites are the underlying rows', and those rows are in this
             // same table, so a preparation asking "did any failed requirement want this rewrite"
             // has already been answered by them.
@@ -1389,21 +1402,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // section 6.2.9. Every one of them licenses a device colour space through a PDF/A output
     // intent, so one intent answers all of them at once; which of them it actually answers turns
     // on the destination profile's own colour family, which is what `Answer::Stated` carries.
+    // `DeviceRGB`'s rows admit a device independent `/DefaultRGB` as well, which is the licence
+    // left where the profile in hand is of another family (`doc/adr/2114`).
     Remedy {
         requirement: "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
-        answer: Answer::Stated(
-            Some(DeviceFamily::Rgb),
-            Rewrite::OutputIntent,
-            OUTPUT_INTENT_REINTERPRETS,
-        ),
+        answer: Answer::RgbUnderPartTwoOrFour(Some(DeviceFamily::Rgb)),
     },
     Remedy {
         requirement: "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
-        answer: Answer::Stated(
-            Some(DeviceFamily::Rgb),
-            Rewrite::OutputIntent,
-            OUTPUT_INTENT_REINTERPRETS,
-        ),
+        answer: Answer::RgbUnderPartTwoOrFour(Some(DeviceFamily::Rgb)),
     },
     // The one sentence of ISO 19005-2 section 6.2.4.3 that offers two licences rather than one,
     // and the reason `Answer::CmykUnderPartTwo` exists: which of them this verb takes is decided
@@ -1454,30 +1461,33 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // `Separation` or `DeviceN` alternate. Which family each of those turns out to need is a fact
     // about the document rather than about the requirement, so these rows state no family and the
     // output's own verdict is what decides whether the intent answered them — which is exactly the
-    // case `doc/adr/0947`'s fourth decision built the net for.
+    // case `doc/adr/0947`'s fourth decision built the net for. Each sends a space to section
+    // 6.2.4.3, so each takes the `/DefaultRGB` where the document draws in `DeviceRGB` beside a
+    // profile of another family: §11.6.6's Table 145 remaps a group's device space through the
+    // defaults of the current resource dictionary (`doc/adr/2114`).
     Remedy {
         requirement: "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     Remedy {
         requirement: "graphics/transparency-group-colour-spaces-obey-the-colour-rules-of-part-four",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     Remedy {
         requirement: "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     Remedy {
         requirement: "graphics/indexed-and-pattern-base-spaces-obey-the-colour-rules-of-part-four",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     Remedy {
         requirement: "graphics/separation-alternate-spaces-obey-the-colour-rules",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     Remedy {
         requirement: "graphics/separation-alternate-spaces-obey-the-colour-rules-of-part-four",
-        answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+        answer: Answer::RgbUnderPartTwoOrFour(None),
     },
     // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1: the catalog states a metadata
     // stream. Answered by the same rewrite as the schema itself, because a document with no packet
@@ -2262,6 +2272,10 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
         "graphics/no-overprint-mode-one-under-icc-cmyk",
         Conditional::PerDocument(Loss::OverprintMode),
     ),
+    (
+        "metadata/extension-schema-container-fields",
+        Conditional::PerDocument(Loss::MetadataProperty),
+    ),
 ];
 
 /// What a row's answer waits on, for the two rows that wait on anything.
@@ -2299,7 +2313,10 @@ pub(super) fn answered_without_authorisation(requirement: &str) -> bool {
         remedy.requirement == requirement
             && matches!(
                 remedy.answer,
-                Answer::Mechanical(_) | Answer::Stated(..) | Answer::CmykUnderPartTwo
+                Answer::Mechanical(_)
+                    | Answer::Stated(..)
+                    | Answer::CmykUnderPartTwo
+                    | Answer::RgbUnderPartTwoOrFour(_)
             )
     })
 }
@@ -3374,15 +3391,17 @@ const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renami
 /// **Read off [`REMEDIES`] rather than written down a second time**, so that a `preserve` remedy
 /// cannot name a rewrite the table would not have taken for the site: what `preserve` changes is
 /// where the content goes, never what makes the file conform. `None` for a requirement the table
-/// does not answer, and for [`Answer::CmykUnderPartTwo`], whose two rewrites the profile in hand
-/// picks between.
+/// does not answer, and for [`Answer::CmykUnderPartTwo`] and [`Answer::RgbUnderPartTwoOrFour`],
+/// whose two rewrites the profile in hand picks between.
 pub(super) fn rewrite_for(id: &str) -> Option<Rewrite> {
     let remedy = REMEDIES.iter().find(|remedy| remedy.requirement == id)?;
     match remedy.answer {
         Answer::Mechanical(rewrite) | Answer::Stated(_, rewrite, _) | Answer::Loses(_, rewrite) => {
             Some(rewrite)
         }
-        Answer::CmykUnderPartTwo | Answer::AsUnderlying(_) => None,
+        Answer::CmykUnderPartTwo | Answer::RgbUnderPartTwoOrFour(_) | Answer::AsUnderlying(_) => {
+            None
+        }
     }
 }
 
@@ -3544,6 +3563,39 @@ fn stated_where_free(
     }
 }
 
+/// What a container missing a field the file states nowhere costs: section 3.9's loss.
+const CONTAINER_DISCARDED: Answer =
+    Answer::Loses(Loss::MetadataProperty, Rewrite::ExtensionContainerDiscarded);
+
+/// Whether the preparation discarded an extension schema container rather than respelling one.
+fn discards_a_container(prepared: &Prepared) -> bool {
+    prepared
+        .respelled
+        .as_ref()
+        .is_ok_and(|respelled| respelled.discarded > 0)
+}
+
+/// ISO 19005 section 6.2.4.3's `DeviceRGB` sentence: the `/DefaultRGB` where the preparation could
+/// build one, which it does only where the profile in hand cannot answer the clause and something
+/// is drawn in `DeviceRGB`, and the intent's answer otherwise (`doc/adr/2114`).
+fn rgb_answer(
+    family: Option<DeviceFamily>,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Decision {
+    match &prepared.default_rgb {
+        Ok(_) => Decision::Stated {
+            rewrite: Rewrite::DefaultRgb,
+            reinterprets: super::default_rgb::REINTERPRETS,
+        },
+        Err(_) => answer_of(
+            Answer::Stated(family, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
+            authorised,
+            prepared,
+        ),
+    }
+}
+
 fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) -> Decision {
     match answer {
         // ISO 19005-2 section 6.1.13's page-boundary limit, whose answer the table cannot take:
@@ -3564,6 +3616,13 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                 prepared,
             ),
         },
+        // ISO 19005-2 section 6.6.2.3.3: a misspelled field is respelled, and a field the file
+        // states nowhere costs the container and the properties it described, which the
+        // preparation found per packet — so the row is the loss's where it did, as `CONDITIONAL`
+        // says (`super::extension_container`).
+        Answer::Mechanical(Rewrite::ExtensionSchemaPrefixes) if discards_a_container(prepared) => {
+            answer_of(CONTAINER_DISCARDED, authorised, prepared)
+        }
         // A rewrite is an answer only where the document can take it, and the reason it cannot
         // is the reason the requirement is refused with — never this converter's own paraphrase
         // of it. `Prepared::obstacle` is where that question is asked, once.
@@ -3584,6 +3643,7 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
             },
             (_, Err(because)) => Decision::Refused(*because),
         },
+        Answer::RgbUnderPartTwoOrFour(family) => rgb_answer(family, authorised, prepared),
         Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {
             Err(because) => Decision::Refused(*because),
             // ISO 19005 section 6.2.4.3 licenses a device colour space through a destination

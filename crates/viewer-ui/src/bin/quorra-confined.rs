@@ -202,6 +202,28 @@ fn file_name(path: &std::path::Path) -> String {
     )
 }
 
+/// The three of the settings words this window carries out: a link, a file the document names
+/// and a form sent to a server, each put to the reader on a card (ADRs 2040, 2076).
+const CARRIED: [&str; 3] = [
+    viewer_host::LINKS,
+    viewer_host::REMOTE_DOCUMENTS,
+    viewer_host::SUBMISSIONS,
+];
+
+/// Why a settings word this window does not carry is refused: what the window does instead.
+fn not_carried(word: &str) -> &'static str {
+    if word == viewer_host::EMBEDDED_DOCUMENTS {
+        "this window holds one document and opens none beside it, so an embedded document is \
+         refused at every level"
+    } else if word == viewer_host::SEPARATIONS {
+        "this window asks for no separation simulation: its pages are drawn in the worker as \
+         the screen shows them"
+    } else {
+        "this window sets no level for a document's restrictions: each operation stands at \
+         off, where none is refused"
+    }
+}
+
 /// Reads the arguments or says why not; the usage line is the refusal.
 fn arguments() -> Arguments {
     let mut path = None;
@@ -209,9 +231,7 @@ fn arguments() -> Arguments {
     let mut processor = false;
     let mut faces = false;
     let mut reader = viewer_host::ReaderWords::default();
-    let mut links = viewer_host::Links::default();
-    let mut remote_documents = viewer_host::RemoteDocuments::default();
-    let mut submissions = viewer_host::Submissions::default();
+    let mut settings = viewer_host::Settings::default();
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let taken = reader
@@ -229,21 +249,16 @@ fn arguments() -> Arguments {
             processor = true;
         } else if argument == viewer_host::MACHINE_FONTS {
             faces = true;
-        } else if let Some(level) = argument.strip_prefix(viewer_host::LINKS) {
-            links = viewer_host::links(level).unwrap_or_else(|complaint| {
-                eprintln!("{complaint}");
+        } else if let Some(word) = settings.take(&argument).unwrap_or_else(|complaint| {
+            eprintln!("{complaint}");
+            std::process::exit(2);
+        }) {
+            // Read as every window reads it (ADR 2120); a word this window has no level for is
+            // refused by name rather than taken and not obeyed.
+            if !CARRIED.contains(&word) {
+                eprintln!("{argument}: {}", not_carried(word));
                 std::process::exit(2);
-            });
-        } else if let Some(level) = argument.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
-            remote_documents = viewer_host::remote_documents(level).unwrap_or_else(|complaint| {
-                eprintln!("{complaint}");
-                std::process::exit(2);
-            });
-        } else if let Some(level) = argument.strip_prefix(viewer_host::SUBMISSIONS) {
-            submissions = viewer_host::submissions(level).unwrap_or_else(|complaint| {
-                eprintln!("{complaint}");
-                std::process::exit(2);
-            });
+            }
         } else if let Some(list) = argument.strip_prefix("--trace=") {
             topics = match viewer_host::parse_topics(list) {
                 Ok(topics) => topics,
@@ -289,9 +304,9 @@ fn arguments() -> Arguments {
         // The word, or the environment for a window nobody typed a command line at.
         faces: viewer_host::offers_machine_fonts(faces),
         reader,
-        links,
-        remote_documents,
-        submissions,
+        links: settings.links,
+        remote_documents: settings.remote_documents,
+        submissions: settings.submissions,
     }
 }
 

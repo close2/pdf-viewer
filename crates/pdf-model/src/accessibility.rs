@@ -34,7 +34,7 @@
 //!
 //! # What this module does not decide
 //!
-//! Nothing here reaches a pixel. §14.1's opening sentence covers the whole clause: "[t]he
+//! Nothing here reaches a pixel. §14.1's opening sentence covers the whole clause: "\[t]he
 //! features described in this clause do not affect the final appearance of a document."
 
 use std::ops::Range;
@@ -111,7 +111,7 @@ pub struct Spoken {
 ///   all: both entries are phrase substitutions for their whole span.
 /// - A word break is inserted on each side of such a phrase. §14.9.5 states it for `/E` — it
 ///   "shall be treated as if a word break separates it from any surrounding text" — and
-///   §14.9.3 states the consecutive case for `/Alt`: "[i]f each of two (or more) elements in
+///   §14.9.3 states the consecutive case for `/Alt`: "\[i]f each of two (or more) elements in
 ///   a sequence have an Alt entry in their dictionaries, they shall be treated as if a word
 ///   break is present between them." Inserting on both sides satisfies both, and inserts
 ///   nothing where the text already breaks.

@@ -1533,7 +1533,7 @@ impl ViewState {
     /// and [`MAX_WORD_TIME`], and says where the reading stopped short (ADR 1762).
     ///
     /// A page's words are what its interpretation reads back, so the page is interpreted as it is
-    /// drawn, against this view state. Table 22's bit 5, which withholds "[c]opy or otherwise
+    /// drawn, against this view state. Table 22's bit 5, which withholds "\[c]opy or otherwise
     /// extract text and graphics from the document", is not consulted: the words go to the
     /// document's own scripts, in a realm with no path out of the process, and leave the
     /// document for nobody (ADR 1762).

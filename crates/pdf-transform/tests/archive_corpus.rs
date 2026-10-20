@@ -453,6 +453,185 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
     );
 }
 
+/// One refused document under one shipped profile: each requirement that stopped it, and why.
+#[derive(Debug)]
+struct Stopped {
+    /// The document's own file name.
+    document: String,
+    /// Each requirement refused, with the kind of *no* and the first clause of its sentence.
+    at: Vec<(&'static str, &'static str, String)>,
+}
+
+/// What one shipped profile reached at one target.
+#[derive(Debug, Default)]
+struct UnderProfile {
+    /// Documents the validator found failing that converted under the profile.
+    converted: usize,
+    /// Documents the validator found conforming, which convert by property 1.
+    conforming: usize,
+    /// Documents this tree does not open at all.
+    unreadable: usize,
+    /// Every refused document, with what refused it.
+    stopped: Vec<Stopped>,
+}
+
+/// The kind of *no* a refused decision is, in the report's own words.
+fn kind_of_no(decision: &Decision) -> Option<(&'static str, String)> {
+    match decision {
+        Decision::Refused(because) => Some((because.word(), first_clause(because.sentence()))),
+        Decision::Unauthorised { loss, .. } => Some(("unauthorised", loss.word().to_owned())),
+        _ => None,
+    }
+}
+
+/// Converts every document under `part` to `target` under one shipped profile, folded into the
+/// plan the way a window folds it (`viewer_host::archiving`), and lists every refusal.
+fn profile_sweep(
+    root: &Path,
+    part: &str,
+    target: Target,
+    shipped: &pdf_transform::profiles::Shipped,
+) -> UnderProfile {
+    let mut census = UnderProfile::default();
+    let contribution = pdf_transform::profiles::Contribution::read(shipped.text, target)
+        .expect("a shipped profile reads for every target");
+    for path in documents(root, part) {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(document) = Document::open_with_limits(bytes.clone(), Limits::DEFAULT) else {
+            census.unreadable = census.unreadable.saturating_add(1);
+            continue;
+        };
+        let conformed = pdf_archive::check(&document, target).verdict() == Verdict::Conforms;
+        drop(document);
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Archive(ArchivePlan {
+                source: 0,
+                names: "out.pdf".parse().expect("a pattern"),
+                target,
+                authorised: contribution.authorised,
+                profile: None,
+                substitute_fonts: true,
+                supplied_fonts: BTreeMap::new(),
+                departures: contribution.departures.clone(),
+                claim_conformance: false,
+                forms: contribution.forms,
+                derivations: contribution.derivations.clone(),
+                supplies: contribution.supplies.clone(),
+                preservations: contribution.preservations.clone(),
+                resolutions: contribution.resolutions.clone(),
+                tool_outputs: ToolOutputs::new(),
+                external_data: BTreeMap::new(),
+            }),
+            &[Source::new(bytes)],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        );
+        let report = report.unwrap_or_else(|refusal| {
+            panic!(
+                "{}: the conversion errored rather than refusing: {refusal}",
+                path.display()
+            )
+        });
+        if sinks.into_outputs().pop().is_some() {
+            if conformed {
+                census.conforming = census.conforming.saturating_add(1);
+            } else {
+                census.converted = census.converted.saturating_add(1);
+            }
+            continue;
+        }
+        let conversion = report.archive.as_ref().expect("a conversion is reported");
+        let mut at: Vec<_> = conversion
+            .decided
+            .iter()
+            .filter_map(|decided| {
+                kind_of_no(&decided.decision).map(|(kind, why)| (decided.requirement, kind, why))
+            })
+            .collect();
+        // A conversion whose every decision was carried out and whose output the validator still
+        // fails is refused by the second verdict (`doc/adr/0947`), which names the requirement.
+        if at.is_empty()
+            && let Some(achieved) = &conversion.achieved
+        {
+            let mut named: Vec<&'static str> = achieved
+                .still_failing
+                .iter()
+                .chain(&achieved.regressions)
+                .copied()
+                .collect();
+            named.sort_unstable();
+            named.dedup();
+            for requirement in named {
+                at.push((
+                    requirement,
+                    "output-fails",
+                    "the output is held to the target again and still fails it".to_owned(),
+                ));
+            }
+        }
+        census.stopped.push(Stopped {
+            document: named(&path),
+            at,
+        });
+    }
+    census
+}
+
+/// **Every refusal the corpus still meets under the two shipped lower-bound profiles, by site and
+/// reason** (`doc/todo/72`). The owner's rule is that every viewable document converts under a
+/// profile; the sweep above authorises every loss and supplies nothing, so it ranks neither
+/// profile's own answer. This lists, per profile and target, each requirement that refused a
+/// document, the kind of *no* and the sentence's first clause, and the documents it stopped —
+/// the population a round classifies into a remedy to build, a refusal the standard forces, and a
+/// converter defect.
+#[test]
+#[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
+fn the_shipped_profiles_list_every_refusal_by_site_and_reason() {
+    let Some(root) = corpus() else {
+        println!("doc/veraPDF-corpus is not here; nothing to sweep");
+        return;
+    };
+    for name in ["as-if-printed", "as-shown"] {
+        let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
+        for (part, target) in TARGETS {
+            let census = profile_sweep(&root, part, target, shipped);
+            println!(
+                "profile {name} {target}: {} failing documents converted, {} conforming, {} \
+                 refused, {} unreadable",
+                census.converted,
+                census.conforming,
+                census.stopped.len(),
+                census.unreadable
+            );
+            let mut by_reason: BTreeMap<(&str, &str, &str), Vec<&str>> = BTreeMap::new();
+            for stopped in &census.stopped {
+                for (site, kind, why) in &stopped.at {
+                    by_reason
+                        .entry((site, kind, why.as_str()))
+                        .or_default()
+                        .push(&stopped.document);
+                }
+                if stopped.at.is_empty() {
+                    by_reason
+                        .entry(("-", "no-decision", "-"))
+                        .or_default()
+                        .push(&stopped.document);
+                }
+            }
+            let mut ranked: Vec<_> = by_reason.into_iter().collect();
+            ranked.sort_by_key(|(key, documents)| (std::cmp::Reverse(documents.len()), *key));
+            for ((site, kind, why), documents) in ranked {
+                println!("    {:>4} {kind:<14} {site}: {why}", documents.len());
+                println!("         {}", documents.join(", "));
+            }
+        }
+    }
+}
+
 /// What the preserve/relocation census found at one target.
 ///
 /// **The extension `doc/adr/1123` owes** (trap 8): the appended-page census counted marks kept;

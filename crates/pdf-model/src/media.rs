@@ -758,7 +758,7 @@ fn unhonourable(document: &Document, dict: &Dictionary, table: &str, reasons: &m
 /// §13.2.7.2.2's algorithm, for the one player this program has: whichever program this machine
 /// starts for the content type, which no software identifier names.
 ///
-/// Of the four conditions under which "[t]he player may not be used", (a) cannot hold — that
+/// Of the four conditions under which "\[t]he player may not be used", (a) cannot hold — that
 /// player is chosen by the type — and (b) cannot either, because a player is "found" in an array
 /// only by §13.2.7.4's software identifier. So (c) and (d) decide it: a non-empty `/MU` in either
 /// dictionary names the players "one of which shall be used", and with no `/MU` and no content type

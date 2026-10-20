@@ -54,7 +54,7 @@ const MAX_ITEMS: usize = 1 << 16;
 pub struct Item {
     /// The item's own object, which is how a caller asks for it to be *activated*.
     ///
-    /// §12.3.3: "[c]licking the text of any visible item activates the item, causing the
+    /// §12.3.3: "\[c]licking the text of any visible item activates the item, causing the
     /// interactive PDF processor to jump to a destination or trigger an action associated with
     /// the item." [`Self::destination`] is the first half; the second is `/A`, which may be any
     /// of §12.6's types and a `/Next` chain of them — so what a caller needs is not a payload
@@ -62,7 +62,7 @@ pub struct Item {
     /// through an indirect reference, which Table 151 requires of `/First`, `/Next` and `/Last`
     /// alike, so this is always known.
     pub id: ObjectId,
-    /// Table 151's `/Title`, "[t]he text that shall be displayed on the screen for this item".
+    /// Table 151's `/Title`, "\[t]he text that shall be displayed on the screen for this item".
     ///
     /// A *text string*, so §7.9.2.2's three encodings apply and `pdf_syntax::text_string`
     /// decodes it — the same route a page label's prefix and a field's value take.
@@ -142,7 +142,7 @@ impl Outline {
     /// > outline item. Step 3. For each of those immediate children whose Count is positive and
     /// > non-zero, repeat steps 2 and 3.
     ///
-    /// "[T]hose immediate children whose Count is positive" are the *open* ones, so this counts
+    /// "\[T]hose immediate children whose Count is positive" are the *open* ones, so this counts
     /// every item reachable without opening anything that is closed. A file states the same
     /// number in its outline dictionary, and the two agreeing is the file agreeing with itself.
     #[must_use]

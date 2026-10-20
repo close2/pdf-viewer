@@ -1,7 +1,7 @@
 //! Rich text: the formatted text ISO 32000-2 hands to XFA 3.3, read and laid out.
 //!
 //! Five entries carry it. Table 228's `/RV` is a variable text field's "rich text string" and its
-//! `/DS` "[a] default style string", both "as described in Adobe XML Architecture, XML Forms
+//! `/DS` "\[a] default style string", both "as described in Adobe XML Architecture, XML Forms
 //! Architecture (XFA) Specification, version 3.3"; Table 249 carries an `/RV` into an FDF file;
 //! Table 172's `/RC` is the text a markup annotation's popup window shows; and Table 177's `/RC`
 //! and `/DS` are a free text annotation's, where the rich text string "shall be used to generate
@@ -388,7 +388,7 @@ pub(crate) fn written(text: &str) -> String {
 
 /// Writes Table 228's `/RV` beside a value this program set, on the dictionary `/V` goes on.
 ///
-/// Only for a field Table 231 bit 26 makes rich text: the entry is "[o]ptional" otherwise, and a
+/// Only for a field Table 231 bit 26 makes rich text: the entry is "\[o]ptional" otherwise, and a
 /// plain field's value has no rich text string to specify. A value set is written as [`written`]
 /// spells it; a value cleared takes its `/RV` with it, because bit 26's `shall` is conditioned on
 /// the field having a value and an `/RV` left behind would describe one it no longer has (ADR

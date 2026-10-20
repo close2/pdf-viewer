@@ -127,7 +127,7 @@ impl Interpreter<'_> {
     ///
     /// - a) "If the base image contains an OC entry that specifies that the content is not
     ///   visible, then nothing shall be shown."
-    /// - b) unamended: "[i]f the base image contains an OC entry that specifies that the base
+    /// - b) unamended: "\[i]f the base image contains an OC entry that specifies that the base
     ///   image is visible, then the base image shall be rendered."
     /// - c) "Otherwise if the PDF is being printed and any of the Alternates entries has
     ///   `DefaultForPrinting` set to true, then that alternate image shall be printed."
@@ -157,7 +157,7 @@ impl Interpreter<'_> {
     /// function therefore must not: it does not re-examine the selected alternate's own `/OC`
     /// (the erratum strikes that sentence), and it states no fallback of its own, because e)
     /// carries the fallback for c) and d) together. Table 89 is what makes "any of the
-    /// Alternates entries" identify one entry — "[a]t most one alternate for a given base image
+    /// Alternates entries" identify one entry — "\[a]t most one alternate for a given base image
     /// shall be so designated" — so the first is the one, and a document that designates two has
     /// contradicted its own requirement and gets the first deterministically.
     ///
@@ -455,7 +455,7 @@ impl Interpreter<'_> {
     /// this file that can hold them.
     ///
     /// **Under a graphics-state soft mask the two masks are one product** (ADR 1334). §11.6.5
-    /// puts the state's mask on every mark and §11.6.4.3 lets only "[e]ither form of mask in the
+    /// puts the state's mask on every mark and §11.6.4.3 lets only "\[e]ither form of mask in the
     /// image dictionary" displace it, which a stencil is not — so the mark this command paints
     /// has the stencil as its shape, the pattern as its colour and the state's mask as its
     /// opacity, and §11.3.5 multiplies shape and opacity into the one alpha a command's mask

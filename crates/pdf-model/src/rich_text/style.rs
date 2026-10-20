@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 
 /// A quantity some of whose part follows the size the field's text is set at.
 ///
-/// §12.7.4.3 lets a `/DA` ask for its size to be chosen — "[a] zero value for size means that the
+/// §12.7.4.3 lets a `/DA` ask for its size to be chosen — "\[a] zero value for size means that the
 /// font shall be auto-sized" — and every `em` and every percentage of a font size below it then
 /// follows that choice. So a computed size is `scale × root + points`: an absolute length sets
 /// the second and clears the first, a relative one multiplies both, and [`Self::at`] is the only

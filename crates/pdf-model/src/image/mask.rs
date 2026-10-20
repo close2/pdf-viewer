@@ -26,13 +26,11 @@ use super::{Flattened, ImageError, MAX_SAMPLES, Parts, Picture, decode, decode_p
 /// packed, for two distinct colours.
 ///
 /// **It is a preference and not a ceiling** (ADR 0456): one number deciding both questions would
-/// refuse a grid past it outright wherever [`eligible_for_the_device_scale`] says no — which is
+/// refuse a grid past it outright wherever `eligible_for_the_device_scale` says no — which is
 /// every explicit `/Mask`, because a stencil is `/ImageMask true` and Table 87 gives it no
 /// colour space. The ceiling is [`MAX_SAMPLES`]: a combined grid is a raster this crate
 /// allocates, and one the size of an image the crate would have decoded on its own is not
 /// larger for being a pair.
-///
-/// [`eligible_for_the_device_scale`]: super::soft_mask::eligible_for_the_device_scale
 pub(super) const PREFER_DEVICE_SCALE_ABOVE: u64 = 1 << 24;
 
 /// The bound above also caps the grey plane a codec-carrying soft mask decodes to, and it has to
@@ -326,11 +324,9 @@ fn colour_key_entry(
 ///   says so, which is wrong in a way a reader can see.
 /// - **The combined grid has to fit.** See [`combined_grid`]. There is no second construction
 ///   here — a stencil is `/ImageMask true`, which Table 87 forbids a colour space, so
-///   [`eligible_for_the_device_scale`] can never say yes to one — so the only question is
+///   `eligible_for_the_device_scale` can never say yes to one — so the only question is
 ///   whether the raster can be built, and the answer for a full-page scan under a
 ///   600 dpi stencil is that it can.
-///
-/// [`eligible_for_the_device_scale`]: super::soft_mask::eligible_for_the_device_scale
 fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) -> MaskEntry {
     let mask_dict = &stream.dict;
     let dimension =
@@ -552,11 +548,11 @@ fn flattened(picture: Picture) -> (Image, Option<Image>) {
 /// > inferred. All of these constraints shall be consistent.
 ///
 /// and its EXAMPLE is an image, with the arithmetic and the verdict spelled out — a 10-row,
-/// 20-column, 8-bit, one-component image "requires exactly 200 bytes of image data", and "[a]n
+/// 20-column, 8-bit, one-component image "requires exactly 200 bytes of image data", and "\[a]n
 /// error occurs if Length is too small, if an explicit EOD marker occurs too soon, or if the
 /// decoded data does not contain 200 bytes."
 ///
-/// [`unpack`] draws the samples the file did carry and leaves the rest of the grid unpainted;
+/// `unpack` draws the samples the file did carry and leaves the rest of the grid unpainted;
 /// this is the other half, and the pair is the test `doc/HANDOVER.md` sets for reporting while
 /// drawing — suppressing either loses information. Without the report a page missing the bottom
 /// nine tenths of a picture is indistinguishable from a page whose picture is that shape.
@@ -566,8 +562,6 @@ fn flattened(picture: Picture) -> (Image, Option<Image>) {
 /// `JPXDecode`, `JBIG2Decode` or `CCITTFaxDecode` rather than to this arithmetic: a codestream
 /// states its own extent, which is why §7.4.8's disagreement has `contradicted_frame` of its
 /// own.
-///
-/// [`unpack`]: super::unpack::unpack
 #[must_use]
 pub fn short_of_its_grid(
     document: &Document,
@@ -636,7 +630,7 @@ pub fn short_of_its_grid(
 ///
 /// So `/EndOfBlock false` with a `/Rows` below the image's `/Height` is not a malformed file: the
 /// producer has told the filter to stop before the image is full, and the filter obeys.
-/// [`ccitt_rows`] is that derivation. What the undelivered scan lines then show is stated
+/// `ccitt_rows` is that derivation. What the undelivered scan lines then show is stated
 /// **nowhere** in ISO 32000-2 — neither Table 11 nor §8.9.5.1 has a sentence about it — so this
 /// tree chooses blank, which is what an unsent fax scan line is, and `pdf_sandbox`'s
 /// `PackedRows::pad_to_height` is where the choice is made.
@@ -653,8 +647,6 @@ pub fn short_of_its_grid(
 /// simply runs out of data early is also not this — it is the same padding for a different
 /// reason, and the clause's "or when its data has been exhausted" makes it as legal as an
 /// end-of-block pattern.
-///
-/// [`ccitt_rows`]: super::ccitt::ccitt_rows
 #[must_use]
 pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Option<String> {
     let height = positive_integer(document, &stream.dict, "Height").ok()?;

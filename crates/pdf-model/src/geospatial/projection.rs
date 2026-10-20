@@ -327,7 +327,7 @@ impl Projection {
     /// # Errors
     ///
     /// [`Refusal::NoConvergence`] where an iterated latitude does not settle within
-    /// [`MAX_ITERATIONS`], and [`Refusal::OutsideDomain`] where the point is one the method's
+    /// `MAX_ITERATIONS`, and [`Refusal::OutsideDomain`] where the point is one the method's
     /// formulas do not reach — a non-finite answer is refused, never returned, and so is a
     /// Pseudo-Mercator latitude poleward of 88°, section 3.2.1.2's limit in this direction too.
     pub fn inverse(&self, easting: f64, northing: f64) -> Result<LatLon, Refusal> {

@@ -121,7 +121,7 @@ impl ViewState {
     /// §12.11.1's requirements are a host's to evaluate first, as it does today, and an entry that
     /// §12.11.5 makes a requirement handler this processor disables is reported and not run
     /// ([`crate::requirements::disabled_handlers`], ADR 1923). Every script is
-    /// held to its runner's budget and the sequence as a whole to [`MAX_SEQUENCE_TIME`] — RFC
+    /// held to its runner's budget and the sequence as a whole to `MAX_SEQUENCE_TIME` — RFC
     /// 0008 section 6.8's open-sequence deadline — after which the rest are reported as not run
     /// (ADR 1602).
     pub fn run_open_scripts(&mut self, document: &Document, page: usize) -> usize {
@@ -227,7 +227,7 @@ impl ViewState {
     ///
     /// Before [`Self::run_open_scripts`] has run nothing is run: an open is the open sequence's,
     /// which runs the page shown when it runs, and a close says it was not run
-    /// ([`Self::before_open`]).
+    /// (`Self::before_open`).
     pub fn run_page_scripts(
         &mut self,
         document: &Document,
@@ -275,7 +275,7 @@ impl ViewState {
     /// raises: the field tree is walked only once a script is found. Table 197's four page events
     /// are [`Self::run_page_scripts`]'s, and one raised here runs its scripts as any other does.
     /// Before [`Self::run_open_scripts`] has run nothing is run, and a chain that holds scripts
-    /// says so ([`Self::before_open`]).
+    /// says so (`Self::before_open`).
     pub fn run_annotation_scripts(
         &mut self,
         document: &Document,
@@ -333,7 +333,7 @@ impl ViewState {
     /// order, and answers how many scripts were handed over and whether what a page draws may have
     /// changed ([`ScriptsRan`]).
     ///
-    /// §12.3.3: "[c]licking the text of any visible item activates the item, causing the
+    /// §12.3.3: "\[c]licking the text of any visible item activates the item, causing the
     /// interactive PDF processor to jump to a destination or trigger an action associated with the
     /// item", and §12.6.4.17 makes the trigger of an ECMAScript action an execution. **What a host
     /// calls as it performs the item's other actions**, so that the action path's refusal of the
@@ -342,7 +342,7 @@ impl ViewState {
     /// `Bookmark` as `event.target`; `page` is the zero-based page the host shows, `this.pageNum`
     /// (ADRs 1904, 1934). Before
     /// [`Self::run_open_scripts`] has run nothing is run, as at every other site
-    /// ([`Self::before_open`]).
+    /// (`Self::before_open`).
     pub fn run_outline_scripts(
         &mut self,
         document: &Document,
@@ -443,9 +443,9 @@ impl ViewState {
     /// ahead. A document that could keep its reader from closing or saving it would be a
     /// restriction no level could turn off, which `CLAUDE.md` principle 3 forbids.
     ///
-    /// The value column makes every entry "[a]n ECMAScript action", so an action of another type
+    /// The value column makes every entry "\[a]n ECMAScript action", so an action of another type
     /// in the chain is not performed, and is reported. The chain is held to its runner's budget per
-    /// script and to [`MAX_SEQUENCE_TIME`] as a whole; with no runner supplied, the scripts are
+    /// script and to `MAX_SEQUENCE_TIME` as a whole; with no runner supplied, the scripts are
     /// reported as not run, once.
     pub fn run_document_scripts(
         &mut self,
@@ -537,7 +537,7 @@ impl ViewState {
     /// Says that a request a host raised held scripts and ran none, because the open sequence has
     /// not run (ADR 1750).
     ///
-    /// Table 32's name tree is executed "[w]hen the document is opened … defining ECMAScript
+    /// Table 32's name tree is executed "\[w]hen the document is opened … defining ECMAScript
     /// functions for use by other scripts in the document", so a script run before it would meet a
     /// library that does not exist yet, and a person would read the `ReferenceError` as the
     /// form's. A host runs the sequence after its first present (RFC 0008 section 6.6), so only a
@@ -1034,7 +1034,7 @@ fn open_action(document: &Document) -> Walked {
 /// The catalog's Table 200 entry for one trigger, where its additional-actions dictionary states
 /// one.
 ///
-/// Table 29 makes the catalog's `/AA` "[a]n additional-actions dictionary defining the actions
+/// Table 29 makes the catalog's `/AA` "\[a]n additional-actions dictionary defining the actions
 /// that shall be taken in response to various trigger events affecting the document as a whole".
 fn document_entry(document: &Document, trigger: DocumentTrigger) -> Option<Object> {
     let catalog = document.catalog().ok()?;

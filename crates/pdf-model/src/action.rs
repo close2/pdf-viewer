@@ -47,7 +47,7 @@
 //! excludes. §12.6.4.6's `Launch` is handed to no other clause, but it does say what a processor
 //! does with an action whose target it cannot name — "it shall do nothing" — and Table 207's `/F`
 //! may name "the document that shall be opened", which is a PDF this reader opens under the same
-//! four levels as `GoToR`'s. [`launch`] is where the three part (ADRs 1368, 1358).
+//! four levels as `GoToR`'s. `launch` is where the three part (ADRs 1368, 1358).
 //!
 //! # A URI action is read here and performed nowhere
 //!
@@ -65,7 +65,7 @@
 //!
 //! Table 196's `/Next` is "either a single action dictionary or an array of action
 //! dictionaries that shall be performed in order", and each of those may have a `/Next` of its
-//! own, so — in the clause's own words — "[t]he actions can thus form a tree instead of a
+//! own, so — in the clause's own words — "\[t]he actions can thus form a tree instead of a
 //! simple linked list". [`read`] flattens that tree into the order it is to be performed in.
 //!
 //! NOTE 1 also states the one robustness rule the clause gives, and it is a rule about
@@ -91,7 +91,7 @@ const MAX_ACTIONS: usize = 256;
 
 /// How many Table 205 target dictionaries are followed from one embedded go-to action.
 ///
-/// §12.6.4.4's NOTE asks for exactly this: "[i]t is an error for a target dictionary to have an
+/// §12.6.4.4's NOTE asks for exactly this: "\[i]t is an error for a target dictionary to have an
 /// infinite cycle (for example, one where a target dictionary refers to itself). Interactive PDF
 /// processors need to attempt to detect such cases and refuse to execute the action if one is
 /// found." A path this long describes a document nested deeper than any real collection.
@@ -132,7 +132,7 @@ pub enum Action {
     GoToR(RemoteGoTo),
     /// §12.6.4.6: open the document Table 207's `/F` names.
     ///
-    /// Table 207 makes `/F` "[t]he application that shall be launched or the document that shall
+    /// Table 207 makes `/F` "\[t]he application that shall be launched or the document that shall
     /// be opened or printed", and which of the two it is cannot be told from a file
     /// specification's name. So the file is named here as [`Self::GoToR`]'s is, for whoever owns
     /// a filesystem to resolve or refuse under the same four levels, and what came back decides:
@@ -391,7 +391,7 @@ impl Named {
 pub struct ResetForm {
     /// Table 241's `/Fields`, in whichever of its two forms each element takes.
     ///
-    /// Empty means the entry was absent, which the table makes decisive: "[i]f this entry is
+    /// Empty means the entry was absent, which the table makes decisive: "\[i]f this entry is
     /// omitted, the Include/Exclude flag shall be ignored; all fields in the document's
     /// interactive form are reset."
     pub fields: Vec<ResetTarget>,
@@ -404,13 +404,13 @@ pub struct ResetForm {
 
 /// One entry of Table 241's `/Fields`.
 ///
-/// The table permits both spellings in one array — "[e]lements of both kinds may be mixed in the
+/// The table permits both spellings in one array — "\[e]lements of both kinds may be mixed in the
 /// same array" — which is why this is an enum rather than two entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResetTarget {
-    /// "[A]n indirect reference to a field dictionary".
+    /// "\[A]n indirect reference to a field dictionary".
     Field(ObjectId),
-    /// "[A] text string representing the fully qualified name of a field" (PDF 1.3).
+    /// "\[A] text string representing the fully qualified name of a field" (PDF 1.3).
     Name(String),
 }
 
@@ -427,7 +427,7 @@ pub enum ResetTarget {
 /// request crosses to the host, which is the only party with a network (ADR 1062).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmitForm {
-    /// Table 239's `/F`, "[a] URL file specification (see 7.11.5, \"URL specifications\")
+    /// Table 239's `/F`, "\[a] URL file specification (see 7.11.5, \"URL specifications\")
     /// giving the uniform resource locator (URL) of the script at the Web server that will
     /// process the submission".
     ///
@@ -438,15 +438,15 @@ pub struct SubmitForm {
     pub url: String,
     /// Table 239's `/Fields`, in whichever of its two forms each element takes.
     ///
-    /// The same two spellings as Table 241's, word for word — "[e]ach element of the array
+    /// The same two spellings as Table 241's, word for word — "\[e]ach element of the array
     /// shall be either an indirect reference to a field dictionary or (PDF 1.3) a text string
     /// representing the fully qualified name of a field. Elements of both kinds may be mixed
     /// in the same array" — so it is [`ResetTarget`] here too. Empty means the entry was
-    /// absent: "[i]f this entry is omitted, the Include/Exclude flag shall be ignored, and all
+    /// absent: "\[i]f this entry is omitted, the Include/Exclude flag shall be ignored, and all
     /// fields in the document's interactive form shall be submitted except those whose
     /// `NoExport` flag … is set".
     pub fields: Vec<ResetTarget>,
-    /// Table 239's `/Flags`, "[a] set of flags specifying various characteristics of the
+    /// Table 239's `/Flags`, "\[a] set of flags specifying various characteristics of the
     /// action". Default value 0.
     pub flags: SubmitFlags,
     /// Table 239's `/CharSet` (PDF 2.0), as the file spells it: "utf-8, utf-16, Shift-JIS,
@@ -549,14 +549,14 @@ impl SubmitFlags {
 /// What this crate can do is everything else — [`crate::forms_data::FormsData::read`] reads the
 /// file's bytes once somebody has them, and [`crate::view::ViewState::import`] applies it.
 ///
-/// "[O]r any other data format that it supports" is what makes [`Self::format`] worth stating
+/// "\[O]r any other data format that it supports" is what makes [`Self::format`] worth stating
 /// rather than guessing: this program supports the two the table names and no third.
 /// [`crate::forms_data`] reads §12.7.8's FDF and [`crate::xfdf`] reads ISO 19444-1's XFDF, which
 /// is the same data in XML — so the extension says which reader the bytes go to, and the reader
 /// says whether they were that format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportData {
-    /// Table 243's `/F`, "[t]he FDF, XFDF or any other data format file from which to import the
+    /// Table 243's `/F`, "\[t]he FDF, XFDF or any other data format file from which to import the
     /// data", as the file names it.
     ///
     /// §7.11.3 makes a file specification "either a string or a dictionary", and both are read
@@ -565,7 +565,7 @@ pub struct ImportData {
     pub file: String,
     /// Which format the name says it is, from nothing more than the file name's extension.
     ///
-    /// §12.7.8.1 is where the extension comes from — "[o]n the Microsoft Windows and UNIX
+    /// §12.7.8.1 is where the extension comes from — "\[o]n the Microsoft Windows and UNIX
     /// platforms, FDF files shall have the extension .fdf" — and it is a *hint*: the clause
     /// states no way for the action itself to say which format its file is in, so a caller that
     /// opens the file learns the truth from [`crate::forms_data::FormsData::read`], which
@@ -605,17 +605,17 @@ pub enum DataFormat {
 /// the caller reads the destination there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddedGoTo {
-    /// Table 204's `/D`, "[t]he destination in the target to jump to", as the file states it.
+    /// Table 204's `/D`, "\[t]he destination in the target to jump to", as the file states it.
     pub destination: Object,
     /// Table 204's `/T`, flattened into the steps it nests.
     ///
-    /// Empty where `/F` is present and `/T` is not, which the table permits: "[o]ptional if F is
+    /// Empty where `/F` is present and `/T` is not, which the table permits: "\[o]ptional if F is
     /// present; otherwise required". An empty path with no `/F` is an action naming no target.
     pub path: Vec<TargetStep>,
-    /// Table 204's `/F`, "[t]he root document of the target relative to the root document of the
+    /// Table 204's `/F`, "\[t]he root document of the target relative to the root document of the
     /// source", where the action names one.
     ///
-    /// `None` is the table's own default — "[i]f this entry is absent, the source and target
+    /// `None` is the table's own default — "\[i]f this entry is absent, the source and target
     /// share the same root document" — and is the case this crate can finish on its own, because
     /// every other root is a file this process has no filesystem to reach. Where the action names
     /// one, the *name* crosses to whoever opened the document and the bytes come back:
@@ -623,7 +623,7 @@ pub struct EmbeddedGoTo {
     pub root: Option<TargetRoot>,
     /// Table 204's `/NewWindow`.
     ///
-    /// The table makes it a *should* and states the fallback: "[i]f this entry is absent, the
+    /// The table makes it a *should* and states the fallback: "\[i]f this entry is absent, the
     /// interactive PDF processor should act according to its preference." This program has one
     /// window, so its preference is to replace — and it says so rather than pretending.
     pub new_window: Option<bool>,
@@ -635,7 +635,7 @@ pub struct EmbeddedGoTo {
 /// > another PDF file instead of the current file.
 ///
 /// **Named rather than opened, which is the whole of this crate's half.** Table 203 makes `/F`
-/// "[t]he file in which the destination shall be located" and §7.11 makes a file specification a
+/// "\[t]he file in which the destination shall be located" and §7.11 makes a file specification a
 /// name in the document's own words; `CLAUDE.md` principle 3 gives this process no filesystem,
 /// so the name crosses to whoever opened the document and the bytes come back — the same
 /// division [`EmbeddedGoTo::root`] takes one clause along, and the same one §12.7.6.4's
@@ -649,12 +649,12 @@ pub struct EmbeddedGoTo {
 /// [`Self::page_in`] is where it is read, in the document it is about.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RemoteGoTo {
-    /// Table 203's `/F`: "[t]he file in which the destination shall be located."
+    /// Table 203's `/F`: "\[t]he file in which the destination shall be located."
     ///
     /// Required by the table, so an action without one is not one: [`crate::action`]'s reader
     /// answers `None` rather than producing an action naming no file.
     pub file: TargetRoot,
-    /// Table 203's `/D`, "[t]he destination to jump to", as the file states it.
+    /// Table 203's `/D`, "\[t]he destination to jump to", as the file states it.
     pub destination: Object,
     /// Table 203's `/SD`'s first element, where the action states one.
     ///
@@ -667,7 +667,7 @@ pub struct RemoteGoTo {
     /// The identifier only, because the identifier is what names the page: §12.3.2.3 makes a
     /// structure destination "the same view mechanism as a destination" over an element rather
     /// than a page, and the element is found in the *remote* document through §14.7.2's
-    /// `/IDTree`. The table's precedence — "[i]f present, the structure destination should take
+    /// `/IDTree`. The table's precedence — "\[i]f present, the structure destination should take
     /// precedence over destination in the D entry" — is applied by [`Self::page_in`], and it is
     /// a `should`, so an identifier that document does not hold falls back to `/D`.
     pub structure_destination: Option<Vec<u8>>,
@@ -696,9 +696,9 @@ pub struct RemoteGoTo {
 /// Which of the two actions that open a second PDF by its file specification this is.
 ///
 /// Both ask for one file under the same four levels and open it the same way; they differ in what
-/// the file may turn out to be and in where the document opens. Table 203's `/F` is "[t]he file in
+/// the file may turn out to be and in where the document opens. Table 203's `/F` is "\[t]he file in
 /// which the destination shall be located", so it is a PDF and `/D` names the page. Table 207's is
-/// "[t]he application that shall be launched or the document that shall be opened or printed", so
+/// "\[t]he application that shall be launched or the document that shall be opened or printed", so
 /// it is a PDF only if its bytes say so, and it names no page (ADR 1358).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteAct {
@@ -722,12 +722,12 @@ impl RemoteAct {
 impl RemoteGoTo {
     /// The zero-based index of the page this action names, in the document it names.
     ///
-    /// Table 203's `/SD` first, because the table says so — "[i]f present, the structure
+    /// Table 203's `/SD` first, because the table says so — "\[i]f present, the structure
     /// destination should take precedence over destination in the D entry" — and `/D` behind it,
     /// which is where a `should` leaves a reader when the identifier names nothing: §14.7.2's
     /// `/IDTree` is optional and an untagged remote document holds none.
     ///
-    /// `/D`'s explicit form is read as §12.3.2.2 states it for this action: "[t]he first page
+    /// `/D`'s explicit form is read as §12.3.2.2 states it for this action: "\[t]he first page
     /// shall be numbered 0", which is [`crate::destination::Destination::page_index_in_target`].
     /// A named destination is looked up in the remote document's own tables, for the same reason.
     ///
@@ -825,9 +825,9 @@ pub enum TargetStep {
 /// Table 205's `/P`, in both the forms the table gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachmentPage {
-    /// "[I]t specifies the page number (zero-based) in the current document".
+    /// "\[I]t specifies the page number (zero-based) in the current document".
     Index(usize),
-    /// "[I]t specifies a named destination in the current document that provides the page
+    /// "\[I]t specifies a named destination in the current document that provides the page
     /// number of the file attachment annotation."
     Named(String),
 }
@@ -835,9 +835,9 @@ pub enum AttachmentPage {
 /// Table 205's `/A`, in both the forms the table gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachmentIndex {
-    /// "[T]he index (zero-based) of the annotation in the Annots array".
+    /// "\[T]he index (zero-based) of the annotation in the Annots array".
     Index(usize),
-    /// "[T]he value of NM in the annotation dictionary".
+    /// "\[T]he value of NM in the annotation dictionary".
     Name(String),
 }
 
@@ -885,7 +885,7 @@ impl EmbeddedGoTo {
     /// Opens the document Table 205's path leads to, starting from `source`.
     ///
     /// The path is walked one step at a time and the *current document* is what each step is
-    /// relative to, which is the clause's own model: "[a]s the hierarchy is navigated, each
+    /// relative to, which is the clause's own model: "\[a]s the hierarchy is navigated, each
     /// intermediate target shall be referred to as the current document. Initially, the source
     /// is the current document."
     ///
@@ -911,20 +911,20 @@ impl EmbeddedGoTo {
     /// Resumes the walk against the root document Table 204's `/F` named, once it has arrived.
     ///
     /// **The half of this clause that is a question about the machine rather than about the
-    /// file.** `/F` is "[t]he root document of the target relative to the root document of the
+    /// file.** `/F` is "\[t]he root document of the target relative to the root document of the
     /// source", so it is a file on somebody's disk; the process that reads a PDF has none
     /// (`CLAUDE.md` principle 3), and the name crosses to whoever opened the document — the same
     /// shape §12.7.6.4's import-data already has. What comes back is parsed here, which is where
     /// every other document this program opens is parsed, and this function is the resumption.
     ///
     /// **Nothing about the walk changes across the pause**, and that is the whole reason it is
-    /// this function rather than a second reading: [`MAX_TARGET_DEPTH`] bounded the path when
+    /// this function rather than a second reading: `MAX_TARGET_DEPTH` bounded the path when
     /// the action was *read*, so the list is already finite; and the bounds the target's
     /// children are decoded under are the ones `root` was opened with, which the caller takes
     /// from the document a person opened.
     ///
-    /// An empty path is Table 204's own case rather than an error here — "[o]ptional if F is
-    /// present; otherwise required", and the clause's EXAMPLE object 5 is exactly it, a "[l]ink
+    /// An empty path is Table 204's own case rather than an error here — "\[o]ptional if F is
+    /// present; otherwise required", and the clause's EXAMPLE object 5 is exactly it, a "\[l]ink
     /// from an embedded file to a normal file" with an `/F` and no `/T`. The root that arrived
     /// *is* the target.
     ///
@@ -1181,7 +1181,7 @@ fn file_specification(document: &Document, dict: &Dictionary, key: &str) -> Opti
 /// [`DocumentPartJump::page_in`]'s caller's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentPartJump {
-    /// Table 206's `/Dp`, "[t]he indirect reference to a `DPart` dictionary to go to".
+    /// Table 206's `/Dp`, "\[t]he indirect reference to a `DPart` dictionary to go to".
     pub part: ObjectId,
 }
 
@@ -1209,7 +1209,7 @@ impl DocumentPartJump {
 /// [`ThreadJump::bead_in`] takes them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadJump {
-    /// Table 209's `/F`, "[t]he file containing the thread", where the action names one.
+    /// Table 209's `/F`, "\[t]he file containing the thread", where the action names one.
     ///
     /// §12.6.4.7, Table 209:
     ///
@@ -1219,9 +1219,9 @@ pub struct ThreadJump {
     /// document — §12.6.4.3's act reached through a different table, and a question for whoever
     /// opened the document rather than for this crate (ADRs 1227, 1239).
     pub file: Option<TargetRoot>,
-    /// Table 209's `/D`, "[t]he destination thread", in whichever form the file states it.
+    /// Table 209's `/D`, "\[t]he destination thread", in whichever form the file states it.
     pub thread: ThreadTarget,
-    /// Table 209's `/B`, "[t]he bead in the destination thread", where the file names one.
+    /// Table 209's `/B`, "\[t]he bead in the destination thread", where the file names one.
     ///
     /// Absent means the thread's first bead: the entry is optional, and a thread action with
     /// no bead can only mean the place a thread starts.
@@ -1238,7 +1238,7 @@ pub enum ThreadTarget {
     Index(usize),
     /// "The title of the thread as specified in its thread information dictionary."
     ///
-    /// The clause states the tie-break itself: "[i]f two or more threads have the same title,
+    /// The clause states the tie-break itself: "\[i]f two or more threads have the same title,
     /// the one appearing first in the document catalog's Threads array shall be used."
     Title(String),
 }
@@ -1455,7 +1455,7 @@ pub fn for_page(document: &Document, page: &Dictionary, event: PageTrigger) -> V
 /// Reads the action an `/A` entry names, and everything its `/Next` chain performs after it.
 ///
 /// The returned list is in execution order: an action, then its `/Next` subtree, then the
-/// next sibling — which is what §12.6.2 NOTE 1 describes as "[a]ctions within each Next array
+/// next sibling — which is what §12.6.2 NOTE 1 describes as "\[a]ctions within each Next array
 /// are executed in order, each followed in turn by any actions specified in its Next entry,
 /// and so on recursively".
 ///
@@ -1569,7 +1569,7 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
 /// `None` where `/F` is absent or names no URL — the table makes `/F` required, so a submit-form
 /// action naming no server has stated nowhere to send anything, which is a dictionary rather than
 /// an action. Everything else defaults as the table says it does: `/Fields` absent means every
-/// field, `/Flags` "[d]efault value: 0".
+/// field, `/Flags` "\[d]efault value: 0".
 ///
 /// `/Fields` is read exactly as [`reset_form`] reads Table 241's, and shares its type, because
 /// the two tables state the element identically; the comment in that function about a reference
@@ -1648,8 +1648,8 @@ fn import_data(document: &Document, dict: &Dictionary) -> Option<Action> {
 /// and the name is written by whichever platform exported the data.
 ///
 /// **Two clauses ask this and they ask it of different strings**, which is why it is a function
-/// rather than four lines inside [`import_data`]: §12.7.6.4's action names a file specification,
-/// and Annex O's `fdf` parameter names a URI — "[t]he URI shall be either a relative or absolute
+/// rather than four lines inside `import_data`: §12.7.6.4's action names a file specification,
+/// and Annex O's `fdf` parameter names a URI — "\[t]he URI shall be either a relative or absolute
 /// URI to an FDF or XFDF file" — and the two would otherwise hold two opinions about what an
 /// `.xfdf` is. Which of the formats this program *reads* is neither clause's business and is
 /// answered where the bytes arrive.
@@ -1673,7 +1673,7 @@ pub fn data_format(name: &str) -> DataFormat {
 /// `None` where `/D` is absent or is none of its three types: the entry is required, and an
 /// action naming no thread has stated nothing to jump to. A `/F` is carried rather than refused
 /// since ADR 1239 — the bytes are a host's to supply, exactly as Table 203's `/F` is — and the
-/// one combination that is refused is the one the *table* contradicts: "[a]n indirect reference
+/// one combination that is refused is the one the *table* contradicts: "\[a]n indirect reference
 /// to a thread dictionary … the thread shall be in the current file", and Table 209 says the
 /// same of `/B`, so a reference beside a `/F` is a file stating both that the thread is here and
 /// that it is elsewhere.
@@ -1758,8 +1758,8 @@ fn uri(document: &Document, dict: &Dictionary) -> Option<Uri> {
 
 /// Table 211's `/Base`, from the catalog's `/URI` dictionary.
 ///
-/// §12.6.4.8: "[t]o support URI actions, a PDF document's catalog dictionary … may include a
-/// URI entry whose value is a URI dictionary", and "[o]nly one entry shall be defined for
+/// §12.6.4.8: "\[t]o support URI actions, a PDF document's catalog dictionary … may include a
+/// URI entry whose value is a URI dictionary", and "\[o]nly one entry shall be defined for
 /// such a dictionary". One corpus document of 974 states it.
 fn base_uri(document: &Document) -> Option<String> {
     let catalog = document.catalog().ok()?;
@@ -1870,7 +1870,7 @@ impl Change {
 
 /// §12.6.4.6's launch action: a file to ask for, or one of the two refusals the clause distinguishes.
 ///
-/// Table 207 makes `/F` — "[t]he application that shall be launched or the document that shall
+/// Table 207 makes `/F` — "\[t]he application that shall be launched or the document that shall
 /// be opened or printed" — required only "if none of the entries Win , Mac , or Unix is
 /// present", and states what a processor does with a launch action that names its target no
 /// other way it understands:
@@ -1879,7 +1879,7 @@ impl Change {
 /// > alternative entries, it shall do nothing.
 ///
 /// The three alternatives are understood by nothing here — `/Mac` and `/Unix` are typed
-/// "(undefined)" by the table itself and `/Win` is deprecated in PDF 2.0 — and §12.6.4.6 says "[t]he
+/// "(undefined)" by the table itself and `/Win` is deprecated in PDF 2.0 — and §12.6.4.6 says "\[t]he
 /// F entry determines the file specification platform to be launched", so `/F` is the only entry
 /// that names the file. A launch action without one is declined by the standard's own instruction,
 /// which is a different fact about the file from any this program could state.
@@ -1893,7 +1893,7 @@ impl Change {
 /// printing over opening, and `/Win` is deprecated. [`Action::Refused`] carries this program's
 /// vocabulary rather than the document's, and a `&'static str` is what enforces it.
 ///
-/// §7.3.9 decides what "present" means — "[s]pecifying the null object as the value of a
+/// §7.3.9 decides what "present" means — "\[s]pecifying the null object as the value of a
 /// dictionary entry … shall be equivalent to omitting the entry entirely" — so `get_key` answers
 /// it, not `Dictionary::get`.
 fn launch(document: &Document, dict: &Dictionary) -> Action {

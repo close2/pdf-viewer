@@ -14,7 +14,7 @@ use super::unpack::index_of;
 /// §11.6.5.2's soft-mask image, kept in the file's own packed samples.
 ///
 /// The alternative is one byte of RGBA per sample per channel, which is what
-/// [`combine_on_the_finer_grid`] would need and what `issue16263.pdf`'s 34862×4332 mask makes
+/// `combine_on_the_finer_grid` would need and what `issue16263.pdf`'s 34862×4332 mask makes
 /// impossible: 604 MB for two distinct colours. Packed, the same mask is the 19 MB its
 /// `FlateDecode` stream inflates to, and a raster of any grid can be read out of it.
 ///
@@ -216,6 +216,7 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
     /// decision.
     ///
     /// [`decode_parts`]: super::decode_parts
+    /// [`Self::samples`]: pdf_render::ImageAtDeviceScale::samples
     fn sample_alpha(&self) -> SampleAlpha {
         self.base.sample_alpha
     }
@@ -231,6 +232,8 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
     /// now is: the product is in [`Self::samples`] and not in this one. `None` for a base that
     /// is not a stencil, whose alpha is the mask's opacity alone and has no shape to separate.
     /// ADR 1218.
+    ///
+    /// [`Self::samples`]: pdf_render::ImageAtDeviceScale::samples
     fn shape(&self) -> Option<pdf_render::ImageSource> {
         (self.base.sample_alpha == SampleAlpha::Both).then(|| {
             pdf_render::ImageSource::Decoded(Image {

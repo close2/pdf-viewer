@@ -7,7 +7,7 @@
 //! `/Border`, `/BS`, and for a widget the `/MK` dictionary of §12.5.6.19. §12.7.4.3 names the
 //! operation — "the PDF processor shall construct an appearance stream dynamically at
 //! rendering time" — and that is literally what this module does: it writes a content stream,
-//! which [`crate::annotation`] places by §12.5.5's algorithm and `crate::content` then runs
+//! which `crate::annotation` places by §12.5.5's algorithm and `crate::content` then runs
 //! like any other form `XObject`.
 //!
 //! # The same keys, two roles
@@ -31,13 +31,13 @@
 //!
 //! Three things moved, and each matters here:
 //!
-//! - **The blanket clause is gone.** "[W]ithout regard to any other keys and values in the
+//! - **The blanket clause is gone.** "\[W]ithout regard to any other keys and values in the
 //!   annotation dictionary" was the sentence's principle; what is left is a list, so an entry's
 //!   absence from it no longer means a reader may consult it *by default* — but neither does the
 //!   sentence forbid every entry it does not name.
-//! - **`BM` left the list**, which [`crate::annotation::blend_mode`] is the consequence of.
+//! - **`BM` left the list**, which `crate::annotation::blend_mode` is the consequence of.
 //! - **`MK` joined it**, so a widget's appearance characteristics are for *constructing* a stream
-//!   and never for painting over a stored one — which is what [`widget`] already does, since
+//!   and never for painting over a stored one — which is what `widget` already does, since
 //!   `/MK` is read on no path a stored appearance reaches.
 //!
 //! A stored appearance stream is self-contained and the listed entries mean nothing to it; an
@@ -59,7 +59,7 @@
 //!
 //!   `FileAttachment` and `Sound` are not on this bullet (ADR 0906): §12.5.6.15's `Graph`,
 //!   `PushPin`, `Paperclip` and `Tag` and §12.5.6.16's `Speaker` and `Mic` name **objects** rather
-//!   than legends, so their artwork is argued from the clause's own words and [`symbol_icon`] draws
+//!   than legends, so their artwork is argued from the clause's own words and `symbol_icon` draws
 //!   all six; what is still refused is a `/Name` outside those lists, which is a different
 //!   sentence. §12.5.6.12's names are the ones that are legends, and its arm below says so.
 //! - `PrinterMark` and `TrapNet` are each a mark whose *whole* visual presentation the standard
@@ -69,15 +69,15 @@
 //!   and §13.7.2 each require the annotation to "provide an appearance stream in its AP entry",
 //!   and what the inactive state displays *is* that stream. Without it there is only artwork a
 //!   media engine renders.
-//! - `Watermark` is refused for a reason of its own, and it is not "no geometry" — [`construct`]'s
+//! - `Watermark` is refused for a reason of its own, and it is not "no geometry" — `construct`'s
 //!   arm carries the reading: §12.5.6.22's Table 194 states a transformation of the annotation
 //!   rectangle, which is where an appearance goes rather than what it contains. `Movie` is drawn
 //!   from §13.4's Table 306 `/Poster` where that is an image stream, and refused only where the
-//!   poster would be a frame of the movie itself ([`movie_poster`], ADR 1561).
+//!   poster would be a frame of the movie itself (`movie_poster`, ADR 1561).
 //! - `Caret` is refused for a **third** reason, not the second one's sentence (ADR 0457).
 //!   §12.5.6.11's Table 183 states geometry and a symbol; what it does not state is the caret,
 //!   and its `/RD` row says the pilcrow is "displayed along with the caret" rather than instead
-//!   of it. [`construct`]'s arm has the
+//!   of it. `construct`'s arm has the
 //!   reading.
 //! - `Redact` is refused for a **fourth**, and was the second subtype to be told it stated no
 //!   geometry while its table stated some (ADR 0461). §12.5.6.23's Table 195 states
@@ -109,11 +109,11 @@
 //! the following standard names". The artwork is as unstated there as anywhere — that is why
 //! `CLAUDE.md` uses this very icon as its standing example of a silence — but the *obligation to
 //! have some* is normative, so refusing was a conformance failure rather than a restraint.
-//! [`crate::icon`] holds the seven shapes and the argument for each; [`text_icon`] holds what the
+//! `crate::icon` holds the seven shapes and the argument for each; `text_icon` holds what the
 //! document gets to say about them. One clause of four obliging and three recommending is exactly
 //! the distinction a single `match` arm over all four subtypes had hidden.
 //!
-//! **§12.5.6.10's four text markup subtypes are not on this list** ([`text_markup`]): the clause
+//! **§12.5.6.10's four text markup subtypes are not on this list** (`text_markup`): the clause
 //! states four things — the mark's kind, its region, its orientation and Table 166's colour —
 //! and leaves only a thickness, which the quadrilateral's own height supplies as a fraction
 //! (ADR 0043). The corpus is what says
@@ -125,7 +125,7 @@
 //! A `FreeText` (§12.5.6.6) and a field holding a value need §12.7.4.3's variable text, which
 //! is not a shape read off an entry but a layout: a font, a size and a colour parsed out of a
 //! `/DA` string, resolved against the interactive form dictionary's `/DR`, measured, wrapped
-//! and positioned. [`crate::variable_text`] is that, and this module is what decides *which*
+//! and positioned. `crate::variable_text` is that, and this module is what decides *which*
 //! text each subtype and field type states — the two questions are separate and the clauses
 //! that answer them are in different subclauses.
 
@@ -215,10 +215,10 @@ pub(crate) struct Constructed {
 ///
 /// **`None` where there is no annotation to construct from**: one with no readable `/Rect`, or
 /// none whose `/Subtype` resolves to a name. A subtype whose own clause states no artwork is
-/// *not* one of those — [`construct`]'s arms carry the reading for each, and every one of them
+/// *not* one of those — `construct`'s arms carry the reading for each, and every one of them
 /// returns a stream with the whole of the artwork owed, which [`Written::drawn`] is what says it.
 ///
-/// The report is [`Constructed::report`], and a caller writing this into a file is expected to
+/// The report is `Constructed::report`, and a caller writing this into a file is expected to
 /// act on it rather than only print it: a construction that could not be completed is a partial
 /// rendering, and freezing one into a document is not the same act as writing down what the
 /// clauses state. **[`Written::drawn`] separates a partial rendering from no rendering at all**,
@@ -263,7 +263,7 @@ pub fn for_annotation(document: &Document, annotation: &Dictionary) -> Option<Wr
 ///
 /// # It states no mark, and that is the whole of what is owed
 ///
-/// §12.5.6.7 gives a line annotation's `/IT` "[a] name describing the intent of the line
+/// §12.5.6.7 gives a line annotation's `/IT` "\[a] name describing the intent of the line
 /// annotation" with two valid values, and §12.5.6.9 gives a polygon's or polyline's three. Every
 /// one of the five is a sentence about what the annotation is *intended to function as* — an
 /// arrow, a dimension line, a cloud — and not one says anything about the shape that is drawn:
@@ -288,12 +288,12 @@ pub enum Intent {
     LineArrow,
     /// Table 178's `LineDimension`: "the annotation is intended to function as a dimension line".
     LineDimension,
-    /// Table 181's `PolygonCloud`: "[t]he annotation is intended to function as a cloud object".
+    /// Table 181's `PolygonCloud`: "\[t]he annotation is intended to function as a cloud object".
     PolygonCloud,
-    /// Table 181's `PolyLineDimension`: "[t]he polyline annotation is intended to function as a
+    /// Table 181's `PolyLineDimension`: "\[t]he polyline annotation is intended to function as a
     /// dimension".
     PolyLineDimension,
-    /// Table 181's `PolygonDimension`: "[t]he polygon annotation is intended to function as a
+    /// Table 181's `PolygonDimension`: "\[t]he polygon annotation is intended to function as a
     /// dimension".
     PolygonDimension,
     /// A name the annotation's own table does not define, kept as the producer spelled it.
@@ -308,7 +308,7 @@ pub enum Intent {
 ///
 /// `A` rather than the clause's `AA = Matrix × A`, because §8.10.1 makes `Do` concatenate the
 /// stream's own `/Matrix` itself, so the invoked stream is drawn under `AA` exactly as
-/// [`crate::annotation`] draws it for a viewer (`doc/adr/2091`). ISO 32000-1:2008's 12.5.5 states
+/// `crate::annotation` draws it for a viewer (`doc/adr/2091`). ISO 32000-1:2008's 12.5.5 states
 /// the same three steps, so the map is the same under either edition, and one implementation of
 /// the algorithm serves both callers.
 ///
@@ -334,7 +334,7 @@ pub fn placement(
 /// `callout` in this module — is unaffected.
 ///
 /// Table 181 serves both of its subtypes with one list, and two of its three cells name a
-/// subtype in their own text — "[t]he polyline annotation" and "[t]he polygon annotation". The
+/// subtype in their own text — "\[t]he polyline annotation" and "\[t]he polygon annotation". The
 /// list is still the table's, so a `Polygon` stating `PolyLineDimension` has stated one of the
 /// names "shall be valid" for the entry and is read as it; which of the two the producer meant
 /// is not a question the shape can answer.
@@ -1061,7 +1061,7 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
 /// # The second reason, which is not the flag
 ///
 /// **A value this program replaced makes the stored stream stale whatever the flag says.**
-/// §12.7.2's sentence — "[i]f such an object defines an appearance stream, the appearance shall
+/// §12.7.2's sentence — "\[i]f such an object defines an appearance stream, the appearance shall
 /// be consistent with the object's current value as a field" — is an obligation on whoever wrote
 /// the file, and the file kept it: the stream matches the `/V` the file states. It stops being
 /// kept the moment §12.7.6.3's reset, §12.7.8's import or a person's typing replaces that value,
@@ -1129,7 +1129,7 @@ pub(crate) enum ForSaving {
 /// The appearance states of a toggling button this program constructs, by Table 170's names.
 ///
 /// §12.7.5.2.3 keeps each state "defined by an appearance stream in the appearance dictionary of
-/// the field's widget annotation", and "[t]he appearance for the off state is optional but, if
+/// the field's widget annotation", and "\[t]he appearance for the off state is optional but, if
 /// present, shall be stored in the appearance dictionary under the name Off". So the on state is
 /// written under the name the widget already selects it by, and `Off` beside it.
 pub(crate) struct SavedStates {
@@ -1599,7 +1599,7 @@ pub(crate) fn form_font(document: &Document, asked: &str) -> Option<(String, Str
     ))
 }
 
-/// Table 234's `/Opt` as a script rewrote it (ADR 1737). ISO 32000-2 Table 234: "[e]ach element
+/// Table 234's `/Opt` as a script rewrote it (ADR 1737). ISO 32000-2 Table 234: "\[e]ach element
 /// of the array is either a text string representing one of the available options or an array
 /// consisting of two text strings: the option's export value and the text that shall be displayed
 /// as the name of the option" — the pair where the option states an export value.
@@ -1965,7 +1965,7 @@ type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;
 /// One function for two clauses because they ask the same thing in the same words — Table 187 and
 /// Table 188 both say a reader "should provide predefined icon appearances for at least" a list
 /// of names, and both name *objects*. The difference from [`text_icon`] is Table 166's `/C`: that
-/// entry is "[t]he background of the annotation's icon when closed" for a text annotation, and
+/// entry is "\[t]he background of the annotation's icon when closed" for a text annotation, and
 /// neither of these two clauses says anything of the kind, so nothing is filled behind them.
 ///
 /// A `/Name` outside the clause's list is reported by name rather than drawn as the default, for
@@ -2084,7 +2084,7 @@ fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
 ///
 /// # A cloudy `/BE` is the same shape with a different border
 ///
-/// Table 180's `/BE` is "[a] border effect dictionary describing an effect applied to the border
+/// Table 180's `/BE` is "\[a] border effect dictionary describing an effect applied to the border
 /// described by the BS entry", and §12.5.4 makes applying it a `shall`. The scallops go where
 /// the straight line went — inside the shape, so that the cloud's outer reach is the rectangle
 /// or ellipse the clause inscribes — and `/IC` fills the cloud, since the cloud *is* this
@@ -2526,7 +2526,7 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// > The length of leader lines in default user space that extend from each endpoint of the
 /// > line perpendicular to the line itself
 ///
-/// — with the sign deciding which side: "[a] positive value shall mean that the leader lines
+/// — with the sign deciding which side: "\[a] positive value shall mean that the leader lines
 /// appear in the direction that is clockwise when traversing the line from its starting point
 /// to its ending point (as specified by L); a negative value shall indicate the opposite
 /// direction." `/LLE` extends each leader "from the line proper 180 degrees from the leader
@@ -2540,7 +2540,7 @@ fn ink(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Out
 /// own "no leader lines" — was declined for asking for nothing.
 ///
 /// One entry is still owed and it states a different kind of nothing: `/LE`'s endings
-/// name shapes with no size (Table 179 says "[a] square", "[t]wo short lines meeting in an
+/// name shapes with no size (Table 179 says "\[a] square", "\[t]wo short lines meeting in an
 /// acute angle" — and no dimension, ADR 0075). **It is named beside the drawn line rather than
 /// instead of it** (ADR 0106): it is optional and additive where `/L` is required, so
 /// declining the whole annotation for it drew nothing where the clause states a line. That
@@ -2844,7 +2844,7 @@ impl Caption {
 
     /// The pieces of the line proper that survive an inline caption's break.
     ///
-    /// §12.5.6.7 makes the line required — "[t]he purpose of a line annotation … is to display a
+    /// §12.5.6.7 makes the line required — "\[t]he purpose of a line annotation … is to display a
     /// single straight line on the page" — so a break that would leave nothing is not taken at
     /// all: a caption wider than the line it sits on is Figure 81's third example, where the line
     /// is drawn whole under the overhanging words.
@@ -2923,7 +2923,7 @@ impl CaptionPlacement {
     /// Reads `/CP`, or `None` for a value outside the two the table defines.
     ///
     /// Table 178 lists exactly two valid values and states no tolerance for a third, unlike Table
-    /// 168's border styles ("[a]n interactive PDF processor shall tolerate other border styles
+    /// 168's border styles ("\[a]n interactive PDF processor shall tolerate other border styles
     /// that it does not recognise"). A name outside the pair therefore states *no* position, and
     /// drawing the caption at the default would put a mark where the file did not ask for one —
     /// which is [`UNKNOWN_LINE_ENDING`]'s reasoning on the entry two rows above.
@@ -2940,7 +2940,7 @@ impl CaptionPlacement {
     }
 }
 
-/// Table 178's `/CO`, "[a]n array of two numbers", defaulting to no offset.
+/// Table 178's `/CO`, "\[a]n array of two numbers", defaulting to no offset.
 ///
 /// `None` for an entry that is present and is not two numbers: the table gives the offset its
 /// meaning one number at a time, so an array of some other length says which of its numbers is
@@ -3045,7 +3045,7 @@ impl Ending {
     ///
     /// Five of the ten say so and the other five do not, which is the whole of the difference an
     /// `/IC` makes here — and for a polyline it is the only thing `/IC` does at all (Table 181:
-    /// "[f]or Polyline annotations, the value of the IC key is used to fill only the line
+    /// "\[f]or Polyline annotations, the value of the IC key is used to fill only the line
     /// ending").
     ///
     /// **The fifth was this crate's inference until Errata Collection 3 supplied it, and this
@@ -3074,8 +3074,8 @@ impl Ending {
 /// How large a line ending is, as a multiple of the line's own width.
 ///
 /// **The clause states no size and this is a choice, in the same place §12.5.6.10's thickness is
-/// one**: Table 179 describes ten shapes — "[a] square", "[t]wo short lines meeting in an acute
-/// angle", "[a] short line at the endpoint perpendicular to the line itself" — and gives not one
+/// one**: Table 179 describes ten shapes — "\[a] square", "\[t]wo short lines meeting in an acute
+/// angle", "\[a] short line at the endpoint perpendicular to the line itself" — and gives not one
 /// dimension. The only length a line annotation supplies its ending is §12.5.4's border width,
 /// which is what draws the line the ending decorates, so the size is stated as a multiple of it
 /// and is therefore right at every scale rather than right at one. Four widths is about what a
@@ -3214,7 +3214,7 @@ fn perpendicular(start: [f32; 2], end: [f32; 2]) -> Option<[f32; 2]> {
 /// Table 192's `/R` is the one entry a glyph makes load-bearing: it rotates the widget's *contents*
 /// inside `/Rect`, which a background filling that rectangle cannot see but a line of text can. It
 /// is read and applied as [`Rotation`] (ADR 0095). What is refused rather than applied is a value
-/// the table forbids — "[t]he value shall be a multiple of 90" — and that is named rather than
+/// the table forbids — "\[t]he value shall be a multiple of 90" — and that is named rather than
 /// rounded.
 fn widget(
     document: &Document,
@@ -3371,7 +3371,7 @@ impl ButtonIcon {
 /// **The normal entry is the fallback, and that is a decision rather than a sentence.** Table 192
 /// makes all six optional and states no fallback for a state whose own entry is absent; §12.5.5
 /// does state one for the same three appearances in `/AP` — Table 170 requires only `/N` — and
-/// [`crate::annotation::stored_appearance`] already reads it that way. Taking the entries
+/// `crate::annotation::stored_appearance` already reads it that way. Taking the entries
 /// literally instead would erase a push-button's picture the moment a pointer crossed it, which
 /// is a worse answer than showing the picture the file does state. ADR 1090.
 const fn icon_entries(appearance: crate::view::Appearance) -> [&'static str; 2] {
@@ -3392,7 +3392,7 @@ const fn icon_entries(appearance: crate::view::Appearance) -> [&'static str; 2] 
 ///
 /// **`push_button` is the table's own scoping and not a convenience.** `/RC` and `/AC` are marked
 /// "push-button fields only", while `/CA` is the one entry of the eleven the table exempts:
-/// "[u]nlike the remaining entries listed in this Table, which apply only to widget annotations
+/// "\[u]nlike the remaining entries listed in this Table, which apply only to widget annotations
 /// associated with push-button fields …, the CA entry may be used with any type of button field,
 /// including check boxes … and radio buttons". So a check box in any pointer state has exactly
 /// one caption to draw.
@@ -3597,7 +3597,7 @@ impl CaptionPosition {
         }
     }
 
-    /// Whether the caption is drawn at all under this code: every code but "[n]o caption; icon
+    /// Whether the caption is drawn at all under this code: every code but "\[n]o caption; icon
     /// only".
     fn draws_caption(self) -> bool {
         !matches!(self, Self::IconOnly)
@@ -3832,7 +3832,7 @@ enum Rotation {
 impl Rotation {
     /// Reads `/R`, or `None` for a value the table forbids.
     ///
-    /// "[T]he value shall be a multiple of 90" is a requirement on the *file*, and a widget
+    /// "\[T]he value shall be a multiple of 90" is a requirement on the *file*, and a widget
     /// stating 45 has described a rotation no `cm` this function could write would be the one it
     /// meant. Refused by name rather than rounded, because rounding would draw a widget the
     /// document did not ask for and say nothing.
@@ -3910,7 +3910,7 @@ impl Rotation {
 ///
 /// **The clause states the whole of what is drawn here and one thing about it that it does not
 /// state**, and this arm used to refuse the annotation over the second. What is displayed is
-/// Table 234's `/Opt` array — "[t]he Opt array specifies the list of options in the choice
+/// Table 234's `/Opt` array — "\[t]he Opt array specifies the list of options in the choice
 /// field, each of which shall be represented by a text string that shall be displayed on the
 /// screen" — in the array's own order, which Table 233 bit 20 makes a `shall` addressed to a
 /// reader: "PDF readers shall display the options in the order in which they occur in the Opt
@@ -4402,7 +4402,7 @@ impl Formatting<'_> {
 /// §12.7.5.3's Table 231 bit 26: the characters a rich text value states, or `None`.
 ///
 /// The bit says what such a value is — "the value of this field shall be a rich text string" —
-/// and §12.7.5.3 says what a processor does with it: "[t]he contents of this text string or
+/// and §12.7.5.3 says what a processor does with it: "\[t]he contents of this text string or
 /// stream shall be used to construct an appearance stream for displaying the field". The
 /// *contents* of a rich text string are its character data; its markup is the formatting, which
 /// is a separate question from what characters the field shows. So a value declared to be a rich
@@ -4608,7 +4608,7 @@ fn ask(
 /// note on which space is which.
 ///
 /// **Two subtypes reach here and the standard is why**: §12.7.4.3 lays text out for a widget whose
-/// field states some, and §12.5.6.6 sends its own annotation to that same subclause — "[s]ubclause
+/// field states some, and §12.5.6.6 sends its own annotation to that same subclause — "\[s]ubclause
 /// 12.7.4.3, 'Variable text', describes the process of using these entries to generate the
 /// appearance of the text in these annotations". What differs is the *box*, because Table 177
 /// states one entry Table 192 does not and neither of Table 192's two: a free text annotation's
@@ -4715,6 +4715,8 @@ fn laid_out_in(
 /// widgets are. A host deciding where to send the keyboard needs exactly that distinction.
 ///
 /// [`crate::view::ViewState::field_value`] is the caller and its doc comment is why this exists.
+///
+/// [`ShownValue::obscured`]: crate::view::ShownValue::obscured
 pub(crate) fn field_text_value(
     document: &Document,
     annotation: &Dictionary,
@@ -5032,7 +5034,7 @@ impl Callout {
 /// # Two things the table does not state, and where each is taken from
 ///
 /// - **The colour.** Table 166's `/C` is "the background of the annotation's icon when closed,
-///   the title bar of the annotation's popup window, [and] the border of a link annotation", and
+///   the title bar of the annotation's popup window, \[and] the border of a link annotation", and
 ///   this subtype has none of the three; `/DA` is "the default appearance string that shall be
 ///   used in formatting the text", which this line is not. So the construction states **black**,
 ///   which is not an invention but the absence of one: §8.4.1's Table 51 gives the graphics
@@ -5129,7 +5131,7 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
 /// entries, respectively, shall be applied to the border of the inner rectangle."
 ///
 /// **Table 168's `/S` styles this border, unlike a square's or a circle's.** §12.5.4 names the
-/// subtypes whose `/BS` supplies less than a whole border style dictionary — "[s]uch dictionaries
+/// subtypes whose `/BS` supplies less than a whole border style dictionary — "\[s]uch dictionaries
 /// may also be used to specify the width and dash pattern for the lines drawn by line, square,
 /// circle, and ink annotations" — and free text is not among the four; `/RD`'s "border styles"
 /// is Table 168's `/S` by name. See [`square_or_circle`] for the other side of that division.
@@ -5137,8 +5139,8 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
 /// # The colour, which no clause states, and what black is taken from
 ///
 /// Nothing in ISO 32000-2 gives this border a colour. Table 166's `/C` is a closed list of three
-/// purposes — "[t]he background of the annotation's icon when closed[,] [t]he title bar of the
-/// annotation's popup window[,] [t]he border of a link annotation" — and on a free text
+/// purposes — "\[t]he background of the annotation's icon when closed\[,] \[t]he title bar of the
+/// annotation's popup window\[,] \[t]he border of a link annotation" — and on a free text
 /// annotation it is the second of them, because a markup annotation has a `/Popup` and no icon
 /// and is not a link. §12.5.6.19's `/MK` `/BC` is "the colour of the widget annotation's border"
 /// and this is not a widget. Read across the neighbourhood, the standard states a border colour
@@ -5597,7 +5599,7 @@ impl Field {
     ///   [`crate::view::ViewState::set_field`] encodes what a host sends as the latter, and
     ///   Table 230 spells a button's export values as text strings for the same reason;
     /// - a widget whose `/AP` states no stream under that name is one of the *other* buttons of a
-    ///   §12.7.5.2.4 set — "[t]he parent field's V entry holds a name object corresponding to the
+    ///   §12.7.5.2.4 set — "\[t]he parent field's V entry holds a name object corresponding to the
     ///   appearance state of whichever child field is currently in the on state" — so it is off.
     ///   Applied only where the file states a state subdictionary to check against, because a
     ///   widget with no `/AP` at all has no states for the value to miss.
@@ -5623,7 +5625,7 @@ impl Field {
     /// Table 229 bit 26 read the way round that needs code: whether this button must stay **off**
     /// because a button before it in `/Kids` answers to the same state name.
     ///
-    /// ISO 32000-2 §12.7.5.2.1 makes this a requirement rather than a courtesy — "[f]or button
+    /// ISO 32000-2 §12.7.5.2.1 makes this a requirement rather than a courtesy — "\[f]or button
     /// fields, bits 15, 16, 17, and 26 shall indicate the intended behaviour of the button field.
     /// An interactive PDF processor shall follow the intended behaviour" — and Table 229's own
     /// row states both halves:
@@ -5724,7 +5726,7 @@ impl Field {
     /// is current.
     ///
     /// [`Field::is_on`] is the same question asked of one *widget*, and the two differ exactly
-    /// where §12.7.5.2.4's set does: "[t]he parent field's V entry holds a name object
+    /// where §12.7.5.2.4's set does: "\[t]he parent field's V entry holds a name object
     /// corresponding to the appearance state of whichever child field is currently in the on
     /// state", so the field is on when any of its buttons is and only the widget's own states say
     /// which. A value a host sent arrives as §7.9.2.2's text string rather than as a name, which
@@ -5834,7 +5836,7 @@ type Outcome = Result<Painted, Refusal>;
 /// that cannot be derived is a reason to draw the part that can be, not a reason to decline. A
 /// `/LE` naming something Table 179 does not.
 ///
-/// The ten styles are the whole of the table and the entry is "[a]n array of two names", so a
+/// The ten styles are the whole of the table and the entry is "\[a]n array of two names", so a
 /// name outside it is a file asking for a shape this reader has no description of. Reported
 /// rather than dropped to `None`, which would draw a line that quietly lost its arrowheads.
 /// A polyline's `/LE` with no end this routine holds: a `/Path`, whose ends Table 181 does not
@@ -5934,7 +5936,7 @@ struct Border {
 
 /// The width §12.5.4 gives an annotation's border, whichever entry states it.
 ///
-/// Table 166 settles the precedence — "[i]f an annotation dictionary includes the BS entry, then
+/// Table 166 settles the precedence — "\[i]f an annotation dictionary includes the BS entry, then
 /// the Border entry is ignored" — and §12.5.4 supplies the default the two share. Public to the
 /// crate for §12.5.6.19's `/H /O`, which strokes that border and has no colour of its own to
 /// read.
@@ -6107,7 +6109,7 @@ impl Border {
     /// Whether a border this wide leaves none of the rectangle uncovered.
     ///
     /// §12.5.4 puts the border "completely inside the annotation rectangle" and Table 168 calls
-    /// `/W` "[t]he border width in points", so a border of width *w* is the part of the rectangle
+    /// `/W` "\[t]he border width in points", so a border of width *w* is the part of the rectangle
     /// within *w* of its boundary. The bands from opposite sides meet as soon as *w* reaches
     /// either dimension, and what is left is the rectangle itself — there is no frame, and no
     /// stroke of any path draws one.

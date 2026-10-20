@@ -49,11 +49,27 @@ pub enum OwedKind {
     /// The strip of open documents changed — one added, one closed, or the one in front moved:
     /// `quorra_window_document_count` and the calls beside it.
     Strip = 12,
+    /// ISO 19005's chooser: `quorra_owed_text` is its title, a line feed, and what it says under
+    /// the title; `quorra_owed_archive` the target and the profile it starts on, as indices into
+    /// `quorra_archive_target`'s list and `quorra_archive_profile`'s; answered with
+    /// `quorra_window_archive` (ADRs 1966, 2121).
+    Archive = 13,
+    /// A script's `app.alert` or `app.response` for `quorra_owed_document`: `quorra_owed_text` is
+    /// the dialogue's title, `quorra_owed_script_question` and `quorra_owed_script_text` the rest;
+    /// answered with `quorra_window_answer_script` (ADRs 1628, 2121).
+    Script = 14,
+    /// The script question for `quorra_owed_document` was withdrawn unanswered: its dialogue is to
+    /// close, and an answer reaches nothing (ADR 1643).
+    ScriptWithdrawn = 15,
+    /// §7.6.4.2's bit 3 let a print through: `quorra_owed_print` gives the pages and whether bit 12
+    /// limits the quality, `quorra_owed_text` the sentence; ended with `quorra_window_print_finish`
+    /// whether the job ran or the person cancelled (ADRs 1180, 2121).
+    Print = 16,
 }
 
 impl OwedKind {
     /// How many kinds this build defines: `QUORRA_OWED_KIND_COUNT`.
-    pub const COUNT: u32 = 13;
+    pub const COUNT: u32 = 17;
 
     /// The number the header declares, as C sees it.
     #[must_use]
@@ -78,6 +94,10 @@ impl OwedKind {
             10 => Self::Controls,
             11 => Self::Popups,
             12 => Self::Strip,
+            13 => Self::Archive,
+            14 => Self::Script,
+            15 => Self::ScriptWithdrawn,
+            16 => Self::Print,
             _ => return None,
         })
     }
@@ -99,6 +119,10 @@ impl OwedKind {
             Self::Controls => "controls\0",
             Self::Popups => "popups\0",
             Self::Strip => "strip\0",
+            Self::Archive => "archive\0",
+            Self::Script => "script\0",
+            Self::ScriptWithdrawn => "script withdrawn\0",
+            Self::Print => "print\0",
         }
     }
 }
@@ -137,6 +161,38 @@ pub(crate) enum Owed {
     Popups,
     /// The strip of open documents read again.
     Strip,
+    /// ISO 19005's chooser, on the target and the profile it starts on.
+    Archive {
+        /// Which of `pdf_archive::Target::ALL` it starts on.
+        target: usize,
+        /// Which of the shipped profiles it starts on.
+        profile: usize,
+        /// Its title, a line feed, and what it says under the title.
+        words: String,
+    },
+    /// A script's question.
+    Script {
+        /// The document whose script asks.
+        document: DocumentId,
+        /// The dialogue's title, naming that document.
+        title: String,
+        /// What the script asked.
+        question: viewer_core::ScriptQuestion,
+    },
+    /// A script's question withdrawn.
+    ScriptWithdrawn {
+        /// The document whose question it was.
+        document: DocumentId,
+    },
+    /// A print let through.
+    Print {
+        /// How many pages the document has.
+        pages: usize,
+        /// Whether §7.6.4.2's bit 12 limits the quality.
+        degraded: bool,
+        /// What the window says about it.
+        words: String,
+    },
 }
 
 impl Owed {
@@ -157,10 +213,14 @@ impl Owed {
             Self::Controls => OwedKind::Controls,
             Self::Popups => OwedKind::Popups,
             Self::Strip => OwedKind::Strip,
+            Self::Archive { .. } => OwedKind::Archive,
+            Self::Script { .. } => OwedKind::Script,
+            Self::ScriptWithdrawn { .. } => OwedKind::ScriptWithdrawn,
+            Self::Print { .. } => OwedKind::Print,
         }
     }
 
-    /// The record's text, for the four kinds that carry one.
+    /// The record's text, for the kinds that carry one.
     #[must_use]
     fn text(&self) -> Option<&str> {
         match self {
@@ -168,8 +228,12 @@ impl Owed {
             | Self::Title(text)
             | Self::Question(text)
             | Self::Clipboard(text)
-            | Self::Password { words: text, .. } => Some(text),
-            Self::Repaint
+            | Self::Password { words: text, .. }
+            | Self::Script { title: text, .. }
+            | Self::Print { words: text, .. }
+            | Self::Archive { words: text, .. } => Some(text),
+            Self::ScriptWithdrawn { .. }
+            | Self::Repaint
             | Self::Beep
             | Self::Panels
             | Self::Chrome
@@ -254,7 +318,7 @@ impl Owing {
         record.text().ok_or(crate::Status::WrongKind)
     }
 
-    /// The document the record at `index` is about: §7.6.4.1's prompt's.
+    /// The document the record at `index` is about: §7.6.4.1's prompt's, or a script's.
     ///
     /// # Errors
     ///
@@ -263,7 +327,54 @@ impl Owing {
     pub fn document(&self, index: usize) -> Result<u64, crate::Status> {
         match self.records.get(index) {
             None => Err(crate::Status::OutOfRange),
-            Some(Owed::Password { document, .. }) => Ok(document.0),
+            Some(
+                Owed::Password { document, .. }
+                | Owed::Script { document, .. }
+                | Owed::ScriptWithdrawn { document },
+            ) => Ok(document.0),
+            Some(_) => Err(crate::Status::WrongKind),
+        }
+    }
+
+    /// The target and the profile ISO 19005's chooser at `index` starts on.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::document`], for a kind that is not the chooser.
+    pub fn archive(&self, index: usize) -> Result<(usize, usize), crate::Status> {
+        match self.records.get(index) {
+            None => Err(crate::Status::OutOfRange),
+            Some(Owed::Archive {
+                target, profile, ..
+            }) => Ok((*target, *profile)),
+            Some(_) => Err(crate::Status::WrongKind),
+        }
+    }
+
+    /// The script question at `index`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::document`], for a kind that is not a script's question.
+    pub fn script(&self, index: usize) -> Result<&viewer_core::ScriptQuestion, crate::Status> {
+        match self.records.get(index) {
+            None => Err(crate::Status::OutOfRange),
+            Some(Owed::Script { question, .. }) => Ok(question),
+            Some(_) => Err(crate::Status::WrongKind),
+        }
+    }
+
+    /// The pages and the quality limit of the print let through at `index`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::document`], for a kind that is not a print.
+    pub fn print(&self, index: usize) -> Result<(usize, bool), crate::Status> {
+        match self.records.get(index) {
+            None => Err(crate::Status::OutOfRange),
+            Some(Owed::Print {
+                pages, degraded, ..
+            }) => Ok((*pages, *degraded)),
             Some(_) => Err(crate::Status::WrongKind),
         }
     }

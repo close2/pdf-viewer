@@ -69,7 +69,7 @@ pub use scripts::{
 /// Deepest nesting of `/Kids`, and longest `/Parent` chain, walked in §12.7.4.1's field tree.
 ///
 /// The tree is one a document controls, and `/Kids` may point back up it, so every walk is
-/// bounded — which §12.7.4.1 forbids ("[a]n interactive PDF processor shall not limit the range of
+/// bounded — which §12.7.4.1 forbids ("\[a]n interactive PDF processor shall not limit the range of
 /// inheritance for field dictionaries") and its ledger row records as departed. The bound is the
 /// appearance construction's own, [`crate::appearance::MAX_FIELD_ANCESTRY`], because ADR 1198
 /// found real fields thirty-two links deep: one number for one tree, so no walk here stops
@@ -115,7 +115,7 @@ pub struct ViewState {
     imported: BTreeMap<ObjectId, Import>,
     /// Pages §12.7.8.3.3's imported templates have added, after the document's own.
     ///
-    /// §12.7.7 says what naming a page is *for*: "[a]n import-data action can add the named page
+    /// §12.7.7 says what naming a page is *for*: "\[a]n import-data action can add the named page
     /// to the document into which FDF is being imported". Adding is the one operation in this
     /// module that changes how many pages there are, and it belongs here for the same reason a
     /// hidden annotation does — the file says nothing about it, and a second render of the
@@ -125,7 +125,7 @@ pub struct ViewState {
     appended: Vec<AppendedPage>,
     /// §12.7.8's named pages whose Table 253 `/F` puts them in a **second file**, waiting for it.
     ///
-    /// The entry is "[t]he file containing the named page", and §12.7.6.4 makes a file a
+    /// The entry is "\[t]he file containing the named page", and §12.7.6.4 makes a file a
     /// *document* named a question about this machine rather than about the format — so this
     /// crate has no way to open one and must not acquire one (ADR 1155). What it can do is say
     /// precisely what it is waiting for: [`ViewState::file_awaited`] names the file,
@@ -225,7 +225,7 @@ pub struct ViewState {
     /// MediaBox )", and rule 1 makes this state the only channel by which anything outside the
     /// file may decide a mark.
     ///
-    /// `None` is the clause's own other branch rather than a default: Table 193 says that "[i]f
+    /// `None` is the clause's own other branch rather than a default: Table 193 says that "\[i]f
     /// the dimensions of the target media are not known at the time of drawing, drawing shall be
     /// done relative to the dimensions specified by the page's MediaBox entry", which is what
     /// every caller that states nothing gets and what §12.5.6.22 requires of a screen outright.
@@ -309,7 +309,7 @@ pub struct ViewState {
     /// The fourth thing in this struct that is a property of the *host* rather than of the
     /// document, and the only one that changes no pixel: it decides what goes into the file
     /// rather than what is drawn. `CLAUDE.md`'s rule 3 gives this crate no clock, and Table 166
-    /// asks for "[t]he date and time when the annotation was most recently modified" — a fact
+    /// asks for "\[t]he date and time when the annotation was most recently modified" — a fact
     /// about a machine, which nothing here can read and which is therefore supplied or absent.
     ///
     /// `None` until a host says otherwise, under which no `/M` is written at all. ADR 1160.
@@ -650,7 +650,7 @@ pub enum Entered {
     /// §12.7.5.4: which of Table 234's `/Opt` entries are selected, as zero-based indices into it.
     ///
     /// An empty list means no item is selected, which §12.7.5.4 makes the same state as
-    /// [`Self::Cleared`]: "[t]he default value of V is null , indicating that no item is currently
+    /// [`Self::Cleared`]: "\[t]he default value of V is null , indicating that no item is currently
     /// selected."
     ///
     /// An index past the end of `/Opt` names nothing and is dropped, and more than one index on a
@@ -762,7 +762,7 @@ pub enum AppendedPage {
 pub struct AwaitedPage {
     /// Table 253's `/F`, as the FDF file wrote it. Not a path: resolving it is a host's.
     pub file: String,
-    /// Table 253's `/Name`, "[t]he name of the referenced page", looked up in that file.
+    /// Table 253's `/Name`, "\[t]he name of the referenced page", looked up in that file.
     pub name: String,
     /// What the page becomes once the file arrives.
     pub wanted: WantedPage,
@@ -780,7 +780,7 @@ pub enum WantedPage {
     },
     /// Table 252's `/TRef`: the page is added to the document, with the template's own fields.
     Template {
-        /// Table 252's `/Fields`, applied with the page for [`ViewState::append_templates`]'s
+        /// Table 252's `/Fields`, applied with the page for `ViewState::append_templates`'s
         /// reason.
         fields: Vec<crate::forms_data::FdfField>,
         /// Table 252's `/Rename`, whose `true` is refused where the template states fields.
@@ -841,7 +841,7 @@ pub struct AnnotationView<'a> {
     /// It is a statement about the *text*, and the appearance follows from it rather than beside
     /// it: §12.5.6.6 has this subtype's appearance generated from these entries by §12.7.4.3, so a
     /// stored `/AP` describing text the annotation no longer has is set aside by
-    /// [`crate::annotation::decide`] where this is `Some`.
+    /// `crate::annotation::decide` where this is `Some`.
     pub contents: Option<&'a str>,
     /// What the output being produced is for — [`ViewState::purpose`].
     ///
@@ -849,7 +849,7 @@ pub struct AnnotationView<'a> {
     /// §12.5.3 makes it one of this annotation's own questions**: Table 167's bit 3 decides
     /// whether an annotation is printed and its bit 6 decides whether one is rendered on a
     /// screen, so which of the two rows applies cannot be read out of the annotation dictionary
-    /// at all. [`crate::annotation::displayed`] is where the table's two readings are.
+    /// at all. `crate::annotation::displayed` is where the table's two readings are.
     pub purpose: Purpose,
     /// §12.5.6.22's target media — [`ViewState::paper`].
     ///
@@ -1026,7 +1026,7 @@ impl Magnified {
 impl ViewState {
     /// The state a document opens in.
     ///
-    /// §8.11.4.5's initial configuration — "[t]his state shall be the initial state used by
+    /// §8.11.4.5's initial configuration — "\[t]his state shall be the initial state used by
     /// all PDF processors" — and nothing hidden beyond what each annotation's own `/F` says.
     #[must_use]
     pub fn of(document: &Document) -> Self {

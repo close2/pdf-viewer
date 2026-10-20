@@ -224,11 +224,11 @@ impl NamedPages {
 /// A Table 253 named page reference: which page, and in which file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
-    /// `/Name`, "[t]he name of the referenced page". Required.
+    /// `/Name`, "\[t]he name of the referenced page". Required.
     pub name: String,
-    /// `/F`, "[t]he file containing the named page", where the reference names one.
+    /// `/F`, "\[t]he file containing the named page", where the reference names one.
     ///
-    /// The table states the default itself — "[i]f this entry is absent, it shall be assumed
+    /// The table states the default itself — "\[i]f this entry is absent, it shall be assumed
     /// that the page resides in the associated PDF file" — so `None` means *this* document and is
     /// what [`page_as_form`] and `crate::view::ViewState::import` answer, while `Some` names a
     /// second PDF file.
@@ -287,7 +287,7 @@ impl Reference {
 /// - **`/BBox`** is the page's crop box, which §14.11.2.1 makes "the region to which the contents
 ///   of the page shall be clipped (cropped) when displayed or printed" — the same clipping Table
 ///   93 gives a form's bounding box, already defaulted to the media box and intersected with it.
-/// - **`/Matrix`** carries Table 31's `/Rotate`, "[t]he number of degrees by which the page shall
+/// - **`/Matrix`** carries Table 31's `/Rotate`, "\[t]he number of degrees by which the page shall
 ///   be rotated clockwise when displayed or printed", as the rotation about the origin that turns
 ///   the page's space that way. §12.5.5's step 1 takes the bounding box *through* the matrix and
 ///   bounds it upright, and its steps 2 and 3 then map that onto `/Rect`, so no translation is
@@ -367,7 +367,7 @@ pub fn page_as_form(
 /// Table 31's `/Rotate` as the form matrix that turns a page's space that way, or `None` for a
 /// page stating no rotation.
 ///
-/// The entry is "[t]he number of degrees by which the page shall be rotated clockwise", and
+/// The entry is "\[t]he number of degrees by which the page shall be rotated clockwise", and
 /// `crate::page::Page::rotate` has already normalised it to one of the four multiples of 90 the
 /// table permits. A clockwise turn by `r` in a space whose y axis runs up is §8.3.3's rotation by
 /// `-r`, whose terms at these four angles are exactly 0, 1 and -1 — so no trigonometry is

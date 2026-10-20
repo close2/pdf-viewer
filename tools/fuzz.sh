@@ -19,8 +19,17 @@
 #   after   Did the run cover anything?  libFuzzer's own final line carries `cov:` and `ft:`, and a
 #           run that ends with no features found nothing to fuzz whatever its exit status was.
 #
-#   tools/fuzz.sh <target> [--from-nothing] [-- <extra libFuzzer arguments>]
+#   tools/fuzz.sh <target> [--from-nothing] [--scratch DIR] [-- <extra libFuzzer arguments>]
 #   tools/fuzz.sh --list                    the targets, and how many seeds each has here
+#
+# **Under a data limit the target is built without the sanitiser and run from a scratch directory**
+# (trap 221). `tools/bounded.sh` always sets `RLIMIT_DATA`, and AddressSanitizer reserves its shadow
+# memory as one mapping at start that the limit refuses, so a sanitised build under the wrapper
+# never starts; `-s none` keeps libFuzzer's coverage and overflow checks and fits the bound, as
+# `doc/verify.md`'s campaign paragraph says. `-jobs` writes its `fuzz-<n>.log` into the directory
+# the run starts in, so under the limit that is `--scratch DIR`, or `scratchpad/r$ROUND_SESSION/
+# fuzz-<target>/` where `ROUND_SESSION` is set, and the run is refused without either. With no limit
+# the sanitised build runs from `fuzz/`.
 #
 # **The invocation comes out of `doc/verify.md`, not out of this script.** That file states one
 # `cargo +nightly fuzz run <target>` line per target with the flags that target needs — `page` is
@@ -29,7 +38,7 @@
 # target arrive documented.
 #
 # `cargo-fuzz` is installed and is in `~/.cargo/bin`, which is not on `PATH`; two rounds read that
-# as its absence. This script puts it there.
+# as its absence. This script puts it there when no other `cargo-fuzz` is on `PATH`.
 
 set -u -o pipefail
 
@@ -39,7 +48,9 @@ verify="$root/doc/verify.md"
 # limit already at or under it is kept.
 task_budget=$("$root/tools/bounded.sh" --task-budget) || exit 1
 [ "$(ulimit -u)" != unlimited ] && [ "$(ulimit -u)" -le "$task_budget" ] || ulimit -u "$task_budget" || exit 1
-export PATH="$HOME/.cargo/bin:$PATH"
+# Only where no `cargo-fuzz` is on `PATH` already, so that a caller's own — the test's stand-in among
+# them — is the one that runs.
+command -v cargo-fuzz > /dev/null || export PATH="$HOME/.cargo/bin:$PATH"
 
 # Every `[[bin]]` `fuzz/Cargo.toml` declares, which is the population by cargo's own reckoning
 # rather than by a list kept here.
@@ -93,12 +104,20 @@ if [ "${1:-}" = "--list" ]; then
 fi
 
 target=${1:-}
-[ -n "$target" ] || { sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -n "$target" ] || { sed -n '3,41p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 shift
 
 from_nothing=0
-if [ "${1:-}" = "--from-nothing" ]; then from_nothing=1; shift; fi
-[ "${1:-}" = "--" ] && shift
+scratch=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --from-nothing) from_nothing=1; shift ;;
+        --scratch) [ -n "${2:-}" ] || { echo "fuzz.sh: --scratch needs a directory" >&2; exit 2; }
+                   scratch=$2; shift 2 ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
 
 targets | grep -qx "$target" || {
     echo "fuzz.sh: fuzz/Cargo.toml declares no target named '$target'. Its targets are:"
@@ -129,16 +148,36 @@ if [ "$before" -eq 0 ] && [ "$from_nothing" -eq 0 ]; then
     exit 1
 fi
 
+# The sanitiser, and the directory the run starts in, by whether a data limit is in force (the
+# header's second paragraph). `--fuzz-dir` names the crate wherever the run starts, so cargo-fuzz
+# resolves `fuzz/corpus/<target>` and `fuzz/artifacts/<target>` as it does from inside `fuzz/`.
+sanitiser=
+start_in="$root/fuzz"
+if [ "$(ulimit -d)" != unlimited ]; then
+    sanitiser="-s none"
+    if [ -z "$scratch" ] && [ -n "${ROUND_SESSION:-}" ]; then
+        scratch="$root/scratchpad/r$ROUND_SESSION/fuzz-$target"
+    fi
+    [ -n "$scratch" ] || {
+        echo "fuzz.sh: a data limit is in force ($(ulimit -d) KiB, tools/bounded.sh's), so $target is built"
+        echo "with -s none and started from a scratch directory, where -jobs writes its log (trap 221)."
+        echo "Name one with --scratch DIR, or set ROUND_SESSION for scratchpad/r<session>/fuzz-$target/."
+        exit 2
+    } >&2
+fi
+if [ -n "$scratch" ]; then
+    mkdir -p -- "$scratch" || exit 1
+    start_in=$(cd -- "$scratch" && pwd) || exit 1
+fi
+
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
 echo "fuzz.sh: $target, $before seeds, doc/verify.md's own invocation:"
-echo "    cd fuzz && cargo +nightly fuzz run $target $arguments $*"
+echo "    cd $start_in && cargo +nightly fuzz run --fuzz-dir $root/fuzz${sanitiser:+ $sanitiser} $target $arguments $*"
 echo
 
-# `cd` into `fuzz/` because that is where `doc/verify.md` states the command from, and cargo-fuzz
-# resolves `fuzz/corpus/<target>` relative to the crate it finds there.
-(cd "$root/fuzz" && eval cargo +nightly fuzz run "$target" "$arguments" "$@") 2>&1 | tee "$log"
+(cd "$start_in" && eval cargo +nightly fuzz run --fuzz-dir '"$root/fuzz"' "$sanitiser" "$target" "$arguments" '"$@"') 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 
 # libFuzzer's own last word. `DONE` carries it for an ordinary run and a fork-mode parent prints
@@ -159,7 +198,7 @@ after=$(seeds_in "$target")
 # `INITED → DONE` is **what the run length bought on top of the seeds**, measured inside one run
 # rather than across two — ADR 0742 needed an empty directory and a `-runs=0` pass to say the same
 # thing. It is what distinguishes a target that *found* a thousand features from one that was
-# handed them, and eight of the fifteen turn out to be the second (ADR 0747).
+# handed them, and ADR 0747 found many targets to be the second.
 #
 # A **fork-mode parent prints no `INITED` at all**, so this is reported as absent rather than as
 # zero: a subtraction against a missing left-hand side would read as a run that started from

@@ -611,6 +611,28 @@ PDF/A-2 / part 4 targets · today **built** where the intent embeds its profile 
 
 ### 4.2 Colour spaces, colourants and overprint
 
+#### `graphics/device-rgb-needs-a-default-or-an-rgb-output-intent` (PDF/A-2)
+#### `graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent` (part 4)
+ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the output intent, or a
+`/DefaultRGB` beside a profile of another family
+
+- **Mitigation** — both parts license `DeviceRGB` by an RGB destination profile or by a device
+  independent `DefaultRGB`. Where the file's own intent, or the shipped profile chosen for its
+  `DeviceCMYK`, is a CMYK one, section 6.2.3's one profile per file closes the first, and the
+  converter writes the second: an `ICCBased` space over the shipped sRGB profile in every resource
+  dictionary explicitly associated with a content stream, never over the producer's own entry.
+  sRGB is section 4.1's convention and what this reader drew `DeviceRGB` as beside a CMYK intent,
+  to within one level of 255 (ADR 2114). The six rows that send a space to 6.2.4.3 — a group's `CS`
+  (ISO 19005-2 6.2.10, ISO 19005-4 6.2.9), an `Indexed` or `Pattern` base, a `Separation` or
+  `DeviceN` alternate — take the same entry where the survey finds the space drawn in `DeviceRGB`:
+  ISO 32000-2 §11.6.6's Table 145 remaps a group's device space through the current resources'
+  defaults.
+- **Left** — the mirror, `DeviceCMYK` beside an RGB profile, under part 4 and for a group under
+  part 2: a `DeviceN` default cannot be a blending space (Table 145), and an ICC `DefaultCMYK` over
+  the shipped press profile states a press this reader does not draw `DeviceCMYK` through without
+  a CMYK intent. Refused with `WRONG_FAMILY` or by the output's verdict; `--output-intent-profile`
+  answers it.
+
 #### `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (PDF/A-2)
 ISO 19005-2 6.2.4.2 · today **built**: `supply` for a missing text tag, `Stated` for an unreadable
 profile
@@ -1932,8 +1954,8 @@ ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today **built**
   *accept our own schema, described or not, and nobody else's*.
 
 #### `metadata/extension-schema-container-fields`
-ISO 19005-2 6.6.2.3.3 · PDF/A-2b, 2u, 2a · today **mechanical for a misspelled field**, `not-built-yet`
-for an absent one
+ISO 19005-2 6.6.2.3.3 · PDF/A-2b, 2u, 2a · today **mechanical for a misspelled field**, **built** as
+the `discard` for an absent one
 
 - **Mitigation** — **the subclause asks two different things and only one of them is about content.**
   A field the packet *states*, in the field namespace its table gives it, and spells with another
@@ -1955,8 +1977,16 @@ for an absent one
   schema is the archive's own, which it often is: a company that emits `acme:` properties can
   describe them once.
 - **By target** — part 4 states no such rule (confirmed **A**).
-- **From a configuration** — `remedy = "supply"` with a per-namespace table of the missing fields,
-  or `remedy = "discard"`. This is the clearest case in the catalogue where a configuration turns an
+- **Built**, the `discard`: where a container leaves out a field the packet states nowhere, the
+  whole `pdfaExtension:schemas` property goes, with every property in a namespace it described —
+  `metadata-property`, section 3.9's loss, decided per document (`CONDITIONAL`), each property
+  named in the report and the discard recorded in `xmpMM:History` as its own action naming
+  6.6.2.3.3 (`crates/pdf-transform/src/archive/extension_container.rs`). The whole container,
+  because `pdf_model::xmp` removes a property and not one item of its array: a container holding
+  a complete schema beside the incomplete one loses both, and the report names what that cost.
+  Both lower-bound profiles answer it.
+- **From a configuration** — `remedy = "supply"` with a per-namespace table of the missing fields
+  (not built), or `remedy = "discard"` (built). This is the clearest case in the catalogue where a configuration turns an
   unanswerable per-document question into a one-time statement, because a schema belongs to an
   organisation rather than to a document.
 - **Departure** — **B**. A container missing its human-readable description still identifies the

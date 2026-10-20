@@ -14,15 +14,15 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Windowing | `winit` |
 | Dialogs | `ashpd` (XDG desktop portal — native KDE dialogs, any toolkit) |
 | Clipboard | `arboard`, **in `viewer-ui` only** — the two native hosts ask `gdk::Clipboard` and `QClipboard`, and the C ABI hands a caller the text (ADR 0519) |
-| Accessibility | `AccessKit` (AT-SPI on Linux), the Linux adapter `accesskit_unix` in **`viewer-accessibility` only** (ADR 0214). It reaches the session bus through `zbus` 5, and with it `zvariant`, `zbus_names` and `zvariant_derive`, which RustSec marks unmaintained since `zbus` 6.0.0 took them in (RUSTSEC-2026-0370, 0371, 0372: informational, no vulnerability, no patched version); `accesskit_unix` 0.24.0 still asks `zbus` 5, so `deny.toml` ignores the three by identifier, with the cost and the revisit condition beside them — the first `accesskit_unix` on `zbus` 6, which `cargo deny` reports as `advisory-not-detected` (ADR 2038) |
+| Accessibility | `AccessKit` (AT-SPI on Linux), the Linux adapter `accesskit_unix` in **`viewer-accessibility` only** (ADR 0214). It reaches the session bus through `zbus` 5, and with it `zvariant`, `zbus_names` and `zvariant_derive`, which RustSec marks unmaintained since `zbus` 6.0.0 took them in (RUSTSEC-2026-0370, 0371, 0372: informational, no vulnerability, no patched version); the tree's `accesskit_unix` 0.22.1 asks `zbus` 5, and so does the newest release, 0.24.0, so `deny.toml` ignores the three by identifier, with the cost and the revisit condition beside them — the first `accesskit_unix` on `zbus` 6, which `cargo deny` reports as `advisory-not-detected` (ADR 2038) |
 | Parallelism | `rayon` |
 | Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |
-| Image codecs | `hayro-jbig2` and `hayro-jpeg2000` for §7.4.7 and §7.4.9 (ADR 0014), taken from upstream's repository at the commit their releases 0.3.1 and 0.4.1 were published from — a git source so that the reference renderer's `simd` feature, which Cargo would unify into a crates.io copy, never reaches the worker's (ADR 1714); **`pdf-ccitt`, this tree's own**, for §7.4.6's Group 3 and Group 4 fax, because Table 11's `/DamagedRowsBeforeError` needs a decoder that says where a row broke — all three in `pdf-sandbox`'s confined worker. `hayro-ccitt`, which decoded fax until then, is in the lock only as `hayro-jbig2`'s MMR decoder and in `pdf-model`'s census as evidence (ADR 1349). **`zune-jpeg`** for §7.4.8's baseline and progressive JPEG, in this process, taken from the owner's fork `close2/zune-image` at 0.5.15's own commit with the two patches `doc/patches/` holds and nothing else, until a release carries them; the reference renderer keeps crates.io's 0.5.15, a package of its own (ADRs 1589, 1730) |
+| Image codecs | `hayro-jbig2` and `hayro-jpeg2000` for §7.4.7 and §7.4.9 (ADR 0014), taken from the owner's fork `close2/hayro` (`quorra/t88-patches`, `doc/questions/A514`): upstream's 0.3.1 and 0.4.1 commit with three T.88 patches on `hayro-jbig2` and nothing else (ADR 2102), a git source so that the reference renderer's `simd` feature, which Cargo would unify into a crates.io copy, never reaches the worker's (ADR 1714); **`pdf-ccitt`, this tree's own**, for §7.4.6's Group 3 and Group 4 fax, because Table 11's `/DamagedRowsBeforeError` needs a decoder that says where a row broke — all three in `pdf-sandbox`'s confined worker. `hayro-ccitt`, from the same fork and commit, is in the lock only as `hayro-jbig2`'s MMR decoder and as `pdf-model`'s `ccitt_decoder_census`, evidence and never a decoder a page is drawn with (ADR 1349). **`zune-jpeg`** for §7.4.8's baseline and progressive JPEG, in this process, taken from the owner's fork `close2/zune-image` at 0.5.15's own commit with the two patches `doc/patches/` holds and nothing else, until a release carries them; the reference renderer keeps crates.io's 0.5.15, a package of its own (ADRs 1589, 1730) |
 | Spec model | Arlington PDF Model → generated validation layer |
 | FUSE | `fuser`, pinned `=0.18.0`, default features — its pure-Rust `/dev/fuse` path, no libfuse and no C linkage (ADR 0861) |
 | KIO | CMake, extra-cmake-modules, `Qt6::Core` and `KF6::KIOCore`, for `kio/` alone — **outside the cargo workspace**, no `Cargo.toml`, named by no manifest, so a machine with no KDE builds and tests the whole workspace unchanged and the one test that reaches it skips saying which package is missing (ADR 0869) |
 | HTTP | `ureq` 3, blocking and without an async runtime, in **`viewer-host` only**, for §12.7.6.2's submission: `rustls` over `ring` for TLS and this machine's own trust store through `rustls-native-certs` — no OpenSSL, no `native-tls`, no bundled `webpki-roots`, each banned in `deny.toml`. `ring` is the one C and assembly package it brings, and it runs in the unconfined host under principle 3's one named exception — TLS for a transmission a person allowed, until a pure-Rust provider is stable — granted by the owner (`doc/questions/A130`) on the condition that the URL's host is checked before it reaches the TLS stack, which `viewer_host::submit::check_url` does (ADR 1327) |
-| ECMAScript | **Boa** (`boa_engine` 0.22, `Unlicense OR MIT`, `default-features = false` and ECMA-262's Annex B), in **`pdf-script` only and only under its `engine` feature**, which no member turns on: RFC 0008 section 5.4's recommendation, accepted by the owner (`doc/questions/A193`). Pure Rust, so a specification bug's ceiling is a panic rather than type confusion; it is not `unsafe`-free — a garbage collector and a tagged value — and that `unsafe` is the dependency's, counted in ADR 1590. It adds 57 packages to the lock and seven second versions of packages already there; a build without the feature compiles and links none of them. What it is in a position to break: nothing a document without a field script touches, and the displayed value and `rc` of every field script it runs — never the file, which it never holds. Budgets in-process are Boa's loop, recursion and stack limits, a wall clock and a step count between slices, and a size check before the built-ins an argument can make large; what those cannot bound is the confined process's (ADRs 1590, 1591) |
+| ECMAScript | **Boa** (`boa_engine` 0.22, `Unlicense OR MIT`, `default-features = false` and ECMA-262's Annex B), in **`pdf-script` only and only under its `engine` feature**, which no member turns on: RFC 0008 section 5.4's recommendation, accepted by the owner (`doc/questions/A193`). Pure Rust, so a specification bug's ceiling is a panic rather than type confusion; it is not `unsafe`-free — a garbage collector and a tagged value — and that `unsafe` is the dependency's, counted in ADR 1590. What it adds to the lock is `cargo tree -p pdf-script --features engine -e normal` beside the same without the feature; a build without the feature compiles and links none of it. What it is in a position to break: nothing a document without a field script touches, and the displayed value and `rc` of every field script it runs — never the file, which it never holds. Budgets in-process are Boa's loop, recursion and stack limits, a wall clock and a step count between slices, and a size check before the built-ins an argument can make large; what those cannot bound is the confined process's (ADRs 1590, 1591) |
 
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,
@@ -40,9 +40,8 @@ glyph; executing a face's `GSUB` through `read-fonts` is priced there and not bu
 
 ## The public-key *constructions* are in the tree; the arithmetic under them no longer is
 
-**Where they live: `crates/pdf-signature`, and nowhere else.** The ten modules were `pdf-model`'s
-until the thousandth session, and the twelve cryptographic packages below went with them — so a
-crate that names `pdf-signature` is a crate that verifies a signature, and every other consumer of
+**Where they live: `crates/pdf-signature`, and nowhere else.** The modules left `pdf-model` with their cryptographic
+packages, so a crate that names `pdf-signature` is a crate that verifies a signature, and every other consumer of
 this tree's dependency table can be read against that one line (ADR 1020,
 `doc/reviews/984-direction-and-boundaries.md` finding 1). `pdf-model` still depends on the crate,
 for §12.8.2.2's `/DocMDP` level and §12.8.6's usage rights alone, which is why the packages are
@@ -66,23 +65,20 @@ a dependency needs from those three ADRs:
   itself, drags in signing machinery (`crypto-primes`, `rfc6979`, `pkcs8`, strict `der`) that a
   verifier never calls.
 - **A general ASN.1 decoder would lose real documents.** `x509-cert` sits on a strict DER reader,
-  and four of the corpus's ten signature values begin `30 80` — X.690 clause 8.1.3.6's indefinite
-  length, which DER forbids and Adobe's handler emits. `openssl pkcs7` refuses exactly those four.
+  and corpus signature values begin `30 80` — X.690 clause 8.1.3.6's indefinite length, which DER
+  forbids and Adobe's handler emits, and which `openssl pkcs7` refuses.
   This is why the CMS/X.509 *parsing* stays in tree whatever the arithmetic does.
-- **Elliptic curves are taken, and every ISO/TS 32002 curve computes** (ADR
-  0532, measured 2026-08-23, and ADR 1063, 2026-09-14; supersedes the refusal ADRs 0314 and 0331
-  recorded). `p256`, `p384`
-  and `p521` 0.14.0 plus `ed25519-dalek` 3.0.0, all stable on this tree's `digest` 0.11 line, with
-  `ecdsa` named directly so one generic verification serves three curves. **23 new locked
-  packages** plus two patch bumps, `cargo deny` green on all four sections with no exception added
-  — `BSD-3-Clause`, which `ed25519-dalek` and `curve25519-dalek` are under and nothing else here
-  is, was already in the allow list. `default-features = false` everywhere, and
+- **Elliptic curves are taken, and every ISO/TS 32002 curve computes** (ADRs
+  0532 and 1063, superseding the refusal ADRs 0314 and 0331 recorded). `p256`, `p384` and `p521`
+  0.14.0 plus `ed25519-dalek` 3.0.0, all stable on this tree's `digest` 0.11 line, with `ecdsa`
+  named directly so one generic verification serves three curves; `cargo deny` holds no exception
+  for them — `BSD-3-Clause`, which `ed25519-dalek` and `curve25519-dalek` are under and nothing
+  else here is, is in the allow list. `default-features = false` everywhere, and
   `precomputed-tables` is deliberately **off**: it trades image size for scalar-multiplication
   speed, and a signature is verified a handful of times per document off the launch path while
   every byte of a table is paged in at launch.
-  - **Two more curves were takeable the week their line went stable** (ADR 1063, measured and
-    taken 2026-09-14): `bp256` and `bp384` 0.14.0, published 2026-09-10 and 09-11, same supplier
-    and same `digest` 0.11 line as the NIST three, `Apache-2.0 OR MIT`, MSRV 1.85,
+  - **`bp256` and `bp384` 0.14.0 are the same supplier's Brainpool pair** (ADR 1063), on the
+    same `digest` 0.11 line as the NIST three, `Apache-2.0 OR MIT`, MSRV 1.85,
     `#![forbid(unsafe_code)]`, and **no new transitive package** — `primefield` and `primeorder`
     were already here. RFC 5639 sections 3.4 and 3.6 state the two curves' parameters and
     `doc/md/rfc/rfc5639.txt` holds them, so the arithmetic is reviewed code over constants a held
@@ -95,8 +91,8 @@ a dependency needs from those three ADRs:
     advertised, and that it is built so the switch is easy. So both are **private modules of
     `pdf-signature`** behind the named-curve seam — `brainpool_p512.rs` is RFC 5639 section 3.7's
     constants over `primefield` and `primeorder`, the frames `bp256` and `bp384` are made of, with
-    no new locked package (the one lock change is `hybrid-array` 0.4.13 to 0.4.15, whose 0.4.15
-    adds the 513-element array size a 512-bit scalar's wNAF needs); `ed448.rs` is RFC 8032 section
+    no new locked package (`hybrid-array` 0.4.15 supplies the 513-element array size a 512-bit
+    scalar's wNAF needs); `ed448.rs` is RFC 8032 section
     5.2 over `crypto-bigint`'s constant-modulus Montgomery form and the `shake` already here.
     Neither re-exports anything; the crate's public surface is still the signature questions.
     **The swap condition is A170's: the day a stable, reviewed crate covers the curve, the swap is
@@ -108,25 +104,21 @@ a dependency needs from those three ADRs:
     `bp512-nestler` is licensed PolyForm-Noncommercial-1.0.0, which this project's Apache licence
     cannot take.
   - **`const-oid`'s `db` feature is the identifier supply, at zero new packages** — it is already
-    here through `digest` — and it is what keeps a dozen object identifiers out of this project's
-    memory. It also gave `cms::Digest` a second reading for six of its ten, retiring ADR 0390's
-    "SHAKE256 has no second reading" as a claim that had outlived its reason.
+    here through `digest` — and it is what keeps the object identifiers out of this project's memory,
+    and gives `cms::Digest`'s identifiers their second reading (`cms.rs`'s test says which carry
+    one).
   - **`curve25519-dalek`'s SIMD backend carries `unsafe`**, selected by its build script on
     x86_64. This is the same shape as `sha2`, `cmov`, `block-buffer` and `hybrid-array`, all
     already on `pdf-signature`'s path, and `#![forbid(unsafe_code)]` is unchanged: it is
     compiler-enforced over *this project's* source. Written down beside the dependency in
     `Cargo.toml` rather than left to be discovered.
-- **The one dependency that was owed is spent, and cost twice what this file predicted** (ADR
-  0390, 2026-08-17). ISO/TS 32001 section 5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to
+- **SHA-3 is two packages and four compiled ones** (ADR 0390). ISO/TS 32001 section 5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to
   Table 260 — **not** to Table 256, whose section 5.1.3 Errata Collection 3 deletes outright — and
-  `cms::Digest` computes all four. The line test was the deciding one and both
-  candidates passed it — `digest` 0.11, the same trait stack as the `sha2`, `sha1`, `md-5` and
-  `ripemd` already here, because a *second* hash stack is exactly what ADR 0229 declined `rsa` 0.9
-  for and ADR 0348 declined `ttf-parser` for. What this file got wrong was the package count:
-  **`sha3` 0.12.0 removed `Shake128` and `Shake256` into a separate `shake` crate**, so the current
-  line is **two** packages and **four** compiled ones (`sha3` 0.12.0, `shake` 0.1.0, and the shared
-  `keccak` 0.2.1 and `sponge-cursor` 0.1.0), all `MIT OR Apache-2.0`, MSRV 1.85, all RustCrypto.
-  The two-package alternative was `sha3` 0.11.0, which still has both and is superseded; a dead
-  minor was judged the more expensive of the two. **The lesson generalises past this row**: a
-  sentence here naming a *version* of somebody else's crate is a prediction, and a prediction is
-  re-measured at the moment of spending rather than read.
+  `cms::Digest` computes all four. Both candidates are on `digest` 0.11,
+  the trait stack of the `sha2`, `sha1`, `md-5` and `ripemd` already here, because a *second* hash
+  stack is what ADR 0229 declined `rsa` 0.9 for and ADR 0348 declined `ttf-parser` for. `sha3`
+  0.12.0 moved `Shake128` and `Shake256` into the `shake` crate, so the line is `sha3` 0.12.0 and
+  `shake` 0.1.0 over the shared `keccak` 0.2.1 and `sponge-cursor` 0.1.0, all `MIT OR Apache-2.0`,
+  MSRV 1.85, all RustCrypto; `sha3` 0.11.0 still has both and is superseded, and a dead minor was
+  judged the more expensive. **A sentence here naming a *version* of somebody else's crate is a
+  prediction**, re-measured at the moment of spending rather than read.

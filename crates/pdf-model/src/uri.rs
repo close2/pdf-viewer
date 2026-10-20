@@ -1,7 +1,7 @@
 //! Resolving a URI reference against a base, for ISO 32000-2 §12.6.4.8's URI actions.
 //!
 //! The clause states two things about a URI and defers the rest. It says what the entry *is*
-//! — Table 210's `/URI` is "[t]he uniform resource identifier to resolve, encoded in UTF-8",
+//! — Table 210's `/URI` is "\[t]he uniform resource identifier to resolve, encoded in UTF-8",
 //! described "in Internet RFC 3986" — and it says that Table 211's `/Base` is what a partial
 //! URI is interpreted relative to. Neither sentence states how a partial reference and a base
 //! combine, because RFC 3986 section 5 already does.

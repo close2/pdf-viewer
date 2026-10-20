@@ -222,7 +222,7 @@ impl PageLabels {
     }
 }
 
-/// Table 161's `/P`, "[t]he label prefix for page labels in this range".
+/// Table 161's `/P`, "\[t]he label prefix for page labels in this range".
 ///
 /// A *text string*, so §7.9.2.2's three encodings apply and `pdf_syntax::text_string` is what
 /// decodes them — the same function §12.7.4.3's field values use, which is why a prefix in

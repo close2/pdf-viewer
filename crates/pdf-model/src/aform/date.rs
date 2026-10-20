@@ -188,7 +188,7 @@ fn width(n: usize) -> u8 {
 /// # Errors
 ///
 /// A [`Refusal`] where the picture uses a place-holder this program does not write (see
-/// [`tokens`]).
+/// `tokens`).
 pub fn print_date(picture: &str, moment: &DateTime) -> Result<String, Refusal> {
     let mut out = String::new();
     let twelve = match moment.hour % 12 {
@@ -306,7 +306,7 @@ fn days_in(year: i32, month: u8) -> u8 {
 /// Two digits under `yyyy` are a two-digit year, and `scand`'s documented horizon applies to them
 /// as to `yy`: "less than 50" is the twenty-first century and 50 or more the twentieth. One or
 /// three digits under a year refuse. An hour past twelve under `h` or `hh` with no marker is read
-/// as a 24-hour hour. A picture with no year reads against [`YEAR_OF_NO_YEAR`]; a
+/// as a 24-hour hour. A picture with no year reads against `YEAR_OF_NO_YEAR`; a
 /// picture with no month or day reads as the first. The moment must exist: a thirty-first of
 /// April refuses.
 #[must_use]

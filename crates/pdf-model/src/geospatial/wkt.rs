@@ -1,6 +1,6 @@
 //! Well Known Text, read as ISO 19162 section 6 states its string form.
 //!
-//! §12.10.3 hands the format of a coordinate system's `/WKT` entry to another standard: "[t]he WKT
+//! §12.10.3 hands the format of a coordinate system's `/WKT` entry to another standard: "\[t]he WKT
 //! (Well Known Text) format is specified in ISO 19162". This module is that string form and no
 //! more — keywords, delimiters, quoted text, numbers and bare enumerations, nested to any depth —
 //! and [`super::system`] is what the tree *means*. The two are separate because the grammar is
@@ -80,7 +80,7 @@ pub enum WktError {
         /// The closing delimiter found.
         found: char,
     },
-    /// Nesting past [`MAX_DEPTH`].
+    /// Nesting past `MAX_DEPTH`.
     #[error("the Well Known Text nests more than {MAX_DEPTH} tokens deep")]
     TooDeep,
     /// A number the grammar of ISO 19162 section 6.3.2 does not produce.

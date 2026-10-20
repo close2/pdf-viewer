@@ -68,6 +68,7 @@ use crate::kinds::{
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
+use crate::settings::Stated;
 use crate::shapes::Quads;
 use crate::status::Status;
 use crate::window::{OwedKind, Owing, Window};
@@ -1772,6 +1773,40 @@ pub unsafe extern "C" fn quorra_archive_profile_sentence(
         return Status::OutOfRange.code();
     };
     copy_out(&offered.sentence, out, cap, needed)
+}
+
+/// How many targets ISO 19005's conversion writes, in the order every window's chooser offers
+/// them — `pdf_archive::Target::ALL` (ADRs 1966, 2121).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_archive_targets(count: *mut usize) -> c_int {
+    let Some(count) = count.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    *count = pdf_archive::Target::ALL.len();
+    Status::Ok.code()
+}
+
+/// One target by index, as every window's chooser names it (`PDF/A-2b`, …) and `quorra_archive`
+/// takes it, as UTF-8 with a trailing NUL.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_archive_target(
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(target) = pdf_archive::Target::ALL.get(index) else {
+        return Status::OutOfRange.code();
+    };
+    copy_out(&target.to_string(), out, cap, needed)
 }
 
 /// Asks for the focused document as ISO 19005 (PDF/A) at `target` — `2b`, `2u`, `2a`, `4`, `4f`
@@ -4651,20 +4686,31 @@ pub unsafe extern "C" fn quorra_answer_script(
     let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
         return Status::NullArgument.code();
     };
-    let answer = match ScriptAnswerKind::from_code(how) {
-        Some(ScriptAnswerKind::Pressed) => match AlertButtonKind::from_code(button) {
-            Some(button) => viewer_core::ScriptAnswer::Pressed(button.button()),
-            None => return Status::WrongKind.code(),
-        },
-        Some(ScriptAnswerKind::Typed) => match owned_text(text) {
-            Ok(typed) => viewer_core::ScriptAnswer::Typed(typed),
-            Err(()) => return Status::NotUtf8.code(),
-        },
-        Some(ScriptAnswerKind::Unanswerable) => viewer_core::ScriptAnswer::Unanswerable,
-        None => return Status::WrongKind.code(),
+    let answer = match script_answer(how, button, owned_text(text)) {
+        Ok(answer) => answer,
+        Err(status) => return status.code(),
     };
     *events = Box::into_raw(Box::new(viewer.answer_script(document, answer)));
     Status::Ok.code()
+}
+
+/// A script's answer from `QUORRA_SCRIPT_ANSWER_*`, a `QUORRA_ALERT_BUTTON_*` and the typed text
+/// as read — `quorra_answer_script`'s and `quorra_window_answer_script`'s one reading.
+fn script_answer(
+    how: u32,
+    button: u32,
+    text: Result<Option<String>, ()>,
+) -> Result<viewer_core::ScriptAnswer, Status> {
+    match ScriptAnswerKind::from_code(how) {
+        Some(ScriptAnswerKind::Pressed) => AlertButtonKind::from_code(button)
+            .map(|button| viewer_core::ScriptAnswer::Pressed(button.button()))
+            .ok_or(Status::WrongKind),
+        Some(ScriptAnswerKind::Typed) => text
+            .map(viewer_core::ScriptAnswer::Typed)
+            .map_err(|()| Status::NotUtf8),
+        Some(ScriptAnswerKind::Unanswerable) => Ok(viewer_core::ScriptAnswer::Unanswerable),
+        None => Err(Status::WrongKind),
+    }
 }
 
 /// Which `QUORRA_DATA_*` a server's answer is in, by its media type — §12.7.8.1's
@@ -5439,24 +5485,45 @@ pub unsafe extern "C" fn quorra_event_script_question(
     };
     match events.script_question(index) {
         Ok(question) => {
-            if let Some(kind) = kind.as_mut() {
-                *kind = question.kind as u32;
-            }
-            if let Some(icon) = icon.as_mut() {
-                *icon = question.icon.map_or(0, |icon| icon as u32);
-            }
-            if let Some(buttons) = buttons.as_mut() {
-                *buttons = question.buttons.map_or(0, |buttons| buttons as u32);
-            }
-            if let Some(dismissed) = dismissed.as_mut() {
-                *dismissed = question.dismissed.map_or(0, |button| button as u32);
-            }
-            if let Some(password) = password.as_mut() {
-                *password = question.password;
-            }
+            write_script_question(
+                question,
+                kind.as_mut(),
+                icon.as_mut(),
+                buttons.as_mut(),
+                dismissed.as_mut(),
+                password.as_mut(),
+            );
             Status::Ok.code()
         }
         Err(status) => status.code(),
+    }
+}
+
+/// A script question's numbers written into whichever of the five out-parameters the caller gave,
+/// what does not apply as 0 — `quorra_event_script_question`'s and `quorra_owed_script_question`'s
+/// one shape.
+fn write_script_question(
+    question: crate::ScriptQuestionNumbers,
+    kind: Option<&mut u32>,
+    icon: Option<&mut u32>,
+    buttons: Option<&mut u32>,
+    dismissed: Option<&mut u32>,
+    password: Option<&mut bool>,
+) {
+    if let Some(kind) = kind {
+        *kind = question.kind as u32;
+    }
+    if let Some(icon) = icon {
+        *icon = question.icon.map_or(0, |icon| icon as u32);
+    }
+    if let Some(buttons) = buttons {
+        *buttons = question.buttons.map_or(0, |buttons| buttons as u32);
+    }
+    if let Some(dismissed) = dismissed {
+        *dismissed = question.dismissed.map_or(0, |button| button as u32);
+    }
+    if let Some(password) = password {
+        *password = question.password;
     }
 }
 
@@ -7975,12 +8042,177 @@ pub unsafe extern "C" fn quorra_window_open(
     let Some(path) = path else {
         return Status::NullArgument.code();
     };
-    match Window::open(std::path::Path::new(&path), fragment) {
+    match Window::open(
+        std::path::Path::new(&path),
+        fragment,
+        viewer_host::Settings::default(),
+    ) {
         Ok(opened) => {
             *window = Box::into_raw(Box::new(opened));
             Status::Ok.code()
         }
         Err(status) => status.code(),
+    }
+}
+
+/// [`quorra_window_open`], at the levels `settings` states rather than the defaults (ADR 2120).
+/// The window takes a copy: `settings` stays the caller's, to free or to open another window under.
+///
+/// # Safety
+///
+/// See the module documentation. `path` is NUL-terminated UTF-8, `fragment` null or the same,
+/// `settings` a handle from [`quorra_settings_new`], and `window` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_open_under(
+    path: *const c_char,
+    fragment: *const c_char,
+    settings: *const Stated,
+    window: *mut *mut Window,
+) -> c_int {
+    let (Some(window), Some(settings)) = (window.as_mut(), settings.as_ref()) else {
+        return Status::NullArgument.code();
+    };
+    let (Ok(path), Ok(fragment)) = (owned_text(path), owned_text(fragment)) else {
+        return Status::NotUtf8.code();
+    };
+    let Some(path) = path else {
+        return Status::NullArgument.code();
+    };
+    match Window::open(std::path::Path::new(&path), fragment, settings.settings()) {
+        Ok(opened) => {
+            *window = Box::into_raw(Box::new(opened));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// The reader's levels at a window's defaults — what a window with no command line holds — for a
+/// host to state its own on, one call at a time (RFC 0010 section 5, ADR 2120).
+///
+/// # Safety
+///
+/// See the module documentation. `settings` receives an owning handle to be freed with
+/// [`quorra_settings_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_new(settings: *mut *mut Stated) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    *settings = Box::into_raw(Box::new(Stated::default()));
+    Status::Ok.code()
+}
+
+/// Releases the levels. A null pointer is ignored.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_free(settings: *mut Stated) {
+    if !settings.is_null() {
+        drop(Box::from_raw(settings));
+    }
+}
+
+/// One of the acts a document asks of this machine, `QUORRA_POLICY_*`, at `QUORRA_LEVEL_*`: the
+/// level `viewer_host::Settings::set` puts it at, which is the level the policy's own command-line
+/// word names in the same place. `QUORRA_WRONG_KIND` for a number neither names, and for
+/// `QUORRA_POLICY_SEPARATIONS` at `ASK` or `WARN`; nothing changes.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_set(
+    settings: *mut Stated,
+    policy: u32,
+    level: u32,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match settings.set(policy, level) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// One restriction's level, `QUORRA_RESTRICTED_*` at `QUORRA_RESTRICT_*`, as
+/// [`quorra_restrict_operation`] takes them; every other operation stays where it stood.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_restrict(
+    settings: *mut Stated,
+    operation: u32,
+    level: u32,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match settings.restrict(operation, level) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// One word of a command line, read as `quorra`, `quorra-gtk`, `quorra-qt` and `quorra-confined`
+/// read theirs (`viewer_host::Settings::take`): `taken` is true where it was one of the settings
+/// words — `--restrictions=`, `--ignore-restrictions`, `--links=`, `--remote-documents=`,
+/// `--embedded-documents=`, `--submissions=`, `--separations=` — and is now in force, false where it
+/// is none of them. `QUORRA_WRONG_KIND` where it is one and names no level it takes, with the
+/// sentence from [`quorra_settings_refusal`].
+///
+/// # Safety
+///
+/// See the module documentation. `word` is NUL-terminated UTF-8; `taken` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_take(
+    settings: *mut Stated,
+    word: *const c_char,
+    taken: *mut bool,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let word = match owned_text(word) {
+        Ok(Some(word)) => word,
+        Ok(None) => return Status::NullArgument.code(),
+        Err(()) => return Status::NotUtf8.code(),
+    };
+    match settings.take(&word) {
+        Ok(was) => {
+            if let Some(taken) = taken.as_mut() {
+                *taken = was;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Why the last word [`quorra_settings_take`] refused was refused, in the sentence each window
+/// prints, in the two-call idiom; `QUORRA_NO_ANSWER` where the last word was not refused.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_refusal(
+    settings: *const Stated,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(settings) = settings.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match settings.refusal() {
+        Some(sentence) => copy_out(sentence, out, cap, needed),
+        None => Status::NoAnswer.code(),
     }
 }
 
@@ -8320,6 +8552,77 @@ pub unsafe extern "C" fn quorra_window_answer(window: *mut Window, proceed: bool
     }
 }
 
+/// The answer to an `ARCHIVE` record: the target and the profile at these indices into
+/// [`quorra_archive_target`]'s list and [`quorra_archive_profile`]'s, or — either negative — a
+/// chooser closed with nothing chosen, which is said. The window keeps the choice for its life
+/// and converts (ADRs 1966, 1985). `QUORRA_NO_ANSWER` where no chooser is out; `QUORRA_OUT_OF_RANGE`
+/// for an index past a list, which leaves the chooser out.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_archive(
+    window: *mut Window,
+    target: i32,
+    profile: i32,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.archive(target, profile) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// The answer to a `SCRIPT` record, in [`quorra_answer_script`]'s numbers: `QUORRA_SCRIPT_ANSWER_*`,
+/// with `button` for a press and `text` for a typed answer; a dialogue closed without a press
+/// answers with the `dismissed` button the record gave. `QUORRA_NO_ANSWER` where no question from
+/// `document` is out — answered already, or withdrawn.
+///
+/// # Safety
+///
+/// See the module documentation. `text` is NUL-terminated UTF-8, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_answer_script(
+    window: *mut Window,
+    document: u64,
+    how: u32,
+    button: u32,
+    text: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let answer = match script_answer(how, button, owned_text(text)) {
+        Ok(answer) => answer,
+        Err(status) => return status.code(),
+    };
+    match window.answer_script(document, answer) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// The print a `PRINT` record let through is over, whether it ran or the person cancelled:
+/// §8.11.4.5's groups revert, as the toolkit windows end their print. `QUORRA_NO_ANSWER` where no
+/// print is standing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_print_finish(window: *mut Window) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.print_finish() {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
 /// The caller put the page area on the screen. The first call that shows a page is the launch's
 /// first frame, and what waits behind page one starts then.
 ///
@@ -8570,6 +8873,132 @@ pub unsafe extern "C" fn quorra_owed_document(
     match owed.document(index) {
         Ok(id) => {
             *document = id;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// The target and the profile an `ARCHIVE` record's chooser starts on, as indices into
+/// [`quorra_archive_target`]'s list and [`quorra_archive_profile`]'s; `QUORRA_WRONG_KIND` for
+/// another record.
+///
+/// # Safety
+///
+/// See the module documentation. Both out-parameters are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_archive(
+    owed: *const Owing,
+    index: usize,
+    target: *mut usize,
+    profile: *mut usize,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match owed.archive(index) {
+        Ok((starts_on, profile_starts_on)) => {
+            if let Some(target) = target.as_mut() {
+                *target = starts_on;
+            }
+            if let Some(profile) = profile.as_mut() {
+                *profile = profile_starts_on;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// A `SCRIPT` record's question, in [`quorra_event_script_question`]'s numbers and shape;
+/// `QUORRA_WRONG_KIND` for another record.
+///
+/// # Safety
+///
+/// See the module documentation. Every out-parameter is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_script_question(
+    owed: *const Owing,
+    index: usize,
+    kind: *mut u32,
+    icon: *mut u32,
+    buttons: *mut u32,
+    dismissed: *mut u32,
+    password: *mut bool,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match owed.script(index) {
+        Ok(question) => {
+            write_script_question(
+                crate::ScriptQuestionNumbers::of(question),
+                kind.as_mut(),
+                icon.as_mut(),
+                buttons.as_mut(),
+                dismissed.as_mut(),
+                password.as_mut(),
+            );
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of a `SCRIPT` record's strings, `QUORRA_SCRIPT_TEXT_*`, as [`quorra_event_script_text`]
+/// copies it: a title or a label the script did not give is `QUORRA_NO_ANSWER`.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_script_text(
+    owed: *const Owing,
+    index: usize,
+    part: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(part) = ScriptTextKind::from_code(part) else {
+        return Status::WrongKind.code();
+    };
+    match owed.script(index) {
+        Ok(question) => match crate::events::script_part(question, part) {
+            Some(text) => copy_out(text, out, cap, needed),
+            None => Status::NoAnswer.code(),
+        },
+        Err(status) => status.code(),
+    }
+}
+
+/// A `PRINT` record's pages, and whether §7.6.4.2's bit 12 limits the quality a copy may be
+/// rebuilt from; `QUORRA_WRONG_KIND` for another record.
+///
+/// # Safety
+///
+/// See the module documentation. Both out-parameters are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_print(
+    owed: *const Owing,
+    index: usize,
+    pages: *mut usize,
+    degraded: *mut bool,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match owed.print(index) {
+        Ok((count, limited)) => {
+            if let Some(pages) = pages.as_mut() {
+                *pages = count;
+            }
+            if let Some(degraded) = degraded.as_mut() {
+                *degraded = limited;
+            }
             Status::Ok.code()
         }
         Err(status) => status.code(),

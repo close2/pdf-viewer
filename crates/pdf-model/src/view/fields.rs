@@ -105,7 +105,7 @@ impl ViewState {
     /// neither.
     ///
     /// So one index becomes a string, several become an array of strings, and none becomes no `/V`
-    /// at all — "[t]he default value of V is null , indicating that no item is currently selected."
+    /// at all — "\[t]he default value of V is null , indicating that no item is currently selected."
     /// That resolution happens **here**, once, because it needs the field's own `/Opt` and because
     /// the appearance, the description a host reads back and the file a save writes must not each
     /// do it separately. Table 234's `/I` is kept beside the value for the same reason: the entry
@@ -133,7 +133,7 @@ impl ViewState {
     ///
     /// # What Table 231 bit 24 takes away
     ///
-    /// §12.7.5.3's `DoNotScroll` makes a full field stop accepting text — "[o]nce the field is
+    /// §12.7.5.3's `DoNotScroll` makes a full field stop accepting text — "\[o]nce the field is
     /// full, no further text shall be accepted for interactive form filling" — and this is the
     /// one place in the tree a person's text is accepted, so it is where the `shall` binds. The
     /// value a widget takes is the **longest prefix of `value` that fits its annotation
@@ -305,7 +305,7 @@ impl ViewState {
     /// document has.
     ///
     /// **And the string may not be the field's characters**, which is what the second half of the
-    /// answer is for. Table 231 bit 14 — *"[c]haracters typed from the keyboard shall instead be
+    /// answer is for. Table 231 bit 14 — *"\[c]haracters typed from the keyboard shall instead be
     /// echoed in some unreadable form, such as asterisks or bullet characters"* — makes a password
     /// field answer with bullets, and a host obeying the paragraph above would then write those
     /// bullets back as the next value. [`ShownValue::obscured`] is `true` for exactly that string,
@@ -494,7 +494,7 @@ impl ViewState {
 }
 
 /// The field a widget belongs to: the nearest dictionary of its `/Parent` chain, itself first, that
-/// states §12.7.4.2's `/T` — "[a] field dictionary that does not have a partial field name ( T
+/// states §12.7.4.2's `/T` — "\[a] field dictionary that does not have a partial field name ( T
 /// entry) of its own shall not be considered a field but simply a Widget annotation" — or the
 /// widget itself where none does, for `holder`'s bound.
 pub(super) fn named_field(document: &Document, widget: ObjectId) -> ObjectId {
@@ -615,7 +615,7 @@ pub(super) fn accepted(document: &Document, widgets: &[ObjectId], value: &str) -
 ///
 /// The flag belongs to the *field* and §12.7.4.2 makes a field a name, so any of its widgets
 /// answers for all of them: `/Ff` is inheritable, which is why this walks `/Parent` the way
-/// [`is_read_only`] does. A name the document has no field for is not one.
+/// `is_read_only` does. A name the document has no field for is not one.
 ///
 /// Public because [`ViewState::choose_file`] takes nothing for a field without the flag, and a
 /// caller owes a person a sentence rather than a silent nothing (trap 5) — `viewer_core` asks

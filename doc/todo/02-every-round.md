@@ -142,6 +142,8 @@ cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapt
 cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test  --profile gates -p pdf-syntax     --test on_disk         -- --ignored --nocapture   # every corpus document read from disk and from memory, object for object (ADR 0809)
 cargo test  --release       -p viewer-ui      --test launch_path    -- --ignored --nocapture   # principle 2's numbers, the counted half (the merge's t2-launch_path and doc/verify.md run the clocks); `--release` on purpose, see below; a `--clock`, whose script stage's worker is a second `--build` beside the sandbox's (ADR 1620; doc/checks/launch-path.toml spells both)
+cargo test  --release       -p viewer-qt      --test launch_path    -- --ignored --nocapture   # the Qt window's launch on both lanes, banded in doc/checks/toolkit-launch.toml (ADR 2125); the merge's t2-toolkit_launch runs it with the GTK line in one clock hold
+cargo test  --release       -p viewer-gtk     --test launch_path    -- --ignored --nocapture   # the GTK window's launch, the same harness and band file (ADR 2125)
 cargo test  --release       -p render-raster  --test turn_path      -- --ignored --nocapture   # doc/performance.md 3e's turn and step rows, banded in doc/checks/turn-path.toml (ADR 1513)
 tools/batch.sh raster-examples   # ci.yml's fourteen raster examples, each with --check under Xvfb, one line each (ADR 1575)
 ```

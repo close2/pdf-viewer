@@ -213,7 +213,7 @@ impl Tree {
     /// [`Self::role`] answers the *name*, which is what a document wrote or what its role map
     /// took it to; this answers what that name means in the standard's own vocabulary. `None`
     /// where the mapped name is not a standard type, which §14.8.4.1 makes a defect in the
-    /// document rather than a gap here — "[a]ll structure elements occurring within a tagged PDF
+    /// document rather than a gap here — "\[a]ll structure elements occurring within a tagged PDF
     /// document shall have a type matching one of those defined as a Standard Structure Type, or
     /// a role map providing a mapping from the non-standard type to a Standard Structure Type".
     ///
@@ -226,13 +226,13 @@ impl Tree {
     ///
     /// followed by three bullets, which are exactly this walk. An element that names a standard
     /// namespace through `/NS` is the first, and [`Namespace::is_standard`] answers it; an
-    /// element that names none is the second, and is [`Self::resolved`]'s `None`; a role map
+    /// element that names none is the second, and is `Self::resolved`'s `None`; a role map
     /// "directly or transitively" into one is the third, and is the loop. A namespace dictionary
     /// stating no `/NS` of its own answers `None` too: Table 356 makes the entry required, so the
     /// alternative is to treat a document's broken namespace as the standard one.
     ///
     /// **The name is read in the vocabulary of the namespace it ends in**, because §14.8.6.1 makes
-    /// each standard structure namespace a schema of its own and the default one PDF 1.7's: "[w]hen
+    /// each standard structure namespace a schema of its own and the default one PDF 1.7's: "\[w]hen
     /// a namespace is not explicitly specified for a given structure element or attribute, it shall
     /// be assumed to be within this default standard structure namespace". So a `Note`, a `TOCI` or
     /// a `Code` stating no `/NS` is a standard type, and so is one stating the PDF 1.7 namespace;
@@ -284,12 +284,12 @@ impl Tree {
     /// Whether the element ends, after §14.8.6.2's role mapping, in the standard structure
     /// namespace for PDF 2.0.
     ///
-    /// Annex L's population, which is why a writer asks it: "[e]lements in the standard structure
+    /// Annex L's population, which is why a writer asks it: "\[e]lements in the standard structure
     /// namespace for PDF 2.0 shall not have child or parent elements in the standard structure
-    /// namespace for PDF 2.0 that are not explicitly listed in Table L.2", and "[t]he containment
+    /// namespace for PDF 2.0 that are not explicitly listed in Table L.2", and "\[t]he containment
     /// rules specified in Table L.2 shall also apply to structure elements that are role mapped
     /// into the standard structure namespace for PDF 2.0". So the namespace asked about is the one
-    /// the role map *ends* in, which is [`Self::resolved`]'s second half — not the `/NS` the
+    /// the role map *ends* in, which is `Self::resolved`'s second half — not the `/NS` the
     /// element states, and never the default an element stating none is placed in.
     #[must_use]
     pub fn in_pdf_2_0_namespace(&self, document: &Document, element: &Dictionary) -> bool {
@@ -321,9 +321,9 @@ impl Tree {
     /// # Why the root's `/Namespaces` array decides whether the elements are read at all
     ///
     /// The elements have to be walked to answer the clause, and the walk is **151 ms** on the
-    /// largest tagged document this tree holds ([`MAX_ELEMENTS`]'s own note has the measurement),
+    /// largest tagged document this tree holds (`MAX_ELEMENTS`'s own note has the measurement),
     /// which is more than the whole launch path is allowed. The clause is what makes it
-    /// unnecessary: "[i]f the structure element is in an explicit namespace, then that namespace
+    /// unnecessary: "\[i]f the structure element is in an explicit namespace, then that namespace
     /// shall be identified in the structure tree root dictionary's Namespaces array entry", so
     /// the array is the set of namespaces a conforming file's elements can name, and a root
     /// declaring none outside §14.8.6.1's two and §14.8.6.3's one has no element to find. That
@@ -399,7 +399,7 @@ impl Tree {
     ///
     /// The walk is 151 ms on the largest tagged document in reach and `viewer_core::notes` runs on
     /// the launch path, so the elements are read only where the root's `/Namespaces` array names
-    /// the `MathML` namespace — §14.8.6.2: "[i]f the structure element is in an explicit namespace,
+    /// the `MathML` namespace — §14.8.6.2: "\[i]f the structure element is in an explicit namespace,
     /// then that namespace shall be identified in the structure tree root dictionary's Namespaces
     /// array entry", and §14.8.6.3's second `shall` puts every `MathML` element in an explicit one.
     /// So a root that does not list `MathML` has no `math` element for this to find. **The same
