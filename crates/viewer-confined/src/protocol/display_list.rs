@@ -80,7 +80,7 @@ use super::{ProtocolError, Reader, Writer};
 /// Why a display list cannot be written down, naming what stopped it.
 ///
 /// Every variant is a *refusal*, not a failure: the caller's answer to all of them is ADR 0607's
-/// raster arm, which is why [`crossing`] returns a payload rather than a `Result`. Naming the
+/// raster arm, which is why `crossing` returns a payload rather than a `Result`. Naming the
 /// variant that stopped it is `doc/traps/parsers-and-streams.md` trap 5 — unsupported input stays
 /// loud — and it is what makes the deferred producers a documented boundary rather than a page
 /// that quietly went blank.
@@ -131,12 +131,12 @@ pub enum Uncodable {
     /// once per frame.** A scanned page is one `Command::Image` over tens of megabytes of
     /// samples: finishing its encoding to learn that pixels are the smaller payload costs the
     /// confined process that whole allocation and the milliseconds to make it — 33.7 MB and 7.7
-    /// ms on `scan-bad.pdf`, against a page that takes 49 ms to draw. So [`crossing`] hands the
+    /// ms on `scan-bad.pdf`, against a page that takes 49 ms to draw. So `crossing` hands the
     /// encoder the number it is about to compare against and the encoder stops at it.
     ///
     /// `written` is a **lower bound** rather than the list's price: what the encoder had
     /// accounted for when it stopped. `examples/list_over_the_wire` is where an exact figure
-    /// comes from, and it gets one because [`encode`] passes no budget and never returns this.
+    /// comes from, and it gets one because `encode` passes no budget and never returns this.
     #[error("a display list of at least {written} bytes is past the {budget} its raster costs")]
     TooLarge {
         /// What had been written or accounted for when the encoder stopped.

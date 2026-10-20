@@ -117,7 +117,15 @@ respelled in its content stream (ADR 2067); 32 of the 63 witnesses convert, vera
 the rest stop elsewhere. `annotations/file-attachment-only-in-embedded-file-files` (16 at 4) —
 **built** as the subtype rows' removal with the file its `/FS` names filed in `/EmbeddedFiles`
 (ADR 2067 section 4); `6-3-1-t01-fail-f` converts to 4 and 4e, veraPDF-compliant, its icon kept
-under `as-shown`. **Next**: the census's ranking after this round, `tools/state.sh archive`.
+under `as-shown`. The field description is also the operator's `supply` now
+(`field-descriptions`, ADR 2082), the converter's sentence for any field it does not name.
+At 2b, 2u and 2a the census ranks no `not-built-yet` site with a document. At part 4,
+`graphics/no-destination-profile-reference` (1, `6-2-3-t04-fail-a`) — **built** where the intent
+embeds its profile (ADR 2083), converting to 4 and 4e. **Next**: the two duplicate-profile rows (6
+and 2, veraPDF's `6-2-4-2-t03-fail-*` and `6-2-4-4-t01-fail-i`, `-j`), which ADRs 0965 and 0982
+answer with no mitigation and ADR 2083 section 2 leaves to a round that argues ADR 1978's
+conditional shape for them; then `graphics/icc-profiles-conform-to-the-base-standard` (2), whose
+witnesses a `--who` census names first.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

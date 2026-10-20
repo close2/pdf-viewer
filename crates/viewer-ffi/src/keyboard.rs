@@ -9,6 +9,9 @@
 //! [`viewer_host::meaning`] in C# would be the copy `doc/todo/30` warns of. So the caller translates
 //! its key into a `QUORRA_KEY_*` and asks; what it is handed back is the press already acted on
 //! where acting needs nothing of the window, and a `QUORRA_ACT_*` where it does.
+//! What a press comes to is [`viewer_host::decide`]'s, the one function the three windows ask as
+//! well, so the focused push-button, the markup's sentence and the table are decided once
+//! (ADR 2092).
 //!
 //! # The numbers are this ABI's, written out
 //!
@@ -26,15 +29,7 @@
 //! that plays it on two of three platforms, and `quorra_keys` already names it `modifier` for
 //! Adobe's `event.modifier`.
 
-use viewer_core::{Answer, Command, Edit, Query, Viewer};
-use viewer_host::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct};
-
-/// What every window says when §12.5.6.10's markup key is pressed with nothing selected.
-///
-/// The core answers a markup over nothing by doing nothing, which is right and silent, and a
-/// person who pressed a key and saw no change has been told nothing at all (trap 5). The three
-/// windows say this sentence in their own key handlers; the library says it for a C caller.
-pub(crate) const SELECT_FIRST: &str = "select some text first — §12.5.6.10's markups mark up text";
+use viewer_host::{Key, WindowAct};
 
 /// A key this program binds, as a C caller names it: `QUORRA_KEY_*`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -394,69 +389,10 @@ impl ActKind {
     }
 }
 
-/// What a press that reached the page comes to, decided the way every window decides it.
-#[derive(Debug)]
-pub(crate) enum Decided {
-    /// A message the library sends for the caller.
-    Send(Command),
-    /// A job only the window can do.
-    Window(WindowAct),
-    /// A sentence the window owes the person instead of an effect.
-    Say(String),
-    /// Nothing: the key has no meaning here.
-    Nothing,
-}
-
-/// A press, in the order the three windows ask about one (ADR 0526, ADR 1357).
-///
-/// First whether it presses the push-button §12.5.1's focus is on ([`viewer_host::pressed`]), then
-/// what the table means by it ([`viewer_host::meaning`]), and last the one check every window makes
-/// before sending a §12.5.6.10 markup: that something is selected for it to mark up.
-pub(crate) fn decide(
-    viewer: &Viewer,
-    key: Key,
-    held: Modifiers,
-    mode: Mode,
-    waiting: Waiting,
-) -> Decided {
-    if let Some(pressed) = viewer_host::pressed(viewer, key, held) {
-        return match &pressed {
-            viewer_host::Pressed::Activates { annotation, .. } => {
-                Decided::Send(Command::Activate(*annotation))
-            }
-            // Table 227's bit 1, a field the document locked: the windows' sentence, worded by
-            // `Pressed::note` as a click on it is.
-            viewer_host::Pressed::ReadOnly { .. } => {
-                pressed.note().map_or(Decided::Nothing, Decided::Say)
-            }
-        };
-    }
-    match viewer_host::meaning(key, held, mode, waiting) {
-        None => Decided::Nothing,
-        Some(Meaning::Window(act)) => Decided::Window(act),
-        Some(Meaning::Send(Command::Edit(Edit::Markup { .. }))) if !selected(viewer) => {
-            Decided::Say(SELECT_FIRST.to_owned())
-        }
-        Some(Meaning::Send(command)) => Decided::Send(command),
-    }
-}
-
-/// Whether anything on the page is selected, as `NativeWindow::has_selection` asks it.
-fn selected(viewer: &Viewer) -> bool {
-    matches!(viewer.query(Query::Selection),
-        Answer::Selected(selection) if !selection.quads.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ActKind, Decided, KeyKind, SELECT_FIRST, decide};
-    use pdf_model::view::Markup;
-    use viewer_core::{Command, Edit, Viewer};
-    use viewer_host::{Key, Mode, Modifiers, Waiting, WindowAct};
-
-    /// `viewer_host::keys`' two markup rows, §12.5.6.10's, which the check in [`decide`] is for.
-    const MARKUP_KEYS: [(Key, Markup); 2] =
-        [(Key::H, Markup::Highlight), (Key::K, Markup::StrikeOut)];
+    use super::{ActKind, KeyKind};
+    use viewer_host::{Key, WindowAct};
 
     /// Every key `viewer-host` binds has exactly one number here, and the number goes back to it.
     #[test]
@@ -486,69 +422,5 @@ mod tests {
             (ActKind::ScrollBy, -60.0)
         );
         assert_eq!(ActKind::of(WindowAct::Find), (ActKind::Find, 0.0));
-    }
-
-    /// The table's answers arrive as the windows' do: Down scrolls, Control + F finds, a Control
-    /// the table does not bind means nothing (ADR 1192), and Escape stops a warned draw.
-    #[test]
-    fn a_press_is_decided_as_every_window_decides_it() {
-        let viewer = Viewer::new(800, 1000, 1.0);
-        let read = |key, held, waiting| decide(&viewer, key, held, Mode::Reading, waiting);
-        assert!(matches!(
-            read(Key::Down, Modifiers::NONE, Waiting::Nothing),
-            Decided::Window(WindowAct::ScrollBy(by)) if by > 0.0
-        ));
-        assert!(matches!(
-            read(Key::F, Modifiers::CTRL, Waiting::Nothing),
-            Decided::Window(WindowAct::Find)
-        ));
-        assert!(matches!(
-            read(Key::T, Modifiers::CTRL, Waiting::Nothing),
-            Decided::Nothing
-        ));
-        assert!(matches!(
-            read(Key::Escape, Modifiers::NONE, Waiting::Warned),
-            Decided::Window(WindowAct::AbortDrawing)
-        ));
-        assert!(matches!(
-            decide(
-                &viewer,
-                Key::F,
-                Modifiers::NONE,
-                Mode::Presenting,
-                Waiting::Nothing
-            ),
-            Decided::Nothing
-        ));
-        assert!(matches!(
-            read(Key::Z, Modifiers::NONE, Waiting::Nothing),
-            Decided::Send(Command::Undo)
-        ));
-    }
-
-    /// A markup key with nothing selected is the windows' sentence, never a markup over nothing.
-    #[test]
-    fn a_markup_with_nothing_selected_is_said_rather_than_sent() {
-        let viewer = Viewer::new(800, 1000, 1.0);
-        for (key, _) in MARKUP_KEYS {
-            match decide(
-                &viewer,
-                key,
-                Modifiers::NONE,
-                Mode::Reading,
-                Waiting::Nothing,
-            ) {
-                Decided::Say(said) => assert_eq!(said, SELECT_FIRST),
-                other => panic!("{key:?} with nothing selected came to {other:?}"),
-            }
-        }
-        // And the table does mean a markup by both, which is what makes the check above reachable.
-        for (key, kind) in MARKUP_KEYS {
-            assert!(matches!(
-                viewer_host::meaning(key, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
-                Some(viewer_host::Meaning::Send(Command::Edit(Edit::Markup { kind: sent, .. })))
-                    if sent == kind
-            ));
-        }
     }
 }

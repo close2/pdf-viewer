@@ -46,7 +46,8 @@ change to a rule the project owner stated and belongs in an ADR.
 ## What `viewer-host` is, and what it is not
 
 `viewer-host` holds a host's non-toolkit half: the panel rows, §12.7.5's field as the control it is,
-§12.7.6.4's file policy, the launch timeline, the key table, the clock, the drawing queue, the
+§12.7.6.4's file policy, the launch timeline, the key table and what a press comes to
+(`viewer_host::decide`, ADR 2092), the clock, the drawing queue, the
 popup's reading, the copy's order, the password policy and the restriction levels' sentences. None of
 them names a toolkit type, and the C ABI takes `panel` too, because a native host on this boundary
 is mostly not toolkit code. It is deliberately *not* in `viewer-core`: a mapping from three answers
@@ -182,7 +183,8 @@ These are the places where a native host's shape differs from the tier-2 host's,
   (ADR 0446).
 - **A copy is `Command::Copy`**, and `Event::Copied` carries both of §14.8.2.5's orders to
   `viewer_host::copied` (ADRs 0519, 1144). Qt's copy goes out as a `QtUpdate` flag, because Rust
-  never calls `QClipboard`.
+  never calls `QClipboard`; a C caller's `quorra_selection_copy_text` reads back what the last
+  granted `quorra_copy` released and nothing before it (ADR 2087).
 - **The six panels are `viewer_host::Tab`**, down the side in both toolkits because six labels do
   not fit across a sidebar. §12.3.4's miniatures decode on demand in a virtual list
   (`viewer_host::Miniatures`), never at the launch (ADR 0564). §12.5.6.14's popup windows are an

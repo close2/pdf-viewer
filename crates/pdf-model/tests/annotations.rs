@@ -201,6 +201,64 @@ fn a_bounding_box_away_from_the_origin_is_brought_back_to_the_rectangle() {
     assert_eq!(extent(&raster), (10, 10, 49, 49));
 }
 
+/// An appearance invoked by `Do` under `appearance::placement` draws what the annotation draws.
+///
+/// ISO 32000-2 §12.5.5's `AA` is `Matrix × A`, and §8.10.1 makes `Do` concatenate the stream's own
+/// `/Matrix` with the CTM — so the operand of a `cm` before the `Do` is `A`, and a `cm` of `AA`
+/// would apply the `/Matrix` twice. Here the `/Matrix` moves the `/BBox` from (100, 200) to
+/// (10, 10) and `A` doubles it onto `/Rect`; the same stream invoked from the page's own content,
+/// which is how `pdf_transform`'s archive conversion keeps a removed annotation's marks
+/// (`doc/adr/1123`), must come out pixel for pixel where the annotation path put it. ADR 2091.
+#[test]
+fn an_appearance_invoked_under_its_placement_draws_what_the_annotation_draws() {
+    let appearance_dict = "/BBox [100 200 120 220] /Matrix [1 0 0 1 -90 -190]";
+    let appearance = "0 0 1 rg 100 200 20 20 re f";
+    let annotated = pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F 4 /AP << /N 6 0 R >> >>",
+        appearance_dict,
+        appearance,
+    );
+    let document = Document::open(annotated.clone()).expect("the fixture is a valid PDF");
+    let annotation = document
+        .get(pdf_syntax::object::ObjectId::new(5, 0))
+        .as_dict()
+        .cloned()
+        .expect("the annotation");
+    let stream = document
+        .get(pdf_syntax::object::ObjectId::new(6, 0))
+        .as_stream()
+        .map(|stream| stream.dict.clone())
+        .expect("the appearance stream");
+    let a = pdf_model::appearance::placement(&document, &annotation, &stream)
+        .expect("the annotation states a rectangle");
+    let invocation = format!(
+        "q {} {} {} {} {} {} cm /X Do Q",
+        a.a, a.b, a.c, a.d, a.e, a.f
+    );
+    let invoked = assemble(&format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /X 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{invocation}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form {appearance_dict} /Length {} >>\n\
+         stream\n{appearance}\nendstream\nendobj\n",
+        invocation.len().saturating_add(1),
+        appearance.len().saturating_add(1)
+    ));
+
+    let drawn = render(annotated);
+    assert_eq!(
+        extent(&drawn),
+        (20, 30, 59, 69),
+        "the annotation fills /Rect"
+    );
+    assert!(
+        render(invoked).data == drawn.data,
+        "the invoked stream draws exactly what the annotation drew, under {invocation}"
+    );
+}
+
 /// `/Matrix` is applied before the box is measured, and again to the content.
 ///
 /// A 90° rotation turns a 20×10 box into a 10×20 one, so §12.5.5 step 1 measures 10×20 and

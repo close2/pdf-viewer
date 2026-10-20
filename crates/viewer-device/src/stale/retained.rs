@@ -93,7 +93,7 @@ pub fn proxy_target(list: &DisplayList) -> Option<TargetSpec> {
 ///
 /// **And what is dropped outright is every picture of a superseded ink** (ADR 0457). The store is
 /// bounded twice over: by [`Self::extent`] in pages, which is what a memory budget can be stated
-/// against, and by [`Picture::same_ink`], which is not a budget at all — a picture of ink nobody
+/// against, and by `Picture::same_ink`, which is not a budget at all — a picture of ink nobody
 /// may show is not worth a slot, and keeping one would let it occupy a place a showable page
 /// wants. Nothing else evicts, and nothing else needs to: an edit, an undo, a redo, a layer
 /// switch and §6.3.2.2's delegated appearances all arrive here as one changed number.

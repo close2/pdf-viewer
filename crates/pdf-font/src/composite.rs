@@ -185,7 +185,7 @@ pub fn composite_cmap(
 ///
 /// No corpus document exercises any of this — none of the fourteen embedded `CMap`s references
 /// another — so the tests are synthetic, which is trap 8's advice rather than an accident. The
-/// `/ToUnicode` form is the one a document does exercise; see [`crate::loading::read_to_unicode`].
+/// `/ToUnicode` form is the one a document does exercise; see `crate::loading::read_to_unicode`.
 fn read_cmap(
     document: &Document,
     object: &Object,
@@ -507,7 +507,7 @@ pub(crate) fn collection_gap(
 /// > codes to Unicode values
 ///
 /// and Table 119 types it `stream`. So the entry is there and is not the thing the clause names,
-/// [`crate::loading::read_to_unicode`] rightly reads nothing out of it, and the refusal then
+/// `crate::loading::read_to_unicode` rightly reads nothing out of it, and the refusal then
 /// reported a file nobody has. ADR 0836's lesson one crate over and about a report rather than
 /// about a decoder: **what a reader could not use is not the same statement as what a file did
 /// not state.**
@@ -525,7 +525,7 @@ pub(crate) fn collection_gap(
 /// - **No entry.** The original sentence, now said only where it is true.
 /// - **An entry that is not a stream.** The value's own kind, a name with its spelling, because
 ///   *which* name the producer wrote is the whole of what it was trying to say.
-/// - **A stream that produced no mapping.** [`crate::loading::read_to_unicode`] answers empty for
+/// - **A stream that produced no mapping.** `crate::loading::read_to_unicode` answers empty for
 ///   a stream that does not decode and for a `CMap` that states nothing, and neither of those is
 ///   an absent entry either. A corpus document reaches it: `issue5801.pdf`, another of ADR 0433's
 ///   eleven, has

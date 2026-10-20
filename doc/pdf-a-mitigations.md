@@ -586,13 +586,21 @@ other two **built** where the profile's header alone fails them (ADR 2021)
 
 #### `graphics/no-destination-profile-reference-in-a-pdfx-output-intent`
 #### `graphics/no-destination-profile-reference`
-PDF/A-2 / part 4 targets · today `not-built-yet`
+PDF/A-2 / part 4 targets · today **built** where the intent embeds its profile (ADR 2083),
+`not-built-yet` where the reference is its only one
 
 - **Mitigation** — two cases, and only one of them is a loss. Where the same intent **also** embeds
   a `DestOutputProfile`, removing the reference is mechanical and loses nothing — *owed, not
   optional*. Where it does not, the profile is on somebody else's disk and this is the external-data
   case: the mitigation is section 2's `preserve` through a declared resolver tool, exactly as for
   `file-structure/no-external-stream-data`, and failing that the operator supplies a profile.
+- **Built** (ADR 2083) for the first case, as a `Stated` decision under both rows: ISO 32000-2
+  §14.11.5 makes an output intent's data informational and Table 401 asks nothing of a processor
+  about the reference, the embedded profile stays, and this reader reads no reference, so no page
+  moves; what goes is the producer's note of where further copies could be found. Refused by name:
+  the reference that is the intent's only profile, a reference whose `URLs` lists an embedded file
+  specification (removing it would orphan the file), and an intent written as a direct dictionary.
+  `6-2-3-t04-fail-a` converts to 4 and 4e, veraPDF-compliant, its page byte-identical.
 - **By target** — no difference in kind; part 2 states the rule for a PDF/X intent and part 4 for
   every intent, which is a scope difference rather than a different answer.
 - **From a configuration** — `remedy = "preserve"`, `tool = "resolve-external"`, `on-failure =
@@ -1984,9 +1992,13 @@ ISO 19005-2 6.6.2.3.1 · PDF/A-2b, 2u, 2a · today **built**
   field whose value is itself a structure (the undeterminable case one level down), and a type the
   packet does not describe exactly once in a form a field can be added to.
 - **By target** — part 4 states no extension schema requirement (confirmed **A**).
-- **From a configuration** — nothing yet. A `supply` of the operator's own description for a named
-  field is the configuration this entry's next row would read, and the cut is section 3.9's `discard`
-  once `pdf_model::xmp` can take a field out of a structure; neither is built.
+- **From a configuration** — `remedy = "supply"` with `field-descriptions = { "<namespace URI><local
+  name>" = "<sentence>" }`, **built** (ADR 2082): a field the table names is described with the
+  operator's sentence, named in the report and in `xmpMM:History`; one it does not name keeps the
+  converter's sentence; an empty sentence is refused when the configuration is read, because Table 6
+  requires a description and an empty one describes nothing. The operator needs one sentence: *the
+  archive states this as what our field means, on our authority*. The cut is section 3.9's `discard`
+  once `pdf_model::xmp` can take a field out of a structure, and is not built.
 - **Departure** — **B**, for `metadata/extension-schema-container-fields`' reason: an undescribed
   field still says what the producer wrote.
 

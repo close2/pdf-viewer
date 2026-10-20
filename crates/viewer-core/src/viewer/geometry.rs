@@ -445,6 +445,9 @@ impl Viewer {
     /// platform text interface forces: a character's extent is asked for as a rectangle. The
     /// quadrilaterals are still what [`crate::AccessibilityNode::quads`] answers with, so nothing
     /// that wanted the shape has lost it.
+    ///
+    /// A §14.9.4 `/ActualText` section is one character however many codes it showed: its text is
+    /// the replacement, once, and its box covers every glyph the replacement stands for (ADR 2086).
     pub(super) fn device_lines(
         &self,
         open: &Open,
@@ -470,6 +473,7 @@ impl Viewer {
                 let mut characters: Vec<crate::accessibility::Character> =
                     Vec::with_capacity(line.len());
                 let mut written = 0usize;
+                let mut spoken: Option<std::ops::Range<usize>> = None;
                 for (span, quad) in line {
                     // A span that is not on a character boundary of the readback names no slice,
                     // and a character of no bytes is a caret position that cannot be left. Both
@@ -482,6 +486,23 @@ impl Viewer {
                     else {
                         continue;
                     };
+                    // §14.9.4: "[t]he ActualText value shall be used as a replacement, not a
+                    // description, for the content", and every code inside the section reads back
+                    // as the whole replacement (ADR 1515) — so the codes after the first are the
+                    // same span again. The replacement is spoken once, and its character's box
+                    // grows to cover each glyph it replaced (ADR 2086).
+                    if spoken.as_ref() == Some(&span)
+                        && let Some(previous) = characters.last_mut()
+                    {
+                        let more = device_box(quad, origin, height, magnification);
+                        previous.bounds = [
+                            previous.bounds[0].min(more[0]),
+                            previous.bounds[1].min(more[1]),
+                            previous.bounds[2].max(more[2]),
+                            previous.bounds[3].max(more[3]),
+                        ];
+                        continue;
+                    }
                     // What the readback holds between the last glyph and this one, which is
                     // usually a space — §9.4.3's `TJ` moves the pen instead of drawing one, so a
                     // word gap has no character code and no box. It belongs to the character
@@ -508,6 +529,7 @@ impl Viewer {
                         bounds: device_box(quad, origin, height, magnification),
                     });
                     written = span.end;
+                    spoken = Some(span);
                 }
                 (!characters.is_empty())
                     .then_some(crate::accessibility::TextLine { text, characters })

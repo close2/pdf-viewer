@@ -178,7 +178,7 @@ impl LoadedFont {
     /// cannot tell "no face is installed" from "the code under test broke" is measuring the
     /// instrument (`doc/habits/tests-gates-and-reports.md`). The answer is the *machine's*, so a
     /// test that gets `false` says so and skips, and one that gets `true` fails loudly like any
-    /// other. It asks the same search [`LoadedFont::load`] runs — [`composite_substitute`] — so
+    /// other. It asks the same search [`LoadedFont::load`] runs — `composite_substitute` — so
     /// there is no second matcher to disagree with the first (ADR 1154).
     ///
     /// `true` for anything that is not a composite font with a descendant, and for one whose

@@ -336,12 +336,12 @@ section_conformance() {
 # only for tests, a bracketed letter rustdoc reads as a link, an ambiguous name and a public page
 # linking a private item fail here rather than on a reader's page (ADR 1938). The list below is the
 # whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A small
-# walk, because it checks every dependency of the three: 2.1 GiB at its peak when it was added.
+# walk, because it checks every dependency of the six: 2.1 GiB at its peak when it held three.
 section_docs() {
     run "rustdoc with warnings denied, over the crates held at zero (ADR 1938)" \
         '^(error|warning)|Generated|Finished' \
         walk small -- env RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items \
-        -p render-cpu -p raster-gpu -p viewer-ui
+        -p render-cpu -p raster-gpu -p viewer-ui -p viewer-device -p pdf-font -p viewer-confined
 }
 
 section_tests() {
@@ -1581,7 +1581,7 @@ Query:Offset|not a debt|the same delegation: a click placing the cursor inside a
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
 Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: quorra-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
-Query:LogicalSelection|not a debt|a copy is Command::Copy, and Event::Copied carries both of §14.8.2.5's orders to all three windows (ADR 1144), which choose between them with viewer_host::copied. The query is asked by viewer-ffi, for a C caller that copies on its own.
+Query:LogicalSelection|not a debt|a copy is Command::Copy, and Event::Copied carries both of §14.8.2.5's orders to all three windows (ADR 1144), which choose between them with viewer_host::copied. A C caller's copy is the same command and the same event, and quorra_selection_copy_text reads back what it released (ADR 2087), so no host asks the query.
 Query:PrintPage|a debt, named|quorra shows what would print and says it has no printer of its own (ADR 1180 section 6); quorra-gtk prints through GtkPrintOperation and quorra-qt through a QPrinter, each asking this per sheet.
 READING
 }

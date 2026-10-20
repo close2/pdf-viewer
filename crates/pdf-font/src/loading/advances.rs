@@ -56,12 +56,14 @@ impl LoadedFont {
     /// - **A code that reaches no glyph, or reaches `.notdef`.** §9.7.6.3's CID-0 fallback and
     ///   §9.6.5.2's `.notdef` substitution are what happens when the font is *drawn*; here they
     ///   are not applied, and a code the tables send to glyph 0 outright is declined for the
-    ///   same reason [`crate::metrics`]'s substitute scale declines it — that glyph is what a
+    ///   same reason `crate::metrics`'s substitute scale declines it — that glyph is what a
     ///   character the program does not have resolves to, so its advance is a statement about
     ///   absence rather than about this code.
     ///
     /// A Type 3 font never reaches this method at all — [`Self::load`] refuses one with
     /// [`FontError::Type3`], its glyphs being content streams rather than a program.
+    ///
+    /// [`FontError::Type3`]: crate::FontError::Type3
     #[must_use]
     pub fn program_advance(&self, code: Code) -> Option<f32> {
         let glyph = self.program_glyph(code)?;

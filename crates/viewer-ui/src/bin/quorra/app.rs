@@ -1382,16 +1382,6 @@ impl App {
         println!("page layout: {:?} (§7.7.2)", self.layout);
         self.dispatch(Command::Layout(self.layout));
     }
-
-    /// Whether anything on the page is selected.
-    ///
-    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
-    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
-    /// has been told nothing at all.
-    pub(crate) fn has_selection(&self) -> bool {
-        matches!(self.viewer.query(Query::Selection),
-            Answer::Selected(selection) if !selection.quads.is_empty())
-    }
 }
 
 /// A window position as the device pixels `viewer-core` speaks in.

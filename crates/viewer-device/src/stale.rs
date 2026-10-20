@@ -20,8 +20,8 @@
 //! | 1. never the last word | [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one. **`Stale::plan`'s half of this is gone and is not missed**: it used to refuse to approximate the view already approximated, so that the event thread drew the real frame instead, and since ADR 0391 there is no instead — the render is on another thread whatever this tick decides |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
 //! | 3. it says so | the frame line's outcome word is [`Source::word`] — which since ADR 0443 says *which* layer filled the picture, because a whole page at a fraction of the resolution is a different amount of wrong from the last frame moved — [`Stale::count`] is what the summary prints, split the same three ways, and since ADR 0385 every *refusal* says so too, by name and by kind ([`Refusal`]) |
-//! | 4. it does not make the real frame later | **the render is on a thread of its own on both surfaces since ADR 0461**, so a stand-in is drawn *beside* the frame it stands in for rather than in front of it. On the device that settles it: three textured quads take nothing the frame was going to use (ADR 0391). On the processor a resample is tens of milliseconds of the *presenting* thread and can still overrun the render beside it, so [`Stale::affordable`] bounds the overrun at zero — `resample + period ≤ frame`, unmeasured permits, no constant ([`Standing`]) |
-//! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss*, known two ways |
+//! | 4. it does not make the real frame later | **the render is on a thread of its own on both surfaces since ADR 0461**, so a stand-in is drawn *beside* the frame it stands in for rather than in front of it. On the device that settles it: three textured quads take nothing the frame was going to use (ADR 0391). On the processor a resample is tens of milliseconds of the *presenting* thread and can still overrun the render beside it, so `Stale::affordable` bounds the overrun at zero — `resample + period ≤ frame`, unmeasured permits, no constant ([`Standing`]) |
+//! | 5. it does not fire when it is not needed | `Stale::missed` — the frame did not land inside the surface's own refresh, which is the owner's word *miss*, known two ways |
 //!
 //! # The base is the last rendering's own texture, and that is ADR 0391
 //!
@@ -35,7 +35,7 @@
 //! - **the base cannot be lost.** A repack throws tile placements away; it does not touch pixels
 //!   already drawn. The two refusals the owner saw twice in twenty-four presents are gone with the
 //!   route that produced them, rather than handled;
-//! - **the base is what [`Settled`] is.** It used to be a separate thing that outlived its frame
+//! - **the base is what `Settled` is.** It used to be a separate thing that outlived its frame
 //!   because its frame could not always produce one. A rendering and its pixels now arrive
 //!   together and are replaced together, which is one fact instead of two;
 //! - **composing rather than chaining is unchanged and still structural.** [`Stale::reproject`]
@@ -101,7 +101,7 @@
 //! is always the last **rendering's** own texture, and the transform is always composed against
 //! the placement *that* rendering was drawn at. Ten reprojections in a row are ten single
 //! resamples of true pixels rather than a chain of ten, and it is structural rather than careful —
-//! [`Stale::reproject`] hands back nothing but a placement, read off [`Settled`], so there is no
+//! [`Stale::reproject`] hands back nothing but a placement, read off `Settled`, so there is no
 //! expression anywhere in this program that can compose against anything else.
 //!
 //! **A late frame re-bases** by the same mechanism: when a delayed frame lands,
@@ -152,10 +152,10 @@
 //! | module | what it is |
 //! |---|---|
 //! | this one | what a picture is of ([`Picture`], [`Placed`]), and [`Stale`], the view settled |
-//! | [`plan`] | what one tick puts up, and every refusal of a stand-in, by name and by kind |
-//! | [`placement`] | whether the picture held is of the view asked for, or one placement from it |
-//! | [`retained`] | the layer under the base: whole pages kept small, and where each goes |
-//! | [`canvas`] | the stand-in resampled on the processor, for the window with no graphics device |
+//! | `plan` | what one tick puts up, and every refusal of a stand-in, by name and by kind |
+//! | `placement` | whether the picture held is of the view asked for, or one placement from it |
+//! | `retained` | the layer under the base: whole pages kept small, and where each goes |
+//! | `canvas` | the stand-in resampled on the processor, for the window with no graphics device |
 
 mod canvas;
 mod placement;
@@ -213,7 +213,7 @@ pub const PROXY_EDGE: u32 = 512;
 /// the old one could never be found again.
 ///
 /// The `Arc` answers *which interpretation*, and that is the right question for the base: the
-/// sharp layer is a picture of one arrangement at one placement and [`depicts`] must be exact
+/// sharp layer is a picture of one arrangement at one placement and `depicts` must be exact
 /// about it. It is the wrong question for a retained page, which is a picture of a *page*.
 ///
 /// So a page's picture is identified by the page it is of and the state its ink was interpreted
@@ -689,12 +689,12 @@ impl Stale {
     ///
     /// **This is where a late frame re-bases** (`doc/todo/36`'s third point). Whatever the view
     /// has moved on to, the frame that has just landed is the truest picture this window holds,
-    /// so it replaces the whole [`Settled`] and the reprojection after it composes against *this*
+    /// so it replaces the whole `Settled` and the reprojection after it composes against *this*
     /// placement. Since ADR 0391 the pixels are replaced by the same event — `crate::renderer`
     /// adopts the texture and this records what it is of — so a base cannot go missing.
     ///
     /// `built` says whether this frame made its picture or replayed one the device already had.
-    /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
+    /// **Only a frame that built one updates the prediction** (`Self::building`): a replay
     /// measures the replay, and rule 5 is a question about what the *next* render will cost.
     ///
     /// **A transition frame that has landed settles nothing**, and the window then holds no view
@@ -734,7 +734,7 @@ impl Stale {
     /// Records that this frame was not a reprojection, whatever else it was.
     ///
     /// Called for every frame that is not one — including a frame that drew nothing at all —
-    /// which is what stops [`Self::showing`] from outliving the redraw that answers it, and what
+    /// which is what stops `Self::showing` from outliving the redraw that answers it, and what
     /// stops `about_to_wait`'s guard from asking for a frame that will never come.
     pub fn real(&mut self) {
         self.showing = false;

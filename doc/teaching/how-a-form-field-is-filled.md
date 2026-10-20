@@ -136,7 +136,7 @@ field may have `/Kids` — more fields, or widget annotations — and the tree i
 
 ```mermaid
 flowchart LR
-    CAT["catalog /AcroForm<br/>pdf-syntax/src/document.rs<br/>clause 12.7.3"]
+    CAT["catalog /AcroForm<br/>pdf-syntax/src/document/objects.rs<br/>clause 12.7.3"]
     FIELDS["/Fields, /Kids, /Parent<br/>pdf-model/src/view/field_tree.rs<br/>clause 12.7.4.1, ADR 1198, ADR 1653"]
     NAME["fully qualified name: Silly prose<br/>field_tree.rs::qualified_name<br/>clause 12.7.4.2"]
     TABLE["name to widgets<br/>widgets_by_field_name, widgets_on_page_by_field_name"]
@@ -185,8 +185,9 @@ There are two shapes of window, and the difference is who draws the field.
   the field (`crates/viewer-ui/src/bin/quorra/typing.rs::aim_at_field`, through `Query::FieldAt`),
   and the caret and the selection are asked of the core (`Query::Caret`, `Query::FieldSelection`)
   so that they sit on the glyphs stage 5 lays out. `crates/viewer-ui/src/bin/quorra/window.rs`'s
-  `pressed` offers every key to the field first, then to the page's push-button, then to the key
-  table. The confined window does the same over its boundary
+  `pressed` offers every key to the field first, then to
+  `crates/viewer-host/src/keys.rs::decide`, which asks the page's push-button and then the key table
+  for all four hosts (ADR 2092). The confined window does the same over its boundary
   (`crates/viewer-ui/src/bin/quorra-confined/typing.rs`, ADR 0713).
 
 **In every window a keystroke sends the whole value, not the key.** The six characters " today"
@@ -208,7 +209,7 @@ flowchart TD
     SET["Command::Edit, Edit::SetField"]
     TAB["Tab: Command::Focused<br/>clause 12.5.1"]
     COMMIT["Enter in one line, or the control left: Command::CommitField<br/>Table 231 bit 13, ADR 1592"]
-    PAGEKEY["any other key reaches the page<br/>viewer-host/src/keys.rs::meaning"]
+    PAGEKEY["any other key reaches the page<br/>viewer-host/src/keys.rs::decide, then ::meaning<br/>ADR 2092"]
 
     PRESS --> QUO
     PRESS --> TK

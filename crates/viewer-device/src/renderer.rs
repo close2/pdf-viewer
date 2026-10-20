@@ -21,7 +21,7 @@
 //! | does | acquires, draws three textured quads, presents | walks display lists, encodes, draws into textures |
 //! | costs | one present, measured in tenths of a millisecond | a frame, measured in hundreds |
 //!
-//! **What crosses between them is a [`Job`] one way and a [`Done`] the other**, plus the texture
+//! **What crosses between them is a `Job` one way and a `Done` the other**, plus the texture
 //! pair travelling back and forth so that no frame allocates a window's worth of pixels twice.
 //! Nothing else: the render thread never sees a `Document`, a `Viewer` or an `App`, so
 //! `interpret` stays exactly the pure function of the bytes and the view state that the oracle's
@@ -62,7 +62,7 @@
 //! (`doc/todo/37`, ADR 0443; `quorra::composer` does the same for the window with no device since
 //! ADR 0461, which is why this sentence no longer says "only here"). Nothing on the
 //! launch path makes one: the thread does not exist until the first job, it draws that job first,
-//! and it looks for a page with no picture only when [`Job`]'s channel is empty. One page per idle
+//! and it looks for a page with no picture only when `Job`'s channel is empty. One page per idle
 //! turn, so a view change arriving mid-way waits for one low-resolution frame rather than for the
 //! whole set.
 //!
@@ -79,15 +79,15 @@
 //!
 //! | module | what it is |
 //! |---|---|
-//! | this one | what crosses between the threads: a [`Job`], a [`Done`], what is [`Finished`] |
-//! | [`window`] | the event thread's half: the job in flight, the frame on hand, each present |
-//! | [`lanes`] | which lane draws a frame: each lane's price per command, the device's refusals |
-//! | [`thread`] | the render thread's loop, and the order its kinds of work win in |
-//! | [`device`] | one frame drawn, the device asked first; and the scene built while nobody waits |
-//! | [`processor`] | the processor's half of a frame, taken back or shown as it is built |
-//! | [`retained`] | the stand-in's layer: a whole page drawn small while the thread is idle |
-//! | [`sharp`] | the settled view at twice the window's resolution, and what it may cost |
-//! | [`as_read`] | page one as it is drawn while it is read, uploaded for the window |
+//! | this one | what crosses between the threads: a `Job`, a `Done`, what is `Finished` |
+//! | `window` | the event thread's half: the job in flight, the frame on hand, each present |
+//! | `lanes` | which lane draws a frame: each lane's price per command, the device's refusals |
+//! | `thread` | the render thread's loop, and the order its kinds of work win in |
+//! | `device` | one frame drawn, the device asked first; and the scene built while nobody waits |
+//! | `processor` | the processor's half of a frame, taken back or shown as it is built |
+//! | `retained` | the stand-in's layer: a whole page drawn small while the thread is idle |
+//! | `sharp` | the settled view at twice the window's resolution, and what it may cost |
+//! | `as_read` | page one as it is drawn while it is read, uploaded for the window |
 //! | [`read_back`] | a window handed rasters: each page drawn on the device and read back |
 
 mod as_read;
@@ -378,7 +378,7 @@ pub struct Landed {
     /// which is what rule 5 predicts the next render by.
     ///
     /// **Neither "until collected" nor "since the ask"** (ADR 1289). A finished frame sits in the
-    /// channel until the next tick reads it ([`Done::finished`]), and a job asked for while the
+    /// channel until the next tick reads it (`Done::finished`), and a job asked for while the
     /// thread is drawing the sharp pass or a retained page waits behind that pass before it is
     /// begun — so a span from the ask charges a view change's render with a picture nobody asked
     /// for, and on the owner's 890M a page drawn in 5 ms predicts 9 ms against an 8.3 ms refresh

@@ -403,7 +403,7 @@ const STANDARD_NAMES: [&str; 15] = [
 
 /// Whether `name` is one of §9.6.2.2's fourteen, spelled exactly as the clause spells it.
 ///
-/// Case-sensitive and whole-string, for the reason [`STANDARD_NAMES`] gives: this is asked of a
+/// Case-sensitive and whole-string, for the reason `STANDARD_NAMES` gives: this is asked of a
 /// *resource* name, where anything looser would start claiming that a file's `/helvetica` or
 /// `/Helvetica2` resource means the standard font.
 #[must_use]

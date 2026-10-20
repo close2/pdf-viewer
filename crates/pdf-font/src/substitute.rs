@@ -190,15 +190,15 @@ impl Style {
     /// (ADR 1441):
     ///
     /// 1. A weight word in the `/BaseFont` name (`Light`, `Medium`, `Semibold`, `Bold`, `Black`,
-    ///    …). Table 120 calls `/FontWeight` "[t]he weight (thickness) component of the fully-
+    ///    …). Table 120 calls `/FontWeight` "\[t]he weight (thickness) component of the fully-
     ///    qualified font name", so where both are stated they state one thing, and the name is
     ///    what [`Request::derive`] has always read first. One of §9.6.2.2's fourteen states its
     ///    weight by its name alone — `Helvetica` is regular because it is not `Helvetica-Bold` —
     ///    so for those the name is the whole answer.
     /// 2. `/FontWeight`.
     /// 3. §9.8.3.2's PANOSE classification, where it says bold or not.
-    /// 4. `/StemV`, by [`weight_from_stem`] — which is **not** the standard's: Table 120 defines
-    ///    the entry as "[t]he thickness measured horizontally, of the dominant vertical stems of
+    /// 4. `/StemV`, by `weight_from_stem` — which is **not** the standard's: Table 120 defines
+    ///    the entry as "\[t]he thickness measured horizontally, of the dominant vertical stems of
     ///    glyphs in the font" and says nothing of how a thickness becomes a weight.
     ///
     /// and Table 121's `ForceBold`, whose clause speaks of "bold glyphs", makes it at least bold.
@@ -453,7 +453,7 @@ fn flag(document: &Document, descriptor: &Dictionary, bit: u32) -> bool {
 ///
 /// # Why this returns names rather than metrics for a CID
 ///
-/// The names are not free text: "[t]he names of the glyph classes depend on the character
+/// The names are not free text: "\[t]he names of the glyph classes depend on the character
 /// collection, as identified by the Registry , Ordering , and Supplement entries in the
 /// `CIDSystemInfo` dictionary", and Table 123 lists them per collection — `Proportional`, `Kanji`,
 /// `HRoman` and the rest. Knowing which *CIDs* a class holds means having the character
@@ -462,7 +462,7 @@ fn flag(document: &Document, descriptor: &Dictionary, bit: u32) -> bool {
 /// licensing question, and guessing at it would assign a kanji's metrics to a Latin glyph.
 ///
 /// So a caller gets the classes the file states and may use them to *build* a substitute, which
-/// is what the clause says they are for — "[w]ith the information for these glyphs, a more
+/// is what the clause says they are for — "\[w]ith the information for these glyphs, a more
 /// accurate substitution font can be created". This crate selects an installed face instead
 /// (ADR 0007), so nothing here consumes them yet.
 ///
@@ -499,7 +499,7 @@ pub fn glyph_classes(document: &Document, descriptor: &Dictionary) -> Vec<(Strin
 ///
 /// Table 122 on `/FD`: "Each value shall be a dictionary containing entries that shall override
 /// the corresponding values in the main font descriptor dictionary for that class of glyphs",
-/// and §9.8.3.3 again from the other side: "[t]he entry's value shall be a font descriptor whose
+/// and §9.8.3.3 again from the other side: "\[t]he entry's value shall be a font descriptor whose
 /// contents shall override the font-wide attributes for that class only."
 ///
 /// So the result is the main descriptor with the class's entries written over it, and every
@@ -622,7 +622,7 @@ impl Language {
 /// # Both types, because the standard states two
 ///
 /// Table 122's own type column says **name**, and §14.9.2.2 lists "Font Descriptors for `CIDFonts`
-/// [which] can have a Lang key" among the places where language identifiers are **text strings**.
+/// \[which] can have a Lang key" among the places where language identifiers are **text strings**.
 /// The two clauses disagree about the object type and agree about the value, so both are read:
 /// which of the two a producer wrote cannot change which language it named.
 #[must_use]
@@ -979,7 +979,7 @@ impl FaceStyle {
     /// request better with its bold than with its italic — a line of text is read by its weight
     /// before its slope. **Slope before width** because the width is the one of the three a page
     /// partly repairs: a substitute is drawn to the advances the file states
-    /// ([`crate::metrics::substitute_stretch`]), and a slant has no such repair. Between two faces
+    /// (`crate::metrics::substitute_stretch`), and a slant has no such repair. Between two faces
     /// equally far in weight, the lighter is taken for a weight of 500 or less and the heavier
     /// above it — a documented choice, the one CSS's font matching makes.
     fn distance(self, style: Style) -> Distance {
@@ -1081,7 +1081,7 @@ static MACHINE_FONTS: AtomicBool = AtomicBool::new(true);
 ///
 /// # Why a switch rather than an error path
 ///
-/// [`catalogue`] walks the font directories and [`read_cached`] reads a file out of them, and
+/// `catalogue` walks the font directories and `read_cached` reads a file out of them, and
 /// both are written to shrug off an `Err` — a machine with no fonts installed is a supported
 /// deployment, and [`find`] answers from [`crate::standard`] there. **A confined process does not
 /// get an `Err`.** `pdf-sandbox`'s seccomp filter is an allow-list whose action is
@@ -1261,7 +1261,7 @@ pub fn installed(request: Request) -> Option<Arc<[u8]>> {
 
 /// The best face this machine offers for a request in a style, or `None` if it offers none.
 ///
-/// Every candidate is an `sfnt` container: [`catalogue`] admits no other extension, because a
+/// Every candidate is an `sfnt` container: `catalogue` admits no other extension, because a
 /// bare Type 1 program on disk carries no name this could match against without opening it.
 ///
 /// **Public because a composite font needs exactly this and not [`find`].** §9.7.4.2 leaves a

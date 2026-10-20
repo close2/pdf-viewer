@@ -335,7 +335,9 @@ is that other answer: the same range kept one entry per code and grouped into li
 glyph's own height rather than `joins`' hundredth of a unit — under `joins` a tracked display face
 falls into a run per syllable, which a highlight does not show and a caret moving through seven
 "lines" does. `crates/viewer-core/src/viewer/geometry.rs::device_lines` hands those lines to the
-accessibility tree, for a screen reader's text interface.
+accessibility tree, for a screen reader's text interface, and speaks the `/ActualText` section once:
+the `k` and the `-` are one character `c` whose box covers both glyphs, so the paragraph's first
+line is `Der Druc` (ADR 2086).
 
 ```mermaid
 flowchart TD
@@ -346,7 +348,7 @@ flowchart TD
     SPANS["one range per page<br/>open.rs::spans"]
     SEL["Query::Selection: text and merged runs<br/>viewer-core/src/viewer/geometry.rs::selected, select.rs::quads_for, joins"]
     DRAW["each host draws the runs in its colour<br/>quorra overlays.rs, viewer-gtk/src/host/window.rs, viewer-qt/src/host/input.rs"]
-    CARET["one entry per code, grouped into lines<br/>select.rs::lines_for, continues<br/>viewer-core/src/viewer/geometry.rs::device_lines"]
+    CARET["one entry per code, a replacement once, grouped into lines<br/>select.rs::lines_for, continues<br/>viewer-core/src/viewer/geometry.rs::device_lines"]
 
     HOSTS --> POINTER
     POINTER --> AT
@@ -362,8 +364,8 @@ flowchart TD
 `crates/viewer-core/src/viewer/geometry.rs`, `crates/viewer-ui/src/bin/quorra/window.rs`,
 `crates/viewer-ui/src/bin/quorra/sidebar.rs`, `crates/viewer-ui/src/bin/quorra/overlays.rs`,
 `crates/viewer-gtk/src/host/input.rs`, `crates/viewer-gtk/src/host/window.rs`,
-`crates/viewer-qt/src/host/input.rs`, `crates/viewer-ffi/include/quorra.h`, ADR 0118, ADR 0225 and
-ADR 1370. Redraw it when a host starts computing positions itself, when a selection stops being two
+`crates/viewer-qt/src/host/input.rs`, `crates/viewer-ffi/include/quorra.h`, ADR 0118, ADR 0225,
+ADR 1370 and ADR 2086. Redraw it when a host starts computing positions itself, when a selection stops being two
 spots, when the merge or the line rule changes, or when a new host joins — the .NET host of
 `doc/rfc/0010-a-windows-native-host-in-dotnet-on-the-c-abi.md` will, through `quorra_pointer`.
 
@@ -497,11 +499,12 @@ event (ADR 1144).
    raises a flag that the C++ half answers with `QGuiApplication::clipboard()`
    (`crates/viewer-qt/src/host.rs::to_clipboard`, `crates/viewer-qt/cpp/window.cpp`). A C host
    reads `QUORRA_EVENT_COPIED` with `quorra_event_copied`
-   (`crates/viewer-ffi/src/events.rs::copied`), and its own program owns the clipboard — the .NET
-   interop declares it in `hosts/windows/Quorra.Interop/Native.Commands.cs`. The ABI also answers
-   `quorra_selection_copy_text` (`crates/viewer-ffi/src/session.rs::copy_text`) from the two
-   queries and `copied` directly, without `Command::Copy`. The confined window has no copy
-   gesture.
+   (`crates/viewer-ffi/src/events.rs::copied`, which calls `copied`), and its own program owns the
+   clipboard — the .NET interop declares it in `hosts/windows/Quorra.Interop/Native.Commands.cs`.
+   `quorra_selection_copy_text` (`crates/viewer-ffi/src/session.rs::copy_text`) reads the same
+   string back in C's two-call idiom: the session keeps what the last granted `Command::Copy`
+   released and answers nothing before one, after a refusal or while a question is unanswered
+   (ADR 2087). The confined window has no copy gesture.
 
 ```mermaid
 flowchart TD
@@ -514,7 +517,7 @@ flowchart TD
     QUO["quorra: arboard, on first use<br/>viewer-ui/src/clipboard.rs"]
     GTK["GTK: gdk::Clipboard<br/>viewer-gtk/src/host.rs::to_clipboard"]
     QT["Qt: QClipboard<br/>viewer-qt/src/host.rs, viewer-qt/cpp/window.cpp"]
-    FFI["a C or .NET host: QUORRA_EVENT_COPIED<br/>viewer-ffi/src/events.rs::copied"]
+    FFI["a C or .NET host: QUORRA_EVENT_COPIED, and its readback<br/>viewer-ffi/src/events.rs::copied, session.rs::copy_text<br/>ADR 2087"]
 
     KEY --> CMD
     CMD --> TAKE
@@ -524,7 +527,7 @@ flowchart TD
     CHOOSE --> QUO
     CHOOSE --> GTK
     CHOOSE --> QT
-    EVENT --> FFI
+    CHOOSE --> FFI
 ```
 
 **Maintenance note.** Depends on: `crates/viewer-host/src/keys.rs`,
@@ -533,8 +536,8 @@ flowchart TD
 `crates/viewer-core/src/event.rs`, `crates/viewer-core/src/command.rs`,
 `crates/viewer-ui/src/bin/quorra/typing.rs`, `crates/viewer-ui/src/clipboard.rs`,
 `crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`, `crates/viewer-qt/cpp/window.cpp`,
-`crates/viewer-ffi/src/events.rs`, `crates/viewer-ffi/src/session.rs`, ADR 0519, ADR 1144 and
-ADR 1971. Redraw it when the copy stops being a command, when the order is chosen anywhere but
+`crates/viewer-ffi/src/events.rs`, `crates/viewer-ffi/src/session.rs`, ADR 0519, ADR 1144,
+ADR 1971 and ADR 2087. Redraw it when the copy stops being a command, when the order is chosen anywhere but
 `copying.rs`, when a host gains or loses a clipboard — the confined window, or the .NET host of RFC
 0010 — or when the soft hyphen's division stops being undone at the copy.
 

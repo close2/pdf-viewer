@@ -3948,6 +3948,95 @@ fn two_output_intents(second: &[u8]) -> Vec<u8> {
     .build()
 }
 
+/// A part 4 fixture whose one PDF/A output intent states `with` beside its own entries: the
+/// shape of veraPDF's `6-2-3-t04-fail-a`, an embedded profile and a `DestOutputProfileRef`.
+fn an_intent_stating(with: &str) -> Vec<u8> {
+    let profile = stream(&format!("/N 3 /Length {}", SRGB.len()), SRGB);
+    Conforming {
+        catalog: "/OutputIntents [6 0 R]".to_owned(),
+        objects: vec![format!(
+            "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (Custom) {with} >>"
+        )],
+        binary_objects: vec![profile],
+        contents: Some((String::new(), b"0.5 g 10 10 50 50 re f".to_vec())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_profile_reference_beside_an_embedded_profile_is_removed() {
+    // ISO 19005-4 section 6.2.3 forbids `DestOutputProfileRef` in every output intent. Where the
+    // intent embeds its `DestOutputProfile`, the profile its colours are referred to is in the
+    // file and ISO 32000-2 Table 401 asks nothing of a processor about the reference, so it goes
+    // as a statement (`doc/adr/2083`).
+    let row = "graphics/no-destination-profile-reference";
+    let source = an_intent_stating(
+        "/DestOutputProfile 7 0 R /DestOutputProfileRef << /ProfileName (desc) >>",
+    );
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DestinationProfileReferenceRemoved,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(!text.contains("DestOutputProfileRef"), "{text}");
+    assert!(
+        text.contains("/DestOutputProfile"),
+        "the embedded profile stays"
+    );
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_profile_reference_that_is_the_intents_only_profile_stays_refused() {
+    // Removing the reference would leave the intent naming no profile; the profile has to come
+    // into the file first, which is the external-data case and not built for an output intent.
+    let source = an_intent_stating("/DestOutputProfileRef << /ProfileName (desc) >>");
+    let (report, output) = to_part_four(&source);
+    let Decision::Refused(Because::NotBuiltYet(sentence)) =
+        decision(&report, "graphics/no-destination-profile-reference")
+    else {
+        panic!(
+            "refused: {:?}",
+            decision(&report, "graphics/no-destination-profile-reference")
+        );
+    };
+    assert!(sentence.contains("alone"), "{sentence}");
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_profile_reference_listing_an_embedded_file_stays_refused() {
+    // ISO 32000-2 Table 402 admits an embedded file specification in URLs; removing the reference
+    // would leave that file named by nothing.
+    let source = an_intent_stating(
+        "/DestOutputProfile 7 0 R /DestOutputProfileRef << /URLs [<< /Type /Filespec /F (p.icc) \
+         /EF << /F 7 0 R >> >>] >>",
+    );
+    let (report, output) = to_part_four(&source);
+    let Decision::Refused(Because::NotBuiltYet(sentence)) =
+        decision(&report, "graphics/no-destination-profile-reference")
+    else {
+        panic!(
+            "refused: {:?}",
+            decision(&report, "graphics/no-destination-profile-reference")
+        );
+    };
+    assert!(sentence.contains("embedded file"), "{sentence}");
+    assert!(output.is_none());
+}
+
 #[test]
 fn two_entries_carrying_one_profile_are_pointed_at_one_object() {
     // ISO 19005-4 section 6.2.3 requires every entry that states a `DestOutputProfile` to state
@@ -12359,6 +12448,127 @@ fn a_structure_field_in_another_namespace_than_its_type_is_refused_by_name() {
     );
 }
 
+/// The operator's description of their own `batch:number` field (`doc/adr/2082`).
+const FIELD_DESCRIPTION_ROW: &str = "[site.\"metadata/extension-schema-structure-fields-are-described\"]\n\
+     remedy = \"supply\"\n\
+     field-descriptions = { \"http://acme.example/batch/number\" = \"The batch's number in the plant register\" }\n";
+
+#[test]
+fn an_operators_field_description_is_written_where_their_table_names_the_field() {
+    // ISO 19005-2 section 6.6.2.3.3's Table 6 requires a field's description and the file states
+    // none; the operator whose pipeline writes the field states what it means, and the report and
+    // `xmpMM:History` say the sentence is theirs (`doc/adr/2082`).
+    let source = a_document_carrying(
+        a_packet_whose_structure_states_an_undescribed_field("http://acme.example/batch/"),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let requirement = "metadata/extension-schema-structure-fields-are-described";
+    let (report, output) = convert_with_plan(&source, &plan_from(FIELD_DESCRIPTION_ROW, target));
+    let Decision::Configured { rewrite, .. } = decision(&report, requirement) else {
+        panic!(
+            "the supply answers the site: {:?}",
+            decision(&report, requirement)
+        );
+    };
+    assert_eq!(rewrite, Rewrite::ExtensionFieldDescribed);
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&written, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&written);
+    assert!(
+        text.contains(
+            "<pdfaField:description>The batch's number in the plant register</pdfaField:description>"
+        ),
+        "{text}"
+    );
+    let described = &conversion(&report).described_fields;
+    let field = described.first().expect("the field described");
+    assert!(field.supplied && described.len() == 1, "{described:?}");
+    let supplied = &conversion(&report).supplied;
+    assert_eq!(
+        supplied.len(),
+        1,
+        "the report names the one field: {supplied:?}"
+    );
+    assert!(
+        text.contains("http://acme.example/batch/number"),
+        "and the packet's history names it: {text}"
+    );
+}
+
+#[test]
+fn a_field_the_operators_table_does_not_name_keeps_the_converters_sentence() {
+    // A table naming none of this document's fields has answered nothing, so the site keeps the
+    // table's statement — naming one's own fields never stops a document over somebody else's.
+    let source = a_document_carrying(
+        a_packet_whose_structure_states_an_undescribed_field("http://acme.example/batch/"),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let elsewhere = FIELD_DESCRIPTION_ROW.replace("batch/number", "batch/weight");
+    let (report, output) = convert_with_plan(&source, &plan_from(&elsewhere, target));
+    let decided = decision(
+        &report,
+        "metadata/extension-schema-structure-fields-are-described",
+    );
+    assert!(
+        matches!(decided, Decision::Stated { .. }),
+        "the converter's statement: {decided:?}"
+    );
+    let written = output.expect("it converts");
+    let text = String::from_utf8_lossy(&written);
+    assert!(text.contains("described by the converter that archived it"));
+    assert!(!text.contains("plant register"));
+    let described = &conversion(&report).described_fields;
+    assert!(
+        described.iter().all(|field| !field.supplied),
+        "{described:?}"
+    );
+}
+
+#[test]
+fn an_empty_field_description_is_refused_when_the_configuration_is_read() {
+    // Table 6 makes the description required, and an empty one describes nothing.
+    let target = Target::Two(Level::B);
+    for text in [
+        FIELD_DESCRIPTION_ROW.replace("The batch's number in the plant register", ""),
+        FIELD_DESCRIPTION_ROW.replace("The batch's number in the plant register", "  "),
+        FIELD_DESCRIPTION_ROW.replace("http://acme.example/batch/number", "number"),
+    ] {
+        let error = pdf_transform::archive::Configuration::read(&text, target)
+            .expect_err("refused when read");
+        assert!(
+            error.to_string().contains("field-descriptions"),
+            "the error names the key: {error}"
+        );
+    }
+}
+
+#[test]
+fn a_supplied_field_description_does_not_reach_a_field_in_another_namespace() {
+    // The operator answered the question; whether this document can take the rewrite is still
+    // the preparation's to say, and Table 5 gives a type one field namespace.
+    let source = a_document_carrying(
+        a_packet_whose_structure_states_an_undescribed_field("http://acme.example/elsewhere/"),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &plan_from(FIELD_DESCRIPTION_ROW, target));
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(
+        &report,
+        "metadata/extension-schema-structure-fields-are-described",
+    );
+    let Decision::Refused(because) = decided else {
+        panic!("refused by name: {decided:?}");
+    };
+    assert!(
+        format!("{because:?}").contains("namespace other than the field namespace"),
+        "{because:?}"
+    );
+}
+
 #[test]
 fn a_three_dimensional_annotation_outside_the_engineering_flavour_is_the_forbidden_subtype_loss() {
     // ISO 19005-4 section 6.3.1 admits `3D` only in a PDF/A-4e file, so at PDF/A-4 and PDF/A-4f
@@ -12744,5 +12954,71 @@ fn a_file_the_name_tree_already_files_is_not_filed_twice() {
         entries.as_array().map(<[_]>::len),
         Some(2),
         "one key and one value"
+    );
+}
+
+#[test]
+fn relocated_marks_are_placed_by_the_matrix_the_annotation_was_drawn_with() {
+    // ISO 32000-2 §12.5.5's AA is `Matrix × A` and §8.10.1's `Do` concatenates the stream's own
+    // /Matrix, so the `cm` before the `Do` is A (`doc/adr/2091`). Neither clause rounds, so A is
+    // written to the last bit the reader keeps: §7.3.3 reads a real, `pdf_syntax` holds it as an
+    // `f64` and the interpreter narrows it to the `f32` it composes (`doc/adr/2090`). Over this
+    // fixture the /Matrix moves the /BBox [5 5 45 45] to [0 0 40 40], both of /Rect's spans are
+    // exactly 40 in `f32`, so A is a scale of 1 and a translation to /Rect's fractional lower-left
+    // corner. Written as AA the marks moved by the /Matrix's (-5, -5); written to two places the
+    // corner moved by up to 0.005 of a point, which on the veraPDF witness 6-3-1-t01-fail-f was 47
+    // pixels at 72 dpi, at most 17 of 255.
+    let marks = b"5 5 40 40 re f\n";
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Sound /Rect [20.0341 30.288 60.0341 70.288] /F 4 \
+         /AP << /N 7 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [5 5 45 45] /Matrix [1 0 0 1 -5 -5] \
+             /Length {}",
+                marks.len()
+            ),
+            marks,
+        )],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (_, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the preservation converts");
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let page = pdf_model::Pages::new(&held)
+        .get(0)
+        .expect("the producer's own page");
+    let content = String::from_utf8_lossy(&page.content(&held)).into_owned();
+    let line = content
+        .lines()
+        .find(|line| line.ends_with(" cm"))
+        .expect("the relocation concatenates §12.5.5's matrix");
+    let read: Vec<f32> = line
+        .split_whitespace()
+        .filter_map(|operand| operand.parse::<f64>().ok())
+        .map(|operand| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the narrowing the interpreter applies to every operand it composes"
+            )]
+            let narrowed = operand as f32;
+            narrowed
+        })
+        .collect();
+    assert_eq!(
+        read,
+        vec![1.0, 0.0, 0.0, 1.0, 20.0341_f32, 30.288_f32],
+        "the relocated matrix reads back as the one the annotation was drawn with: {line}"
     );
 }

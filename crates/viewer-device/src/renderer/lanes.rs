@@ -13,12 +13,12 @@ pub struct Prediction {
     /// costs are read per.
     pub commands: usize,
     /// What the device was predicted to take, and whether from this window's own measurement of
-    /// these pages or from a seed ([`Costs::DEVICE_SEED`], [`Costs::DEVICE_KEPT_SEED`]).
+    /// these pages or from a seed (`Costs::DEVICE_SEED`, `Costs::DEVICE_KEPT_SEED`).
     pub device: Duration,
     /// Whether [`Self::device`] is this window's own measurement rather than a seed.
     pub device_measured: bool,
     /// Whether the device's figure is for a frame that draws the scene the device already holds of
-    /// these pages (ADR 1877) rather than one that builds it ([`Costs::holds`], ADR 1886).
+    /// these pages (ADR 1877) rather than one that builds it (`Costs::holds`, ADR 1886).
     pub scene_kept: bool,
     /// What the processor was predicted to take, likewise.
     pub processor: Duration,

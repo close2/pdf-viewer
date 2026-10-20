@@ -624,8 +624,9 @@ const RARE: usize = 1_000;
 ///
 /// Held as ceilings rather than as digests: a page here that moves more fails, and a page that
 /// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement; the
-/// three pages a stroke's cut first divided are ADR 1819's.
-const PAST_THE_BOUND: [(&str, usize, u8, &str); 12] = [
+/// pages a stroke's cut first divided are ADR 1819's, and the one of them a rectangle's edge row
+/// held past the bound left it when a strip stated that row as the page does (ADR 2084).
+const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     (
         "blendmode.pdf p1",
         83,
@@ -667,14 +668,6 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 12] = [
         1078,
         1,
         "five rows of the form's three boxes, each horizontal edge on a sample row",
-    ),
-    (
-        "issue14117.pdf p1",
-        608,
-        2,
-        "row 87, where a grey box's fill, its 0.05-pixel stroke and a one-pixel rule all end, on the \
-         first row of the strip a stroke's cut now begins there: three marks' edges in one pixel \
-         row at a shifted origin (ADR 1819)",
     ),
     (
         "issue7014.pdf p1",

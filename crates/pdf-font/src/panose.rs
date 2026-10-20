@@ -1,9 +1,9 @@
 //! ISO 32000-2 §9.8.3.2's `/Style` dictionary: a `CIDFont`'s classification, for substituting it.
 //!
 //! Table 122 gives a `CIDFont`'s descriptor a `/Style`, and §9.8.3.2 says the whole of what is in
-//! it: "[o]nly the Panose entry is defined", whose value "shall be a 12-byte string" of two
+//! it: "\[o]nly the Panose entry is defined", whose value "shall be a 12-byte string" of two
 //! parts — the font family class and subclass bytes "given in the `FamilyClass` field of the
-//! \"OS/2\" table in a TrueType font", then "[t]en bytes for the PANOSE classification number
+//! \"OS/2\" table in a TrueType font", then "\[t]en bytes for the PANOSE classification number
 //! for the font".
 //!
 //! # Where the meaning of those bytes comes from, and why that matters here

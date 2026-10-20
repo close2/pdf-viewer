@@ -59,7 +59,7 @@ impl LoadedFont {
     /// through the Adobe Glyph List — which describes what was actually drawn, and so stays
     /// right even when a producer's `/ToUnicode` is not. The third is not a method of the
     /// clause but the choice it explicitly permits where its methods fail; see
-    /// [`Self::text_from_program`].
+    /// `Self::text_from_program`.
     ///
     /// Takes the destination by reference because extraction calls this once per character
     /// on the page, and returning a `String` would allocate for every one.
@@ -122,7 +122,7 @@ impl LoadedFont {
     /// nothing.
     ///
     /// The answer is **the highest-priority method the clause states that this font could have
-    /// answered with**, because the clause itself ranks them: "[a] PDF processor can use these
+    /// answered with**, because the clause itself ranks them: "\[a] PDF processor can use these
     /// methods, in the priority given". A font carrying a `/ToUnicode` that omits the code has
     /// failed at the first method whatever its glyph names say, and reporting the last thing
     /// tried would describe every gap the same way — every route ends at the same declined
@@ -190,7 +190,7 @@ impl LoadedFont {
     /// means*, and only the first one some callers are asking.** [`Self::text`] and
     /// [`Self::naming_gap`] both answer the second: a code whose name neither Adobe list holds
     /// still gets an answer out of them, because §9.10.2 ends by permitting a processor to
-    /// choose one where its three methods fail, and [`Self::text_from_program`] takes that
+    /// choose one where its three methods fail, and `Self::text_from_program` takes that
     /// permission. A caller asking whether the *name* is a listed one therefore cannot read the
     /// answer off either — the permission has already hidden it — and this is what it needs.
     ///

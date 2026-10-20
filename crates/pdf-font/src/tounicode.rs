@@ -85,13 +85,13 @@ const MAX_SINGLES: usize = 1 << 16;
 /// those files crossed it is now said rather than silent (ADR 0971).
 const MAX_RANGES: usize = 1 << 14;
 
-/// What [`ToUnicode::truncated`] answers when [`MAX_SINGLES`] dropped a mapping.
+/// What [`ToUnicode::truncated`] answers when `MAX_SINGLES` dropped a mapping.
 ///
 /// These three are the words a report carries, so they are spelled as the bound a reader would
 /// grep for rather than as prose — the vocabulary [`crate::cmap::CUT_BY_SINGLES`] established.
 pub const CUT_BY_SINGLES: &str = "max_tounicode_singles";
 
-/// What [`ToUnicode::truncated`] answers when [`MAX_RANGES`] dropped a `bfrange` entry.
+/// What [`ToUnicode::truncated`] answers when `MAX_RANGES` dropped a `bfrange` entry.
 pub const CUT_BY_RANGES: &str = "max_tounicode_ranges";
 
 /// What [`ToUnicode::truncated`] answers when one section's operands outran the buffer.
@@ -356,7 +356,7 @@ impl ToUnicode {
     /// Whether the `CMap` states anything at all about a code, whatever it states.
     ///
     /// The question ISO 32000-2 §9.10.2's ranking turns on: a method that answers is final for
-    /// that code, and one that "fail[s] to produce a Unicode value" hands the code to the next.
+    /// that code, and one that "fail\[s] to produce a Unicode value" hands the code to the next.
     /// [`Self::char_for`] cannot answer it, because it says `None` both for a code this table
     /// omits and for one it maps to a sequence — and the second is an answer. The same walk as
     /// [`Self::append`], without the destination.

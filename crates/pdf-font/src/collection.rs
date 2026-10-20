@@ -20,7 +20,7 @@
 //! because a collection whose faces the descriptor names none of has told us nothing.
 //!
 //! Both corpus documents were opened and their collections listed, and each pays for one half
-//! of [`same_face`]. `issue9262_reduced.pdf` names `MSMincho` and holds `MS-Mincho` and
+//! of `same_face`. `issue9262_reduced.pdf` names `MSMincho` and holds `MS-Mincho` and
 //! `MS-PMincho`: the hyphen has to go, and `MS-PMincho` must *not* match. `issue13193.pdf`
 //! names `DCWGQU+CambriaMath` and holds `Cambria` and `CambriaMath`: §9.9.2's subset tag has
 //! to go, and **face zero would be the wrong face** — which is what makes the match load-bearing

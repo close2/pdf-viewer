@@ -134,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        268,
+        300,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -167,6 +167,7 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     the_other_half_of_the_queries(&mut expected);
     the_eight_commands(&mut expected);
     the_keyboard(&mut expected);
+    the_window(&mut expected);
 
     assert_eq!(
         defined, expected,
@@ -194,6 +195,7 @@ fn the_identity_and_the_statuses(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_NOT_UTF8", Status::NotUtf8),
         ("QUORRA_RENDER_REFUSED", Status::RenderRefused),
         ("QUORRA_NUMBER_OUT_OF_RANGE", Status::OutOfRange64),
+        ("QUORRA_UNREADABLE", Status::Unreadable),
     ] {
         expected.insert(name.to_owned(), i64::from(status.code()));
     }
@@ -745,6 +747,29 @@ fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
         expected.insert(format!("QUORRA_ACT_{name}"), i64::from(kind.code()));
     }
     expected.insert("QUORRA_ACT_COUNT".to_owned(), i64::from(ActKind::COUNT));
+}
+
+/// What a `quorra_window` owes its caller, `QUORRA_OWED_*` and its count (ADR 2088).
+fn the_window(expected: &mut BTreeMap<String, i64>) {
+    use viewer_ffi::OwedKind;
+    for (name, kind) in [
+        ("SAID", OwedKind::Said),
+        ("REPAINT", OwedKind::Repaint),
+        ("TITLE", OwedKind::Title),
+        ("PASSWORD", OwedKind::Password),
+        ("QUESTION", OwedKind::Question),
+        ("CLIPBOARD", OwedKind::Clipboard),
+        ("BEEP", OwedKind::Beep),
+        ("PANELS", OwedKind::Panels),
+        ("CHROME", OwedKind::Chrome),
+        ("PLACE", OwedKind::Place),
+    ] {
+        expected.insert(format!("QUORRA_OWED_{name}"), i64::from(kind.code()));
+    }
+    expected.insert(
+        "QUORRA_OWED_KIND_COUNT".to_owned(),
+        i64::from(OwedKind::COUNT),
+    );
 }
 
 /// `quorra_field_control`'s flag word.

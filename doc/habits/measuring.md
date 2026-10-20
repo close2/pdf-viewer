@@ -1327,3 +1327,59 @@ range condition alone changed, every row became legal (ADR 2068). A first-match 
 checks, not the cause; before building for the labelled reasons, free each candidate reason by itself and
 count what the census then admits — the reason whose freeing admits everything is the one to build for.
 
+## 135. rustdoc's column names the link's text, so a script that edits there walks back to the bracket
+
+rustdoc reports an unresolved or private intra-doc link at the column of the link's *text* — inside the
+brackets and the backticks — not at the opening `[`. Round 1629's script, which escaped a hundred and
+thirty-six links by the reported column, had to walk back from that column to the bracket and assert it
+found one before editing (ADR 1938's status line); an edit made at the column itself splits the text and
+leaves the bracket, and rustdoc then reports a different link at a different column, which looks like
+progress. Assert the bracket, assert the line is a comment line, and count the edits against the count of
+errors.
+
+## 136. An RFC's shape for an existing ABI is read against the ABI's founding ADR's refused alternatives first
+
+RFC 0010 §3.2 proposed a table of callbacks for `quorra_window`; ADR 0247 §2 had refused callbacks for
+this ABI years of rounds earlier, for re-entrancy, and round 1626 met the refusal's reason in the first
+build — `say` called from inside `drain` while the window is borrowed, and a C# exception crossing
+`UnmanagedCallersOnly` ending the process (ADR 2088). Before building a shape an RFC proposes for an
+interface that already exists, open the ADR that founded the interface and read its *refused
+alternatives*: a shape refused there is refused for a reason that is still in the code, and the RFC is
+amended by a section rather than the ADR overridden in silence.
+
+## 137. After a move, visibility is widened from the compiler's errors and then narrowed back one item at a time
+
+A split that moves items into child modules leaves some of them reachable only with a `pub(super)` or a
+`pub(in crate::…)`, and the easy answer — widen whatever the compiler names and stop — leaves every
+widening in place whether it is still needed. Round 1630 widened from the errors and then removed each
+`pub(super)` by itself, keeping only the ones whose removal failed the build: 47 kept and 3 narrowed in
+the colour split, none to narrow in the syntax split (ADRs 2096, 2097). A fifteen-line script does the
+narrowing; the proof it leaves is that every visibility word in the result is one the compiler asked for.
+
+## 138. A neighbour's mid-edit that breaks the shared build is stepped around with an export of one's own files
+
+In a batch of eight rounds in one worktree, a sibling's split in progress can leave the tree uncompilable
+for an hour; round 1623 met a `pdf-colour` split that way and ran its tier 1 in `tools/batch.sh export
+<session> --as <name>` — HEAD plus its own eight files — whose warm target directory checked in about
+twenty seconds, then confirmed the worktree copies identical with `cmp` (ADRs 2082, 2083). Waiting for
+the neighbour costs the wall budget and a cache; the export costs a build directory the batch already
+owns. The gate figures reported are then the export's, and the record says so.
+
+## 139. A toolkit's gate on a shared decision becomes a typed parameter, not a step left in the host
+
+When round 1628 moved the key decisions into `viewer_host::decide`, GTK still had one step of its own — a
+placed control may have consumed the Enter, and the page's button must not also be pressed. Left as a
+step in the GTK host, that would have kept one copy of the decision alive beside the shared function; as
+the `Keyboard::{Page, Control}` parameter it is a fact the host states and the shared function decides on
+(ADR 2092). A host's exception to a shared decision is a parameter of the decision, so that the next host
+cannot forget it and the rule has one text.
+
+## 140. An invariant that is a sum is also tested on one example whose content is known
+
+`TextLine`'s rule — its text is exactly its characters' text joined — was checked by the census as a
+byte-count equality, and the equality held while the line read "Der Drucc": a replacement had been
+added once per code it covered and the counts still summed (round 1625, ADR 2086). A sum is satisfied by
+any rearrangement of the same bytes and by any pair of errors that cancel; one example with its expected
+string written out — the walk's own "Der Druc" — is what a sum cannot replace. Where a gate checks an
+invariant by counting, add one fixture whose content the test states in full.
+

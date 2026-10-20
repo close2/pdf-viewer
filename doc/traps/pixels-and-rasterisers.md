@@ -704,3 +704,12 @@ rule (ADR 2068 §5). When a class of marks changes converter, every claim the pl
 about that class — exact at a cut, equal to the whole, byte-identical in a window — is re-measured on
 the new converter, and the ADR that made the claim is cited where the re-measurement is written.
 
+### 219. A row forbidden in the planner is paid for by every caller of the planner's rows
+
+Round 1624 closed the one-level rectangle at a strip cut first by having the planner forbid each
+rectangle's edge rows; the planner's own figures looked free, and `Underway::in_strips` (ADR 1896),
+whose even cuts are fixed before the page is read, then gave up drawing ahead on 54 first pages against
+HEAD's 19. The fix that stayed draws the cut rows unclipped where the converter is called and leaves the
+planner alone (ADR 2084). A planner rule has more than one caller, and the one that cannot move its cuts
+pays for every row the rule forbids; price it there before keeping the rule.
+

@@ -152,7 +152,7 @@ fn resolve_unicode(name: &str, depth: u32) -> Option<crate::tounicode::ToUnicode
 ///
 /// Only [`crate::LoadedFont`]'s substituted composite route: a font whose program the document
 /// embedded reaches the producer's own glyph through the CID and needs nothing here. See
-/// [`crate::vertical`] for the other half — asking the substitute face which of its glyphs is
+/// `crate::vertical` for the other half — asking the substitute face which of its glyphs is
 /// that form.
 ///
 /// `false` for a registry that is not Adobe's, for a collection Table 116 publishes no vertical
@@ -239,7 +239,7 @@ fn unicode_pair_maps(names: (&'static str, &'static str)) -> Option<CMapPair> {
 ///
 /// The bytes [`cmap`] parses, before they are parsed — header comments, copyright notice and
 /// all — for a caller that has to *carry* the `CMap` rather than read it: §9.7.5.3 asks a file to
-/// contain a stream defining any `CMap` a reader will not supply, and "[t]he data shall follow
+/// contain a stream defining any `CMap` a reader will not supply, and "\[t]he data shall follow
 /// the syntax defined in Adobe Technical Note #5014", which is the syntax these files are in.
 /// Inflates the one entry and caches nothing, since a caller embedding it wants it once.
 #[must_use]

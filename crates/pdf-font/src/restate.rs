@@ -18,7 +18,7 @@
 //! **Nothing here touches an outline.** For an sfnt the rewrite is `hmtx` and the one `hhea`
 //! field that bounds it; for a CFF it is the leading width operand of the named glyphs'
 //! charstrings, defined by Adobe Technical Note #5177 section 3.1, with every other byte of the
-//! charstring copied. [`tests::an_outline_survives_its_advance_being_restated`] draws every glyph
+//! charstring copied. `tests::an_outline_survives_its_advance_being_restated` draws every glyph
 //! of every compiled-in face before and after and compares the two, because "the outline is
 //! untouched" is a claim worth checking rather than asserting.
 //!

@@ -792,3 +792,14 @@ every part-4 output kept failing 6.7.3-1 while the erratum was "recorded". Round
 four part-4 rows and wrote `every_erratum_names_a_row_that_binds_part_four` (ADR 2051). An erratum is
 a claim about one part's text; the row it hangs on must be one that binds a target of that part, and
 the test is what makes the attachment load-bearing.
+
+### 218. A converter's page is compared with the source as the reader draws it, not with the validator
+
+The archival converter relocated a line annotation's appearance onto its page with §12.5.5's full matrix
+as the `cm`, and `Do` then applied the form's `/Matrix` a second time (§8.10.1); the line was drawn 759
+pixels from where the producer put it, and the converter's own conformance re-check passed the file,
+because a misplaced mark is a conforming one (round 1627, ADR 2091). veraPDF passed it too. The only
+instrument that sees a converter's mistake about *what the page shows* is the reader: render every
+converted page and its source with the annotation drawn, and compare them pixel by pixel; the validator
+answers a different question.
+

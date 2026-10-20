@@ -7,7 +7,7 @@
 //! `/Differences` over a base encoding, the base being the program's own when the program is
 //! embedded — are stated once for both.
 //!
-//! So this is the shape `cff.rs` and `type1.rs` both produce and [`simple_code_table`]
+//! So this is the shape `cff.rs` and `type1.rs` both produce and `simple_code_table`
 //! consumes. Neither reader appears in it: what a Type 1 program's eexec encryption or a
 //! CFF's INDEX structures look like is their own business, and the clause's business is only
 //! that a code has a name and a name has a glyph.

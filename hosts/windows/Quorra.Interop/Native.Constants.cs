@@ -19,6 +19,7 @@ internal static partial class Native
     internal const int QUORRA_NOT_UTF8 = 6;
     internal const int QUORRA_RENDER_REFUSED = 7;
     internal const int QUORRA_NUMBER_OUT_OF_RANGE = 8;
+    internal const int QUORRA_UNREADABLE = 9;
 
     internal const uint QUORRA_EVENT_OPENED = 0;
     internal const uint QUORRA_EVENT_OPEN_FAILED = 1;
@@ -437,4 +438,16 @@ internal static partial class Native
     internal const uint QUORRA_MEASURE_AREA = 4;
     internal const uint QUORRA_MEASURE_ANGLE = 5;
     internal const uint QUORRA_MEASURE_SLOPE = 6;
+
+    internal const uint QUORRA_OWED_SAID = 0;
+    internal const uint QUORRA_OWED_REPAINT = 1;
+    internal const uint QUORRA_OWED_TITLE = 2;
+    internal const uint QUORRA_OWED_PASSWORD = 3;
+    internal const uint QUORRA_OWED_QUESTION = 4;
+    internal const uint QUORRA_OWED_CLIPBOARD = 5;
+    internal const uint QUORRA_OWED_BEEP = 6;
+    internal const uint QUORRA_OWED_PANELS = 7;
+    internal const uint QUORRA_OWED_CHROME = 8;
+    internal const uint QUORRA_OWED_PLACE = 9;
+    internal const uint QUORRA_OWED_KIND_COUNT = 10;
 }

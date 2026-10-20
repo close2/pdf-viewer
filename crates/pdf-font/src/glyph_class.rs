@@ -1,6 +1,6 @@
 //! ISO 32000-2 §9.8.3.3's glyph classes, and which of them a character can be *shown* to be in.
 //!
-//! Table 122 makes `/FD` "[a] dictionary whose keys identify a class of glyphs in a `CIDFont`",
+//! Table 122 makes `/FD` "\[a] dictionary whose keys identify a class of glyphs in a `CIDFont`",
 //! whose values "shall override the corresponding values in the main font descriptor dictionary
 //! for that class of glyphs", and §9.8.3.3 says what a key may be:
 //!

@@ -138,7 +138,7 @@ impl Scripted {
     /// The lookups OpenType's layout selects for a run of `script` in `language`.
     ///
     /// The script table is the one registered for the script, and `DFLT`'s where none is or the
-    /// run has no specific script — "[a]n application should use a DFLT script table if there is
+    /// run has no specific script — "\[a]n application should use a DFLT script table if there is
     /// not a script table associated with the specific script of the text being formatted, or if
     /// the text does not have a specific script" (ISO/IEC 14496-22, *OpenType Layout common table
     /// formats*, `ScriptList` table). Within it, the language system registered for the first of
@@ -505,7 +505,7 @@ impl Program {
     ///
     /// Within a lookup the first subtable that matches a pair applies, and where its second
     /// value format is not empty the pair's second glyph is not the first of the next pair:
-    /// "[i]f valueFormat2 is set to 0, then the second glyph of the pair is the 'next' glyph for
+    /// "\[i]f valueFormat2 is set to 0, then the second glyph of the pair is the 'next' glyph for
     /// which a lookup should be performed" (ISO/IEC 14496-22, `GPOS`, `PairPosFormat1`).
     fn positioned(
         &self,

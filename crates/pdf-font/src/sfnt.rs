@@ -449,8 +449,8 @@ pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Applies the three sfnt repairs to a font program, returning the bytes to load.
 ///
-/// They are [`repaired_loca_extent`] — a `loca` record shorter than the table it names —
-/// [`repaired_loca_format`] — a byte-swapped `indexToLocFormat` — and [`repaired_loca_order`]
+/// They are `repaired_loca_extent` — a `loca` record shorter than the table it names —
+/// `repaired_loca_format` — a byte-swapped `indexToLocFormat` — and `repaired_loca_order`
 /// — a `loca` whose offsets do not ascend — and they compose in that order because each reads
 /// what the one before it corrects: the format repair measures the record's length, and the
 /// order repair refuses a record too short to hold its entries. The two `indexToLocFormat`

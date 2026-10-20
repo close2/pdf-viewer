@@ -659,7 +659,7 @@ fn relocation_streams(
     for appearance in on_page {
         closing.push_str("q\n");
         for value in appearance.placement {
-            closing.push_str(&number(value));
+            closing.push_str(&matrix_operand(value));
             closing.push(' ');
         }
         closing.push_str("cm\n/");
@@ -1738,7 +1738,7 @@ const PRESERVED_MARKS: &[u8] = b"PreservedMarks";
 fn marks_stream(marks: &Marks) -> Option<Object> {
     let mut content = String::from("q\n");
     for value in marks.placement {
-        content.push_str(&number(value));
+        content.push_str(&matrix_operand(value));
         content.push(' ');
     }
     content.push_str("cm\n/");
@@ -1799,6 +1799,22 @@ fn marks_page(document: &Document, marks: &Marks, content: ObjectId) -> Result<O
     dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
     dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content));
     Ok(Object::Dictionary(dict))
+}
+
+/// One operand of ISO 32000-2 §12.5.5's matrix, written so that it reads back as the `f32` it is.
+///
+/// §12.5.5 computes `A` with no rounding step and §8.3.4's `cm` composes the operands it is
+/// given, so the marks land where the annotation drew them only if the reader recovers the same
+/// number. The reader holds a §7.3.3 real as an `f64` and the interpreter narrows it, so the
+/// operand is the `f32` widened and spelled as `pdf_syntax::write` spells every real: the shortest
+/// decimal that reads back as the same double, never in exponential format. [`number`]'s two
+/// places are not that: they moved a fractional `/Rect` origin by up to 0.005 of a point
+/// (`doc/adr/2090`).
+fn matrix_operand(value: f32) -> String {
+    let mut written = Vec::new();
+    pdf_syntax::write::object(&Object::Real(f64::from(value)), &mut written);
+    // A real is spelled in ASCII digits, a sign and a point, so nothing here is replaced.
+    String::from_utf8_lossy(&written).into_owned()
 }
 
 /// A number as a content stream writes one, without an exponent.
@@ -1921,6 +1937,20 @@ mod tests {
         assert_eq!(number(9.0), "9");
         assert_eq!(number(841.89), "841.89");
         assert_eq!(number(12.5), "12.5");
+    }
+
+    #[test]
+    fn a_matrix_operand_reads_back_as_the_f32_it_was() {
+        for value in [75.034_1_f32, 720.288, 1.0, 0.0, -0.1, 1.0e-7, 3.0e38] {
+            let read = matrix_operand(value).parse::<f64>();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the narrowing the interpreter applies to every operand it composes"
+            )]
+            let narrowed = read.map(|read| read as f32);
+            assert_eq!(narrowed, Ok(value), "{}", matrix_operand(value));
+        }
+        assert_eq!(matrix_operand(1.0), "1");
     }
 
     #[test]

@@ -139,6 +139,7 @@ mod panels;
 mod session;
 mod shapes;
 mod status;
+mod window;
 
 pub use answers::{
     Collection, ColumnFacts, Matches, Miniature, NodeFacts, ObjectRef, Popups, Structure,
@@ -163,3 +164,4 @@ pub use session::{
 };
 pub use shapes::Quads;
 pub use status::Status;
+pub use window::{OwedKind, Owing, Window};

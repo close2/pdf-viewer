@@ -15,11 +15,12 @@ use viewer_core::{
     Answer, Command, DocumentId, Edit, Event, Find, FindDirection, PageTarget, PointerAction,
     Query, RenderRequest, Rendered, Selection, Viewer, Zoom,
 };
+use viewer_host::Decided;
 
 use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
-use crate::keyboard::{self, ActKind, Decided};
+use crate::keyboard::ActKind;
 use crate::kinds::{
     BoundaryKind, DirectionKind, DuplexKind, LayoutKind, PageModeKind, PreferenceKey,
     PrintScalingKind, ShortfallKind,
@@ -73,6 +74,14 @@ pub struct Session {
     /// Held for [`Self::printed`]'s reason: C's two-call idiom asks for the size and then for the
     /// text, and a press acted on twice to ask twice would be two presses (ADR 2072).
     said: Option<String>,
+    /// The text the last copy released, in the order [`viewer_host::copied`] chose — see
+    /// [`Session::copy_text`].
+    ///
+    /// Held for [`Self::printed`]'s reason, and for one more: C's two-call idiom asks for the size
+    /// and then for the text, and a copy sent twice to answer it would ask the reader's level for
+    /// Table 22's bit 5 twice. So the text is taken from the [`Event::Copied`] the grant released,
+    /// whichever call released it, and a readback hands over only that (ADR 2087).
+    copied: Option<viewer_host::Copied>,
 }
 
 /// One printed page, rasterised and waiting for the caller's buffer.
@@ -102,6 +111,7 @@ impl Session {
             archived: None,
             kept: viewer_host::password::Kept::new(),
             said: None,
+            copied: None,
         }
     }
 
@@ -110,24 +120,39 @@ impl Session {
     /// The one place a command reaches the viewer, so that "the borrow ends before the caller
     /// sees anything" is a property of one function rather than of every entry point.
     fn handle(&mut self, command: Command) -> Events {
+        // A copy asked again forgets the last one's text before the policy answers, so a refusal,
+        // an unanswered question or an empty selection leaves nothing a caller could paste in the
+        // belief that this copy released it (ADR 2087).
+        if matches!(command, Command::Copy) {
+            self.copied = None;
+        }
         let events = self.viewer.handle(command).collect::<Vec<Event>>();
         // A conversion's grant is answered here, whichever call released it — `quorra_archive`,
         // or `quorra_answer` after the ask level's question — because a C caller cannot run
         // `pdf_transform`'s converter and this library is its host (ADR 1954). On the calling
         // thread: a caller that wants it elsewhere calls from elsewhere.
+        // A copy's grant is kept here for the same reason — `quorra_copy`, or `quorra_answer` after
+        // the ask level's question — in the order the one decision every host shares chooses.
         for event in &events {
-            if let Event::Archiving {
-                document,
-                bytes,
-                asked,
-            } = event
-            {
-                self.archived = Some(viewer_host::archiving::convert(
-                    *document,
-                    bytes.clone(),
-                    asked.clone(),
-                    self.kept.lend(*document),
-                ));
+            match event {
+                Event::Archiving {
+                    document,
+                    bytes,
+                    asked,
+                } => {
+                    self.archived = Some(viewer_host::archiving::convert(
+                        *document,
+                        bytes.clone(),
+                        asked.clone(),
+                        self.kept.lend(*document),
+                    ));
+                }
+                Event::Copied {
+                    logical,
+                    page_order,
+                    ..
+                } => self.copied = viewer_host::copied(logical.clone(), page_order),
+                _ => {}
             }
         }
         Events::new(events)
@@ -550,37 +575,27 @@ impl Session {
         }
     }
 
-    /// The text a *copy* should carry, and which of §14.8.2.5's two orders it is in.
+    /// The text the last [`Self::copy`] released, and which of §14.8.2.5's two orders it is in.
     ///
-    /// **The gap `tools/state.sh hosts` found, closed with the decision rather than the
-    /// ingredients** (ADR 0519). [`Self::selection_text`] answers in page content order, because
-    /// that is what a selection is measured in and what the quadrilaterals are drawn from;
-    /// §14.8.2.5.1 says the two orders "should coincide" and does not require it, so a copy off a
-    /// page whose producer wrote its columns out of order wants the other one. A C caller could
-    /// not ask for it at all: `Query::LogicalSelection` reached no entry point.
-    ///
-    /// Handing over both answers and letting the caller choose was the alternative, and it is the
-    /// worse one — it would make a fifth consumer re-derive a reading of the standard that
-    /// [`viewer_host::copied`] already states for the three windowed hosts. So this answers with
-    /// what those hosts put on their clipboards, and says which order it is so that a caller who
-    /// disagrees can still tell.
+    /// **The copy's own text, and nothing a copy was not asked for.** Table 22's bit 5 restricts
+    /// taking text out of the document, so the text a caller puts on its clipboard arrives only
+    /// through [`viewer_core::Command::Copy`], where the reader's level is asked as it is for
+    /// every other operation; a readback answered from the selection would hand it over at every
+    /// level, `on` included. It is also the one string [`viewer_core::Event::Copied`] carries —
+    /// §14.8.2.3's division after a soft hyphen undone (ADR 1971), §14.8.2.5.1's logical order
+    /// where the structure tree gave one — and the order is [`viewer_host::copied`]'s choice, the
+    /// one the three windowed hosts put on their clipboards (ADR 0519), so a caller reading this
+    /// and a caller reading the event get the same answer (ADR 2087).
     ///
     /// # Errors
     ///
-    /// [`Status::NoAnswer`] where no document is focused, or where nothing is selected — the
-    /// second because a copy with nothing to copy must not empty a caller's clipboard.
+    /// [`Status::NoAnswer`] where the last copy released nothing: none was asked yet, it was
+    /// refused, its question is unanswered or was declined, or nothing was selected — the last
+    /// because a copy with nothing to copy must not empty a caller's clipboard.
     pub fn copy_text(&self) -> Result<(String, viewer_host::ContentOrder), Status> {
-        // Owned before the second question, because both answers borrow the viewer.
-        let page_order = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selected) => selected.text.into_owned(),
-            _ => return Err(Status::NoAnswer),
-        };
-        let logical = match self.viewer.query(Query::LogicalSelection) {
-            Answer::LogicalSelection(text) => Some(text),
-            _ => None,
-        };
-        viewer_host::copied(logical, &page_order)
-            .map(|copied| (copied.text, copied.order))
+        self.copied
+            .as_ref()
+            .map(|copied| (copied.text.clone(), copied.order))
             .ok_or(Status::NoAnswer)
     }
 
@@ -965,6 +980,8 @@ impl Session {
     }
 
     /// §7.6.4.2's bit 5 asked as an operation: a person pressed copy.
+    ///
+    /// What a grant releases is the event's text, and [`Self::copy_text`] reads it back.
     #[must_use]
     pub fn copy(&mut self) -> Events {
         self.handle(Command::Copy)
@@ -1145,7 +1162,13 @@ impl Session {
         waiting: viewer_host::Waiting,
     ) -> (Events, ActKind, f32) {
         self.said = None;
-        match keyboard::decide(&self.viewer, key, held, mode, waiting) {
+        let page = viewer_host::Keyboard::Page;
+        match viewer_host::decide(&self.viewer, key, held, mode, waiting, page) {
+            Decided::Activate { annotation, .. } => (
+                self.handle(Command::Activate(annotation)),
+                ActKind::Nothing,
+                0.0,
+            ),
             Decided::Send(command) => (self.handle(command), ActKind::Nothing, 0.0),
             Decided::Window(act) => {
                 let (kind, by) = ActKind::of(act);
@@ -1848,15 +1871,29 @@ mod tests {
 
     /// A one-page file under §7.6.4's standard security handler, user password `abc`.
     fn locked() -> Vec<u8> {
-        use pdf_syntax::serialize::{Access, Assembly, Form, Options, Protection};
-        let plain = assembled(&[
-            "<< /Type /Catalog /Pages 2 0 R >>",
-            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
-        ]);
+        encrypted(
+            &[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            ],
+            "abc",
+            pdf_syntax::serialize::Access::ALL,
+        )
+    }
+
+    /// `objects` as [`assembled`] writes them, under §7.6.4's standard security handler with this
+    /// user password and Table 22's flags as `access` states them.
+    fn encrypted(
+        objects: &[&str],
+        user_password: &str,
+        access: pdf_syntax::serialize::Access,
+    ) -> Vec<u8> {
+        use pdf_syntax::serialize::{Assembly, Form, Options, Protection};
+        let plain = assembled(objects);
         let source = pdf_syntax::Document::open(plain).expect("the plaintext opens");
         let mut assembly = Assembly::new(vec![&source]);
-        for number in 1..=3 {
+        for number in 1..=u32::try_from(objects.len()).expect("a fixture of a few objects") {
             assembly
                 .copy(0, pdf_syntax::ObjectId::new(number, 0))
                 .expect("the assembly takes the object");
@@ -1868,9 +1905,9 @@ mod tests {
             pdf_syntax::Version { major: 2, minor: 0 },
             Options::new(Form::Table),
             &Protection {
-                user_password: "abc",
+                user_password,
                 owner_password: "owner",
-                access: Access::ALL,
+                access,
                 encrypt_metadata: true,
             },
             &mut Counter(0),
@@ -2249,5 +2286,128 @@ mod tests {
         let stamp = "/M <443A32303236313032303039333030302B303227303027>";
         assert!(dated.contains(stamp), "no {stamp} in the update");
         assert!(!saved(None).contains("/M <"));
+    }
+
+    /// A page whose one paragraph a soft hyphen divides across two lines, in Helvetica with code
+    /// 173 named `/softhyphen` — §14.8.2.3's case, and the one where a copy's text and the
+    /// selection's readback differ (ADR 1971).
+    fn divided() -> Vec<String> {
+        let content = "BT /F1 12 Tf 14 TL 20 80 Td (Seiten\\255) Tj (zahl.) ' ET";
+        vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+             /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                .to_owned(),
+            format!(
+                "<< /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            ),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+             /Encoding << /Differences [173 /softhyphen] >> >>"
+                .to_owned(),
+        ]
+    }
+
+    /// A session over `bytes` with page one drawn and all of its text selected, copying at
+    /// `level`.
+    fn selected(bytes: Vec<u8>, level: viewer_core::RestrictionLevel) -> Session {
+        let mut session = Session::new(800, 1000, 1.0);
+        drop(session.restrict_operation(pdf_model::restriction::Operation::Extract, level));
+        let events = session.open(1, bytes, None, None);
+        let asked = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("opening a document asks for its first page");
+        let request = events.render_request(asked).expect("that is the kind");
+        let raster = rasterise(&request).expect("the page draws");
+        drop(session.render_ready_raster(&request, raster));
+        drop(session.select(viewer_core::Selection::All));
+        session
+    }
+
+    /// Where the batch holds an event of `kind`.
+    fn found(events: &crate::events::Events, kind: EventKind) -> Option<usize> {
+        (0..events.len()).find(|index| events.kind(*index) == Ok(kind))
+    }
+
+    /// `quorra_selection_copy_text` hands over the text a copy released and nothing a copy was not
+    /// asked for (ADR 2087).
+    ///
+    /// Table 22's bit 5 is "[c]opy or otherwise extract text and graphics from the document", so
+    /// the text reaches a caller's clipboard through `Command::Copy`, where the reader's level is
+    /// asked; and the string is the `Event::Copied`'s own, §14.8.2.3's division after the soft
+    /// hyphen undone and the character kept — `Seiten\u{ad}zahl.` where the selection's readback
+    /// is `Seiten\u{ad}\nzahl.`. At `on` a document withholding the bit releases nothing; at `ask`
+    /// nothing until the person says yes.
+    #[test]
+    fn the_copy_text_is_what_the_copy_released_at_the_readers_level() {
+        use viewer_core::RestrictionLevel;
+        let objects = divided();
+        let objects: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let joined = "Seiten\u{ad}zahl.".to_owned();
+
+        let mut session = selected(assembled(&objects), RestrictionLevel::Off);
+        assert_eq!(
+            session.selection_text().as_deref(),
+            Ok("Seiten\u{ad}\nzahl."),
+            "the selection reads back the line break the copy takes out"
+        );
+        assert_eq!(
+            session.copy_text(),
+            Err(Status::NoAnswer),
+            "a selection alone is not a copy"
+        );
+        let copied = session.copy();
+        let index = found(&copied, EventKind::Copied).expect("an unrestricted copy is granted");
+        let event = copied.copied(index);
+        assert_eq!(
+            event
+                .as_ref()
+                .map(|(text, logical)| (AsRef::<str>::as_ref(text), *logical)),
+            Ok((joined.as_str(), false))
+        );
+        assert_eq!(
+            session.copy_text(),
+            Ok((joined.clone(), viewer_host::ContentOrder::PageContent)),
+            "the readback is the event's own text"
+        );
+
+        let withheld = pdf_syntax::serialize::Access {
+            copy: false,
+            ..pdf_syntax::serialize::Access::ALL
+        };
+        let mut session = selected(encrypted(&objects, "", withheld), RestrictionLevel::On);
+        let refused = session.copy();
+        assert!(
+            found(&refused, EventKind::Refused).is_some(),
+            "bit 5 is clear"
+        );
+        assert_eq!(session.copy_text(), Err(Status::NoAnswer));
+
+        drop(session.restrict_operation(
+            pdf_model::restriction::Operation::Extract,
+            RestrictionLevel::Ask,
+        ));
+        let asking = session.copy();
+        assert!(found(&asking, EventKind::Asking).is_some());
+        assert_eq!(
+            session.copy_text(),
+            Err(Status::NoAnswer),
+            "nothing until the person answers"
+        );
+        let answered = session.answer(1, true);
+        assert!(found(&answered, EventKind::Copied).is_some());
+        assert_eq!(
+            session.copy_text(),
+            Ok((joined, viewer_host::ContentOrder::PageContent))
+        );
+        let declined = session.copy();
+        assert!(found(&declined, EventKind::Asking).is_some());
+        drop(session.answer(1, false));
+        assert_eq!(
+            session.copy_text(),
+            Err(Status::NoAnswer),
+            "a declined copy releases nothing, and the last one's text is not handed out for it"
+        );
     }
 }

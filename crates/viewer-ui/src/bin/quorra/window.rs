@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use viewer_core::{Answer, Command, Edit, Find, PointerAction, Query};
+use viewer_core::{Answer, Command, Find, PointerAction, Query};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -618,11 +618,7 @@ impl App {
             return;
         }
         let Some(stated) = stated else { return };
-        let mode = if self.presenting.full_screen() {
-            viewer_host::Mode::Presenting
-        } else {
-            viewer_host::Mode::Reading
-        };
+        let mode = viewer_host::Mode::of(&self.presenting);
         let waiting = self.waiting();
         let held = viewer_host::Modifiers {
             shift: self.shift,
@@ -630,39 +626,24 @@ impl App {
         };
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, which
         // is the keyboard's half of the click the three windows share (ADR 1357).
-        if let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held) {
-            if let Some(said) = pressed.note() {
-                println!("note: {said}");
+        let page = viewer_host::Keyboard::Page;
+        match viewer_host::decide(&self.viewer, stated, held, mode, waiting, page) {
+            viewer_host::Decided::Activate { annotation, .. } => {
+                self.dispatch(Command::Activate(annotation));
             }
-            match pressed {
-                viewer_host::Pressed::Activates { annotation, .. } => {
-                    self.dispatch(Command::Activate(annotation));
-                }
-                viewer_host::Pressed::ReadOnly { .. } => {}
-            }
-            return;
-        }
-        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
-            return;
-        };
-        match meaning {
-            viewer_host::Meaning::Send(command) => self.send(command),
-            viewer_host::Meaning::Window(act) => self.window_act(act),
+            viewer_host::Decided::Say(said) => println!("note: {said}"),
+            viewer_host::Decided::Send(command) => self.send(command),
+            viewer_host::Decided::Window(act) => self.window_act(act),
+            viewer_host::Decided::Nothing => {}
         }
     }
 
     /// A message the key table produced whole, on its way to the core.
     ///
-    /// One thing happens between the table and [`App::dispatch`] and it is trap 5's: §12.5.6.10's
-    /// markups are defined over selected text, so a press with nothing selected asks for an
-    /// annotation over nothing. The core answers by doing nothing, which is right and silent — and
-    /// a person who pressed a key and saw no change has been told nothing at all. The host has the
-    /// selection already, because it draws it.
+    /// What happens after [`App::dispatch`] is the toolkit's half of §12.5.1's tab walk: the field
+    /// the walk landed on is given the keyboard. Whether the message is sent at all was
+    /// [`viewer_host::decide`]'s (ADR 2092).
     fn send(&mut self, command: Command) {
-        if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
-            println!("note: select some text first — §12.5.6.10's markups mark up text");
-            return;
-        }
         let walked = matches!(command, Command::Focused(_));
         self.dispatch(command);
         if walked {
@@ -679,10 +660,9 @@ impl App {
         match act {
             // Logical pixels out of the table and device pixels into the command, which is the
             // whole reason the table states a scroll rather than building the message itself.
-            viewer_host::WindowAct::ScrollBy(by) => self.dispatch(Command::Scroll {
-                dx: 0.0,
-                dy: by * self.scale(),
-            }),
+            viewer_host::WindowAct::ScrollBy(by) => {
+                self.dispatch(viewer_host::scroll_by(by, self.scale()));
+            }
             viewer_host::WindowAct::Copy => self.copy_selection(),
             // The strip of open documents, whose *order* is this window's and whose focus is a
             // message. One document is its own next, so the key is harmless before anything has

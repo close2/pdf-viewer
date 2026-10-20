@@ -1474,16 +1474,6 @@ pub trait NativeWindow {
         }));
     }
 
-    /// Whether anything on the page is selected.
-    ///
-    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
-    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
-    /// has been told nothing at all.
-    fn has_selection(&self) -> bool {
-        matches!(self.state().viewer.query(Query::Selection),
-            Answer::Selected(selection) if !selection.quads.is_empty())
-    }
-
     /// Asks for what is selected on the page to be copied, which `Event::Copied` answers with the
     /// text for the toolkit's clipboard (ADR 0519).
     ///

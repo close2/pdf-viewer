@@ -751,7 +751,7 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// carries it.) So the destination is a choice — Artifex's *Artifex Software sRGB ICC Profile* for
 /// `ghostscript`, IEC 61966-2-1 for us — and the *route* to it is the referenced standard's, whose
 /// media-relative colorimetric intent adapts the source white onto D50 by the transform ICC's own
-/// `chad` tag carries. `colour::BRADFORD` cites that and this page is its corpus witness.
+/// `chad` tag carries. `colour::cie::BRADFORD` cites that and this page is its corpus witness.
 ///
 /// The other half is §8.6.5.3's, and this note had it under the wrong one of its two subjects. The
 /// sentence quoted below sits under `/BlackPoint` here and names two entries:
@@ -1949,7 +1949,7 @@ const CONTRADICTED_MASK_QUANTISATION: [&str; 0] = [];
 ///   hayro         (220, 221, 223)  ( 66,  64,  66)
 /// ```
 ///
-/// Ours is `colour::CMYK_CORNERS` written out — `(1 − k)·(255, 255, 255) + k·(35, 31, 32)` is
+/// Ours is `colour::device_cmyk::CMYK_CORNERS` written out — `(1 − k)·(255, 255, 255) + k·(35, 31, 32)` is
 /// (222.0, 221.4, 221.6) and (59.2, 55.6, 56.5) — and `poppler` is on it byte for byte, which
 /// is [`CONTRADICTED_DEVICE_CMYK_CONVERSION`]'s two camps arriving on a page whose only
 /// colours are `k`. **Why it lands on this bound and on no other is

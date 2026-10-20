@@ -64,6 +64,11 @@ pub enum Status {
     /// direction, a `u32` viewport dimension or an `i64` page target that does not fit what
     /// `viewer-core` takes.
     OutOfRange64 = 8,
+    /// The file named could not be opened for reading.
+    ///
+    /// What the operating system said is not carried, for [`Self::RenderRefused`]'s reason: a
+    /// `&'static str` cannot hold it. The path is the caller's own, so the caller can ask again.
+    Unreadable = 9,
 }
 
 impl Status {
@@ -84,6 +89,7 @@ impl Status {
             Self::NotUtf8 => "a string argument was not UTF-8\0",
             Self::RenderRefused => "the page could not be rasterised\0",
             Self::OutOfRange64 => "a number does not fit the type this boundary states for it\0",
+            Self::Unreadable => "the file named could not be opened for reading\0",
         }
     }
 
@@ -115,6 +121,7 @@ mod tests {
             Status::NotUtf8,
             Status::RenderRefused,
             Status::OutOfRange64,
+            Status::Unreadable,
         ] {
             let message = status.message();
             assert_eq!(
@@ -142,5 +149,6 @@ mod tests {
         assert_eq!(Status::NotUtf8.code(), 6);
         assert_eq!(Status::RenderRefused.code(), 7);
         assert_eq!(Status::OutOfRange64.code(), 8);
+        assert_eq!(Status::Unreadable.code(), 9);
     }
 }

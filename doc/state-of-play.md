@@ -68,7 +68,7 @@ character its `/ToUnicode` states for it (ADR 1943). **Three rasterisers behind 
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -867,7 +867,12 @@ pass.
   hosts stay level" (ADR 0577). **It prints the *reading* beside the count**, one line per unreached variant saying whether it is a
   debt and why, checked in both directions — because a count of what a window does not reach is not
   a list of debts, and two rounds read "eleven queries" off it and walked past a window that could
-  not turn a document's restrictions off (ADRs 0603, 0604). ADRs 0247, 0509.
+  not turn a document's restrictions off (ADRs 0603, 0604). **Above the vocabulary, `quorra_window`
+  runs the loop the toolkit windows share** — `NativeWindow` implemented in the library, the open
+  joined at the first resize, the drawing thread on a tick the window times, a key acted on, the
+  prompt and the *ask* level's question answered — and owes a C host its sentences, repaints and
+  dialogues as a batch of records, never a callback; `c/drive_a_window.c` is that loop (ADR 2088).
+  ADRs 0247, 0509.
 
 **A password field's value does not reach the file it is saved into.** Table 231 bit 14's own
 NOTE is the reason: `save` writes neither the value nor the appearance for such a field, and
@@ -927,7 +932,7 @@ dictionary a part 4 target forbids moves into the packet under Table 349's prope
 withheld is named in the report and in the output's `xmpMM:History` (ADR 1187); and where a fact is
 the operator's to state — which font program may be embedded, which of an ink's two definitions
 wins, what a stream outside the file holds, what an unnamed optional content configuration is
-called — the operator states it and the report says whose
+called, what their own metadata field means (ADR 2082) — the operator states it and the report says whose
 authority it was (ADRs 1188, 1209, 1221, 1222). Every other repair is the one its clause states: a
 hexadecimal string's odd digit (ADR 1176), a page boundary by §14.11.2.1's defaults (ADR 1210),
 annotation flags and states (ADRs 1233, 1234), an extension schema described from what the packet

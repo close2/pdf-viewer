@@ -25,6 +25,8 @@
 //! Every table is compiled in by `build.rs` from `data/unicode/`, so nothing is parsed at launch.
 //! **Content a document positioned is never shaped or reordered here**: its glyphs are where the
 //! producer put them, and `doc/stack.md`'s reason for having no shaper is still the reason.
+//!
+//! [`fold`]: fn@fold
 
 mod bidi;
 pub mod face;

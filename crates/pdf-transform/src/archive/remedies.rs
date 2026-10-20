@@ -106,6 +106,9 @@ pub(super) struct Remedies {
     pub(super) role_entries: Option<super::roles::RoleEntries>,
     /// The language tag the operator gave each of section 6.7.4's two sites (`doc/adr/2066`).
     pub(super) languages: BTreeMap<&'static str, String>,
+    /// The operator's sentence for each structure field their `field-descriptions` names, by
+    /// `super::prepare::field_key` (`doc/adr/2082`).
+    pub(super) field_descriptions: BTreeMap<String, String>,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
@@ -132,6 +135,7 @@ impl Remedies {
             supplied_profiles: BTreeMap::new(),
             role_entries: None,
             languages: BTreeMap::new(),
+            field_descriptions: BTreeMap::new(),
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
@@ -399,6 +403,10 @@ impl Remedies {
                 self.supply_language(judgement, tag);
                 return;
             }
+            Supplied::FieldDescriptions { by_field } => {
+                self.supply_field_descriptions(document, judgement.id, by_field);
+                return;
+            }
         };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
@@ -623,6 +631,51 @@ impl Remedies {
         }
         self.languages.insert(site, tag.to_owned());
         self.supply_sites.insert(site, rewrite);
+    }
+
+    /// `metadata/extension-schema-structure-fields-are-described`, answered by the operator's
+    /// `field-descriptions`.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.1, through section 6.6.2.3.3's Table 6. The population is the
+    /// fields the producer's packets state and their value types leave out, read as the
+    /// requirement's own row reads them; each one the table names is described with the
+    /// operator's sentence and named in the report and in `xmpMM:History`. A field the table does
+    /// not name keeps the converter's sentence, which is the site's answer without a
+    /// configuration, so naming one's own fields never stops a document over somebody else's. A
+    /// table naming none of this document's fields has answered nothing here, and the site keeps
+    /// the table's statement (`doc/adr/2082`).
+    fn supply_field_descriptions(
+        &mut self,
+        document: &Document,
+        site: &'static str,
+        by_field: &[(String, String)],
+    ) {
+        let mut named = BTreeMap::new();
+        for field in super::prepare::undescribed_fields_in(document) {
+            let key = super::prepare::field_key(&field.type_namespace, &field.local);
+            let Some((_, sentence)) = by_field.iter().find(|(named, _)| *named == key) else {
+                continue;
+            };
+            if named.insert(key.clone(), sentence.clone()).is_some() {
+                continue;
+            }
+            self.supplied_report.push(SuppliedFact {
+                site,
+                subject: format!(
+                    "the field {key} of the value type {}, which the type's description leaves out",
+                    field.type_name
+                ),
+                value: format!(
+                    "the description \"{sentence}\", from the operator's field-descriptions"
+                ),
+            });
+        }
+        if named.is_empty() {
+            return;
+        }
+        self.field_descriptions = named;
+        self.supply_sites
+            .insert(site, Rewrite::ExtensionFieldDescribed);
     }
 
     /// `optional-content/configuration-names`, answered by the operator's wording.

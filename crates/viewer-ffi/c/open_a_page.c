@@ -1492,23 +1492,49 @@ int main(int argc, char **argv)
 
     /* And what a caller would actually put on its own clipboard, which is a different string from
      * the one above whenever the document's structure tree can reorder it — §14.8.2.5 gives a page
-     * two content orders and only recommends that they coincide. The two-call idiom, then the
-     * order it came back in, which is the part a caller cannot work out for itself. */
+     * two content orders and only recommends that they coincide. Table 22's bit 5 restricts
+     * copying, so the text is what quorra_copy releases at the reader's level and nothing before
+     * it: asked first, the readback has no answer. Then the copy, the event's own text, and the
+     * readback of the same text in the two-call idiom with the order it is in — the part a caller
+     * cannot work out for itself (ADR 2087). */
     size_t copy_needed = 0;
     uint32_t order = 0;
+    printf("copy before quorra_copy: %s\n",
+           quorra_status_message(quorra_selection_copy_text(viewer, NULL, 0, &copy_needed, &order)));
+    quorra_events *copied = NULL;
+    char *from_event = NULL;
+    if (check("quorra_copy", quorra_copy(viewer, &copied))) {
+        for (size_t index = 0; index < quorra_events_len(copied); ++index) {
+            uint32_t kind = 0;
+            size_t event_needed = 0;
+            bool logical = false;
+            if (quorra_events_kind(copied, index, &kind) == QUORRA_OK && kind == QUORRA_EVENT_COPIED
+                && quorra_event_copied(copied, index, &logical, NULL, 0, &event_needed)
+                       == QUORRA_BUFFER_TOO_SMALL
+                && (from_event = malloc(event_needed)) != NULL
+                && quorra_event_copied(copied, index, &logical, from_event, event_needed,
+                                       &event_needed) != QUORRA_OK) {
+                free(from_event);
+                from_event = NULL;
+            }
+        }
+        quorra_events_free(copied);
+    }
     int32_t sized = quorra_selection_copy_text(viewer, NULL, 0, &copy_needed, &order);
     if (sized == QUORRA_BUFFER_TOO_SMALL && copy_needed > 0) {
         char *copy = malloc(copy_needed);
         if (copy != NULL
             && quorra_selection_copy_text(viewer, copy, copy_needed, &copy_needed, &order)
                    == QUORRA_OK) {
-            printf("copy: %zu byte(s) in %s content order\n", copy_needed - 1,
-                   order == QUORRA_ORDER_LOGICAL ? "logical" : "page");
+            printf("copy: %zu byte(s) in %s content order, the event's own text: %d\n",
+                   copy_needed - 1, order == QUORRA_ORDER_LOGICAL ? "logical" : "page",
+                   from_event != NULL && strcmp(from_event, copy) == 0);
         }
         free(copy);
     } else {
         printf("copy: %s\n", quorra_status_message(sized));
     }
+    free(from_event);
 
     /* The other two panels. A document stating neither answers an empty list rather than
      * QUORRA_NO_ANSWER — the question was answered — and QUORRA_NO_ANSWER is what comes back when no

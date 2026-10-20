@@ -55,6 +55,8 @@
 //! anti-aliasing there while a window of the same page, its corner moved to the origin, kept it
 //! (ADR 2058).
 
+mod surface_edge;
+
 /// The largest device coordinate the anti-aliased scan converter's arithmetic can express.
 ///
 /// `tiny-skia`'s own number, for its own stated reason: supersampling shifts a coordinate left
@@ -501,6 +503,16 @@ fn fill_as(
 /// containing a mark takes nothing from it. `render-cpu/tests/clip_intersection.rs` measures
 /// exactly that and is what caught it.
 ///
+/// # A surface's edge is not a reason for a row to change
+///
+/// The library clips a rectangle to the surface before it walks it, and a rectangle with one row
+/// left inside the surface takes a branch that states that row a level from the same row unclipped
+/// — and a strip's edge is a surface's edge. ADR 0139 measured a cut across an axis-aligned edge
+/// exact on the library's *path* converter; on this one it is not, so every rectangle is handed
+/// over by [`surface_edge::fill_rect`], which gives the converter the rows a surface's edge leaves
+/// few of in a surface with a row beyond that edge, where the rectangle is unclipped at them
+/// (ADR 2084).
+///
 /// # The two things it does hand back
 ///
 /// - **A mark past the range**, which is `fill`'s range rule: outside [`SUPERSAMPLED_LIMIT`] the
@@ -547,7 +559,7 @@ pub(crate) fn fill_rectangles(
     // reason. Trap 2 is what this costs to get wrong.
     paint.shader.transform(at);
     for rect in exact.iter() {
-        pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), clip.mask());
+        surface_edge::fill_rect(pixmap, rect, &paint, clip.mask());
     }
 }
 

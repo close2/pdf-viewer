@@ -13,7 +13,7 @@ impl LoadedFont {
     /// Empty for every font that states no `/FD` and for one whose every class was applied. A
     /// name here is a *refusal* and not a failure: the class's glyphs keep the main descriptor,
     /// which is the font the page had before the entry was read, and "never guess a class" is
-    /// what the list records having obeyed. [`crate::glyph_class`] states the five kinds of
+    /// what the list records having obeyed. `crate::glyph_class` states the five kinds of
     /// refusal and the clause behind each.
     ///
     /// **A list rather than a report.** What it says is about this machine's catalogue and this
@@ -55,7 +55,7 @@ impl LoadedFont {
     ///
     /// A question about the **face** and about nothing else: it reads the program's `GSUB` for
     /// the OpenType `vert` and `vrt2` features, whatever the font's writing mode is and whether
-    /// or not the glyphs are a substitute. See [`crate::vertical`] for what those features are
+    /// or not the glyphs are a substitute. See `crate::vertical` for what those features are
     /// and why this crate reads them at all.
     ///
     /// **Public for a reason worth stating, because it is the only one.** Which face
@@ -220,6 +220,8 @@ impl LoadedFont {
     /// A space is why this asks the question in this direction rather than by looking for a
     /// missing outline: U+0020 is in every face, so a blank glyph and an absent one stay
     /// distinguishable without the caller having to know which is which.
+    ///
+    /// [`FontError`]: crate::FontError
     #[must_use]
     pub fn uncovered_character(&self, code: Code) -> Option<char> {
         let CodeMapping::Substituted { cmap, .. } = &self.mapping else {

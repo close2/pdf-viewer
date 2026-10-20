@@ -471,22 +471,26 @@ impl Events {
     /// [`Event::Copied`]: the text, and whether it is in §14.8.2.5's logical content order.
     ///
     /// One string rather than two, because a clipboard takes one: the core answers both orders
-    /// and the choice between them — `viewer_host::copied`'s — is made here, so that three hosts
-    /// and a C caller cannot make it four different ways. The flag is what a caller tells a person.
+    /// and the choice between them is [`viewer_host::copied`]'s, called here rather than restated,
+    /// so that three hosts and a C caller make it once (ADR 0519). The flag is what a caller tells
+    /// a person.
     ///
     /// # Errors
     ///
-    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
-    pub fn copied(&self, index: usize) -> Result<(&str, bool), Status> {
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`]; [`Status::NoAnswer`]
+    /// where the copy carries no text, which the core does not send.
+    pub fn copied(&self, index: usize) -> Result<(String, bool), Status> {
         match self.events.get(index).ok_or(Status::OutOfRange)? {
             Event::Copied {
                 logical,
                 page_order,
                 ..
-            } => Ok(match logical {
-                Some(text) => (text.as_str(), true),
-                None => (page_order.as_str(), false),
-            }),
+            } => viewer_host::copied(logical.clone(), page_order)
+                .map(|copied| {
+                    let logical = copied.order == viewer_host::ContentOrder::Logical;
+                    (copied.text, logical)
+                })
+                .ok_or(Status::NoAnswer),
             _ => Err(Status::WrongKind),
         }
     }
@@ -1027,5 +1031,47 @@ mod tests {
             events.script_question(2).map(|_| ()),
             Err(Status::OutOfRange)
         );
+    }
+
+    /// A `QUORRA_EVENT_COPIED` hands over what [`viewer_host::copied`] chooses, for every pair of
+    /// answers — the one decision ADR 0519 gives every host, called rather than restated.
+    ///
+    /// The pairs with no page order are the two a restatement got wrong: the decision says a copy
+    /// of nothing is no copy, so that a person's clipboard is never emptied, and that holds even
+    /// where a structure tree would have answered.
+    #[test]
+    fn a_copied_event_answers_as_the_hosts_one_decision_does() {
+        let pairs = [
+            (None, ""),
+            (Some("logical"), ""),
+            (None, "page"),
+            (Some("logical"), "page"),
+        ];
+        for (logical, page_order) in pairs {
+            let events = Events::new(vec![viewer_core::Event::Copied {
+                document: DocumentId(7),
+                logical: logical.map(str::to_owned),
+                page_order: page_order.to_owned(),
+            }]);
+            let decided = viewer_host::copied(logical.map(str::to_owned), page_order)
+                .map(|copied| {
+                    (
+                        copied.text,
+                        copied.order == viewer_host::ContentOrder::Logical,
+                    )
+                })
+                .ok_or(Status::NoAnswer);
+            // Compared as borrowed strings, so that the question is the answer and not its type.
+            let answered = events.copied(0);
+            assert_eq!(
+                answered
+                    .as_ref()
+                    .map(|(text, logical)| (AsRef::<str>::as_ref(text), *logical)),
+                decided
+                    .as_ref()
+                    .map(|(text, logical)| (text.as_str(), *logical)),
+                "{logical:?} beside {page_order:?}"
+            );
+        }
     }
 }

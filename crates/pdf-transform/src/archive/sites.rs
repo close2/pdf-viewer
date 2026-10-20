@@ -1458,6 +1458,80 @@ const DESTINATION_PROFILE_NOT_A_REFERENCE: &str = "an entry of this file's Outpu
      requires, and there is no object for the other entries to share. What the entry was meant to \
      name is not in the file";
 
+/// Why an output intent stating a profile reference and no profile of its own keeps its refusal.
+const REFERENCE_IS_THE_ONLY_PROFILE: &str = "an output intent here names its destination profile \
+     through DestOutputProfileRef alone, which puts the profile outside the file, and embeds no \
+     DestOutputProfile beside it. Removing the reference would leave the intent naming no profile \
+     at all, so the profile has to come into the file first: that is the external-data case of \
+     doc/pdf-a-conversion-limits.md section 2.3, and it is not built for an output intent";
+
+/// Why a profile reference listing an embedded file is not removed.
+const REFERENCE_HOLDS_AN_EMBEDDED_FILE: &str = "an output intent here states a \
+     DestOutputProfileRef whose URLs array lists an embedded file specification, so the profile \
+     it names is a file this document carries. ISO 32000-2 Table 402 admits both kinds of entry; \
+     removing the reference would leave that file named by nothing, which loses it from the \
+     archive rather than restating anything";
+
+/// Why a profile reference that is not an output intent's own entry is not reached.
+const REFERENCE_NOT_AN_OBJECT: &str = "an output intent here states DestOutputProfileRef and is \
+     written as a direct dictionary inside an OutputIntents array, so there is no object this \
+     conversion's rewrite reaches it in";
+
+/// The two rows that forbid an output intent's `DestOutputProfileRef`.
+const PROFILE_REFERENCE_REQUIREMENTS: [&str; 2] = [
+    "graphics/no-destination-profile-reference",
+    "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
+];
+
+/// Every output intent whose `DestOutputProfileRef` goes (`doc/adr/2083`).
+///
+/// ISO 19005-4 section 6.2.3 forbids the key in every output intent and ISO 19005-2 section 6.2.3
+/// in a PDF/X one. The population is the two rows' findings, each an output intent object stating
+/// the key. **Removed only where the same intent embeds a `DestOutputProfile`**: then the profile
+/// the intent's colours are referred to is in the file, ISO 32000-2 Table 401 gives the reference
+/// nothing a processor must do with it, and this reader reads no reference at all. Three shapes are
+/// refused by name: an intent whose reference is its only profile, a reference listing an embedded
+/// file, and an intent written as a direct dictionary.
+pub(super) fn profile_references(
+    document: &Document,
+    input: &pdf_archive::Report,
+) -> Result<Sites, Because> {
+    let (at, elsewhere) = objects_named(input, &PROFILE_REFERENCE_REQUIREMENTS);
+    if elsewhere {
+        return Err(Because::NotBuiltYet(REFERENCE_NOT_AN_OBJECT));
+    }
+    for id in &at {
+        let Object::Dictionary(intent) = document.get(*id) else {
+            return Err(Because::NotBuiltYet(REFERENCE_NOT_AN_OBJECT));
+        };
+        let Some(reference) = intent.get("DestOutputProfileRef") else {
+            return Err(Because::NotBuiltYet(REFERENCE_NOT_AN_OBJECT));
+        };
+        if intent.get("DestOutputProfile").is_none() {
+            return Err(Because::NotBuiltYet(REFERENCE_IS_THE_ONLY_PROFILE));
+        }
+        let reference = document.resolve(reference);
+        let urls = reference
+            .as_dict()
+            .map(|reference| document.get_key(reference, "URLs"));
+        let lists_a_file = urls
+            .as_ref()
+            .and_then(Object::as_array)
+            .is_some_and(|urls| {
+                urls.iter().any(|entry| {
+                    document
+                        .resolve(entry)
+                        .as_dict()
+                        .is_some_and(|spec| spec.get("EF").is_some())
+                })
+            });
+        if lists_a_file {
+            return Err(Because::NotBuiltYet(REFERENCE_HOLDS_AN_EMBEDDED_FILE));
+        }
+    }
+    Ok(Sites { at })
+}
+
 /// Why a destination profile whose bytes cannot be read is not shared.
 const DESTINATION_PROFILE_NOT_DECODED: &str = "a destination profile this file's OutputIntents \
      array names cannot be decoded, so whether two entries carry the same profile cannot be \

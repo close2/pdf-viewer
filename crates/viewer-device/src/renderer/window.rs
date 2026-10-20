@@ -246,7 +246,7 @@ impl Window {
     /// Splits a freshly built renderer into a presenter this thread keeps and a device a thread
     /// will take, or gives the renderer back where it has no surface to detach.
     ///
-    /// The renderer is *not* moved to a thread here: see [`Self::idle`]. **Nor is a `Window`
+    /// The renderer is *not* moved to a thread here: see `Self::idle`. **Nor is a `Window`
     /// produced here** — what comes back is an [`Ungrounded`], and that type carries the whole
     /// argument for why.
     ///
@@ -617,7 +617,7 @@ impl Window {
 
     /// Asks for a frame, spawning the render thread if this is the first.
     ///
-    /// Does nothing while one is already being drawn — see [`Self::in_flight`] for why a queue
+    /// Does nothing while one is already being drawn — see `Self::in_flight` for why a queue
     /// would be a queue of answers to questions nobody is still asking.
     pub fn ask(
         &mut self,
@@ -792,7 +792,7 @@ impl Window {
     /// The chrome the frame on hand was drawn with, or was asked to be drawn with.
     ///
     /// What `quorra::surface` compares against this frame's overlays, for the reason
-    /// [`Self::chrome`] states: a rendering of the same pages with *different* chrome is a
+    /// `Self::chrome` states: a rendering of the same pages with *different* chrome is a
     /// different picture, and skipping it left the find bar and the notices card unreachable.
     pub fn chrome_asked(&self) -> &[DisplayList] {
         &self.chrome

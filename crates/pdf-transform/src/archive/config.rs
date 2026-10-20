@@ -563,6 +563,21 @@ pub enum Supplied {
         /// A BCP 47 tag, held to ISO 32000-2 §14.9.2.2's grammar when the configuration is read.
         tag: String,
     },
+    /// `metadata/extension-schema-structure-fields-are-described`: what each of the operator's own
+    /// structure fields means.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.3's Table 6 requires a `pdfaField:description` of every field a
+    /// value type describes, and a field its producer left out of the type's description has none
+    /// in the file. The site is answered without this — the converter's own sentence says the
+    /// converter wrote the description (`doc/adr/2050`) — but a schema belongs to an organisation
+    /// rather than to a document, so an operator whose pipeline writes the field knows what it
+    /// means and states it once (`doc/adr/2082`). A field the table does not name keeps the
+    /// converter's sentence.
+    FieldDescriptions {
+        /// The field's namespace URI followed by its local name, to the operator's sentence, in
+        /// the order the file wrote them.
+        by_field: Vec<(String, String)>,
+    },
 }
 
 /// Which of an embedded `CMap`'s two statements of its writing mode stands.
@@ -1115,9 +1130,10 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// [`Supplied`]'s two choices among a file's own disagreeing statements: which definition of an
 /// ink, and which statement of a `CMap`'s writing mode. Last, the label an optional content
 /// configuration states none of, which `doc/pdf-a-mitigations.md` section 12 makes the operator's
-/// to write (`doc/adr/1952`), and the text an ICC profile's missing description or copyright tag
-/// states (`doc/adr/1990`).
-const SUPPLIABLE: [&str; 9] = [
+/// to write (`doc/adr/1952`), the text an ICC profile's missing description or copyright tag
+/// states (`doc/adr/1990`), the language a malformed `/Lang` states (`doc/adr/2066`), and the
+/// description a structure field its type left out is given (`doc/adr/2082`).
+const SUPPLIABLE: [&str; 10] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
     "fonts/embedded-cmap-states-its-own-write-mode",
@@ -1127,6 +1143,7 @@ const SUPPLIABLE: [&str; 9] = [
     super::roles::SITE,
     super::languages::CATALOG_SITE,
     super::languages::MARKED_SITE,
+    super::prepare::FIELDS_SITE,
 ];
 
 /// One remedy configuration, read from a file and validated against a target.
@@ -1194,6 +1211,8 @@ struct Row {
     role_map: Vec<(String, String)>,
     /// `language` — the tag a `/Lang` that is not a language identifier is made to state.
     language: Option<String>,
+    /// `field-descriptions` — the sentence each named structure field's description states.
+    field_descriptions: Vec<(String, String)>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
     /// built first. `true` where the row states none, which is the catalogue's *owed, not
     /// optional*.
@@ -1862,16 +1881,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
     );
     let shipped_cmaps = source_key(tbl, &site)?;
     let (unmapped, language) = (unmapped_key(tbl, &site)?, language_key(tbl, &site)?);
-    let media_types = tbl
-        .get("media-types")
-        .and_then(Value::as_map)
-        .map(<[(String, String)]>::to_vec)
-        .unwrap_or_default();
-    let role_map = tbl
-        .get("role-map")
-        .and_then(Value::as_map)
-        .map(<[(String, String)]>::to_vec)
-        .unwrap_or_default();
+    let (media_types, role_map) = (string_map(tbl, "media-types"), string_map(tbl, "role-map"));
+    let field_descriptions = field_descriptions_key(tbl, &site)?;
     let winner = match tbl.get("winner").and_then(Value::as_text) {
         Some(word) => Some(Winner::parse(word).ok_or_else(|| ConfigError::WrongValue {
             line: tbl.line,
@@ -1904,8 +1915,64 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         profile_text,
         role_map,
         language,
+        field_descriptions,
         line: tbl.line,
     })
+}
+
+/// An inline table of strings under `key`, empty where the row states none.
+fn string_map(tbl: &toml::Table, key: &str) -> Vec<(String, String)> {
+    tbl.get(key)
+        .and_then(Value::as_map)
+        .map(<[(String, String)]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// `field-descriptions`: each structure field the operator describes, by its namespace URI and
+/// local name written together, to the sentence its `pdfaField:description` states.
+///
+/// An empty table states no fact and is inert, for `role-map`'s reason. **An empty sentence is
+/// refused**, because Table 6 makes the description required and an empty one describes nothing:
+/// written, it would meet the clause's letter and tell a later reader less than the converter's
+/// own sentence does (`doc/adr/2082`). So is a key with no namespace in it, which names no field.
+fn field_descriptions_key(
+    tbl: &toml::Table,
+    site: &str,
+) -> Result<Vec<(String, String)>, ConfigError> {
+    let Some(value) = tbl.get("field-descriptions") else {
+        return Ok(Vec::new());
+    };
+    let Some(entries) = value.as_map() else {
+        return Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "field-descriptions".to_owned(),
+            wanted: "an inline table of strings",
+            found: value.kind(),
+        });
+    };
+    for (field, sentence) in entries {
+        if sentence.trim().is_empty() {
+            return Err(ConfigError::WrongValue {
+                line: tbl.line,
+                site: site.to_owned(),
+                key: format!("field-descriptions.\"{field}\""),
+                wanted: "a sentence saying what the field means",
+                found: "an empty string",
+            });
+        }
+        if !super::prepare::names_a_field(field) {
+            return Err(ConfigError::WrongValue {
+                line: tbl.line,
+                site: site.to_owned(),
+                key: format!("field-descriptions.\"{field}\""),
+                wanted: "a field's namespace URI followed by its local name, such as \
+                         \"http://acme.example/batch/number\"",
+                found: "a key naming no namespace",
+            });
+        }
+    }
+    Ok(entries.to_vec())
 }
 
 /// `language`: the BCP 47 tag section 6.7.4's two sites are answered with.
@@ -2090,6 +2157,10 @@ fn supplied(row: &Row) -> Option<Supply> {
         },
         super::languages::CATALOG_SITE | super::languages::MARKED_SITE => Supplied::Language {
             tag: row.language.clone()?,
+        },
+        super::prepare::FIELDS_SITE if row.field_descriptions.is_empty() => return None,
+        super::prepare::FIELDS_SITE => Supplied::FieldDescriptions {
+            by_field: row.field_descriptions.clone(),
         },
         super::roles::SITE if row.role_map.is_empty() => return None,
         super::roles::SITE => Supplied::RoleMap {

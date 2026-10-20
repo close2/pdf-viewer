@@ -809,6 +809,9 @@ fn configured(
         if !prepared.recorded_provenance {
             return Some(Decision::Refused(Because::NotBuiltYet(NOT_RECORDED)));
         }
+        if let Some(refused) = supply_not_carried_out(kind, rewrite, prepared) {
+            return Some(refused);
+        }
         return Some(Decision::Configured {
             kind,
             rewrite,
@@ -833,6 +836,24 @@ fn configured(
         .then_some(Decision::Refused(Because::NotBuiltYet(
             DERIVATION_DID_NOT_ANSWER,
         )))
+}
+
+/// The refusal a `supply` takes where this document cannot take the rewrite that carries it out.
+///
+/// **A supplied fact carried out by the table's own rewrite is gated as the table is**: the
+/// operator answered the question, and whether this document can take the rewrite is still the
+/// preparation's to say, with its own reason — a structure field in another namespace than its
+/// type's is refused whoever wrote the sentence (`doc/adr/2082`). A rewrite no preparation stops
+/// has no obstacle, so a `supply` carried out by its own rewrite passes untouched.
+fn supply_not_carried_out(
+    kind: RemedyKind,
+    rewrite: Rewrite,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    if kind != RemedyKind::Supply {
+        return None;
+    }
+    prepared.obstacle(rewrite).map(Decision::Refused)
 }
 
 /// The decision a `preserve` that moves nothing takes, where one answers this requirement.

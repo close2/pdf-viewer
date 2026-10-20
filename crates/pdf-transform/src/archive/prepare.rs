@@ -1100,6 +1100,7 @@ impl Prepared {
                     described: described.as_ref().ok(),
                     fields: None,
                 },
+                &remedies.field_descriptions,
             )
         });
         // **The appended pages, composed before the packet** and for the packet's sake: the
@@ -1487,6 +1488,9 @@ impl Prepared {
             Rewrite::HalftoneWrittenDefault => self.owed.halftone_defaults.as_ref().err().copied(),
             Rewrite::HalftonePhaseRemoved => self.owed.halftone_phases.as_ref().err().copied(),
             Rewrite::HalftoneOriginRemoved => self.owed.halftone_origins.as_ref().err().copied(),
+            Rewrite::DestinationProfileReferenceRemoved => {
+                self.owed.profile_references.as_ref().err().copied()
+            }
             Rewrite::OverprintModeRestated | Rewrite::OverprintModeZeroed => {
                 self.owed.overprint_modes.as_ref().err().copied()
             }
@@ -1690,6 +1694,8 @@ pub(super) struct Owed {
     pub(super) halftone_phases: Result<Sites, Because>,
     /// The graphics states whose `HTO` goes, or why none do (`doc/adr/2034`).
     pub(super) halftone_origins: Result<Sites, Because>,
+    /// The output intents whose `DestOutputProfileRef` goes, or why none do (`doc/adr/2083`).
+    pub(super) profile_references: Result<Sites, Because>,
     /// The graphics states whose overprint mode becomes 0, or why none do.
     pub(super) overprint_modes: Result<super::overprint::OverprintModes, Because>,
     /// The graphics states whose `/TR` goes, or why none do.
@@ -1750,6 +1756,9 @@ impl Owed {
             }),
             halftone_origins: asked(wanted(Rewrite::HalftoneOriginRemoved), || {
                 super::halftones::origins(document, input)
+            }),
+            profile_references: asked(wanted(Rewrite::DestinationProfileReferenceRemoved), || {
+                sites::profile_references(document, input)
             }),
             overprint_modes: asked(wanted(Rewrite::OverprintModeRestated), || {
                 let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
@@ -3305,6 +3314,11 @@ pub struct DescribedField {
     pub name: String,
     /// The value type its serialisation showed.
     pub value_type: String,
+    /// The `pdfaField:description` written: the operator's sentence where their
+    /// `field-descriptions` names the field, and [`FIELD_DESCRIPTION`] otherwise.
+    pub description: String,
+    /// Whether [`Self::description`] is the operator's (`doc/adr/2082`).
+    pub supplied: bool,
 }
 
 impl DescribedField {
@@ -3318,8 +3332,44 @@ impl DescribedField {
                 "value_type".to_owned(),
                 Value::text(self.value_type.clone()),
             ),
+            (
+                "description".to_owned(),
+                Value::text(self.description.clone()),
+            ),
+            (
+                "described_by".to_owned(),
+                Value::text(if self.supplied {
+                    "operator"
+                } else {
+                    "converter"
+                }),
+            ),
         ])
     }
+}
+
+/// ISO 19005-2 section 6.6.2.3.1's half that reaches inside a structure, the site
+/// [`prepare_field_descriptions`] answers.
+pub(super) const FIELDS_SITE: &str = "metadata/extension-schema-structure-fields-are-described";
+
+/// The key an operator's `field-descriptions` names a field by: its namespace URI and its local
+/// name written together, which is how RDF names a property, so that the key does not depend on
+/// the prefix one packet happens to spell the namespace with (ISO 19005-2 section 6.6.2.2).
+pub(super) fn field_key(namespace: &str, local: &str) -> String {
+    let mut key = String::with_capacity(namespace.len().saturating_add(local.len()));
+    key.push_str(namespace);
+    key.push_str(local);
+    key
+}
+
+/// Whether a `field-descriptions` key could be a [`field_key`]: a namespace URI, which holds a
+/// scheme's colon, with a local name after its last `/`, `#` or `:`.
+pub(super) fn names_a_field(key: &str) -> bool {
+    key.contains(':')
+        && key
+            .rsplit(['/', '#', ':'])
+            .next()
+            .is_some_and(|local| !local.is_empty())
 }
 
 /// The `pdfaField:description` field, which no file states for a field its producer described
@@ -3365,45 +3415,20 @@ const FIELD_STILL_UNDESCRIBED: &str = "a structure field this conversion describ
 /// requirement's own row is, asked of one packet's bytes, so a field this describes is exactly
 /// one that row reported. The field's namespace, name and the value type its serialisation shows
 /// are the packet's own; the description Table 6 requires is nowhere in the file, so it is
-/// [`FIELD_DESCRIPTION`], and the report names every field described (`doc/adr/2050`). A field
-/// this cannot describe without deciding something — one in another namespace than its type's,
-/// one whose value is itself a structure, one whose type the packet does not describe once —
-/// refuses the document by name.
+/// [`FIELD_DESCRIPTION`], and the report names every field described (`doc/adr/2050`) — except
+/// where the operator's `field-descriptions` names the field, whose sentence is then theirs
+/// (`supplied`, `doc/adr/2082`). A field this cannot describe without deciding something — one in
+/// another namespace than its type's, one whose value is itself a structure, one whose type the
+/// packet does not describe once — refuses the document by name.
 fn prepare_field_descriptions(
     document: &Document,
     catalog: Option<&Dictionary>,
     edited: Edited<'_>,
+    supplied: &BTreeMap<String, String>,
 ) -> Result<FieldsDescribed, Because> {
-    let catalog_at = catalog
-        .and_then(|catalog| catalog.get("Metadata"))
-        .and_then(Object::as_reference);
-    let catalog_packet = catalog_at.and_then(|at| match document.get(at) {
-        Object::Stream(stream) => edited
-            .packet(at)
-            .or_else(|| document.decoded_stream_data(&stream).map(|it| it.to_vec())),
-        _ => None,
-    });
     let mut out = FieldsDescribed::default();
-    for at in pdf_archive::metadata_streams(document) {
-        let Object::Stream(stream) = document.get(at) else {
-            return Err(Because::NotBuiltYet(NOT_A_PACKET));
-        };
-        let Some(bytes) = edited.packet(at).or_else(|| {
-            document
-                .decoded_stream_data(&stream)
-                .map(|bytes| bytes.to_vec())
-        }) else {
-            return Err(Because::NotBuiltYet(NOT_A_PACKET));
-        };
-        // The catalog's own packet is read alone: inheriting it from itself would put its
-        // unedited description of a type ahead of the one this writes.
-        let inherited = (catalog_at != Some(at))
-            .then_some(catalog_packet.as_deref())
-            .flatten();
-        let undescribed = pdf_archive::undescribed_fields(&bytes, inherited);
-        if undescribed.is_empty() {
-            continue;
-        }
+    for (at, bytes, inherited, undescribed) in fields_by_packet(document, catalog, edited)? {
+        let inherited = inherited.as_deref();
         let mut rows = Vec::with_capacity(undescribed.len());
         for field in &undescribed {
             if field.namespace != field.type_namespace {
@@ -3412,11 +3437,16 @@ fn prepare_field_descriptions(
             let Some(value_type) = field.value_type else {
                 return Err(Because::NotBuiltYet(FIELD_TYPE_NOT_DETERMINABLE));
             };
+            let operator = supplied.get(&field_key(&field.type_namespace, &field.local));
             rows.push(DescribedField {
                 type_name: field.type_name.clone(),
                 namespace: field.type_namespace.clone(),
                 name: field.local.clone(),
                 value_type: value_type.to_owned(),
+                description: operator
+                    .map_or(FIELD_DESCRIPTION, String::as_str)
+                    .to_owned(),
+                supplied: operator.is_some(),
             });
         }
         let descriptions: Vec<xmp::FieldDescription<'_>> = rows
@@ -3426,7 +3456,7 @@ fn prepare_field_descriptions(
                 type_namespace: &row.namespace,
                 name: &row.name,
                 value_type: &row.value_type,
-                description: FIELD_DESCRIPTION,
+                description: &row.description,
             })
             .collect();
         let written = xmp::describe_fields(&bytes, &descriptions)
@@ -3442,6 +3472,73 @@ fn prepare_field_descriptions(
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     Ok(out)
+}
+
+/// One metadata stream, its packet as the editors before this one left it, the catalog's
+/// packet it inherits descriptions from and the structure fields its value types leave out.
+///
+/// The catalog's own packet is read alone: inheriting it from itself would put its unedited
+/// description of a type ahead of the one [`prepare_field_descriptions`] writes. A packet with
+/// nothing undescribed is left out.
+type FieldsOfOnePacket = (
+    ObjectId,
+    Vec<u8>,
+    Option<Vec<u8>>,
+    Vec<pdf_archive::UndescribedField>,
+);
+
+/// [`FieldsOfOnePacket`] for every metadata stream, in the order the validator reads them.
+fn fields_by_packet(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    edited: Edited<'_>,
+) -> Result<Vec<FieldsOfOnePacket>, Because> {
+    let catalog_at = catalog
+        .and_then(|catalog| catalog.get("Metadata"))
+        .and_then(Object::as_reference);
+    let catalog_packet = catalog_at.and_then(|at| match document.get(at) {
+        Object::Stream(stream) => edited
+            .packet(at)
+            .or_else(|| document.decoded_stream_data(&stream).map(|it| it.to_vec())),
+        _ => None,
+    });
+    let mut out = Vec::new();
+    for at in pdf_archive::metadata_streams(document) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = edited.packet(at).or_else(|| {
+            document
+                .decoded_stream_data(&stream)
+                .map(|bytes| bytes.to_vec())
+        }) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let inherited = (catalog_at != Some(at))
+            .then(|| catalog_packet.clone())
+            .flatten();
+        let undescribed = pdf_archive::undescribed_fields(&bytes, inherited.as_deref());
+        if !undescribed.is_empty() {
+            out.push((at, bytes, inherited, undescribed));
+        }
+    }
+    Ok(out)
+}
+
+/// The structure fields the producer's own packets state and their value types leave out, read
+/// before any editor runs: the population an operator's `field-descriptions` is matched against
+/// for the report's supplied facts (`doc/adr/2082`). A document whose packets cannot be read
+/// yields nothing, and [`prepare_field_descriptions`] then names the refusal.
+pub(super) fn undescribed_fields_in(document: &Document) -> Vec<pdf_archive::UndescribedField> {
+    let catalog = document.catalog().ok();
+    fields_by_packet(document, catalog.as_ref(), Edited::default())
+        .map(|packets| {
+            packets
+                .into_iter()
+                .flat_map(|(_, _, _, undescribed)| undescribed)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Whether a packet already states an extension schema container.

@@ -29,7 +29,7 @@
 //! Both are `CMap` files and both are read with the same lexer, and they answer different
 //! questions: this one maps a code to a *CID*, which selects a glyph, and that one maps a
 //! code to *text*, which is what the code means. A `bfchar` destination is UTF-16BE text
-//! there and a character selector here — see [`CMap::take_chars`] for the clause that
+//! there and a character selector here — see `CMap::take_chars` for the clause that
 //! decides it.
 
 use std::collections::BTreeMap;
@@ -74,16 +74,16 @@ const MAX_RANGES: usize = 1 << 15;
 /// No registered `CMap` comes near it — the largest states five — and reaching it is recorded.
 const MAX_CODESPACE: usize = 1 << 8;
 
-/// What [`CMap::truncated`] answers when [`MAX_RANGES`] dropped a `cidrange` or `notdefrange`.
+/// What [`CMap::truncated`] answers when `MAX_RANGES` dropped a `cidrange` or `notdefrange`.
 ///
 /// These four are the words a report carries, so they are spelled as the bound a reader would
 /// grep for rather than as prose.
 pub const CUT_BY_RANGES: &str = "max_cmap_ranges";
 
-/// What [`CMap::truncated`] answers when [`MAX_SINGLES`] dropped a `cidchar` or `notdefchar`.
+/// What [`CMap::truncated`] answers when `MAX_SINGLES` dropped a `cidchar` or `notdefchar`.
 pub const CUT_BY_SINGLES: &str = "max_cmap_singles";
 
-/// What [`CMap::truncated`] answers when [`MAX_CODESPACE`] dropped a codespace range.
+/// What [`CMap::truncated`] answers when `MAX_CODESPACE` dropped a codespace range.
 pub const CUT_BY_CODESPACE: &str = "max_cmap_codespace";
 
 /// What [`CMap::truncated`] answers when one section's operands outran the buffer.
@@ -284,7 +284,7 @@ pub struct CMap {
     references_another: bool,
     /// Which of this module's bounds dropped something this file stated, if one did.
     ///
-    /// §9.7.6.2 makes the lookup a `shall` — "[t]he code extracted from the string shall be
+    /// §9.7.6.2 makes the lookup a `shall` — "\[t]he code extracted from the string shall be
     /// looked up in the character code mappings for codes of that length" — and a mapping a
     /// bound of ours discarded is one the lookup cannot find, so the code takes §9.7.6.3's
     /// substitute and the page draws the wrong glyph. That is a bound stopping a reading part
@@ -523,7 +523,7 @@ impl CMap {
     /// Reads a `begincidchar` or `beginnotdefchar` section: a code and a CID each.
     ///
     /// `bf` marks a `beginbfchar` section, whose destination is a hex string rather than an
-    /// integer. §9.7.5.4 c) is a constraint on the *file* — the clause opens "[e]mbedded `CMap`
+    /// integer. §9.7.5.4 c) is a constraint on the *file* — the clause opens "\[e]mbedded `CMap`
     /// files shall conform to the format documented in Adobe Technical Note #5014, subject to
     /// these additional constraints" — and one corpus document breaks it, writing an `Encoding`
     /// `CMap` whose only mappings are `bfchar` lines. What a processor does with the file in
@@ -830,7 +830,7 @@ impl CMap {
     /// a CID, and a `notdef` mapping's CID selects a glyph exactly as the other's does
     /// (§9.7.6.3: it is consulted "to obtain a substitute character selector").
     ///
-    /// The two range shapes are counted the way [`Mapping::get`] reads them, which is the whole
+    /// The two range shapes are counted the way `Mapping::get` reads them, which is the whole
     /// reason this lives here rather than in a caller: a `cidrange` numbers its codes upward
     /// from the CID it names, so its greatest selector is that CID plus the width of the range,
     /// while a `notdefrange` gives every code in the range the one CID it names.
@@ -869,7 +869,7 @@ impl CMap {
     /// produce one.
     ///
     /// **A code is offered only if a decoder reading its own bytes back would extract exactly
-    /// it**, which is [`Self::extracted`] and is the whole of what inverting the codespace
+    /// it**, which is `Self::extracted` and is the whole of what inverting the codespace
     /// ranges amounts to. A mapping alone does not make a code usable: a `CMap` stating
     /// `<00> <FF>` as its codespace and a two-byte `cidrange` maps codes no string can ever
     /// contain, because §9.7.6.2 matches the first byte against the one-byte ranges and stops
@@ -877,7 +877,7 @@ impl CMap {
     ///
     /// **Visited shortest length first**, which is the order §9.7.6.2 extracts codes in, and
     /// within one length the individually stated codes ascending and then the ranges in file
-    /// order — [`Mapping::get`]'s own precedence. So a caller keeping the first code that means
+    /// order — `Mapping::get`'s own precedence. So a caller keeping the first code that means
     /// a character keeps the one this `CMap` answers with.
     ///
     /// Returns `false` without visiting anything where the mappings state more than `limit`

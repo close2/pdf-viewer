@@ -118,8 +118,9 @@
 //! What the chrome takes first is unchanged and is still each host's: by the time a press reaches
 //! the page, the widget that wanted Ctrl + C has already had it.
 
-use pdf_model::view::Markup;
-use viewer_core::{Command, Edit, FocusMove, PageTarget, Selection, Zoom};
+use pdf_model::view::{FieldName, Markup};
+use pdf_syntax::ObjectId;
+use viewer_core::{Answer, Command, Edit, FocusMove, PageTarget, Query, Selection, Viewer, Zoom};
 
 /// A key this program has a meaning for.
 ///
@@ -294,6 +295,19 @@ pub enum Mode {
     Reading,
     /// §12.4.4's presentation, full screen and with Table 29's "no … other window visible".
     Presenting,
+}
+
+impl Mode {
+    /// The mode a window is in while its presentation is as `presenting` says: presenting while
+    /// §12.4.4's presentation holds the screen full, reading otherwise.
+    #[must_use]
+    pub const fn of(presenting: &crate::Presenting) -> Self {
+        if presenting.full_screen() {
+            Self::Presenting
+        } else {
+            Self::Reading
+        }
+    }
 }
 
 /// Something only the window knows how to do, so the table names it and stops.
@@ -651,10 +665,135 @@ pub fn ctrl_meaning(key: Key, held: Modifiers, mode: Mode) -> Option<Meaning> {
     })
 }
 
+/// What every window says when §12.5.6.10's markup key is pressed with nothing selected.
+///
+/// The core answers a markup over nothing by doing nothing, which is right and silent, and a
+/// person who pressed a key and saw no change has been told nothing at all (trap 5). [`decide`]
+/// answers it as [`Decided::Say`], so the four hosts say the one sentence (ADR 2092).
+pub const SELECT_FIRST: &str = "select some text first — §12.5.6.10's markups mark up text";
+
+/// Who has the keyboard when a press reaches the page, which decides whether §12.5.1's focused
+/// push-button may take it.
+///
+/// Not a `bool`, for [`Mode`]'s reason. A toolkit that places its own controls over the page can
+/// pass a key on from one of them — GTK hands the window an Enter its entry did not use — and that
+/// key has already been the control's, so it does not press a button the page's focus is on as
+/// well. Which widget holds the keyboard is the toolkit's to know; what follows from it is here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Keyboard {
+    /// The page has it: a push-button §12.5.1's focus is on takes Space and Enter first.
+    #[default]
+    Page,
+    /// One of the window's own controls has it, and has had the key first.
+    Control,
+}
+
+/// What a press that reached the page comes to, decided once for every host.
+///
+/// [`Meaning`] with the decisions every window used to make after it folded in, so that a host's
+/// match is what its toolkit does and nothing else (ADR 2092).
+#[derive(Debug)]
+pub enum Decided {
+    /// The push-button §12.5.1's focus is on is pressed: [`Command::Activate`] on its widget.
+    ///
+    /// **Its own variant rather than a [`Decided::Send`]**, because a window that traces the press
+    /// names the field it pressed, and the message alone carries only the widget.
+    Activate {
+        /// The field the button belongs to, as §14.9.3 shows it.
+        name: FieldName,
+        /// The widget annotation the focus is on, which the message activates.
+        annotation: ObjectId,
+    },
+    /// A message to [`viewer_core`], complete from the key alone.
+    Send(Command),
+    /// A job the window finishes from its own state.
+    Window(WindowAct),
+    /// A sentence the person is owed instead of an effect.
+    Say(String),
+    /// Nothing: the key has no meaning here.
+    Nothing,
+}
+
+/// A press that reached the page, in the order every window asks about one (ADRs 0526, 1357,
+/// 2092).
+///
+/// First whether it presses the push-button §12.5.1's focus is on ([`crate::pressed`]) — unless
+/// one of the window's own controls has the keyboard — and a locked one is said rather than
+/// pressed (Table 227 bit 1, worded by [`crate::Pressed::note`] as a click on it is); then what
+/// the table means by it ([`meaning`]); and last the one check made before a §12.5.6.10 markup is
+/// sent: that something is selected for it to mark up, or [`SELECT_FIRST`] is said instead.
+///
+/// **One function rather than the same twenty lines in four hosts.** Three windows and the C ABI
+/// each made these decisions beside the one [`meaning`] they shared, worded the markup's sentence
+/// four times and ordered the focused button four times; the fourth copy is where two of them would
+/// have stopped agreeing. What a host keeps is what its toolkit must do with the answer: give the
+/// keyboard to where a tab walk landed, scroll its own view, present.
+#[must_use]
+pub fn decide(
+    viewer: &Viewer,
+    key: Key,
+    held: Modifiers,
+    mode: Mode,
+    waiting: Waiting,
+    keyboard: Keyboard,
+) -> Decided {
+    let focused = match keyboard {
+        Keyboard::Page => crate::pressed(viewer, key, held),
+        Keyboard::Control => None,
+    };
+    if let Some(pressed) = focused {
+        return match pressed {
+            crate::Pressed::Activates { name, annotation } => {
+                Decided::Activate { name, annotation }
+            }
+            crate::Pressed::ReadOnly { .. } => {
+                pressed.note().map_or(Decided::Nothing, Decided::Say)
+            }
+        };
+    }
+    match meaning(key, held, mode, waiting) {
+        None => Decided::Nothing,
+        Some(Meaning::Window(act)) => Decided::Window(act),
+        Some(Meaning::Send(Command::Edit(Edit::Markup { .. }))) if !selected(viewer) => {
+            Decided::Say(SELECT_FIRST.to_owned())
+        }
+        Some(Meaning::Send(command)) => Decided::Send(command),
+    }
+}
+
+/// Whether anything on the page is selected for §12.5.6.10's markup to mark up.
+fn selected(viewer: &Viewer) -> bool {
+    matches!(viewer.query(Query::Selection),
+        Answer::Selected(selection) if !selection.quads.is_empty())
+}
+
+/// The message [`WindowAct::ScrollBy`]'s distance comes to in a window whose display scale is
+/// `scale`.
+///
+/// The table states **logical** pixels because it has no display to ask, and
+/// [`viewer_core::Command::Scroll`] speaks device ones; every window multiplies by its own scale,
+/// which is the one thing it supplies. A C caller is handed the logical distance and scrolls its
+/// own view.
+#[must_use]
+pub fn scroll_by(by: f32, scale: f32) -> Command {
+    Command::Scroll {
+        dx: 0.0,
+        dy: by * scale,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, meaning};
-    use viewer_core::{Command, PageTarget, Selection};
+    use super::{
+        Decided, Key, Keyboard, Meaning, Mode, Modifiers, SELECT_FIRST, Waiting, WindowAct, decide,
+        meaning,
+    };
+    use pdf_model::view::Markup;
+    use viewer_core::{Command, Edit, PageTarget, Selection, Viewer};
+
+    /// The table's two markup rows, §12.5.6.10's, which the check in [`decide`] is for.
+    const MARKUP_KEYS: [(Key, Markup); 2] =
+        [(Key::H, Markup::Highlight), (Key::K, Markup::StrikeOut)];
 
     /// [`Key::ALL`] is the list three hosts are held to, so it has to be the whole enumeration.
     ///
@@ -1101,6 +1240,73 @@ mod tests {
                     "{key:?} means a second thing when shifted, which this table does not state"
                 );
             }
+        }
+    }
+
+    /// The table's answers arrive as the windows' do: Down scrolls, Control + F finds, a Control
+    /// the table does not bind means nothing (ADR 1192), and Escape stops a warned draw.
+    #[test]
+    fn a_press_is_decided_as_every_window_decides_it() {
+        let viewer = Viewer::new(800, 1000, 1.0);
+        let read =
+            |key, held, waiting| decide(&viewer, key, held, Mode::Reading, waiting, Keyboard::Page);
+        assert!(matches!(
+            read(Key::Down, Modifiers::NONE, Waiting::Nothing),
+            Decided::Window(WindowAct::ScrollBy(by)) if by > 0.0
+        ));
+        assert!(matches!(
+            read(Key::F, Modifiers::CTRL, Waiting::Nothing),
+            Decided::Window(WindowAct::Find)
+        ));
+        assert!(matches!(
+            read(Key::T, Modifiers::CTRL, Waiting::Nothing),
+            Decided::Nothing
+        ));
+        assert!(matches!(
+            read(Key::Escape, Modifiers::NONE, Waiting::Warned),
+            Decided::Window(WindowAct::AbortDrawing)
+        ));
+        assert!(matches!(
+            decide(
+                &viewer,
+                Key::F,
+                Modifiers::NONE,
+                Mode::Presenting,
+                Waiting::Nothing,
+                Keyboard::Page,
+            ),
+            Decided::Nothing
+        ));
+        assert!(matches!(
+            read(Key::Z, Modifiers::NONE, Waiting::Nothing),
+            Decided::Send(Command::Undo)
+        ));
+    }
+
+    /// A markup key with nothing selected is the windows' sentence, never a markup over nothing.
+    #[test]
+    fn a_markup_with_nothing_selected_is_said_rather_than_sent() {
+        let viewer = Viewer::new(800, 1000, 1.0);
+        for (key, _) in MARKUP_KEYS {
+            match decide(
+                &viewer,
+                key,
+                Modifiers::NONE,
+                Mode::Reading,
+                Waiting::Nothing,
+                Keyboard::Page,
+            ) {
+                Decided::Say(said) => assert_eq!(said, SELECT_FIRST),
+                other => panic!("{key:?} with nothing selected came to {other:?}"),
+            }
+        }
+        // And the table does mean a markup by both, which is what makes the check above reachable.
+        for (key, kind) in MARKUP_KEYS {
+            assert!(matches!(
+                meaning(key, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+                Some(Meaning::Send(Command::Edit(Edit::Markup { kind: sent, .. })))
+                    if sent == kind
+            ));
         }
     }
 }

@@ -256,7 +256,7 @@ const FIXED_CONTENT: usize = 8 * 65 + 12;
 ///
 /// NOTE 2 of the same subclause says what the portion is. A standard Type 1 font program "consists
 /// of three parts: a clear-text portion (written using PostScript syntax), an encrypted portion,
-/// and a fixed-content portion", and "[t]he fixed-content portion contains 512 ASCII zeros followed
+/// and a fixed-content portion", and "\[t]he fixed-content portion contains 512 ASCII zeros followed
 /// by a cleartomark operator, and perhaps followed by additional data."
 ///
 /// **The entry is the condition, so this fires on a stated zero and on nothing else.** Table 125
@@ -322,7 +322,7 @@ fn with_fixed_content(document: &Document, dict: &Dictionary, data: Arc<[u8]>) -
 /// > stream dictionary
 ///
 /// No byte string of length zero is any of those three: §9.9's Table 124 requires of every
-/// subtype that "[t]he font program provided as the value of this key shall conform to" the
+/// subtype that "\[t]he font program provided as the value of this key shall conform to" the
 /// format it names, and each of the three formats begins with a header the empty string does not
 /// have. So a descriptor whose program stream decodes to nothing has *provided* no program, and
 /// that is the state §9.8.1 gives the rest of the descriptor for:

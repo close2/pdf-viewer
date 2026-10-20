@@ -1606,18 +1606,29 @@ pub(crate) fn stored_frame(
     Some((bbox, placement(bbox, matrix, rect)))
 }
 
-/// §12.5.5's `AA` for one appearance stream and the annotation whose `/AP` names it.
+/// §12.5.5's `A` for one appearance stream and the annotation whose `/AP` names it: the matrix
+/// that places the stream where it is *invoked* by `Do` rather than run as an annotation's.
 ///
-/// [`stored_frame`] answers the same question for the appearance an annotation is *showing*, which
-/// needs the view state to know which state that is. This one is handed the stream, so it answers
-/// for a caller that already knows which one it means — `pdf_transform`'s archive conversion,
-/// which is keeping a producer's marks where the producer put them.
+/// [`stored_frame`] answers the annotation's own question for the appearance an annotation is
+/// *showing*, which needs the view state to know which state that is. This one is handed the
+/// stream, so it answers for a caller that already knows which one it means — `pdf_transform`'s
+/// archive conversion, which keeps a producer's marks where the producer put them by writing a
+/// `q`, a `cm` and the stream's `Do`.
+///
+/// **`A` and not `AA`, because `Do` supplies the other factor.** ISO 32000-2 §8.10.1, of a form
+/// `XObject`'s `/Matrix`:
+///
+/// > Each time the form XObject is painted by the Do operator, this matrix shall be concatenated
+/// > with the current transformation matrix to define the mapping from form space to device space.
+///
+/// So a `cm` of `A` before the `Do` draws the stream under `/Matrix` then `A`, which is step 3's
+/// `AA` to the bit, and a `cm` of `AA` would apply `/Matrix` twice (`doc/adr/2091`).
 ///
 /// The two defaults are the ones that clause is applied under throughout this module: a missing
 /// `/Matrix` makes the map the identity, and a stream with no `/BBox` gets §12.7.4.3's — the
 /// annotation rectangle's dimensions at the origin. `None` where neither the annotation nor the
 /// stream states a rectangle, which leaves the algorithm nothing to map onto.
-pub(crate) fn placement_of(
+pub(crate) fn alignment_of(
     document: &Document,
     annotation: &Dictionary,
     appearance: &Dictionary,
@@ -1630,7 +1641,7 @@ pub(crate) fn placement_of(
         (None, None) => return None,
     };
     let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
-    Some(placement(bbox, matrix, rect))
+    Some(alignment(bbox, matrix, rect))
 }
 
 /// Computes `AA`, the matrix ISO 32000-2 §12.5.5 defines.
@@ -1644,10 +1655,19 @@ pub(crate) fn placement_of(
 /// 2. Compute `A`, mapping that box's lower-left and upper-right corners onto `/Rect`'s.
 /// 3. `AA = Matrix × A`.
 ///
+/// Steps 1 and 2 are [`alignment`], which [`alignment_of`] hands to a caller that invokes the
+/// stream rather than running it.
+fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
+    matrix.then(alignment(bbox, matrix, rect))
+}
+
+/// §12.5.5's `A`: steps 1 and 2 of [`placement`], the transformed appearance box moved and
+/// scaled onto `/Rect`.
+///
 /// A degenerate transformed box — zero width or height, which a `/BBox` of zero extent or a
 /// singular `/Matrix` produces — has no scale onto `/Rect`. The scale is taken as 1 on that
 /// axis, so the appearance is positioned rather than divided by zero into nothing.
-fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
+fn alignment(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
     let corners = [
         Point::new(bbox[0], bbox[1]),
         Point::new(bbox[2], bbox[1]),
@@ -1675,10 +1695,9 @@ fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
         span(low.y, high.y, rect[3] - rect[1]),
     );
 
-    let align = Transform::translate(-low.x, -low.y)
+    Transform::translate(-low.x, -low.y)
         .then(scale)
-        .then(Transform::translate(rect[0], rect[1]));
-    matrix.then(align)
+        .then(Transform::translate(rect[0], rect[1]))
 }
 
 /// ISO 32000-2 §12.5.6.22's *transformed annotation rectangle*, for a watermark that states one.

@@ -103,7 +103,7 @@ pub struct WorkerLimits {
     pub strips: u32,
     /// The largest message this process will read, in bytes.
     ///
-    /// Derived rather than chosen — see [`message_budget`]. [`u64::MAX`] where there is no
+    /// Derived rather than chosen — see `message_budget()`. [`u64::MAX`] where there is no
     /// ceiling to derive it from, which is every platform `doc/todo/35` covers.
     pub message_budget: u64,
 }
@@ -151,7 +151,7 @@ fn message_budget(ceiling: u64, already: u64, threads: usize) -> u64 {
 ///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
 ///    process asking it is *killed* rather than told no — and this is the one place it can be
 ///    asked. The pool is that wide where the spawner limited the allocator's arenas, and one
-///    thread where it did not ([`ARENA_LIMIT_VARIABLE`], ADR 1554).
+///    thread where it did not (`ARENA_LIMIT_VARIABLE`, ADR 1554).
 /// 3. **How much address space this process already occupies is read**, for the same reason and
 ///    from the same impossibility: `/proc/self/status` is a file, and after step 4 there are none.
 /// 4. **The confinement itself.**

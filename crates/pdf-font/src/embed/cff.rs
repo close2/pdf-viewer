@@ -7,17 +7,17 @@
 //!
 //! Table 124 has two rows a `CFF ` face may go under a `CIDFontType0` by. `CIDFontType0C`: "Type 0
 //! `CIDFont` program represented in the Compact Font Format (CFF), as described in Adobe Technical
-//! Note #5176". And `OpenType`, whose `CFF ` cases each say "[i]n addition to the "CFF " table,
+//! Note #5176". And `OpenType`, whose `CFF ` cases each say "\[i]n addition to the "CFF " table,
 //! the font program shall include the "cmap" table".
 //!
 //! **A subset is written bare, under `CIDFontType0C`.** The wrapper would owe a `cmap` rebuilt for
 //! the subset's glyphs, and `head`, `hhea`, `hmtx` and `maxp` restated for them, none of which a
 //! reader of a `CIDFontType0` uses: §9.7.4.2 reaches its glyphs through the CFF's own charset and
 //! §9.7.4.3 its widths through `/W`. The one thing the wrapper carries that the bare program does
-//! not is `OS/2`'s `fsType`, and §9.9.1 already says what a reader does without it: "[i]n the
+//! not is `OS/2`'s `fsType`, and §9.9.1 already says what a reader does without it: "\[i]n the
 //! absence of explicit information to the contrary, embedded font programs shall be used only to
 //! view and print the document and not for any other purposes". The licence is the writer's to
-//! check — "[o]ne of the conditions may be that the font program cannot be embedded, in which
+//! check — "\[o]ne of the conditions may be that the font program cannot be embedded, in which
 //! case it should not be incorporated into a PDF file" — and [`super::for_embedding`] checks it
 //! before anything is written; what the file then permits a reader is the narrowest use.
 //!
@@ -37,13 +37,13 @@
 //! are free to be dense. Table 117 states `/CIDToGIDMap` for "Type 2 `CIDFonts` with embedded font
 //! programs" only, so no other route is available, and none is needed. The whole program keeps the
 //! face's own charset, so there a CID-keyed face whose charset renumbers a shown glyph is refused
-//! by name: under "[t]he CIDs shall be used directly as GID values" or the charset, one route
+//! by name: under "\[t]he CIDs shall be used directly as GID values" or the charset, one route
 //! reaches the glyph and the other does not.
 //!
 //! # What a subset keeps
 //!
-//! - **The charstrings of the glyphs shown and of `.notdef`**, glyph 0 — §9.7.4.2's "[e]very
-//!   `CIDFont` shall contain a glyph description for CID 0" and §9.9.2's "[t]he glyph name .notdef
+//! - **The charstrings of the glyphs shown and of `.notdef`**, glyph 0 — §9.7.4.2's "\[e]very
+//!   `CIDFont` shall contain a glyph description for CID 0" and §9.9.2's "\[t]he glyph name .notdef
 //!   shall be defined in the font subset".
 //! - **Every subroutine those reach**, found by [`super::reach`]. An unreached subroutine is
 //!   replaced by a one-byte `endchar` rather than removed, so each INDEX keeps its count: Adobe

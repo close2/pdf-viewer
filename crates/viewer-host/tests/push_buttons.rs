@@ -15,8 +15,11 @@
 
 use pdf_model::form::{ChoiceControl, Control, TextControl};
 use pdf_syntax::ObjectId;
+use viewer_core::PageTarget;
 use viewer_core::{Answer, Command, DocumentId, FocusMove, Query, Viewer};
-use viewer_host::{Key, Modifiers, Pressed, control_kind, pressed};
+use viewer_host::{
+    Decided, Key, Keyboard, Mode, Modifiers, Pressed, Waiting, control_kind, decide, pressed,
+};
 
 /// The identity the one document is opened under.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -203,4 +206,42 @@ fn a_key_on_any_other_widget_is_the_key_tables() {
     assert_eq!(pressed(&viewer, Key::Enter, Modifiers::NONE), None);
     // And with nothing focused at all.
     assert_eq!(pressed(&opened(), Key::Enter, Modifiers::NONE), None);
+}
+
+/// [`viewer_host::decide`] asks about the focused push-button first, and only while the page has the
+/// keyboard: a key a window's own control passed on is the table's (ADR 2092).
+#[test]
+fn a_press_decided_once_presses_the_button_only_from_the_page() {
+    let mut viewer = opened();
+    focus_on(&mut viewer, BUTTON);
+    let decided = |viewer: &Viewer, keyboard| {
+        decide(
+            viewer,
+            Key::Space,
+            Modifiers::NONE,
+            Mode::Reading,
+            Waiting::Nothing,
+            keyboard,
+        )
+    };
+    match decided(&viewer, Keyboard::Page) {
+        Decided::Activate { name, annotation } => {
+            assert_eq!(annotation, BUTTON);
+            assert_eq!(name.qualified, "next");
+        }
+        other => panic!("Space from the page presses the focused push-button: {other:?}"),
+    }
+    assert!(
+        matches!(
+            decided(&viewer, Keyboard::Control),
+            Decided::Send(Command::GoTo(PageTarget::Next))
+        ),
+        "a Space a window's own control passed on is the table's page turn"
+    );
+    // Table 227 bit 1's push-button is said, in the words a click on it is.
+    focus_on(&mut viewer, LOCKED);
+    assert!(
+        matches!(decided(&viewer, Keyboard::Page), Decided::Say(said) if said.contains("Table 227")),
+        "the locked push-button is refused by name"
+    );
 }

@@ -669,7 +669,8 @@ pub struct TextLine {
     /// characters' [`Character::bytes`] is this string's length, so an offset into the string and
     /// an index into the characters convert into each other without either side guessing.
     pub text: String,
-    /// One entry per character code the page drew, in the order it drew them.
+    /// One entry per character code the page drew, in the order it drew them — and one for a
+    /// §14.9.4 `/ActualText` section, whose replacement stands for all of its codes (ADR 2086).
     pub characters: Vec<Character>,
 }
 

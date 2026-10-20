@@ -300,15 +300,17 @@ pub enum Intent {
     Unknown(String),
 }
 
-/// ISO 32000-2 §12.5.5's matrix `AA`, for an appearance stream a caller has already chosen.
+/// ISO 32000-2 §12.5.5's matrix `A`, for an appearance stream a caller has already chosen and
+/// will invoke with `Do`: the operand of the `cm` written before it.
 ///
 /// > A matrix A shall be computed that scales and translates the transformed appearance box to
 /// > align with the edges of the annotation's rectangle (specified by the Rect entry).
 ///
-/// ISO 32000-1:2008's 12.5.5 states the same three steps, so the map is the same under either
-/// edition. One implementation of the algorithm serves every caller — [`crate::annotation`]
-/// places what a viewer draws, and this is the same matrix handed to a caller that is moving an
-/// annotation's marks rather than drawing them.
+/// `A` rather than the clause's `AA = Matrix × A`, because §8.10.1 makes `Do` concatenate the
+/// stream's own `/Matrix` itself, so the invoked stream is drawn under `AA` exactly as
+/// [`crate::annotation`] draws it for a viewer (`doc/adr/2091`). ISO 32000-1:2008's 12.5.5 states
+/// the same three steps, so the map is the same under either edition, and one implementation of
+/// the algorithm serves both callers.
 ///
 /// `None` where neither the annotation nor the stream states a rectangle the algorithm can map
 /// onto.
@@ -318,7 +320,7 @@ pub fn placement(
     annotation: &Dictionary,
     appearance: &Dictionary,
 ) -> Option<Transform> {
-    crate::annotation::placement_of(document, annotation, appearance)
+    crate::annotation::alignment_of(document, annotation, appearance)
 }
 
 /// Reads §12.5.6.7's or §12.5.6.9's `/IT`, where the annotation states one.

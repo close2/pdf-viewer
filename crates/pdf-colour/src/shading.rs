@@ -1311,7 +1311,7 @@ impl pdf_render::ColoursAtDeviceScale for FunctionColours {
 /// - **A grid smaller than [`PARALLEL_CELLS`] stays on one thread.** A shading covering a
 ///   swatch resolves to a few hundred cells, and a fork-join round trip costs more than the
 ///   evaluations it divides.
-/// - **A caller already on a rayon worker keeps the grid**, which is `colour::build_ink_table`'s
+/// - **A caller already on a rayon worker keeps the grid**, which is `colour::ink_search::build_ink_table`'s
 ///   rule for a different reason. `render-cpu` splits a page into strips across the pool and
 ///   builds this shading's pattern inside each; dividing again would fork a job per strip into
 ///   a pool with no idle thread to take it, and the page is already using every core.

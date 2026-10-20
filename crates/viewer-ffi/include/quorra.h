@@ -63,6 +63,7 @@ extern "C" {
 #define QUORRA_NOT_UTF8           6
 #define QUORRA_RENDER_REFUSED     7
 #define QUORRA_NUMBER_OUT_OF_RANGE 8
+#define QUORRA_UNREADABLE         9
 
 /* ISO 32000-2 events, as `viewer_core::Event` names them. */
 #define QUORRA_EVENT_OPENED             0u
@@ -1035,7 +1036,8 @@ int32_t quorra_restrict_operation(quorra_viewer *viewer, uint32_t operation, uin
 int32_t quorra_restrict_document_operation(quorra_viewer *viewer, uint32_t operation,
                        uint32_t level, quorra_events **events);
 /* A person pressed copy: §7.6.4.2 bit 5, asked as an operation and not as a readback. The text
- * arrives as a QUORRA_EVENT_COPIED; nothing selected sends nothing. */
+ * arrives as a QUORRA_EVENT_COPIED, and quorra_selection_copy_text reads the same text back;
+ * nothing selected sends nothing. */
 int32_t quorra_copy(quorra_viewer *viewer, quorra_events **events);
 /* A person asked to print: §7.6.4.2 bit 3, asked as an operation. `media` is the sheet in default
  * user space units, four floats, lower-left corner first; `scale` is pixels per unit at the
@@ -1481,9 +1483,12 @@ int32_t quorra_selection_quads(const quorra_viewer *viewer, quorra_quads **quads
 /* What to put on YOUR clipboard, which is not the same string as quorra_selection_text: §14.8.2.5
    gives a page a logical content order as well as a page content order and only recommends that
    they coincide, so a copy off a two-column page wants the first and a highlight wants the
-   second. `order` receives QUORRA_ORDER_* and may be null; it is written only on QUORRA_OK.
-   QUORRA_NO_ANSWER where nothing is selected — a copy with nothing to copy must not empty your
-   clipboard. The clipboard itself is yours: this ABI has no idea what platform you are on. */
+   second. It is the text the last quorra_copy released at the reader's level for Table 22's
+   bit 5 — the QUORRA_EVENT_COPIED's own string — so call quorra_copy first. `order` receives
+   QUORRA_ORDER_* and may be null; it is written only on QUORRA_OK. QUORRA_NO_ANSWER where that
+   copy released nothing: refused, asked and not yet answered yes, or nothing selected — a copy
+   with nothing to copy must not empty your clipboard. The clipboard itself is yours: this ABI has
+   no idea what platform you are on. */
 int32_t quorra_selection_copy_text(const quorra_viewer *viewer, char *out, size_t cap, size_t *needed,
                                  uint32_t *order);
 /* Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted, on the
@@ -1872,6 +1877,125 @@ int32_t quorra_collection_layout(const quorra_collection *collection, size_t ind
                        char *out, size_t cap, size_t *needed);
 int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, size_t cap,
                                   size_t *needed);
+
+/*
+ * quorra_window: a native window's toolkit-free half, driven from C (RFC 0010 section 3.2a, ADR
+ * 2088). Where the calls above hand a caller viewer-core's messages and leave the loop to it, a
+ * window holds the loop the three toolkit windows share: the document opened on a thread of its
+ * own and joined at the first resize, every page drawn on the drawing thread, a tick at the
+ * interval the window states, a key acted on as every window acts on it, §7.6.4.1's prompt and the
+ * one question at the reader's ask level put and answered.
+ *
+ * NOTHING CALLS BACK. What the window owes its caller — a sentence for the status line, the page
+ * area drawn again, the title, a prompt, a question, the clipboard — is a record in an owned batch
+ * the caller takes after every other quorra_window_* call, acts on in order, and frees. A record
+ * that only says "again" appears once per batch, and a later title replaces an earlier one where
+ * it stood.
+ *
+ * The loop, whole:
+ *   quorra_window_open(path, NULL, &window);
+ *   on every resize:   quorra_window_resize(window, width, height, scale);
+ *   on every key:      quorra_window_press(window, QUORRA_KEY_*, shift, command, &act, &by);
+ *                      and do `act` where it is not QUORRA_ACT_NOTHING;
+ *   on the pointer:    quorra_window_pointer(window, x, y, QUORRA_POINTER_*, &over_link);
+ *   on the timer:      quorra_window_tick(window);
+ *   after each of those: quorra_window_take_owed(window, &owed), act on each record,
+ *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
+ *                      milliseconds, or stop it at -1;
+ *   on a repaint:      quorra_window_frame_count, quorra_window_frame, quorra_window_frame_copy,
+ *                      then quorra_window_presented once the pixels are on the screen.
+ *
+ * QUORRA_OWED_KIND_COUNT is not part of quorra_abi_check, whose signature is frozen; compare it
+ * with quorra_owed_kind_count() at startup beside that call, and name a kind with no arm with
+ * quorra_owed_kind_name rather than dropping it.
+ */
+typedef struct quorra_window quorra_window;
+typedef struct quorra_owed quorra_owed;
+
+#define QUORRA_OWED_SAID       0u  /* quorra_owed_text: a sentence for the status line */
+#define QUORRA_OWED_REPAINT    1u  /* the page area, drawn again from the window's frames */
+#define QUORRA_OWED_TITLE      2u  /* quorra_owed_text: the title bar */
+#define QUORRA_OWED_PASSWORD   3u  /* §7.6.4.1's prompt for quorra_owed_document; the question, a
+                                    * line feed, the attempt counted; quorra_window_password */
+#define QUORRA_OWED_QUESTION   4u  /* the reasons, an empty line, the choice; quorra_window_answer */
+#define QUORRA_OWED_CLIPBOARD  5u  /* quorra_owed_text, for the platform's clipboard */
+#define QUORRA_OWED_BEEP       6u  /* app.beep: the display's one system sound */
+#define QUORRA_OWED_PANELS     7u  /* the panels, built again */
+#define QUORRA_OWED_CHROME     8u  /* the chrome, as Table 29's /PageMode and §12.2 now permit */
+#define QUORRA_OWED_PLACE      9u  /* Table 147's /FitWindow or /CenterWindow, owed at this frame */
+#define QUORRA_OWED_KIND_COUNT 10u
+
+/* Opens a window on the file at `path`; nothing is drawn until the first quorra_window_resize,
+ * which joins the open. `fragment` (Annex O) may be null. QUORRA_UNREADABLE where the file cannot
+ * be opened for reading. The window opens at the levels a window with no command line holds. */
+int32_t quorra_window_open(const char *path, const char *fragment, quorra_window **window);
+void quorra_window_free(quorra_window *window);
+/* The viewport in device pixels, at `scale` device pixels per logical pixel.
+ * QUORRA_NUMBER_OUT_OF_RANGE for an empty viewport or a scale that is not finite and positive. */
+int32_t quorra_window_resize(quorra_window *window, uint32_t width, uint32_t height, float scale);
+/* One look at what runs beside the window, when quorra_window_interval said. */
+int32_t quorra_window_tick(quorra_window *window);
+/* Milliseconds until the window wants quorra_window_tick, or -1 while nothing runs beside it. */
+int32_t quorra_window_interval(const quorra_window *window);
+/* A key, as a QUORRA_KEY_*, with Shift and the platform's command modifier (Ctrl here, ⌘ on
+ * macOS). `*act` is what only the caller's window can do, QUORRA_ACT_NOTHING where the window did
+ * all of it; `*by`, where not null, a scroll's distance in logical pixels. QUORRA_WRONG_KIND for a
+ * key this build does not define. */
+int32_t quorra_window_press(quorra_window *window, uint32_t key, bool shift, bool command,
+                            uint32_t *act, float *by);
+/* The wheel or a scroll bar, in device pixels. QUORRA_NUMBER_OUT_OF_RANGE where not finite. */
+int32_t quorra_window_scroll(quorra_window *window, float dx, float dy);
+/* The pointer at (x, y) in device pixels of the viewport, as a QUORRA_POINTER_*. `*over_link`,
+ * where not null, is whether it is now over §12.5.6.5's activation region — the cursor to show.
+ * §12.9's measuring takes a press, where it is on. */
+int32_t quorra_window_pointer(quorra_window *window, float x, float y, uint32_t action,
+                              bool *over_link);
+/* Annex O's search for `needle` through the document, from the page in front; the pages after the
+ * first are read on the window's tick, each step said. quorra_window_find_stop ends it. */
+int32_t quorra_window_find(quorra_window *window, const char *needle, bool backward);
+int32_t quorra_window_find_stop(quorra_window *window);
+/* The strip of open documents: how many, what each is called, which is in front, and choosing one
+ * (QUORRA_OUT_OF_RANGE for an index it does not hold). */
+size_t quorra_window_document_count(const quorra_window *window);
+int32_t quorra_window_document_label(const quorra_window *window, size_t index, char *out,
+                                     size_t cap, size_t *needed);
+size_t quorra_window_focused_document(const quorra_window *window);
+int32_t quorra_window_choose_document(quorra_window *window, size_t index);
+/* A file chooser's answer: the file at `path` opens in a tab of its own beside the others. */
+int32_t quorra_window_open_beside(quorra_window *window, const char *path);
+/* Closes the document in front. `*last` is true where it was the only one, which is closing the
+ * window: nothing is closed, and freeing the window is the caller's. */
+int32_t quorra_window_close_document(quorra_window *window, bool *last);
+/* The answer to a QUORRA_OWED_PASSWORD: the password typed, or null for a prompt closed without
+ * one. QUORRA_NO_ANSWER where no prompt is out for `document`. */
+int32_t quorra_window_password(quorra_window *window, uint64_t document, const char *password);
+/* The answer to a QUORRA_OWED_QUESTION: true to go ahead. QUORRA_NO_ANSWER where none waits. */
+int32_t quorra_window_answer(quorra_window *window, bool proceed);
+/* The page area is on the screen; the first call that shows a page is the launch's first frame. */
+int32_t quorra_window_presented(quorra_window *window);
+int32_t quorra_window_title(const quorra_window *window, char *out, size_t cap, size_t *needed);
+int32_t quorra_window_status(const quorra_window *window, char *out, size_t cap, size_t *needed);
+/* The pictures the page area shows: the viewer's frames and the stand-ins every window paints
+ * where a page has no frame yet. `origin_x` and `origin_y` are where the window shows one, and
+ * `*shown_width` and `*shown_height`, where not null, the extent it is shown at — which differs
+ * from the raster's for a frame from before a zoom. */
+size_t quorra_window_frame_count(const quorra_window *window);
+int32_t quorra_window_frame(const quorra_window *window, size_t frame, quorra_frame *info,
+                            uint32_t *shown_width, uint32_t *shown_height);
+int32_t quorra_window_frame_copy(const quorra_window *window, size_t frame, uint8_t *into,
+                                 size_t cap, size_t *written);
+/* Everything owed since the last call, as a batch freed with quorra_owed_free. */
+int32_t quorra_window_take_owed(quorra_window *window, quorra_owed **owed);
+void quorra_owed_free(quorra_owed *owed);
+size_t quorra_owed_count(const quorra_owed *owed);
+int32_t quorra_owed_kind(const quorra_owed *owed, size_t index, uint32_t *kind);
+/* A SAID, TITLE, PASSWORD, QUESTION or CLIPBOARD record's text; QUORRA_WRONG_KIND for others. */
+int32_t quorra_owed_text(const quorra_owed *owed, size_t index, char *out, size_t cap,
+                         size_t *needed);
+/* A PASSWORD record's document; QUORRA_WRONG_KIND for others. */
+int32_t quorra_owed_document(const quorra_owed *owed, size_t index, uint64_t *document);
+uint32_t quorra_owed_kind_count(void);
+const char *quorra_owed_kind_name(uint32_t kind);
 
 #ifdef __cplusplus
 }

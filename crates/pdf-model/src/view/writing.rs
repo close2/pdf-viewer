@@ -129,14 +129,12 @@ impl ViewState {
             crate::rich_text::write_beside(document, &dict, entered.value.as_ref(), &mut field);
             // Table 234's `/I` is written for a single selection too, because it is the only
             // entry that says *which* `/Opt` element was chosen where two of them carry the same
-            // label. This line used to justify that with the entry's own "shall be used ...
-            // when the value of the choice field is an array" and to read as a stretch of it;
-            // Errata Collection 3 struck that trigger out and opened the row to choice fields at
-            // large rather than to multiple-selection ones — Issue #468, `/State` `Review`
-            // `Accepted`, unreadable from `doc/md/` until ADR 0253. The stretch was the rule. An
-            // edit that named no options takes it out: an `/I` left standing beside a `/V` it does
-            // not describe is a file contradicting itself, and §12.7.5.4's tie-break would then be
-            // arbitrating a disagreement this program wrote.
+            // label, and Errata Collection 3 opens the entry to choice fields at large rather than
+            // to multiple-selection ones (Issue #468). `doc/md/` still prints the wording the
+            // erratum struck, so the reading is ADR 0253's and `doc/errata-read.md`'s row for
+            // Table 234. An edit that named no options takes it out: an `/I` left standing beside
+            // a `/V` it does not describe is a file contradicting itself, and §12.7.5.4's
+            // tie-break would then be arbitrating a disagreement this program wrote.
             match entered.indices.as_ref() {
                 Some(indices) => {
                     // "sorted in ascending order", which `set_field` established, and every index

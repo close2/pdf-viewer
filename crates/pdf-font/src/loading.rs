@@ -80,14 +80,14 @@ impl CodeSet {
 /// "the glyph for CID 0 (which shall be present)" where "no glyph exists for that CID". So a
 /// code that reached it reached a statement of absence rather than a glyph, and the two
 /// instruments that ask this question — `pdf_model::Interpretation::codes_without_a_glyph` and
-/// [`crate::substituted::substitute_face`]'s comparison of two faces — both have to say so the
+/// `crate::substituted::substitute_face`'s comparison of two faces — both have to say so the
 /// same way.
 pub const NOTDEF_GLYPH: u16 = 0;
 
 /// How many codes [`LoadedFont::addressable_codes`] will walk before declining a font.
 ///
 /// **A bound rather than a rule, and it is measured rather than picked.** §9.7.5.2's Table 116
-/// says of `Identity-H` that "[i]t maps 2-byte character codes ranging from 0 to 65,535", which
+/// says of `Identity-H` that "\[i]t maps 2-byte character codes ranging from 0 to 65,535", which
 /// is the most any `CMap` of one- and two-byte codes can state and the largest inverse this
 /// program has reason to build; the registered `CMap`s this binary carries are sparse and state
 /// far fewer, which `every_registered_cmap_is_inside_the_addressable_bound` checks over all of
@@ -150,7 +150,7 @@ pub(crate) enum CodeMapping {
     },
     /// A font whose program this crate refused, carrying only what the *document* states.
     ///
-    /// ISO 32000-2 §9.2.4 puts a glyph's displacement in two places at once — "[t]he width
+    /// ISO 32000-2 §9.2.4 puts a glyph's displacement in two places at once — "\[t]he width
     /// information for each glyph shall be stored both in the font dictionary and in the font
     /// program itself" — and its NOTE 2 says what the redundancy buys:
     ///
@@ -159,7 +159,7 @@ pub(crate) enum CodeMapping {
     /// > program.
     ///
     /// So a refusal that reached the *program* has not reached the widths, and §9.4.4's update —
-    /// "[a]fter the glyph is painted, the text matrix shall be updated according to the glyph
+    /// "\[a]fter the glyph is painted, the text matrix shall be updated according to the glyph
     /// displacement and any spacing parameters that apply" — is still owed for every code the
     /// page shows. No glyph is reachable through this mapping and no code is named through it;
     /// what it answers is where the *next* glyph goes, which on a line that continues in another
@@ -253,7 +253,7 @@ impl StatedMetrics {
     }
 }
 
-/// Table 115's default for `/DW`, "[t]he default width for glyphs in the `CIDFont`".
+/// Table 115's default for `/DW`, "\[t]he default width for glyphs in the `CIDFont`".
 const DEFAULT_CID_WIDTH: f32 = 1000.0;
 
 /// Why ISO 32000-2 §9.10.2 could not say what a character code represents.
@@ -278,7 +278,7 @@ const DEFAULT_CID_WIDTH: f32 = 1000.0;
 pub enum NamingGap {
     /// A mapping answered for this code with no characters at all.
     ///
-    /// §9.10.3's `beginbfchar` "define[s] the mapping from character codes to Unicode character
+    /// §9.10.3's `beginbfchar` "define\[s] the mapping from character codes to Unicode character
     /// sequences expressed in UTF-16BE encoding", and a sequence of length zero is a mapping that
     /// says the code means nothing. Kept apart from [`Self::IncompleteToUnicode`] because the
     /// producer *did* state something about this code: a reader has an answer and it is empty.
@@ -314,7 +314,7 @@ pub enum NamingGap {
     ///
     /// §9.6.5.4's route for a symbolic `TrueType` uses no glyph name, so the clause's second
     /// method has nothing to look up; §9.10.2's closing permission is then all that is left, and
-    /// the program's own `post` table and `cmap` (see [`LoadedFont::text_from_program`]) named
+    /// the program's own `post` table and `cmap` (see `LoadedFont::text_from_program`) named
     /// nothing either — a `post` of version 3.0 holds no names, and a `(3, 0)` subtable inverts
     /// to codes rather than to characters.
     UnnamedGlyph,
@@ -713,7 +713,7 @@ pub struct LoadedFont {
     ///
     /// [`crate::metrics::NO_STRETCH`] for every font whose program the document embedded, and
     /// for a substitute the file states no widths to compare against. See
-    /// [`crate::metrics::substitute_stretch`] for what it is derived from and why.
+    /// `crate::metrics::substitute_stretch` for what it is derived from and why.
     stretch: f32,
     /// Whether the glyphs are a stand-in rather than the font the document named.
     substituted: bool,
@@ -773,7 +773,7 @@ pub struct LoadedFont {
     /// Whether a simple font's descriptor sets both Table 121's Symbolic and Nonsymbolic flags.
     ///
     /// §9.8.2: "This flag and the Nonsymbolic flag shall not both be set or both be clear", and
-    /// "[a] PDF processor should always check the Symbolic flag". So this crate reads such a
+    /// "\[a] PDF processor should always check the Symbolic flag". So this crate reads such a
     /// font as symbolic, which for a `TrueType` program makes §9.6.5.4 ignore its `/Encoding` —
     /// and the fact is kept so that a page drawn short by that reading can say the file asked for
     /// both (ADR 1411). Always false for a composite font, whose descriptor selects no encoding.
@@ -830,9 +830,9 @@ pub struct LoadedFont {
     /// stores stroke *skeletons* and computes each glyph's finished contours in its
     /// instruction programs, so skipping the interpreter there draws contours the font never
     /// meant as a picture. `skrifa` carries `FreeType`'s detection of exactly that family —
-    /// [`OutlineGlyphCollection::require_interpreter`], the `FT_FACE_FLAG_TRICKY` list — and
+    /// [`OutlineGlyphCollection::require_interpreter`][tricky], the `FT_FACE_FLAG_TRICKY` list — and
     /// its documentation states the contract this cell follows: when it answers true, hint
-    /// through [`skrifa::outline::Engine::Interpreter`] with [`Target::Mono`].
+    /// through [`skrifa::outline::Engine::Interpreter`] with [`Target::Mono`][mono].
     ///
     /// Built once because `require_interpreter` reads the name table and may checksum font
     /// programs, and because [`HintingInstance::new`] runs the font's `fpgm` and `prep`
@@ -841,6 +841,9 @@ pub struct LoadedFont {
     /// class list (`doc/checks/fixed-documents.toml`, `7803013.pdf`) whose embedded
     /// DFKaiShu-SB subset drew thin, misassembled strokes 2.25 ink points lighter than
     /// either reference at 8×. ADR 0727.
+    ///
+    /// [tricky]: skrifa::outline::OutlineGlyphCollection::require_interpreter
+    /// [mono]: skrifa::outline::Target::Mono
     hinting: OnceLock<Option<HintingInstance>>,
     /// §9.10.2's last resort: what the *program* calls each glyph it defines.
     ///
@@ -965,7 +968,7 @@ impl LoadedFont {
     /// # What a refusal is about, and what it is not about
     ///
     /// [`Self::load`] refuses a font when nothing can draw its glyphs: §9.7.5.2 forbids the file
-    /// outright ("[t]he Identity-H and Identity-V `CMaps` shall not be used with a non-embedded
+    /// outright ("\[t]he Identity-H and Identity-V `CMaps` shall not be used with a non-embedded
     /// font"), or Table 120's three keys supplied no program and no face stands in, or the bytes
     /// a `/FontFile` supplied will not parse. Every one of those is a statement about the *glyph
     /// program*, and ISO 32000-2 §9.2.4 keeps the glyph's displacement somewhere else as well:
@@ -978,8 +981,8 @@ impl LoadedFont {
     ///
     /// So the file still says how far each code moves the pen — Table 109's `/Widths` and Table
     /// 120's `/MissingWidth` for a simple font, and for a `CIDFont` the two entries §9.7.4.3
-    /// names: "[w]idths for a `CIDFont` are defined using the DW and W entries in the `CIDFont`
-    /// dictionary". §9.4.4 still requires the update — "[a]fter the glyph is painted, the text
+    /// names: "\[w]idths for a `CIDFont` are defined using the DW and W entries in the `CIDFont`
+    /// dictionary". §9.4.4 still requires the update — "\[a]fter the glyph is painted, the text
     /// matrix shall be updated according to the glyph displacement and any spacing parameters
     /// that apply" — so a reader that drops the displacement with the program moves every glyph
     /// that follows on the same line, including the glyphs of a font it loaded perfectly well.
@@ -1058,6 +1061,8 @@ fn both_symbol_flags(document: &Document, descriptor: Option<&Dictionary>) -> bo
 /// `CMap` rather than of the descendant: §9.7.5.2's "shall not be used with a non-embedded font"
 /// is about `Identity-H` and `Identity-V` by name. A stream `/Encoding` — §9.7.5.3's embedded
 /// `CMap` — has no name and answers `None`, which is correct: the prohibition names two `CMap`s.
+///
+/// [`collection_gap`]: crate::composite::collection_gap
 fn encoding_name(document: &Document, dict: &Dictionary) -> Option<String> {
     let name = document.get_key(dict, "Encoding");
     let name = name.as_name()?;
@@ -1070,7 +1075,7 @@ fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
 
 /// Bounds the chain of `CMap`s a `/ToUnicode` may build on, which a document could make cyclic.
 ///
-/// The same bound [`crate::composite::read_cmap`] puts on the `/Encoding` form, for the same
+/// The same bound `crate::composite::read_cmap` puts on the `/Encoding` form, for the same
 /// reason.
 const MAX_TO_UNICODE_DEPTH: u32 = 4;
 
@@ -1132,7 +1137,7 @@ fn read_to_unicode(document: &Document, object: &Object, depth: u32) -> tounicod
 struct PathPen {
     path: Path,
     scale: f32,
-    /// The horizontal scale of [`crate::metrics::substitute_stretch`], applied to x alone.
+    /// The horizontal scale of `crate::metrics::substitute_stretch`, applied to x alone.
     stretch: f32,
     /// The current point, needed to elevate quadratic curves to cubics.
     last: Option<Point>,

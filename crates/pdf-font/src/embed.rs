@@ -1,6 +1,6 @@
 //! A face from this machine written into a file: ISO 32000-2 §9.9.1's embedded `TrueType`
 //! program, §9.9.2's subset of it, and what the face's own licence permits. A face whose outlines
-//! are a `CFF ` table is written by [`cff`] instead, under `/FontFile3` and a `CIDFontType0`: as a
+//! are a `CFF ` table is written by `cff` instead, under `/FontFile3` and a `CIDFontType0`: as a
 //! subset where the licence permits one (ADR 1449), whole where it does not (ADR 1438).
 //!
 //! A layout that sets a value no compiled-in face can draw sets it in a face the machine offers
@@ -214,7 +214,7 @@ pub fn has_cff_outlines(program: &[u8]) -> bool {
 /// Whether each of `glyphs`, shown as a CID equal to its index in the face, reaches that glyph
 /// under the `CIDFont` [`has_cff_outlines`] describes the face by — the question §9.7.4.2 answers
 /// differently for the two `CFF ` cases. Always for a `glyf` face (`/CIDToGIDMap /Identity`) and a
-/// name-keyed `CFF ` face ("[t]he CIDs shall be used directly as GID values"); for a CID-keyed one
+/// name-keyed `CFF ` face ("\[t]he CIDs shall be used directly as GID values"); for a CID-keyed one
 /// only where its charset gives each its own index as its CID.
 #[must_use]
 pub fn glyph_indices_reach(program: &[u8], glyphs: &BTreeSet<u16>) -> bool {
@@ -233,11 +233,11 @@ pub fn glyph_indices_reach(program: &[u8], glyphs: &BTreeSet<u16>) -> bool {
 /// [`Refusal::Restricted`] and [`Refusal::BitmapsOnly`] where the face's licence stops it being
 /// written — the font vendor's, not the document's, so no reader's level turns it off —
 /// [`Refusal::NoOutlines`] for a program with neither `glyf` nor `CFF `,
-/// [`Refusal::CidsAreNotGlyphs`] for a CID-keyed `CFF ` program [`cff`] cannot write so that the
+/// [`Refusal::CidsAreNotGlyphs`] for a CID-keyed `CFF ` program `cff` cannot write so that the
 /// stream's CIDs still reach their glyphs, and [`Refusal::Malformed`] where a table this needs is
 /// absent or inconsistent.
 ///
-/// A `CFF ` program is subset by [`cff`] under the same three answers of the licence: where
+/// A `CFF ` program is subset by `cff` under the same three answers of the licence: where
 /// `fsType` forbids subsetting it is written whole, as a `glyf` one keeps every glyph.
 pub fn for_embedding(program: &[u8], used: &BTreeSet<u16>) -> Result<Embedded, Refusal> {
     let permitted = permission(program);

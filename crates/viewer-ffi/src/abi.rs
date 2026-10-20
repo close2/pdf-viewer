@@ -70,6 +70,7 @@ use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
 use crate::shapes::Quads;
 use crate::status::Status;
+use crate::window::{OwedKind, Owing, Window};
 
 /// The revision of everything in this header that a caller compiles against.
 ///
@@ -391,6 +392,7 @@ pub extern "C" fn quorra_status_message(status: c_int) -> *const c_char {
         6 => Status::NotUtf8.message(),
         7 => Status::RenderRefused.message(),
         8 => Status::OutOfRange64.message(),
+        9 => Status::Unreadable.message(),
         _ => "a status this build does not define\0",
     };
     message.as_ptr().cast::<c_char>()
@@ -2198,13 +2200,19 @@ pub unsafe extern "C" fn quorra_selection_text(
     }
 }
 
-/// The text a copy should carry, in the two-call idiom, with the order it came back in.
+/// The text the last [`quorra_copy`] released, in the two-call idiom, with the order it is in.
 ///
 /// **What a caller needs in order to put a selection on its own clipboard** (ADR 0519). The three
 /// windowed hosts in this tree call `gdk::Clipboard`, `QClipboard` and `arboard`; a C caller's
 /// platform is its own business and this ABI has no business guessing it — so what crosses is the
 /// characters and the one thing a caller cannot work out for itself, which of ISO 32000-2
 /// §14.8.2.5's two content orders they are in.
+///
+/// **The copy's own text, read back.** ISO 32000-2 Table 22's bit 5 restricts copying, so the text
+/// arrives only through `quorra_copy`, at the reader's level; this answers with what that grant
+/// released — the same string `quorra_event_copied` reads off its `QUORRA_EVENT_COPIED` — and with
+/// `QUORRA_NO_ANSWER` where the last copy released nothing: none was asked, it was refused, its
+/// question is unanswered or was declined, or nothing was selected (ADR 2087).
 ///
 /// `order` receives `QUORRA_ORDER_LOGICAL` or `QUORRA_ORDER_PAGE_CONTENT`, and may be null for a
 /// caller that does not care. It is written only on `QUORRA_OK`.
@@ -3892,14 +3900,15 @@ pub unsafe extern "C" fn quorra_restrict_document_operation(
 
 /// A person pressed copy: §7.6.4.2's bit 5, asked as an operation.
 ///
-/// **Not a second way to read the selection.** `quorra_selection_copy_text` is a readback, and a
-/// drag asks for one sixty times a second in order to draw a highlight; bit 5 restricts taking
-/// text *out of* the document — "[c]opy or otherwise extract text and graphics from the document"
-/// — and only a caller owning a clipboard can say that this is what is happening. So this is the
+/// **The one way text leaves the document.** `quorra_selection_text` is a readback, and a drag
+/// asks for one sixty times a second in order to draw a highlight; bit 5 restricts taking text
+/// *out of* the document — "[c]opy or otherwise extract text and graphics from the document" — and
+/// only a caller owning a clipboard can say that this is what is happening. So this is the
 /// gesture, the reader's policy is consulted exactly where every other operation's is, and the
-/// text arrives as a `QUORRA_EVENT_COPIED`. Under `QUORRA_RESTRICT_ON` a `QUORRA_EVENT_REFUSED`
-/// arrives instead; under `QUORRA_RESTRICT_ASK` a `QUORRA_EVENT_ASKING` does, and the copy follows
-/// a `quorra_answer` of `true`.
+/// text arrives as a `QUORRA_EVENT_COPIED`, which `quorra_selection_copy_text` then also reads
+/// back. Under `QUORRA_RESTRICT_ON` a `QUORRA_EVENT_REFUSED` arrives instead; under
+/// `QUORRA_RESTRICT_ASK` a `QUORRA_EVENT_ASKING` does, and the copy follows a `quorra_answer` of
+/// `true`.
 ///
 /// Nothing selected sends nothing at all.
 ///
@@ -5085,7 +5094,7 @@ pub unsafe extern "C" fn quorra_event_copied(
             if let Some(slot) = logical.as_mut() {
                 *slot = is_logical;
             }
-            copy_out(text, out, cap, needed)
+            copy_out(&text, out, cap, needed)
         }
         Err(status) => status.code(),
     }
@@ -7934,4 +7943,650 @@ unsafe fn copy_out(text: &str, out: *mut c_char, cap: usize, needed: *mut usize)
         *last = 0;
     }
     Status::Ok.code()
+}
+
+// ---------------------------------------------------------------------------------------------
+// `quorra_window`: a native window's toolkit-free half, driven from C (RFC 0010 section 3.2,
+// ADR 2088). What the window owes its caller arrives as an owned batch after each call returns,
+// never as a callback into the caller.
+// ---------------------------------------------------------------------------------------------
+
+/// Opens a window on the file at `path`: its bytes are read from disk and the document opens on a
+/// thread of its own, joined by the first [`quorra_window_resize`]. `fragment` may be null.
+///
+/// `QUORRA_UNREADABLE` where the file cannot be opened for reading.
+///
+/// # Safety
+///
+/// See the module documentation. `path` is NUL-terminated UTF-8, `fragment` null or the same, and
+/// `window` receives an owning handle to be freed with [`quorra_window_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_open(
+    path: *const c_char,
+    fragment: *const c_char,
+    window: *mut *mut Window,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let (Ok(path), Ok(fragment)) = (owned_text(path), owned_text(fragment)) else {
+        return Status::NotUtf8.code();
+    };
+    let Some(path) = path else {
+        return Status::NullArgument.code();
+    };
+    match Window::open(std::path::Path::new(&path), fragment) {
+        Ok(opened) => {
+            *window = Box::into_raw(Box::new(opened));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases a window and everything it holds. A null pointer is ignored.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_free(window: *mut Window) {
+    if !window.is_null() {
+        drop(Box::from_raw(window));
+    }
+}
+
+/// The viewport changed size, in device pixels, at `scale` device pixels per logical pixel. The
+/// first call joins the document the window opened.
+///
+/// `QUORRA_NUMBER_OUT_OF_RANGE` for an empty viewport or a scale that is not a finite positive
+/// number, and nothing changes.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_resize(
+    window: *mut Window,
+    width: u32,
+    height: u32,
+    scale: f32,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.resize(width, height, scale) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// One look at what runs beside the window: the document still opening, a server's answer, the
+/// outline read beside page one, the pages drawn. Called when [`quorra_window_interval`] says.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_tick(window: *mut Window) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.tick();
+    Status::Ok.code()
+}
+
+/// In how many milliseconds the window wants [`quorra_window_tick`] again: `-1` while nothing
+/// beside it is running, which is when the caller's timer stops. Asked after every call.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_interval(window: *const Window) -> i32 {
+    window
+        .as_ref()
+        .and_then(Window::interval)
+        .map_or(-1, |millis| i32::try_from(millis).unwrap_or(i32::MAX))
+}
+
+/// A key, as a `QUORRA_KEY_*`, with Shift and the platform's command modifier: acted on as every
+/// window acts on it, and `*act` the `QUORRA_ACT_*` that only the caller's window can do —
+/// `QUORRA_ACT_NOTHING` where the window did all of it. `*by` is a scroll's distance, where it is
+/// not null.
+///
+/// # Safety
+///
+/// See the module documentation. `by` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_press(
+    window: *mut Window,
+    key: u32,
+    shift: bool,
+    command: bool,
+    act: *mut u32,
+    by: *mut f32,
+) -> c_int {
+    let (Some(window), Some(act)) = (window.as_mut(), act.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(key) = KeyKind::from_code(key) else {
+        return Status::WrongKind.code();
+    };
+    let held = viewer_host::Modifiers {
+        shift,
+        ctrl: command,
+    };
+    let (kind, distance) = window.press(key.key(), held);
+    *act = kind.code();
+    if let Some(by) = by.as_mut() {
+        *by = distance;
+    }
+    Status::Ok.code()
+}
+
+/// The wheel or a scroll bar moved the view, in device pixels.
+///
+/// `QUORRA_NUMBER_OUT_OF_RANGE` for a distance that is not finite, and nothing moves.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_scroll(window: *mut Window, dx: f32, dy: f32) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    if !dx.is_finite() || !dy.is_finite() {
+        return Status::OutOfRange64.code();
+    }
+    window.scroll(dx, dy);
+    Status::Ok.code()
+}
+
+/// The pointer at (`x`, `y`) in device pixels of the viewport, as a `QUORRA_POINTER_*`: moved,
+/// pressed, dragged or released. `*over_link`, where not null, is whether it is now over §12.5.6.5's
+/// activation region, which is the cursor every window changes. `QUORRA_WRONG_KIND` for an action
+/// this build does not define, and `QUORRA_NUMBER_OUT_OF_RANGE` for a point that is not finite.
+///
+/// # Safety
+///
+/// See the module documentation. `over_link` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_pointer(
+    window: *mut Window,
+    x: f32,
+    y: f32,
+    action: u32,
+    over_link: *mut bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let Some(action) = PointerKind::from_code(action) else {
+        return Status::WrongKind.code();
+    };
+    if !x.is_finite() || !y.is_finite() {
+        return Status::OutOfRange64.code();
+    }
+    let over = window.pointer((x, y), action.action());
+    if let Some(over_link) = over_link.as_mut() {
+        *over_link = over;
+    }
+    Status::Ok.code()
+}
+
+/// Annex O's search for `needle` through the whole document, from the page in front, backwards
+/// where `backward` is true; the pages after the first are read on the window's tick, and each
+/// step is said. An empty needle searches for nothing.
+///
+/// # Safety
+///
+/// See the module documentation. `needle` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_find(
+    window: *mut Window,
+    needle: *const c_char,
+    backward: bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(needle) {
+        Ok(Some(needle)) => {
+            window.find(&needle, backward);
+            Status::Ok.code()
+        }
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// The find bar closed: the search ends and its highlights go.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_find_stop(window: *mut Window) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.find_stop();
+    Status::Ok.code()
+}
+
+/// How many documents the window's strip holds. Zero for a null pointer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_document_count(window: *const Window) -> usize {
+    window.as_ref().map_or(0, Window::document_count)
+}
+
+/// What the strip calls the document at `index`, in the two-call idiom.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_document_label(
+    window: *const Window,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match window.document_label(index) {
+        Some(label) => copy_out(label, out, cap, needed),
+        None => Status::OutOfRange.code(),
+    }
+}
+
+/// Where in the strip the document in front is. Zero for a null pointer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_focused_document(window: *const Window) -> usize {
+    window.as_ref().map_or(0, Window::focused_document)
+}
+
+/// Brings the document at `index` in the strip to the front. `QUORRA_OUT_OF_RANGE` for an index
+/// the strip does not hold.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_choose_document(window: *mut Window, index: usize) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.choose_document(index) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// Opens the file at `path` in a tab of its own beside the documents shown — a file chooser's
+/// answer — once those already waiting have opened. What it comes to is owed as sentences.
+///
+/// # Safety
+///
+/// See the module documentation. `path` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_open_beside(
+    window: *mut Window,
+    path: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(path) {
+        Ok(Some(path)) => {
+            window.open_beside(std::path::Path::new(&path));
+            Status::Ok.code()
+        }
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// Closes the document in front and brings its neighbour forward. `*last` is true where it was
+/// the only one, which is closing the window: the window is left as it was, and freeing it is the
+/// caller's.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_close_document(
+    window: *mut Window,
+    last: *mut bool,
+) -> c_int {
+    let (Some(window), Some(last)) = (window.as_mut(), last.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *last = window.close_document();
+    Status::Ok.code()
+}
+
+/// §7.6.4.1: the password typed into the prompt a `QUORRA_OWED_PASSWORD` asked for, or null for a
+/// prompt closed without one. `QUORRA_NO_ANSWER` where no prompt is out for `document`.
+///
+/// # Safety
+///
+/// See the module documentation. `password` is null or NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_password(
+    window: *mut Window,
+    document: u64,
+    password: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let Ok(password) = owned_text(password) else {
+        return Status::NotUtf8.code();
+    };
+    match window.password(document, password) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// The answer to the question a `QUORRA_OWED_QUESTION` put: `proceed` for the window's go-ahead,
+/// false for its "do not". `QUORRA_NO_ANSWER` where no question is waiting, which is a dialogue
+/// closed twice answering once.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_answer(window: *mut Window, proceed: bool) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.answer_the_question(proceed) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// The caller put the page area on the screen. The first call that shows a page is the launch's
+/// first frame, and what waits behind page one starts then.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_presented(window: *mut Window) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.presented();
+    Status::Ok.code()
+}
+
+/// The title bar's text as it now stands, in the two-call idiom [`quorra_events_describe`] uses.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_title(
+    window: *const Window,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    copy_out(&window.title(), out, cap, needed)
+}
+
+/// The status line's sentence as it now stands, in the two-call idiom.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_status(
+    window: *const Window,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    copy_out(window.status(), out, cap, needed)
+}
+
+/// How many pictures the page area shows: the viewer's frames, and the stand-ins every window
+/// paints where a page has no frame of its own yet.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_frame_count(window: *const Window) -> usize {
+    window.as_ref().map_or(0, Window::frame_count)
+}
+
+/// One picture of the page area: the raster's facts with its origin where the window shows it,
+/// and the extent it is shown at in `*shown_width` and `*shown_height` where they are not null —
+/// which differs from the raster's for a frame from before a zoom.
+///
+/// # Safety
+///
+/// See the module documentation. `shown_width` and `shown_height` are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_frame(
+    window: *const Window,
+    frame: usize,
+    info: *mut PdfvFrame,
+    shown_width: *mut u32,
+    shown_height: *mut u32,
+) -> c_int {
+    let (Some(window), Some(info)) = (window.as_ref(), info.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match window.frame(frame) {
+        Ok((
+            FrameInfo {
+                page,
+                width,
+                height,
+                format,
+                bytes,
+                origin,
+            },
+            (shown_across, shown_down),
+        )) => {
+            *info = PdfvFrame {
+                page,
+                width,
+                height,
+                format: PixelFormat::of(format).code(),
+                bytes,
+                origin_x: origin.0,
+                origin_y: origin.1,
+            };
+            if let Some(shown_width) = shown_width.as_mut() {
+                *shown_width = shown_across;
+            }
+            if let Some(shown_height) = shown_height.as_mut() {
+                *shown_height = shown_down;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Copies one picture's pixels into a buffer the caller owns, sized from [`quorra_window_frame`]'s
+/// `bytes`; a shorter one answers `QUORRA_BUFFER_TOO_SMALL` and nothing is written.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for `cap` bytes; `written` is writable, or
+/// null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_frame_copy(
+    window: *const Window,
+    frame: usize,
+    into: *mut u8,
+    cap: usize,
+    written: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    let room = core::slice::from_raw_parts_mut(into, cap);
+    match window.frame_copy(frame, room) {
+        Ok(bytes) => {
+            if let Some(written) = written.as_mut() {
+                *written = bytes;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Everything the window has come to owe its caller since the last call, as an owned batch to be
+/// freed with [`quorra_owed_free`]: read it after every other `quorra_window_*` call.
+///
+/// # Safety
+///
+/// See the module documentation. `owed` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_take_owed(
+    window: *mut Window,
+    owed: *mut *mut Owing,
+) -> c_int {
+    let (Some(window), Some(owed)) = (window.as_mut(), owed.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *owed = Box::into_raw(Box::new(window.take_owed()));
+    Status::Ok.code()
+}
+
+/// Releases a batch of what a window owed. A null pointer is ignored.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_free(owed: *mut Owing) {
+    if !owed.is_null() {
+        drop(Box::from_raw(owed));
+    }
+}
+
+/// How many records the batch holds. Zero for a null pointer, which is also the empty answer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_count(owed: *const Owing) -> usize {
+    owed.as_ref().map_or(0, Owing::len)
+}
+
+/// The `QUORRA_OWED_*` of one record.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_kind(
+    owed: *const Owing,
+    index: usize,
+    kind: *mut u32,
+) -> c_int {
+    let (Some(owed), Some(kind)) = (owed.as_ref(), kind.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match owed.kind(index) {
+        Some(owed_kind) => {
+            *kind = owed_kind.code();
+            Status::Ok.code()
+        }
+        None => Status::OutOfRange.code(),
+    }
+}
+
+/// The text of a `SAID`, `TITLE`, `PASSWORD`, `QUESTION` or `CLIPBOARD` record, in the two-call
+/// idiom; `QUORRA_WRONG_KIND` for a record that carries none.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_text(
+    owed: *const Owing,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(owed) = owed.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match owed.text(index) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// The document a `PASSWORD` record is about, which [`quorra_window_password`] answers for;
+/// `QUORRA_WRONG_KIND` for a record that names none.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_owed_document(
+    owed: *const Owing,
+    index: usize,
+    document: *mut u64,
+) -> c_int {
+    let (Some(owed), Some(document)) = (owed.as_ref(), document.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match owed.document(index) {
+        Ok(id) => {
+            *document = id;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many record kinds this build defines, against the header's `QUORRA_OWED_KIND_COUNT`: a
+/// caller compiled before a kind was added says so at startup rather than meeting it unarmed.
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_owed_kind_count() -> u32 {
+    OwedKind::COUNT
+}
+
+/// The name of a record kind, NUL-terminated and never freed. `"unknown"` for one this build does
+/// not define.
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_owed_kind_name(kind: u32) -> *const c_char {
+    let name = OwedKind::from_code(kind).map_or("unknown\0", OwedKind::name);
+    name.as_ptr().cast::<c_char>()
 }

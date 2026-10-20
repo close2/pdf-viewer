@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1, 2, 3, 5, 6 and 7 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1, 2, 3, 5, 6, 7 and 8 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -86,11 +86,26 @@ modules beside `reach` hold the rest: `initial`, `colouring`, `shading`, `tiling
 different split; `shape.rs`, `readings.rs` and `blending_space.rs` are each above 550 lines and are
 the next cuts if one is wanted.
 
-## 8. `Document` (`crates/pdf-syntax/src/document.rs`), `ColourSpace` (`crates/pdf-colour/src/colour.rs`)
+## 8. Built — `Document` (`crates/pdf-syntax/src/document.rs`, with `document/`), ADR 2096, and `ColourSpace` (`crates/pdf-colour/src/colour.rs`, with `colour/`), ADR 2097
 
-`Document` (66 methods): opening and the cross-reference walk, object resolution, encryption,
-the page tree and the catalogue's lookups. `ColourSpace` (45 methods in a 7 515-line file with no
-test lines): one family per colour-space kind, which is the module boundary `colour.rs` lacks.
+`Document` was one 1 880-line block of 66 methods; `ColourSpace` one 1 740-line block of 45 methods in a
+7 600-line file that also held the compositing key, the grey and RGB routes, the presses, the ink
+search and the CIE arithmetic. Both are now a root and one module per concern.
+
+`document.rs` keeps the state (`Document`), the entry points (`open`, `open_with_limits`,
+`open_with_password`, `empty`), the bounds, the public result types and the tests; nine modules hold
+`impl Document` for one concern: `objects` (resolution and the catalogue), `parsing` (one object at an
+offset), `repair` (an entry the file disproves), `encryption` (§7.6, both directions), `object_streams`
+(§7.5.7), `reports` (what a recovery found), `decoding` (§7.4's chain), `images` (a codec still to be
+applied) and `sources` (how a caller reads the decoded bytes); `cache` holds the decoded-stream cache.
+About 600 lines of the root are tests, which are a different split.
+
+`colour.rs` keeps `ColourSpace`, `Tints`, `Separations`, `Reading` and the tests (about 1 460 lines);
+fifteen modules hold the rest: the `impl ColourSpace` by concern (`parsing`, `separation`, `queries`,
+`to_rgb`, `to_cmyk`) and the free types and functions by clause (`compositing`, `spots`, `grey_route`,
+`rgb_route`, `conversion`, `device_cmyk`, `press`, `ink_search`, `cie`, `entries`). About 1 460 lines of
+tests remain in the root, a different split; `ink_search.rs`, `press.rs` and `spots.rs` are each above
+600 lines and are the next cuts if one is wanted.
 
 ## 9. `App` (`crates/viewer-ui/src/bin/quorra/surface.rs`)
 

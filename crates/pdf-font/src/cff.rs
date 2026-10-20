@@ -15,7 +15,7 @@
 //! Confusing the two is not a harmless error. Treating a character code as a glyph index,
 //! which is what happens when neither route is taken, loads without complaint and draws
 //! the wrong glyphs — text that looks like text and says something else. That failure is
-//! why [`crate::LoadedFont::glyph_for`] refuses to guess.
+//! why `crate::LoadedFont::glyph_for` refuses to guess.
 //!
 //! # Why this module is thin
 //!

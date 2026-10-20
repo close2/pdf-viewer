@@ -1707,3 +1707,15 @@ tree -e normal,build -i <toolkit>` command; round 1609 planted `cxx` under `cfg(
 target unless `--target all` says every one, and a check that reads one platform's graph proves
 nothing about a host written for another. ADR 2055 amends the command and the test calibrates itself
 with a platform-gated plant.
+
+### 220. A hand-off patch is applied with context once a sibling has moved the lines
+
+Round 1627 handed the orchestrator five `-U0` hunks for the archive slot's files, including a new test
+for `tests/archive.rs`; round 1623 had meanwhile added lines above the insertion point, and `git apply
+--unidiff-zero`, which has no context to anchor on, put the test's body inside another test and its
+`#[test]` on a `let` — a compile error that tier 1 found after the gates had already spent forty
+minutes (ADRs 2090, 2082). A `-U0` hunk is correct against the tree it was cut from and silent about
+any other; when the file has moved under it, apply the hunk with three lines of context or by the
+anchor the round names, and compile the crate's tests before starting the chain, so a misplaced hunk
+costs a minute rather than a chain.
+

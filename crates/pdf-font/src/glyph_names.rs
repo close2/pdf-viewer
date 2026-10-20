@@ -94,7 +94,7 @@ pub(crate) const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
 /// # A name the table does not permit is not an encoding this font uses
 ///
 /// Table 109 makes `/Encoding` **optional** and says what its absence means in the same cell —
-/// it is "[a] specification of the font's character encoding **if different from its built-in
+/// it is "\[a] specification of the font's character encoding **if different from its built-in
 /// encoding**" — so a font that states nothing readable there has stated nothing, and the
 /// built-in encoding stands. A name outside the four above is therefore treated as absent
 /// rather than refused: refusing draws no text at all where the clause states which text to

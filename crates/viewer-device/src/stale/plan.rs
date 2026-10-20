@@ -163,20 +163,16 @@ pub enum Refusal {
     /// **What produces it is a zoom in a column** (ADR 0442): `viewer_core::layout`'s gap between
     /// rows is stated in logical pixels and does not scale with the magnification, while the pages
     /// either side of it do. A scroll moves every page by the same distance, so what separates its
-    /// placements is arithmetic rather than arrangement and [`AGREEMENT`] absorbs it. The two
+    /// placements is arithmetic rather than arrangement and `AGREEMENT` absorbs it. The two
     /// placements are carried because a reader has to be able to see *how* they differ, and
     /// [`Self::Rearranged::by`] because how far apart they are is what the refusal turns on.
-    ///
-    /// [`AGREEMENT`]: super::placement::AGREEMENT
     Rearranged {
         /// The placement the first page of the arrangement asked for.
         first: Transform,
         /// The placement a later page asked for, which is not the same one.
         then: Transform,
         /// How far apart the two put a texel of the picture held, in device pixels, at the worst
-        /// corner of it — `placement::disagreement`'s answer, which is what exceeded [`AGREEMENT`].
-        ///
-        /// [`AGREEMENT`]: super::placement::AGREEMENT
+        /// corner of it — `placement::disagreement`'s answer, which is what exceeded `AGREEMENT`.
         by: f32,
     },
     /// *Impossible.* The presenter declined to put the approximated frame on the window.
@@ -204,11 +200,10 @@ pub enum Refusal {
     ///
     /// **Unmeasured permits**, which is the other half of ADR 0384's lesson: the only thing that
     /// can produce the first measurement is drawing one, so a gate that refused until it had a
-    /// number would block its own only sample. See [`Stale::resampling`] — and [`Stale::declined`]
+    /// number would block its own only sample. See `Stale::resampling` — and [`Stale::declined`]
     /// for why a refusal then gives that sample up, which is the same lesson about every sample
     /// after the first.
     ///
-    /// [`Stale::resampling`]: super::Stale::resampling
     /// [`Stale::declined`]: super::Stale::declined
     TooDear {
         /// What the last resample on this surface cost.

@@ -1049,6 +1049,10 @@ pub enum Rewrite {
     /// A graphics state's `HTO` is removed, which ISO 19005-4 section 6.2.5 forbids; a press places
     /// its screen at its own origin, which is [`super::Loss::Halftone`] (`doc/adr/2034`).
     HalftoneOriginRemoved,
+    /// An output intent's `DestOutputProfileRef` is removed where the same intent embeds its
+    /// `DestOutputProfile`, which ISO 19005-4 section 6.2.3 requires of every intent and ISO
+    /// 19005-2 section 6.2.3 of a PDF/X one (`doc/adr/2083`).
+    DestinationProfileReferenceRemoved,
     /// Every graphics state that set overprint mode 1 for an `ICCBased` CMYK mark painted with
     /// overprinting on states mode 0, where none of them governs a `DeviceCMYK` mark.
     ///
@@ -1456,6 +1460,10 @@ impl Rewrite {
                 "a graphics state's HTP, which the base standard does not define, is removed"
             }
             Self::HalftoneOriginRemoved => "a graphics state's halftone origin HTO is removed",
+            Self::DestinationProfileReferenceRemoved => {
+                "an output intent that embeds its destination profile no longer states a \
+                 DestOutputProfileRef naming profiles outside the file"
+            }
             Self::OverprintModeRestated => {
                 "a graphics state that set overprint mode 1 for ICCBased CMYK marks states mode \
                  0, in a file where no DeviceCMYK mark is painted under it with overprinting on"
@@ -1596,6 +1604,7 @@ impl Rewrite {
             Self::HalftoneWrittenDefault => "halftone-written-default",
             Self::HalftonePhaseRemoved => "halftone-phase-removed",
             Self::HalftoneOriginRemoved => "halftone-origin-removed",
+            Self::DestinationProfileReferenceRemoved => "destination-profile-reference-removed",
             Self::OverprintModeRestated => "overprint-mode-restated",
             Self::OverprintModeZeroed => "overprint-mode-zeroed",
             Self::ProfileTextSupplied => "profile-text-supplied",
@@ -1724,6 +1733,7 @@ impl<'a> Rewriter<'a> {
             halftone_defaults: prepared.owed.halftone_defaults.as_ref().ok(),
             halftone_phases: prepared.owed.halftone_phases.as_ref().ok(),
             halftone_origins: prepared.owed.halftone_origins.as_ref().ok(),
+            profile_references: prepared.owed.profile_references.as_ref().ok(),
             supplied_destination: prepared.supplied_destination.as_ref().ok(),
             replaced_destination: prepared.replaced_destination.as_ref().ok(),
             restated_destination: prepared.restated_destination.as_ref().ok(),
@@ -2577,6 +2587,8 @@ struct Rewriter<'a> {
     halftone_phases: Option<&'a sites::Sites>,
     /// The graphics states whose `HTO` goes (`doc/adr/2034`).
     halftone_origins: Option<&'a sites::Sites>,
+    /// The output intents whose `DestOutputProfileRef` goes (`doc/adr/2083`).
+    profile_references: Option<&'a sites::Sites>,
     /// The PDF/A output intents given the profile this conversion's own entry names
     /// (`doc/adr/2035`).
     supplied_destination: Option<&'a super::prepare::SuppliedDestination>,
@@ -2885,6 +2897,11 @@ impl Rewriter<'_> {
         for (rewrite, sites, key) in [
             (Rewrite::HalftonePhaseRemoved, self.halftone_phases, "HTP"),
             (Rewrite::HalftoneOriginRemoved, self.halftone_origins, "HTO"),
+            (
+                Rewrite::DestinationProfileReferenceRemoved,
+                self.profile_references,
+                "DestOutputProfileRef",
+            ),
         ] {
             if self.wants(rewrite)
                 && sites.is_some_and(|sites| sites.at.contains(&id))

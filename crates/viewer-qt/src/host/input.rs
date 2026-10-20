@@ -1,7 +1,7 @@
 //! What a person does with the keyboard and the pointer: the shared key table's meanings, the
 //! wheel, the toolbar, a selection and its copy, and §12.9's measuring (filed here by ADR 1908).
 
-use viewer_core::{Answer, Command, Edit, PageTarget, PointerAction, Printing, Query, Zoom};
+use viewer_core::{Answer, Command, PageTarget, PointerAction, Printing, Query, Zoom};
 use viewer_host::arrangement::next_layout;
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
@@ -23,11 +23,7 @@ impl Host {
         let Some(stated) = keys::stated(code) else {
             return;
         };
-        let mode = if self.state.presenting.full_screen() {
-            viewer_host::Mode::Presenting
-        } else {
-            viewer_host::Mode::Reading
-        };
+        let mode = viewer_host::Mode::of(&self.state.presenting);
         let waiting = self.waiting();
         let held = viewer_host::Modifiers {
             shift: shift || keys::shifted_by_name(code),
@@ -36,26 +32,15 @@ impl Host {
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since
         // no toolkit button stands over one to take them (ADR 1357). A key a placed control had
         // the keyboard for never arrives: `MainWindow::keyPressEvent` keeps Enter from one.
-        if let Some(pressed) = viewer_host::pressed(&self.state.viewer, stated, held) {
-            self.press(&pressed);
-            return;
-        }
-        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
-            return;
-        };
-        match meaning {
-            viewer_host::Meaning::Send(command) => {
-                // §12.5.6.10's markups are defined over selected text, so a press with nothing
-                // selected asks for an annotation over nothing. The core answers by doing nothing,
-                // which is right and silent — and trap 5 is that a person who pressed a key and
-                // saw no change has been told nothing at all.
-                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
-                    self.say("select some text first — §12.5.6.10's markups mark up text");
-                    return;
-                }
-                self.dispatch(command);
+        let page = viewer_host::Keyboard::Page;
+        match viewer_host::decide(&self.state.viewer, stated, held, mode, waiting, page) {
+            viewer_host::Decided::Activate { annotation, .. } => {
+                self.dispatch(Command::Activate(annotation));
             }
-            viewer_host::Meaning::Window(act) => self.window_act(act),
+            viewer_host::Decided::Say(said) => self.say(&said),
+            viewer_host::Decided::Send(command) => self.dispatch(command),
+            viewer_host::Decided::Window(act) => self.window_act(act),
+            viewer_host::Decided::Nothing => {}
         }
     }
 
@@ -74,10 +59,9 @@ impl Host {
         match act {
             // Qt places widgets in logical pixels and `Command::Scroll` speaks device ones, which
             // is why the table states a distance rather than building the message itself.
-            viewer_host::WindowAct::ScrollBy(by) => self.dispatch(Command::Scroll {
-                dx: 0.0,
-                dy: by * self.scale,
-            }),
+            viewer_host::WindowAct::ScrollBy(by) => {
+                self.dispatch(viewer_host::scroll_by(by, self.scale));
+            }
             // The only binding whose answer leaves the program: §14.8.2.5's text on the session's
             // clipboard. Not a command, because what a copy *is* belongs to the platform (ADR
             // 0519).

@@ -1667,7 +1667,10 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             135_497,
         );
         gate_ratchet::floor("lines, whole population", census.lines, 223_491);
-        gate_ratchet::floor("characters, whole population", census.characters, 5_700_611);
+        // ADR 2086: a code whose span is the span of the line's last character is that character,
+        // so §14.9.4's replacement is spoken once rather than once per code it covers — 126 fewer
+        // characters over the population, the same lines and elements.
+        gate_ratchet::floor("characters, whole population", census.characters, 5_700_485);
         // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
         // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
         // this population as it is in the tracked one.

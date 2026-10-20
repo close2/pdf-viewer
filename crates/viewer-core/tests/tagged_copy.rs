@@ -22,7 +22,7 @@ use std::fmt::Write as _;
 
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Command, DocumentId, Event, Rendered, Selection, Viewer};
+use viewer_core::{Answer, Command, DocumentId, Event, Query, Rendered, Selection, Viewer};
 
 /// The document every test here opens.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -80,9 +80,8 @@ fn tagged_page(content: &str, page: &str, structure: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// What a person gets who opens `bytes`, selects the whole of page one and presses copy: the
-/// logical order where the core gave one, and the page order beside it.
-fn copy_all(bytes: Vec<u8>) -> (Option<String>, String) {
+/// A viewer that has opened `bytes` and drawn page one, which is when its readback exists.
+fn drawn(bytes: Vec<u8>) -> Viewer {
     let mut viewer = Viewer::new(800, 1000, 1.0);
     let events: Vec<Event> = viewer
         .handle(Command::Open {
@@ -108,6 +107,13 @@ fn copy_all(bytes: Vec<u8>) -> (Option<String>, String) {
             rendered: Rendered::Raster(raster),
         })
         .for_each(drop);
+    viewer
+}
+
+/// What a person gets who opens `bytes`, selects the whole of page one and presses copy: the
+/// logical order where the core gave one, and the page order beside it.
+fn copy_all(bytes: Vec<u8>) -> (Option<String>, String) {
+    let mut viewer = drawn(bytes);
     viewer
         .handle(Command::Select(Selection::All))
         .for_each(drop);
@@ -457,5 +463,56 @@ fn a_word_a_soft_hyphen_divided_is_copied_whole_in_both_orders() {
     assert_eq!(
         logical.as_deref(),
         Some("First paragraph.\nSecond paragraph.\nA1\tB1\nA2\tB2\nTransparen\u{ad}cy matters.")
+    );
+}
+
+/// §14.9.4's own EXAMPLE, read aloud: a replacement is spoken once, however many codes it covers.
+///
+/// > The ActualText value shall be used as a replacement, not a description, for the content,
+/// > providing text that is equivalent to what a person would see when viewing the content.
+///
+/// The section `/Span <</ActualText (c)>> BDC (k-) Tj EMC` shows two codes and is replaced by one
+/// character, so the paragraph's first line holds `Der Druc` — the readback's own bytes for the
+/// codes on it, which is `TextLine`'s rule: its text is exactly its characters' readback joined.
+/// Each code inside the section reads back as the whole replacement (ADR 1515), so a line that
+/// spoke each code's readback said the `c` twice. The replacement is one character whose box
+/// covers both glyphs (ADR 2086). The page is the one `doc/teaching/how-text-is-selected-and-copied.md`
+/// walks through.
+#[test]
+fn a_replacement_over_two_codes_is_one_character_of_its_line() {
+    let content = "/P <</MCID 0>> BDC BT /F1 12 Tf 14 TL 20 240 Td \
+         (Der Dru) Tj /Span <</ActualText (c)>> BDC (k-) Tj EMC \
+         (ker) ' [-250 (druckt eine Seiten\\255)] TJ (zahl.) ' ET EMC \
+         /H1 <</MCID 1>> BDC BT /F1 16 Tf 20 270 Td (Drucken) Tj ET EMC \
+         /Artifact BMC BT /F1 10 Tf 140 20 Td (1) Tj ET EMC";
+    let structure = "10 0 obj\n<< /Type /StructTreeRoot /K [11 0 R] /ParentTree 12 0 R >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /Document /P 10 0 R /K [13 0 R 14 0 R] >>\nendobj\n\
+         12 0 obj\n<< /Nums [0 [14 0 R 13 0 R]] >>\nendobj\n\
+         13 0 obj\n<< /Type /StructElem /S /H1 /P 11 0 R /Pg 3 0 R /K 1 >>\nendobj\n\
+         14 0 obj\n<< /Type /StructElem /S /P /P 11 0 R /Pg 3 0 R /K 0 >>\nendobj\n";
+    let viewer = drawn(tagged(content, structure));
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("an open document answers the question");
+    };
+    let paragraph = pages
+        .first()
+        .and_then(|page| page.nodes.iter().find(|node| node.role == "P"))
+        .expect("the paragraph is in the tree");
+    let first = paragraph.lines.first().expect("the paragraph has lines");
+    assert_eq!(first.text, "Der Druc", "{:?}", paragraph.lines);
+    assert_eq!(
+        first.characters.len(),
+        "Der Druc".chars().count(),
+        "one character per code outside the section, and one for the section: {first:?}"
+    );
+    let replaced = first.characters.last().expect("the line has characters");
+    let before = first
+        .characters
+        .get(first.characters.len() - 2)
+        .expect("and more than one");
+    assert!(
+        replaced.bounds[2] - replaced.bounds[0] > before.bounds[2] - before.bounds[0],
+        "the replacement's box covers both of its glyphs, `k` and `-`, which together are wider \
+         than the `u` before them: {first:?}"
     );
 }

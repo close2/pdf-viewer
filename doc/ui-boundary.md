@@ -930,9 +930,15 @@ reordered a second time.
   the keys, and the scripts' level with its two answers, the level becoming a runner where every
   window's does; and what ADR 2072 added is the key table — a caller translates its toolkit's key
   into a `QUORRA_KEY_*`, `quorra_key_press` acts on it as the three windows act, and only what a
-  window alone can do comes back, as a `QUORRA_ACT_*`. Beside them,
+  window alone can do comes back, as a `QUORRA_ACT_*`. **And a second layer above the vocabulary,
+  `quorra_window`** (ADR 2088, RFC 0010 section 3.2a): `NativeWindow` implemented in the library, so a
+  C host runs no event match of its own — the document opened on a thread and joined at the first
+  resize, the drawing thread looked at on a tick whose interval the window states, a key and the
+  pointer acted on, the search stepped, the strip of open documents kept,
+  §7.6.4.1's prompt and the *ask* level's one question put and answered — and what a toolkit would
+  do arrives as a batch of `QUORRA_OWED_*` records after each call, never as a callback. Beside them,
   a hand-written `include/quorra.h`, and
-  `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
+  `c/open_a_page.c` and `c/drive_a_window.c`, which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
   arrive owned so no borrow of the viewer crosses; a render request is an opaque handle a caller
   may move to a thread of its own; and a frame is copied into a buffer the caller owns. Depends on

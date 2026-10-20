@@ -175,7 +175,10 @@ pub use drawing::{DrawRequest, Drawing, Finished, Partial};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
-pub use keys::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, meaning};
+pub use keys::{
+    Decided, Key, Keyboard, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, decide,
+    meaning, scroll_by,
+};
 pub use loading::{Ahead, Loading};
 pub use measuring::Measuring;
 pub use panel::{

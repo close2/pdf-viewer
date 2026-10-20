@@ -8,7 +8,7 @@
 //!
 //! - **The direction a label reads in is its own**, found by UAX #9's rules P2 and P3 from its
 //!   first strong character, and never the window's or the document's. ISO 32000-2 §12.3.3 has a
-//!   title be "[t]he text that shall be displayed on the screen for this item" and states nothing
+//!   title be "\[t]he text that shall be displayed on the screen for this item" and states nothing
 //!   about its direction; §14.9.2.1's `/Lang` names a natural language, which is not a direction.
 //!   ADR 1417 has the choice and its argument.
 //! - Rule L1 treats the whole label as one line, since that is what it is drawn as; L2 orders it;

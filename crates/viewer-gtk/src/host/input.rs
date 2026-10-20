@@ -6,7 +6,7 @@ use std::rc::Weak;
 
 use gtk4::glib;
 use gtk4::prelude::*;
-use viewer_core::{Answer, Command, Edit, PointerAction, Query, Zoom};
+use viewer_core::{Answer, Command, PointerAction, Query, Zoom};
 
 use viewer_host::arrangement::next_layout;
 use viewer_host::native_window::NativeWindow;
@@ -33,34 +33,30 @@ impl Host {
         let Some(stated) = key_pressed(key) else {
             return false;
         };
-        let mode = if self.state.presenting.full_screen() {
-            viewer_host::Mode::Presenting
-        } else {
-            viewer_host::Mode::Reading
-        };
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since no
         // toolkit button stands over one to take them (ADR 1357) — unless one of this host's own
         // controls has the keyboard, which has had the key first and whose Enter GTK may pass on.
-        if !self.a_control_has_the_keyboard()
-            && let Some(pressed) = viewer_host::pressed(&self.state.viewer, stated, held)
-        {
-            self.press(pressed);
-            return true;
-        }
-        let waiting = self.waiting();
-        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
-            return false;
+        let keyboard = if self.a_control_has_the_keyboard() {
+            viewer_host::Keyboard::Control
+        } else {
+            viewer_host::Keyboard::Page
         };
-        match meaning {
-            viewer_host::Meaning::Send(command) => {
-                // §12.5.6.10's markups are defined over selected text, so a press with nothing
-                // selected asks for an annotation over nothing. The core answers by doing
-                // nothing, which is right and silent — and trap 5 is that a person who pressed a
-                // key and saw no change has been told nothing at all.
-                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
-                    self.say("select some text first — §12.5.6.10's markups mark up text");
-                    return true;
-                }
+        let mode = viewer_host::Mode::of(&self.state.presenting);
+        let waiting = self.waiting();
+        match viewer_host::decide(&self.state.viewer, stated, held, mode, waiting, keyboard) {
+            viewer_host::Decided::Activate { name, annotation } => {
+                self.state.trace.say(
+                    Topic::Pointer,
+                    format_args!("pressing the push-button {}", name.shown()),
+                );
+                self.dispatch(Command::Activate(annotation));
+                true
+            }
+            viewer_host::Decided::Say(said) => {
+                self.say(&said);
+                true
+            }
+            viewer_host::Decided::Send(command) => {
                 let walked = matches!(command, Command::Focused(_));
                 self.dispatch(command);
                 if walked {
@@ -68,10 +64,11 @@ impl Host {
                 }
                 !walked
             }
-            viewer_host::Meaning::Window(act) => {
+            viewer_host::Decided::Window(act) => {
                 self.window_act(act);
                 true
             }
+            viewer_host::Decided::Nothing => false,
         }
     }
 
@@ -204,24 +201,6 @@ impl Host {
         focused.is_ancestor(&self.ui.fixed)
     }
 
-    /// Carries out a key's press on a push-button: its activation, or the refusal said by name.
-    fn press(&mut self, pressed: viewer_host::Pressed) {
-        if let Some(said) = pressed.note() {
-            self.say(&said);
-            return;
-        }
-        match pressed {
-            viewer_host::Pressed::Activates { name, annotation } => {
-                self.state.trace.say(
-                    Topic::Pointer,
-                    format_args!("pressing the push-button {}", name.shown()),
-                );
-                self.dispatch(Command::Activate(annotation));
-            }
-            viewer_host::Pressed::ReadOnly { .. } => {}
-        }
-    }
-
     /// The half of the key table that is a widget's rather than a message.
     ///
     /// Matched exhaustively and with no catch-all arm, which is `doc/ui-boundary.md`'s rule
@@ -234,11 +213,12 @@ impl Host {
             // does for a wheel notch.
             viewer_host::WindowAct::ScrollBy(by) => {
                 #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "a step in logical pixels times a display scale, which is tens"
+                    clippy::cast_precision_loss,
+                    reason = "GTK's scale factor is a whole number, one or two, which an f32 holds \
+                              exactly"
                 )]
-                let dy = (f64::from(by) * f64::from(self.scale)) as f32;
-                self.dispatch(Command::Scroll { dx: 0.0, dy });
+                let scale = self.scale as f32;
+                self.dispatch(viewer_host::scroll_by(by, scale));
             }
             // §14.8.2.5 leaving the program, which needed no message at all (ADR 0519). A `c`
             // reaching here has already passed the find bar, and a `c` typed into a §12.7 control

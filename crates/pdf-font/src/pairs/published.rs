@@ -2,7 +2,7 @@
 //!
 //! ISO 32000-2 §9.6.2.2 names fourteen fonts a document may use without embedding them, and a
 //! document that does names a typeface whose metrics were published with it: Adobe's Core 14 AFM
-//! files, which state each face's pairs as `KPX` lines — "[n]ame of the first character in the
+//! files, which state each face's pairs as `KPX` lines — "\[n]ame of the first character in the
 //! kerning pair followed by the name of the second character followed by the kerning amount in
 //! the x direction" (Adobe Technical Note #5004, *Adobe Font Metrics File Format Specification*,
 //! version 4.1, section 9.2, quoted from Adobe's text and not ISO's). Those pairs are the

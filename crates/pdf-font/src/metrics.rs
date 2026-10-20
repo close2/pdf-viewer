@@ -168,7 +168,7 @@ pub(crate) fn simple_widths(
 /// than the face this machine happened to offer.
 ///
 /// **The axis is the standard's.** Table 120's `/FontStretch` names nine values "ordered from
-/// narrowest to widest" and then says "[t]he specific interpretation of these values varies from
+/// narrowest to widest" and then says "\[t]he specific interpretation of these values varies from
 /// font to font": the standard names the axis a face's width lives on and declines to number it,
 /// and `/Widths` numbers it without naming it. Scaling horizontally and leaving the vertical
 /// alone is that axis and not a general distortion.
@@ -495,7 +495,7 @@ pub(crate) fn flag(document: &Document, descriptor: &Dictionary, mask: u32) -> b
 }
 
 /// The descriptor's `/Flags` word, every bit clear where the entry is absent or is not the
-/// unsigned 32-bit integer ISO 32000-2 §9.8.2 requires — [`flag`]'s reading, for a reader outside
+/// unsigned 32-bit integer ISO 32000-2 §9.8.2 requires — `flag`'s reading, for a reader outside
 /// this crate that tests the bits itself.
 #[must_use]
 pub fn descriptor_flags(document: &Document, descriptor: &Dictionary) -> u32 {
@@ -579,7 +579,7 @@ const TOLERANCE: f32 = 2.0;
 /// The line a descriptor's `/Ascent` and `/Descent` measure, in ems, where they measure one.
 ///
 /// Both arguments in glyph space, which is the unit §9.8.1 states Table 120's dimensions in; see
-/// [`EM`]. `None` means the pair cannot be a measurement of any face, and the caller answers
+/// `EM`. `None` means the pair cannot be a measurement of any face, and the caller answers
 /// with the em box instead.
 ///
 /// Table 120's own definitions are what make this answerable at all, because each entry is
@@ -594,7 +594,7 @@ const TOLERANCE: f32 = 2.0;
 /// > negative number.
 ///
 /// Errata Collection 3 (Issue #190) strikes *negative* from that second sentence and appends
-/// *less than or equal to zero* after *number*, so the amended entry reads *[t]he value shall be
+/// *less than or equal to zero* after *number*, so the amended entry reads *\[t]he value shall be
 /// a number less than or equal to zero*. The blockquote above stays as the published text,
 /// which is what the quotation gate verifies against `doc/md/`.
 ///
@@ -606,7 +606,7 @@ const TOLERANCE: f32 = 2.0;
 /// - **the descent is not above it.** Zero is the statement that no glyph goes below the
 ///   baseline, which is a thing a face can be — and since Issue #190 it is the entry's own
 ///   floor rather than this crate's reading of a depth against a sign convention;
-/// - **the line the two describe is within [`TOLERANCE`] of [`REASONABLE_LINE`]**, which is the
+/// - **the line the two describe is within `TOLERANCE` of `REASONABLE_LINE`**, which is the
 ///   height the standard itself calls reasonable for a line, computed the way the standard
 ///   itself computes it.
 ///
@@ -620,7 +620,7 @@ const TOLERANCE: f32 = 2.0;
 /// A positive `/Descent` is read as the depth it states, with Table 120's sign convention put
 /// back. That is a **choice**, and the argument for it is that the entry's definition and its
 /// sign are two different sentences: "the maximum depth below the baseline reached by glyphs in
-/// this font" defines a depth, which is a magnitude, and "[t]he value shall be a negative
+/// this font" defines a depth, which is a magnitude, and "\[t]he value shall be a negative
 /// number" is the convention for writing it down. A file that writes `905` and `211` for a face
 /// whose real metrics are 905 and −211 has broken the convention and stated the measurement, and
 /// this is by a distance the commonest malformed shape the corpus holds — **42 font dictionaries
@@ -630,7 +630,7 @@ const TOLERANCE: f32 = 2.0;
 /// tolerates for anybody. Nothing here reads the *rendering* of a page, so a mistaken repair
 /// cannot move a glyph.
 ///
-/// Issue #190's inserted NOTE corroborates the diagnosis without changing the rule: *[w]hile
+/// Issue #190's inserted NOTE corroborates the diagnosis without changing the rule: *\[w]hile
 /// different font programs may define descender metrics using either positive or negative
 /// numbers (e.g. OpenType usWinDescent …), PDF always expects negative values* (Errata
 /// Collection 3, an addition rather than published text). A positive `/Descent` is a producer

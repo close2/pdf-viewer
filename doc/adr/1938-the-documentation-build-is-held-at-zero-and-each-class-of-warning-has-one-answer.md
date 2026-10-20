@@ -1,7 +1,8 @@
 # 1938 — The documentation build is held at zero, and each class of warning has one answer
 
 Session 1551, on the project owner's word of 2026-10-14 ("switch to code improvements/refactoring
-rounds"). Status: **accepted** and **built** for `render-cpu`, `raster-gpu` and `viewer-ui`.
+rounds"). Status: **accepted** and **built** for `render-cpu`, `raster-gpu` and `viewer-ui`, and for
+`viewer-device`, `pdf-font` and `viewer-confined` (session 1629, the same answers).
 Context: ADRs 1023, 1273, 1912, 1914. No clause is read anew and no ledger row changes status.
 
 ## 1. What it was

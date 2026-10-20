@@ -170,6 +170,8 @@ pub(crate) enum Carries {
     /// The windows of a page past the bound whose marks would cross, which this store now holds
     /// because the host asked for them in place of the marks ([`Route::Window`], ADR 2017). As
     /// with [`Self::Marks`] no raster of the page is drawn.
+    ///
+    /// [`Route::Window`]: crate::Route::Window
     Window,
 }
 
@@ -192,7 +194,7 @@ enum Placed<'a> {
 /// The pages whose marks are what crosses, one entry apiece.
 ///
 /// **Bounded by the pages on the screen and not by the pages ever drawn**, which is
-/// [`Self::retain`]'s whole subject: a confined process runs under an address-space ceiling, and
+/// [`Self::place`]'s whole subject: a confined process runs under an address-space ceiling, and
 /// a store that grew by one encoded list per page a reader scrolled past would be a slow leak
 /// inside the one process that must not have one.
 #[derive(Debug, Default)]
@@ -565,7 +567,7 @@ pub enum ProtocolError {
     /// Four of the answers a panel is made of are trees — the outline, the layer order,
     /// §12.3.5.2's folders and a collection's own items — and a decoder that followed one as deep
     /// as it was told to would let a message of a few hundred bytes exhaust the host's stack.
-    /// The bound is [`panels::MAX_TREE_DEPTH`] and it is well past what any of the readers that
+    /// The bound is `panels::MAX_TREE_DEPTH` and it is well past what any of the readers that
     /// *produce* these trees will hand over.
     #[error("{what} nests deeper than the {limit} this reader follows")]
     TooDeep {
@@ -594,7 +596,7 @@ pub enum ProtocolError {
     /// A display list is mostly indices — a clip identifier, a soft mask identifier, a path,
     /// a shading — and every one of them is checked against a table this decoder has already
     /// read *whole*, never against a length the message asserts. This is that refusal. See
-    /// [`display_list`], whose tables precede its command stream for exactly this reason.
+    /// `display_list`, whose tables precede its command stream for exactly this reason.
     #[error("{what} names entry {index} of a table holding {held}")]
     OutOfTable {
         /// Which table.
@@ -1067,6 +1069,8 @@ impl<'a> Reader<'a> {
     /// ask its allocator for tens of gibibytes of `String` headers and abort. The list therefore
     /// reserves at most [`RESERVE`] elements and grows into the rest, which costs a handful of
     /// reallocations on a list longer than that and bounds a lie at a few kilobytes.
+    ///
+    /// [`MAX_MESSAGE`]: confined_transport::frame::MAX_MESSAGE
     fn list<T>(
         &mut self,
         what: &'static str,
@@ -1157,6 +1161,8 @@ pub(super) fn as_u64(value: usize) -> u64 {
 /// **The kind is checked here rather than in the transport**, which is the line ADR 0846 draws: a
 /// wire two protocols share cannot hold either one's discriminants, so it answers a length and
 /// this says whether the byte in front of it is one of the five frames *this* protocol defines.
+///
+/// [`MAX_MESSAGE`]: confined_transport::frame::MAX_MESSAGE
 pub(crate) fn parse_frame_header(header: [u8; FRAME_HEADER_LEN]) -> Option<(u8, usize)> {
     let (kind, length) = confined_transport::frame::parse_header(header)?;
     if !matches!(

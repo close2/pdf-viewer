@@ -390,7 +390,7 @@ impl SymbolicEncoding {
     /// crate's: Table D.5's names are `alpha`, `universal`, `weierstrass` — names the Adobe Glyph
     /// List holds, so §9.10.2's second method already answers for `Symbol` and this would be a
     /// second route to the same character. Table D.6's are `a1`, `a192`, which that list does not
-    /// hold at all; [`ZAPF_DINGBATS_CHARACTERS`] is the reading of why the annex answers instead.
+    /// hold at all; `ZAPF_DINGBATS_CHARACTERS` is the reading of why the annex answers instead.
     ///
     /// Keyed by **name** so that a `/Differences` array rearranging this font's own glyphs is
     /// followed — §9.6.5.1 lets one override any built-in encoding — while a name that is not one
@@ -417,7 +417,7 @@ impl SymbolicEncoding {
 /// the table was transcribed.
 ///
 /// The annex adds one sentence worth keeping beside the table, because it bounds what having
-/// this table buys: "[t]he built-in encoding in an expert font program can be different from
+/// this table buys: "\[t]he built-in encoding in an expert font program can be different from
 /// `MacExpertEncoding`", and §9.6.5.1's rules about which encoding wins are where that is
 /// answered rather than here.
 #[rustfmt::skip]
@@ -636,10 +636,10 @@ static ZAPF_DINGBATS: [&str; 256] = [
 /// The character each `ZapfDingbats` code stands for — the `CHAR` column of the same Table D.6.
 ///
 /// **Why a table of characters exists here at all, when §9.10.2 sends a reader to the Adobe Glyph
-/// List.** The list does not hold `a1`, and Annex D.1 says why in one sentence — "[t]he characters
+/// List.** The list does not hold `a1`, and Annex D.1 says why in one sentence — "\[t]he characters
 /// for `ZapfDingbats` are ordered by code instead of by name, since the names in that font are
 /// meaningless" — so the name is not the route and never was. The route the standard states is
-/// this table: D.1 opens "[t]his annex lists the character sets and encodings that shall be
+/// this table: D.1 opens "\[t]his annex lists the character sets and encodings that shall be
 /// predefined in any PDF processor", §9.6.5.1 says the two symbolic standard-14 fonts are the ones
 /// "whose encodings **and character sets** are documented in Annex D", and Table D.6 prints, for
 /// every code, the character beside the name. A processor that predefines this set predefines what

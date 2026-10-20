@@ -190,7 +190,7 @@ impl LoadedFont {
     /// > If a character cannot be mapped in any of the ways described previously, a PDF
     /// > processor may supply a mapping of its choosing.
     ///
-    /// [`crate::truetype`] supplies two such mappings, and this says which codes they answered.
+    /// `crate::truetype` supplies two such mappings, and this says which codes they answered.
     /// `false` for a code the subclause's own steps reached, for a code that reaches no glyph at
     /// all, and for every font of another kind — a composite font, a Type 1 or bare CFF program,
     /// or a substitute — because none of those is what that sentence is about.

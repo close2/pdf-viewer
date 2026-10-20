@@ -265,6 +265,11 @@ fn what_it_printed(said: &str) {
         // could have asked for.
         "view: page 0, zoom 3 at 2.500, scroll 385.1,672.4",
         "view restored: exactly",
+        // Table 22's bit 5 is asked by `quorra_copy` and nowhere else, so the copy text has no
+        // answer before one; after it, the readback is the `QUORRA_EVENT_COPIED`'s own string, in
+        // the logical order the note's structure tree gives (ADR 2087).
+        "copy before quorra_copy: there is nothing to answer with",
+        "in logical content order, the event's own text: 1",
         "layers: 0 row(s)",
         "attachments: 0 row(s)",
         // §12.7's form, on the fixture beside the test binary. Two fields, the check box ticked
@@ -344,4 +349,131 @@ fn what_it_printed(said: &str) {
             "the C program did not measure {measured:?}"
         );
     }
+}
+
+/// `quorra_window` from C: `c/drive_a_window.c` runs the loop a toolkit host runs — a resize, the
+/// window's timer, some keys, an answer — and every one of them is one call and the same reading of
+/// what the window owes (RFC 0010 section 3.2a, ADR 2088).
+#[test]
+fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
+    let Some(cc) = compiler() else {
+        println!("skipped: no C compiler on this machine");
+        return;
+    };
+    let Some(artefacts) = artefacts() else {
+        println!("skipped: this test binary is not where cargo puts one");
+        return;
+    };
+    // The `cdylib`, for the first test's reason.
+    let built = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()))
+        .args(["build", "-p", "viewer-ffi", "--lib"])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .status();
+    assert!(
+        built.is_ok_and(|status| status.success()),
+        "the cdylib has to exist for a C program to link against"
+    );
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let program = artefacts.join("quorra_drive_a_window");
+    let compiled = Command::new(&cc)
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-I"])
+        .arg(crate_root.join("include"))
+        .arg(crate_root.join("c/drive_a_window.c"))
+        .arg("-o")
+        .arg(&program)
+        .arg("-L")
+        .arg(&artefacts)
+        .arg("-lviewer_ffi")
+        .arg(format!("-Wl,-rpath,{}", artefacts.display()))
+        .output()
+        .expect("the compiler runs");
+    assert!(
+        compiled.status.success() && compiled.stderr.is_empty(),
+        "{cc} refused the header or the program:\n{}",
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+
+    let document = crate_root.join("../../doc/PDF20_AN001-BPC.pdf");
+    // A file of the window's own, beside the first test's, so the two may run at once.
+    let form = artefacts.join("quorra_window_form_fixture.pdf");
+    std::fs::write(&form, form_fixture()).expect("the fixture is written beside the test binary");
+    let ran = Command::new(&program)
+        .arg(&document)
+        .arg(&form)
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&ran.stdout).into_owned();
+    println!("{said}");
+    assert!(
+        ran.status.success(),
+        "the C program failed:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    what_the_window_owed(&said);
+}
+
+/// What the window owed the C program, checked here rather than in the C, as
+/// [`what_it_printed`] checks the vocabulary's program.
+fn what_the_window_owed(said: &str) {
+    for expected in [
+        // The counted kinds against the header's, and a path that names no file refused by its
+        // own status rather than opened into a window that says nothing.
+        "owed kinds 10 (header 10), unknown is unknown",
+        "an unreadable file: the file named could not be opened for reading",
+        // Table 29's `/PageLayout`, obeyed when the document opened and said, as every window says
+        // it.
+        "said: this document opens in the OneColumn page layout (§7.7.2)",
+        // The first resize joined the open and the timer ran until the window asked for none: page
+        // one, drawn on the drawing thread at the 800 x 1000 viewport, the size the vocabulary's
+        // program gets for page two at the same viewport.
+        "window frame: 1 picture(s), page 1, 708x1000 shown 708x1000, 2832000 byte(s); ",
+        // §12.2's `/DisplayDocTitle` title, then the caption: §12.4.2's label, the page counted,
+        // and §12.3.3's item the page is in.
+        "window title: PDF 2.0 Application Note 001: Usage of Black Point Compensation — Cover — \
+         page 1 of 5",
+        // Page Down is a message the window sent itself, so nothing is handed back.
+        "window frame: 1 picture(s), page 2, 708x1000",
+        "— page 2 of 5 — PDF 2.0 Application Note 001: Black Point Compensation, act Nothing",
+        // Control + F is the find bar, a widget, so it is handed back; H with nothing selected is
+        // the sentence `viewer_host::decide` owes, said by the window.
+        "window keys: Control + F is Find, H is Nothing and said \"select some text first",
+        // The find bar's search, from page two, read a page per tick: the phrase is not on the
+        // copyright page and is on the third, which `pdftotext` agrees with as evidence.
+        "said: searching for \"Black Point\": 5 page(s) left",
+        "window search: found \"Black Point\" on page 3",
+        "window pointer at the corner: over a link 0",
+        // A file chooser's answer opens in a tab of its own and takes the front; the first is
+        // chosen and closed, and closing the other is the last, which the window leaves open for
+        // its caller to close.
+        "said: quorra_window_form_fixture.pdf opened beside — 2 document(s) open",
+        "window strip: 2 document(s), quorra_window_form_fixture.pdf in front at 1",
+        "window closed one: closed PDF20_AN001-BPC.pdf — 1 document(s) open; the last 0",
+        "window closing the other: the last 1, 1 document(s) left open",
+        // Tab reaches the push-button and Space presses it: the submission's owed sentence, then
+        // the reader's default level for a form leaving this machine, which asks.
+        "said: page 1: this item submits — Table 240 bit 11's ExclNonUserAnnots",
+        // `viewer_host::may_submit`'s question, its reasons and its choice as one record.
+        "window question: This document asks to send its form from this mach | You have set this \
+         reader to ask before a form is sent",
+        "window answered no: submit-form: declined — you answered \"Do not\". It would have been \
+         POST https://example.org/submit",
+        // And the question was taken by the answer, so a dialogue closed twice answers once.
+        "a second answer: there is nothing to answer with",
+        // And a password for a document no prompt is out for opens nothing.
+        "a password nobody asked for: there is nothing to answer with",
+        "ok",
+    ] {
+        assert!(
+            said.contains(expected),
+            "the C program did not say {expected:?}"
+        );
+    }
+    let inked = said
+        .lines()
+        .find(|line| line.starts_with("window frame: 1 picture(s), page 1, "))
+        .and_then(|line| line.split("; ").nth(1))
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|count| count.parse::<usize>().ok())
+        .expect("the program says how many pixels of page one are not white");
+    assert!(inked > 1000, "only {inked} pixels of page one are inked");
 }

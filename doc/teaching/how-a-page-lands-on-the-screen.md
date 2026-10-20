@@ -115,8 +115,9 @@ The steps for an object, in the order a reader takes them:
    The three image filters that carry the most attack surface run in a confined process
    (`crates/pdf-sandbox`, `CLAUDE.md` principle 3).
 5. **Resolve.** `crates/pdf-syntax/src/document.rs::Document` ties the above together;
-   `Document::resolve` turns a reference into the object it names, and compressed objects (§7.5.7)
-   are read through their object stream.
+   `Document::resolve` (`crates/pdf-syntax/src/document/objects.rs`) turns a reference into the
+   object it names, and compressed objects (§7.5.7) are read through their object stream
+   (`crates/pdf-syntax/src/document/object_streams.rs`).
 
 The document is immutable once opened. An edit is a log beside it, never a change to it
 (`CLAUDE.md`, the authoring exclusion), which is what lets stages 2 to 4 be pure functions.
@@ -129,7 +130,7 @@ flowchart LR
     LEX["Lexer, Parser<br/>pdf-syntax/src/lexer.rs, parser.rs<br/>clause 7.2, 7.3"]
     OBJ["Object, Dictionary, Stream<br/>pdf-syntax/src/object.rs"]
     DEC["decrypt, then filters<br/>crypt.rs, filter.rs<br/>clause 7.6, 7.4"]
-    DOC["Document::resolve<br/>pdf-syntax/src/document.rs"]
+    DOC["Document::resolve<br/>pdf-syntax/src/document/objects.rs"]
 
     BYTES --> XREF
     XREF -->|"a damaged table"| REC
@@ -143,7 +144,7 @@ flowchart LR
 
 **Maintenance note.** Depends on: `crates/pdf-syntax/src/xref.rs`, `crates/pdf-syntax/src/lexer.rs`,
 `crates/pdf-syntax/src/parser.rs`, `crates/pdf-syntax/src/crypt.rs`,
-`crates/pdf-syntax/src/filter.rs`, `crates/pdf-syntax/src/document.rs`, and ADR 0395. Redraw it when
+`crates/pdf-syntax/src/filter.rs`, `crates/pdf-syntax/src/document.rs` with `document/`, and ADR 0395. Redraw it when
 the open path changes order (a lazy phase moves, ADR 0890 and ADR 1543 are the two that moved work
 off the launch path), when a recovery stops being bounded, or when decryption moves relative to
 decoding. `CLAUDE.md` principle 2's "incremental parsing" rule is the constraint a change here has
@@ -210,8 +211,8 @@ Following the example:
 
 - `0.2 0.4 0.8 rg` sets the non-stroking colour space to `DeviceRGB` and its components. The
   conversion of a colour to the device is not decided here but in `crates/pdf-colour`
-  (`crates/pdf-colour/src/colour.rs::ColourSpace`, whose `to_rgb` is the answer to §8.6's one
-  question for every space). The split is deliberate: the interpreter is a question about *marks*,
+  (`crates/pdf-colour/src/colour.rs::ColourSpace`, whose `to_rgb` (`crates/pdf-colour/src/colour/to_rgb.rs`) is the answer
+  to §8.6's one question for every space). The split is deliberate: the interpreter is a question about *marks*,
   `pdf-colour` a question about *colour* (see its crate documentation).
 - `72 600 200 100 re` is, by Table 58, `x y m` and three `l`s and an `h`. The `Operator::Rectangle`
   arm of `run.rs` builds exactly those path commands into the current path in user space; nothing is
@@ -245,7 +246,7 @@ flowchart TD
     RUN["Interpreter::run<br/>pdf-model/src/content/run.rs"]
     STATE["GraphicsState: CTM, colour, clip, font<br/>clause 8.4"]
     PATH["current path<br/>pdf-model/src/content/path.rs<br/>clause 8.5.2"]
-    COLOUR["fill colour<br/>pdf-colour/src/colour.rs<br/>clause 8.6"]
+    COLOUR["fill colour<br/>pdf-colour/src/colour/to_rgb.rs<br/>clause 8.6"]
     TEXT["glyph outlines<br/>pdf-font, pdf-model/src/content/text.rs<br/>clause 9"]
     MARK["end_path then draw_mark<br/>pdf-model/src/content/marked.rs<br/>clause 8.5.3"]
     LIST["DisplayList::push Command::Fill<br/>pdf-render/src/display_list.rs"]
@@ -267,7 +268,7 @@ flowchart TD
 **Maintenance note.** Depends on: `crates/pdf-model/src/content/reader.rs`,
 `crates/pdf-model/src/content/run.rs`, `crates/pdf-model/src/content/path.rs`,
 `crates/pdf-model/src/content/marked.rs`, `crates/pdf-model/src/content/text.rs`,
-`crates/pdf-colour/src/colour.rs`, `crates/pdf-render/src/display_list.rs`, ADR 1507 and ADR 0365.
+`crates/pdf-colour/src/colour.rs` with `colour/`, `crates/pdf-render/src/display_list.rs`, ADR 1507 and ADR 0365.
 Redraw it when an operator family moves to another module, when `draw_mark` stops being the single
 way a mark reaches the list, or when a stage between the lexer and the loop appears. The table above
 is the part most likely to go stale first: `ls crates/pdf-model/src/content/` is its check.

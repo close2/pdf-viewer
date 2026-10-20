@@ -1893,6 +1893,25 @@ pub(super) const REMEDIES: &[Remedy] = &[
             HALFTONE_IDENTITY_REINTERPRETS,
         ),
     },
+    // ISO 19005-4 section 6.2.3 in every output intent, ISO 19005-2 section 6.2.3 in a PDF/X one:
+    // `DestOutputProfileRef` goes where the same intent embeds its profile, and
+    // `super::sites::profile_references` names each other shape's refusal (`doc/adr/2083`).
+    Remedy {
+        requirement: "graphics/no-destination-profile-reference",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileReferenceRemoved,
+            PROFILE_REFERENCE_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DestinationProfileReferenceRemoved,
+            PROFILE_REFERENCE_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.2.6, which part 4 does not state.
     Remedy {
         requirement: "graphics/rendering-intent-entries-name-one-of-four",
@@ -2792,14 +2811,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/page-output-intents-have-the-same-shape",
         Because::NotBuiltYet(PAGE_OUTPUT_INTENTS_NOT_TIDIED),
     ),
-    (
-        "graphics/no-destination-profile-reference",
-        Because::NotBuiltYet(PROFILE_REFERENCE_NOT_REMOVED),
-    ),
-    (
-        "graphics/no-destination-profile-reference-in-a-pdfx-output-intent",
-        Because::NotBuiltYet(PROFILE_REFERENCE_NOT_REMOVED),
-    ),
     // ISO 19005-2 section 6.2.8.3, ISO 19005-4 section 6.2.7.3: section 4.10's table. The two
     // rows whose field is in the JP2 wrapper are `REMEDIES`' now — a colour specification box can
     // be removed where it cannot be written — and what stays here is the three whose subject is
@@ -3100,12 +3111,14 @@ const PAGE_OUTPUT_INTENTS_NOT_TIDIED: &str = "a page of this file states an Outp
      catalog's — the pages may legitimately differ from each other and from the document";
 
 /// Why a `/DestOutputProfileRef` is not removed.
-const PROFILE_REFERENCE_NOT_REMOVED: &str = "an output intent here names its destination profile \
-     through DestOutputProfileRef, which puts the profile outside the file. Where the same \
-     intent also embeds a DestOutputProfile, removing the reference is mechanical and loses \
-     nothing; where it does not, the profile is on somebody else's disk and \
-     doc/pdf-a-conversion-limits.md section 2.3's refusal applies unless --output-intent-profile \
-     supplies one. Neither branch is built";
+/// What removing an output intent's profile reference asserts (`doc/adr/2083`).
+const PROFILE_REFERENCE_REINTERPRETS: &str = "an output intent in this file embeds its \
+     DestOutputProfile and also states a DestOutputProfileRef naming profiles outside the file, \
+     which ISO 19005 forbids, so the reference is removed. ISO 32000-2 14.11.5 makes an output \
+     intent's data informational, Table 401 asks nothing of a processor about the reference, and \
+     the profile the intent's colours are referred to is the embedded one, which stays; this \
+     reader reads no reference, so every page is drawn where it was. What goes is the producer's \
+     description of where further copies of a profile could be found";
 
 /// What writing a `/TR2 /Identity` as `Default` asserts (`doc/adr/1978` section 6).
 const SECOND_IDENTITY_REINTERPRETS: &str = "a graphics state in this file states TR2 Identity, \

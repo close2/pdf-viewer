@@ -178,20 +178,6 @@ impl Host {
         found.unwrap_or(-1)
     }
 
-    /// Carries out a key's press on a push-button: its activation, or the refusal said by name.
-    pub(super) fn press(&mut self, pressed: &viewer_host::Pressed) {
-        if let Some(said) = pressed.note() {
-            self.say(&said);
-            return;
-        }
-        match pressed {
-            viewer_host::Pressed::Activates { annotation, .. } => {
-                self.dispatch(Command::Activate(*annotation));
-            }
-            viewer_host::Pressed::ReadOnly { .. } => {}
-        }
-    }
-
     /// Every control the window has just placed, measured against the rectangle it was given.
     ///
     /// The counting used to be in `cpp/window.cpp`, which meant the two native hosts computed the

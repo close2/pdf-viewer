@@ -207,7 +207,7 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
 
 /// Says how far the pages of the picture disagreed about the placement it went up at.
 ///
-/// **Rule 3 over [`AGREEMENT`] rather than over the picture**, and it is what makes the bound a
+/// **Rule 3 over `AGREEMENT` rather than over the picture**, and it is what makes the bound a
 /// thing a run measures instead of a thing this file asserts: a person driving a column sees what
 /// an ordinary scroll's residual is and what a zoom's rearrangement is, in the same unit, on their
 /// own document. Silent for a single page, which has nothing to disagree with, and so silent for
@@ -233,7 +233,7 @@ pub fn absorbed(carried: Carried, pages: usize, trace: impl crate::FrameLines) {
 /// Where the picture held goes so that it depicts the view being asked for, and how far the pages
 /// of it disagreed about that.
 ///
-/// The second field is what makes [`AGREEMENT`] measurable from outside this module: the frame
+/// The second field is what makes `AGREEMENT` measurable from outside this module: the frame
 /// line prints it for an arrangement of more than one page, so a run says what the residual
 /// actually is rather than leaving the bound a claim.
 #[derive(Debug, Clone, Copy, PartialEq)]

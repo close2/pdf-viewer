@@ -357,33 +357,27 @@ fn a_wide_page_is_cut_and_its_strips_are_the_page() {
     }
 }
 
-/// Asserts that `found` is only what a division of a page inside the library's rectangle range
-/// already carries: a rectangle a cut crosses, a level apart in the row beside the cut.
+/// Asserts that a division drew the page drawn in one strip to the byte.
 ///
-/// That residue is not the planner's and not a mark past 8191's. A rectangle is drawn by
-/// `tiny-skia`'s rectangle converter wherever that converter reaches the surface (ADR 0476), and
-/// clipped at a strip's edge it states the boundary row's product a level from the unclipped
-/// rectangle's or from this backend's closed form — on an ordinary 368 × 542 page, with no mark
-/// near 8191, four strips differ from one at 144 such pixels. A rectangle forbids no
-/// row (ADR 0139), so that is ADR 1758's one level for one coverage, and the wide page has none of
-/// it because every rectangle on a surface past 8191 columns is the closed form in every strip.
-fn assert_a_level_beside_a_cut(what: &str, plan: &[u32], found: &[Difference]) {
-    for &(x, y, one, cut) in found {
-        assert!(
-            one.abs_diff(cut) <= 1 && plan.iter().any(|&row| row == y || row == y + 1),
-            "{what} in strips at {plan:?} differs from one strip at ({x}, {y}), {one} against \
-             {cut}, which is not a level beside a cut"
-        );
-    }
+/// A page inside the library's rectangle range owes that as the wide page does: a rectangle is
+/// drawn by `tiny-skia`'s rectangle converter wherever that converter reaches the surface (ADR
+/// 0476), and the planner forbids the rows beside its horizontal edges, where a cut would leave the
+/// converter one row of it to state a level from the unclipped rectangle's (ADR 2084).
+fn assert_the_page(what: &str, plan: &[u32], found: &[Difference]) {
+    assert!(
+        found.is_empty(),
+        "{what} in strips at {plan:?} differs from one strip at {} pixels: {:?}",
+        found.len(),
+        found.get(..found.len().min(12))
+    );
 }
 
 /// A page taller than 8191 pixels is cut too, its marks past 8191 rows as exactly as the wide
-/// page's past 8191 columns, and its strips are the page drawn in one but for the rectangles a
-/// cut crosses (ADR 2068).
+/// page's past 8191 columns, and its strips are the page drawn in one (ADRs 2068, 2084).
 #[test]
-fn a_tall_page_is_cut_and_its_strips_are_the_page_but_for_a_level_beside_a_cut() {
+fn a_tall_page_is_cut_and_its_strips_are_the_page() {
     for (plan, found) in cut_against_one(640, 8_704, &[2, 4, 16]) {
-        assert_a_level_beside_a_cut("the tall page", &plan, &found);
+        assert_the_page("the tall page", &plan, &found);
     }
 }
 
@@ -402,7 +396,7 @@ fn spike_to(x: f32, y: f32) -> Path {
 /// in strips to the byte, and ADR 0269's hostile geometry past that bound, whose rows stay
 /// forbidden — `tiny-skia` draws such a mark aliased and clips it at a strip's edge (ADR 2058 §4).
 /// On ADR 0269's 368 × 542 page, a fill and a stroke of each; a freed spike leaves its strips the
-/// page drawn in one but for what that page carries without it, a rectangle a level beside a cut.
+/// page drawn in one.
 #[test]
 fn what_the_old_bound_kept_out_is_cut_inside_the_measured_range_and_kept_past_it() {
     let (width, height) = (368, 542);
@@ -430,7 +424,7 @@ fn what_the_old_bound_kept_out_is_cut_inside_the_measured_range_and_kept_past_it
                     "{what} to {reach:?} is inside the measured range and still forbids every \
                      cut: {plan:?}"
                 );
-                assert_a_level_beside_a_cut(what, &plan, &differences(&one, &cut));
+                assert_the_page(what, &plan, &differences(&one, &cut));
             } else {
                 assert_eq!(
                     plan,
