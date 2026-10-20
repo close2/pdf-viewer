@@ -843,7 +843,7 @@ surprised by them:
 | `Interpolate` forced to false | -2 §6.2.8.1, -4 §6.2.7.1 | **not quite mechanical**: it turns image smoothing off, and a low-resolution image will look blockier. Ask where any image sets it true |
 | `/Alternates`, `/OPI` removed from images | same | |
 | `/OPI` removed from form XObjects | -2 §6.2.9.1, -4 §6.2.8.1 | -2 also forbids `/Subtype2` with the value `PS`, and `/PS`; -4 names only `/OPI`, because PDF 2.0 defines neither of the others |
-| PostScript XObjects removed | -2 §6.2.9.3 | they carry PostScript for a PostScript back end and never contributed to a rendered page. **PDF/A-4 has no such clause because PDF 2.0 has no such object**: `PostScript XObject` and `Subtype2` appear nowhere in ISO 32000-2, so §6.1.1's rule about undescribed data covers them |
+| PostScript XObjects written as a form that draws nothing | -2 §6.2.9.3 | they carry PostScript for a PostScript back end and never contributed to a rendered page; the object keeps its number and becomes a form with an empty content stream, so a `Do` naming it still names a defined resource (ADR 2115). **PDF/A-4 has no such clause because PDF 2.0 has no such object**: `PostScript XObject` and `Subtype2` appear nowhere in ISO 32000-2, so §6.1.1's rule about undescribed data covers them |
 | `/Requirements` removed | -2 §6.11, -4 §6.12 | |
 | `/AlternatePresentations`, `/PresSteps` removed | -2 §6.10, -4 §6.11 | slide-show behaviour stops |
 | linearisation lost | -2 §6.1.11, -4 §6.1.10 | both parts permit a linearised file and neither requires one; the serializer writes an ordinary one, so a source optimised for first-page-over-a-network stops being so. Nothing renders differently |

@@ -473,6 +473,14 @@ struct UnderProfile {
     unreadable: usize,
     /// Every refused document, with what refused it.
     stopped: Vec<Stopped>,
+    /// Every document the verb refused as a source rather than converting or refusing a
+    /// requirement, or panicked on, with what it said.
+    ///
+    /// Property 2's population, collected rather than raised at the first, so that a sweep over
+    /// files nobody here chose names every one: the veraPDF census asserts it empty; the census of
+    /// the other corpora prints it, a `crate::Refusal` as the verb declining the source — a file
+    /// only §C.4's recovery reads, which no profile answers — and a panic as a defect (trap 5).
+    failed: Vec<(String, String)>,
 }
 
 /// The kind of *no* a refused decision is, in the report's own words.
@@ -484,101 +492,193 @@ fn kind_of_no(decision: &Decision) -> Option<(&'static str, String)> {
     }
 }
 
-/// Converts every document under `part` to `target` under one shipped profile, folded into the
+/// What one document came to under one profile.
+enum Outcome {
+    /// It does not open.
+    Unreadable,
+    /// A file was written; `true` where the source already conformed.
+    Written(bool),
+    /// It was refused, and by what.
+    Stopped(Stopped),
+    /// The verb declined the source, or panicked, which property 2 says it may not.
+    Failed(String, String),
+}
+
+/// One document converted to `target` under one profile's contribution and, where given, the
+/// operator's press profile.
+fn convert_under(
+    path: &Path,
+    target: Target,
+    contribution: &pdf_transform::profiles::Contribution,
+    press: Option<&std::sync::Arc<[u8]>>,
+) -> Outcome {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Outcome::Unreadable;
+    };
+    let Ok(document) = Document::open_with_limits(bytes.clone(), Limits::DEFAULT) else {
+        return Outcome::Unreadable;
+    };
+    let conformed = pdf_archive::check(&document, target).verdict() == Verdict::Conforms;
+    drop(document);
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Archive(ArchivePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            target,
+            authorised: contribution.authorised,
+            profile: press.cloned(),
+            substitute_fonts: true,
+            supplied_fonts: BTreeMap::new(),
+            departures: contribution.departures.clone(),
+            claim_conformance: false,
+            forms: contribution.forms,
+            derivations: contribution.derivations.clone(),
+            supplies: contribution.supplies.clone(),
+            preservations: contribution.preservations.clone(),
+            resolutions: contribution.resolutions.clone(),
+            tool_outputs: ToolOutputs::new(),
+            external_data: BTreeMap::new(),
+        }),
+        &[Source::new(bytes)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    );
+    let report = match report {
+        Ok(report) => report,
+        Err(refusal) => {
+            return Outcome::Failed(named(path), format!("the source is refused: {refusal}"));
+        }
+    };
+    if sinks.into_outputs().pop().is_some() {
+        return Outcome::Written(conformed);
+    }
+    let Some(conversion) = report.archive.as_ref() else {
+        return Outcome::Failed(named(path), "no conversion was reported".to_owned());
+    };
+    let mut at: Vec<_> = conversion
+        .decided
+        .iter()
+        .filter_map(|decided| {
+            kind_of_no(&decided.decision).map(|(kind, why)| (decided.requirement, kind, why))
+        })
+        .collect();
+    // A conversion whose every decision was carried out and whose output the validator still
+    // fails is refused by the second verdict (`doc/adr/0947`), which names the requirement.
+    if at.is_empty()
+        && let Some(achieved) = &conversion.achieved
+    {
+        let mut named: Vec<&'static str> = achieved
+            .still_failing
+            .iter()
+            .chain(&achieved.regressions)
+            .copied()
+            .collect();
+        named.sort_unstable();
+        named.dedup();
+        for requirement in named {
+            at.push((
+                requirement,
+                "output-fails",
+                "the output is held to the target again and still fails it".to_owned(),
+            ));
+        }
+    }
+    Outcome::Stopped(Stopped {
+        document: named(path),
+        at,
+    })
+}
+
+/// Converts every document in `paths` to `target` under one shipped profile, folded into the
 /// plan the way a window folds it (`viewer_host::archiving`), and lists every refusal.
+///
+/// The documents are converted in parallel and folded in their sorted order, so the census reads
+/// the same whatever the thread count; a panic is caught per document and becomes a row of
+/// [`UnderProfile::failed`] rather than ending the sweep.
+fn sweep_under(
+    paths: &[PathBuf],
+    target: Target,
+    shipped: &pdf_transform::profiles::Shipped,
+    press: Option<&std::sync::Arc<[u8]>>,
+) -> UnderProfile {
+    use rayon::prelude::*;
+    let contribution = pdf_transform::profiles::Contribution::read(shipped.text, target)
+        .expect("a shipped profile reads for every target");
+    let outcomes: Vec<Outcome> = paths
+        .par_iter()
+        .map(|path| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                convert_under(path, target, &contribution, press)
+            }))
+            .unwrap_or_else(|panic| {
+                let said = panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+                    .unwrap_or_default();
+                Outcome::Failed(named(path), format!("PANICKED: {}", first_clause(&said)))
+            })
+        })
+        .collect();
+    let mut census = UnderProfile::default();
+    for outcome in outcomes {
+        match outcome {
+            Outcome::Unreadable => census.unreadable = census.unreadable.saturating_add(1),
+            Outcome::Written(true) => census.conforming = census.conforming.saturating_add(1),
+            Outcome::Written(false) => census.converted = census.converted.saturating_add(1),
+            Outcome::Stopped(stopped) => census.stopped.push(stopped),
+            Outcome::Failed(document, said) => census.failed.push((document, said)),
+        }
+    }
+    census
+}
+
+/// Converts every document under `part` to `target` under one shipped profile.
 fn profile_sweep(
     root: &Path,
     part: &str,
     target: Target,
     shipped: &pdf_transform::profiles::Shipped,
 ) -> UnderProfile {
-    let mut census = UnderProfile::default();
-    let contribution = pdf_transform::profiles::Contribution::read(shipped.text, target)
-        .expect("a shipped profile reads for every target");
-    for path in documents(root, part) {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(document) = Document::open_with_limits(bytes.clone(), Limits::DEFAULT) else {
-            census.unreadable = census.unreadable.saturating_add(1);
-            continue;
-        };
-        let conformed = pdf_archive::check(&document, target).verdict() == Verdict::Conforms;
-        drop(document);
-        let sinks = MemorySinks::new();
-        let report = apply(
-            &Plan::Archive(ArchivePlan {
-                source: 0,
-                names: "out.pdf".parse().expect("a pattern"),
-                target,
-                authorised: contribution.authorised,
-                profile: None,
-                substitute_fonts: true,
-                supplied_fonts: BTreeMap::new(),
-                departures: contribution.departures.clone(),
-                claim_conformance: false,
-                forms: contribution.forms,
-                derivations: contribution.derivations.clone(),
-                supplies: contribution.supplies.clone(),
-                preservations: contribution.preservations.clone(),
-                resolutions: contribution.resolutions.clone(),
-                tool_outputs: ToolOutputs::new(),
-                external_data: BTreeMap::new(),
-            }),
-            &[Source::new(bytes)],
-            &sinks,
-            &Policy::default(),
-            &Budget::default(),
-        );
-        let report = report.unwrap_or_else(|refusal| {
-            panic!(
-                "{}: the conversion errored rather than refusing: {refusal}",
-                path.display()
-            )
-        });
-        if sinks.into_outputs().pop().is_some() {
-            if conformed {
-                census.conforming = census.conforming.saturating_add(1);
-            } else {
-                census.converted = census.converted.saturating_add(1);
-            }
-            continue;
+    sweep_under(&documents(root, part), target, shipped, None)
+}
+
+/// Prints one census: its counts, then every refusing requirement by how many documents it
+/// stopped, with their names.
+fn print_refusals(label: &str, census: &UnderProfile) {
+    println!(
+        "{label}: {} failing documents converted, {} conforming, {} refused, {} unreadable",
+        census.converted,
+        census.conforming,
+        census.stopped.len(),
+        census.unreadable
+    );
+    let mut by_reason: BTreeMap<(&str, &str, &str), Vec<&str>> = BTreeMap::new();
+    for stopped in &census.stopped {
+        for (site, kind, why) in &stopped.at {
+            by_reason
+                .entry((site, kind, why.as_str()))
+                .or_default()
+                .push(&stopped.document);
         }
-        let conversion = report.archive.as_ref().expect("a conversion is reported");
-        let mut at: Vec<_> = conversion
-            .decided
-            .iter()
-            .filter_map(|decided| {
-                kind_of_no(&decided.decision).map(|(kind, why)| (decided.requirement, kind, why))
-            })
-            .collect();
-        // A conversion whose every decision was carried out and whose output the validator still
-        // fails is refused by the second verdict (`doc/adr/0947`), which names the requirement.
-        if at.is_empty()
-            && let Some(achieved) = &conversion.achieved
-        {
-            let mut named: Vec<&'static str> = achieved
-                .still_failing
-                .iter()
-                .chain(&achieved.regressions)
-                .copied()
-                .collect();
-            named.sort_unstable();
-            named.dedup();
-            for requirement in named {
-                at.push((
-                    requirement,
-                    "output-fails",
-                    "the output is held to the target again and still fails it".to_owned(),
-                ));
-            }
+        if stopped.at.is_empty() {
+            by_reason
+                .entry(("-", "no-decision", "-"))
+                .or_default()
+                .push(&stopped.document);
         }
-        census.stopped.push(Stopped {
-            document: named(&path),
-            at,
-        });
     }
-    census
+    let mut ranked: Vec<_> = by_reason.into_iter().collect();
+    ranked.sort_by_key(|(key, documents)| (std::cmp::Reverse(documents.len()), *key));
+    for ((site, kind, why), documents) in ranked {
+        println!("    {:>4} {kind:<14} {site}: {why}", documents.len());
+        println!("         {}", documents.join(", "));
+    }
+    for (document, said) in &census.failed {
+        println!("    {document}: {said}");
+    }
 }
 
 /// **Every refusal the corpus still meets under the two shipped lower-bound profiles, by site and
@@ -599,36 +699,75 @@ fn the_shipped_profiles_list_every_refusal_by_site_and_reason() {
         let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
         for (part, target) in TARGETS {
             let census = profile_sweep(&root, part, target, shipped);
-            println!(
-                "profile {name} {target}: {} failing documents converted, {} conforming, {} \
-                 refused, {} unreadable",
-                census.converted,
-                census.conforming,
-                census.stopped.len(),
-                census.unreadable
+            print_refusals(&format!("profile {name} {target}"), &census);
+            assert!(
+                census.failed.is_empty(),
+                "the conversion errored or panicked rather than refusing: {:?}",
+                census.failed
             );
-            let mut by_reason: BTreeMap<(&str, &str, &str), Vec<&str>> = BTreeMap::new();
-            for stopped in &census.stopped {
-                for (site, kind, why) in &stopped.at {
-                    by_reason
-                        .entry((site, kind, why.as_str()))
-                        .or_default()
-                        .push(&stopped.document);
-                }
-                if stopped.at.is_empty() {
-                    by_reason
-                        .entry(("-", "no-decision", "-"))
-                        .or_default()
-                        .push(&stopped.document);
-                }
-            }
-            let mut ranked: Vec<_> = by_reason.into_iter().collect();
-            ranked.sort_by_key(|(key, documents)| (std::cmp::Reverse(documents.len()), *key));
-            for ((site, kind, why), documents) in ranked {
-                println!("    {:>4} {kind:<14} {site}: {why}", documents.len());
-                println!("         {}", documents.join(", "));
+        }
+    }
+}
+
+/// The two targets a document nobody wrote for PDF/A is swept against: each part's lowest level,
+/// which is what the printing profile's rule is about.
+const REAL_TARGETS: [Target; 2] = [Target::Two(Level::B), Target::Four(Flavour::Plain)];
+
+/// **What real producers' files refuse on under the two shipped profiles** (`doc/todo/72`).
+///
+/// The veraPDF corpus is files built to fail one clause each; the owner's rule — every viewable
+/// document converts at least under the printing profile — is about the files people have. So
+/// this sweeps pdf.js's test documents and `doc/corpora`'s four collections at each part's lowest
+/// level, and prints what the veraPDF census prints: the counts, and every requirement that
+/// refused, with its documents. A document this tree does not open is counted as unreadable — it
+/// is not viewable, and no profile answers it; a document the verb declines as a source is printed
+/// with the verb's sentence, and one it panics on as `PANICKED`, a converter defect (trap 5,
+/// trap 11).
+#[test]
+#[ignore = "needs doc/pdf.js and doc/corpora, which are not part of a checkout"]
+fn the_shipped_profiles_list_what_real_producers_files_refuse_on() {
+    let doc = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc");
+    let corpora: Vec<(&str, Vec<PathBuf>)> = ["pdf.js", "corpora"]
+        .into_iter()
+        .map(|name| (name, documents(&doc, name)))
+        .filter(|(_, paths)| !paths.is_empty())
+        .collect();
+    if corpora.is_empty() {
+        println!("neither doc/pdf.js nor doc/corpora is here; nothing to sweep");
+        return;
+    }
+    for name in ["as-if-printed", "as-shown"] {
+        let shipped = pdf_transform::profiles::named(name).expect("a shipped profile");
+        for target in REAL_TARGETS {
+            for (corpus, paths) in &corpora {
+                let census = sweep_under(paths, target, shipped, None);
+                print_refusals(&format!("{corpus} profile {name} {target}"), &census);
             }
         }
+    }
+}
+
+/// **What the operator's press profile answers of the colour-family refusals** (`doc/adr/2130`).
+///
+/// No shipped profile can name a press, so the census above leaves every `DeviceCMYK` beside a
+/// destination profile of another family refused. This sweeps the veraPDF corpus under the
+/// printing profile with the shipped press profile supplied as `--output-intent-profile` would
+/// supply an operator's, and prints the same census: the colour rows it no longer lists are the
+/// ones a supply answers, and any it still lists say why not.
+#[test]
+#[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
+fn a_supplied_press_profile_answers_the_colour_family_refusals() {
+    let Some(root) = corpus() else {
+        println!("doc/veraPDF-corpus is not here; nothing to sweep");
+        return;
+    };
+    let press: std::sync::Arc<[u8]> =
+        include_bytes!("../../../data/icc/GRACoL2006_Coated1v2.icc")[..].into();
+    let shipped = pdf_transform::profiles::named("as-if-printed").expect("a shipped profile");
+    for (part, target) in TARGETS {
+        let census = sweep_under(&documents(&root, part), target, shipped, Some(&press));
+        print_refusals(&format!("press profile as-if-printed {target}"), &census);
+        assert!(census.failed.is_empty(), "{:?}", census.failed);
     }
 }
 

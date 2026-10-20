@@ -391,7 +391,7 @@ fn drawn_apart(
         .rasterize(&apart, target)
         .expect("the marks draw on the page");
     let in_window = rasteriser
-        .rasterize(&apart, window.target_of(target))
+        .rasterize_window(&apart, target, window.shown())
         .expect("the marks draw in the window");
     let level = |raster: &Raster, (column, row): (u32, u32)| -> [u8; 4] {
         let at = u64::from(row)

@@ -18,10 +18,11 @@
 #
 # **Every band is `launch-path.toml`'s clock rule over three runs of the gate in one hold**: the
 # smallest of the three × 0.85 to the largest × 1.20, rounded outward to a tenth of a millisecond
-# (ADR 1969's method). The three are written above each band. They were taken on 2026-10-20 in one
-# `--clock` hold at a one-minute load of 9.1 to 10.4, interleaved with three runs of HEAD's export
-# measured by the same harness (`TOOLKIT_LAUNCH_BINARY`), whose minima fell inside every band
-# below; each window's gate then ran once more on each export against these bands and exited 0.
+# (ADR 1969's method). The runs are written above each band: four of the GTK window
+# and three of the Qt window, taken on 2026-10-22 in one `--clock` hold at a one-minute load of 2.95
+# to 3.21, two runs of the tree interleaved with two of HEAD's export measured by the same harness
+# (`TOOLKIT_LAUNCH_BINARY`); HEAD and the tree read alike, and the first bands, taken at a load of 9.1
+# to 10.4, had put the device page's floor above what the same programs read at a third of that load.
 #
 # **What the device lane costs, read from the two lanes' rows together** (ADR 2124): on Qt the
 # window is 4 to 9 ms later on the device lane — its thread waits on the dynamic loader's lock
@@ -34,34 +35,34 @@
 
 [[window]]
 name = "quorra-gtk"
-# 73.0, 70.0, 74.0
-device_window_ms = 59.5 .. 88.8
-# 28.4, 27.9, 29.0
-device_up_ms = 23.7 .. 34.8
-# 8.9, 8.7, 8.6
-device_page_one_ms = 7.3 .. 10.7
-# 91.2, 87.2, 91.8
-device_first_frame_ms = 74.1 .. 110.2
-# 81.0, 81.0, 83.0
-processor_window_ms = 68.8 .. 99.6
-# 2.2, 2.2, 2.2
-processor_page_one_ms = 1.8 .. 2.7
-# 90.7, 90.7, 93.5
-processor_first_frame_ms = 77.0 .. 112.2
+# 71.0, 69.0, 70.0, 70.0
+device_window_ms = 58.6 .. 85.2
+# 29.4, 28.1, 28.3, 28.1
+device_up_ms = 23.8 .. 35.3
+# 7.6, 7.5, 7.2, 7.5
+device_page_one_ms = 6.1 .. 9.2
+# 87.2, 85.9, 86.2, 86.0
+device_first_frame_ms = 73.0 .. 104.7
+# 81.0, 78.0, 78.0, 78.0
+processor_window_ms = 66.3 .. 97.2
+# 2.1, 2.3, 2.2, 2.1
+processor_page_one_ms = 1.7 .. 2.8
+# 91.1, 87.4, 87.9, 88.7
+processor_first_frame_ms = 74.2 .. 109.4
 
 [[window]]
 name = "quorra-qt"
-# 76.0, 76.0, 75.0
-device_window_ms = 63.7 .. 91.2
-# 42.0, 42.9, 42.0
-device_up_ms = 35.6 .. 51.5
-# 8.7, 8.1, 8.3
-device_page_one_ms = 6.8 .. 10.5
-# 93.9, 91.1, 91.3
-device_first_frame_ms = 77.4 .. 112.7
-# 69.0, 72.0, 71.0
-processor_window_ms = 58.6 .. 86.4
-# 2.2, 2.3, 2.1
+# 68.0, 67.0, 68.0
+device_window_ms = 56.9 .. 81.6
+# 38.5, 37.2, 38.8
+device_up_ms = 31.6 .. 46.6
+# 7.0, 7.0, 7.0
+device_page_one_ms = 5.9 .. 8.4
+# 82.9, 81.3, 82.5
+device_first_frame_ms = 69.1 .. 99.5
+# 63.0, 63.0, 64.0
+processor_window_ms = 53.5 .. 76.8
+# 2.2, 2.1, 2.3
 processor_page_one_ms = 1.7 .. 2.8
-# 76.2, 80.0, 79.8
-processor_first_frame_ms = 64.7 .. 96.0
+# 70.3, 70.4, 72.3
+processor_first_frame_ms = 59.7 .. 86.8

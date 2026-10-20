@@ -813,3 +813,198 @@ fn a_step_after_a_walk_with_line_makers_keeps_their_runs() {
         .expect("the frame must draw");
     assert_eq!(pixels(stepped), pixels(fresh));
 }
+
+/// A view of [`kept_line_page`] that puts most of the page off the target, so its walk culls lines.
+fn zoomed() -> raster_gpu::Viewport<'static> {
+    raster_gpu::Viewport::full(
+        viewport().width,
+        viewport().height,
+        Affine {
+            a: 2.5,
+            b: 0.0,
+            c: 0.0,
+            d: 2.5,
+            e: -300.0,
+            f: -20.0,
+        },
+    )
+}
+
+/// **The idle build of a window opened zoomed keeps the page's lines, and the step from it takes
+/// them in runs** (viewer ADR 2134): under both lanes a first frame that culls keeps nothing, the
+/// idle build at its view walks every line, draws the first frame's pixels and leaves a replay of
+/// that view drawing them too, and a step from it keeps every line, sends none of the stream and
+/// draws what a fresh device draws there. Asked again, it builds nothing.
+#[test]
+fn the_idle_build_of_a_window_opened_zoomed_keeps_the_lines_for_the_step() {
+    for coverage in [Coverage::Cpu, Coverage::Compute] {
+        let mut device = device();
+        device.set_coverage(coverage);
+        let mut retained = RetainedScene::new(kept_line_page(&mut device));
+        let first = retained_frame(
+            &mut device,
+            &mut retained,
+            &zoomed(),
+            EncodeSource::Encoded,
+            "first frame",
+        );
+        let first_counters = first.counters();
+        assert!(
+            first_counters.commands_culled > 0,
+            "{coverage:?}: the view culls"
+        );
+        assert!(retained.wants_whole_walk(), "{coverage:?}: it kept nothing");
+        let first_pixels = pixels(first);
+        let whole = device
+            .build_whole(&mut retained, &zoomed(), Target::Readback)
+            .expect("the idle build draws")
+            .expect("a frame that culled is built whole");
+        let whole_lines = whole.counters().lanes.line;
+        assert!(
+            whole_lines > first_counters.lanes.line,
+            "{coverage:?}: the idle build culls no line"
+        );
+        assert_eq!(
+            pixels(whole),
+            first_pixels,
+            "{coverage:?}: the idle build draws the frame it repeats"
+        );
+        assert!(!retained.wants_whole_walk(), "{coverage:?}");
+        assert!(
+            device
+                .build_whole(&mut retained, &zoomed(), Target::Readback)
+                .expect("asked again")
+                .is_none(),
+            "{coverage:?}: a view whose encode keeps its runs is not built again"
+        );
+        let replayed = retained_frame(
+            &mut device,
+            &mut retained,
+            &zoomed(),
+            EncodeSource::Replayed,
+            "the view the idle build was made at replays it",
+        );
+        assert_eq!(pixels(replayed), first_pixels, "{coverage:?}");
+        let at = raster_gpu::Viewport::full(
+            viewport().width,
+            viewport().height,
+            Affine {
+                a: 3.0,
+                b: 0.0,
+                c: 0.0,
+                d: 3.0,
+                e: -380.0,
+                f: -40.0,
+            },
+        );
+        let stepped = retained_frame(
+            &mut device,
+            &mut retained,
+            &at,
+            EncodeSource::Encoded,
+            "a new view is a new encode",
+        );
+        let counters = stepped.counters();
+        assert_eq!(counters.lines_kept, whole_lines, "{coverage:?}");
+        assert_eq!(counters.uploads.line_instances, 0, "{coverage:?}");
+        let mut fresh_device = device_with(&Options::default());
+        fresh_device.set_coverage(coverage);
+        let scene = kept_line_page(&mut fresh_device);
+        let fresh = fresh_device
+            .render(&scene, &at, Target::Readback)
+            .expect("the frame must draw");
+        assert_eq!(
+            pixels(stepped),
+            pixels(fresh),
+            "{coverage:?}: the step draws what a fresh device draws at its view"
+        );
+    }
+}
+
+/// **The idle build is declined once where it would keep nothing**: a line inside a group keeps no
+/// runs at any view, and streams past the residency budget would be sent every frame, so the held
+/// encode stays — a replay of its view still replays — and the scene is not built whole again.
+#[test]
+fn the_idle_build_is_declined_once_where_it_would_keep_nothing() {
+    // Past the budget: one byte resident, which no stream fits.
+    let mut tight = device_with(&Options {
+        max_resident_bytes: 1,
+        ..Options::default()
+    });
+    let mut retained = RetainedScene::new(kept_line_page(&mut tight));
+    retained_frame(
+        &mut tight,
+        &mut retained,
+        &zoomed(),
+        EncodeSource::Encoded,
+        "first frame",
+    );
+    assert!(retained.wants_whole_walk());
+    let built = tight
+        .build_whole(&mut retained, &zoomed(), Target::Readback)
+        .expect("the idle build is asked");
+    assert!(built.is_none(), "the whole stream is past the budget");
+    assert!(!retained.wants_whole_walk(), "and is not asked again");
+    retained_frame(
+        &mut tight,
+        &mut retained,
+        &zoomed(),
+        EncodeSource::Replayed,
+        "the held encode stays",
+    );
+
+    // A line inside a group.
+    let mut device = device();
+    let mut builder = SceneBuilder::new();
+    let line = |builder: &mut SceneBuilder, y: f32| {
+        builder.line(
+            (Point::new(10.0, y), Point::new(600.0, y + 5.0)),
+            Affine::IDENTITY,
+            (1.0, false),
+            LineCap::Butt,
+            Color::new(0.2, 0.3, 0.7, 1.0),
+            None,
+            None,
+        )
+    };
+    line(&mut builder, 20.0).unwrap();
+    line(&mut builder, 400.0).unwrap();
+    builder
+        .group(
+            GroupSpec {
+                alpha: 0.5,
+                blend: BlendMode::Normal,
+                clip: None,
+                knockout: false,
+                mask: None,
+                isolated: true,
+                compose: Compose::SrcOver,
+            },
+            |inside| line(inside, 60.0),
+        )
+        .unwrap();
+    let mut retained = RetainedScene::new(builder.finish());
+    retained_frame(
+        &mut device,
+        &mut retained,
+        &viewport(),
+        EncodeSource::Encoded,
+        "first frame",
+    );
+    assert!(retained.wants_whole_walk());
+    assert!(
+        device
+            .build_whole(&mut retained, &viewport(), Target::Readback)
+            .expect("the idle build is asked")
+            .is_none(),
+        "a line in a group keeps nothing"
+    );
+    assert!(!retained.wants_whole_walk());
+    retained_frame(
+        &mut device,
+        &mut retained,
+        &viewport(),
+        EncodeSource::Replayed,
+        "the held encode stays",
+    );
+}

@@ -3,8 +3,8 @@ NOTICE
 
 This program is licensed under the Apache License, Version 2.0; see LICENSE. It also *contains*
 third-party material, and both licences below oblige a binary distribution to carry their notices
-with it. This file is that carrying, `pdf-viewer --licences` prints it, and `?` puts it on the
-screen in every window this project ships — pdf-viewer, pdf-viewer-gtk and pdf-viewer-qt.
+with it. This file is that carrying, `quorra --licences` prints it, and `?` puts it on the
+screen in quorra, quorra-gtk and quorra-qt.
 
 The Apache License asks for this file by name: section 4(d) obliges a redistribution of a work
 that carries a NOTICE text file to pass that file on. So this one is required twice over — once

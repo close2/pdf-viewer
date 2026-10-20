@@ -474,25 +474,7 @@ impl FrameSlot {
         cost.scene_kept = !rebuilt;
 
         let submitted = std::time::Instant::now();
-        // For a baked scene the target transform is inside every command
-        // (`Encoder::placed`) and the viewport is identity. For a page-space scene
-        // (ADR 0702) the viewport IS the placement — which is what lets a view-free
-        // scene survive a zoom: same scene, new affine, raster re-encodes and nothing
-        // here rebuilds or re-uploads anything.
-        let viewport = if held.page_space {
-            raster_gpu::Viewport::full(
-                frame.width,
-                frame.height,
-                crate::scene::affine(
-                    frame
-                        .pages
-                        .first()
-                        .map_or(Transform::IDENTITY, |(_, target)| target.transform),
-                ),
-            )
-        } else {
-            raster_gpu::Viewport::full(frame.width, frame.height, raster_scene::Affine::IDENTITY)
-        };
+        let viewport = viewport_of(held.page_space, frame);
         let rendered = device.render_retained(&mut held.scene, &viewport, into);
         cost.device = submitted.elapsed();
         cost.retained_bytes = held.scene.retained_bytes();
@@ -622,6 +604,46 @@ impl FrameSlot {
         Ok((held, rebuilt))
     }
 
+    /// The idle build of the scene held for `frame` (ADR 2134): its encode walked again at
+    /// `frame`'s view with no line culled and drawn into `into`, so that the next view of the
+    /// scene keeps its lines (`raster_gpu::Device::build_whole`). Fills `cost`'s device figures
+    /// where it drew, and answers the frame it drew: none where the held scene is not `frame`'s, nor
+    /// where raster says the next view would gain nothing.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device refused, as [`Self::render`].
+    pub(crate) fn build_whole(
+        &mut self,
+        device: &mut raster_gpu::Device,
+        medium: Option<Medium>,
+        frame: &PresentFrame<'_>,
+        into: raster_gpu::Target<'_>,
+        cost: &mut FrameCost,
+    ) -> Result<Option<raster_gpu::Frame>, QuorraRasterError> {
+        let key = SceneKey::of(frame, medium, &mut self.rasters);
+        let Some(held) = self.held.as_mut().filter(|held| held.draws(frame, &key)) else {
+            return Ok(None);
+        };
+        let viewport = viewport_of(held.page_space, frame);
+        let submitted = std::time::Instant::now();
+        let drawn = device.build_whole(&mut held.scene, &viewport, into)?;
+        cost.device = submitted.elapsed();
+        cost.retained_bytes = held.scene.retained_bytes();
+        if let Some(drawn) = drawn.as_ref() {
+            cost.read(drawn, &mut Vec::new());
+        }
+        Ok(drawn)
+    }
+
+    /// Whether the held scene's encode would give the next view more from the idle build than it
+    /// gives now (`raster_gpu::RetainedScene::wants_whole_walk`).
+    pub(crate) fn wants_whole_walk(&self) -> bool {
+        self.held
+            .as_ref()
+            .is_some_and(|held| held.scene.wants_whole_walk())
+    }
+
     /// Builds the scene `frame` asks for where the one held would not draw it, and draws nothing:
     /// the next frame of these pages at a view the scene is true at then keeps it (ADR 1898).
     /// Answers whether it built.
@@ -663,6 +685,29 @@ impl FrameSlot {
             release_all(device, previous.transient, &mut release_error);
         }
         release_error.map_or(Ok(()), |error| Err(error.into()))
+    }
+}
+
+/// The viewport a held scene draws `frame` at.
+///
+/// For a baked scene the target transform is inside every command (`Encoder::placed`) and the
+/// viewport is identity. For a page-space scene (ADR 0702) the viewport IS the placement — which is
+/// what lets a view-free scene survive a zoom: same scene, new affine, raster re-encodes and
+/// nothing here rebuilds or re-uploads anything.
+fn viewport_of(page_space: bool, frame: &PresentFrame<'_>) -> raster_gpu::Viewport<'static> {
+    if page_space {
+        raster_gpu::Viewport::full(
+            frame.width,
+            frame.height,
+            crate::scene::affine(
+                frame
+                    .pages
+                    .first()
+                    .map_or(Transform::IDENTITY, |(_, target)| target.transform),
+            ),
+        )
+    } else {
+        raster_gpu::Viewport::full(frame.width, frame.height, raster_scene::Affine::IDENTITY)
     }
 }
 
@@ -1230,6 +1275,53 @@ impl QuorraWindowRenderer {
         cost.scene_kept = !built;
         cost.total = began.elapsed();
         Ok(cost)
+    }
+
+    /// The idle build (ADR 2134): where the page's held scene is `frame`'s and its encode culled a
+    /// line, so that the next view of the page walks its lines again, the page walked again at
+    /// `frame`'s view culling none and drawn into `into` — which must be [`Self::layer_texture`]'s,
+    /// `frame.width` by `frame.height` — and kept in the held encode's place, so that every later
+    /// view takes its lines in runs from a stream already on the device (ADR 2056). Answers what
+    /// it cost, or `None` where nothing was built; [`Self::last_frame`] stays the last frame's.
+    ///
+    /// For a host's idle time, never its launch path: on the owner's witness at a window opened at
+    /// 2.4 times the fit it sends 264 MB where the window's frame sent 26.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device refused.
+    pub fn build_whole(
+        &mut self,
+        frame: PresentFrame<'_>,
+        into: &raster_gpu::wgpu::Texture,
+    ) -> Result<Option<FrameCost>, QuorraRasterError> {
+        let began = std::time::Instant::now();
+        let mut cost = FrameCost::default();
+        if frame.width == 0 || frame.height == 0 || frame.raster.is_some() {
+            return Ok(None);
+        }
+        let drew = self.page.slot.build_whole(
+            &mut self.device,
+            Some(self.medium),
+            &PresentFrame {
+                overlays: &[],
+                ..frame
+            },
+            raster_gpu::Target::Texture(into),
+            &mut cost,
+        )?;
+        cost.scene_kept = true;
+        cost.total = began.elapsed();
+        Ok(drew.map(|_| cost))
+    }
+
+    /// Whether [`Self::build_whole`] would build anything of the page drawn last: its encode culled
+    /// a line, or met one it could not keep, and the idle build has not already been refused for
+    /// its scene. Asked by a host before it waits for stillness, so that a page whose next view
+    /// keeps its lines already costs it no wait.
+    #[must_use]
+    pub fn page_wants_whole_walk(&self) -> bool {
+        self.page.slot.wants_whole_walk()
     }
 
     /// A texture this device can render a window layer into **and** sample afterwards.

@@ -82,6 +82,10 @@ fn answer(request: &protocol::Request<'_>, admitted: u64) -> Vec<u8> {
         protocol::Request::Ccitt { data, parameters } => {
             decode::ccitt(data, *parameters).map(Decoded::Bilevel)
         }
+        protocol::Request::Dct {
+            samples,
+            parameters,
+        } => crate::encode::dct(samples, *parameters).map(Decoded::Dct),
     };
     match decoded {
         Ok(decoded) => protocol::encode_response(&decoded),

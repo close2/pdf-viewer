@@ -1448,7 +1448,7 @@ pub fn rasterise_window(
         return Err(Status::OutOfRange);
     }
     CpuRasterizer::new()
-        .rasterize(&request.list, window.target_of(request.target))
+        .rasterize_window(&request.list, request.target, window.shown())
         .map_err(|_| Status::RenderRefused)
 }
 

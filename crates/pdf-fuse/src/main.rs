@@ -1,7 +1,7 @@
-//! `pdffs <file.pdf> <mountpoint>` — RFC 0003 section 7's FUSE face, as a program.
+//! `quorrafs <file.pdf> <mountpoint>` — RFC 0003 section 7's FUSE face, as a program.
 //!
 //! ```text
-//! pdffs doc.pdf mnt/            # mount, in the foreground
+//! quorrafs doc.pdf mnt/         # mount, in the foreground
 //! ls mnt/pages/                 # one extractable single-page PDF per page
 //! cp mnt/pages/0007.pdf ~/      # `cp` *is* page extraction
 //! fusermount3 -u mnt/           # done
@@ -193,7 +193,7 @@ fn main() -> std::process::ExitCode {
     match run(&arguments) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(why) => {
-            eprintln!("pdffs: {why}");
+            eprintln!("quorrafs: {why}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -228,14 +228,14 @@ fn run(arguments: &Arguments) -> Result<(), String> {
     };
     let face = Arc::new(Face::new(
         vfs,
-        Box::new(move |sentence: &str| eprintln!("pdffs: {named}: {sentence}")),
+        Box::new(move |sentence: &str| eprintln!("quorrafs: {named}: {sentence}")),
     ));
 
     // `fuser::Config` is `#[non_exhaustive]`, so it is built from its default and then stated
     // field by field — which is also what keeps a new field of theirs from becoming ours.
     let mut config = fuser::Config::default();
     config.mount_options = vec![
-        MountOption::FSName(String::from("pdffs")),
+        MountOption::FSName(String::from("quorrafs")),
         MountOption::Subtype(String::from("pdf")),
         // A mount of a document holds no executable and no device node, and the kernel is where
         // that is enforced rather than per file.
@@ -264,7 +264,7 @@ fn run(arguments: &Arguments) -> Result<(), String> {
         let face = Arc::clone(&face);
         let stop = Arc::clone(&stop);
         std::thread::Builder::new()
-            .name(String::from("pdffs-invalidate"))
+            .name(String::from("quorrafs-invalidate"))
             .spawn(move || watch(&face, &notifier, &stop))
             .map_err(|why| format!("the invalidation thread could not be started: {why}"))?
     };

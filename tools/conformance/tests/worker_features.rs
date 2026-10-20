@@ -7,15 +7,23 @@
 //! # What it guards
 //!
 //! **Cargo unifies a package's features over every package a build selects** (resolver 2 and
-//! later), and `tools/batch.sh install` builds `pdf-sandbox-worker` with `cargo build --release
-//! --bin …` and no `-p`, which in this virtual workspace selects every member. So a feature another
-//! member turns on in a dependency the worker shares is in the worker's copy too. That is not
+//! later), and `cargo build --release --bin …` with no `-p` selects every member of this virtual
+//! workspace. So a feature another member turns on in a dependency the worker shares is in the
+//! worker's copy too, wherever the worker is built in the same run as the programs. That is not
 //! hypothetical: `tools/hayro-compare`'s `hayro` turns on `hayro-syntax`'s `unsafe` feature, which
 //! turns on `hayro-jbig2/simd`, and with `hayro-jbig2` taken from crates.io the worker's decoder of
 //! untrusted JBIG2 bytes was built with `fearless_simd, simd, std` where its stanza asks for `std`
 //! and `default-features = false` — the one `unsafe` that stanza exists to leave out (principle 3,
 //! ADR 1714). Taken from a git source it is a different package from the reference renderer's copy,
 //! and gets `std`; nothing but this check says so the day a stanza moves.
+//!
+//! **So the worker is built alone.** The DCT encoder brought `bytemuck` into the worker's graph
+//! (ADR 2138), and the windows' graph turns on five of its features — `derive` and
+//! `extern_crate_alloc` among them — that no stanza of the worker asks for; no git source makes
+//! that a different package. `tools/batch.sh install` and CI's release build therefore build
+//! `pdf-sandbox-worker` in a Cargo run that selects `pdf-sandbox` and nothing else, and this file
+//! holds both lines, the resolution that run makes, and a census of what a whole-workspace build
+//! would add — printed, because it is the reason for the separate run rather than a defect.
 //!
 //! # The instrument, and why it is not the unit graph
 //!
@@ -172,7 +180,7 @@ fn inherited(own: &BTreeMap<String, BTreeSet<String>>, shipped: &str) -> Vec<Str
                 .unwrap_or_default();
             (!extra.is_empty()).then(|| {
                 format!(
-                    "{package}: the build that ships the worker turns on {} beyond the worker's own {:?}",
+                    "{package}: the resolution read turns on {} beyond the worker's own {:?}",
                     extra
                         .iter()
                         .map(|feature| feature.as_str())
@@ -233,9 +241,7 @@ fn the_readers_take_the_codecs_and_leave_the_rest() {
     );
     assert_eq!(
         inherited(&units, "codec v1.0.0|simd,std\ninner v2.0.0|alloc (*)\n"),
-        [
-            "codec v1.0.0: the build that ships the worker turns on simd beyond the worker's own {\"std\"}"
-        ]
+        ["codec v1.0.0: the resolution read turns on simd beyond the worker's own {\"std\"}"]
     );
 }
 
@@ -282,11 +288,55 @@ fn the_shipped_worker_inherits_no_feature_another_member_turns_on() {
         "a planted `hayro-jbig2/simd` was not named as itself: {planted:?}"
     );
 
-    let found = inherited(&own, &tree(&["--workspace"], "none", true));
+    let shipped = inherited(&own, &tree(&["-p", "pdf-sandbox"], "none", true));
     assert!(
-        found.is_empty(),
-        "the worker's decoders are built with features its own manifest does not ask for when the \
-         build selects the whole workspace, as `tools/batch.sh install` does:\n{}",
-        found.join("\n")
+        shipped.is_empty(),
+        "the worker built alone carries features its own manifest does not ask for:\n{}",
+        shipped.join("\n")
     );
+    for line in inherited(&own, &tree(&["--workspace"], "none", true)) {
+        println!("a whole-workspace build would add, and the separate run keeps out: {line}");
+    }
+}
+
+/// **The two builds that ship the worker build it alone** (ADRs 1714, 2138): `tools/batch.sh
+/// install` names it in `install_alone`, leaves it out of the programs' one invocation and builds
+/// it with `-p pdf-sandbox`, and CI's release build does the same. Read as text, because the
+/// property above is the resolution of exactly those lines and holds of no other build.
+#[test]
+fn the_builds_that_ship_the_worker_select_its_package_alone() {
+    let read = |path: &str| {
+        std::fs::read_to_string(repository_root().join(path)).expect("the file is in the tree")
+    };
+    let batch = read("tools/batch.sh");
+    let alone = batch
+        .lines()
+        .find_map(|line| line.strip_prefix("install_alone=\""))
+        .and_then(|rest| rest.split_once('"'))
+        .map(|(words, _)| words.split_whitespace().collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert!(
+        alone.contains(&"pdf-sandbox-worker:pdf-sandbox"),
+        "tools/batch.sh's install_alone does not name the worker and its package: {alone:?}"
+    );
+    for line in [
+        r#"for alone in $install_alone; do [ "$name" = "${alone%%:*}" ] && continue 2; done"#,
+        r#"cargo build --release -p "${entry#*:}" --bin "${entry%%:*}""#,
+    ] {
+        assert!(
+            batch.contains(line),
+            "tools/batch.sh install no longer builds the worker alone: `{line}` is gone"
+        );
+    }
+    let workflow = read(".github/workflows/ci.yml");
+    for line in [
+        r#"alone="pdf-sandbox-worker:pdf-sandbox""#,
+        r#"[ "$binary" = "${alone%%:*}" ] && continue"#,
+        r#"cargo build --release -p "${alone#*:}" --bin "${alone%%:*}""#,
+    ] {
+        assert!(
+            workflow.contains(line),
+            "CI's release build no longer builds the worker alone: `{line}` is gone"
+        );
+    }
 }

@@ -2033,8 +2033,9 @@ PY
 
     # Principle 2: a frame the graphics device refuses is drawn on the processor, "reported out
     # loud" — on the terminal and in the window's title, the channel `quorra` reports what a page
-    # could not draw through (ADR 1466). The two native windows draw no page through a graphics
-    # device, so there is nothing for one to refuse (doc/ui-boundary.md). The page is
+    # could not draw through (ADR 1466). The two native windows draw on the device as well and say
+    # a refusal in their own words, "drawn on the processor: …" (ADR 2070); this step reads
+    # `quorra`'s words alone, so it is not offered there. The page is
     # `drive-coverage.pdf`, whose coverage outgrows the device's scratch sheet (ADR 1478) — the
     # corpus's Type 3 cycle was the page once, and since `MAX_LIST_BYTES` bounds its list the device
     # draws it (ADR 1507).
@@ -2061,7 +2062,7 @@ PY
                 verdict 27-processor-fallback works "$seen"
             fi
         else
-            verdict 27-processor-fallback "not offered" "no page is drawn through a graphics device here"
+            verdict 27-processor-fallback "not offered" "this step reads quorra's words, not ADR 2070's"
         fi
     fi
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""

@@ -1267,6 +1267,87 @@ fn a_container_missing_a_field_outright_is_discarded_with_what_it_described() {
     );
 }
 
+/// Where a container holds a complete description beside an incomplete one, only the incomplete
+/// one goes, and with it only the properties nothing left describes (ADR 2131).
+#[test]
+fn an_incomplete_description_goes_and_the_complete_one_beside_it_stays() {
+    // A second schema description in the same bag, of a tools namespace, whose one property
+    // states no `pdfaProperty:category` — which ISO 19005-2 section 6.6.2.3.3's Table 4 requires
+    // and nothing in the file supplies. The first description is complete, so the properties of
+    // its namespace are still described once the second goes.
+    let tools = "<rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaSchema:schema>Tools</pdfaSchema:schema>\n\
+         <pdfaSchema:namespaceURI>http://example.invalid/ns/tools/</pdfaSchema:namespaceURI>\n\
+         <pdfaSchema:prefix>tl</pdfaSchema:prefix>\n\
+         <pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaProperty:name>Name</pdfaProperty:name>\n\
+         <pdfaProperty:valueType>Text</pdfaProperty:valueType>\n\
+         <pdfaProperty:description>the tool's name</pdfaProperty:description>\n\
+         </rdf:li></rdf:Seq></pdfaSchema:property>\n\
+         </rdf:li>";
+    let whole = container_packet("pdfaSchema", "pdfaProperty", "pdfaType", "pdfaField");
+    let packet = whole
+        .replace(
+            "</rdf:li></rdf:Bag></pdfaExtension:schemas>",
+            &format!("</rdf:li>\n{tools}</rdf:Bag></pdfaExtension:schemas>"),
+        )
+        .replace(
+            "</rdf:RDF>",
+            "<rdf:Description rdf:about=\"\" xmlns:mc=\"http://example.invalid/ns/machines/\" \
+             xmlns:pt=\"http://example.invalid/ns/part/\" \
+             xmlns:tl=\"http://example.invalid/ns/tools/\">\n\
+             <mc:Serial rdf:parseType=\"Resource\"><pt:Digits>42</pt:Digits></mc:Serial>\n\
+             <tl:Name>lathe</tl:Name>\n\
+             </rdf:Description>\n</rdf:RDF>",
+        );
+    let source = Conforming {
+        metadata: Packet::Stated(packet),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::MetadataProperty);
+    let (report, output) = convert(&source, target, authorised);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let removed: Vec<(&str, &str)> = conversion(&report)
+        .removed
+        .iter()
+        .map(|property| (property.spelled.as_str(), property.stated.as_str()))
+        .collect();
+    assert_eq!(
+        removed,
+        vec![
+            (
+                "pdfaExtension:schemas",
+                "the schema description of http://example.invalid/ns/tools/"
+            ),
+            ("tl:Name", "lathe"),
+        ]
+    );
+    let read = pdf_model::xmp::Xmp::parse(&document_packet(&output)).expect("it parses");
+    assert!(
+        read.value("http://www.aiim.org/pdfa/ns/extension/", "schemas")
+            .is_some(),
+        "the container stays"
+    );
+    assert!(
+        read.value("http://example.invalid/ns/machines/", "Serial")
+            .is_some(),
+        "and the property its complete description describes stays with it"
+    );
+    assert!(
+        read.value("http://example.invalid/ns/tools/", "Name")
+            .is_none()
+    );
+}
+
 #[test]
 fn a_form_xobjects_opi_and_postscript_passthrough_are_removed() {
     // ISO 19005-2 section 6.2.9.1 forbids /OPI on a form XObject, and forbids the two keys PDF
@@ -8645,6 +8726,49 @@ fn a_launch_action_goes_and_the_actions_behind_it_stay() {
 }
 
 #[test]
+fn a_trans_action_in_a_widgets_additional_actions_goes_at_part_four() {
+    // ISO 19005-4 section 6.6.1 forbids a `Trans` action by name, and section 6.6.3 admits a
+    // widget's `/AA` — so what goes is the action its `/Fo` names and nothing else. The shape is
+    // veraPDF's `6-6-1-t01-fail-m`: a field merged into its widget (§12.7.4.1), reached both from
+    // `/Fields` and from the page's `/Annots`, with the `/AA` written directly into it.
+    let source = Conforming {
+        page: "/Annots [7 0 R]".to_owned(),
+        catalog: "/AcroForm << /Fields [7 0 R] >>".to_owned(),
+        objects: vec![
+            "<< /S /Trans /Trans << /D 3 /Dm /V /M /O /S /Split >> >>".to_owned(),
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (b) /Rect [0 0 10 10] /F 4 \
+             /P 3 0 R /AA << /Fo 6 0 R >> /AP << /N << /On 8 0 R >> >> /AS /On >>"
+                .to_owned(),
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >> /Length 0 >>\nstream\n\nendstream"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, behaviour_authorised());
+    assert_eq!(
+        decision(&report, "actions/no-launch-multimedia-or-form-actions"),
+        Decision::Authorised {
+            loss: Loss::InteractiveBehaviour,
+            rewrite: Rewrite::ForbiddenActionRemoved,
+        }
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        !text.contains("/Trans"),
+        "the forbidden action is gone: {text}"
+    );
+    let removed = &conversion(&report).removed_actions;
+    assert_eq!(removed.len(), 1, "one action went: {removed:?}");
+    assert_eq!(removed[0].entry, "AA /Fo");
+    assert_eq!(removed[0].what, "a Trans action");
+}
+
+#[test]
 fn a_page_additional_actions_dictionary_goes_under_part_two_and_is_pruned_under_part_four() {
     // ISO 19005-2 section 6.5.2 forbids `/AA` on a page outright. ISO 19005-4 section 6.6.3
     // admits only §12.6.3's Table 197 annotation triggers there, and Table 198's `/O` is not one
@@ -13499,12 +13623,152 @@ fn a_group_blending_in_device_rgb_beside_a_cmyk_intent_takes_the_default_too() {
     is_icc_rgb(&document, &default_rgb(&document));
 }
 
+/// The shipped press profile, standing in for the one an operator supplies for their press.
+const PRESS: &[u8] = include_bytes!("../../../data/icc/GRACoL2006_Coated1v2.icc");
+
+/// A fixture whose own `OutputIntents` names the shipped sRGB profile, written as objects 6 and 7.
+fn with_its_own_rgb_intent(fixture: Conforming, page: &str, content: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in SRGB {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    Conforming {
+        catalog: "/OutputIntents [7 0 R]".to_owned(),
+        page: page.to_owned(),
+        objects: vec![
+            format!(
+                "<< /N 3 /Filter /ASCIIHexDecode /Length {} >> stream\n{hex}\nendstream",
+                hex.len()
+            ),
+            "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (sRGB) \
+             /DestOutputProfile 6 0 R >>"
+                .to_owned(),
+        ],
+        contents: Some((String::new(), content.as_bytes().to_vec())),
+        ..fixture
+    }
+    .build()
+}
+
+#[test]
+fn device_cmyk_beside_the_files_own_rgb_intent_asks_the_operator_for_the_press() {
+    // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a CMYK destination profile or a
+    // device independent DefaultCMYK, and section 6.2.3 lets the file state one profile — here
+    // its own RGB one. The licence left states a press nothing in the file names, so with nothing
+    // supplied the row is refused, and the sentence says what the operator can do (ADR 2130).
+    let source = with_its_own_rgb_intent(Conforming::default(), "", "0 0 0 1 k 0 0 10 10 re f");
+    let (report, output) = convert(
+        &source,
+        Target::Four(Flavour::Plain),
+        Authorisations::default(),
+    );
+    assert!(output.is_none(), "nothing is written");
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+    );
+    assert!(
+        sentence.contains("--output-intent-profile") && sentence.contains("DefaultCMYK"),
+        "the refusal names the remedy the operator holds: {sentence}"
+    );
+}
+
+#[test]
+fn a_supplied_press_profile_beside_the_files_own_rgb_intent_becomes_its_default_cmyk() {
+    // The same document with the press's profile supplied: it is written as an ICCBased
+    // DefaultCMYK, the producer's own RGB intent stays the only intent, and the statement is the
+    // operator's — in the report and in the file's own xmpMM:History (ADR 2130).
+    let source = with_its_own_rgb_intent(Conforming::default(), "", "0 0 0 1 k 0 0 10 10 re f");
+    let target = Target::Four(Flavour::Plain);
+    let (report, output) = convert_with_profile(&source, target, &PRESS.into());
+    let decided = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+    );
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("the default states an interpretation: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::SuppliedDefaultCmyk);
+    assert!(reinterprets.contains("you supplied"), "{reinterprets}");
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let recorded = conversion(&report)
+        .recorded
+        .as_ref()
+        .expect("the report names what was written into the history");
+    assert!(recorded.contains("operator"), "{recorded}");
+    let packet = String::from_utf8(document_packet(&output)).expect("the packet is UTF-8");
+    assert!(
+        packet.contains("the operator of this conversion supplied"),
+        "{packet}"
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let space = default_cmyk(&document);
+    let stream = document.resolve(space.get(1).expect("a profile stream"));
+    let stream = stream.as_stream().expect("a stream");
+    assert_eq!(document.get_key(&stream.dict, "N").as_integer(), Some(4));
+    assert_eq!(
+        document.decoded_stream_data(stream).as_deref(),
+        Some(PRESS),
+        "the profile is the one supplied, byte for byte"
+    );
+    let catalog = document.catalog().expect("a catalog");
+    let intents = document.get_key(&catalog, "OutputIntents");
+    assert_eq!(
+        intents.as_array().map(<[_]>::len),
+        Some(1),
+        "no second intent"
+    );
+}
+
+#[test]
+fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_takes_the_supplied_press() {
+    // ISO 19005-2 section 6.2.10 holds a group's CS to section 6.2.4, §11.6.6's Table 145 remaps a
+    // group's device space through the current resource dictionary's defaults and excludes a
+    // DeviceN one — so at part 2 the DeviceN default cannot answer this group, and the operator's
+    // press profile, written as an ICCBased DefaultCMYK, can (ADR 2130).
+    let source = with_its_own_rgb_intent(
+        Conforming::part_two(),
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "1 0 0 rg 0 0 10 10 re f",
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_profile(&source, target, &PRESS.into());
+    let decided = decision(
+        &report,
+        "graphics/transparency-group-colour-spaces-obey-the-colour-rules",
+    );
+    let Decision::Stated { rewrite, .. } = decided else {
+        panic!("the default states an interpretation: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::SuppliedDefaultCmyk);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "{}",
+        holds(&output, target).render()
+    );
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(default_cmyk(&document).len(), 2, "an ICCBased array");
+}
+
 #[test]
 fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_stays_refused() {
-    // The mirror has no such licence written: a DeviceN DefaultCMYK cannot remap a blending
-    // space, which Table 145 says shall not be DeviceN, and an ICC CMYK default would state a
-    // press this reader does not draw DeviceCMYK through. So no DefaultRGB is prepared — nothing
-    // draws in DeviceRGB beside an RGB intent — and the output's own verdict refuses the file.
+    // The mirror has no licence without a press: a DeviceN DefaultCMYK cannot remap a blending
+    // space, which Table 145 says shall not be DeviceN, and an ICC CMYK default states a press
+    // only the operator can name (ADR 2130). So no DefaultRGB is prepared — nothing draws in
+    // DeviceRGB beside an RGB intent — and the output's own verdict refuses the file.
     let source = Conforming {
         page: "/Group << /S /Transparency /CS /DeviceCMYK >>".to_owned(),
         contents: Some(paints_in_device_rgb()),

@@ -185,7 +185,7 @@ fn the_exemption_is_one_line_and_it_is_the_bridge() {
 /// the three lifts are. A seventh name appearing here is a change to a rule the project owner
 /// stated, and it belongs in an ADR rather than in a commit that widens this list.
 #[test]
-fn only_the_three_named_crates_in_the_tree_lift_the_denial() {
+fn only_the_named_crates_in_the_tree_lift_the_denial() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let Ok(entries) = std::fs::read_dir(&crates) else {
         println!("skipped: the crates directory is not readable from here");

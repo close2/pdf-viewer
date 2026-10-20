@@ -1204,7 +1204,7 @@ fn draw_window<R: DrawRequest>(
         });
     }
     WindowDrawn(
-        match rasteriser.rasterize(request.list(), window.target_of(request.target())) {
+        match rasteriser.rasterize_window(request.list(), request.target(), window.shown()) {
             Ok(raster) => Some(Rendered::Raster(raster)),
             Err(problem) if was_interrupted(&problem) => None,
             Err(problem) => Some(Rendered::Failed(problem.to_string())),

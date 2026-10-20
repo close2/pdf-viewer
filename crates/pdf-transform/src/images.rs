@@ -201,6 +201,10 @@ pub enum ImageFile {
     Pgm,
     /// §7.4.8's stream as it is.
     Jpeg,
+    /// Decoded, the RGB encoded again as baseline JPEG: `--format jpeg`, the explicit request the
+    /// owner's condition on the encoder asks for (`doc/questions/A01`, ADR 2138), and never the
+    /// route for a DCT image unless it was asked for — `--native` writes that one's own bytes.
+    JpegEncoded,
     /// §7.4.9's stream as it is.
     Jp2,
     /// An image's mask on its own grid, as an 8-bit grey PNG: the opacity each sample gives
@@ -219,7 +223,7 @@ impl ImageFile {
             Self::Png => "png",
             Self::Ppm => "ppm",
             Self::Pgm => "pgm",
-            Self::Jpeg => "jpg",
+            Self::Jpeg | Self::JpegEncoded => "jpg",
             Self::Jp2 => "jp2",
             Self::Mask => "mask.png",
             Self::MaskPgm => "mask.pgm",
@@ -231,6 +235,7 @@ impl ImageFile {
     pub fn decoded(format: ImageFormat) -> Self {
         match format {
             ImageFormat::Png => Self::Png,
+            ImageFormat::Jpeg { .. } => Self::JpegEncoded,
             ImageFormat::Ppm => Self::Ppm,
             ImageFormat::Pgm => Self::Pgm,
         }
@@ -240,7 +245,9 @@ impl ImageFile {
     #[must_use]
     pub fn mask(format: ImageFormat) -> Self {
         match format {
-            ImageFormat::Png => Self::Mask,
+            // A mask beside a JPEG is a PNG: the opacity is carried losslessly whatever the
+            // picture beside it was asked to lose.
+            ImageFormat::Png | ImageFormat::Jpeg { .. } => Self::Mask,
             ImageFormat::Ppm | ImageFormat::Pgm => Self::MaskPgm,
         }
     }

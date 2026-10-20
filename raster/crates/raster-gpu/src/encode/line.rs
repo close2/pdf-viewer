@@ -139,6 +139,12 @@ impl Unclipped {
         let ink = self.ink.intersection(admit);
         (!ink.is_empty()).then(|| LineInstance::under(&self.head, page_admit, ink))
     }
+
+    /// The instance under the same chain whatever the view admits of it, its box empty where the
+    /// view admits nothing: the idle build's, which culls no line (viewer ADR 2134).
+    pub(super) fn whole_under(&self, page_admit: Rect, admit: Rect) -> LineInstance {
+        LineInstance::under(&self.head, page_admit, self.ink.intersection(admit))
+    }
 }
 
 /// The box a closed-form line's ink lies in on the device under the view `view`, or `None` where
@@ -396,17 +402,24 @@ impl Encoder<'_> {
     /// **A culled line is a stream that is this view's**, so the encode keeps no runs for the next
     /// view, which walks the page again (`kept_lines`, ADR 2056). That is the price of a page's
     /// first frame in a window sending what the window shows rather than the page's whole stream:
-    /// on the owner's witness 26 MB against 264, which the frame would otherwise wait for.
+    /// on the owner's witness 26 MB against 264, which the frame would otherwise wait for. The idle
+    /// build culls nothing (`kept_lines`'s `Before::Whole`, viewer ADR 2134): it is the walk nobody
+    /// waits for, and the stream it writes is the one every later view keeps.
     pub(super) fn place_line(
         &mut self,
         unclipped: &Unclipped,
         (page_admit, admit): (Rect, Rect),
         mask_index: Option<u32>,
     ) -> Result<bool, RenderError> {
-        let Some(instance) = unclipped.under(page_admit, admit) else {
-            self.note_culled();
-            self.kept_build.whole = false;
-            return Ok(false);
+        let instance = if self.before.culls() {
+            let Some(instance) = unclipped.under(page_admit, admit) else {
+                self.note_culled();
+                self.kept_build.whole = false;
+                return Ok(false);
+            };
+            instance
+        } else {
+            unclipped.whole_under(page_admit, admit)
         };
         self.push_line_instance(instance, mask_index)?;
         Ok(true)

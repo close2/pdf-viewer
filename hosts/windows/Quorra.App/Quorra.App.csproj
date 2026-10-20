@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Windows-native window the owner chose in doc/questions/A501: WinUI 3 over quorra_window,
+    through Quorra.Interop's declarations (RFC 0010 step N3a, ADR 2136). This step draws on the
+    processor lane: each picture quorra_window hands over is copied into an Image, and the
+    SwapChainPanel the device will draw into is N3c's.
+
+    It builds on Windows only, because the XAML compiler runs nowhere else, and CI's `window` job is
+    where it builds. No gate of the tree compiles it: the machine the gates run on has no .NET SDK.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Quorra.Interop's release, with the Windows SDK projection the Windows App SDK's own
+         templates name; 17763 is the oldest Windows 10 the Windows App SDK supports. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Quorra.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- One platform, the one `windows-latest` builds and viewer_ffi.dll is built for. -->
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Unpackaged and carrying its own Windows App SDK runtime, so the build output runs as it
+         stands, with no package to install and no runtime to fetch first (ADR 2136). -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The pointer-level declarations are called directly, from QuorraWindow.cs alone. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The library the window loads, where a release build of the viewer-ffi crate puts it (XML
+         forbids two hyphens in a comment, so the command is in the warning below); a host that
+         built it elsewhere passes -p:QuorraLibrary=<path>. -->
+    <QuorraLibrary Condition="'$(QuorraLibrary)' == ''">$(MSBuildThisFileDirectory)..\..\..\target\release\viewer_ffi.dll</QuorraLibrary>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Both at an exact version published at least two weeks before this file was written. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Quorra.Interop\Quorra.Interop.csproj" />
+  </ItemGroup>
+
+  <!-- viewer_ffi.dll beside Quorra.App.exe, where the runtime's library search looks first. -->
+  <ItemGroup Condition="Exists('$(QuorraLibrary)')">
+    <None Include="$(QuorraLibrary)" Link="viewer_ffi.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <!-- A build without the library says so here, and a window started without it names the
+       missing file in its status line. -->
+  <Target Name="NameTheMissingLibrary" BeforeTargets="Build" Condition="!Exists('$(QuorraLibrary)')">
+    <Warning Text="$(QuorraLibrary) does not exist, so Quorra.App.exe will start without viewer_ffi.dll beside it: build it with `cargo build --release -p viewer-ffi`" />
+  </Target>
+
+</Project>

@@ -954,8 +954,18 @@ fn stand_in_workspace() -> Vec<(String, String)> {
             Some((name.to_owned(), package.to_owned(), feature.to_owned()))
         })
         .collect();
+    // Each program built alone is a package of its own too, so that the stand-in's build fails
+    // where install forgot to name its package with `-p` (ADR 2138).
+    let alone: Vec<(String, String)> = batch_list("install_alone")
+        .iter()
+        .filter_map(|entry| {
+            let (name, package) = entry.split_once(':')?;
+            Some((name.to_owned(), package.to_owned()))
+        })
+        .collect();
     let mut members = vec!["\"programs\"".to_owned()];
     members.extend(libraries.iter().map(|name| format!("\"{name}\"")));
+    members.extend(alone.iter().map(|(_, package)| format!("\"{package}\"")));
     members.extend(
         featured
             .iter()
@@ -980,8 +990,24 @@ fn stand_in_workspace() -> Vec<(String, String)> {
         ),
     ];
     for name in batch_list("install_binaries") {
+        if alone.iter().any(|(single, _)| *single == name) {
+            continue;
+        }
         files.push((
             format!("programs/src/bin/{name}.rs"),
+            "fn main() {}\n".to_owned(),
+        ));
+    }
+    for (name, package) in &alone {
+        files.push((
+            format!("{package}/Cargo.toml"),
+            format!(
+                "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+                 [[bin]]\nname = \"{name}\"\npath = \"src/main.rs\"\n"
+            ),
+        ));
+        files.push((
+            format!("{package}/src/main.rs"),
             "fn main() {}\n".to_owned(),
         ));
     }

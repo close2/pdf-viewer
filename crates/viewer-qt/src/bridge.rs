@@ -22,10 +22,9 @@
 //! `forbid` cannot be lifted by an inner `allow`, which is the whole point of `forbid` and the
 //! reason it is the attribute every crate touching PDF bytes carries. So the crate root denies
 //! and `crate::bridge` is one of the `#[expect(unsafe_code)]` the workspace names — the others are
-//! the two C ABIs, `viewer_ffi::abi` and `pdf_vfs_ffi::abi`, and
-//! `only_the_three_named_crates_in_the_tree_lift_the_denial` is the list. This line said *the
-//! single* one for as long as a second has existed, which is why it names the test rather than a
-//! number.
+//! the two C ABIs, `viewer_ffi::abi` and `pdf_vfs_ffi::abi`, and the three workers' close of what
+//! they inherited (ADR 1945); `tests/unsafe_position.rs`'s
+//! `only_the_named_crates_in_the_tree_lift_the_denial` is the list.
 //!
 //! **One `unsafe` token in this crate is written by hand**, and it is the `unsafe extern "C++"`
 //! header below. `cxx` requires it, and what it requires is a *statement*: that the C++

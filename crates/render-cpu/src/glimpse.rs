@@ -253,8 +253,17 @@ impl crate::CpuRasterizer {
             surface.rows.top as f32,
             surface.rows.top.saturating_add(surface.rows.height) as f32,
         );
-        let mut watch = showing
-            .map(|showing| Watch::new(showing, list, surface.page, surface.rows.top, self.medium));
+        // The per-pixel passes measure rows of what the rasterisation shows, so a window's strip
+        // is watched as rows of the window's own target (ADR 2132).
+        let mut watch = showing.map(|showing| {
+            Watch::new(
+                showing,
+                list,
+                surface.shown.target(surface.page),
+                surface.rows.top.saturating_sub(surface.shown.top),
+                self.medium,
+            )
+        });
         for (position, (index, command)) in drawn.indexed().enumerate().skip(from) {
             if let Some(watch) = watch.as_mut()
                 && watch.due()
@@ -418,7 +427,10 @@ impl Underway {
                     top,
                     height: bottom.checked_sub(top)?,
                 };
-                let surface = crate::surface::Surface { page: target, rows };
+                let surface = crate::surface::Surface {
+                    rows,
+                    ..crate::surface::Surface::whole(target)
+                };
                 Some(Strip {
                     rows,
                     pixmap: tiny_skia::Pixmap::new(target.width, rows.height)?,
@@ -569,8 +581,8 @@ impl Underway {
         let rasterizer = &self.rasterizer;
         let draw = |strip: &mut Strip| {
             let surface = crate::surface::Surface {
-                page: target,
                 rows: strip.rows,
+                ..crate::surface::Surface::whole(target)
             };
             rasterizer.encode_page(
                 &mut strip.pixmap.as_mut(),

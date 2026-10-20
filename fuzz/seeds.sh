@@ -161,7 +161,12 @@ seed() {
     # §12.8's ASN.1, by the routes each seeder's own header names.
     cms) documents | python3 "$here/seed_cms.py" "$root/$t" - ;;
     revocation) documents | python3 "$here/seed_revocation.py" "$root/$t" - ;;
-    x509) documents | python3 "$here/seed_x509.py" "$root/$t" "$tree"/crates/pdf-model/src/*.rs - ;;
+    # Every Rust source under `crates/` beside the documents, so that the fixture certificates are
+    # found in whichever crate holds them; `tools/conformance/tests/fuzz_seeds.rs` counts them.
+    x509)
+        { documents; find -L "$tree/crates" -name '*.rs' -print0; } \
+            | python3 "$here/seed_x509.py" "$root/$t" -
+        ;;
     # Annex O's fragments arrive with a request, never in a file, so the seeds are the fragments
     # this tree's own reader and its tests state.
     fragment)

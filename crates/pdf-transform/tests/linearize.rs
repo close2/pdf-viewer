@@ -330,6 +330,7 @@ fn linear_plan(shape: Shape, streams: Streams) -> OptimizePlan {
         },
         streams,
         linearize: true,
+        images: None,
     }
 }
 

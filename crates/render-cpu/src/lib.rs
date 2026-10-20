@@ -62,6 +62,8 @@ use std::sync::Arc;
 pub use glimpse::{Glance, Glimpse, Underway};
 pub use strips::MAX_STRIPS;
 use strips::{PIXEL_PASS_ROWS, drawn_row_by_row, plan_strips};
+pub use surface::Shown;
+use surface::Surface;
 
 use pdf_render::{
     BackendError, ClipId, DisplayList, Interrupt, MAX_EXTENT, Medium, Paint, Raster, RasterFormat,
@@ -349,6 +351,27 @@ impl CpuRasterizer {
     }
 }
 
+/// Refuses what is shown where its far edge lies past `MAX_EXTENT`.
+///
+/// Checked rather than assumed, because [`surface::Band`] and [`surface::ToDevice`] convert a row
+/// or a column index to `f32` and that is lossless only below 2^24. `TargetSpec::for_page` already
+/// enforces this for a page, but the struct's fields are public, so a hand-built spec can violate
+/// it and would misplace every banded command if it did; and a window's far edge is its corner
+/// and its extent together (ADR 2132). For a page, whose corner is the origin, that is its extent.
+fn within_extent(shown: Shown) -> Result<(), CpuRasterError> {
+    for (first, extent) in [(shown.left, shown.width), (shown.top, shown.height)] {
+        let far = u64::from(first).saturating_add(u64::from(extent));
+        if far > u64::from(MAX_EXTENT) {
+            return Err(BackendError::ExtentTooLarge {
+                extent: far,
+                limit: MAX_EXTENT,
+            }
+            .into());
+        }
+    }
+    Ok(())
+}
+
 impl Default for CpuRasterizer {
     fn default() -> Self {
         Self::new()
@@ -363,25 +386,45 @@ impl Rasterizer for CpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        self.draw_shown(list, Surface::whole(target))
+    }
+}
+
+impl CpuRasterizer {
+    /// The part `window` of the page `page` is the target of — a window of a page drawn zoomed
+    /// past what a toolkit copies whole (ADR 1930) — drawn on the page's own device grid: the
+    /// same pixels as `page` drawn whole has there, as [`Rasterizer::rasterize`] of
+    /// `window`'s own target would draw them only up to the arithmetic of another origin.
+    ///
+    /// §10.7.4 identifies a pixel by the device coordinates its corner has, and a window's corner
+    /// is a whole number of the page's pixels; so the window's first column and row are taken off
+    /// each mark's device geometry last, where that subtraction is exact, as a strip's first row
+    /// is (ADRs 0219, 2132), and every converter is the one the page chooses (ADR 2116).
+    ///
+    /// # Errors
+    ///
+    /// As [`Rasterizer::rasterize`], and [`BackendError::ExtentTooLarge`] for a window whose far
+    /// edge lies past `MAX_EXTENT`.
+    pub fn rasterize_window(
+        &mut self,
+        list: &DisplayList,
+        page: TargetSpec,
+        window: Shown,
+    ) -> Result<Raster, CpuRasterError> {
+        self.draw_shown(list, Surface::showing(page, window))
+    }
+
+    /// [`Rasterizer::rasterize`] of what `whole` shows: the page, or a window of it. `target` below
+    /// is what that is to everything but a mark's geometry — the page's own target, for a page.
+    fn draw_shown(&mut self, list: &DisplayList, whole: Surface) -> Result<Raster, CpuRasterError> {
+        let target = whole.shown.target(whole.page);
         // Before the pixmap, because a target may be a gibibyte and an interrupt already raised
         // is an allocation nobody wants the answer to.
         if self.interrupted() {
             return Err(BackendError::Interrupted.into());
         }
 
-        // Checked here rather than assumed, because [`Band`] converts a row index to
-        // `f32` and that is lossless only below 2^24. `TargetSpec::for_page` already
-        // enforces this, but the struct's fields are public, so a hand-built spec can
-        // violate it and would misplace every banded command if it did.
-        for extent in [target.width, target.height] {
-            if extent > MAX_EXTENT {
-                return Err(BackendError::ExtentTooLarge {
-                    extent: u64::from(extent),
-                    limit: MAX_EXTENT,
-                }
-                .into());
-            }
-        }
+        within_extent(whole.shown)?;
 
         // ISO 32000-2 §10.7.4 paints a pixel a shape's area meets, and a mark whose bound misses
         // every pixel of the target meets none: a target that shows part of a page — a window
@@ -414,7 +457,7 @@ impl Rasterizer for CpuRasterizer {
             .showing
             .as_ref()
             .filter(|_| glimpse::Showing::admits(list));
-        self.encode_in_strips_watched(&mut pixmap, drawn, target, showing)?;
+        self.encode_in_strips_watched(&mut pixmap, drawn, whole, showing)?;
 
         // §11.4.7 puts a colour space under the whole page — "[a]ll page-level compositing
         // shall be done in the default blending colour space of the page, and the entire
@@ -431,7 +474,7 @@ impl Rasterizer for CpuRasterizer {
                     height: target.height,
                 },
             )?;
-            self.encode_in_strips(&mut ink, black, target)?;
+            self.encode_in_strips(&mut ink, black, whole)?;
             match list.separation() {
                 // ISO 32000-2 §10.8.3, under a reader's request for the simulation on a page naming
                 // a spot colourant: the pair above is the simulated press's process separation,
@@ -439,7 +482,7 @@ impl Rasterizer for CpuRasterizer {
                 // before the medium as the pair's own conversion is (`pdf_render::separation`,
                 // ADR 1317). Each plane is a page of its own for `check_group_blit`'s budget.
                 Some(separation) => {
-                    let spots = self.spot_planes(separation, target)?;
+                    let spots = self.spot_planes(separation, whole)?;
                     let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
                     pdf_render::resolve_separation(
                         pixmap.data_mut(),
@@ -476,7 +519,7 @@ impl Rasterizer for CpuRasterizer {
         // And the spot planes multiplied into the device colour the process separation became —
         // steps b) to d), before the medium as the pair's are.
         if let Some(separation) = beside {
-            let spots = self.spot_planes(separation, target)?;
+            let spots = self.spot_planes(separation, whole)?;
             let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
             pdf_render::resolve_separation_over_device(pixmap.data_mut(), &spots, separation);
         }
@@ -550,7 +593,7 @@ impl Rasterizer for CpuRasterizer {
                         height: target.height,
                     },
                 )?;
-                self.encode_in_strips(&mut coverage, shapes, target)?;
+                self.encode_in_strips(&mut coverage, shapes, whole)?;
                 Ok(coverage.take())
             };
             pdf_render::resolve_transfers(channel, list, target, &mut data, coverage_of)?;

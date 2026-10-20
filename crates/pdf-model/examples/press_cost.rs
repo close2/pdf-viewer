@@ -1,11 +1,11 @@
 //! What sampling a press costs, measured as the difference between a cold and a warm one.
 //!
-//! `pdf_model::colour`'s press table is a process-wide `static`, so the *first* page of a
-//! document that names a press pays for sampling it and every later page pays nothing. A
-//! round asking what it would cost to scope that table to an interpretation needs the size of
-//! that difference rather than an opinion about it, and this is the A/B in one sitting
-//! `doc/habits.md`'s *Measuring* section asks for: interpret page one twice in one process and
-//! subtract.
+//! `pdf_model::colour`'s sampled presses are a process-wide cache of eight, while the budget on
+//! what a page may name is the interpretation's (ADR 0417), so the *first* page of a document
+//! that names a press pays for sampling it and a later page naming it again pays nothing while
+//! the cache holds it. What the cache buys is the size of that difference rather than an opinion
+//! about it, and this is the A/B in one sitting `doc/habits.md`'s *Measuring* section asks for:
+//! interpret page one twice in one process and subtract.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example press_cost -- <file>…

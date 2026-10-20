@@ -53,7 +53,8 @@ pub(super) fn draw(
     let Some(on_page) = Affine::on_page(placement) else {
         return Ok(());
     };
-    let Some(region) = Region::reached(on_page, placement.to_device.top, pixmap) else {
+    let corner = (placement.to_device.left, placement.to_device.top);
+    let Some(region) = Region::reached(on_page, corner, pixmap) else {
         return Ok(());
     };
     let Some(centred) = sampled(samples, on_page, region) else {
@@ -78,16 +79,14 @@ pub(super) fn draw(
     // The square is carried onto the surface here rather than by the converter, so that the
     // paint's transform is the device's own; the converter maps a point by the same `map_points`
     // either way, so the region it covers is the one it covered when it was handed the matrix.
-    let at = crate::convert::transform(placement.to_device.of(placement.mark));
-    let Some(square) = super::unit_square()?.transform(at) else {
-        return Ok(());
-    };
-    scan::fill(
+    // Measured on the page's grid and moved by the surface's corner, so that its edge on a strip
+    // or a window is the page's edge (ADR 2133); the samples are on the surface already.
+    scan::fill_positioned(
         pixmap,
-        &square,
+        &super::unit_square()?,
         &paint,
         tiny_skia::FillRule::Winding,
-        tiny_skia::Transform::identity(),
+        placement.to_device.placed(placement.mark),
         clip,
     );
     Ok(())
@@ -142,31 +141,42 @@ impl Affine {
 struct Region {
     columns: (f64, f64),
     rows: (f64, f64),
+    /// The surface's first page column: a window's, and 0 on a page (ADR 2132).
+    left: f64,
     /// The surface's first page row.
     top: f64,
 }
 
 impl Region {
     /// The square's device box on the page, a pixel wider on every side for the rounding of the
-    /// corners the converter maps in `f32`, clamped to `pixmap`, which holds page rows from `top`
-    /// on at the page's full width — `None` where that leaves no pixel.
-    fn reached(on_page: Affine, top: u32, pixmap: &tiny_skia::PixmapMut<'_>) -> Option<Self> {
+    /// corners the converter maps in `f32`, clamped to `pixmap`, which holds the page's pixels
+    /// from the corner `(left, top)` on — `None` where that leaves no pixel.
+    fn reached(
+        on_page: Affine,
+        (left, top): (u32, u32),
+        pixmap: &tiny_skia::PixmapMut<'_>,
+    ) -> Option<Self> {
         let corners = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)].map(|at| on_page.apply(at));
         let (mut low, mut high) = (corners[0], corners[0]);
         for (x, y) in corners {
             low = (low.0.min(x), low.1.min(y));
             high = (high.0.max(x), high.1.max(y));
         }
-        let top = f64::from(top);
+        let (left, top) = (f64::from(left), f64::from(top));
         let columns = (
-            (low.0.floor() - 1.0).max(0.0),
-            (high.0.ceil() + 1.0).min(f64::from(pixmap.width())),
+            (low.0.floor() - 1.0).max(left),
+            (high.0.ceil() + 1.0).min(left + f64::from(pixmap.width())),
         );
         let rows = (
             (low.1.floor() - 1.0).max(top),
             (high.1.ceil() + 1.0).min(top + f64::from(pixmap.height())),
         );
-        (columns.0 < columns.1 && rows.0 < rows.1).then_some(Self { columns, rows, top })
+        (columns.0 < columns.1 && rows.0 < rows.1).then_some(Self {
+            columns,
+            rows,
+            left,
+            top,
+        })
     }
 
     #[expect(
@@ -194,7 +204,10 @@ impl Region {
         reason = "a whole pixel index below MAX_EXTENT = 2^24, exact in f32"
     )]
     fn on_surface(self) -> tiny_skia::Transform {
-        tiny_skia::Transform::from_translate(self.columns.0 as f32, (self.rows.0 - self.top) as f32)
+        tiny_skia::Transform::from_translate(
+            (self.columns.0 - self.left) as f32,
+            (self.rows.0 - self.top) as f32,
+        )
     }
 
     /// The `count` pixel centres from `from` on, as offsets from `origin`.

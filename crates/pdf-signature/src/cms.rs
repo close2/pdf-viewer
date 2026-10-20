@@ -442,8 +442,8 @@ impl Digest {
     /// - **SHAKE256 has its second reading from `const-oid`'s `db` feature**, which came into
     ///   this crate for the elliptic-curve family (ADR 0532): `shake` 0.1 publishes no
     ///   identifier, where `sha3` does, and `const_oid::db::fips202::ID_SHAKE_256` is a second
-    ///   party's reading of the same registry, at zero new packages; the test below compares all
-    ///   ten against it.
+    ///   party's reading of the same registry, at zero new packages; the test below compares the
+    ///   nine that database holds against it.
     #[must_use]
     pub fn oid(self) -> &'static [u8] {
         match self {

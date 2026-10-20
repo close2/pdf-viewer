@@ -74,7 +74,7 @@ pub(crate) fn draw(
     ) else {
         return false;
     };
-    fits(pixmap, clip) && paint_segment(pixmap, thin, colour, to_device.top, clip)
+    fits(pixmap, clip) && paint_segment(pixmap, thin, colour, to_device, clip)
 }
 
 /// The dots of the stroke `path` that [`pdf_render::thin_dots`] takes out of it, where the clip's
@@ -115,7 +115,7 @@ pub(crate) fn paint_dots(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     thin: Option<pdf_render::ThinDots>,
     paint: &Paint,
-    top: u32,
+    to_device: ToDevice,
     clip: scan::Clip<'_>,
 ) {
     let (Some(thin), Paint::Solid(colour)) = (thin, paint) else {
@@ -124,18 +124,18 @@ pub(crate) fn paint_dots(
     for (_, dot) in thin.dots {
         // `dots` admitted the path only where the clip fits the pixmap, which is the one condition
         // under which this paints nothing, and only in a solid paint.
-        paint_segment(pixmap, dot, *colour, top, clip);
+        paint_segment(pixmap, dot, *colour, to_device, clip);
     }
 }
 
-/// Paints one admitted segment in `colour` through `clip`, its rows moved from the page's grid to
-/// the surface's, which holds the page from row `top`. `false`, with nothing painted, where its
-/// block is not stated or the clip does not [`fits`] the pixmap.
+/// Paints one admitted segment in `colour` through `clip`, its pixels moved from the page's grid
+/// to the surface's, whose corner on the page is `to_device`'s (ADRs 0219, 2132). `false`, with
+/// nothing painted, where its block is not stated or the clip does not [`fits`] the pixmap.
 pub(crate) fn paint_segment(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     thin: pdf_render::ThinSegment,
     colour: pdf_render::Color,
-    top: u32,
+    to_device: ToDevice,
     clip: scan::Clip<'_>,
 ) -> bool {
     if !fits(pixmap, clip) {
@@ -159,8 +159,8 @@ pub(crate) fn paint_segment(
     for row in 0..block.rows {
         for column in 0..block.columns {
             let (x, y) = (
-                block.column + f64::from(column),
-                block.row + f64::from(row) - f64::from(top),
+                block.column + f64::from(column) - f64::from(to_device.left),
+                block.row + f64::from(row) - f64::from(to_device.top),
             );
             if let (Some(cell), Some(&area)) = (cells.get_mut(count), in_order.next()) {
                 *cell = (x, y, area);

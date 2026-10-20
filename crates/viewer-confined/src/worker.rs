@@ -593,7 +593,14 @@ fn draw_windows(
     outgoing: &mut Vec<Event>,
 ) {
     for (page, list, target, window) in marks.windows_owed(viewport) {
-        match rasterizer.rasterize(&list, window.target_of(target)) {
+        // On the page's own grid, so the window is the page's pixels there (ADR 2132).
+        let shown = render_cpu::Shown {
+            left: window.x,
+            top: window.y,
+            width: window.width,
+            height: window.height,
+        };
+        match rasterizer.rasterize_window(&list, target, shown) {
             Ok(raster) => marks.drew(page, window, raster),
             Err(error) => {
                 if let Some(document) = marks.refused_window(page) {

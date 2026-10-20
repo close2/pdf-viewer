@@ -2881,15 +2881,54 @@ fn container_faults(properties: &[XmpProperty]) -> Vec<ContainerField> {
             continue;
         };
         for schema in schemas {
-            check_value_type(schema, &SCHEMA_TYPE, &mut faults);
-            check_sequence(schema, SCHEMA_URI, "property", &PROPERTY_TYPE, &mut faults);
-            for value_type in sequence(schema, SCHEMA_URI, "valueType") {
-                check_value_type(value_type, &TYPE_TYPE, &mut faults);
-                check_sequence(value_type, TYPE_URI, "field", &FIELD_TYPE, &mut faults);
-            }
+            check_schema(schema, &mut faults);
         }
     }
     faults
+}
+
+/// One schema description held to section 6.6.2.3.3's four tables: Table 2's own fields, every
+/// property it describes against Table 4, and every value type against Tables 5 and 6.
+fn check_schema(schema: &Detail, faults: &mut Vec<ContainerField>) {
+    check_value_type(schema, &SCHEMA_TYPE, faults);
+    check_sequence(schema, SCHEMA_URI, "property", &PROPERTY_TYPE, faults);
+    for value_type in sequence(schema, SCHEMA_URI, "valueType") {
+        check_value_type(value_type, &TYPE_TYPE, faults);
+        check_sequence(value_type, TYPE_URI, "field", &FIELD_TYPE, faults);
+    }
+}
+
+/// The positions, in the container's bag, of the schema descriptions that leave out content the
+/// file does not carry — every fault of [`extension_container_fields`] other than a misspelling,
+/// read one description at a time.
+///
+/// `None` where the answer is not one list: a packet that does not parse, one stating no
+/// container or more than one, or a container whose value is not the bag of descriptions Table 2
+/// gives it. A converter cutting the incomplete descriptions out of one container needs to know
+/// which items of *that* bag they are, and each of those shapes leaves it unable to say.
+#[must_use]
+pub fn incomplete_schema_descriptions(packet: &[u8]) -> Option<Vec<usize>> {
+    let properties = Xmp::parse_detail(packet).ok()?;
+    let mut containers = properties.iter().filter(|property| {
+        property.name.namespace == EXTENSION_URI && property.name.local == "schemas"
+    });
+    let container = containers.next()?;
+    if containers.next().is_some() {
+        return None;
+    }
+    let schemas = container.value.array()?;
+    Some(
+        schemas
+            .iter()
+            .enumerate()
+            .filter(|(_, schema)| {
+                let mut faults = Vec::new();
+                check_schema(schema, &mut faults);
+                faults.iter().any(|fault| !fault.misspelled)
+            })
+            .map(|(position, _)| position)
+            .collect(),
+    )
 }
 
 /// The items of one field of a structure, where that field is an array.

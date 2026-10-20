@@ -454,6 +454,7 @@ impl Outcome {
         match result {
             Err(error) => Self::Refused(error.to_string()),
             Ok(Decoded::Raster(_)) => Self::Differs("a raster came back from JBIG2".to_owned()),
+            Ok(Decoded::Dct(_)) => Self::Differs("a JPEG came back from JBIG2".to_owned()),
             Ok(Decoded::Bilevel(image)) => {
                 let picture = decoded(&image);
                 if (picture.width, picture.height) != (reference.width, reference.height) {

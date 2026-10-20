@@ -1,10 +1,10 @@
 //! RFC 0003's **FUSE face**: the kernel's file verbs, mapped onto `pdf-vfs`'s.
 //!
-//! RFC 0003 section 7 asks for a Rust binary — `pdffs <file.pdf> <mountpoint>`, with
-//! `--foreground` and `--allow-other` off by default — on `fuser`'s default pure-Rust
-//! `/dev/fuse` path, with no C linkage at all. And it says what is in this crate and what is
-//! not: the faces contain no layout knowledge, so adding a `fonts/` directory one day is a core
-//! change that both faces grow simultaneously.
+//! RFC 0003 section 7 asks for a Rust binary — `pdffs <file.pdf> <mountpoint>`, built here as
+//! `quorrafs`, with `--foreground` and `--allow-other` off by default — on `fuser`'s default
+//! pure-Rust `/dev/fuse` path, with no C linkage at all. And it says what is in this crate and
+//! what is not: the faces contain no layout knowledge, so adding a `fonts/` directory one day is a
+//! core change that both faces grow simultaneously.
 //!
 //! So there is no path pattern, no directory name and no generator here. Every question this
 //! crate answers, it answers by asking [`pdf_vfs::Vfs`], and everything it adds is what a *kernel*

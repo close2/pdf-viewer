@@ -53,6 +53,19 @@ pub struct Window {
 }
 
 impl Window {
+    /// This part of a page's target as `render_cpu` draws it on the page's own grid, which is the
+    /// page's pixels there (ADR 2132): what a window is drawn as, where [`Self::target_of`] is
+    /// what it is to a caller that asks only which commands reach it.
+    #[must_use]
+    pub fn shown(self) -> render_cpu::Shown {
+        render_cpu::Shown {
+            left: self.x,
+            top: self.y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
     /// This part of `target`, as a target of its own: the page's transform with the window's
     /// corner moved to the origin — `drawing::band_target`'s construction in two directions.
     #[must_use]

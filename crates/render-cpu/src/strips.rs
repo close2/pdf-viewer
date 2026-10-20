@@ -63,8 +63,9 @@ impl CpuRasterizer {
     pub(crate) fn spot_planes(
         &self,
         separation: &pdf_render::SpotSeparation,
-        target: TargetSpec,
+        surface: Surface,
     ) -> Result<Vec<tiny_skia::Pixmap>, CpuRasterError> {
+        let target = surface.shown.target(surface.page);
         let mut spots = Vec::with_capacity(separation.planes().len());
         for plane in separation.planes() {
             pdf_render::check_group_blit(plane, target)?;
@@ -74,7 +75,7 @@ impl CpuRasterizer {
                     height: target.height,
                 },
             )?;
-            self.encode_in_strips(&mut raster, plane, target)?;
+            self.encode_in_strips(&mut raster, plane, surface)?;
             spots.push(raster);
         }
         Ok(spots)
@@ -111,22 +112,26 @@ impl CpuRasterizer {
         &self,
         pixmap: &mut tiny_skia::Pixmap,
         list: &DisplayList,
-        target: TargetSpec,
+        whole: Surface,
     ) -> Result<(), CpuRasterError> {
-        self.encode_in_strips_watched(pixmap, Selection::whole(list), target, None)
+        self.encode_in_strips_watched(pixmap, Selection::whole(list), whole, None)
     }
 
     /// [`Self::encode_in_strips`] of a selection of a list's commands — the page's, or a window's
     /// of it (ADR 1980) — with each strip answering `showing`'s glances for its own rows where a
     /// caller is looking: the page itself, and never a plane drawn beside it.
+    ///
+    /// `whole` is what the rasterisation shows — the page, or a window of it on the page's own grid
+    /// (ADR 2132) — and the cuts are planned on the target that is to a caller, in its own rows.
     pub(crate) fn encode_in_strips_watched(
         &self,
         pixmap: &mut tiny_skia::Pixmap,
         drawn: Selection<'_>,
-        target: TargetSpec,
+        whole: Surface,
         showing: Option<&glimpse::Showing>,
     ) -> Result<(), CpuRasterError> {
         let list = drawn.list();
+        let (page, target) = (whole.page, whole.shown.target(whole.page));
         let boundaries = self.selection_plan(drawn, target);
         let strips = boundaries.len().saturating_sub(1);
         // Computed once per rasterisation, before any mask is built, so that every build —
@@ -135,15 +140,15 @@ impl CpuRasterizer {
         let reach = if list.soft_mask_count() == 0 {
             Arc::new(HashMap::new())
         } else {
-            Arc::new(mask_consumer_reach(drawn, target.transform))
+            Arc::new(mask_consumer_reach(drawn, page.transform))
         };
         // Measured once before any strip is queued — by the planner where it divides the page,
         // which reads them (ADR 1882), and here where it does not — so that every strip asks the
         // same bounds and none measures them again (ADR 1841); kept with the list, so a scroll at
         // this magnification measures nothing at all.
-        let bounds = list.mark_bounds(target.transform);
+        let bounds = list.mark_bounds(page.transform);
         if strips < 2 {
-            let surface = Surface::whole(target);
+            let surface = whole;
             let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
             return self.encode_page(
                 &mut pixmap.as_mut(),
@@ -185,8 +190,11 @@ impl CpuRasterizer {
                 // where the strip starts is [`Surface`]'s other field, and it reaches the
                 // geometry once, last. ADR 0219 is what a shifted copy cost.
                 let surface = Surface {
-                    page: target,
-                    rows: Band { top, height: rows },
+                    rows: Band {
+                        top: whole.rows.top.saturating_add(top),
+                        height: rows,
+                    },
+                    ..whole
                 };
                 let mut piece = tiny_skia::PixmapMut::from_bytes(piece, width, rows).ok_or(
                     CpuRasterError::Allocation {

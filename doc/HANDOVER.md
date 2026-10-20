@@ -16,7 +16,7 @@ ADRs 0232, 0974, 0983, 1023).
 
 | a round that | opens |
 |---|---|
-| asks what the program already does | [`doc/state-of-play.md`](state-of-play.md) — the capability list, and which clause each came from |
+| asks what the program already does | [`doc/state-of-play.md`](state-of-play.md) — the capability list, one section per subsystem, and which clause each came from; read the section the question is about |
 | asks what is left, and why it is not done | [`doc/todo/65`](todo/65-the-remaining-frontier.md) — the `partial`/`reported` rows grouped by their blocker; a status change edits its map in the same pass (it is a gate) |
 | wants a number | `tools/state.sh` — `quick` in seconds, a section in minutes; never a document. What a merge's gates cost is `gates-cost`, a batch's clock `batches` (ADR 1476) |
 | needs the shape of the batch loop, or runs a merge | [`doc/todo/02`](todo/02-every-round.md) section 8 and [`tools/batch.sh`](../tools/batch.sh), whose header lists its verbs in the order a merge runs them (ADRs 1313, 1511, 1526); `check` before reporting |

@@ -295,6 +295,82 @@ mod resources {
         Some((identity, content))
     }
 
+    /// Sends one frame to the host, under the lock every other message of this process takes.
+    ///
+    /// **For a worker that leads the conversation** — one that runs a program and asks its host
+    /// for the world as it goes (ADR 2140) — rather than one that answers questions. Its frames
+    /// and a font request from a drawing thread go out on one socket, so they take one lock:
+    /// `ASKING`, which [`ask_the_host`] holds for the whole of its exchange. Nothing is armed
+    /// until [`requests_go_to_the_host`] was called, and then this refuses rather than writing a
+    /// frame no lock serialises.
+    ///
+    /// # Errors
+    ///
+    /// Where nothing is armed, or the write failed.
+    pub fn send_to_the_host(kind: u8, payload: &[u8]) -> std::io::Result<()> {
+        use std::os::fd::AsFd as _;
+
+        let held = ASKING
+            .lock()
+            .map_err(|_| std::io::Error::other("the link to the host was poisoned"))?;
+        if held.is_none() {
+            return Err(std::io::Error::other(
+                "this process has not armed its link to the host",
+            ));
+        }
+        let stdout = std::io::stdout();
+        write_all(stdout.as_fd(), &frame::header(kind, payload.len()))?;
+        write_all(stdout.as_fd(), payload)?;
+        Ok(())
+    }
+
+    /// Sends one frame and reads the host's answer whole, with any descriptor that came beside
+    /// it, under the same lock as [`send_to_the_host`].
+    ///
+    /// `most` is the largest answer this process will hold, in bytes; a longer one is read past
+    /// and refused by name, so the next frame still begins where the host thinks it does.
+    ///
+    /// # Errors
+    ///
+    /// Where nothing is armed, the socket failed, or the answer was longer than `most`.
+    pub fn exchange_with_the_host(
+        kind: u8,
+        payload: &[u8],
+        most: usize,
+    ) -> std::io::Result<(u8, Vec<u8>, Vec<super::ReceivedDescriptor>)> {
+        use std::os::fd::AsFd as _;
+
+        let mut held = ASKING
+            .lock()
+            .map_err(|_| std::io::Error::other("the link to the host was poisoned"))?;
+        let Some(link) = held.as_mut() else {
+            return Err(std::io::Error::other(
+                "this process has not armed its link to the host",
+            ));
+        };
+        let stdout = std::io::stdout();
+        write_all(stdout.as_fd(), &frame::header(kind, payload.len()))?;
+        write_all(stdout.as_fd(), payload)?;
+
+        let mut header = [0u8; frame::HEADER_LEN];
+        let mut descriptors = Vec::new();
+        link.fill(&mut header, &mut descriptors)?;
+        let (answer, length) = frame::parse_header(header).ok_or_else(|| {
+            std::io::Error::other("the host sent a frame whose length this build does not define")
+        })?;
+        let mut bytes = Vec::new();
+        if length > most || bytes.try_reserve_exact(length).is_err() {
+            link.skip(length)?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::OutOfMemory,
+                format!("the host answered with {length} bytes, more than this process will hold"),
+            ));
+        }
+        bytes.resize(length, 0);
+        link.fill(&mut bytes, &mut descriptors)?;
+        Ok((answer, bytes, descriptors))
+    }
+
     /// Tells the host something it does not answer ([`frame::NOTICE`]), and answers whether the
     /// notice was written.
     ///
@@ -356,6 +432,30 @@ mod resources {
     pub fn tell_the_host(_notice: &[u8]) -> bool {
         false
     }
+
+    /// Off Unix there is no link to the host to send on.
+    ///
+    /// # Errors
+    ///
+    /// Always.
+    pub fn send_to_the_host(_kind: u8, _payload: &[u8]) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+
+    /// Off Unix there is no link to the host to ask on.
+    ///
+    /// # Errors
+    ///
+    /// Always.
+    pub fn exchange_with_the_host(
+        _kind: u8,
+        _payload: &[u8],
+        _most: usize,
+    ) -> std::io::Result<(u8, Vec<u8>, Vec<super::ReceivedDescriptor>)> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
 }
 
-pub use resources::{ask_the_host, requests_go_to_the_host, tell_the_host};
+pub use resources::{
+    ask_the_host, exchange_with_the_host, requests_go_to_the_host, send_to_the_host, tell_the_host,
+};

@@ -1043,12 +1043,16 @@ impl MaskCache {
                 .top
                 .saturating_add(self.surface.rows.height) as f32,
         );
+        // The columns are the page's too: a window's first is its corner's (ADR 2132).
         #[expect(
             clippy::cast_precision_loss,
-            reason = "as above, for the width this surface spans"
+            reason = "as above, for the columns this surface spans"
         )]
-        let right = self.surface.width() as f32;
-        rect.left() <= 0.0 && rect.top() <= top && rect.right() >= right && rect.bottom() >= bottom
+        let (left, right) = (
+            self.surface.shown.left as f32,
+            self.surface.shown.left.saturating_add(self.surface.width()) as f32,
+        );
+        rect.left() <= left && rect.top() <= top && rect.right() >= right && rect.bottom() >= bottom
     }
 
     /// Stores an entry and evicts oldest-first until the budget is met.

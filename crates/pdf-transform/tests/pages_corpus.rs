@@ -22,9 +22,10 @@
 //!    walk performs on a raster is the clause's own sentence made into an expected value.
 //! 3. **The reconciliations.** §12.4.2's labels are checked page by page against the labels the
 //!    source gave those same pages — the clause numbers by position, so a deletion moves every
-//!    later index and the label has to follow the page — and §14.7's structure tree is checked
-//!    to be **absent**, because no verb of this suite carries it and a half-carried one would be
-//!    worse than none.
+//!    later index and the label has to follow the page — and §14.7's carried structure tree is
+//!    judged against the clauses rather than against what the writer meant: every page's key
+//!    resolves in the output's own parent tree, every element's `/Pg` names a page the output
+//!    holds, and `/ParentTreeNextKey` is greater than every key in use.
 //!
 //! Determinism is asserted beside them: the same document edited twice writes the same bytes.
 //!

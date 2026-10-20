@@ -162,6 +162,7 @@ mod rewrite;
 mod roles;
 mod signatures;
 mod sites;
+mod supplied_cmyk;
 mod tagged;
 mod to_unicode;
 mod toml;
@@ -1046,6 +1047,12 @@ fn apply_the_decisions(
     let mut recorded: Vec<String> = Vec::new();
     if wanted.contains(&Rewrite::DefaultCmyk) {
         recorded.push(format!("{DEFAULT_CMYK_ACTION} — {DEFAULT_CMYK_PARAMETERS}"));
+    }
+    if wanted.contains(&Rewrite::SuppliedDefaultCmyk) {
+        recorded.push(format!(
+            "{DEFAULT_CMYK_ACTION} — {}",
+            supplied_cmyk::PARAMETERS
+        ));
     }
     // section 4.9's own condition, and ISO 19005-2 section 6.6.6's NOTE 1 names the act: a face
     // embedded for a font the file never carried is recorded in the file itself, not only here.

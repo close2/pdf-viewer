@@ -3,9 +3,10 @@
 //! Every other walk in this crate checks the suite's output with this tree's own parser and this
 //! tree's own rasteriser. That answers "did we write what we meant to" and cannot answer "did we
 //! write what the format says", because a misreading on the way out and the matching misreading
-//! on the way back in agree with each other. Five writers exist — `attachments --attach`,
-//! `split`, `merge`, `pages` and `optimize` — and until this walk none of their output had been
-//! shown to anybody else.
+//! on the way back in agree with each other. Five of the suite's writers are read back here —
+//! `attachments --attach`, `split`, `merge`, `pages` and `optimize` — and `redact`, `archive` and
+//! `optimize --linearize` are not, so no foreign reader is shown what they write
+//! (`doc/todo/57` section 5).
 //!
 //! # `optimize` is the one this walk was most owed
 //!
@@ -436,6 +437,7 @@ fn derive(
             object_streams: ObjectStreams::DEFAULT,
             streams: Streams::DEFAULT,
             linearize: false,
+            images: None,
         }),
         &[Source::new(bytes.to_vec())],
         MemorySinks::new(),

@@ -306,6 +306,41 @@ impl QuorraRasterizer {
         })
     }
 
+    /// The idle build (ADR 2134) of the frame [`Self::rasterize_frame`] drew last: where its walk
+    /// culled a line, the same frame walked again culling none and read back, its encode kept in
+    /// the first's place so that the next view takes its lines in runs from the stream on the
+    /// device (ADR 2056). `None` where `frame` is not the one drawn last or where nothing would be
+    /// gained (`raster_gpu::Device::build_whole`). [`Self::last_frame`] stays the last frame's: the
+    /// build is what a host does while nobody waits, and a measurement of the step after it reads
+    /// the step.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device refused.
+    pub fn build_whole(
+        &mut self,
+        frame: &PresentFrame<'_>,
+    ) -> Result<Option<Raster>, QuorraRasterError> {
+        let mut cost = FrameCost::default();
+        let drawn = self.slot.build_whole(
+            &mut self.device,
+            Some(self.medium),
+            frame,
+            raster_gpu::Target::Readback,
+            &mut cost,
+        )?;
+        let Some(drawn) = drawn else {
+            return Ok(None);
+        };
+        Ok(Some(Raster {
+            width: frame.width,
+            height: frame.height,
+            // Opaque throughout, as `rasterize_frame`'s.
+            format: RasterFormat::Rgba8,
+            data: drawn.into_raster()?.into_pixels(),
+        }))
+    }
+
     /// What the last [`Self::rasterize_frame`] cost, stage by stage — including whether it
     /// encoded its scene or replayed one, which is the observable this whole path is tested by.
     #[must_use]

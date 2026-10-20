@@ -343,23 +343,22 @@ jobs:
   # no gate of the tree compiles it -- the machine the gates run on has no .NET SDK -- and
   # `crates/viewer-ffi/tests/header_and_interop_agree.rs`, which holds it to the header, reads text
   # and cannot see a declaration the C# compiler would refuse. It names no Windows type, so it builds
-  # on the Linux runner; the window that uses it will be `windows-latest`'s (RFC 0010 step N3a).
+  # on the Linux runner; the window that uses it is the `window` job's (RFC 0010 step N3a).
   #
   # No cache, and its absence is the decision: the project references no package, so a restore
   # fetches nothing and a NuGet cache would hold nothing; the SDK is the setup step's to fetch.
   #
-  # The ceiling is fifteen minutes, and it is priced rather than measured: no healthy run existed
-  # when this job was written. The setup step fetches one SDK and the build compiles seventeen
-  # files with no dependency, which is a minute or two on a healthy runner, so the ceiling is a
-  # hang's and not a slow build's -- restated at twice the longest healthy run once there are runs
-  # to read, as ADR 2024's are (ADR 2073).
+  # The ceiling is two minutes, read off the job's healthy runs as ADR 2024's are: the two on main
+  # took 24 s and 26 s (runs 39388089315 and 39414723133), twice the longer is 52 s, and GitHub's
+  # unit is the minute. The second minute is kept because two runs are the whole sample and the
+  # setup step alone took 1 s in one and 12 s in the other; restated again from more runs (ADR 2136).
   #
   # Not in `snapshot`'s `needs`: the snapshot ships the Rust executables, and nothing it ships
   # contains this library yet.
   interop:
     runs-on: ubuntu-24.04
     name: interop (.NET)
-    timeout-minutes: 15  # see `check` above, and the comment above this job
+    timeout-minutes: 2  # see `check` above, and the comment above this job
     steps:
       - uses: actions/checkout@v5
 
@@ -372,6 +371,52 @@ jobs:
       # `TreatWarningsAsErrors` is the project's own, so a warning fails here as it does in Rust.
       - name: Build the interop layer
         run: dotnet build hosts/windows/Quorra.Interop/Quorra.Interop.csproj --configuration Release
+
+  # The WinUI 3 window over the interop layer (RFC 0010 step N3a, ADR 2136): `windows-latest`, because
+  # the XAML compiler runs on Windows alone, and no gate of the tree compiles it. It builds
+  # viewer_ffi.dll first, which no other job builds for Windows, so the window's project copies the
+  # library it loads beside the executable and the step after it checks that it did.
+  #
+  # The ceiling is forty-five minutes, priced rather than measured, as ADR 2073's first was: no run
+  # of this job exists. The release build of viewer-ffi's graph is the largest part, against the
+  # `platforms` job's Windows row, whose healthy runs build two debug executables of a larger graph
+  # in four to thirteen minutes with the cache warm; a cold cache, the Windows App SDK's restore and
+  # a build of two XAML files and six C# ones put a healthy run near twenty minutes, and the
+  # ceiling is about twice that. Restated at twice the longest healthy run once there are runs.
+  #
+  # Not in `snapshot`'s `needs`: the snapshot ships the Rust executables, and this window is not one
+  # of them yet (RFC 0010 step N4 packages it).
+  window:
+    runs-on: windows-latest
+    name: window (WinUI 3)
+    timeout-minutes: 45  # see `check` above, and the comment above this job
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the library the window loads
+        run: cargo build --release -p viewer-ffi
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # The project's own `TreatWarningsAsErrors`, so a warning fails here as it does in Rust.
+      - name: Build the window
+        run: dotnet build hosts/windows/Quorra.App/Quorra.App.csproj --configuration Release -p:Platform=x64
+
+      # The project copies viewer_ffi.dll only where it exists, so its arrival is checked rather
+      # than assumed: a window built without it would start and say it is missing.
+      - name: Check the library is beside the window
+        shell: pwsh
+        run: |
+          $found = Get-ChildItem -Path hosts/windows/Quorra.App/bin -Recurse -Filter viewer_ffi.dll
+          if (-not $found) { throw 'viewer_ffi.dll is not in the window''s build output' }
+          $found | ForEach-Object { $_.FullName }
 
   # A rolling pre-release, retagged at every push to main that passes its gates.
   #
@@ -403,7 +448,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             exe: ''
             archive: tar.gz
-            bins: quorra quorra-confined quorra-gtk quorra-qt quorra-transform quorra-retrieve quorrafs pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
+            bins: quorra quorra-confined quorra-gtk quorra-qt quorra-transform quorra-transform-worker quorra-retrieve quorrafs pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
           # No `quorrafs`: `fuser`'s build script asks `pkg_config` for macFUSE, which is not on
           # the runner and is not a Rust dependency this workflow may install. No `quorra-gtk` or
           # `quorra-qt`: each binds a toolkit's development files, and Homebrew's GTK 4 and Qt 6
@@ -412,7 +457,7 @@ jobs:
             target: aarch64-apple-darwin
             exe: ''
             archive: tar.gz
-            bins: quorra quorra-confined quorra-transform quorra-retrieve pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
+            bins: quorra quorra-confined quorra-transform quorra-transform-worker quorra-retrieve pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
           # No `pdf-vfs-worker` either, and that one is the code's rather than a package's:
           # `pdf-vfs` hands an open document to its worker as a *descriptor* over a Unix socket,
           # so `FileBytes::descriptor` and `File: From<ReceivedDescriptor>` do not exist on
@@ -453,15 +498,25 @@ jobs:
       #
       # One invocation rather than one per binary: each is a whole-graph fat link and Cargo runs
       # them beside each other where separate commands run them one after another (ADR 0222).
+      # The sandbox worker is the exception, built in a run that selects `pdf-sandbox` alone:
+      # Cargo unifies a dependency's features over every package a build selects, and the worker's
+      # decoders and encoder are to carry only what its own manifest asks for (ADRs 1714, 2138;
+      # `tools/conformance/tests/worker_features.rs` reads these lines).
       - name: Build every program this target ships
         shell: bash
         run: |
           set -eu
+          # `name:package`, as `tools/batch.sh`'s `install_alone` spells it.
+          alone="pdf-sandbox-worker:pdf-sandbox"
           flags=""
-          for binary in ${{ matrix.bins }}; do flags="$flags --bin $binary"; done
+          for binary in ${{ matrix.bins }}; do
+            [ "$binary" = "${alone%%:*}" ] && continue
+            flags="$flags --bin $binary"
+          done
           # Unquoted on purpose: the flags are a list, not one word.
           # shellcheck disable=SC2086
           cargo build --release $flags
+          cargo build --release -p "${alone#*:}" --bin "${alone%%:*}"
 
       # RFC 0003's KIO face, which is deliberately outside the cargo workspace and needs KDE
       # Frameworks 6 to build at all -- "CI treats the shim as an optional artefact built where
@@ -674,7 +729,7 @@ jobs:
 
           **This is not a release.** It is whatever was on \`main\`, retagged at every push.
 
-          Every program this tree builds for a person to run, for x86_64 Linux, aarch64 macOS and x86_64 Windows — the viewer \`quorra\` and its confined form \`quorra-confined\`, the transform suite \`quorra-transform\` (whose \`archive\` verb is the PDF/A conversion), \`quorra-retrieve\` (whose \`archive-check\` is the PDF/A validation), and on Linux the GTK 4 and Qt 6 hosts and the FUSE mount \`quorrafs\`. **Unpack an archive into one directory and keep it that way**: the three workers — \`pdf-sandbox-worker\`, \`pdf-view-worker\`, \`pdf-vfs-worker\` — are separate executables their programs spawn, looked for beside the running binary, and a program that cannot find its worker refuses the work rather than doing it unconfined.
+          Every program this tree builds for a person to run, for x86_64 Linux, aarch64 macOS and x86_64 Windows — the viewer \`quorra\` and its confined form \`quorra-confined\`, the transform suite \`quorra-transform\` (whose \`archive\` verb is the PDF/A conversion), \`quorra-retrieve\` (whose \`archive-check\` is the PDF/A validation), and on Linux the GTK 4 and Qt 6 hosts and the FUSE mount \`quorrafs\`. **Unpack an archive into one directory and keep it that way**: the four workers — \`pdf-sandbox-worker\`, \`pdf-view-worker\`, \`pdf-vfs-worker\` and, off Windows, \`quorra-transform-worker\` — are separate executables their programs spawn, looked for beside the running binary, and a program that cannot find its worker refuses the work rather than doing it unconfined.
 
           **Not every program is on every platform**, and each archive's \`MANIFEST\` is the answer for that archive: \`quorrafs\` is Linux's alone, \`pdf-vfs-worker\` passes a descriptor over a Unix socket and so is absent on Windows, and the two native hosts are built where their toolkits are. The Linux archive also carries \`kio/\` — RFC 0003's C ABI library and header, with the KIO plugin itself only where the runner's KDE could build it, because a KF6 plugin is bound to the ABI of the KDE it was compiled against.
 

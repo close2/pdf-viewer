@@ -24,6 +24,7 @@
 //! pdf-transform pages       in.pdf --delete r1 --rotate +90:1-end -o out.pdf
 //! pdf-transform optimize    in.pdf -o out.pdf
 //! pdf-transform optimize    in.pdf --object-streams disable --recompress none -o out.pdf
+//! pdf-transform optimize    in.pdf --images quality=80 -o out.pdf
 //! pdf-transform archive     in.pdf --to 4 -o out.pdf
 //! pdf-transform archive     in.pdf --to 2b --authorise image-smoothing -o out.pdf
 //! pdf-transform archive     in.pdf --to 4 --output-intent-profile press.icc -o out.pdf
@@ -44,14 +45,8 @@
 //! which is what a script hands over; an interactive prompt that suppresses echo needs a
 //! terminal-mode dependency this tree has not taken, and `doc/todo/57` names it.
 
-#![expect(
-    clippy::print_stdout,
-    clippy::print_stderr,
-    reason = "a command-line tool whose entire output is a report"
-)]
-
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, IsTerminal as _, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -60,10 +55,10 @@ use pdf_transform::archive::{
     ArchivePlan, Authorisations, Configuration, ExternalData, Loss, sites,
 };
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
-use pdf_transform::executor::execute;
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::optimize::OptimizePlan;
+use pdf_transform::optimize_images::ImageRecompression;
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::profiles::Contribution;
@@ -74,10 +69,49 @@ use pdf_transform::split::{Pieces, SplitPlan};
 use pdf_transform::update::{INFORMATION_KEYS, InfoEntry};
 
 use pdf_syntax::serialize::{ObjectStreams, Streams};
+use pdf_transform::confined::{Reading, World};
 use pdf_transform::{
     Access, Budget, Exit, Level, Listed, Plan, Policy, Protect, Refusal, Report, Secret, Sinks,
     Source, apply_protected,
 };
+
+/// `print!` to the world's standard output.
+macro_rules! out {
+    ($io:expr, $($argument:tt)*) => {
+        $io.print(&format!($($argument)*))
+    };
+}
+
+/// `println!` to the world's standard output.
+macro_rules! outln {
+    ($io:expr) => {
+        $io.print("\n")
+    };
+    ($io:expr, $($argument:tt)*) => {
+        $io.print(&format!("{}\n", format_args!($($argument)*)))
+    };
+}
+
+/// `eprint!` to the world's standard error.
+macro_rules! err {
+    ($io:expr, $($argument:tt)*) => {
+        $io.say(&format!($($argument)*))
+    };
+}
+
+/// `eprintln!` to the world's standard error.
+macro_rules! errln {
+    ($io:expr, $($argument:tt)*) => {
+        $io.say(&format!("{}\n", format_args!($($argument)*)))
+    };
+}
+
+// Both by path, so that `quorra-transform-worker`, which takes this file by path too, finds them
+// where this binary does.
+#[path = "quorra-transform/here.rs"]
+mod here;
+#[path = "quorra-transform/route.rs"]
+mod route;
 
 /// What went wrong before or while applying the plan.
 #[derive(Debug, thiserror::Error)]
@@ -130,12 +164,14 @@ impl Failure {
 /// Diagnostics go to stderr, always — the whole file's rule — so the question does too; stdout
 /// carries bytes.
 fn ask_before_the_operation(
+    io: &mut dyn World,
+
     plan: &Plan,
     sources: &[Source],
     policy: &mut Policy,
     budget: &Budget,
 ) -> Result<(), Failure> {
-    if policy.restrictions != Level::Ask || !std::io::stdin().is_terminal() {
+    if policy.restrictions != Level::Ask || !io.is_terminal() {
         return Ok(());
     }
     let Some(operation) = plan.operation() else {
@@ -151,12 +187,9 @@ fn ask_before_the_operation(
         let Some(question) = consulted.question() else {
             continue;
         };
-        eprint!("{question} [y/N] ");
-        std::io::stderr().flush().ok();
-        let mut answer = String::new();
-        std::io::stdin()
-            .lock()
-            .read_line(&mut answer)
+        err!(io, "{question} [y/N] ");
+        let answer = io
+            .answer()
             .map_err(|error| Failure::Answer(error.to_string()))?;
         if !matches!(answer.trim(), "y" | "Y" | "yes" | "Yes") {
             return Err(Failure::Refused(Refusal::Declined {
@@ -219,6 +252,7 @@ const VALUED: &[&str] = &[
     "--recompress",
     "--compression-level",
     "--images",
+    "--quality",
     "--to",
     "--authorise",
     "--output-intent-profile",
@@ -275,6 +309,7 @@ const KNOWN: &[&str] = &[
     "--compression-level",
     "--linearize",
     "--images",
+    "--quality",
     "--to",
     "--authorise",
     "--output-intent-profile",
@@ -294,12 +329,13 @@ const KNOWN: &[&str] = &[
     "--quiet-warnings",
     "--help",
     "-h",
+    "--in-process",
 ];
 
 impl Arguments {
     /// Reads argv.
-    fn read() -> Result<Self, Failure> {
-        let mut arguments = std::env::args().skip(1);
+    fn parse(given: Vec<String>) -> Result<Self, Failure> {
+        let mut arguments = given.into_iter();
         let verb = arguments.next().unwrap_or_default();
         let mut positional = Vec::new();
         let mut flags = Vec::new();
@@ -382,32 +418,39 @@ impl Arguments {
 }
 
 fn main() -> std::process::ExitCode {
-    match run() {
-        Ok(exit) => std::process::ExitCode::from(exit.code()),
+    let given: Vec<String> = std::env::args().skip(1).collect();
+    std::process::ExitCode::from(route::route(given))
+}
+
+/// The whole program over `world`, from its arguments to its exit status — what this binary runs
+/// in-process and what `quorra-transform-worker` runs confined (ADR 2140).
+pub(crate) fn program(io: &mut dyn World, given: Vec<String>) -> u8 {
+    match run(io, given) {
+        Ok(exit) => exit.code(),
         Err(failure) => {
             // Usage above the message wherever the status is 1 — the seam's own usage refusals
             // (a pattern that cannot name the outputs) included.
             if failure.exit() == Exit::Usage {
-                eprint!("{USAGE}");
+                err!(io, "{USAGE}");
             }
-            eprintln!("error: {failure}");
-            std::process::ExitCode::from(failure.exit().code())
+            errln!(io, "error: {failure}");
+            failure.exit().code()
         }
     }
 }
 
 /// Reads the arguments, builds the plan, applies it, prints the report.
-fn run() -> Result<Exit, Failure> {
-    let arguments = Arguments::read()?;
+fn run(io: &mut dyn World, given: Vec<String>) -> Result<Exit, Failure> {
+    let arguments = Arguments::parse(given)?;
     if arguments.switch("--help")
         || arguments.switch("-h")
         || matches!(arguments.verb.as_str(), "help" | "--help" | "-h")
     {
-        print!("{USAGE}");
+        out!(io, "{USAGE}");
         return Ok(Exit::Success);
     }
     if arguments.switch("--remedy-sites") {
-        print_remedy_sites(&arguments)?;
+        print_remedy_sites(io, &arguments)?;
         return Ok(Exit::Success);
     }
     let output = arguments.value(&["-o", "--output"]);
@@ -426,36 +469,33 @@ fn run() -> Result<Exit, Failure> {
             "--report=json and -o - both want stdout".to_owned(),
         ));
     }
-    let mut plan = plan(&arguments, output)?;
-    let sources = open_inputs(&arguments, &plan)?;
+    let mut plan = plan(io, &arguments, output)?;
+    let sources = open_inputs(io, &arguments, &plan)?;
 
-    let mut policy = Policy {
-        restrictions: match arguments.value(&["--restrictions"]) {
-            None => Level::Off,
-            Some(word) => Level::parse(word).ok_or_else(|| {
-                Failure::Usage(format!(
-                    "--restrictions takes off, on, ask or warn, not {word:?}"
-                ))
-            })?,
-        },
-    };
+    let mut policy = policy(&arguments)?;
     let mut budget = Budget::default();
     if let Some(max_pixels) = arguments.parsed::<u64>(&["--max-pixels"])? {
         budget.max_pixels = max_pixels;
     }
-    ask_before_the_operation(&plan, &sources, &mut policy, &budget)?;
+    ask_before_the_operation(io, &plan, &sources, &mut policy, &budget)?;
 
-    let protect = protection(&arguments, &plan)?;
+    let protect = protection(io, &arguments, &plan)?;
     let borrowed: Vec<&Source> = sources.iter().collect();
 
     let mut passes = 0_usize;
     let mut report = loop {
-        let sinks: &dyn Sinks = if to_stdout {
-            &StdoutSinks::default()
-        } else {
-            &FileSinks
-        };
-        let report = apply_protected(&plan, &borrowed, sinks, &policy, &budget, protect.as_ref())?;
+        let sinks = io.sinks(to_stdout);
+        let report = apply_protected(
+            &plan,
+            &borrowed,
+            &*sinks,
+            &policy,
+            &budget,
+            protect.as_ref(),
+        )?;
+        // One pass's outputs, closed — every file — before anything below asks the world for
+        // anything else.
+        drop(sinks);
         // **`doc/questions/A54`, in one command.** The owner's doubt about the recommendation was
         // that "a normal user would expect it just to happen", and this loop is what makes that
         // true while `apply` itself starts nothing: a pass that needs an external program returns
@@ -467,7 +507,7 @@ fn run() -> Result<Exit, Failure> {
             // handed to it, and `apply` opens no path (`doc/questions/A54`, RFC 0002 section 9).
             // So a pass names the streams, this program resolves what its own rule permits, and
             // the next pass is a pure function of what came back (`doc/adr/1199`).
-            if resolve_the_external_data(&arguments, &report, &mut plan) {
+            if resolve_the_external_data(io, &arguments, &report, &mut plan) {
                 passes = passes.saturating_add(1);
                 if passes > MOST_TOOL_PASSES {
                     break report;
@@ -485,30 +525,30 @@ fn run() -> Result<Exit, Failure> {
                  forever (CLAUDE.md principle 3)"
             )));
         }
-        if !carry_out_the_requests(&report, &mut plan)? {
+        if !carry_out_the_requests(io, &report, &mut plan)? {
             break report;
         }
     };
 
-    name_the_profile(&arguments, &mut report)?;
+    name_the_profile(io, &arguments, &mut report)?;
     for warning in &report.warnings {
         match warning.page {
-            Some(page) => eprintln!("warning: page {page}: {}", warning.detail),
-            None => eprintln!("warning: {}", warning.detail),
+            Some(page) => errln!(io, "warning: page {page}: {}", warning.detail),
+            None => errln!(io, "warning: {}", warning.detail),
         }
     }
     for declined in &report.refused {
-        eprintln!("refused: {}: {}", declined.subject, declined.detail);
+        errln!(io, "refused: {}: {}", declined.subject, declined.detail);
     }
     if json {
-        print!("{}", report.to_json().render());
+        out!(io, "{}", report.to_json().render());
     } else if !to_stdout {
         // The conversion's report is an output rather than a listing (`doc/adr/0927`), and it
         // goes to stderr with the other diagnostics: stdout carries bytes or the JSON report.
         if let Some(conversion) = &report.archive {
-            eprint!("{}", conversion.render());
+            err!(io, "{}", conversion.render());
         }
-        print_listing(&report);
+        print_listing(io, &report);
     }
     Ok(report.exit(
         arguments.switch("--strict"),
@@ -516,14 +556,33 @@ fn run() -> Result<Exit, Failure> {
     ))
 }
 
+/// `--restrictions`: how much of what the document asserts over its reader this run obeys, `off`
+/// unless the person says otherwise.
+fn policy(arguments: &Arguments) -> Result<Policy, Failure> {
+    Ok(Policy {
+        restrictions: match arguments.value(&["--restrictions"]) {
+            None => Level::Off,
+            Some(word) => Level::parse(word).ok_or_else(|| {
+                Failure::Usage(format!(
+                    "--restrictions takes off, on, ask or warn, not {word:?}"
+                ))
+            })?,
+        },
+    })
+}
+
 /// The JSON report's `profile` field: which configuration answered, by the name it states for
 /// itself, read again from the text the plan was built from (ADR 1954).
 ///
 /// The text was read once already in `archive_plan`, where a failure stopped the run, so `ok()`
 /// drops nothing.
-fn name_the_profile(arguments: &Arguments, report: &mut Report) -> Result<(), Failure> {
+fn name_the_profile(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    report: &mut Report,
+) -> Result<(), Failure> {
     if let Some(conversion) = report.archive.as_mut()
-        && let Some((_, text)) = configuration_text(arguments)?
+        && let Some((_, text)) = configuration_text(io, arguments)?
     {
         conversion.configuration = Contribution::read(&text, conversion.target)
             .ok()
@@ -551,7 +610,11 @@ const MOST_TOOL_PASSES: usize = 4;
 ///
 /// `Ok(false)` where nothing new was learned — every request already had a result — which stops the
 /// loop rather than repeating a pass that would ask for the same thing again.
-fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Failure> {
+fn carry_out_the_requests(
+    io: &mut dyn World,
+    report: &Report,
+    plan: &mut Plan,
+) -> Result<bool, Failure> {
     let Plan::Archive(archive) = plan else {
         // No other verb asks for one, and a verb that did would need its own field: a request is
         // returned by the plan that wants it, so there is nothing here to guess at.
@@ -562,14 +625,15 @@ fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Fail
         if archive.tool_outputs.get(&request.id).is_some() {
             continue;
         }
-        eprintln!(
+        errln!(
+            io,
             "running the tool {:?} ({}) over {} — doc/rfc/0007 section 4.5: {}",
             request.tool,
             request.program.display(),
             request.subject,
             pdf_transform::archive::UNTRUSTED_INPUT_WARNING
         );
-        let result = execute(request).map_err(|error| Failure::Usage(error.to_string()))?;
+        let result = io.execute(request).map_err(Failure::Usage)?;
         archive.tool_outputs.insert(result);
         new = true;
     }
@@ -597,7 +661,12 @@ fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Fail
 /// document wrote, said out loud and passed over, because a document that points at a file this
 /// machine will not hand over is a document to refuse by requirement rather than a command line to
 /// reject.
-fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut Plan) -> bool {
+fn resolve_the_external_data(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    report: &Report,
+    plan: &mut Plan,
+) -> bool {
     if !arguments.switch("--resolve-external-data") {
         return false;
     }
@@ -623,7 +692,8 @@ fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut 
                 absolute,
             } => (shown, components, *absolute),
             ExternalData::AtUrl(url) => {
-                eprintln!(
+                errln!(
+                    io,
                     "--resolve-external-data: object {} names {url}, which is a URL rather than \
                      a file beside the document; this program performs no network request",
                     stream.at.number
@@ -637,16 +707,19 @@ fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut 
         let path = match beside_the_document(directory, named.1, named.2) {
             Ok(path) => path,
             Err(refusal) => {
-                eprintln!(
+                errln!(
+                    io,
                     "--resolve-external-data: object {} names {}: {refusal}",
-                    stream.at.number, named.0
+                    stream.at.number,
+                    named.0
                 );
                 continue;
             }
         };
-        match std::fs::read(&path) {
+        match io.read_beside(&path) {
             Ok(bytes) => {
-                eprintln!(
+                errln!(
+                    io,
                     "--resolve-external-data: object {} takes the {} byte(s) of {}",
                     stream.at.number,
                     bytes.len(),
@@ -655,7 +728,8 @@ fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut 
                 archive.external_data.insert(stream.at, Arc::from(bytes));
                 resolved = true;
             }
-            Err(error) => eprintln!(
+            Err(error) => errln!(
+                io,
                 "--resolve-external-data: object {}: cannot read {}: {error}",
                 stream.at.number,
                 path.display()
@@ -713,7 +787,7 @@ fn beside_the_document(
 }
 
 /// The plan the verb and its flags describe.
-fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
+fn plan(io: &mut dyn World, arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
     let pages = arguments
         .parsed::<Selection>(&["--pages"])?
         .unwrap_or_else(Selection::all);
@@ -808,10 +882,10 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 other => other,
             },
         })),
-        "archive" => Ok(Plan::Archive(archive_plan(arguments, names("archive")?)?)),
+        "archive" => archive_plan(io, arguments, names("archive")?).map(Plan::Archive),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
-            action: attachments_action(arguments, output)?,
+            action: attachments_action(io, arguments, output)?,
         })),
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
@@ -826,7 +900,11 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
 /// producing a file against a target nobody asked for; and section 1.1 is the user with a free
 /// choice, for whom the interesting sentence is "this cannot be PDF/A-2 and can be PDF/A-4f".
 /// Neither is served by a default.
-fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Failure> {
+fn archive_plan(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    names: Pattern,
+) -> Result<ArchivePlan, Failure> {
     let Some(word) = arguments.value(&["--to"]) else {
         return Err(Failure::Usage(
             "archive needs --to <target>: 2b, 2u, 2a, 4, 4f or 4e. There is no default, because \
@@ -859,18 +937,18 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         })?;
         authorised.authorise(loss);
     }
-    let supplied_fonts = supplied_fonts(arguments)?;
+    let supplied_fonts = supplied_fonts(io, arguments)?;
     // `doc/rfc/0007`: the configuration is read by the *caller* and handed in as data, so `apply`
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
     // the departures it names.
-    let read = read_config(arguments, target, &mut authorised)?;
+    let read = read_config(io, arguments, target, &mut authorised)?;
     Ok(ArchivePlan {
         source: 0,
         names,
         target,
         authorised,
-        profile: output_intent_profile(arguments)?,
+        profile: output_intent_profile(io, arguments)?,
         substitute_fonts: !arguments.switch("--no-substitute"),
         supplied_fonts,
         departures: read.departures,
@@ -921,7 +999,10 @@ struct FromConfig {
 /// and neither does the program on somebody's disk; the operator does. So the run records whose
 /// authority it was, in the report and in the output's own `xmpMM:History`, and this program
 /// never goes looking for a face by itself (`doc/adr/1209`, `doc/adr/1200` section 4).
-fn supplied_fonts(arguments: &Arguments) -> Result<BTreeMap<String, Arc<[u8]>>, Failure> {
+fn supplied_fonts(
+    io: &mut dyn World,
+    arguments: &Arguments,
+) -> Result<BTreeMap<String, Arc<[u8]>>, Failure> {
     let mut out: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
     for stated in arguments.every("--font") {
         let Some((base_font, path)) = stated.split_once('=') else {
@@ -937,9 +1018,11 @@ fn supplied_fonts(arguments: &Arguments) -> Result<BTreeMap<String, Arc<[u8]>>, 
             )));
         }
         let path = PathBuf::from(path);
-        let bytes =
-            std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
-        eprintln!(
+        let bytes = io
+            .read(&path, Reading::Bytes)
+            .map_err(|error| Failure::Unreadable(path.clone(), error))?;
+        errln!(
+            io,
             "note: --font states that {} may lawfully be embedded for unlimited, universal \
              rendering (ISO 19005-2 section 6.2.11.4.1); that is your statement, not this \
              program's, and the report and the output's xmpMM:History record it as yours",
@@ -960,12 +1043,14 @@ fn supplied_fonts(arguments: &Arguments) -> Result<BTreeMap<String, Arc<[u8]>>, 
 /// between teams. Sites whose remedy this version cannot yet carry out are named on stderr, so an
 /// operator sees their intent was read rather than ignored.
 fn read_config(
+    io: &mut dyn World,
+
     arguments: &Arguments,
     target: pdf_archive::Target,
     authorised: &mut Authorisations,
 ) -> Result<FromConfig, Failure> {
     let claim = arguments.switch("--claim-conformance");
-    let Some((label, text)) = configuration_text(arguments)? else {
+    let Some((label, text)) = configuration_text(io, arguments)? else {
         return Ok(FromConfig {
             departures: Vec::new(),
             forms: pdf_transform::archive::FormAnswers::default(),
@@ -982,7 +1067,8 @@ fn read_config(
     // The report's per-site lines say "this configuration answered it"; this is the line that
     // says which configuration that was, once, where a person reading the run meets it.
     if let Some(name) = &config.name {
-        eprintln!(
+        errln!(
+            io,
             "note: the sites below marked as answered by this configuration were answered by \
              the profile {name:?} ({label})"
         );
@@ -1001,7 +1087,8 @@ fn read_config(
         }
     }
     for unbuilt in &config.unbuilt {
-        eprintln!(
+        errln!(
+            io,
             "note: the configuration answers {:?} with `{}`, which this version does not carry out \
              yet; that site stays refused with the sentence it names",
             unbuilt.site,
@@ -1013,7 +1100,8 @@ fn read_config(
     // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
     // to start somebody else's program over an untrusted document says so before it does.
     for tool in &config.tools {
-        eprintln!(
+        errln!(
+            io,
             "note: {label} declares the tool {:?} as {} — {}",
             tool.name,
             tool.program.display(),
@@ -1036,7 +1124,7 @@ fn read_config(
 /// `doc/rfc/0007` section 3.1: the list is generated from the same table the converter decides
 /// from, so a site cannot exist undocumented and a configuration naming one that does not exist is
 /// an error rather than a silently ignored line.
-fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
+fn print_remedy_sites(io: &mut dyn World, arguments: &Arguments) -> Result<(), Failure> {
     let Some(word) = arguments.value(&["--to"]) else {
         return Err(Failure::Usage(
             "--remedy-sites needs --to <target>: a site's remedies depend on the target, so the \
@@ -1050,7 +1138,8 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
         ))
     })?;
     let sites = sites(target);
-    println!(
+    outln!(
+        io,
         "{} refusal site(s) a configuration may answer for {target}. Every site's default is \
          `stop`; a remedy a target does not admit is an error naming both.",
         sites.len()
@@ -1124,12 +1213,14 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             remedy.push_str(site.requirement);
             remedy.push_str("\".shape.\"<name>\"] row answers one half (doc/adr/1211)");
         }
-        println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
+        let line = format!("  {} ({})\n      {remedy}", site.requirement, site.citation);
+        outln!(io, "{line}");
         if site.takes_a_tool || site.takes_a_fetched_file {
             // **`doc/questions/A56`.** The warning lives where an operator configures a tool rather
             // than in a security document nobody opens, and this listing is one of the two places
             // they meet one — the `[tool.…]` block they write is the other.
-            println!(
+            outln!(
+                io,
                 "      warning: {} — doc/rfc/0007 section 4.5",
                 pdf_transform::archive::UNTRUSTED_INPUT_WARNING
             );
@@ -1137,7 +1228,8 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
         }
     }
     if takes_a_tool > 0 {
-        println!(
+        outln!(
+            io,
             "\n{takes_a_tool} of these sites can be answered with an external program. \
              {}: no confinement is offered for it, because a profile written against no \
              particular program is a guess (doc/questions/A56).",
@@ -1147,9 +1239,9 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
     // **The program prints its own total**, which is what `doc/todo/66` asks for: a count taken
     // beside a program's output goes stale the moment the program's words change, and this one is
     // computed from the same walk it summarises.
-    println!("\n{not_built} of {} sites not built yet.", sites.len());
-    if let Some((label, text)) = configuration_text(arguments)? {
-        print_unbuilt_answers(&label, &text, target, sites.len())?;
+    outln!(io, "\n{not_built} of {} sites not built yet.", sites.len());
+    if let Some((label, text)) = configuration_text(io, arguments)? {
+        print_unbuilt_answers(io, &label, &text, target, sites.len())?;
     }
     Ok(())
 }
@@ -1221,6 +1313,8 @@ fn first_answer(site: &pdf_transform::archive::Site) -> String {
 /// the same notes for every document it is handed. Counting them over a corpus would count the
 /// corpus. `doc/todo/66`.
 fn print_unbuilt_answers(
+    io: &mut dyn World,
+
     label: &str,
     text: &str,
     target: pdf_archive::Target,
@@ -1230,15 +1324,17 @@ fn print_unbuilt_answers(
         .map_err(|error| Failure::Usage(format!("{label}: {error}")))?;
     let named = config.name.clone().unwrap_or_else(|| label.to_owned());
     let unbuilt = config.unbuilt(target);
-    println!();
+    outln!(io);
     for answer in &unbuilt {
-        println!(
+        outln!(
+            io,
             "  {:?} is answered with `{}`, which this version does not carry out yet",
             answer.site,
             answer.remedy.word()
         );
     }
-    println!(
+    outln!(
+        io,
         "\n{} of {bound} sites answered with a remedy not carried out yet, for {named} at {target}.",
         unbuilt.len()
     );
@@ -1249,7 +1345,10 @@ fn print_unbuilt_answers(
 ///
 /// The two are one choice, so naming both is a usage error rather than a precedence a reader has
 /// to remember; naming neither is a run with no configuration at all.
-fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>, Failure> {
+fn configuration_text(
+    io: &mut dyn World,
+    arguments: &Arguments,
+) -> Result<Option<(String, String)>, Failure> {
     match (
         arguments.value(&["--config"]),
         arguments.value(&["--profile"]),
@@ -1261,7 +1360,9 @@ fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>,
         )),
         (Some(path), None) => {
             let path = PathBuf::from(path);
-            let text = std::fs::read_to_string(&path)
+            let text = io
+                .read(&path, Reading::Bytes)
+                .and_then(text)
                 .map_err(|error| Failure::Unreadable(path.clone(), error))?;
             Ok(Some((format!("--config {}", path.display()), text)))
         }
@@ -1284,6 +1385,16 @@ fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>,
     }
 }
 
+/// Bytes as text, refused in `std::fs::read_to_string`'s own words where they are not UTF-8.
+fn text(bytes: Vec<u8>) -> std::io::Result<String> {
+    String::from_utf8(bytes).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        )
+    })
+}
+
 /// `--output-intent-profile <file>`: the destination profile an added output intent names.
 ///
 /// **Read and checked here rather than per document**, because a profile that is not one is the
@@ -1295,12 +1406,17 @@ fn configuration_text(arguments: &Arguments) -> Result<Option<(String, String)>,
 /// `doc/pdf-a-conversion-limits.md` section 10.1 records the ICC's own guidance that a profile's
 /// terms of use live in its header's creator field and that tag, so a user embedding somebody
 /// else's press profile is told whose it is before the run rather than after.
-fn output_intent_profile(arguments: &Arguments) -> Result<Option<Arc<[u8]>>, Failure> {
+fn output_intent_profile(
+    io: &mut dyn World,
+    arguments: &Arguments,
+) -> Result<Option<Arc<[u8]>>, Failure> {
     let Some(path) = arguments.value(&["--output-intent-profile"]) else {
         return Ok(None);
     };
     let path = PathBuf::from(path);
-    let bytes = std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let bytes = io
+        .read(&path, Reading::Bytes)
+        .map_err(|error| Failure::Unreadable(path.clone(), error))?;
     let stated = Identification::read(&bytes).ok_or_else(|| {
         Failure::Usage(format!(
             "--output-intent-profile {}: this file is not an ICC profile",
@@ -1329,13 +1445,10 @@ fn output_intent_profile(arguments: &Arguments) -> Result<Option<Arc<[u8]>>, Fai
 /// `--object-streams disable` writes it with classic tables instead (ADR 1309).
 fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, Failure> {
     let linearize = arguments.switch("--linearize");
-    if let Some(word) = arguments.value(&["--images"]) {
-        return Err(Failure::Usage(format!(
-            "--images {word:?}: lossy image optimisation needs a DCT encoder, which this tree \
-             does not have (RFC 0002 section 13's second question, doc/stack.md); no flag here \
-             re-encodes an image, deliberately"
-        )));
-    }
+    let images = arguments
+        .value(&["--images"])
+        .map(image_recompression)
+        .transpose()?;
     let object_streams = match arguments.value(&["--object-streams"]) {
         None | Some("generate") => ObjectStreams::DEFAULT,
         Some("disable") => ObjectStreams::Disable,
@@ -1371,7 +1484,49 @@ fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, 
         object_streams,
         streams,
         linearize,
+        images,
     })
+}
+
+/// `optimize --images quality=<n>`: RFC 0002 section 6.5's lossy pass, asked for by name.
+///
+/// `downsample=` is the section's other knob and is refused by name: an image's placed size is
+/// every `Do` that draws it, and this verb interprets no content stream (`doc/todo/57`).
+fn image_recompression(word: &str) -> Result<ImageRecompression, Failure> {
+    let mut quality = None;
+    for setting in word.split(',') {
+        match setting.split_once('=') {
+            Some(("quality", value)) => {
+                quality = Some(
+                    value
+                        .parse::<u8>()
+                        .ok()
+                        .filter(|quality| (1..=100).contains(quality))
+                        .ok_or_else(|| {
+                            Failure::Usage(format!(
+                                "--images quality={value}: a JPEG quality is 1 to 100"
+                            ))
+                        })?,
+                );
+            }
+            Some(("downsample", _)) => {
+                return Err(Failure::Usage(
+                    "--images downsample=…: not built — an image's placed size is every Do \
+                     that draws it, under each one's CTM, and this verb interprets no content \
+                     stream (doc/todo/57); quality=<n> re-encodes at the image's own grid"
+                        .to_owned(),
+                ));
+            }
+            _ => {
+                return Err(Failure::Usage(format!(
+                    "--images takes quality=<1-100>, not {setting:?}"
+                )));
+            }
+        }
+    }
+    quality
+        .map(|quality| ImageRecompression { quality })
+        .ok_or_else(|| Failure::Usage("--images needs quality=<1-100>".to_owned()))
 }
 
 /// `pages`: the edit flags in the order they were written on the command line.
@@ -1589,7 +1744,11 @@ fn input_spec(spec: &str) -> (PathBuf, Option<Selection>) {
 /// to reason about". So a merge of more than one input with a password is a usage error rather
 /// than a password quietly used for a file it was not typed for; a per-input fd is what would
 /// lift it and nobody has asked for one.
-fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failure> {
+fn open_inputs(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    plan: &Plan,
+) -> Result<Vec<Source>, Failure> {
     let wanted = if matches!(plan, Plan::Merge(_)) {
         arguments.positional.len()
     } else {
@@ -1614,10 +1773,11 @@ fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failur
         let (path, _) = input_spec(spec);
         // On disk rather than read whole: ADR 0809's window, so that a merge of six-gigabyte
         // inputs costs each one's trailer, table and selected pages rather than its bytes.
-        let bytes = pdf_syntax::FileBytes::on_disk(&path)
+        let bytes = io
+            .document(&path)
             .map_err(|error| Failure::Unreadable(path.clone(), error))?;
         sources.push(match password.take() {
-            Some(fd) => Source::with_password(bytes, password_from(fd)?),
+            Some(fd) => Source::with_password(bytes, password_from(io, fd)?),
             None => Source::new(bytes),
         });
     }
@@ -1625,7 +1785,11 @@ fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failur
 }
 
 /// `attachments`: exactly one of its five actions, from the flags.
-fn attachments_action(arguments: &Arguments, output: Option<&str>) -> Result<Action, Failure> {
+fn attachments_action(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    output: Option<&str>,
+) -> Result<Action, Failure> {
     Ok(
         match (
             arguments.switch("--list"),
@@ -1642,7 +1806,7 @@ fn attachments_action(arguments: &Arguments, output: Option<&str>) -> Result<Act
                 name: name.to_owned(),
                 names: directory_or_pattern(output, "--save")?,
             },
-            (false, false, None, Some(file), None) => attach_action(arguments, output, file)?,
+            (false, false, None, Some(file), None) => attach_action(io, arguments, output, file)?,
             (false, false, None, None, Some(name)) => Action::Remove {
                 name: name.to_owned(),
                 names: output
@@ -1663,6 +1827,8 @@ fn attachments_action(arguments: &Arguments, output: Option<&str>) -> Result<Act
 
 /// `--attach <file>`: the file read, its filing name decided, the date read where given.
 fn attach_action(
+    io: &mut dyn World,
+
     arguments: &Arguments,
     output: Option<&str>,
     file: &str,
@@ -1676,8 +1842,9 @@ fn attach_action(
     let path = PathBuf::from(file);
     // The payload is *attached*, so every byte of it is written into the document: read whole,
     // with the room asked for first, rather than opened on disk.
-    let bytes =
-        pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let bytes = io
+        .read(&path, Reading::Whole)
+        .map_err(|error| Failure::Unreadable(path.clone(), error))?;
     // The filing name is the file's own unless `--name` says otherwise, and
     // it has to be a name: a path with no final component names nothing.
     let name = match arguments.value(&["--name"]) {
@@ -1764,12 +1931,31 @@ fn parse_rect(text: &str) -> Result<[f32; 4], Failure> {
     Ok([x, y, x + w, y + h])
 }
 
-/// `--format png|ppm|pgm`, PNG where nothing is said.
+/// `--format png|jpeg|ppm|pgm`, PNG where nothing is said, and `--quality` for the one lossy one.
+///
+/// JPEG only where the word asks for it: nothing is re-encoded unless a format is explicitly
+/// requested (`doc/questions/A01`), and `--quality` without `--format jpeg` is a usage error
+/// rather than a setting nothing reads.
 fn image_format(arguments: &Arguments) -> Result<ImageFormat, Failure> {
-    match arguments.value(&["--format"]) {
-        None => Ok(ImageFormat::Png),
-        Some(word) => ImageFormat::parse(word)
-            .ok_or_else(|| Failure::Usage(format!("--format takes png, ppm or pgm, not {word:?}"))),
+    let format = match arguments.value(&["--format"]) {
+        None => ImageFormat::Png,
+        Some(word) => ImageFormat::parse(word).ok_or_else(|| {
+            Failure::Usage(format!(
+                "--format takes png, jpeg, ppm or pgm, not {word:?}"
+            ))
+        })?,
+    };
+    match (format, arguments.parsed::<u8>(&["--quality"])?) {
+        (_, None) => Ok(format),
+        (ImageFormat::Jpeg { .. }, Some(quality)) if (1..=100).contains(&quality) => {
+            Ok(ImageFormat::Jpeg { quality })
+        }
+        (ImageFormat::Jpeg { .. }, Some(quality)) => Err(Failure::Usage(format!(
+            "--quality {quality}: a JPEG quality is 1 to 100"
+        ))),
+        (_, Some(_)) => Err(Failure::Usage(
+            "--quality is JPEG's, and only --format jpeg reads it".to_owned(),
+        )),
     }
 }
 
@@ -1816,7 +2002,11 @@ fn directory_or_pattern(output: Option<&str>, what: &str) -> Result<Pattern, Fai
 /// the person running it did not ask to withhold. Table 22's seven bits are
 /// `pdf_transform::Access`, so a caller of the library can state them; a flag that spells them
 /// on a command line is a separate argument nobody has made.
-fn protection(arguments: &Arguments, plan: &Plan) -> Result<Option<Protect>, Failure> {
+fn protection(
+    io: &mut dyn World,
+    arguments: &Arguments,
+    plan: &Plan,
+) -> Result<Option<Protect>, Failure> {
     let owner = arguments.parsed::<u32>(&["--encrypt-owner-fd"])?;
     let user = arguments.parsed::<u32>(&["--encrypt-user-fd"])?;
     if owner.is_none() && user.is_none() {
@@ -1839,11 +2029,11 @@ fn protection(arguments: &Arguments, plan: &Plan) -> Result<Option<Protect>, Fai
         // §7.6.4.1: the empty string is the default user password, which every reader tries
         // first, so a file given only an owner password opens without a prompt.
         user_password: match user {
-            Some(fd) => password_from(fd)?,
+            Some(fd) => password_from(io, fd)?,
             None => Secret::new(),
         },
         owner_password: match owner {
-            Some(fd) => password_from(fd)?,
+            Some(fd) => password_from(io, fd)?,
             None => Secret::new(),
         },
         access: Access::ALL,
@@ -1852,12 +2042,9 @@ fn protection(arguments: &Arguments, plan: &Plan) -> Result<Option<Protect>, Fai
 }
 
 /// One line from an open descriptor, without its line ending — what a script hands over.
-fn password_from(fd: u32) -> Result<Secret, Failure> {
-    let file = std::fs::File::open(format!("/dev/fd/{fd}"))
-        .map_err(|error| Failure::Password(fd, error))?;
-    let mut line = String::new();
-    std::io::BufReader::new(file)
-        .read_line(&mut line)
+fn password_from(io: &mut dyn World, fd: u32) -> Result<Secret, Failure> {
+    let mut line = io
+        .password(fd)
         .map_err(|error| Failure::Password(fd, error))?;
     while line.ends_with(['\n', '\r']) {
         line.pop();
@@ -1866,10 +2053,11 @@ fn password_from(fd: u32) -> Result<Secret, Failure> {
 }
 
 /// A listing on stdout, one line per entry, for a person; `--report=json` is for a program.
-fn print_listing(report: &Report) {
+fn print_listing(io: &mut dyn World, report: &Report) {
     for listed in &report.listed {
         match listed {
-            Listed::Image(image) => println!(
+            Listed::Image(image) => outln!(
+                io,
                 "page {}\t{}x{}\t{} bpc\t{}\t{}{}{}",
                 image.page,
                 image.width,
@@ -1886,7 +2074,8 @@ fn print_listing(report: &Report) {
                 if image.stencil { "\tstencil" } else { "" },
                 if image.masked { "\tmasked" } else { "" },
             ),
-            Listed::Attachment(file) => println!(
+            Listed::Attachment(file) => outln!(
+                io,
                 "{}\t{}\t{}\t{}",
                 file.name,
                 file.file_name.as_deref().unwrap_or("-"),
@@ -1972,10 +2161,11 @@ render:
   --pages <selection>   which pages (default: all)
   --dpi <n>             dots per inch, 72 units to the inch (default 150)
   --scale-to <N|WxH>    fit the longer side to N pixels, or the page inside WxH
-  --format png|ppm|pgm  PNG (default), binary PPM (the RGB, no alpha), or binary PGM: the
-                        grey of the RGB by ISO 32000-2 §10.4.2.2's rule, 0.3 R + 0.59 G +
-                        0.11 B; JPEG is absent until an encoder is decided (RFC 0002
-                        section 6.5)
+  --format <form>       png (default), jpeg, ppm or pgm. PPM is binary RGB with no alpha;
+                        PGM the grey of the RGB by ISO 32000-2 §10.4.2.2's rule, 0.3 R +
+                        0.59 G + 0.11 B; JPEG is baseline (§7.4.8) and lossy, encoded in the
+                        confined worker, and only ever written where it is asked for
+  --quality <n>         JPEG's quality, 1 to 100 (default 90); --format jpeg only
   --max-pixels <n>      refuse a page larger than this (default 2^28)
   --page-box <box>      media, crop, bleed, trim or art (§7.7.3.3): the box is the raster's
                         extent and its clip; default is the viewer's own display boundary,
@@ -1994,11 +2184,12 @@ images:
   --no-mask             the image with no mask applied, and its mask beside it as
                         <name>.mask.png — an 8-bit grey PNG on the mask's own grid whose
                         value is the opacity it gives the image
-  --format png|ppm|pgm  the file form of every image that is decoded: PNG (default), PPM,
-                        or PGM by §10.4.2.2's rule over the decoded RGB, whatever the
+  --format <form>       the file form of every image that is decoded: png (default), jpeg,
+                        ppm, or pgm by §10.4.2.2's rule over the decoded RGB, whatever the
                         image's own colour space; a native stream is never converted. A
                         netpbm file has no alpha, so the mask goes beside it as
-                        <name>.mask.pgm
+                        <name>.mask.pgm; beside a JPEG it is <name>.mask.png
+  --quality <n>         JPEG's quality, 1 to 100 (default 90); --format jpeg only
   every image is decoded to PNG with its mask in the alpha; an XObject once, an inline
   image (BI … ID … EI) at every placement
 split:
@@ -2097,10 +2288,13 @@ optimize:
                              table Table F.2 requires of this document. Object streams and
                              passwords compose with it; --object-streams disable writes its
                              two cross-reference sections as classic tables
-  lossy image optimisation is deliberately absent: it needs a DCT encoder this tree does not
-  have (RFC 0002 section 13's second question), and a downsampler without one would keep every
-  image under qpdf's fails-to-shrink rule and do nothing while claiming to. Optimising an
-  encrypted document produces an unencrypted one, and says so.
+  --images quality=<n>       the one lossy pass, off unless asked for: an image of 8-bit grey
+                             or RGB samples behind lossless filters is re-encoded as baseline
+                             JPEG (§7.4.8) at quality n, 1 to 100, in the confined worker, and
+                             replaces the producer's stream only where it is smaller. Indexed,
+                             CMYK, stencil and colour-keyed images, and every image already
+                             under a codec, are kept as written; downsample= is not built
+  Optimising an encrypted document produces an unencrypted one, and says so.
 
 archive:
   --to <target>            2b, 2u, 2a (ISO 19005-2), 4, 4f, 4e (ISO 19005-4). Required: which
@@ -2157,9 +2351,11 @@ archive:
                            is CMYK and none of it is RGB, the sRGB profile otherwise. Supply
                            your own for a document produced for a particular press — which
                            press a document was made for is the one thing nobody but its owner
-                           knows. The profile's own copyright tag is printed either way,
-                           because embedding somebody's profile means shipping their terms
-                           with it
+                           knows. Where the file already states an output intent of another
+                           colour family, a CMYK profile supplied here becomes the DefaultCMYK
+                           its DeviceCMYK is read through instead, recorded as your statement.
+                           The profile's own copyright tag is printed either way, because
+                           embedding somebody's profile means shipping their terms with it
   --no-substitute          a font the file renders and does not embed is refused by name instead
                            of being given one of the faces this program ships. The default is to
                            substitute, because a PDF whose font is not embedded has no appearance
@@ -2276,6 +2472,8 @@ options for every verb:
   --encrypt-owner-fd <n>  encrypt the output (ISO 32000-2 §7.6.4, /V 5 /R 6) with the
   --encrypt-user-fd <n>   owner and user passwords read from those descriptors;
                         split, merge, pages, optimize and redact only
+  --in-process          parse the document in this process, unconfined, rather than in the
+                        confined worker quorra-transform-worker (the default; ADR 2140)
   --restrictions=off|on|ask|warn
                         whether what the document asserts over its reader — Table 22's /P bits,
                         §12.8.2.2's certification — is honoured (default off: the program is

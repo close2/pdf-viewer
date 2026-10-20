@@ -170,8 +170,7 @@ fn a_round_in_digits_is_told_from_the_noun() {
 const TODO_CEILING: usize = 0;
 
 /// The most lines under `doc/todo` that may name a round as `session <number>` or
-/// `round <number>`, held by the same ratchet (ADR 1637). The three are `doc/todo/56`'s: its
-/// §12.11.5 row and the paragraph under it, and the commissioning of RFC 0008 section 6.
+/// `round <number>`: none, held by the same ratchet (ADR 1637).
 const TODO_NUMBERED_CEILING: usize = 0;
 
 /// Whether `line` names a round by number in a todo file's spelling: `session` or `round`, either

@@ -202,6 +202,37 @@ pub(crate) enum Exact {
 }
 
 impl Exact {
+    /// These rectangles stated on a grid on which the surface begins at `corner`, moved onto the
+    /// surface: each edge less a whole number of pixels, which is exact for every edge on or near
+    /// the surface (ADR 2133). [`Exact::Unknown`] where a moved rectangle is not one.
+    pub(crate) fn moved(self, corner: (u32, u32)) -> Self {
+        if corner == (0, 0) {
+            return self;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "`rasterize` refuses a corner beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let (x, y) = (corner.0 as f32, corner.1 as f32);
+        let moved = |rect: tiny_skia::Rect| {
+            tiny_skia::Rect::from_ltrb(
+                rect.left() - x,
+                rect.top() - y,
+                rect.right() - x,
+                rect.bottom() - y,
+            )
+        };
+        let all = |rects: Vec<tiny_skia::Rect>| -> Option<Vec<tiny_skia::Rect>> {
+            rects.into_iter().map(moved).collect()
+        };
+        match self {
+            Self::One(rect) => moved(rect).map_or(Self::Unknown, Self::One),
+            Self::Several(rects) => all(rects).map_or(Self::Unknown, Self::Several),
+            Self::Shared(rects) => all(rects).map_or(Self::Unknown, Self::Shared),
+            other @ (Self::Unknown | Self::Outline | Self::Pieces) => other,
+        }
+    }
+
     /// The rectangles, in the path's own order. Empty for [`Exact::Unknown`].
     fn iter(&self) -> impl Iterator<Item = tiny_skia::Rect> + '_ {
         let (one, several) = match self {
@@ -413,75 +444,177 @@ pub(crate) fn fill(
     at: tiny_skia::Transform,
     clip: Clip<'_>,
 ) {
-    fill_as(pixmap, (path, &Exact::Unknown), paint, fill_rule, at, clip);
-}
-
-/// [`fill`], for a stroker's outline that may cover a point twice — [`Exact::Outline`].
-pub(crate) fn fill_outline(
-    pixmap: &mut tiny_skia::PixmapMut<'_>,
-    outline: &tiny_skia::Path,
-    paint: &tiny_skia::Paint<'_>,
-    at: tiny_skia::Transform,
-    clip: Clip<'_>,
-) {
-    // The non-zero rule, because a stroked outline's inner contours are wound against its outer
-    // ones and the even-odd rule would hollow a self-overlapping stroke out. It is what
-    // `stroke_path` fills the same outline with, and what `draw_stroked_outline` fills every
-    // other outline with.
     fill_as(
         pixmap,
-        (outline, &Exact::Outline),
+        (path, &Exact::Unknown),
         paint,
-        tiny_skia::FillRule::Winding,
-        at,
+        fill_rule,
+        Place::surface(at),
         clip,
     );
 }
 
-/// [`fill`], for the union of convex pieces a folding curve's stroke is stated as —
-/// [`Exact::Pieces`].
-pub(crate) fn fill_pieces(
+/// [`fill`] of a mark `exact` says one of three things of — [`Exact::Unknown`]; a stroker's
+/// outline that may cover a point twice, [`Exact::Outline`]; or the union of convex pieces a
+/// folding curve's stroke is stated as, [`Exact::Pieces`] — with its vertices stated on the page's
+/// grid before any converter sees them (ADR 2133). An outline and the pieces are filled under the
+/// non-zero rule by their caller: an outline's inner contours are wound against its outer ones,
+/// which the even-odd rule would hollow out, and every piece is wound the same way, so their union
+/// is the set — it is what `stroke_path` fills an outline with.
+///
+/// The paint is moved by the surface's matrix here, which is the step `fill_path` takes with the
+/// matrix it is handed before it draws under none: so a converter handed these vertices draws what
+/// it drew from the matrix, and on a strip or a window draws the page's own pixels.
+pub(crate) fn fill_stated(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    pieces: &tiny_skia::Path,
+    (path, exact): (&tiny_skia::Path, &Exact),
     paint: &tiny_skia::Paint<'_>,
-    at: tiny_skia::Transform,
+    fill_rule: tiny_skia::FillRule,
+    placed: crate::surface::Placed,
     clip: Clip<'_>,
 ) {
-    // The non-zero rule, because every piece is wound the same way and their union is the set.
     fill_as(
         pixmap,
-        (pieces, &Exact::Pieces),
+        (path, exact),
         paint,
-        tiny_skia::FillRule::Winding,
-        at,
+        fill_rule,
+        Place::of(placed),
         clip,
     );
 }
 
-/// [`fill`], [`fill_outline`] and [`fill_pieces`], which differ only in what they know of the
-/// mark's shape.
+/// [`fill_stated`] of a shape whose paint is positioned on the surface already — an unsmoothed
+/// image's samples, put one to a device pixel by `image::centres` — so that the paint is moved by
+/// no matrix and only the shape is placed.
+pub(crate) fn fill_positioned(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    path: &tiny_skia::Path,
+    paint: &tiny_skia::Paint<'_>,
+    fill_rule: tiny_skia::FillRule,
+    placed: crate::surface::Placed,
+    clip: Clip<'_>,
+) {
+    let place = Place {
+        paint: tiny_skia::Transform::identity(),
+        ..Place::of(placed)
+    };
+    fill_as(
+        pixmap,
+        (path, &Exact::Unknown),
+        paint,
+        fill_rule,
+        place,
+        clip,
+    );
+}
+
+/// Where a mark's geometry lands: the matrix onto the surface, and the matrix onto the grid the
+/// surface lies on with the surface's corner there — the page's grid for a strip or a window of
+/// it (ADR 2133).
+///
+/// # Why a converter is handed the page's matrix and not the surface's
+///
+/// A converter maps each vertex as `x·a + y·c + e` in `f32`, and every crossing [`crate::area`]
+/// evaluates is a sum at the vertices' magnitude. Handed the surface's matrix, whose `e` and `f`
+/// already hold the corner, it rounds those sums at the surface's magnitude rather than the
+/// page's: the same real numbers, another binade, and a level of a pixel where a sum lies within
+/// an `ulp` of a rounding step (ADR 0219). Handed the page's, it evaluates what the page drawn
+/// whole evaluates and only moves the result by a whole number of pixels, which is exact; the
+/// library's converter, whose fixed point is relative to its pixmap, is handed the page's vertices
+/// with the corner taken off, as `tiny-skia`'s own tiler moves a path onto a tile.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Place {
+    /// Onto the surface: what a paint is positioned by and what a bound on the surface is read
+    /// from.
+    at: tiny_skia::Transform,
+    /// Onto the grid the surface lies on.
+    grid: tiny_skia::Transform,
+    /// The surface's first column and row on that grid.
+    corner: (u32, u32),
+    /// What the paint is moved by: the surface's matrix, as `fill_path` moves it, or none for a
+    /// paint positioned on the surface already.
+    paint: tiny_skia::Transform,
+}
+
+/// How the library's converter is handed a mark's vertices — [`Place::for_library`].
+enum Library {
+    /// The path under the surface's matrix, where the surface is its own grid: the call this
+    /// backend has always made.
+    Matrix,
+    /// The vertices on the grid with the corner taken off, to be drawn under no matrix.
+    Stated(tiny_skia::Path),
+    /// Vertices the grid's matrix carries to no finite point, which the library would refuse.
+    Nowhere,
+}
+
+impl Place {
+    /// A surface that is its own grid, under `at`.
+    fn surface(at: tiny_skia::Transform) -> Self {
+        Self {
+            at,
+            grid: at,
+            corner: (0, 0),
+            paint: at,
+        }
+    }
+
+    /// A mark placed by [`crate::surface::ToDevice::placed`].
+    fn of(placed: crate::surface::Placed) -> Self {
+        let at = crate::convert::transform(placed.at);
+        Self {
+            at,
+            grid: crate::convert::transform(placed.page),
+            corner: placed.corner,
+            paint: at,
+        }
+    }
+
+    /// How the library's converter is handed `path`.
+    fn for_library(self, path: &tiny_skia::Path) -> Library {
+        if self.corner == (0, 0) && self.paint == self.at {
+            return Library::Matrix;
+        }
+        crate::surface::on_surface(path, self.grid, self.corner)
+            .map_or(Library::Nowhere, Library::Stated)
+    }
+}
+
+/// [`fill`] and [`fill_stated`], which differ only in what they know of the mark's shape and of
+/// the grid its vertices are stated on.
 fn fill_as(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (path, exact): (&tiny_skia::Path, &Exact),
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
-    at: tiny_skia::Transform,
+    place: Place,
     clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
     // The anti-aliasing the mark asked for goes to [`intersected`] wherever `crate::area` can
-    // measure it, and the range withdraws it from the library's converter alone (ADR 2058).
-    let library = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, at));
+    // measure it, and the range withdraws it from the library's converter alone (ADR 2058): the
+    // library's range is the surface's, the measured one the grid's, as the page drawn whole asks
+    // it (ADR 2133).
+    let library = keep_anti_alias(paint.anti_alias, expressible(path, place.at, 0.0));
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, place.grid));
     // No guard in front of the call, and that is measured rather than assumed: `composable().is_some()`
     // here is exactly [`intersected`]'s own first two declines for an [`Exact::Unknown`] mark, and
     // adding it costs 13 000 instructions on ISO 32000-2's page 101 rather than saving any. One
     // call frame per fill is below what a page of text can measure.
-    if intersected(pixmap, path, &paint, fill_rule, (at, exact), clip) {
+    if intersected(pixmap, path, &paint, fill_rule, (place, exact), clip) {
         return;
     }
     paint.anti_alias = library;
-    pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
+    match place.for_library(path) {
+        Library::Matrix => pixmap.fill_path(path, &paint, fill_rule, place.at, clip.mask()),
+        Library::Stated(stated) => {
+            // The step `fill_path` takes with a matrix before it draws under none (trap 2).
+            paint.shader.transform(place.paint);
+            let none = tiny_skia::Transform::identity();
+            pixmap.fill_path(&stated, &paint, fill_rule, none, clip.mask());
+        }
+        // `fill_path` draws nothing for such a path either.
+        Library::Nowhere => {}
+    }
 }
 
 /// [`fill`], for a mark `pdf_render::edge` says is axis-aligned rectangles on the device's own
@@ -591,7 +724,7 @@ pub(crate) fn fill_rectangles(
         path,
         &paint,
         tiny_skia::FillRule::Winding,
-        (at, exact),
+        (Place::surface(at), exact),
         clip,
     ) {
         return;
@@ -694,9 +827,10 @@ fn intersected(
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
-    (at, exact): (tiny_skia::Transform, &Exact),
+    (place, exact): (Place, &Exact),
     clip: Clip<'_>,
 ) -> bool {
+    let at = place.at;
     if !crate::compose::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
         return false;
     }
@@ -712,7 +846,13 @@ fn intersected(
         !rectangle_converter_reaches(pixmap, clip.scratch())
             || exact.holds_a_rectangle_inside_one_row()
     } else {
-        crate::area::region(path, at, (pixmap.width(), pixmap.height())).is_some()
+        crate::area::region(
+            path,
+            place.grid,
+            (pixmap.width(), pixmap.height()),
+            place.corner,
+        )
+        .is_some()
     };
     // No clause is asking: there is no set to intersect, the mark is not several portions in one
     // pixel, and its own coverage is one the library already states exactly. A soft mask alone is
@@ -781,13 +921,13 @@ fn intersected(
             row.fill(0);
         }
     }
-    mask_fill(
+    mask_placed(
         coverage,
         &mut cells,
         path,
         fill_rule,
         paint.anti_alias,
-        (at, exact),
+        (place, exact),
     );
     compose(
         coverage,
@@ -803,7 +943,7 @@ fn intersected(
     // rectangle can be stated on the device's own grid. Trap 2 is what it would cost to get
     // wrong, and `clip_intersection.rs` is the scene that watches it.
     let mut paint = paint.clone();
-    paint.shader.transform(at);
+    paint.shader.transform(place.paint);
     paint.anti_alias = false;
     pixmap.fill_rect(
         rect,
@@ -1223,6 +1363,27 @@ pub(crate) fn mask_fill(
     anti_alias: bool,
     (at, exact): (tiny_skia::Transform, &Exact),
 ) {
+    mask_placed(
+        mask,
+        cells,
+        path,
+        fill_rule,
+        anti_alias,
+        (Place::surface(at), exact),
+    );
+}
+
+/// [`mask_fill`] of a mark whose matrix maps onto a grid the surface lies on at a corner of its
+/// own — a strip's or a window's — measured on that grid (ADR 2133).
+fn mask_placed(
+    mask: &mut tiny_skia::Mask,
+    cells: &mut crate::area::Buffers,
+    path: &tiny_skia::Path,
+    fill_rule: tiny_skia::FillRule,
+    anti_alias: bool,
+    (place, exact): (Place, &Exact),
+) {
+    let at = place.at;
     let library = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
     if library && exact.usable() {
         let floor = owed_a_floor(exact.iter());
@@ -1244,21 +1405,33 @@ pub(crate) fn mask_fill(
     // transform states no bounds for — and it draws it aliased where the range withdrew its
     // anti-aliasing.
     let extent = (mask.width(), mask.height());
-    if keep_anti_alias(anti_alias, measurable(path, at))
+    if keep_anti_alias(anti_alias, measurable(path, place.grid))
         && !matches!(exact, Exact::Pieces)
-        && let Some(region) = crate::area::region(path, at, extent)
+        && let Some(region) = crate::area::region(path, place.grid, extent, place.corner)
         && crate::area::fill(
             cells,
             mask.data_mut(),
             (extent.0, region),
             (path, matches!(exact, Exact::Outline)),
             fill_rule,
-            at,
+            place.grid,
         )
     {
         return;
     }
-    mask.fill_path(path, fill_rule, library, at);
+    match place.for_library(path) {
+        Library::Matrix => mask.fill_path(path, fill_rule, library, at),
+        Library::Stated(stated) => {
+            mask.fill_path(
+                &stated,
+                fill_rule,
+                library,
+                tiny_skia::Transform::identity(),
+            );
+        }
+        // `Mask::fill_path` draws nothing for such a path either.
+        Library::Nowhere => {}
+    }
 }
 
 /// Writes the coverage of portions two of which fall in one device pixel — ISO 32000-2 §11.6.2

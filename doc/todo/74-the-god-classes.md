@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 9 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 10 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -119,7 +119,21 @@ a finished picture in, naming the lane, a reported fault or a refused swapchain)
 (the cadence and the compiled pipelines). The entry said to read it against `window.rs` and
 `viewer-device`'s `renderer/` first; the cut follows the two paths, and neither file was touched.
 
-## 10. Files with no large block
+## 10. Built — `Encoder` (`crates/render-raster/src/scene.rs`, with `scene/`), ADR 2144
+
+The census's second impl block by lines once the first four were split: one `impl Encoder` of 1 511
+lines and 40 methods, the walk that turns a display list into the window's scene. `scene.rs` is now
+the root — the state (`Encoder`), the types the concerns share (`ClipOutline`, `ResolvedClip`,
+`Admitted`, `ShadedPaint`, `GroupParts`, `FunctionPaints`), the constructors, `commands` (the one
+routing walk) and the view bookkeeping — and six modules each hold an `impl Encoder` for one concern:
+`clips` (chains, what they admit, §14.11.2.1's crop), `groups` (a group, a soft mask, the knockout
+state), `fills`, `shadings` (ramps, function programs, sampled grids, meshes), `images` and
+`outlines`. `vocabulary` holds the free functions that state a display-list value as raster's
+(transform, colour, blend mode, path, image spec); `own_space` was already there. About 330 lines of
+the root are state and types; `shadings.rs` is the largest module at about 530 lines and is the next
+cut if one is wanted.
+
+## 11. Files with no large block
 
 `viewer-ffi/src/abi.rs` (7 147 lines: the exported surface, one group per object kind),
 `viewer-confined/src/protocol.rs` (7 820, about 2 890 of them tests, and the two longest functions
@@ -129,7 +143,7 @@ arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
 
-## 11. Functions
+## 12. Functions
 
 `content/run.rs::run_from` (one match over the operator set; split by operator family into
 functions the match calls, keeping its `#[expect]` reasoning true), `linearize.rs::place` and

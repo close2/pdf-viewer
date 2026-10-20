@@ -52,16 +52,21 @@
 //!   stated it indirectly leaves an object the output refers to from nowhere. Not following it
 //!   is what keeps that object out.
 //!
+//! # The lossy pass, off unless asked for
+//!
+//! [`OptimizePlan::images`] re-encodes an image's samples as baseline JPEG where that is smaller
+//! than what its producer wrote — RFC 0002 section 6.5's `--images quality=…`, through the DCT
+//! encoder the owner chose (`doc/questions/A01`), which runs in `pdf-sandbox`'s confined worker.
+//! It is the one pass here that changes a sample, so it is never a default: the owner's condition
+//! is that nothing is re-encoded unless a format is explicitly requested. Which images it may
+//! touch and why is [`crate::optimize_images`]'s subject (ADR 2138).
+//!
 //! # What is not here, and it is named rather than omitted
 //!
-//! - **Lossy image optimisation.** RFC 0002 section 6.5 proposes `--images downsample=…,quality=…`
-//!   and section 13's second question makes it conditional on a **DCT encoder, a dependency this
-//!   tree does not have** — `zune-jpeg` decodes only, and `doc/stack.md` is where such a decision
-//!   is argued. Without one, "recompress as DCT where smaller" cannot be done at all, and
-//!   downsampling to `FlateDecode`-compressed raw samples makes a photograph *larger*, so qpdf's
-//!   keep-the-original rule would keep every image and the flag would be a switch that does
-//!   nothing while claiming to. It is not implemented, no flag states it, and `doc/todo/57`
-//!   carries it with the dependency it waits on.
+//! - **Downsampling.** RFC 0002 section 6.5's `downsample=150` resamples an image "above ~1.4x the
+//!   target to 150 dpi at their placed size", and an image's placed size is every `Do` that draws
+//!   it, on every page and in every form, under each one's CTM — a walk of every content stream
+//!   this verb otherwise never interprets. It is refused by name, and `doc/todo/57` carries it.
 //! - **Encryption inherited from the source.** A document decrypts on load and §7.6.4's revision
 //!   6 keeps no password an output could reuse, so optimising an encrypted document without
 //!   passwords produces an unencrypted one, and that is a warning rather than a silence; with
@@ -104,6 +109,7 @@ use pdf_syntax::object::{Object, ObjectId};
 use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams};
 use std::io::Write as _;
 
+use crate::optimize_images::{ImageRecompression, ImageRecompressor, ImageSavings};
 use crate::pattern::{Fill, Pattern};
 use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning};
 
@@ -138,6 +144,11 @@ pub struct OptimizePlan {
     /// read-only PDF documents" and "intended to be generated once and read many times", which is
     /// a choice about how the file will be read, not a saving every caller wants.
     pub linearize: bool,
+    /// Whether, and at what quality, images are re-encoded as baseline JPEG where smaller.
+    ///
+    /// `None` by default and in every profile: the one pass that changes a sample is asked for by
+    /// name or not at all (`doc/questions/A01`, ADR 2138).
+    pub images: Option<ImageRecompression>,
 }
 
 /// What one run of the verb changed, for the report and for the walk.
@@ -159,6 +170,8 @@ pub struct Savings {
     pub recompressed: u64,
     /// How many bytes those re-encodings saved.
     pub recompression_saved: u64,
+    /// What the lossy image pass did, all zero where it was not asked for.
+    pub images: ImageSavings,
 }
 
 impl Savings {
@@ -192,6 +205,23 @@ impl Savings {
                 "recompression_saved".to_owned(),
                 Value::bytes(self.recompression_saved),
             ),
+            (
+                "images_encoded".to_owned(),
+                Value::bytes(self.images.encoded),
+            ),
+            (
+                "images_replaced".to_owned(),
+                Value::bytes(self.images.replaced),
+            ),
+            ("images_saved".to_owned(), Value::bytes(self.images.saved)),
+            (
+                "images_declined".to_owned(),
+                Value::bytes(self.images.declined),
+            ),
+            (
+                "images_refused".to_owned(),
+                Value::bytes(self.images.refused),
+            ),
         ]
     }
 }
@@ -222,7 +252,10 @@ pub(crate) fn run(
     refuse_a_document_only_recovery_reads(document, root)?;
 
     let mut assembly = Assembly::new(vec![document]);
-    let mapped = copy_closure(&mut assembly, document, root, plan.prune)
+    let mut images = plan
+        .images
+        .map(|asked| ImageRecompressor::new(asked, plan.streams));
+    let mapped = copy_closure_with(&mut assembly, document, root, plan.prune, images.as_mut())
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     assembly.set_root(mapped);
     // §14.3.3's document information dictionary is the trailer's second root: nothing in the
@@ -232,10 +265,11 @@ pub(crate) fn run(
         .get("Info")
         .and_then(Object::as_reference)
     {
-        let carried = copy_closure(&mut assembly, document, info, plan.prune)
+        let carried = copy_closure_with(&mut assembly, document, info, plan.prune, images.as_mut())
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
         assembly.set_info(Some(carried));
     }
+    let image_savings = place_images(images, &mut assembly, document, plan.source, report)?;
 
     if assembly.has_encrypted_source() && protect.is_none() {
         report.warnings.push(Warning {
@@ -312,10 +346,40 @@ pub(crate) fn run(
                 object_streams: written.object_streams,
                 recompressed: written.recompressed,
                 recompression_saved: written.saved,
+                images: image_savings,
             },
         },
     });
     Ok(())
+}
+
+/// Fills the slots the lossy image pass reserved, once the walk has numbered what their
+/// dictionaries name, and reports each image the encoder refused as kept (ADR 2138).
+///
+/// # Errors
+///
+/// [`Refusal::Assembly`], where a slot cannot be filled.
+fn place_images(
+    images: Option<ImageRecompressor>,
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    source: usize,
+    report: &mut Report,
+) -> Result<ImageSavings, Refusal> {
+    let Some(images) = images else {
+        return Ok(ImageSavings::default());
+    };
+    let (savings, refusals) = images
+        .place(assembly, document)
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    for refusal in refusals {
+        report.warnings.push(Warning {
+            source,
+            page: None,
+            detail: format!("--images kept an image as its producer wrote it: {refusal}"),
+        });
+    }
+    Ok(savings)
 }
 
 /// Writes the linearised file, encrypted where the caller supplied passwords.
@@ -505,6 +569,19 @@ pub(crate) fn copy_closure(
     start: ObjectId,
     prune: bool,
 ) -> Result<ObjectId, pdf_syntax::AssemblyError> {
+    copy_closure_with(assembly, document, start, prune, None)
+}
+
+/// [`copy_closure`], with the lossy image pass asked before each object is copied: an image it
+/// replaces takes a reserved slot at the place a copy would have had, and its references are
+/// walked as a copy's are ([`ImageRecompressor`], ADR 2138).
+fn copy_closure_with(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    start: ObjectId,
+    prune: bool,
+    mut images: Option<&mut ImageRecompressor>,
+) -> Result<ObjectId, pdf_syntax::AssemblyError> {
     let mapped = assembly.copy(0, start)?;
     let mut queue: VecDeque<ObjectId> = VecDeque::new();
     queue.push_back(start);
@@ -521,7 +598,7 @@ pub(crate) fn copy_closure(
                 continue;
             }
             if assembly.copied(0, id).is_none() {
-                assembly.copy(0, id)?;
+                copy_or_take(assembly, document, id, images.as_deref_mut())?;
                 queue.push_back(id);
             }
         }
@@ -529,9 +606,31 @@ pub(crate) fn copy_closure(
 
     while let Some(id) = queue.pop_front() {
         let value = document.get(id);
-        reach(assembly, document, &value, 0, &mut queue)?;
+        reach(
+            assembly,
+            document,
+            &value,
+            0,
+            &mut queue,
+            images.as_deref_mut(),
+        )?;
     }
     Ok(mapped)
+}
+
+/// Copies one source object, or lets the lossy image pass take its slot where it replaces it.
+fn copy_or_take(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    id: ObjectId,
+    images: Option<&mut ImageRecompressor>,
+) -> Result<ObjectId, pdf_syntax::AssemblyError> {
+    if let Some(images) = images
+        && let Some(slot) = images.take(assembly, document, id)?
+    {
+        return Ok(slot);
+    }
+    assembly.copy(0, id)
 }
 
 /// Every reference in one value, copied and queued.
@@ -541,6 +640,7 @@ fn reach(
     value: &Object,
     depth: usize,
     queue: &mut VecDeque<ObjectId>,
+    mut images: Option<&mut ImageRecompressor>,
 ) -> Result<(), pdf_syntax::AssemblyError> {
     if depth >= MAX_WALK_DEPTH {
         return Ok(());
@@ -557,17 +657,31 @@ fn reach(
             if document.get(*id) == Object::Null {
                 return Ok(());
             }
-            assembly.copy(0, *id)?;
+            copy_or_take(assembly, document, *id, images)?;
             queue.push_back(*id);
         }
         Object::Array(items) => {
             for item in items {
-                reach(assembly, document, item, depth.saturating_add(1), queue)?;
+                reach(
+                    assembly,
+                    document,
+                    item,
+                    depth.saturating_add(1),
+                    queue,
+                    images.as_deref_mut(),
+                )?;
             }
         }
         Object::Dictionary(dict) => {
             for (_, item) in dict.iter() {
-                reach(assembly, document, item, depth.saturating_add(1), queue)?;
+                reach(
+                    assembly,
+                    document,
+                    item,
+                    depth.saturating_add(1),
+                    queue,
+                    images.as_deref_mut(),
+                )?;
             }
         }
         Object::Stream(stream) => {
@@ -579,7 +693,14 @@ fn reach(
                 if key.as_bytes() == b"Length" {
                     continue;
                 }
-                reach(assembly, document, item, depth.saturating_add(1), queue)?;
+                reach(
+                    assembly,
+                    document,
+                    item,
+                    depth.saturating_add(1),
+                    queue,
+                    images.as_deref_mut(),
+                )?;
             }
         }
         _ => {}

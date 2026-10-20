@@ -1428,3 +1428,59 @@ serialise on that lock, and the wait shows as neither CPU time nor anything a tr
 delay is read as work to remove, sample each thread's `schedstat` to the milestone and count its
 instructions under callgrind; what is blocked is not a lever on the code that waits.
 
+## 150. A project file a round cannot build is parsed as XML before it is handed to CI
+
+Round 1650 wrote a WinUI 3 project on a machine with no Windows and no `dotnet`, so nothing of it could
+be compiled before CI; a scratch check that parsed every `.csproj`, `.xaml` and manifest as XML found a
+`--` inside an XML comment in the project file, which XML forbids and MSBuild would have refused, and
+named two planted faults as well (ADR 2136). When the only compiler is a CI runner a push away, the
+parse the round can run — XML well-formedness, balanced brackets in the code-behind — is run first; it
+costs seconds and turns the first CI run from a syntax check into the finding it is meant to be.
+
+## 151. A recipe that names a fixture directory derives it from the tree, and a test counts what it yields
+
+`fuzz/seeds.sh`'s certificate arm named `crates/pdf-model/src/*.rs` as where the certificate fixtures
+were; the twelve certificates moved to `pdf-signature` and the arm seeded none for weeks, printing
+"0 out of a fixture" with nothing failing (round 1653, ADR 2142). A path to fixtures is a claim about the
+tree that decays when a split moves them — trap 25's shape in a script rather than a test — so the recipe
+walks the tree for what it needs (every source file under `crates/`) rather than naming a directory, and a
+test counts the fixtures the recipe yields against the constants the tree holds, so the day the count
+drops is the day it fails.
+
+## 152. A split script finds an item's start at the previous blank line, not by walking over `///` and `#[`
+
+Round 1654's split walked back from a method's `fn` line over the lines starting `///` or `#[` to find
+where the item began; a method whose doc comment was followed by a multi-line `#[expect(...)]` lost the
+attribute's continuation lines, which start with neither, so the doc and the attribute's head stayed with
+the previous method and clippy's empty-line-after-attribute error was what showed it (ADR 2144). An item
+begins after the previous blank line (or the previous item's closing brace), and a split script that
+moves whole items finds the boundary there; it never classifies the lines of an attribute one by one.
+
+## 153. A dependency called "C" is checked in its own `lib.rs` and feature table before the confinement argument is planned
+
+Batch 101's brief sent round 1651 to confine `mozjpeg-rs` because it "wraps the C library `mozjpeg`";
+the crate's own source carries `forbid(unsafe_code)`, has no build script, and reaches C only behind an
+opt-in feature nothing enables — it is imazen's pure-Rust port — so principle 3's written justification for
+a C dependency was not owed, and the confinement rests on ADR 0014's reasons and the SIMD `unsafe` in
+five of its packages instead (ADR 2138). A dependency's language is read off the crate — its lint
+attributes, its `build.rs`, its feature table on crates.io — before an argument is built on it; a name
+that sounds like a binding is a hypothesis.
+
+## 154. A brief's named instrument is checked to reach the subsystem it is meant to measure
+
+Batch 101's brief told round 1649 to measure the idle build with `window_against_whole`; that example
+draws on the processor and never reaches the device, so it could not have seen a change to what the
+device keeps between frames, and the round measured with `zoom_frame` instead (ADR 2134). An instrument is
+a claim about which code it exercises; before a before/after is planned on one, `cargo tree` or a grep of
+its crate graph says whether the subsystem under change is in it. The same shape as trap 227 for gates:
+the name of the measurement is not the measurement.
+
+## 155. A dependency added to a confined worker is read with `cargo tree --workspace -e features` before it is called done
+
+Round 1651 added `mozjpeg-rs` to the sandbox worker and its own gates were green; the shipped worker is
+built in the same Cargo run as every other program, and `bytemuck`, which the encoder's dependencies
+link, arrived with five features that `color`, `peniko` and `winit` turn on — more code and more
+`unsafe` inside the confined process than its manifest asks for, which the worker-features gate refused
+at the merge (ADR 2138 §6). Feature unification reaches a binary through every package it links, not only
+its decoders: before a new package in a confined worker is called done, `cargo tree --workspace -e
+features,normal -i <package>` for each package it brings says what the shipping build will turn on.

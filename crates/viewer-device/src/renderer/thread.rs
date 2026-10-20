@@ -10,7 +10,7 @@ use raster_gpu::wgpu;
 use render_raster::QuorraWindowRenderer;
 
 use super::as_read::sent_read;
-use super::device::{draw, prepare};
+use super::device::{build_whole, draw, next_step_lane, prepare};
 use super::lanes::RefusedLanes;
 use super::retained::{Turn, retain_one};
 use super::sharp::{SHARP_STALL_BUDGET, draw_sharp, sharp_pass_affordable, sharp_pass_cost};
@@ -65,8 +65,8 @@ pub(super) fn spawn(
 #[expect(
     clippy::too_many_lines,
     reason = "the render thread's one loop, its kinds of work in the order they win: a look, a \
-              frame, the sharp pass, a retained page. Each kind's work is a function already; \
-              what is left here is the order, which reads best in one place"
+              frame, the sharp pass, a retained page, the idle build. Each kind's work is a \
+              function already; what is left here is the order, which reads best in one place"
 )]
 fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
@@ -114,6 +114,12 @@ fn draw_until_told_to_stop(
     // What building the device's scene of the pages on hand is predicted to cost, where the last
     // frame was the processor's and the window asked for the build ([`Job::build_ahead`]).
     let mut build_ahead: Option<Duration> = None;
+    // What the device's last frame cost, where its walk culled a line and so kept nothing for the
+    // next view of these pages — how long the view must be still before the idle build (ADR 2134)
+    // — and the lane the step from it will take.
+    let mut whole_due: Option<(Duration, raster_gpu::Coverage)> = None;
+    // The texture the idle build draws into, for the window's size; nobody presents it.
+    let mut whole_target: Option<(u32, u32, wgpu::Texture)> = None;
     let mut waiting: Option<Job> = None;
     loop {
         let job = match waiting.take() {
@@ -154,6 +160,7 @@ fn draw_until_told_to_stop(
                 });
             }
             let asked_ahead = job.build_ahead.take();
+            let drawn_lane = job.coverage;
             let finished = draw(&mut renderer, job, done, waker);
             if let Some(said) = finished.fell_back.as_deref() {
                 refused_lanes.learn(finished.known.or(finished.refused_now), said);
@@ -166,6 +173,15 @@ fn draw_until_told_to_stop(
                     && !finished.abandoned
                     && finished.refused.is_none()
             });
+            // Only after a frame the device built: a replay or a frame that kept the lines of the
+            // view before leaves the next view nothing to gain, and raster says which.
+            whole_due =
+                (finished.device_drew.is_some() && renderer.page_wants_whole_walk()).then(|| {
+                    (
+                        finished.cost.device,
+                        next_step_lane(&renderer, coverage, drawn_lane),
+                    )
+                });
             // Where the frame was sent, not whether it began: a frame taken back before the
             // processor started was still the processor's, and its page's picture is too.
             let drawn_there = finished.on_the_processor();
@@ -297,9 +313,227 @@ fn draw_until_told_to_stop(
             Turn::Stop => return,
             Turn::Nothing => {}
         }
+        // **The idle build, last** (ADR 2134): a window opened zoomed culled the lines its first
+        // frame did not show, so every step from it would walk them all again; the page walked once
+        // more at the view it was left at, culling none, while nobody waits, is what the next step
+        // keeps its lines from (ADR 2056). Last because every picture above is drawn through the
+        // same scene — the sharp pass at twice the view, a whole page small — and would put its own
+        // encode in the build's place. It cannot be taken back once begun, so it waits out the
+        // frame it repeats first, the sharp pass's rent-or-buy bound (ADR 1289), and a job arriving
+        // in that time is drawn instead. Never before the first frame: only a frame the device drew
+        // asks for it.
+        if let Some((stillness, lane)) = whole_due.take() {
+            match jobs.recv_timeout(stillness) {
+                Ok(job) => {
+                    waiting = Some(job);
+                    continue;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+            build_whole(
+                &mut renderer,
+                (&showing, lane),
+                shown_size,
+                &mut whole_target,
+            );
+            continue;
+        }
         match jobs.recv() {
             Ok(job) => waiting = Some(job),
             Err(_) => return,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    use pdf_render::{
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, Interrupt, LineCap, LineJoin,
+        Paint, Path, PathCommand, Point, Size, Stroke, TargetSpec, Transform,
+    };
+    use render_raster::QuorraWindowRenderer;
+
+    use super::super::{Finished, Job};
+    use super::{Idle, spawn};
+    use crate::stale::{Depicts, Picture, Placed};
+
+    /// The window every frame is drawn into.
+    const WINDOW: (u32, u32) = (200, 150);
+
+    /// The window's middle, in its own pixels.
+    const WINDOW_MIDDLE: (f32, f32) = (100.0, 75.0);
+
+    /// The page, at one device pixel per user unit at scale one.
+    const PAGE: Size = Size {
+        width: 400.0,
+        height: 300.0,
+    };
+
+    fn closed(points: &[(f32, f32)]) -> Path {
+        let mut path = Path::new();
+        for (at, (x, y)) in points.iter().enumerate() {
+            let point = Point::new(*x, *y);
+            path.push(if at == 0 {
+                PathCommand::MoveTo(point)
+            } else {
+                PathCommand::LineTo(point)
+            });
+        }
+        path.push(PathCommand::Close);
+        path
+    }
+
+    /// Segments over the whole page, and one fill under a triangle's clip, a residue no record
+    /// replays, so that a step walks the page rather than its records (ADR 0087).
+    fn lines() -> Arc<DisplayList> {
+        let mut list = DisplayList::new(PAGE);
+        let clip = list
+            .add_clip(Clip {
+                path: closed(&[(150.0, 100.0), (260.0, 120.0), (190.0, 210.0)]),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .ok();
+        list.push(Command::Fill {
+            path: Arc::new(closed(&[
+                (140.0, 90.0),
+                (270.0, 90.0),
+                (270.0, 220.0),
+                (140.0, 220.0),
+            ])),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::rgb(0.9, 0.6, 0.2)),
+            clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        for row in 0..12_u8 {
+            for column in 0..4_u8 {
+                let (x, y) = (
+                    10.0 + 98.0 * f32::from(column),
+                    12.0 + 24.0 * f32::from(row),
+                );
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(x, y)));
+                path.push(PathCommand::LineTo(Point::new(x + 80.0, y + 2.0)));
+                list.push(Command::Stroke {
+                    path: Arc::new(path),
+                    transform: Transform::IDENTITY,
+                    stroke: Stroke {
+                        width: 0.5,
+                        adjust: false,
+                        cap: LineCap::Butt,
+                        join: LineJoin::Miter,
+                        miter_limit: 10.0,
+                        dash_array: Vec::new(),
+                        dash_phase: 0.0,
+                    },
+                    paint: Paint::Solid(Color::rgb(0.1, 0.1, 0.3)),
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                });
+            }
+        }
+        Arc::new(list)
+    }
+
+    /// The page at `zoom` in the window, its middle on the window's.
+    fn placed(list: &Arc<DisplayList>, zoom: f32) -> Placed {
+        let (width, height) = WINDOW;
+        let transform = Transform::scale(zoom, -zoom)
+            .then(Transform::translate(0.0, PAGE.height * zoom))
+            .then(Transform::translate(
+                WINDOW_MIDDLE.0 - PAGE.width * zoom * 0.5,
+                WINDOW_MIDDLE.1 - PAGE.height * zoom * 0.5,
+            ));
+        Placed {
+            of: Picture::new(viewer_core::DocumentId(1), 0, 0),
+            list: Arc::clone(list),
+            target: TargetSpec {
+                width,
+                height,
+                transform,
+            },
+            depicts: Depicts::Page,
+        }
+    }
+
+    fn job(page: Placed) -> Job {
+        Job {
+            width: WINDOW.0,
+            height: WINDOW.1,
+            pages: vec![page],
+            overlays: Vec::new(),
+            coverage: raster_gpu::Coverage::Compute,
+            reuse: None,
+            known_refusal: None,
+            cheaper: None,
+            interrupt: Interrupt::new(),
+            on_the_processor: Arc::new(AtomicBool::new(false)),
+            ahead: None,
+            look: None,
+            build_ahead: None,
+        }
+    }
+
+    /// **A window opened zoomed steps without sending its lines once the view has been still**
+    /// (ADR 2134): its first frame sends the window's lines, the render thread builds the page
+    /// whole while nobody waits, and the step after it sends none of the line stream — where a step
+    /// asked before the view had been still for as long as the frame took sends them again.
+    #[test]
+    fn a_window_opened_zoomed_steps_without_its_lines_after_the_idle_build() {
+        for still in [false, true] {
+            let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+                println!("skipped: no adapter on this machine");
+                return;
+            };
+            let idle = Idle {
+                proxy_pages: 0,
+                supersample: 1,
+                coverage: crate::lane::CoverageChoice::Fixed(raster_gpu::Coverage::Compute),
+                interrupt: Arc::default(),
+            };
+            let link = spawn(renderer, idle, None);
+            let list = lines();
+            let frame = |zoom: f32| {
+                assert!(link.jobs.send(job(placed(&list, zoom))).is_ok());
+                loop {
+                    match link.done.recv_timeout(Duration::from_mins(2)) {
+                        Ok(Finished::Frame(done)) => return done,
+                        Ok(_) => {}
+                        Err(error) => panic!("no frame came back: {error}"),
+                    }
+                }
+            };
+            let first = frame(2.4);
+            assert!(
+                first.device_drew.is_some(),
+                "the device drew the first frame"
+            );
+            assert!(
+                first.cost.commands_culled > 0,
+                "the window culls the page's lines"
+            );
+            assert!(first.cost.streams.line_instances > 0);
+            if still {
+                // Longer than the frame the build waits out, and than the build itself.
+                std::thread::sleep(first.cost.device.saturating_mul(4) + Duration::from_secs(1));
+            }
+            let stepped = frame(3.0);
+            assert!(stepped.device_drew.is_some(), "the device drew the step");
+            assert_eq!(
+                stepped.cost.streams.line_instances == 0,
+                still,
+                "the step sends no line byte only after the idle build"
+            );
         }
     }
 }

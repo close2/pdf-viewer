@@ -1,6 +1,6 @@
 [package]
 name = "pdf-sandbox"
-description = "Process isolation for untrusted image decoding."
+description = "Process isolation for untrusted image decoding, and for the one image encoder."
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,9 @@ repository.workspace = true
 pdf-ccitt.workspace = true
 hayro-jbig2.workspace = true
 hayro-jpeg2000.workspace = true
+# The one encoder, for the transform suite's explicit JPEG requests: here and nowhere else, so that
+# the samples a document's image decoded to reach its SIMD dependencies only inside the worker (ADR 2138).
+mozjpeg-rs.workspace = true
 thiserror.workspace = true
 
 # The confinement itself. seccomp-BPF and Landlock are Linux interfaces and `libc` is here

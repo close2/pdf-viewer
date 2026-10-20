@@ -751,3 +751,14 @@ represents exactly, so the two paths agreed to the byte and the test saw nothing
 converter a rectangle took places an edge at a coordinate the fixed point cannot hold — a third of a
 pixel, not a half — and asserts the closed form's value.
 
+### 228. Moving a converter's input by whole pixels is tested on the converter's own arithmetic
+
+Round 1648's first remedy for the window's shifted origin stated every mark's vertices in page space and
+subtracted the window's corner before the converter saw them; 21 pixels still parted, because the exact
+converter sums its crossings at the vertices' magnitude and a corner subtracted before the sum is a
+different sum (ADR 2133). The measurement itself had to move to the page's grid, with only the write into
+the surface moved. Two things follow: a remedy that shifts a converter's input is tested on that
+converter's arithmetic rather than on the geometry; and a clip's band is a surface with a corner of its
+own, so a change to origin arithmetic moves whole-page goldens through banded marks (18 here) — "a page
+in one strip is the page" proves nothing about them.
+

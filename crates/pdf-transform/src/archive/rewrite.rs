@@ -147,6 +147,12 @@ pub enum Rewrite {
     /// A `Decision::Stated` for `DefaultCmyk`'s reason: the content stream is the producer's, and
     /// the entry says how its three numbers are read — as sRGB, which this reader drew them as.
     DefaultRgb,
+    /// `/DefaultCMYK`, written as an `ICCBased` space over the CMYK profile the operator
+    /// supplied, where the file's own destination profile is of another family (`doc/adr/2130`).
+    ///
+    /// A `Decision::Stated` for `DefaultCmyk`'s reason, and the statement is the operator's: the
+    /// profile names the press the document was made for, which nothing in the file says.
+    SuppliedDefaultCmyk,
     /// The catalog states `/MarkInfo` with `/Marked true`, where the file already carries a
     /// structure tree.
     ///
@@ -1199,6 +1205,11 @@ impl Rewrite {
                  DefaultRGB: an ICCBased space over the ICC sRGB profile, beside a destination \
                  profile of another colour family"
             }
+            Self::SuppliedDefaultCmyk => {
+                "every resource dictionary explicitly associated with a content stream states a \
+                 DefaultCMYK: an ICCBased space over the CMYK press profile the operator \
+                 supplied, beside a destination profile of another colour family"
+            }
             Self::MarkInfo => {
                 "the catalog states MarkInfo with Marked true, which the structure tree this \
                  file already carries had demonstrated"
@@ -1571,6 +1582,11 @@ impl Rewrite {
     }
 
     /// A stable word for the report's machine-readable form.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per rewrite, for `describe`'s reason: a catch-all would let a new \
+                  rewrite compile without a word"
+    )]
     #[must_use]
     pub const fn word(self) -> &'static str {
         match self {
@@ -1593,6 +1609,7 @@ impl Rewrite {
             Self::IdentificationSchema => "identification-schema",
             Self::DefaultCmyk => "default-cmyk",
             Self::DefaultRgb => "default-rgb",
+            Self::SuppliedDefaultCmyk => "supplied-default-cmyk",
             Self::MarkInfo => "mark-info",
             Self::AssociatedFileNames => "associated-file-names",
             Self::AssociatedFileRelationship => "associated-file-relationship",
@@ -1766,6 +1783,7 @@ impl<'a> Rewriter<'a> {
             metadata: prepared.metadata.as_ref().ok(),
             default_cmyk: prepared.default_cmyk.as_ref().ok(),
             default_rgb: prepared.default_rgb.as_ref().ok(),
+            supplied_cmyk: prepared.supplied_cmyk.as_ref().ok(),
             to_unicode: prepared.to_unicode.as_ref().ok(),
             fresh: prepared.fresh.as_ref().ok(),
             amended: prepared.amended.as_ref().ok(),
@@ -2201,14 +2219,16 @@ impl Sites {
             .into_iter()
             .filter_map(|page| page.and_then(|page| page.id))
             .collect();
-        let defaults =
-            if wanted.contains(&Rewrite::DefaultCmyk) || wanted.contains(&Rewrite::DefaultRgb) {
-                DefaultSites::of(document, &tree)
-            } else {
-                // Nothing is walked that no failed requirement asked for, which is `doc/adr/0947`'s
-                // first rule applied to a *reading* rather than to a rewrite.
-                DefaultSites::default()
-            };
+        let defaults = if wanted.contains(&Rewrite::DefaultCmyk)
+            || wanted.contains(&Rewrite::DefaultRgb)
+            || wanted.contains(&Rewrite::SuppliedDefaultCmyk)
+        {
+            DefaultSites::of(document, &tree)
+        } else {
+            // Nothing is walked that no failed requirement asked for, which is `doc/adr/0947`'s
+            // first rule applied to a *reading* rather than to a rewrite.
+            DefaultSites::default()
+        };
         let annotations = if wanted.contains(&Rewrite::AnnotationFlags) {
             annotation_objects(document, &tree)
         } else {
@@ -2611,6 +2631,9 @@ struct Rewriter<'a> {
     default_cmyk: Option<&'a DefaultCmyk>,
     /// The `/DefaultRGB` to write, where one is being written (`doc/adr/2114`).
     default_rgb: Option<&'a super::default_rgb::DefaultRgb>,
+    /// The `/DefaultCMYK` over the operator's press profile, where one is being written
+    /// (`doc/adr/2130`).
+    supplied_cmyk: Option<&'a super::supplied_cmyk::SuppliedCmyk>,
     /// The `/ToUnicode` `CMap` each font is to name, where any are being written.
     to_unicode: Option<&'a DerivedMaps>,
     /// The packet each metadata stream is to carry in place of one this tree cannot read.
@@ -3090,6 +3113,7 @@ impl Rewriter<'_> {
     fn wants_metadata(&self) -> bool {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)
+            || self.wants(Rewrite::SuppliedDefaultCmyk)
             || self.wants(Rewrite::PropertyOutsideItsSchema)
             || self.wants(Rewrite::ExtensionContainerDiscarded)
             || self.wants(Rewrite::FreshMetadataPacket)

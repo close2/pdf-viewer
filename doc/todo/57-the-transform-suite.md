@@ -4,9 +4,9 @@ Status: **open**.
 Priority: 50-band. RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
 are approved"), and every verb it proposed is built — the list below. **What is owed is section 1's
 four items, section 3's prompt and section 4's tranche**. Two of them the owner answered on
-2026-09-06 and neither is built: RFC §13's second question, the DCT encoder that JPEG output and
+2026-09-06: RFC §13's second question, the DCT encoder that JPEG output and
 `optimize --images` wait on ("Use mozjpeg-rs", `doc/questions/A01`), and its third, the
-confinement tranche ("Yes, implement it "now"", `doc/questions/A02`).
+confinement tranche ("Yes, implement it "now"", `doc/questions/A02`), which section 4 closes.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
 quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
@@ -92,14 +92,15 @@ paragraph "And a program can ask it for a *file* derived from a document".
 - **A per-input password for `merge`.** `viewer_core::Secret` is deliberately not `Clone`, so one
   `--password-fd` opens one document and a merge of several encrypted sources is a usage error,
   by name. A per-input spelling or several `--password-fd`s would lift it; nobody has asked.
-- **JPEG output from `render`, and `optimize --images`** (RFC §6.5's lossy half), wait on the DCT
-  encoder the owner chose: `mozjpeg-rs` (`doc/questions/A01`), with the owner's condition that
-  nothing is re-encoded unless a format is explicitly requested — an extraction with none asked
-  for writes the stream's own bytes, as `images --native` does. It is not in the tree, and
-  `doc/stack.md` is where it enters. Until then the flag is refused by name, and ADR 0842 §5 is
-  why: without an encoder "recompress as DCT where smaller" cannot be done at all and downsampling
-  to `FlateDecode`-compressed raw samples makes a photograph larger, so the keep-the-original rule
-  would keep every image and the flag would do nothing while claiming to.
+- **Downsampling, `optimize --images downsample=…`** (RFC §6.5's other knob). The DCT encoder the
+  owner chose is built (`mozjpeg-rs` in `pdf-sandbox`'s confined worker, ADR 2138), and over it
+  `optimize --images quality=<n>`, `render --format jpeg` and `images --format jpeg`, each only where
+  asked for (ADR 2139). What remains is resampling "at their placed size": an image's placed size is
+  every `Do` that draws it under each one's CTM, a walk of every content stream this verb otherwise
+  never interprets, so `downsample=` is refused by name until that walk is built. The foreign
+  readback (`tests/foreign_corpus.rs`) asserts bit-identical pages, which a lossy output cannot
+  meet; the lossy pass's readback is qpdf's verdict and both readers drawing the page, which is
+  not yet a lane of that walk.
 
 ## 2. The RFC 0003 hand-off — taken
 
@@ -114,15 +115,18 @@ because a consumer that opened the document itself would need a second `Secret`,
   dependency (`doc/stack.md` decides), or a host that owns a terminal. `--password-fd` is the
   scripted route and is what exists.
 
-## 4. The confinement tranche — RFC §13 question 3, answered "now" and not built
+## 4. The confinement tranche — RFC §13 question 3, answered "now" — closed
 
-The owner answered `doc/questions/Q02` on 2026-09-06 — "Yes, implement it "now"" (`A02`) — and
-the suite still runs in one process, so the command line parses untrusted bytes unconfined; ADR
-0800 §6 states that cost. The worker split is a transport change on the `pdf-view-worker`
-pattern — plan in, report out, sources and sinks as descriptors the broker opened — and the seam
-was written so that it is one; `viewer-confined` is the precedent, and `pdf-vfs`'s worker already
-serves the seam confined into `MemorySinks` (`crates/pdf-vfs/src/serve.rs`). `--attach` adds one
-thing to the plan that crosses: the payload's bytes, which are a descriptor like a source's.
+Built (ADRs 2140, 2141): `quorra-transform` starts `quorra-transform-worker`, which confines itself
+under `Profile::Interpreter` before it reads an argument and runs the same program over a world
+that is a frame to its broker for every file, document, descriptor, output and line of text. The
+plan crosses as the command line that states it; documents cross as descriptors, outputs as frames
+the broker writes, and every request through a fence drawn from the person's own command line.
+`--in-process` is the fallback, said aloud. `tests/confined.rs` holds every verb's files, report and
+exit status through the worker to the in-process route's, and `tools/state.sh confined` runs it.
+What it does not do: off Unix there is no worker (`doc/todo/35`), and a document past
+`Profile::Interpreter`'s 4 GiB address-space ceiling is refused by name where `--in-process` would
+draw it.
 
 ## 5. What the gates do not see
 

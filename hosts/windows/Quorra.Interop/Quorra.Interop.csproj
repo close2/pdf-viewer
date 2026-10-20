@@ -17,4 +17,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Every declaration is internal (Native.cs), and the WinUI window is the one assembly that
+         calls them, from its QuorraWindow.cs alone (RFC 0010 step N3a, ADR 2136). -->
+    <InternalsVisibleTo Include="Quorra.App" />
+  </ItemGroup>
+
 </Project>

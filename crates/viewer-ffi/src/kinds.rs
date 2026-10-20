@@ -530,9 +530,9 @@ impl FocusKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum RestrictKind {
-    /// Obey what the document asserts. The default.
+    /// Obey what the document asserts.
     On = 0,
-    /// Ignore it and perform the operation.
+    /// Ignore it and perform the operation. The default, for every operation (ADR 1144).
     Off = 1,
     /// Ask first: a `QUORRA_EVENT_ASKING` the caller answers with `quorra_answer`.
     Ask = 2,

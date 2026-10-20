@@ -627,11 +627,15 @@ ISO 19005-2 6.2.4.3, ISO 19005-4 6.2.4.3 · all six · today **built**: the outp
   `DeviceN` alternate — take the same entry where the survey finds the space drawn in `DeviceRGB`:
   ISO 32000-2 §11.6.6's Table 145 remaps a group's device space through the current resources'
   defaults.
-- **Left** — the mirror, `DeviceCMYK` beside an RGB profile, under part 4 and for a group under
-  part 2: a `DeviceN` default cannot be a blending space (Table 145), and an ICC `DefaultCMYK` over
-  the shipped press profile states a press this reader does not draw `DeviceCMYK` through without
-  a CMYK intent. Refused with `WRONG_FAMILY` or by the output's verdict; `--output-intent-profile`
-  answers it.
+- **The mirror, `supply`** — `DeviceCMYK` beside an RGB profile, under part 4 and for a group
+  under part 2: a `DeviceN` default cannot be a blending space (Table 145), and an ICC
+  `DefaultCMYK` over the shipped press profile would state a press this reader does not draw
+  `DeviceCMYK` through. So the press is the operator's to name: a CMYK profile supplied with
+  `--output-intent-profile` becomes the intent where the file states none, and an `ICCBased`
+  `/DefaultCMYK` beside a file's own intent of another family — the same rows, the group, base
+  and alternate rows included, reported and recorded in `xmpMM:History` as the operator's
+  statement (ADR 2130, `crates/pdf-transform/src/archive/supplied_cmyk.rs`). With nothing
+  supplied the row is refused with the sentence that says so.
 
 #### `graphics/icc-profiles-carry-the-tags-a-permitted-edition-requires` (PDF/A-2)
 ISO 19005-2 6.2.4.2 · today **built**: `supply` for a missing text tag, `Stated` for an unreadable
@@ -1981,10 +1985,11 @@ the `discard` for an absent one
   whole `pdfaExtension:schemas` property goes, with every property in a namespace it described —
   `metadata-property`, section 3.9's loss, decided per document (`CONDITIONAL`), each property
   named in the report and the discard recorded in `xmpMM:History` as its own action naming
-  6.6.2.3.3 (`crates/pdf-transform/src/archive/extension_container.rs`). The whole container,
-  because `pdf_model::xmp` removes a property and not one item of its array: a container holding
-  a complete schema beside the incomplete one loses both, and the report names what that cost.
-  Both lower-bound profiles answer it.
+  6.6.2.3.3 (`crates/pdf-transform/src/archive/extension_container.rs`). Where the container is one
+  bag holding complete descriptions beside the incomplete ones, only the incomplete descriptions go
+  (`pdf_model::xmp::remove_items`), with the properties of the namespaces nothing left describes;
+  the whole container goes where every description in it is incomplete or the packet does not
+  state exactly one container (ADR 2131). Both lower-bound profiles answer it.
 - **From a configuration** — `remedy = "supply"` with a per-namespace table of the missing fields
   (not built), or `remedy = "discard"` (built). This is the clearest case in the catalogue where a configuration turns an
   unanswerable per-document question into a one-time statement, because a schema belongs to an

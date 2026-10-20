@@ -52,11 +52,13 @@
 
 pub mod archive;
 pub mod attachments;
+pub mod confined;
 pub mod executor;
 pub mod images;
 pub mod json;
 pub mod merge;
 pub mod optimize;
+pub mod optimize_images;
 pub mod pages;
 pub mod pattern;
 pub mod profiles;

@@ -301,9 +301,13 @@ impl Encoder<'_> {
         // a line writes to this stream; behind a queued mark only its draw waits (ADR 1884). The
         // plan's box is a union, so growing it now rather than at the draw's commit grows it to
         // the same box: the commit is in this plan, since a plan is never left with marks queued.
+        // Empty only in the idle build, for a line its view admits nothing of (viewer ADR 2134):
+        // the vertex stage draws no pixel of it here, so it grows no box.
         let ink = line.ink;
-        self.plan_mut()
-            .mark([ink.min.x, ink.min.y, ink.max.x, ink.max.y]);
+        if !ink.is_empty() {
+            self.plan_mut()
+                .mark([ink.min.x, ink.min.y, ink.max.x, ink.max.y]);
+        }
         // A walk keeping the encode before's stream writes no line of its own: a line outside its
         // runs that takes the closed form here did not take it there, so the runs are not this
         // view's (`kept_lines`, ADR 2056).

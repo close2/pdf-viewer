@@ -801,13 +801,22 @@ commit_batch() {
 # because each is a whole-graph fat link and Cargo runs them beside each other where separate
 # commands run them one after another (ADR 0222); a second for the libraries, which `--bin` cannot
 # name. The build directory is asked of Cargo in the worktree, never written down (trap 15).
-install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorrafs pdf-vfs-worker"
+install_binaries="quorra quorra-confined quorra-gtk quorra-qt pdf-sandbox-worker pdf-view-worker quorra-retrieve quorra-transform quorra-transform-worker quorrafs pdf-vfs-worker"
 install_libraries="viewer-ffi pdf-vfs-ffi"
 # A program behind a feature no window is built with, as `name:features`: each is built in a Cargo
 # run of its own, so that feature unification puts nothing of it into a window's build. The script
 # worker links the engine and a window links only the client that spawns it, and it is looked for
 # beside the window that spawns it, so it is installed with them (ADRs 1616, 1625).
 install_featured="pdf-script-worker:pdf-script-worker/engine"
+# A program built in a Cargo run that selects its own package and nothing else, as `name:package`,
+# and left out of the one invocation above it: Cargo unifies a dependency's features over every
+# package a build selects, and `--bin` with no `-p` selects every member, so the sandbox worker's
+# dependencies would carry features only other members ask for — `bytemuck` with `derive` and
+# `extern_crate_alloc` from the windows' graph, inside the process that decodes and encodes a
+# document's images. Built alone, it is built with what its own manifest asks for, and
+# `tools/conformance/tests/worker_features.rs` holds this line and the build below it (ADRs 1714,
+# 2138). It stays in `install_binaries`, which is the list of what a person gets.
+install_alone="pdf-sandbox-worker:pdf-sandbox"
 
 install_batch() {
     [ -d "$wt" ] || { echo "$wt does not exist — install runs while the batch is open, before close"; return 1; }
@@ -830,12 +839,19 @@ install_batch() {
             grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
     [ -n "$built" ] || { echo "cargo metadata named no target directory — nothing installed"; return 1; }
     built=$built/release
-    for name in $install_binaries; do programs+=(--bin "$name"); done
+    local alone
+    for name in $install_binaries; do
+        for alone in $install_alone; do [ "$name" = "${alone%%:*}" ] && continue 2; done
+        programs+=(--bin "$name")
+    done
     for name in $install_libraries; do packages+=(-p "$name"); done
     echo "building ${install_binaries// /, } and the libraries of ${install_libraries// /, } (--release) in $built"
     cargo build --release "${programs[@]}" || { echo "the release build of the programs failed (above) — nothing installed"; return 1; }
     cargo build --release "${packages[@]}" --lib || { echo "the release build of the libraries failed (above) — nothing installed"; return 1; }
     local entry
+    for entry in $install_alone; do
+        cargo build --release -p "${entry#*:}" --bin "${entry%%:*}" || { echo "the release build of ${entry%%:*}, alone, failed (above) — nothing installed"; return 1; }
+    done
     for entry in $install_featured; do
         cargo build --release --bin "${entry%%:*}" --features "${entry#*:}" || { echo "the release build of ${entry%%:*} with ${entry#*:} failed (above) — nothing installed"; return 1; }
     done

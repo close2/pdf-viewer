@@ -340,6 +340,75 @@ pub(crate) fn encode(
     instrument: bool,
     threads: usize,
 ) -> Result<Encoded, RenderError> {
+    walk_scene(
+        scene,
+        viewport,
+        frame_budget_bytes,
+        max_dimension,
+        resources,
+        atlas,
+        kept,
+        quantum,
+        (coverage, compute_assist, coverage_samples),
+        instrument,
+        threads,
+        kept_lines::Before::Nothing,
+    )
+}
+
+/// The idle build's walk (viewer ADR 2134): [`encode`]'s, except that no line is culled, so the
+/// line stream is the page's and the encode keeps it as runs for every later view of the scene
+/// (`kept_lines`). The frame it draws is [`encode`]'s to the pixel — a line the view admits
+/// nothing of is collapsed by the vertex stage — and what it costs over that walk is the stream:
+/// on the owner's witness at a window opened at 2.4 times the fit, 264 MB where the window's are 26.
+#[expect(clippy::too_many_arguments)] // encode()'s own signature
+pub(crate) fn encode_whole(
+    scene: &Scene,
+    viewport: &Viewport<'_>,
+    frame_budget_bytes: u64,
+    max_dimension: u32,
+    resources: &ResourceStore,
+    atlas: &mut AtlasStore,
+    kept: &mut KeptMeets,
+    quantum: Option<u16>,
+    coverage: Coverage,
+    compute_assist: bool,
+    coverage_samples: u32,
+    instrument: bool,
+    threads: usize,
+) -> Result<Encoded, RenderError> {
+    walk_scene(
+        scene,
+        viewport,
+        frame_budget_bytes,
+        max_dimension,
+        resources,
+        atlas,
+        kept,
+        quantum,
+        (coverage, compute_assist, coverage_samples),
+        instrument,
+        threads,
+        kept_lines::Before::Whole,
+    )
+}
+
+/// [`encode`] and [`encode_whole`]: the walk, culling lines or not as `before` says.
+#[expect(clippy::too_many_arguments)] // the frame's inputs, named once at the two calls
+fn walk_scene(
+    scene: &Scene,
+    viewport: &Viewport<'_>,
+    frame_budget_bytes: u64,
+    max_dimension: u32,
+    resources: &ResourceStore,
+    atlas: &mut AtlasStore,
+    kept: &mut KeptMeets,
+    quantum: Option<u16>,
+    (coverage, compute_assist, coverage_samples): (Coverage, bool, u32),
+    instrument: bool,
+    threads: usize,
+    before: kept_lines::Before<'static>,
+) -> Result<Encoded, RenderError> {
     let commands = scene.commands();
 
     // Count, check against the stated budget, then allocate — in that order.
@@ -373,7 +442,7 @@ pub(crate) fn encode(
             Coverage::Cpu | Coverage::Gpu => None,
         },
         None,
-        kept_lines::Before::Nothing,
+        before,
     );
 
     // The line commands' closed forms are made on other threads ahead of the walk where the

@@ -121,6 +121,10 @@ const FLATNESS: f32 = 1.0 / 256.0;
 const STEPS_PER_CURVE: u32 = 4096;
 
 /// The device pixels a mark can reach, as the accumulator's own extent.
+///
+/// Counted on the grid the mark's matrix maps onto, which for a window or a strip is the page's
+/// (ADR 2133): every crossing is evaluated at the magnitude the page drawn whole evaluates it at,
+/// and only the write into the surface's mask moves by the surface's corner on that grid.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Region {
     /// The first column, and the `x` every device coordinate is stated against.
@@ -131,9 +135,20 @@ pub(crate) struct Region {
     width: u32,
     /// Rows in the region.
     height: u32,
+    /// Where the surface the coverage is written into begins on that grid: its first column and
+    /// row, `(0, 0)` where the matrix maps onto the surface itself.
+    corner: (u32, u32),
 }
 
 impl Region {
+    /// The region's first column and row on the surface it is written into.
+    fn on_surface(self) -> (usize, usize) {
+        (
+            self.left.saturating_sub(self.corner.0) as usize,
+            self.top.saturating_sub(self.corner.1) as usize,
+        )
+    }
+
     /// Cells the accumulator needs: one per pixel, plus the column a clamped edge is folded on to.
     fn cells(self) -> Option<usize> {
         let columns = (self.width as usize).checked_add(1)?;
@@ -167,7 +182,8 @@ impl Region {
     }
 }
 
-/// The pixels `path` drawn under `at` can reach on a `width` by `height` surface.
+/// The pixels `path` drawn under `at` can reach on a `width` by `height` surface whose first pixel
+/// lies at `corner` on the grid `at` maps onto.
 ///
 /// Rounded outwards by a whole pixel on every side, which is `scan::reached_pixels`' own margin
 /// and for its reason: the extent comes from control points and the coverage from this converter,
@@ -175,12 +191,17 @@ impl Region {
 /// where the mark falls outside the surface, or where one row's accumulator would be past
 /// [`CELL_BUDGET`] — a taller region is measured in [`Region::runs`], so its height declines
 /// nothing.
-pub(crate) fn region(path: &Path, at: Transform, (width, height): (u32, u32)) -> Option<Region> {
+pub(crate) fn region(
+    path: &Path,
+    at: Transform,
+    (width, height): (u32, u32),
+    corner: (u32, u32),
+) -> Option<Region> {
     let bounds = path.bounds().transform(at)?;
-    let left = clamped(bounds.left() - 1.0, width);
-    let top = clamped(bounds.top() - 1.0, height);
-    let right = clamped(bounds.right() + 1.0, width);
-    let bottom = clamped(bounds.bottom() + 1.0, height);
+    let left = clamped(bounds.left() - 1.0, (corner.0, width));
+    let top = clamped(bounds.top() - 1.0, (corner.1, height));
+    let right = clamped(bounds.right() + 1.0, (corner.0, width));
+    let bottom = clamped(bounds.bottom() + 1.0, (corner.1, height));
     if left >= right || top >= bottom {
         return None;
     }
@@ -189,6 +210,7 @@ pub(crate) fn region(path: &Path, at: Transform, (width, height): (u32, u32)) ->
         top,
         width: right.saturating_sub(left),
         height: bottom.saturating_sub(top),
+        corner,
     };
     Region {
         height: 1,
@@ -200,19 +222,22 @@ pub(crate) fn region(path: &Path, at: Transform, (width, height): (u32, u32)) ->
     Some(region)
 }
 
-/// A device coordinate as a pixel index, rounded outwards and held inside `0..=limit`.
+/// A device coordinate as a pixel index, rounded outwards and held inside the `extent` pixels
+/// from `first` on.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "the value is clamped into 0.0..=limit before the cast, and a surface's extent is \
-              bounded by `rasterize`'s MAX_EXTENT = 2^24, every integer below which is exact in \
-              f32"
+    reason = "the value is clamped into first..=first + extent before the cast, and a surface's \
+              far edge is bounded by `rasterize`'s MAX_EXTENT = 2^24, every integer below which is \
+              exact in f32"
 )]
-fn clamped(value: f32, limit: u32) -> u32 {
+fn clamped(value: f32, (first, extent): (u32, u32)) -> u32 {
     if value.is_nan() {
-        return 0;
+        return first;
     }
-    value.max(0.0).min(f32_of(limit)) as u32
+    value
+        .max(f32_of(first))
+        .min(f32_of(first.saturating_add(extent))) as u32
 }
 
 /// Writes `path`'s exact coverage into `target`, one byte per pixel of a `width` by `height`
@@ -350,11 +375,12 @@ pub(crate) fn whole_span_fits(rows: f32, width: u32) -> bool {
 /// Zeroes the pixels of `region` in `target`, a `width`-pixel-wide mask.
 fn clear(target: &mut [u8], (width, region): (u32, Region)) {
     let stride = width as usize;
+    let (left, top) = region.on_surface();
     for row in 0..region.height as usize {
-        let Some(start) = (region.top as usize)
+        let Some(start) = top
             .checked_add(row)
             .and_then(|line| line.checked_mul(stride))
-            .and_then(|line| line.checked_add(region.left as usize))
+            .and_then(|line| line.checked_add(left))
         else {
             continue;
         };
@@ -2056,6 +2082,7 @@ fn read_off(
 ) {
     let stride = stride as usize;
     let width = region.width as usize;
+    let (left, top) = region.on_surface();
     for row in 0..accumulator.rows {
         let Some(cells) = row
             .checked_mul(accumulator.columns)
@@ -2064,10 +2091,10 @@ fn read_off(
         else {
             continue;
         };
-        let Some(start) = (region.top as usize)
+        let Some(start) = top
             .checked_add(row)
             .and_then(|line| line.checked_mul(stride))
-            .and_then(|line| line.checked_add(region.left as usize))
+            .and_then(|line| line.checked_add(left))
         else {
             continue;
         };
@@ -2150,8 +2177,13 @@ mod tests {
     ) -> Vec<u8> {
         let mut target = vec![0_u8; (width as usize) * (height as usize)];
         let mut cells = super::Buffers::default();
-        let region: Region = region(path, tiny_skia::Transform::identity(), (width, height))
-            .expect("the path reaches the surface");
+        let region: Region = region(
+            path,
+            tiny_skia::Transform::identity(),
+            (width, height),
+            (0, 0),
+        )
+        .expect("the path reaches the surface");
         assert!(fill(
             &mut cells,
             &mut target,

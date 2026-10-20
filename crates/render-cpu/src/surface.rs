@@ -1,8 +1,8 @@
 //! The rows a draw may mark, and the map from page space onto them — ADR 0219.
 //!
 //! A [`Band`] is a run of page rows, a [`Surface`] the page and the band it is drawn into, and a
-//! [`ToDevice`] the page transform with that band's first row subtracted last, which is what makes
-//! a strip's pixels the page's.
+//! [`ToDevice`] the page transform with that band's first row — and a window's first column —
+//! subtracted last, which is what makes a strip's pixels and a window's the page's.
 
 use pdf_render::{Command, TargetSpec, Transform};
 
@@ -109,6 +109,16 @@ impl Band {
 /// So the page's own target is what travels, and where the surface starts is a separate whole
 /// number of rows, applied once and last by [`ToDevice`]. Every band, clip mask and group
 /// buffer below is measured in page rows for the same reason.
+///
+/// # And a window is the same thing across
+///
+/// A window of a page (ADR 1930) is a part of the page's own grid, its corner a whole number of
+/// pixels, and §10.7.4 identifies a pixel by the device coordinates of that grid alone. So a
+/// window travels as the page's target too, with the part of the page it shows ([`Shown`]), and
+/// its first column is composed last beside its first row (ADR 2132). Drawn from a target of its
+/// own instead — the page's transform with the corner folded in first — every mark of it was
+/// composed at another magnitude, and its rectangles took the converter of a target under 8191
+/// pixels where the page took its closed form (ADRs 2058, 2116).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Surface {
     /// The whole page's target: `transform` maps page space onto the *page's* device grid,
@@ -116,23 +126,85 @@ pub(crate) struct Surface {
     pub(crate) page: TargetSpec,
     /// The page rows it holds.
     pub(crate) rows: Band,
+    /// The part of the page the rasterisation it belongs to draws: the page, or a window of it.
+    pub(crate) shown: Shown,
+}
+
+/// The rectangle of a page's device grid one rasterisation draws — the page itself, or a window
+/// of it — in whole pixels of the page (ADR 2132).
+///
+/// What [`crate::CpuRasterizer::rasterize_window`] is handed: a window's corner on the page and
+/// its extent, each a whole number of the page's pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown {
+    /// The page column of its first column.
+    pub left: u32,
+    /// The page row of its first row.
+    pub top: u32,
+    /// Pixels across.
+    pub width: u32,
+    /// Pixels down.
+    pub height: u32,
+}
+
+impl Shown {
+    /// The whole of `page`.
+    pub(crate) fn whole(page: TargetSpec) -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            width: page.width,
+            height: page.height,
+        }
+    }
+
+    /// What this is to a caller that asks only which commands reach it and where its pixels lie:
+    /// a target its own size, under the page's transform with its corner taken off.
+    ///
+    /// Never the transform a mark is drawn under — that is [`ToDevice`]'s, which takes the corner
+    /// off last.
+    pub(crate) fn target(self, page: TargetSpec) -> TargetSpec {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        let (left, top) = (self.left as f32, self.top as f32);
+        if (self.left, self.top) == (0, 0) {
+            return TargetSpec {
+                width: self.width,
+                height: self.height,
+                transform: page.transform,
+            };
+        }
+        TargetSpec {
+            width: self.width,
+            height: self.height,
+            transform: page.transform.then(Transform::translate(-left, -top)),
+        }
+    }
 }
 
 impl Surface {
     /// The surface covering a whole page.
     pub(crate) fn whole(page: TargetSpec) -> Self {
+        Self::showing(page, Shown::whole(page))
+    }
+
+    /// The surface covering `shown` of `page`: every row of it, at its width.
+    pub(crate) fn showing(page: TargetSpec, shown: Shown) -> Self {
         Self {
             page,
             rows: Band {
-                top: 0,
-                height: page.height,
+                top: shown.top,
+                height: shown.height,
             },
+            shown,
         }
     }
 
-    /// Pixels across, which is the page's width: a surface is a run of whole rows.
+    /// Pixels across, which is the width of what is shown: a surface is a run of its whole rows.
     pub(crate) fn width(self) -> u32 {
-        self.page.width
+        self.shown.width
     }
 
     /// The map onto the device grid of `band`, which must be rows this surface holds.
@@ -140,23 +212,27 @@ impl Surface {
         ToDevice {
             page: self.page.transform,
             top: band.top,
+            left: self.shown.left,
         }
     }
 }
 
-/// Page space onto the device grid of a surface starting at page row `top`.
+/// Page space onto the device grid of a surface starting at page row `top` and page column
+/// `left`.
 ///
-/// Two values rather than one matrix, and that is the whole of ADR 0219: the row offset is
-/// composed **last**, onto the fully composed matrix, where subtracting a whole number of rows
-/// from a device coordinate is exact. Folded in first — as `target.transform.then(offset)` —
-/// it changes the magnitude every later composition rounds at, and a page drawn in strips stops
-/// being the page drawn whole.
+/// The page's matrix and the corner rather than one matrix, and that is the whole of ADR 0219:
+/// the offset is composed **last**, onto the fully composed matrix, where subtracting a whole
+/// number of pixels from a device coordinate is exact. Folded in first — as
+/// `target.transform.then(offset)` — it changes the magnitude every later composition rounds at,
+/// and a page drawn in strips, or a window of it, stops being the page drawn whole (ADR 2132).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ToDevice {
     /// Page space to the whole page's device grid.
     pub(crate) page: Transform,
     /// First page row of the surface being drawn into.
     pub(crate) top: u32,
+    /// First page column of the surface being drawn into: a window's, and 0 on a page.
+    pub(crate) left: u32,
 }
 
 impl ToDevice {
@@ -167,11 +243,68 @@ impl ToDevice {
             reason = "rasterize rejects a target taller than MAX_EXTENT = 2^24, and every \
                       integer below that is exactly representable as f32"
         )]
-        let rows = self.top as f32;
+        let (rows, columns) = (self.top as f32, self.left as f32);
+        // `0.0 - columns` rather than `-columns`, so that a page's own surface is handed the
+        // translation it always was, positive zero, to the bit.
         transform
             .then(self.page)
-            .then(Transform::translate(0.0, -rows))
+            .then(Transform::translate(0.0 - columns, -rows))
     }
+
+    /// The mark stated in `transform`'s space, placed on this surface: [`Self::of`]'s matrix, and
+    /// beside it the matrix onto the page's own grid and the surface's corner on it (ADR 2133).
+    pub(crate) fn placed(self, transform: Transform) -> Placed {
+        Placed {
+            at: self.of(transform),
+            page: transform.then(self.page),
+            corner: (self.left, self.top),
+        }
+    }
+}
+
+/// A mark's matrix onto a surface, and beside it the matrix onto the page's own grid and the
+/// surface's corner there, so that a converter can measure the mark where the page drawn whole
+/// measures it (ADR 2133).
+///
+/// # Why the page's matrix as well as the surface's
+///
+/// [`ToDevice::of`] takes the corner off the composed matrix exactly, but a converter handed that
+/// matrix maps each vertex as `x·a + y·c + e` in `f32` with the corner already in `e`, and
+/// `crate::area` evaluates each crossing as a sum at the vertices' magnitude: the same real
+/// numbers, rounded at the surface's magnitude rather than the page's (ADR 0219). One `ulp` there
+/// is a level of a pixel, and on a window of the owner's witness at 1.25¹⁰ of the fit it was four
+/// thousand of them. Measured on the page's grid and written at the corner — and handed to the
+/// library's converter as the page's own vertices less a whole number of pixels, which is exact,
+/// as `tiny-skia`'s own tiler moves a path onto a tile — the surface's pixels are the page's
+/// (`scan::Place`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Placed {
+    /// The matrix onto the surface, [`ToDevice::of`]'s: what a paint is positioned by.
+    pub(crate) at: Transform,
+    /// The matrix onto the page's own device grid.
+    pub(crate) page: Transform,
+    /// The surface's first page column and first page row.
+    pub(crate) corner: (u32, u32),
+}
+
+/// `path` mapped by `grid` onto a grid on which a surface begins at `corner`, and moved onto that
+/// surface: each vertex the grid's own `f32` vertex less a whole number of pixels, which is exact
+/// (ADR 2133). `None` where a mapped coordinate is not finite.
+pub(crate) fn on_surface(
+    path: &tiny_skia::Path,
+    grid: tiny_skia::Transform,
+    corner: (u32, u32),
+) -> Option<tiny_skia::Path> {
+    let on_grid = path.clone().transform(grid)?;
+    if corner == (0, 0) {
+        return Some(on_grid);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "`rasterize` refuses a corner beyond MAX_EXTENT = 2^24, which f32 holds exactly"
+    )]
+    let (left, top) = (corner.0 as f32, corner.1 as f32);
+    on_grid.transform(tiny_skia::Transform::from_translate(-left, -top))
 }
 
 /// The band's own pixels, as a range into a buffer the size of the whole surface.
@@ -240,9 +373,14 @@ mod tests {
 
         for page in pages {
             for mark in marks {
-                let whole = ToDevice { page, top: 0 }.of(mark);
+                let whole = ToDevice {
+                    page,
+                    top: 0,
+                    left: 0,
+                }
+                .of(mark);
                 for top in [1_u32, 8, 64, 236, 512, 887, 1024] {
-                    let strip = ToDevice { page, top }.of(mark);
+                    let strip = ToDevice { page, top, left: 0 }.of(mark);
                     assert_eq!(
                         (
                             strip.a.to_bits(),

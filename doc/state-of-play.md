@@ -27,6 +27,8 @@ What the program still owes is
 
 A PDF **viewer**.
 
+### What a page draws
+
 It **draws** what a page says: geometry, colour, images, shadings — including §8.7.4.3 Table 77's
 `/Background`, the wash a shading *pattern* asks for outside its own bounds, which §11.6.7 makes
 one painting operation with the shading rather than two — patterns, embedded text,
@@ -68,11 +70,15 @@ machine face ranked by its descriptor — Table 120's weight, slope and width ag
 face's own `OS/2` — among the faces that draw as much of its script as any, which is one search
 for a page's font and an interface's label alike (ADR 1441). A non-symbolic TrueType font's code
 that none of §9.6.5.4's steps reaches is drawn through the glyph the (3, 1) subtable gives the one
-character its `/ToUnicode` states for it (ADR 1943). **Three rasterisers behind one display list**: `render-cpu` is the correctness
+character its `/ToUnicode` states for it (ADR 1943).
+
+### Three rasterisers behind one display list
+
+**Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -104,7 +110,11 @@ at one thread; `doc/crate-map.md`'s `raster-gpu` row names the module of each co
 1375, 1389, 1395, 1397, 1407, 1409, 1419, 1420, 1421, 1431, 1435, 1443, 1444, 1445, 1455, 1467,
 1468, 1479, 1480, 1491, 1492, 1503, 1505, 1513, 1517, 1529, 1541, 1555, 1567, 1582, 1594, 1595). **A shading end
 `/Extend` leaves off stops at that end's own position** — a hard transparent stop in every
-backend rather than a fade squeezed inside the ramp, and within half a texel of Vello's fixed ramp (ADR 1387). A content stream that re-enters
+backend rather than a fade squeezed inside the ramp, and within half a texel of Vello's fixed ramp (ADR 1387).
+
+### Interpretation, and what bounds it
+
+A content stream that re-enters
 itself at the nesting bound is reported as the cycle it is, by the stream it re-entered; what a
 page's interpretation keeps is bounded in bytes — its commands, dashes, clips and painted
 paths charged as they are made, the text it reads back as it is copied — so a page whose tiling
@@ -125,7 +135,11 @@ and a font
 program whose every glyph draws and draws nothing is what the file states rather than a report —
 which is §9.7.6.3's own route for a CID-keyed program holding CID 0 alone (ADR 1411). The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
-constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
+constants with no knob and a page of small text at a laptop's resolution can exceed them.
+
+### Codecs and encryption
+
+JBIG2 and
 JPEG 2000 in a confined worker — its colour specification chosen by §7.4.9's precedence rather
 than the codec's first box, every enumerated space of the JPX baseline that ITU-T T.801 M.9.2.4
 lists drawn as defined, CIE Lab under the white point of whichever illuminant it names, except the
@@ -138,7 +152,11 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 the whole decoder would, an image is reduced to the page's scale across the device's threads, and
 a soft mask is decoded beside its image (ADRs 1433, 1457, 1469, 1481, 1493, 1513, 1519, 1557). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
-rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
+rather than a clause of the standard (ADR 0820).
+
+### Navigation, presentation, and what a document says about itself
+
+§12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing every one of Table 201's actions that is not clause 13's media — `JavaScript` at the
 reader's `Scripts` level, as the scripts below say, and a launch of an application the one half principle 3's sandbox withholds, with
 `pdf_model::action`'s table the list — and a rendition action's clip judged by §13.2.2's viability,
@@ -161,6 +179,8 @@ forms (ADR 1461), with §14.13.4's files of the page a reader is *on* listed bes
 which is where the clause puts them and as far as a panel may reach without walking the page tree
 at launch (ADR 1186) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
+
+### Fuzzing
 
 The parsers that read bytes a stranger chose are **fuzzed**, a target each — `fuzz/fuzz_targets/`
 is the population, every target with its line in `doc/verify.md` and its arm in `fuzz/seeds.sh`,
@@ -190,6 +210,8 @@ from the clauses they exercise are held by name with the clause, and a generic r
 extended template decodes, Annex K's to its reference (ADRs 1459, 2102). Annex H.2's
 arithmetic-coder sequence holds the codec's decoder register for register in the fork's own unit
 test (ADR 1485).
+
+### What a person does with an open document
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -383,6 +405,8 @@ arrives as `Command::Clock` the way every other fact about the reader's machine 
 that the flows are being reviewed as mockups first; the C ABI has `quorra_attach` and `quorra_detach`,
 because an ABI has no gestures.
 
+### A document's restrictions, in every window's menu
+
 **What a document asserts over its reader is the reader's to set, in a menu every window has.**
 `CLAUDE.md`'s four levels — off, on, ask, warn — stand one per operation and in two scopes: the
 window's, which every document it opens inherits, and one document's departure from them, which
@@ -394,6 +418,8 @@ is, and `off` being the default (ADR 1167). The *ask* level puts its question on
 all three, worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
 deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
 taking away the control over itself (ADR 1145).
+
+### Printing
 
 **A page goes to paper, and what a printed page shows is not what a screen shows.** §7.6.4.2's
 Table 22 bit 3 is asked as an operation at those same four levels, and the grant puts the document
@@ -436,6 +462,8 @@ against the second — the clause's own two post-EXAMPLE bullets, "at the specif
 The scale mode and the pages per sheet are on a tab of `quorra-qt`'s print dialogue, because those
 two decide where the marks land and every other setting in a print dialogue does not (ADR 1204).
 
+### What a document may ask of this machine
+
 **And what a document may ask this machine to do is the reader's to set too, at the same four
 levels running the other way.** §12.6.4.8's link is opened by the host and by nothing inside the
 confinement, under `--links=refuse|ask|warn|open` in all four windows — `ask` by default, so
@@ -475,6 +503,8 @@ a fragment that names one the standard does not define says so while the rest of
 beyond this reader's range lands on the bound and is named (ADR 1523). `tools/state.sh annex-o`
 counts them.
 
+### Several documents in a window, and a measurement drawn
+
 **Three windows hold more than one document, in a strip of tabs apiece.** A `gtk4::Notebook`, a
 `QTabWidget` and a strip `viewer-ui` draws for itself, with `viewer_host::Documents` as the
 bookkeeping the three share — which names are open, what closing one does to the front, and where
@@ -504,6 +534,8 @@ document's page (ADR 1303). ADRs 1263, 1264, 1275.
 **And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
 windows, each press marked, in each platform's own colour — the points are the host's and
 `Query::Measure` answers what they mean, so it takes no message of its own (ADRs 1191, 1264).
+
+### Separations, transfer functions and overprinting
 
 **§10.8.3's separation simulation has a control, which is the one thing the clause conditioned
 itself on.** The simulation is for when the colours of a display matter "on a device that normally
@@ -605,6 +637,8 @@ puts the default back on Table 57's own precedence, and a function this tree can
 `Do` reaches the conversion of a group's result into a four-component parent as well, which is
 §11.7.5.3's second bullet and is sampled into the cube the backends already take (ADR 1242).
 
+### A mesh patch on the backend
+
 **A mesh patch travels to the backend rather than being tessellated in the model**, because the
 fineness a patch needs is a number of device pixels and `pdf-model` has no device: `pdf_render::
 SurfacePatch` carries §8.7.4.5's control net, its corner values and a tolerance, and the backend
@@ -619,6 +653,8 @@ through both, on every backend: the command's mask is the stencil drawn through 
 and the stencil alone is its shape (ADR 1334). **A clipping path that encloses an area and rules a line admits both**: §10.7.4's
 region is the union of two fills under two rules, which the processor composes into its own mask
 and the two graphics backends refuse by name rather than admitting a smaller set (ADR 1231).
+
+### Opening a document
 
 **A document is opened on disk and read where its own offsets point** — `startxref` from the
 last two kilobytes, each cross-reference section from where the chain names it, each object from
@@ -658,6 +694,8 @@ and the C ABI hands a caller the same handle to run where it likes (`Viewer::pre
 1543, 1553). What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
+
+### Chrome, keys and panels
 
 **And it has chrome, and all three windows have the same six panels**, because the *list* of them is one value every host matches exhaustively on
 (`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press — and a key
@@ -729,7 +767,7 @@ page's own pixels go up at a whole device pixel, a transition's faces being that
 the effect ends on the page without a seam (ADR 1865); a page drawn whole of which the window shows
 less than half the rows — a tall page a few notches into a wide window, a neighbour scrolled mostly
 out of a column — has those rows drawn first, a look over the stand-in, and the page whole after as
-the frame (ADRs 1868, 1930); a page zoomed until its largest window keeps at most seven eighths of its commands or half its pixels (ADR 1994), or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its pixels the page's drawn whole to ADR 0219's arithmetic at a shifted origin, a page past 8191 pixels measured as its window is (ADR 2058) and cut into strips as a page inside that range is (ADR 2068), its commands culled from bounds kept per magnification and drawn as a selection of the page's own list rather than a copy (ADR 1980), a whole page's cull answered by the bounds' edges and a list of `display_list.rs`'s `LET_GO_ON_THE_POOL` commands or more let go of on the pool (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), or from the window its worker draws where the marks cannot cross (ADR 1986) — each route under the bound too wherever the toolkits' rule holds (ADRs 2016, 2026) — and a page past the bound whose marks cross takes the route the window prices with the crossing counted, its marks or its worker's window (ADR 2017). **A pipeline the device's
+the frame (ADRs 1868, 1930); a page zoomed until its largest window keeps at most seven eighths of its commands or half its pixels (ADR 1994), or past `viewer_core::MAX_PIXELS`, is drawn as the window shows it — the viewport and a quarter round it, answered `Rendered::Listed` and drawn again when a scroll leaves it (ADR 1930), its pixels the page's drawn whole to the byte — drawn on the page's own grid with its corner composed last, its converters the page's (ADR 2132), and each mark measured where the page measures it, only its write moved by the corner (ADR 2133) — a page past 8191 pixels measured as its window is (ADR 2058) and cut into strips as a page inside that range is (ADR 2068), its commands culled from bounds kept per magnification and drawn as a selection of the page's own list rather than a copy (ADR 1980), a whole page's cull answered by the bounds' edges and a list of `display_list.rs`'s `LET_GO_ON_THE_POOL` commands or more let go of on the pool (ADR 1941) — rather than whole or refused, and a refusal any window meets is said once for its view rather than at every command (ADR 1892); the confined window draws a page past the bound from the marks its worker sends, on the device at the window's size or as the window and its margin on the processor (ADR 1944), or from the window its worker draws where the marks cannot cross (ADR 1986) — each route under the bound too wherever the toolkits' rule holds (ADRs 2016, 2026) — and a page past the bound whose marks cross takes the route the window prices with the crossing counted, its marks or its worker's window (ADR 2017). **A pipeline the device's
 compiler refuses is captured and kept** — the render lane's by kind and format, the compute lane's
 four as one outcome, a generated function shader's by its key — so a frame that needs it is refused
 in the adapter's words without a second compile, the title taking the refusal's first line, and
@@ -752,6 +790,8 @@ three windows (ADR 0564); one whose pages were found by Table 31's `/Type /Page`
 yields none is shown with a note saying how many and that their order is the object numbers'
 (ADR 1533). §12.6.3's trigger events are
 raised by the pointer.
+
+### The drive, the boundary and its consumers
 
 **And what a reader does is driven in all three windows by one command**: `tools/drive-windows.sh` takes them — and `quorra-confined` through its own steps — under `Xvfb` through open, the outline, page turns, zoom, find, a popup, a link, a markup and a form saved and reopened, the restriction levels, print, a password and AT-SPI, and photographs each step (ADR 1453). The find bar finds a right-to-left word typed in reading order on a page that shows it as presentation forms in display order, folding the forms and reading the order off the glyphs' positions (ADR 1465), and a word typed without its vowel marks or accents finds one printed with them, while a mark typed is asked for (ADR 1477). No step of the drive rests on a person looking at a picture: the reopened form is read off AT-SPI in all three windows, `quorra`'s form nodes carrying each field's value and each character's place in it (ADRs 1489, 1501), and `quorra-confined`'s device refusal is driven to its title (ADR 1478). The `ask` level's question is answered both ways in all three windows — a toolkit dialogue's buttons pressed through their AT-SPI action, `quorra`'s drawn card by its two keys — and the answer read off the log and the drive's server (ADR 1540). The reader's three policy words are driven in all four windows, each with the word and without it: a signature called valid only under the anchors `--trust-anchors` names, a reference `XObject` drawing the page `--reference-files` supplies, and a layer drawn for the reader `--reader-name` names and not for another (ADR 1580).
 
@@ -835,7 +875,7 @@ pass.
   workspace names, every other crate still *forbidding* it. **The claim is about this crate rather
   than about the tree**: a C ABI writes its entry points as `pub unsafe extern "C" fn`, which is
   what a C ABI is, and the crates and worker programs that lift the denial are read off
-  `tests/unsafe_position.rs`'s `only_the_three_named_crates_in_the_tree_lift_the_denial`.
+  `tests/unsafe_position.rs`'s `only_the_named_crates_in_the_tree_lift_the_denial`.
   **`crates/viewer-host`** holds what the hosts decide alike and no toolkit type names — the panel
   rows, the control decision, §12.7.6.4's file policy and the launch timeline among them. ADR 0246.
   **`viewer-host` also decides the *shape* of a thread for both hosts**:
@@ -882,11 +922,19 @@ pass.
   answers (ADR 2121). **And .NET reaches the ABI through `hosts/windows/Quorra.Interop/`**: one
   C# declaration for each function, constant and struct `quorra.h` states, under the header's own
   names, held to the header by `tests/header_and_interop_agree.rs` and compiled by CI (ADRs 2054,
-  2073; RFC 0010). ADRs 0247, 0509.
+  2073; RFC 0010). **The WinUI 3 window over it is `hosts/windows/Quorra.App/`**: the page drawn on
+  the processor into `Image`s, the title and the status line, the keys, the pointer and the wheel,
+  each record it has no dialogue for yet declined in the header's own terms and said; built only by
+  CI's `window` job, on `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136, 2137).
+  ADRs 0247, 0509.
+
+### A password field's value on a save
 
 **A password field's value does not reach the file it is saved into.** Table 231 bit 14's own
 NOTE is the reason: `save` writes neither the value nor the appearance for such a field, and
 reports each one it withheld. ADR 0247.
+
+### A program's questions
 
 **And a *program* can ask it questions.** `tools/pdf-retrieve` is JSON on stdout over the readers
 this tree already had, and what it adds is the three joins between them `doc/todo/63` named:
@@ -895,6 +943,8 @@ own two headings, and §12.5.6.10's `/QuadPoints` deciding which *section* an an
 rather than which page. **Its default answer is `Interpretation::text` byte for byte**, which a
 test asserts: a tool that tidied it would put itself between a caller and the only independent
 measurement this project has of its own extraction. ADR 0257.
+
+### Archival documents, validated and made
 
 **And a program can ask it whether a document is an archival one.** `crates/pdf-archive` holds a
 document to ISO 19005-2 or ISO 19005-4 — six targets, the levels and flavours being an
@@ -977,6 +1027,8 @@ file, the window converts it on a thread of its own through the same profiles an
 the password a protected document opened with (ADR 1967) — says the report per site and writes the
 file beside the document; `quorra_archive` in the C ABI (ADR 1954).
 
+### Redaction
+
 **And it applies a redaction.** §12.5.6.23's `/Redact` annotation names a region — `/QuadPoints`
 else `/Rect`, and *within* is bounding-box intersection, a documented choice — and `redact` writes a
 **new** file, never §7.5.6's update, in which the bytes are gone rather than covered: text cut by
@@ -994,6 +1046,8 @@ dictionary contradicts its codec — each with its sentence, and the overlay tex
 compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on the two
 refusals, the overlay being a choice its own `should` leaves (ADRs 1622, 1124, 1126, 1132, 1133,
 1143, 1195, 1196, 1236, 1248, 1277).
+
+### Files derived from a document
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM at a dpi — the oracle backend's own raster byte for byte, any of Table 31's five
@@ -1024,7 +1078,14 @@ with §12.4.2's labels addressable as `@iv`. The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure, and a corpus
 walk per writer beside it, each holding every surviving page to its source page, which `doc/todo/02`
 §2's `pdf-transform` row names (ADRs 0800, 0801, 0802, 0804, 0816, 0817, 0818, 0821, 0830).
+**The document is parsed in a confined worker**: `quorra-transform` starts
+`quorra-transform-worker`, which confines itself under seccomp-BPF and Landlock before it reads an
+argument and runs the same program over a world its broker answers — each named file, document,
+descriptor and output given only where the person's command line names it — and `--in-process` is
+the fallback, said aloud (ADRs 2140, 2141).
 `doc/todo/57` is what the suite still owes.
+
+### A document as a directory
 
 **And a document is a directory.** `pdf-vfs` is RFC 0003's shared core: one declarative table
 that says what every path in a document-as-a-folder is, what generates it, and what writing to it
@@ -1053,6 +1114,8 @@ reads a byte, takes the document as a descriptor, answers question for question 
 one answers, and is *killed* for asking the filesystem anything; `confined-transport` is the wire
 under it, as it is under `pdf-view-worker` and `pdf-script-worker`.
 
+### A document's restrictions, read once in the model
+
 **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs** (ADR 0803): every Table 22 bit
 the table still uses is named (bit 10, which its own row retires, has no variant, and the type says
@@ -1078,6 +1141,8 @@ All three windows put the question on a modal window (ADR 1145), a C host of `vi
 box and a rendition (ADR 1987) and which has no dialogue to put the question on, says out loud that
 nobody could answer rather than letting *ask* behave like *on* (ADR 0814).
 
+### A page imported from another document
+
 **It can draw a page one document imports from another, where the person running it names the file
 it comes from.** §8.10.4's reference `XObject` is a form carrying Table 95's `/Ref`, and §8.10.4.1
 writes a `shall` for a processor that draws the referenced page and a `shall` for one that draws the
@@ -1093,6 +1158,8 @@ reader with no target file. The imported page is placed by the proxy's `/Matrix`
 `/BBox`, and rendered with §8.10.4.3's annotation appearances inside that same box. ADR 1101. It is
 composited as §11.4.7's second treatment asks — a transparency group under the imported page's own
 `/Group`, not the medium — and inside the proxy's group where the proxy states one (ADR 1339).
+
+### Signatures
 
 **It can tell a person that a signed document changed after it was signed, whether its signature
 verifies, and — where the person running it names a certification authority — whether the signature
@@ -1153,6 +1220,8 @@ having it assumed (ADR 1067). §12.8.5's document timestamps are *established* r
 the token has to parse, be covered by the signer's own digest attribute, verify, and reach a
 supplied anchor, with each token's path validated at the next one's stated time, and what a token
 merely claims is reported as a claim (ADR 1071).
+
+### Accessibility
 
 **And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types — and the
 eleven of Annex M that §14.8.6.1's default PDF 1.7 namespace alone defines, `TOCI`, `Note` and `Code`

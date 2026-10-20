@@ -31,6 +31,10 @@ repository.workspace = true
 # glyph-name route to a character — is a reading this tree has already made once. A
 # converter deriving it a second time would be a second reading of the same clauses.
 [dependencies]
+# The suite's own process split (ADR 2140, `doc/questions/A02`): the worker binary talks to its
+# broker over `confined-transport`'s wire and confines itself with `pdf-sandbox`'s lockdown (named
+# below), the two crates `pdf-vfs`'s worker already stands on.
+confined-transport.workspace = true
 pdf-archive.workspace = true
 pdf-font.workspace = true
 pdf-model.workspace = true
@@ -55,6 +59,12 @@ rayon.workspace = true
 # one: a fingerprint an auditor cannot reproduce with a standard command is not evidence.
 sha2.workspace = true
 thiserror.workspace = true
+# The DCT encoder, reached through the confined worker that holds it: `optimize --images` and
+# `render --format jpeg` ask it for a JPEG, and only those two, because nothing is re-encoded unless a
+# format is explicitly requested (doc/questions/A01, ADR 2138). The `redact` verb's codec-image test
+# (`tests/redact.rs`) names it too, selecting `Isolation::InProcess` so that it needs no worker
+# binary beside it while running the same `decode::here` routine the worker runs.
+pdf-sandbox.workspace = true
 
 # The oracle's own comparison, for one gate: RFC 0002 section 9 asks for "the
 # rotation-transformed comparison for rotate", and a page rotated a quarter turn is rasterised on
@@ -67,11 +77,6 @@ thiserror.workspace = true
 [dev-dependencies]
 pdfref.workspace = true
 raster-compare.workspace = true
-# The `redact` verb's codec-image test (`tests/redact.rs`) decodes a `CCITTFaxDecode` fixture the
-# same way the interpreter does. In the program that decode runs in the confined worker (principle
-# 3); the test selects `Isolation::InProcess` so it needs no worker binary beside it, running the
-# same `decode::here` routine the worker runs.
-pdf-sandbox.workspace = true
 
 [lints]
 workspace = true

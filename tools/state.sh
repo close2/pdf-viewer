@@ -658,6 +658,13 @@ section_confined() {
     run "the confined viewer over every awkward class on the disk (what fails it is a death)" \
         '^view-awkward:   [a-z]|^view-awkward: killed|^bounded:' \
         walk small -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
+    # The third confined program, the transform suite's worker (ADR 2140): its greeting says what
+    # the kernel granted, and every verb's run through it is held to the in-process route's files,
+    # report and status, byte for byte. Small, and no corpus walk: the fixtures are committed ones
+    # and four corpus documents where the corpus is checked out.
+    run "the transform suite's worker: confined, and every verb's bytes the in-process route's" \
+        '^transform-worker: confined|^test result' \
+        walk small -- cargo test --profile gates -p pdf-transform --test confined -- --nocapture --test-threads 1
 }
 
 # The mitigation catalogue's own gap, which `doc/todo/66` names as an instrument gap rather than

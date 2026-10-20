@@ -80,8 +80,8 @@ pub use crate::table::interaction::{
 pub use crate::table::metadata::{
     ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedField,
     UndescribedProperty, UndescribedSchema, dates_stated, extension_container_fields,
-    malformed_amendment_identifiers, metadata_streams, packet_faults,
-    properties_outside_their_schema, undescribed_fields, undescribed_schemas,
+    incomplete_schema_descriptions, malformed_amendment_identifiers, metadata_streams,
+    packet_faults, properties_outside_their_schema, undescribed_fields, undescribed_schemas,
 };
 pub use crate::target::{Flavour, Level, Part, Target};
 pub use crate::withdrawal::{Reaches, Subject, subjects};

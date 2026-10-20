@@ -464,8 +464,14 @@ impl Rewriter<'_> {
             .default_rgb
             .filter(|_| self.wants(Rewrite::DefaultRgb))
             .map(|default| (Rewrite::DefaultRgb, "DefaultRGB", default.space));
+        // The preparation builds at most one of the two `/DefaultCMYK` constructions, so the key
+        // is never asked for twice (`doc/adr/2130`).
+        let supplied = self
+            .supplied_cmyk
+            .filter(|_| self.wants(Rewrite::SuppliedDefaultCmyk))
+            .map(|default| (Rewrite::SuppliedDefaultCmyk, "DefaultCMYK", default.space));
         let mut changed = false;
-        for (rewrite, key, space) in [cmyk, rgb].into_iter().flatten() {
+        for (rewrite, key, space) in [cmyk, supplied, rgb].into_iter().flatten() {
             if self.write_default(id, out, key, space) {
                 count(applied, rewrite);
                 changed = true;
@@ -473,7 +479,9 @@ impl Rewriter<'_> {
         }
         // A page given an inherited dictionary whose own `/ColorSpace` is another object has
         // still been changed: the entry itself goes into that object.
-        changed || (cmyk.is_some() || rgb.is_some()) && self.sites.defaults.pages.contains_key(&id)
+        changed
+            || (cmyk.is_some() || supplied.is_some() || rgb.is_some())
+                && self.sites.defaults.pages.contains_key(&id)
     }
 
     /// One default, `key` naming `space`, written at `id` where the sites put one; whether it

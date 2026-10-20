@@ -72,6 +72,9 @@ const KIND_CCITT: u8 = 3;
 /// Request kind: the `JPXDecode` filter at full resolution only; the auxiliary field is the
 /// sample count allowed, eight big-endian bytes.
 const KIND_JPX_WHOLE: u8 = 4;
+/// Request kind: the one encode, samples to §7.4.8's `DCTDecode` data; the auxiliary field is
+/// [`DctParameters`]'s ten bytes (ADR 2138).
+const KIND_DCT: u8 = 5;
 
 /// Request flag: return palette indices rather than colours. `JPXDecode` only.
 const FLAG_INDICES: u8 = 1 << 0;
@@ -82,6 +85,8 @@ const STATUS_ERROR: u8 = 0;
 const STATUS_BILEVEL: u8 = 1;
 /// Response status: eight bits per component.
 const STATUS_RASTER: u8 = 2;
+/// Response status: an encode's JPEG, the payload whole.
+const STATUS_DCT: u8 = 3;
 
 /// An image to decode.
 ///
@@ -137,6 +142,83 @@ pub enum Request<'a> {
         /// Table 11's parameters, already resolved against their defaults by the caller.
         parameters: CcittParameters,
     },
+    /// The one request that encodes: samples to the data of a `DCTDecode` stream (ISO 32000-2
+    /// §7.4.8), answered as [`crate::Decoded::Dct`].
+    ///
+    /// Beside the decoders because what it is handed was decoded from an untrusted document, and
+    /// the encoder's dependencies carry `unsafe` (ADR 2138). Asked only by a caller that was asked
+    /// for a JPEG; nothing a document states sends one.
+    Dct {
+        /// Interleaved samples, one byte each, row by row: §7.4.8's "stream of image samples,
+        /// each consisting of one, three, or four colour components", of which this encoder
+        /// writes the first two.
+        samples: &'a [u8],
+        /// The grid, the components and the quality.
+        parameters: DctParameters,
+    },
+}
+
+/// The colour components of the samples a [`Request::Dct`] encodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DctComponents {
+    /// One component a sample, which §7.4.8's Table 13 never transforms.
+    Gray,
+    /// Three components a sample, red, green and blue, written as `YCbCr` with no Adobe marker —
+    /// the pairing Table 13's default `ColorTransform` of 1 decodes back to RGB.
+    Rgb,
+}
+
+/// What a [`Request::Dct`] encodes besides its samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DctParameters {
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// The components each sample holds.
+    pub components: DctComponents,
+    /// The encoder's quality, 1 to 100: the caller's statement, since §7.4.8 leaves "the
+    /// information loss" to "several parameters" that "are entirely under the control of the
+    /// encoder".
+    pub quality: u8,
+}
+
+/// How many bytes [`DctParameters`] occupies on the wire.
+const DCT_PARAMETERS_LEN: usize = 4 + 4 + 1 + 1;
+
+impl DctParameters {
+    /// The fixed-width encoding that travels in a request's auxiliary payload.
+    fn encode(self) -> [u8; DCT_PARAMETERS_LEN] {
+        let mut out = [0u8; DCT_PARAMETERS_LEN];
+        let (width, rest) = out.split_at_mut(4);
+        width.copy_from_slice(&self.width.to_be_bytes());
+        let (height, rest) = rest.split_at_mut(4);
+        height.copy_from_slice(&self.height.to_be_bytes());
+        rest[0] = match self.components {
+            DctComponents::Gray => 1,
+            DctComponents::Rgb => 3,
+        };
+        rest[1] = self.quality;
+        out
+    }
+
+    /// Reads the encoding above, or `None` if it is not one — a component count other than one
+    /// or three included, since the pipe carries no invariants.
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != DCT_PARAMETERS_LEN {
+            return None;
+        }
+        Some(Self {
+            width: u32::from_be_bytes(bytes.get(0..4)?.try_into().ok()?),
+            height: u32::from_be_bytes(bytes.get(4..8)?.try_into().ok()?),
+            components: match bytes.get(8)? {
+                1 => DctComponents::Gray,
+                3 => DctComponents::Rgb,
+                _ => return None,
+            },
+            quality: *bytes.get(9)?,
+        })
+    }
 }
 
 /// ISO 32000-2 §7.4.6 Table 11's optional parameters, resolved.
@@ -512,6 +594,7 @@ pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
     // Outlive the borrow the match arm takes of them, which is why they are declared here.
     let encoded_parameters;
     let encoded_samples;
+    let encoded_dct;
     let (kind, flags, primary, auxiliary) = match request {
         Request::Jbig2 { data, globals } => (KIND_JBIG2, 0, *data, *globals),
         Request::Jpx { data, indices } => (
@@ -536,6 +619,13 @@ pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
         Request::Ccitt { data, parameters } => {
             encoded_parameters = parameters.encode();
             (KIND_CCITT, 0, *data, encoded_parameters.as_slice())
+        }
+        Request::Dct {
+            samples,
+            parameters,
+        } => {
+            encoded_dct = parameters.encode();
+            (KIND_DCT, 0, *samples, encoded_dct.as_slice())
         }
     };
 
@@ -593,14 +683,15 @@ pub(crate) fn read_request(input: &mut impl std::io::Read) -> std::io::Result<Op
 /// A request as it arrived, before it is known to name a filter this worker implements.
 #[derive(Debug)]
 pub(crate) struct Wire {
-    /// Which filter, as [`KIND_JBIG2`], [`KIND_JPX`], [`KIND_JPX_WHOLE`] or [`KIND_CCITT`].
+    /// Which filter, as [`KIND_JBIG2`], [`KIND_JPX`], [`KIND_JPX_WHOLE`] or [`KIND_CCITT`], or
+    /// the one encode, [`KIND_DCT`].
     pub(crate) kind: u8,
     /// Per-filter flags, currently only [`FLAG_INDICES`].
     pub(crate) flags: u8,
     /// The image's own stream.
     pub(crate) primary: Vec<u8>,
-    /// Whatever the filter needs beside its data: JBIG2's globals stream, or
-    /// `CCITTFaxDecode`'s parameter block.
+    /// Whatever the filter needs beside its data: JBIG2's globals stream,
+    /// `CCITTFaxDecode`'s parameter block, or an encode's [`DctParameters`].
     pub(crate) auxiliary: Vec<u8>,
 }
 
@@ -632,6 +723,10 @@ pub(crate) fn typed_request(wire: &Wire) -> Option<Request<'_>> {
         KIND_CCITT => Some(Request::Ccitt {
             data: &wire.primary,
             parameters: CcittParameters::decode(&wire.auxiliary)?,
+        }),
+        KIND_DCT => Some(Request::Dct {
+            samples: &wire.primary,
+            parameters: DctParameters::decode(&wire.auxiliary)?,
         }),
         _ => None,
     }
@@ -689,6 +784,7 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
             payload.extend_from_slice(&raster.data);
             (STATUS_RASTER, payload)
         }
+        Decoded::Dct(jpeg) => (STATUS_DCT, jpeg.clone()),
     };
     frame(status, &payload)
 }
@@ -717,7 +813,10 @@ pub(crate) struct ResponseShape {
 /// Reads a response header, on the parent's side.
 pub(crate) fn parse_response_header(header: [u8; RESPONSE_HEADER_LEN]) -> Option<ResponseShape> {
     let status = *header.first()?;
-    if !matches!(status, STATUS_ERROR | STATUS_BILEVEL | STATUS_RASTER) {
+    if !matches!(
+        status,
+        STATUS_ERROR | STATUS_BILEVEL | STATUS_RASTER | STATUS_DCT
+    ) {
         return None;
     }
     let bytes: [u8; 4] = header.get(1..5)?.try_into().ok()?;
@@ -826,6 +925,20 @@ pub(crate) fn parse_response(
                 depths: depths.to_vec(),
                 data: samples.to_vec(),
             }))
+        }
+        STATUS_DCT => {
+            // ISO/IEC 10918-1 B.2.1: an image opens with SOI and closes with EOI. Anything else is
+            // not an answer this worker's encoder writes, and it would be written into a file.
+            if payload.len() < 4
+                || payload.get(..2) != Some(&[0xFF, 0xD8][..])
+                || payload.get(payload.len().saturating_sub(2)..) != Some(&[0xFF, 0xD9][..])
+            {
+                return Err(malformed(format!(
+                    "a {}-byte answer to an encode is not a JPEG from SOI to EOI",
+                    payload.len()
+                )));
+            }
+            Ok(Decoded::Dct(payload.to_vec()))
         }
         _ => Err(malformed("unrecognised status".to_owned())),
     }
@@ -1342,5 +1455,51 @@ mod tests {
             panic!("a refusal must not look like a decode");
         };
         assert_eq!(detail, "JBIG2: unknown segment type 42");
+    }
+
+    /// The encode's parameters cross whole, and a component count the encoder does not write is
+    /// no request at all rather than a grey one.
+    #[test]
+    fn an_encode_request_round_trips_with_its_parameters() {
+        let parameters = DctParameters {
+            width: 640,
+            height: 480,
+            components: DctComponents::Rgb,
+            quality: 80,
+        };
+        let request = Request::Dct {
+            samples: b"rgbrgb",
+            parameters,
+        };
+        let mut cursor = std::io::Cursor::new(encode_request(&request));
+        let wire = read_request(&mut cursor).unwrap().unwrap();
+        assert_eq!(typed_request(&wire), Some(request));
+
+        let mut four = encode_request(&request);
+        let components = REQUEST_HEADER_LEN + b"rgbrgb".len() + 8;
+        four[components] = 4;
+        let wire = read_request(&mut std::io::Cursor::new(four))
+            .unwrap()
+            .unwrap();
+        assert_eq!(typed_request(&wire), None);
+    }
+
+    /// An encode's answer is written into a file, so one that is not a JPEG from SOI to EOI is a
+    /// malformed response rather than bytes to carry.
+    #[test]
+    fn an_encode_answer_must_be_a_jpeg_from_soi_to_eoi() {
+        let jpeg = vec![0xFF, 0xD8, 0x00, 0xFF, 0xD9];
+        let encoded = encode_response(&Decoded::Dct(jpeg.clone()));
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert_eq!(parse_response(shape, payload).unwrap(), Decoded::Dct(jpeg));
+
+        let encoded = encode_response(&Decoded::Dct(b"not a jpeg".to_vec()));
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert!(matches!(
+            parse_response(shape, payload),
+            Err(SandboxError::Malformed { .. })
+        ));
     }
 }

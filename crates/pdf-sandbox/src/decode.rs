@@ -35,6 +35,10 @@ pub(crate) fn here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
             samples,
         } => jpx_whole(data, *indices, *samples).map(Decoded::Raster),
         Request::Ccitt { data, parameters } => ccitt(data, *parameters).map(Decoded::Bilevel),
+        Request::Dct {
+            samples,
+            parameters,
+        } => crate::encode::dct(samples, *parameters).map(Decoded::Dct),
     };
     decoded.map_err(|detail| SandboxError::Undecodable { detail })
 }

@@ -354,6 +354,7 @@ impl Walk<'_> {
             admits == AdditionalActions::OnlyAnnotationTriggers && self.force.additional_restricted;
         let mut out = Dictionary::new();
         let mut changed = false;
+        let mut trimmed = false;
         for (key, value) in dict.iter() {
             let name = String::from_utf8_lossy(key.as_bytes()).into_owned();
             if restrict && !annotation_trigger(&name) {
@@ -365,6 +366,7 @@ impl Walk<'_> {
                     by: Rewrite::AdditionalActionsRemoved,
                 });
                 changed = true;
+                trimmed = true;
                 continue;
             }
             if self.force.types {
@@ -387,6 +389,17 @@ impl Walk<'_> {
         if !changed {
             return Ok(());
         }
+        // The edit is the rewrite's whose rule changed the dictionary, because the rewriter
+        // applies only an edit whose rewrite a decision wanted: an `/AA` the part admits whole —
+        // a widget's, at part 4 — changes only by the type rows, and tagging that edit with the
+        // `/AA` rule nobody failed would leave the forbidden action in the output. Where both
+        // rules took something out, the dictionary is the restriction's: without it the output
+        // fails that rule's row whatever else is applied.
+        let by = if trimmed {
+            Rewrite::AdditionalActionsRemoved
+        } else {
+            Rewrite::ForbiddenActionRemoved
+        };
         // An `/AA` with nothing left in it states no trigger event at all, so the key goes with
         // its last entry rather than staying as an empty dictionary the part would still see.
         let value = if out.is_empty() {
@@ -398,10 +411,11 @@ impl Walk<'_> {
         // object; where it wrote it directly, the edit is the holder's own entry.
         match (stated.as_reference(), value) {
             (Some(id), Some(Object::Dictionary(kept))) => {
-                self.out.edits.entry(id).or_default().push(Edit::Whole {
-                    dict: kept,
-                    by: Rewrite::AdditionalActionsRemoved,
-                });
+                self.out
+                    .edits
+                    .entry(id)
+                    .or_default()
+                    .push(Edit::Whole { dict: kept, by });
             }
             // Nothing left in it, or a shape no dictionary came out of: the holder's own key goes.
             (_, value) => {
@@ -409,7 +423,7 @@ impl Walk<'_> {
                     .at
                     .ok_or(Because::NotBuiltYet(REMOVAL_FROM_A_DIRECT_HOLDER))?;
                 let value = value.filter(|_| stated.as_reference().is_none());
-                self.edit(at, "AA", value, Rewrite::AdditionalActionsRemoved);
+                self.edit(at, "AA", value, by);
             }
         }
         Ok(())

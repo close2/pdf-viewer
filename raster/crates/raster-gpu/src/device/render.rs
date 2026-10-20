@@ -82,7 +82,7 @@ impl Device {
         // across targets.
         let encode_started = Instant::now();
         let generation = self.atlas.generation;
-        let encoded = self.encode_scene(scene, viewport, None)?;
+        let encoded = self.encode_scene(scene, viewport, Walk::Fresh)?;
         let encode_time = encode_started.elapsed();
         // A reset the encode took for a stale atlas is a repack of this frame's (ADR 1467
         // section 4), reported as one.
@@ -157,8 +157,10 @@ impl Device {
         let generation = self.atlas.generation;
         let (source, encoded, kept) = retained.prepare(key, |scene, from| match from {
             EncodeFrom::Records(list) => self.replay_scene(scene, viewport, list),
-            EncodeFrom::After(previous) => self.encode_scene(scene, viewport, Some(previous)),
-            EncodeFrom::Scene => self.encode_scene(scene, viewport, None),
+            EncodeFrom::After(previous) => {
+                self.encode_scene(scene, viewport, Walk::After(previous))
+            }
+            EncodeFrom::Scene => self.encode_scene(scene, viewport, Walk::Fresh),
         })?;
         let encode_time = encode_started.elapsed();
         let reset_in_encode = self.atlas.generation != generation;
@@ -189,6 +191,85 @@ impl Device {
         frame
     }
 
+    /// The idle build (viewer ADR 2134): the scene `retained` holds, walked at `viewport` with no
+    /// line culled, drawn into `into`, and kept in the held encode's place — so that every later
+    /// view of the scene takes its lines in runs from a stream already on the device (ADR 2056),
+    /// where the walk that culled kept nothing for them. `None`, and nothing drawn, where the held
+    /// encode is `viewport`'s and keeps its runs already, where the whole walk kept no runs either,
+    /// or where its streams would take the device past its residency budget beside what it keeps
+    /// already (ADR 2030); the held encode then stays. A host asks
+    /// [`RetainedScene::wants_whole_walk`] after the frame it would repeat.
+    ///
+    /// **For a host's idle time, never its launch path**: it walks the page's every line and sends
+    /// them, which on the owner's witness at a window opened at 2.4 times the fit is 264 MB where
+    /// the window's frame sent 26 — the cost item 2 of `doc/todo/75` measured in front of a first
+    /// frame, paid here where nobody waits. The frame is the held encode's to the pixel: a line the
+    /// view admits nothing of is collapsed by the vertex stage.
+    ///
+    /// # Errors
+    ///
+    /// Exactly [`Device::render_retained`]'s, over the scene the handle holds.
+    // As `render`: a target is a discriminant plus a borrow.
+    #[expect(clippy::needless_pass_by_value)]
+    pub fn build_whole(
+        &mut self,
+        retained: &mut RetainedScene,
+        viewport: &Viewport<'_>,
+        into: Target<'_>,
+    ) -> Result<Option<Frame>, RenderError> {
+        self.validate_viewport(viewport)?;
+        let mut reports = Vec::new();
+        let damage = Self::plan_damage(viewport, &into, &mut reports)?;
+        // Taken before the encode, as `render_retained` takes it and for its reason.
+        let key = EncodeKey::new(
+            self.id,
+            viewport,
+            self.coverage,
+            self.atlas.generation,
+            self.resources.generation(),
+        );
+        let (in_use, limit) = (self.residency.in_use(), self.limits.max_resident_bytes);
+        let encode_started = Instant::now();
+        let generation = self.atlas.generation;
+        let Some((encoded, kept)) = retained.prepare_whole(
+            key,
+            |scene| self.encode_scene(scene, viewport, Walk::Whole),
+            |encoded, held| {
+                let streams = [
+                    &encoded.rect_instances,
+                    &encoded.quad_instances,
+                    &encoded.line_instances,
+                ]
+                .into_iter()
+                .map(|data| data.len() as u64)
+                .fold(0_u64, u64::saturating_add);
+                in_use.saturating_sub(held).saturating_add(streams) <= limit
+            },
+        )?
+        else {
+            return Ok(None);
+        };
+        let encode_time = encode_started.elapsed();
+        let reset_in_encode = self.atlas.generation != generation;
+        let mut frame = self
+            .submit_encoded(
+                encoded,
+                Some(kept),
+                viewport,
+                &into,
+                &damage,
+                reports,
+                encode_time,
+                EncodeSource::Encoded,
+            )
+            .and_then(|submission| match submission {
+                Submission::Drawn(frame) => Ok(*frame),
+                Submission::Submitted(submitted) => self.complete(*submitted),
+            })?;
+        frame.counters.atlas_repacked = self.settle_atlas(encoded) || reset_in_encode;
+        Ok(Some(frame))
+    }
+
     /// Phase 1: classify, rasterise coverage, and count (`encode.rs`).
     ///
     /// **A frame's lanes, and so its admission, are its own** (ADR 1467 section 4). The
@@ -200,36 +281,54 @@ impl Device {
     /// fresh device draws. It costs one encode on the frame after a change of working
     /// set, and nothing where the atlas holds only what the frame uses.
     ///
-    /// `previous` is the encode of this scene at another view, whose line runs the walk keeps
-    /// where they are this view's (ADR 2056).
+    /// `walk` says whether the walk keeps the line runs of this scene's encode at another view
+    /// where they are this view's (ADR 2056), or culls no line (viewer ADR 2134).
     fn encode_scene(
         &mut self,
         scene: &Scene,
         viewport: &Viewport<'_>,
-        previous: Option<&Encoded>,
+        walk: Walk<'_>,
     ) -> Result<Encoded, RenderError> {
         self.atlas.begin_frame();
         // Once a render, before either walk: a frame encoded again on a reset atlas reads
         // the meets its first walk kept, which are the same bytes (ADR 1517).
         self.kept_meets.begin_render(self.limits.max_frame_bytes);
-        let encoded = self.encode_once(scene, viewport, previous);
+        let encoded = self.encode_once(scene, viewport, walk);
         if !self.atlas.stale_for_frame() {
             return encoded;
         }
         self.atlas.reset();
         self.atlas.begin_frame();
-        self.encode_once(scene, viewport, previous)
+        self.encode_once(scene, viewport, walk)
     }
 
-    /// One walk of the scene against the atlas as it stands: `previous`'s line runs kept where
-    /// they are this view's, the whole walk otherwise.
+    /// One walk of the scene against the atlas as it stands: the encode before's line runs kept
+    /// where they are this view's, every line walked otherwise — culled where the view admits
+    /// nothing of it, except by the idle build.
     fn encode_once(
         &mut self,
         scene: &Scene,
         viewport: &Viewport<'_>,
-        previous: Option<&Encoded>,
+        walk: Walk<'_>,
     ) -> Result<Encoded, RenderError> {
-        if let Some(previous) = previous
+        if let Walk::Whole = walk {
+            return encode::encode_whole(
+                scene,
+                viewport,
+                self.limits.max_frame_bytes,
+                self.limits.max_target_size,
+                &self.resources,
+                &mut self.atlas,
+                &mut self.kept_meets,
+                self.glyph_quantum,
+                self.coverage,
+                self.compute_assist,
+                self.coverage_samples,
+                self.instrument_encode,
+                self.encode_threads,
+            );
+        }
+        if let Walk::After(previous) = walk
             && let Some(kept) = encode::encode_kept(
                 scene,
                 viewport,
@@ -628,4 +727,16 @@ fn reported(first: &mut Option<UploadSplit>, last: UploadSplit, paint: u64) -> U
         line_instances: first.line_instances,
         ..last
     }
+}
+
+/// Which walk phase 1 takes of a scene.
+#[derive(Debug, Clone, Copy)]
+enum Walk<'p> {
+    /// Every line, culling those the view admits nothing of.
+    Fresh,
+    /// The line runs of the scene's encode at another view kept, where they are this view's (ADR
+    /// 2056); every line, as [`Walk::Fresh`], where they are not.
+    After(&'p Encoded),
+    /// Every line, culling none: the idle build (viewer ADR 2134).
+    Whole,
 }

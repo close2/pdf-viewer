@@ -166,20 +166,26 @@ groups, in the order a slot should take them:
 
 1. **Remedies RFC 0007's shapes can still build.** (`metadata/extension-schema-container-fields`
    with nothing in the file to complete it was the largest group at 2b: its `discard` is built,
-   the whole container going because the XMP writer removes a property and not one item of its
-   array — taking the incomplete description alone is the narrower cut still owed.)
+   and takes only the incomplete descriptions where the container is one bag holding complete
+   ones beside them — ADR 2131.)
    `annotations/subtype-defined-in-iso-32000-1`
    under `as-shown`, whose `preserve` "by keeping" is section 3's owed item. A part 4 `DeviceRGB`
    inside a group blending in a CMYK or grey `ICCBased` space beside an RGB intent
    (`6-2-4-3-t04-fail-n`): the `/DefaultRGB` of ADR 2114 would answer it and is prepared only
    beside a non-RGB profile.
-2. **Converter defects, owed a fix and a test.** `actions/no-launch-multimedia-or-form-actions`
-   at part 4 (`6-6-1-t01-fail-m`): an action the removal does not reach survives into the output,
-   and the output's verdict refuses. (A PostScript XObject the page invokes was the other: ADR 2115
-   writes it as a form that draws nothing.)
+2. **Converter defects, owed a fix and a test.** None is open. (`6-6-1-t01-fail-m`'s `Trans`
+   action in a widget's `/AA` was the last: the edit was tagged with the `/AA` rule nobody failed,
+   so the rewriter skipped it, and it is now the type rule's. A PostScript XObject the page invokes
+   was the other: ADR 2115 writes it as a form that draws nothing.)
 3. **The colour family the profile in hand cannot answer.** `DeviceCMYK`, or a group blending in
-   it, beside an RGB intent at part 4, and such a group at part 2: ADR 2114 section 4 is why no
-   default is written; `--output-intent-profile` with the press's CMYK profile is the answer.
+   it, beside an RGB intent at part 4, and such a group at part 2: no profile ships a press, so
+   these stay refused under both profiles — part 4's `DeviceCMYK` row with the sentence naming the
+   flag, the group, base and alternate rows by the output's verdict; the operator's
+   `--output-intent-profile` with the press's CMYK profile answers every one, as an `ICCBased`
+   `/DefaultCMYK` beside the file's own intent (ADR 2130). `a_supplied_press_profile_answers_the_
+   colour_family_refusals` is the census with one supplied. `DeviceRGB` inside a group blending in
+   a CMYK or grey `ICCBased` space beside an RGB intent (`6-2-4-3-t04-fail-n`) is not this item's
+   but item 1's.
 4. **Refusals the standard forces.** The content-stream fence (ADR 0816): a `.notdef` glyph or a
    code the embedded program lacks, an undefined operator, an inline image's filter or intent, a
    hexadecimal string's digits, a content stream naming resources it has no dictionary for, an
@@ -195,3 +201,8 @@ groups, in the order a slot should take them:
    with no Separation of its own, `graphics-state-blend-modes-are-defined`, `no-reference-xobjects`,
    `normal-appearance-shape`, the `to-unicode` rows at 2u, `role-map-terminates-at-a-standard-type`
    at 2a. The catalogue entry of each says what its remedy would be.
+
+The other corpora — pdf.js's test documents and `doc/corpora`'s four collections, files real
+producers wrote — are swept at each part's lowest level by
+`the_shipped_profiles_list_what_real_producers_files_refuse_on`, which prints the same census and
+names as `FAILED` any document the verb errors or panics on. Its counts are `doc/history/1647`'s.

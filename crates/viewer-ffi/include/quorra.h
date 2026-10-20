@@ -81,9 +81,7 @@ extern "C" {
 #define QUORRA_EVENT_EXTRACTED         12u
 #define QUORRA_EVENT_REFUSED           13u
 #define QUORRA_EVENT_REPORTED          14u
-/* PDF 2.0 Annex O's `search`, and the kind that moved the count from 15 to 16. It had no name
- * here at all until the five-hundred-and-eleventh session — the count moved and the constant did
- * not, so a caller switching on kinds had to write the number 15 by hand. */
+/* PDF 2.0 Annex O's `search`, and the kind that moved the count from 15 to 16. */
 #define QUORRA_EVENT_SEARCHED          15u
 /* The two levels of the reader's restriction policy that need a person, and the list of embedded
  * files moving — the three kinds that moved the count from 16 to 19 (ADR 0814). ASKING waits on
@@ -422,11 +420,10 @@ extern "C" {
 /* --------------------------------------------------------------------------------------------
  * The numbers the OTHER HALF OF THE QUERIES answers with (ADR 0576).
  *
- * Eleven of `viewer_core::Query`'s variants reached no symbol here at all until the
- * seven-hundred-and-ninth session, and nothing counted them: `QUORRA_EVENT_KIND_COUNT` is the right
- * instrument for a message that ARRIVES and no instrument at all for a QUESTION. What replaces it
- * is a test on the library side that matches exhaustively over `Query`, so a question added to the
- * boundary fails to compile there rather than leaving a caller with no symbol and no signal.
+ * `QUORRA_EVENT_KIND_COUNT` is the right instrument for a message that ARRIVES and no instrument
+ * at all for a QUESTION. What counts the questions is a test on the library side that matches
+ * exhaustively over `Query`, so a question added to the boundary fails to compile there rather
+ * than leaving a caller with no symbol and no signal.
  * -------------------------------------------------------------------------------------------- */
 
 /* Table 29's /PageMode: "how the document shall be displayed when opened". `quorra_opening` answers

@@ -1713,3 +1713,13 @@ the JBIG2 target with `-s none`, as `doc/verify.md` already says and `tools/fuzz
 target under the lock is built with `-s none`,
 and it is started from a scratch directory, because `-jobs=1` writes `fuzz-0.log` into the current one.
 
+### 227. A gate that calls the library sees nothing the binary around it does
+
+Batch 101's brief named `t3-foreign_corpus` as the gate that would prove the transform suite's worker
+split changed no output byte; the gate calls `apply` in-process and never runs `quorra-transform`, so it
+could not have seen the broker, the worker or the fences at all (round 1652, ADRs 2140, 2141). The round
+built the instrument the change needed — a digest walk of the binary over twelve verbs and eighty-two
+documents, HEAD against HEAD plus the change, by the hash of status, output and every file written. Before
+a gate is cited for a change, read what it drives: a library gate for a library change, a binary walk for
+the program around it.
+

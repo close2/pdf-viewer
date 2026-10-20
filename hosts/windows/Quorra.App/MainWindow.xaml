@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The window: the page area, and the status line under it that every window of this tree has
+     (RFC 0010 step N3a, ADR 2136). The controls over the page, the panels and the cards are the
+     steps after this one. -->
+<Window
+    x:Class="Quorra.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Quorra.App">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <local:PageArea
+            x:Name="Area"
+            Grid.Row="0"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+            SizeChanged="OnPageSizeChanged"
+            KeyDown="OnPageKeyDown"
+            PointerPressed="OnPagePointerPressed"
+            PointerMoved="OnPagePointerMoved"
+            PointerReleased="OnPagePointerReleased"
+            PointerWheelChanged="OnPageWheel" />
+        <TextBlock
+            x:Name="StatusLine"
+            Grid.Row="1"
+            Margin="8,4"
+            TextTrimming="CharacterEllipsis"
+            IsTextSelectionEnabled="True" />
+    </Grid>
+</Window>

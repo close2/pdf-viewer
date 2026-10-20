@@ -1,6 +1,8 @@
-//! What a zoom gesture's frames are, measured on the real render thread and the real adapter.
+//! What a zoom gesture's frames are, on the real render thread: the order the thread answers in,
+//! asserted, and what each refresh puts up on the real adapter, measured.
 //!
-//! **A measurement rather than a gate**, and ignored for the reason every measurement on a real
+//! The tests above the last assert the shape of what comes back, never a duration. **The last is
+//! a measurement rather than a gate**, and ignored for the reason every measurement on a real
 //! device is: it needs one, and it prints durations rather than asserting them. It drives the
 //! render thread this window uses — [`spawn`], the sharp pass and the retained pages included —
 //! from a clock that ticks at the owner's 120 Hz, asks [`crate::stale::Stale::plan`] the question
@@ -8,7 +10,7 @@
 //! of the view asked for, a stand-in, or the picture already there held for one more refresh.
 //!
 //! ```sh
-//! cargo test --release -p viewer-ui --bin quorra -- --ignored --nocapture a_zoom_gesture
+//! cargo test --release -p viewer-device --lib -- --ignored --nocapture a_zoom_gesture
 //! GESTURE_PDF=tmp/Entwurf.pdf GESTURE_EVERY=12 cargo test … a_zoom_gesture
 //! ```
 //!

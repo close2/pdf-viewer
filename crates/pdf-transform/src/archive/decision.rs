@@ -944,6 +944,14 @@ pub(super) enum Answer {
     /// `DeviceCMYK` under PDF/A-4 is refused unless a CMYK profile is supplied. That is the
     /// standard's difference rather than this converter's.
     CmykUnderPartTwo,
+    /// ISO 19005-4 section 6.2.4.3's `DeviceCMYK` sentence, which admits a CMYK output intent or
+    /// a device independent `/DefaultCMYK` and states no `DeviceN` half.
+    ///
+    /// [`decide`] takes the output intent where the profile in hand is a CMYK one, and otherwise
+    /// the `/DefaultCMYK` over the press profile the operator supplied, where they supplied one;
+    /// with neither, the requirement is refused with the sentence that says what the operator
+    /// can do (`doc/adr/2130`).
+    CmykUnderPartFour,
     /// ISO 19005 section 6.2.4.3's `DeviceRGB` sentence, and every row that sends a space to it,
     /// which admits a device independent `/DefaultRGB` beside an RGB output intent (`doc/adr/2114`).
     ///
@@ -973,22 +981,39 @@ pub(super) enum Answer {
 impl Answer {
     /// Every rewrite this answer might perform, whatever the caller has authorised.
     ///
-    /// Two rather than one because [`Self::CmykUnderPartTwo`] can be answered two ways and
+    /// Three rather than one because [`Self::CmykUnderPartTwo`] can be answered three ways and
     /// [`Prepared`] has to build whichever [`decide`] turns out to choose — which it cannot know
     /// before the constructions exist.
-    pub(super) const fn rewrites(self) -> [Option<Rewrite>; 2] {
+    pub(super) const fn rewrites(self) -> [Option<Rewrite>; 3] {
         match self {
             Self::Mechanical(rewrite) | Self::Stated(_, rewrite, _) | Self::Loses(_, rewrite) => {
-                [Some(rewrite), None]
+                [Some(rewrite), None, None]
             }
-            Self::CmykUnderPartTwo => [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultCmyk)],
-            Self::RgbUnderPartTwoOrFour(_) => {
-                [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultRgb)]
+            Self::CmykUnderPartTwo => [
+                Some(Rewrite::OutputIntent),
+                Some(Rewrite::SuppliedDefaultCmyk),
+                Some(Rewrite::DefaultCmyk),
+            ],
+            Self::CmykUnderPartFour => [
+                Some(Rewrite::OutputIntent),
+                Some(Rewrite::SuppliedDefaultCmyk),
+                None,
+            ],
+            Self::RgbUnderPartTwoOrFour(Some(_)) => {
+                [Some(Rewrite::OutputIntent), Some(Rewrite::DefaultRgb), None]
             }
+            // A row whose family is the document's sends a group's `CS`, a base or an alternate
+            // to section 6.2.4.3, and §11.6.6's Table 145 remaps a group's device space through
+            // a `/DefaultCMYK` as it does through a `/DefaultRGB` (`doc/adr/2130`).
+            Self::RgbUnderPartTwoOrFour(None) => [
+                Some(Rewrite::OutputIntent),
+                Some(Rewrite::DefaultRgb),
+                Some(Rewrite::SuppliedDefaultCmyk),
+            ],
             // None of its own: the rewrites are the underlying rows', and those rows are in this
             // same table, so a preparation asking "did any failed requirement want this rewrite"
             // has already been answered by them.
-            Self::AsUnderlying(_) => [None, None],
+            Self::AsUnderlying(_) => [None, None, None],
         }
     }
 }
@@ -1170,11 +1195,8 @@ const CMYK_UNDER_PART_FOUR: &str =
 
 /// Why a colour requirement an output intent of another family answers is refused.
 const WRONG_FAMILY: &str = "this requirement is licensed by a destination profile of its own \
-     colour family, and the profile this conversion has is of another. Supply the right one with \
-     --output-intent-profile. For DeviceCMYK with no CMYK profile to hand there is a second \
-     licence, and ISO 19005-2 states it where ISO 19005-4 does not: part 2's section 6.2.4.3 \
-     admits a DeviceN-based DefaultCMYK, and part 4's requires a device independent one, which \
-     is an ICC CMYK profile or nothing";
+     colour family, and the profile this conversion has is of another. Where the file states no \
+     output intent of its own, supply the right one with --output-intent-profile";
 
 /// Every requirement this converter can answer, and how.
 ///
@@ -1421,11 +1443,7 @@ pub(super) const REMEDIES: &[Remedy] = &[
     },
     Remedy {
         requirement: CMYK_UNDER_PART_FOUR,
-        answer: Answer::Stated(
-            Some(DeviceFamily::Cmyk),
-            Rewrite::OutputIntent,
-            OUTPUT_INTENT_REINTERPRETS,
-        ),
+        answer: Answer::CmykUnderPartFour,
     },
     // Both parts license `DeviceGray` through a PDF/A output intent of *any* family, and neither
     // page-level rule below asks anything of the profile either.
@@ -2316,6 +2334,7 @@ pub(super) fn answered_without_authorisation(requirement: &str) -> bool {
                 Answer::Mechanical(_)
                     | Answer::Stated(..)
                     | Answer::CmykUnderPartTwo
+                    | Answer::CmykUnderPartFour
                     | Answer::RgbUnderPartTwoOrFour(_)
             )
     })
@@ -3391,17 +3410,18 @@ const UTF8_NAMES: &str = "ISO 19005 binds these names to valid UTF-8, and renami
 /// **Read off [`REMEDIES`] rather than written down a second time**, so that a `preserve` remedy
 /// cannot name a rewrite the table would not have taken for the site: what `preserve` changes is
 /// where the content goes, never what makes the file conform. `None` for a requirement the table
-/// does not answer, and for [`Answer::CmykUnderPartTwo`] and [`Answer::RgbUnderPartTwoOrFour`],
-/// whose two rewrites the profile in hand picks between.
+/// does not answer, and for [`Answer::CmykUnderPartTwo`], [`Answer::CmykUnderPartFour`] and
+/// [`Answer::RgbUnderPartTwoOrFour`], whose rewrites the profile in hand picks between.
 pub(super) fn rewrite_for(id: &str) -> Option<Rewrite> {
     let remedy = REMEDIES.iter().find(|remedy| remedy.requirement == id)?;
     match remedy.answer {
         Answer::Mechanical(rewrite) | Answer::Stated(_, rewrite, _) | Answer::Loses(_, rewrite) => {
             Some(rewrite)
         }
-        Answer::CmykUnderPartTwo | Answer::RgbUnderPartTwoOrFour(_) | Answer::AsUnderlying(_) => {
-            None
-        }
+        Answer::CmykUnderPartTwo
+        | Answer::CmykUnderPartFour
+        | Answer::RgbUnderPartTwoOrFour(_)
+        | Answer::AsUnderlying(_) => None,
     }
 }
 
@@ -3583,16 +3603,64 @@ fn rgb_answer(
     authorised: Authorisations,
     prepared: &Prepared,
 ) -> Decision {
-    match &prepared.default_rgb {
-        Ok(_) => Decision::Stated {
+    match (&prepared.default_rgb, &prepared.supplied_cmyk) {
+        (Ok(_), _) => Decision::Stated {
             rewrite: Rewrite::DefaultRgb,
             reinterprets: super::default_rgb::REINTERPRETS,
         },
-        Err(_) => answer_of(
+        // A row whose family is the document's, where what it draws in is `DeviceCMYK` beside a
+        // profile of another family and the operator supplied the press (`doc/adr/2130`). Without
+        // a supply the row takes the intent's answer and the output's own verdict settles it:
+        // which of the document's spaces failed the row is the finding's, not the survey's, and
+        // a sentence about `DeviceCMYK` would be wrong for a row an RGB alternate failed.
+        (Err(_), Ok(_)) if family.is_none() => Decision::Stated {
+            rewrite: Rewrite::SuppliedDefaultCmyk,
+            reinterprets: super::supplied_cmyk::REINTERPRETS,
+        },
+        _ => answer_of(
             Answer::Stated(family, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
             authorised,
             prepared,
         ),
+    }
+}
+
+/// ISO 19005-2 section 6.2.4.3's `DeviceCMYK` sentence, whose licences `Prepared` has already
+/// chosen between: a CMYK destination profile answers it outright; where the profile in hand is of
+/// another family, the press profile the operator supplied is the default (`doc/adr/2130`), and
+/// without one the `DeviceN` default is what NOTE 2 leaves.
+fn cmyk_answer_under_part_two(prepared: &Prepared) -> Decision {
+    match (&prepared.intent, &prepared.default_cmyk) {
+        (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
+            rewrite: Rewrite::OutputIntent,
+            reinterprets: OUTPUT_INTENT_REINTERPRETS,
+        },
+        _ if prepared.supplied_cmyk.is_ok() => Decision::Stated {
+            rewrite: Rewrite::SuppliedDefaultCmyk,
+            reinterprets: super::supplied_cmyk::REINTERPRETS,
+        },
+        (_, Ok(_)) => Decision::Stated {
+            rewrite: Rewrite::DefaultCmyk,
+            reinterprets: DEFAULT_CMYK_REINTERPRETS,
+        },
+        (_, Err(because)) => Decision::Refused(*because),
+    }
+}
+
+/// ISO 19005-4 section 6.2.4.3's, which has no `DeviceN` half: the intent where it is a CMYK one,
+/// the operator's press profile as the default otherwise, and the reason that could not be built —
+/// which says what the operator can do — where neither is in hand (`doc/adr/2130`).
+fn cmyk_answer_under_part_four(prepared: &Prepared) -> Decision {
+    match (&prepared.intent, &prepared.supplied_cmyk) {
+        (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
+            rewrite: Rewrite::OutputIntent,
+            reinterprets: OUTPUT_INTENT_REINTERPRETS,
+        },
+        (Ok(_), Ok(_)) => Decision::Stated {
+            rewrite: Rewrite::SuppliedDefaultCmyk,
+            reinterprets: super::supplied_cmyk::REINTERPRETS,
+        },
+        (Err(because), _) | (Ok(_), Err(because)) => Decision::Refused(*because),
     }
 }
 
@@ -3629,20 +3697,8 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         Answer::Mechanical(rewrite) => prepared
             .obstacle(rewrite)
             .map_or(Decision::Mechanical(rewrite), Decision::Refused),
-        // ISO 19005-2 section 6.2.4.3's `DeviceCMYK` sentence, whose two licences `Prepared` has
-        // already chosen between: a CMYK destination profile answers it outright, and where the
-        // profile in hand is of another family the DeviceN default is what NOTE 2 leaves.
-        Answer::CmykUnderPartTwo => match (&prepared.intent, &prepared.default_cmyk) {
-            (Ok(intent), _) if intent.family == DeviceFamily::Cmyk => Decision::Stated {
-                rewrite: Rewrite::OutputIntent,
-                reinterprets: OUTPUT_INTENT_REINTERPRETS,
-            },
-            (_, Ok(_)) => Decision::Stated {
-                rewrite: Rewrite::DefaultCmyk,
-                reinterprets: DEFAULT_CMYK_REINTERPRETS,
-            },
-            (_, Err(because)) => Decision::Refused(*because),
-        },
+        Answer::CmykUnderPartTwo => cmyk_answer_under_part_two(prepared),
+        Answer::CmykUnderPartFour => cmyk_answer_under_part_four(prepared),
         Answer::RgbUnderPartTwoOrFour(family) => rgb_answer(family, authorised, prepared),
         Answer::Stated(family, Rewrite::OutputIntent, reinterprets) => match &prepared.intent {
             Err(because) => Decision::Refused(*because),

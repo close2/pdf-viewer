@@ -1,6 +1,6 @@
 [package]
 name = "pdf-fuse"
-description = "RFC 0003's FUSE face: the `pdffs` daemon, which maps the kernel's file verbs onto pdf-vfs's and holds no layout knowledge of its own."
+description = "RFC 0003's FUSE face: the `quorrafs` daemon, which maps the kernel's file verbs onto pdf-vfs's and holds no layout knowledge of its own."
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true

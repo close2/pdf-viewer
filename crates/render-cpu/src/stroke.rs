@@ -104,16 +104,16 @@ impl CpuRasterizer {
         // population and the reason are `pdf_render::thin_segment`'s, one copy for every backend
         // (trap 2), and the composition `thin_segment::draw`'s, on the page's own grid as the strip
         // planner asks (ADRs 1829, 1847, 1857).
-        let (mark, placed) = ((path, stroke, paint), (transform, to_device));
+        let (mark, site) = ((path, stroke, paint), (transform, to_device));
         let closed_form = self.anti_alias && blend == tiny_skia::BlendMode::SourceOver;
-        if closed_form && thin_segment::draw(pixmap, mark, placed, clip) {
+        if closed_form && thin_segment::draw(pixmap, mark, site, clip) {
             return Ok(());
         }
         // A dot inside a longer path is the same disc where it is the only mark in its pixels, and
         // `pdf_render::thin_dots` takes such dots out of the path: the rest is stroked below and the
         // dots painted after it, the order `split_degenerate`'s rest and circles are drawn in (ADR
         // 1875).
-        let thin_dots = closed_form.then(|| thin_segment::dots(pixmap, mark, placed, clip));
+        let thin_dots = closed_form.then(|| thin_segment::dots(pixmap, mark, site, clip));
         let thin_dots = thin_dots.flatten();
         let path = thin_dots.as_ref().map_or(path, |thin| &thin.rest);
         let width = stroke.device_width(at);
@@ -174,6 +174,7 @@ impl CpuRasterizer {
                 &mut scratch,
             )?;
             let outline = SolidOutline::of(&converted, &style, at);
+            let outlined = (&converted, &outline);
             if !draw_sub_pixel_rule(
                 pixmap,
                 (&geometry, &converted),
@@ -188,7 +189,7 @@ impl CpuRasterizer {
                 at,
                 &brush,
                 clip,
-            ) && !draw_stroked_outline(pixmap, (&converted, &outline), &style, at, &brush, clip)
+            ) && !draw_stroked_outline(pixmap, outlined, &style, site, &brush, clip)
             {
                 scan::stroke(
                     pixmap,
@@ -225,7 +226,7 @@ impl CpuRasterizer {
                 clip,
             );
         }
-        thin_segment::paint_dots(pixmap, thin_dots, paint, to_device.top, clip);
+        thin_segment::paint_dots(pixmap, thin_dots, paint, to_device, clip);
         Ok(())
     }
 }
@@ -340,10 +341,12 @@ fn draw_stroked_outline(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (path, solid_outline): (&tiny_skia::Path, &SolidOutline<'_>),
     style: &tiny_skia::Stroke,
-    at: Transform,
+    (transform, to_device): (Transform, ToDevice),
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
+    let placed = to_device.placed(transform);
+    let at = placed.at;
     // ISO 32000-2 §10.7.4's substitutions own a stroke only where the raster cannot state its
     // coverage at all, which is one level of 255 and not one device pixel (ADR 1102). Everything
     // above that is a shape this backend can measure, and its outline is what it measures.
@@ -371,7 +374,14 @@ fn draw_stroked_outline(
     // `issue12295.pdf` draws 65 859 of them.
     let straight = is_one_straight_segment(path);
     if !straight && let Some(pieces) = folding_stroke_outline(path, solid, scale) {
-        scan::fill_pieces(pixmap, &pieces, brush, at_device, clip);
+        scan::fill_stated(
+            pixmap,
+            (&pieces, &scan::Exact::Pieces),
+            brush,
+            tiny_skia::FillRule::Winding,
+            placed,
+            clip,
+        );
         return true;
     }
     // An undashed path's outline is the one [`draw_rule_as_bands`] may already have built.
@@ -385,13 +395,15 @@ fn draw_stroked_outline(
     let Some(outline) = outline else {
         return false;
     };
+    // On the page's grid and moved by the surface's corner, as a fill's rectangles are (ADR 2133).
     if outline.len() <= RECTANGULAR_OUTLINE_VERBS
-        && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(outline), at)
+        && let Some(rect) =
+            pdf_render::device_rectangle(&convert::from_skia_path(outline), placed.page)
         && let Some(rect) = convert::to_skia_rect(rect)
     {
         scan::fill_rectangles(
             pixmap,
-            (outline, &scan::Exact::One(rect)),
+            (outline, &scan::Exact::One(rect).moved(placed.corner)),
             brush,
             at_device,
             clip,
@@ -401,18 +413,21 @@ fn draw_stroked_outline(
     // The outline of one straight segment is a rectangle with a cap at each end, which covers no
     // point twice; every other outline may — at a join, where the inner offsets cross, or where two
     // subpaths' outlines meet — and a thin one shows no sign of it in its own coverage (ADR 1341).
-    if straight {
-        scan::fill(
-            pixmap,
-            outline,
-            brush,
-            tiny_skia::FillRule::Winding,
-            at_device,
-            clip,
-        );
+    // The outline's vertices on the page's grid, so a strip or a window draws the page's pixels
+    // (ADR 2133); the non-zero rule, which is what `stroke_path` fills an outline with.
+    let exact = if straight {
+        scan::Exact::Unknown
     } else {
-        scan::fill_outline(pixmap, outline, brush, at_device, clip);
-    }
+        scan::Exact::Outline
+    };
+    scan::fill_stated(
+        pixmap,
+        (outline, &exact),
+        brush,
+        tiny_skia::FillRule::Winding,
+        placed,
+        clip,
+    );
     true
 }
 

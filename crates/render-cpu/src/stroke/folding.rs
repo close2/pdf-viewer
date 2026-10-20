@@ -1218,7 +1218,8 @@ mod tests {
                 };
                 let pieces = folding_stroke_outline(&circle, &style, scale).expect("it folds");
                 let at = tiny_skia::Transform::identity();
-                let region = crate::area::region(&pieces, at, (40, 40)).expect("on the surface");
+                let region =
+                    crate::area::region(&pieces, at, (40, 40), (0, 0)).expect("on the surface");
                 let mut target = vec![0_u8; 40 * 40];
                 assert!(crate::area::fill(
                     &mut crate::area::Buffers::default(),

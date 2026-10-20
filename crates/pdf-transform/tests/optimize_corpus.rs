@@ -289,6 +289,7 @@ fn default_plan() -> OptimizePlan {
         object_streams: ObjectStreams::DEFAULT,
         streams: Streams::DEFAULT,
         linearize: false,
+        images: None,
     }
 }
 
@@ -297,6 +298,7 @@ fn linear_plan(object_streams: ObjectStreams) -> OptimizePlan {
     OptimizePlan {
         object_streams,
         linearize: true,
+        images: None,
         ..default_plan()
     }
 }

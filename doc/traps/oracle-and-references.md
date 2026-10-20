@@ -792,3 +792,13 @@ instrument that sees a converter's mistake about *what the page shows* is the re
 converted page and its source with the annotation drawn, and compare them pixel by pixel; the validator
 answers a different question.
 
+### 226. A refusal keyed on a document-wide survey over-refuses the rows with findings of their own
+
+Round 1647 gave the "supply a press profile" sentence to every colour row wherever the survey had seen
+`DeviceCMYK` anywhere in the document; a row an RGB alternate had failed got the sentence too, and seven
+real level-B documents that the output intent converts were refused (ADR 2130 §2). The veraPDF corpus
+could not show it — each of its files fails exactly one clause, so no file there has a CMYK use and an
+unrelated RGB finding at once; only the sweep of pdf.js's documents did. A row's refusal is keyed on the
+row's own finding, and a change to any refusal is measured on the real corpora before and after, not on
+the conformance corpus alone.
+

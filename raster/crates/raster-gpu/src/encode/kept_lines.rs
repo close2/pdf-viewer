@@ -16,9 +16,10 @@
 //! line lane's count and `commands_culled` are the first walk's.
 //!
 //! **A walk that culled a line keeps nothing**, and the next view is walked whole, culling again: a
-//! window opened on a page of lines pays what it shows and no more, and its steps cost what they
-//! cost before this module. The page whose first frame showed all of it — the fit a page opens at —
-//! is the one whose later views keep its lines.
+//! window opened on a page of lines pays what it shows and no more. The page whose first frame
+//! showed all of it — the fit a page opens at — is the one whose later views keep its lines; a
+//! window opened zoomed gets them from the idle build ([`Before::Whole`], viewer ADR 2134), a walk
+//! at the same view that culls no line, made while nobody waits, whose encode replaces the first.
 //!
 //! **Only the page's own plan keeps runs.** A line inside a group or a soft mask is walked into a
 //! plan the walk makes again at every view, and its instance is written where that walk reaches it;
@@ -51,8 +52,13 @@ use crate::error::RenderError;
 /// What a walk takes from the encode of the view before.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Before<'a> {
-    /// Nothing: the walk walks every line.
+    /// Nothing: the walk walks every line, culling a line its view admits nothing of.
     Nothing,
+    /// Nothing, and the walk is for the views after it: it culls no line, so the stream it writes
+    /// is the page's and its runs are every later view's (the idle build, viewer ADR 2134). A line
+    /// its view admits nothing of writes its instance and grows no box, which is what the vertex
+    /// stage draws of it at this view.
+    Whole,
     /// That encode's runs, which the walk takes in one step each.
     Kept(&'a super::Encoded),
     /// That encode's runs turned out not to be this view's: the walk is abandoned and the view
@@ -69,6 +75,11 @@ impl Before<'_> {
     /// Whether the kept runs turned out not to be this view's.
     pub(super) fn diverged(self) -> bool {
         matches!(self, Self::Diverged)
+    }
+
+    /// Whether the walk culls a line its view admits nothing of: every walk but the idle build's.
+    pub(super) fn culls(self) -> bool {
+        !matches!(self, Self::Whole)
     }
 
     /// The kept runs are not this view's; a walk that keeps none has nothing to abandon.

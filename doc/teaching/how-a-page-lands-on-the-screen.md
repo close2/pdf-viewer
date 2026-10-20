@@ -353,7 +353,7 @@ composites the colour into the surface by coverage (`crates/render-cpu/src/surfa
 `QuorraRasterizer` and `QuorraWindowRenderer` (`crates/render-raster/src/lib.rs`,
 `crates/render-raster/src/present.rs`) translate the list into a **scene**
 (`crates/render-raster/src/scene.rs`, one walk over the commands, `Encoder::commands`;
-`Encoder::fill` for our mark) that carries no device, no resolution and no viewport
+`Encoder::fill` for our mark, in `crates/render-raster/src/scene/fills.rs`) that carries no device, no resolution and no viewport
 (`raster/crates/raster-scene`, `SceneBuilder::fill`). The device half
 (`raster/crates/raster-gpu`, `Device::render`) then decides *at a viewport* how the scene is drawn:
 a rectangle on the pixel grid takes the analytic rectangle lane
@@ -385,7 +385,7 @@ flowchart TD
 
     subgraph RAS["render-raster over raster/: the window's lane<br/>ADR 0697"]
       direction TB
-      SCENE["list to scene<br/>render-raster/src/scene.rs"]
+      SCENE["list to scene<br/>render-raster/src/scene.rs, scene/"]
       BUILD["SceneBuilder, no device in it<br/>raster/crates/raster-scene/src/scene/builder.rs<br/>raster ADR 0001"]
       DEV["Device::render at a Viewport<br/>raster/crates/raster-gpu/src/device/render.rs"]
       LANES["rect, glyph atlas, coverage, line lanes<br/>raster/crates/raster-gpu/src/encode<br/>raster ADR 0008"]
@@ -402,7 +402,8 @@ flowchart TD
 **Maintenance note.** Depends on: `crates/render-cpu/src/lib.rs`, `crates/render-cpu/src/strips.rs`,
 `crates/render-cpu/src/encode.rs`, `crates/render-cpu/src/fill.rs`, `crates/render-cpu/src/area.rs`,
 `crates/render-cpu/src/scan.rs`, `crates/render-cpu/src/surface.rs`,
-`crates/render-raster/src/scene.rs`, `crates/render-raster/src/present.rs`,
+`crates/render-raster/src/scene.rs`, `crates/render-raster/src/scene/fills.rs`,
+`crates/render-raster/src/present.rs`,
 `raster/crates/raster-scene/src/scene/builder.rs`, `raster/crates/raster-gpu/src/device/render.rs`,
 `raster/crates/raster-gpu/src/raster.rs`, ADR 1201, ADR 1082, ADR 0139, ADR 0697, ADR 1831 and
 `doc/oracle-and-corpus.md`. Redraw it when a rasteriser is added or retired, when the oracle

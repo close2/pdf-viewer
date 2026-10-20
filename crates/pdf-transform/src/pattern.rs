@@ -162,6 +162,123 @@ impl Pattern {
     }
 }
 
+/// The other direction: which names a pattern can expand to.
+impl Pattern {
+    /// Whether [`Pattern::expand`] can produce `name` for some fill.
+    ///
+    /// **The fence a broker holds a confined worker's output names to** (ADR 2140). A worker
+    /// names each output it opens, because the names follow from the document — a page count, a
+    /// label, an outline title — and the broker that opens the file checks the name against the
+    /// pattern the person typed rather than taking the worker's word for it. So a worker can write
+    /// `page-7.png` under `-o 'page-%d.png'` and nothing else: no other directory, no other stem.
+    ///
+    /// The set is exactly what `expand` writes: a literal piece is itself; `%d` and `%p` are one or
+    /// more decimal digits; `%l` and `%t` are one or more characters [`sanitise`] leaves alone,
+    /// which takes in the page number they fall back to.
+    #[must_use]
+    pub fn admits(&self, name: &str) -> bool {
+        admits_from(&self.pieces, name)
+    }
+
+    /// Whether some name this pattern admits is `stem`, a full stop, and a file extension — text
+    /// with neither a full stop nor a separator in it.
+    ///
+    /// What `images::mask_name` takes off an image's name before it puts the mask's extension on:
+    /// a broker admits `img-3.mask.png` under `-o 'img-%d.png'` because `img-3.png` is a name the
+    /// pattern admits and `img-3` is that name without its extension.
+    #[must_use]
+    pub fn admits_stem(&self, stem: &str) -> bool {
+        admits_prefix(&self.pieces, &format!("{stem}."))
+    }
+}
+
+/// Whether `pieces` can expand to `prefix` followed by a tail holding no `.` and no `/`.
+fn admits_prefix(pieces: &[Piece], prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return tail_is_an_extension(pieces);
+    }
+    let Some((first, rest)) = pieces.split_first() else {
+        return false;
+    };
+    let allowed = match first {
+        Piece::Literal(text) => {
+            return match prefix.strip_prefix(text.as_str()) {
+                Some(after) => admits_prefix(rest, after),
+                // The literal runs on past the prefix, and what it runs on with is the tail's.
+                None => text
+                    .strip_prefix(prefix)
+                    .is_some_and(|after| !after.contains(['.', '/']) && tail_is_an_extension(rest)),
+            };
+        }
+        other => piece_writes(other),
+    };
+    for (index, character) in prefix.char_indices() {
+        if !allowed(character) {
+            return false;
+        }
+        let after = index.saturating_add(character.len_utf8());
+        match prefix.get(after..) {
+            // The piece ends with the prefix, or runs on into the tail with characters it can
+            // always write — digits, which an extension may hold.
+            Some("") => return tail_is_an_extension(rest),
+            Some(tail) if admits_prefix(rest, tail) => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether `pieces` can write text with no `.` and no `/` in it: every variable piece can, since
+/// a digit is such text.
+fn tail_is_an_extension(pieces: &[Piece]) -> bool {
+    pieces.iter().all(|piece| match piece {
+        Piece::Literal(text) => !text.contains(['.', '/']),
+        Piece::Ordinal { .. } | Piece::FirstPage | Piece::Label | Piece::Title => true,
+    })
+}
+
+/// Which characters a variable piece writes: digits for `%d` and `%p`, and for `%l` and `%t`
+/// whatever [`sanitise`] leaves alone.
+fn piece_writes(piece: &Piece) -> fn(char) -> bool {
+    match piece {
+        Piece::Literal(_) | Piece::Ordinal { .. } | Piece::FirstPage => {
+            |character| character.is_ascii_digit()
+        }
+        Piece::Label | Piece::Title => {
+            |character| sanitise(&character.to_string()).starts_with(character)
+        }
+    }
+}
+
+/// Whether `pieces` can expand to exactly `name`, trying every split of a variable piece.
+fn admits_from(pieces: &[Piece], name: &str) -> bool {
+    let Some((first, rest)) = pieces.split_first() else {
+        return name.is_empty();
+    };
+    let allowed = match first {
+        Piece::Literal(text) => {
+            return name
+                .strip_prefix(text.as_str())
+                .is_some_and(|after| admits_from(rest, after));
+        }
+        other => piece_writes(other),
+    };
+    // One or more characters the piece can write, then the rest of the pattern after them.
+    for (index, character) in name.char_indices() {
+        if !allowed(character) {
+            return false;
+        }
+        let after = index.saturating_add(character.len_utf8());
+        if name
+            .get(after..)
+            .is_some_and(|tail| admits_from(rest, tail))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// How many decimal digits `count` has, at least 1.
 fn digits(count: usize) -> usize {
     let mut digits: usize = 1;
@@ -273,6 +390,45 @@ impl fmt::Display for Pattern {
 
 #[cfg(test)]
 mod tests {
+
+    /// A broker admits what a pattern expands to and nothing beside it (ADR 2140).
+    #[test]
+    fn a_pattern_admits_its_own_expansions_and_no_other_name() {
+        let pattern: Pattern = "out/page-%03d-%t.png".parse().expect("a pattern");
+        let fill = Fill {
+            ordinal: 7,
+            count: 12,
+            page: Some(7),
+            label: None,
+            title: Some("A/B: notes"),
+        };
+        let expanded = pattern.expand(&fill);
+        assert!(pattern.admits(&expanded.name), "{}", expanded.name);
+        assert!(pattern.admits("out/page-007-7.png"));
+        for refused in [
+            "out/page-.png",
+            "out/page-007-.png",
+            "out/page-007-a/b.png",
+            "elsewhere/page-007-x.png",
+            "out/page-x07-x.png",
+            "out/page-007-x.png.sh",
+        ] {
+            assert!(!pattern.admits(refused), "{refused}");
+        }
+        let image: Pattern = "img-%d.png".parse().expect("a pattern");
+        assert!(image.admits_stem("img-3"));
+        assert!(!image.admits_stem("img"));
+        assert!(!image.admits_stem("other-3"));
+        let bare: Pattern = "img-%d".parse().expect("a pattern");
+        assert!(!bare.admits_stem("img-3"));
+        assert!(
+            !bare.admits_stem("img"),
+            "img-3 has no extension to take off"
+        );
+        let literal: Pattern = "report.pdf".parse().expect("a pattern");
+        assert!(literal.admits("report.pdf"));
+        assert!(!literal.admits("report.pdf2"));
+    }
     use super::{Fill, Pattern, PatternError, sanitise};
 
     fn fill(ordinal: usize, count: usize, label: Option<&str>) -> Fill<'_> {

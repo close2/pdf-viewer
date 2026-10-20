@@ -53,9 +53,9 @@ while — stop?" backed by a kill the document cannot decline.
 - **For**: it is the owner's "maybe that's now up to the OS", answered *by* the OS. Already built,
   already verified against the kernel rather than the source. Cancel measured at about a
   millisecond. Principle 3's other half finally reaches the program.
-- **Against**: it is a **tier change**, and `doc/ui-boundary.md` calls putting `viewer-ui` on this
-  boundary "a decision with a number attached rather than a switch" — page one would go through a
-  pipe. Linux-only (`doc/todo/35`).
+- **Against**: it is a **tier change**, and moving `viewer-ui` onto this boundary is a change of
+  tier rather than a switch (`doc/PLAN.md` section 6) — page one would go through a pipe.
+  Linux-only (`doc/todo/35`).
 
 **Two of those objections have since been answered, each by a different round.** The original ended
 "and the 4 GiB ceiling is currently *smaller than* what one 2 GiB stream can demand" — true while

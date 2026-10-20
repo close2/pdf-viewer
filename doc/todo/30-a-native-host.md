@@ -250,7 +250,10 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   (`quorra_settings_*`, read as the four binaries read their words, ADR 2120), and puts the archive
   chooser, a script's dialogue and a print grant to its caller as records it answers (ADR 2121).
   What it still owes is the reader's other words — anchors, target documents, the audience — for a
-  window; then N3a, the WinUI 3 window the owner chose (`doc/questions/A501`).
+  window, and an entry point for Ctrl and the wheel, which magnify in the other windows. N3a, the
+  WinUI 3 window the owner chose (`doc/questions/A501`), is `hosts/windows/Quorra.App/`: the page on
+  the processor lane, the title, the status line, the keys, the pointer and the wheel, built by CI's
+  `window` job and declining by name each record it has no dialogue for yet (ADRs 2136, 2137).
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

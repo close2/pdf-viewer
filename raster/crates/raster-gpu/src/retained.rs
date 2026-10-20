@@ -249,6 +249,11 @@ impl Held {
 pub struct RetainedScene {
     scene: Scene,
     held: Option<Held>,
+    /// The idle build walked this scene culling no line and still kept no runs — a line inside a
+    /// group or a soft mask — or wrote records the next view would replay instead, or kept runs
+    /// past the residency budget, so it is not asked again until the scene changes (viewer ADR
+    /// 2134).
+    whole_declined: bool,
 }
 
 impl RetainedScene {
@@ -258,7 +263,11 @@ impl RetainedScene {
     /// the scene, before a [`Device`](crate::device::Device) exists.
     #[must_use]
     pub fn new(scene: Scene) -> Self {
-        Self { scene, held: None }
+        Self {
+            scene,
+            held: None,
+            whole_declined: false,
+        }
     }
 
     /// The scene this handle draws.
@@ -276,6 +285,7 @@ impl RetainedScene {
     pub fn set_scene(&mut self, scene: Scene) {
         self.scene = scene;
         self.held = None;
+        self.whole_declined = false;
     }
 
     /// Drop the retained encode, keeping the scene: the next frame encodes again.
@@ -291,6 +301,21 @@ impl RetainedScene {
     #[must_use]
     pub fn holds_encode(&self) -> bool {
         self.held.is_some()
+    }
+
+    /// Whether the idle build
+    /// ([`Device::build_whole`](crate::device::Device::build_whole)) would give the next view
+    /// something the retained encode does not: an encode is held, its walk culled a line or met
+    /// one it could not keep, so the next view walks its lines again; the next view walks the
+    /// encode's own lines rather than its records, since the record replay keeps no runs (ADR
+    /// 0087); and the idle build has not already walked this scene and kept nothing, or more than
+    /// the residency budget holds (viewer ADR 2134).
+    #[must_use]
+    pub fn wants_whole_walk(&self) -> bool {
+        !self.whole_declined
+            && self.held.as_ref().is_some_and(|held| {
+                held.encoded.kept_lines.is_none() && held.encoded.replay.is_none()
+            })
     }
 
     /// Heap bytes the retained encode holds, or zero when none is retained.
@@ -412,5 +437,51 @@ impl RetainedScene {
         };
         let held = self.held.insert(held);
         Ok((source, &held.encoded, &held.instances))
+    }
+
+    /// The idle build's encode (viewer ADR 2134): the scene walked at `key`'s view culling no
+    /// line, and put in the held encode's place where it keeps its line runs and `admits` its
+    /// streams — called with the new encode and the bytes the held one keeps on the device. `None`
+    /// where the held encode is `key`'s and keeps its runs already, where the walk kept no runs,
+    /// wrote its records (the next view would replay them and keep none) or `admits` refused — and
+    /// it is not asked again of this scene; the held encode then stays, so a replay of its view is
+    /// what it was.
+    ///
+    /// **The held encode may be another view's**: a host draws other pictures of the scene while
+    /// it is idle — a whole page small, the view at twice its size — and the view the idle build
+    /// is for is the one the person left the page at, which the next step starts from.
+    pub(crate) fn prepare_whole<E>(
+        &mut self,
+        key: EncodeKey,
+        build: impl FnOnce(&Scene) -> Result<Encoded, E>,
+        admits: impl FnOnce(&Encoded, u64) -> bool,
+    ) -> Result<Option<(&Encoded, &OnceCell<Residency>)>, E> {
+        // The held encode is this view's and keeps its runs, or wrote its records, which the next
+        // view replays rather than walks.
+        let kept_already = self.held.as_ref().is_some_and(|held| {
+            held.key == key && (held.encoded.kept_lines.is_some() || held.encoded.replay.is_some())
+        });
+        if self.whole_declined || kept_already {
+            return Ok(None);
+        }
+        let encoded = build(&self.scene)?;
+        // A step from an encode with records takes the record road, which walks the lines again
+        // and keeps no runs (`prepare`), so the build would be paid for nothing.
+        if encoded.kept_lines.is_none() || encoded.replay.is_some() {
+            self.whole_declined = true;
+            return Ok(None);
+        }
+        if !admits(&encoded, self.resident_instance_bytes()) {
+            self.whole_declined = true;
+            return Ok(None);
+        }
+        let bytes = encoded.retained_bytes();
+        let held = self.held.insert(Held {
+            key,
+            encoded,
+            bytes,
+            instances: OnceCell::new(),
+        });
+        Ok(Some((&held.encoded, &held.instances)))
     }
 }

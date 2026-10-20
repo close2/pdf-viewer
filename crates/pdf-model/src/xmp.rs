@@ -800,6 +800,52 @@ pub fn remove(bytes: &[u8], properties: &[Name]) -> Result<Vec<u8>, WriteError> 
     Ok(out.into_bytes())
 }
 
+/// `bytes` with the items at `positions` gone from the array one property of the packet holds,
+/// and every other byte of the packet unchanged.
+///
+/// The property is found as [`remove`] finds one, directly inside an `rdf:Description` inside the
+/// packet's `rdf:RDF`; its value is the `rdf:Bag`, `rdf:Seq` or `rdf:Alt` directly inside it, which
+/// is ISO 16684-1 section 7.7's array form, and an item is one `rdf:li` of that array, counted
+/// from zero in the order the packet writes them. The rest of the array, and the property itself,
+/// stay — an array left with no items is an empty array, which is a value and not an absence.
+///
+/// **Removing an item is a loss, and this function does not decide that it is allowed**, for
+/// [`remove`]'s reason.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched. A position past the last
+/// item removes nothing, and a property stated as an attribute has no items to remove: as with
+/// [`remove`], the caller reads the result back.
+pub fn remove_items(
+    bytes: &[u8],
+    property: &Name,
+    positions: &[usize],
+) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(
+        text,
+        Cut::Items {
+            property,
+            positions,
+        },
+    )?;
+    let mut out = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    for (from, to) in edit.deletions {
+        if from < cut {
+            continue;
+        }
+        out.push_str(text.get(cut..from).unwrap_or_default());
+        cut = to;
+    }
+    out.push_str(text.get(cut..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
 /// One namespace, and the prefix a standard requires a packet to spell it with.
 ///
 /// A prefix is usually not a name — this module's own opening says so — and this type is for the
@@ -1923,6 +1969,9 @@ struct Opened {
     doomed: bool,
     /// Which of the three elements a writer has to find this one is, where it is one of them.
     landmark: Landmark,
+    /// How many `rdf:li` items have opened directly inside this element so far, which is the
+    /// position the next one has — counted only where this is [`Landmark::ItemsArray`].
+    items: usize,
 }
 
 /// An element one of the writers has to be able to find again, by its resolved name.
@@ -1942,6 +1991,10 @@ enum Landmark {
     History,
     /// The `rdf:Seq` that is one's value, at the end of which an event goes.
     HistorySeq,
+    /// The property [`remove_items`] takes items out of.
+    ItemsProperty,
+    /// The array directly inside it, whose `rdf:li` children are the items.
+    ItemsArray,
 }
 
 /// Whether one of the properties named for removal is this namespace and local name.
@@ -1966,6 +2019,13 @@ enum Cut<'a> {
     Namespaces(&'a [&'a str]),
     /// Exactly these properties of the packet, and nothing nested inside another value.
     Properties(&'a [Name]),
+    /// The items at these positions of the array one property of the packet holds.
+    Items {
+        /// The property, found as [`Self::Properties`] finds one.
+        property: &'a Name,
+        /// The zero-based positions of the `rdf:li` elements to take out.
+        positions: &'a [usize],
+    },
 }
 
 /// The spans one pass over a packet found.
@@ -2099,12 +2159,31 @@ impl Editor {
         let under = self.stack.last().map(|open| open.landmark);
         // A property is what sits directly inside a description; an attribute form sits *on* one.
         let describes = namespace == RDF && local == "Description" && under == Some(Landmark::Rdf);
+        // An item's position is the count of `rdf:li` elements its array has opened before it,
+        // which the array keeps: an element of another name inside it is not an item and moves
+        // no count.
+        let position = (under == Some(Landmark::ItemsArray) && namespace == RDF && local == "li")
+            .then(|| {
+                self.stack.last_mut().map(|array| {
+                    let position = array.items;
+                    array.items = array.items.saturating_add(1);
+                    position
+                })
+            })
+            .flatten();
         let own = match cut {
             Cut::Namespaces(namespaces) => namespaces.contains(&namespace.as_str()),
             Cut::Properties(properties) => {
                 under == Some(Landmark::Description) && listed(properties, &namespace, local)
             }
+            Cut::Items { positions, .. } => {
+                position.is_some_and(|position| positions.contains(&position))
+            }
         };
+        let holds_the_items = matches!(cut, Cut::Items { property, .. }
+            if under == Some(Landmark::Description)
+                && property.namespace == namespace
+                && property.local == *local);
         let rdf = namespace == RDF && local == "RDF";
         if rdf {
             self.rdf_elements = self.rdf_elements.saturating_add(1);
@@ -2122,6 +2201,13 @@ impl Editor {
             Landmark::History
         } else if in_history && namespace == RDF && local == "Seq" {
             Landmark::HistorySeq
+        } else if holds_the_items {
+            Landmark::ItemsProperty
+        } else if under == Some(Landmark::ItemsProperty)
+            && namespace == RDF
+            && matches!(local.as_str(), "Bag" | "Seq" | "Alt")
+        {
+            Landmark::ItemsArray
         } else {
             Landmark::Ordinary
         };
@@ -2139,6 +2225,8 @@ impl Editor {
                     Cut::Properties(properties) => {
                         describes && listed(properties, attribute, local)
                     }
+                    // An attribute states a simple value, which has no items.
+                    Cut::Items { .. } => false,
                 };
                 if matched {
                     self.deletions.push((*from, *to));
@@ -2151,6 +2239,7 @@ impl Editor {
             removing: (own && !inherited).then_some(*start),
             doomed: own || inherited,
             landmark,
+            items: 0,
         });
         Ok(())
     }
@@ -2956,8 +3045,8 @@ mod tests {
     use super::{
         DC, EXTENSION, Event, Form, Name, PDF, PropertyDescription, RDF, RESOURCE_EVENT,
         RequiredPrefix, Schema, SchemaDescription, Supplement, Value, WriteError, XMP, XMP_MM, Xmp,
-        XmpError, describe, empty_packet, instant, packet, record, remove, respell, restate,
-        spelled_date, supplement,
+        XmpError, describe, empty_packet, instant, packet, record, remove, remove_items, respell,
+        restate, spelled_date, supplement,
     };
     use super::{
         EXTENSION_FIELD, EXTENSION_SCHEMA, EXTENSION_TYPE, FieldDescription, describe_fields,
@@ -3399,6 +3488,48 @@ mod tests {
         assert!(
             String::from_utf8_lossy(&after).contains("a field that is not a property"),
             "and neither is its value"
+        );
+    }
+
+    /// A bag of three structured items, and a sequence of the same name nested inside the first
+    /// of them, which is a field of that item rather than the property.
+    const THREE_ITEMS: &[u8] = br#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:subject><rdf:Bag>
+<rdf:li rdf:parseType="Resource"><dc:subject><rdf:Bag><rdf:li>inner</rdf:li></rdf:Bag></dc:subject></rdf:li>
+<rdf:li>second</rdf:li>
+<rdf:li>third</rdf:li>
+</rdf:Bag></dc:subject>
+</rdf:Description>
+</rdf:RDF>"#;
+
+    #[test]
+    fn an_item_goes_by_its_position_and_its_neighbours_and_their_fields_stay() {
+        let subject = Name {
+            namespace: DC.to_owned(),
+            local: "subject".to_owned(),
+        };
+        let after = remove_items(THREE_ITEMS, &subject, &[1]).expect("a packet this writer edits");
+        let text = String::from_utf8_lossy(&after);
+        assert!(
+            !text.contains("second"),
+            "the item at position 1 is cut: {text}"
+        );
+        assert!(text.contains("third"), "the one after it stays: {text}");
+        assert!(
+            text.contains("inner"),
+            "and the first, whose own field of the same name is no item of the property: {text}"
+        );
+        let all = remove_items(THREE_ITEMS, &subject, &[0, 1, 2]).expect("editable");
+        let text = String::from_utf8_lossy(&all);
+        assert!(
+            text.contains("<dc:subject><rdf:Bag>") && !text.contains("rdf:li"),
+            "every item cut leaves the property as an empty bag: {text}"
+        );
+        assert_eq!(
+            remove_items(THREE_ITEMS, &subject, &[3]).expect("editable"),
+            THREE_ITEMS,
+            "a position past the last item cuts nothing"
         );
     }
 

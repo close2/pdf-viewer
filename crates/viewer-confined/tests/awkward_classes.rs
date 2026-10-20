@@ -36,12 +36,11 @@
 //! # Running it
 //!
 //! ```text
-//! cargo build -p viewer-confined --bins
-//! tools/bounded.sh --data 12 --tree 12 -- \
+//! ulimit -u 8192; tools/bounded.sh --lock --round <session> --data 12 --tree 12 -- \
 //!     cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
 //! ```
 
-// no sandbox worker: `pdf-view-worker` decodes JBIG2, JPEG 2000 and CCITT in its own process (`Isolation::InProcess`, a confined process may spawn nothing), so there is no second program to be missing — the program that has to be built beside this walk is the confined viewer, which is the `--bins` line above it in `doc/todo/02` §2 (`tools/conformance/tests/sandbox_gates.rs`).
+// no sandbox worker: `pdf-view-worker` decodes JBIG2, JPEG 2000 and CCITT in its own process (`Isolation::InProcess`, a confined process may spawn nothing), so there is no second program to be missing — the program that has to be built beside this walk is the confined viewer, which `cargo test` builds as this package's own binary before it runs an integration test (`tools/conformance/tests/sandbox_gates.rs`).
 
 #![expect(
     clippy::expect_used,
@@ -170,7 +169,7 @@ fn sweep_one(chosen: &Chosen) -> Swept {
     // 16's shape: the instrument measures a program the build did not produce.
     let mut confined = Confined::start().expect(
         "a confined viewer starts — `pdf-view-worker` is built beside the test binary by \
-         `cargo build -p viewer-confined --bins`",
+         `cargo test -p viewer-confined`, under the same profile",
     );
 
     match confined.handle(&Command::Resize {
@@ -337,7 +336,7 @@ fn report(swept: &[Swept]) -> Vec<String> {
 
 /// The sweep.
 #[test]
-#[ignore = "corpus-scale: a document of each class from every corpus on the disk, opened and drawn through the confined viewer; run it as doc/verify.md says"]
+#[ignore = "corpus-scale: a document of each class from every corpus on the disk, opened and drawn through the confined viewer; run it as doc/todo/02 section 2's line says"]
 fn no_awkward_class_of_document_kills_the_confined_viewer() {
     let started = Instant::now();
     let roots = corpus_classes::roots();

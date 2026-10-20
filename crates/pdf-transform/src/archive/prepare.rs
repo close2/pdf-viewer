@@ -84,7 +84,8 @@ pub(super) const DEFAULT_CMYK_PARAMETERS: &str = "a DeviceN DefaultCMYK was adde
 /// would be asserting an arithmetic the clause does not state.
 const NO_RGB_ALTERNATE: &str = "the DeviceN DefaultCMYK this file needs states ISO 32000-2 \
      §10.4.2.5's transform, whose result is RGB, so its alternate space has to be an RGB ICC \
-     profile — and the profile this conversion has is of another colour family";
+     profile — and the profile this conversion has is of another colour family. Supply the \
+     press's CMYK profile with --output-intent-profile and it answers the clause instead";
 
 /// Every font object the two Unicode requirements were found to fail at.
 ///
@@ -675,6 +676,13 @@ pub(super) struct Prepared {
     /// Prepared after the survey, because whether the document draws in `DeviceRGB` at all is
     /// the survey's to say: six of the rows it answers state no family of their own.
     pub(super) default_rgb: Result<super::default_rgb::DefaultRgb, Because>,
+    /// The `/DefaultCMYK` over the operator's press profile, or why one cannot be
+    /// (`doc/adr/2130`).
+    ///
+    /// Prepared before the `DeviceN` default, which is then not prepared at all: an operator who
+    /// named the press has said what the four numbers mean, and the file records one statement
+    /// about them rather than two.
+    pub(super) supplied_cmyk: Result<super::supplied_cmyk::SuppliedCmyk, Because>,
     /// The metadata stream to write, or why one cannot be.
     pub(super) metadata: Result<Metadata, Because>,
     /// The `/ToUnicode` `CMaps` to write, or why none can be.
@@ -971,11 +979,13 @@ impl Prepared {
         let by_intent = intent
             .as_ref()
             .is_ok_and(|intent| intent.family == DeviceFamily::Cmyk);
-        let default_cmyk = match (wanted(Rewrite::DefaultCmyk) && !by_intent, intent.as_ref()) {
-            (true, Ok(intent)) => prepare_default_cmyk(document, intent, &mut spare),
-            (true, Err(because)) => Err(*because),
-            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
-        };
+        // The `/DefaultCMYK` over the operator's press profile asks the survey only where a
+        // profile was supplied beside a file whose own intent is of another family, so a
+        // conversion nobody supplied a press for walks nothing more than it did (`doc/adr/2130`).
+        let cmyk_by_supply = wanted(Rewrite::SuppliedDefaultCmyk)
+            && !by_intent
+            && plan.profile.is_some()
+            && intent.is_ok();
         // **One survey, for every preparation that asks what the pages actually drew** — the two
         // that read a font's advances and the two that prove a change of encoding moves no mark —
         // because a second walk of every content stream would double a large document's cost.
@@ -989,12 +999,33 @@ impl Prepared {
             && intent
                 .as_ref()
                 .is_ok_and(|intent| intent.family != DeviceFamily::Rgb);
-        let survey =
-            (SURVEYED.iter().any(|rewrite| wanted(*rewrite)) || odd_digits || rgb_by_default)
-                .then(|| Survey::of(document));
+        let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite))
+            || odd_digits
+            || rgb_by_default
+            || cmyk_by_supply)
+            .then(|| Survey::of(document));
         let hexadecimal = asked(odd_digits, || {
             super::hexadecimal::complete(document, survey.as_ref())
         });
+        let supplied_cmyk = match (wanted(Rewrite::SuppliedDefaultCmyk), intent.as_ref()) {
+            (true, Ok(intent)) => super::supplied_cmyk::prepare(
+                document,
+                intent,
+                plan.profile.as_deref(),
+                survey.as_ref(),
+                &mut spare,
+            ),
+            (true, Err(because)) => Err(*because),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
+        let default_cmyk = match (
+            wanted(Rewrite::DefaultCmyk) && !by_intent && supplied_cmyk.is_err(),
+            intent.as_ref(),
+        ) {
+            (true, Ok(intent)) => prepare_default_cmyk(document, intent, &mut spare),
+            (true, Err(because)) => Err(*because),
+            (false, _) => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
+        };
         let default_rgb = match (wanted(Rewrite::DefaultRgb), intent.as_ref()) {
             (true, Ok(intent)) => {
                 super::default_rgb::prepare(document, intent, survey.as_ref(), &mut spare)
@@ -1287,7 +1318,12 @@ impl Prepared {
                 attached: attached_history.as_deref(),
                 transfers: transfer_history.as_deref(),
                 when: now.as_deref(),
-                default_cmyk: default_cmyk.is_ok(),
+                // At most one of the two constructions is prepared, so one entry says which.
+                default_cmyk: if supplied_cmyk.is_ok() {
+                    Some(super::supplied_cmyk::PARAMETERS)
+                } else {
+                    default_cmyk.is_ok().then_some(DEFAULT_CMYK_PARAMETERS)
+                },
                 removals: &removals,
                 discards: &discards,
                 substituted: &font_history,
@@ -1301,6 +1337,11 @@ impl Prepared {
             .as_ref()
             .is_ok_and(|cleaned| cleaned.removed.is_empty());
         let default_cmyk = unless_recorded(default_cmyk, recorded_it, NO_PLACE_TO_RECORD);
+        let supplied_cmyk = unless_recorded(
+            supplied_cmyk,
+            recorded_it,
+            super::supplied_cmyk::NO_PLACE_TO_RECORD,
+        );
         let substitutes =
             unless_recorded(substitutes, recorded_it, NO_PLACE_TO_RECORD_A_SUBSTITUTION);
         let properties = unless_recorded(
@@ -1421,6 +1462,7 @@ impl Prepared {
             supplied_destination,
             default_cmyk,
             default_rgb,
+            supplied_cmyk,
             metadata,
             to_unicode,
             appearances,
@@ -1622,6 +1664,11 @@ impl Prepared {
             }
         }
         if let Ok(default) = &self.default_rgb {
+            for (id, object) in &default.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(default) = &self.supplied_cmyk {
             for (id, object) in &default.written {
                 out.insert(*id, object.clone());
             }
@@ -2015,7 +2062,8 @@ const DEVICE_GRAY_ROW: &str = "graphics/device-gray-needs-a-default-or-an-output
 /// part 2, then, this order licenses a mixed document *completely* and the other order does not.
 /// Part 4 states no such second licence, so a mixed document there keeps one refusal whichever
 /// way the choice goes; taking the same order in both parts is what makes this one rule rather
-/// than two, and `WRONG_FAMILY` is the sentence part 4's CMYK row is then refused with.
+/// than two, and part 4's CMYK row is then refused with the sentence that asks the operator for
+/// the press's profile (`super::supplied_cmyk`, `doc/adr/2130`).
 ///
 /// `doc/adr/1153` is the argument, including why part 4's page-level output intents are not the
 /// answer to a document whose RGB and CMYK live on different pages.
@@ -3963,13 +4011,22 @@ fn prepare_respellings(
         }
         // A field nothing in the file states cannot be respelled into being; the catalogue's
         // `discard` is prepared instead, and the decision asks whether it was authorised.
-        if faults.iter().any(|fault| !fault.misspelled) {
+        let (bytes, faults) = if faults.iter().any(|fault| !fault.misspelled) {
             let (cut, went) = super::extension_container::discarded(&bytes)?;
-            packets.insert(at, cut);
             removed.extend(went);
             discarded = discarded.saturating_add(1);
-            continue;
-        }
+            // A narrower cut keeps the container's complete descriptions, which may still spell
+            // a field with another prefix: that is this writer's ordinary work on what is left
+            // (`doc/adr/2131`).
+            let left = pdf_archive::extension_container_fields(&cut);
+            if left.is_empty() {
+                packets.insert(at, cut);
+                continue;
+            }
+            (cut, left)
+        } else {
+            (bytes, faults)
+        };
         let respelled = xmp::respell(&bytes, &required)
             .map_err(|_| Because::NotBuiltYet(PACKET_NOT_RESPELLABLE))?;
         // Read back rather than trusted, for the removal's reason: the writer says what it moved
@@ -4881,8 +4938,10 @@ struct Recording<'a> {
     omit_identification: bool,
     /// The instant every recorded action carries, where a clock answered.
     when: Option<&'a str>,
-    /// Whether the `/DefaultCMYK` is being written, which is one recorded action.
-    default_cmyk: bool,
+    /// What the `/DefaultCMYK` being written is, where one is: the `DeviceN` construction's
+    /// parameters or the operator's press profile's (`doc/adr/2130`), one recorded action either
+    /// way.
+    default_cmyk: Option<&'static str>,
     /// The removal's own recorded action, empty where nothing was removed.
     removals: &'a str,
     /// The discarded containers' recorded action, empty where none was discarded.
@@ -4983,10 +5042,10 @@ fn document_packet(
 fn recorded_events<'a>(recording: &Recording<'a>) -> Vec<xmp::Event<'a>> {
     let mut events: Vec<xmp::Event<'a>> = Vec::new();
     if let Some(when) = recording.when {
-        if recording.default_cmyk {
+        if let Some(parameters) = recording.default_cmyk {
             events.push(xmp::Event {
                 action: DEFAULT_CMYK_ACTION,
-                parameters: DEFAULT_CMYK_PARAMETERS,
+                parameters,
                 when,
             });
         }

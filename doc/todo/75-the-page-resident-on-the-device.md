@@ -1,7 +1,7 @@
 # 75 — The page resident on the device, and a zoom that sends only a matrix
 
-Status: **open** — the evaluation is ADR 1992; items 1, 2, 3 and 5 are built (ADRs 1993, 2022, 2056, 2030); the
-rest are the order; the window's trace prints each frame's streams (ADR 2009).
+Status: **open** — the evaluation is ADR 1992; items 1, 2, 3 and 5 are built (ADRs 1993, 2022, 2056, 2134, 2030);
+the rest are the order; the window's trace prints each frame's streams (ADR 2009).
 Priority: the owner's, 2026-10-19: "evaluate: keep the page's intermediate representation resident
 on the GPU and have a compute stage re-rasterise it at the new transform, so a zoom sends only a
 matrix."
@@ -45,11 +45,18 @@ once, the stream shared and adopted on the device, the plan's box asked per line
 still grow — so a step from the fit sends no line byte and walks 9 474 commands where it walked
 4 408 406. A line the new view does not admit stays in the kept stream and draws nothing.
 
-**What it leaves**: a page whose first frame is a window (a turn at a magnification) keeps nothing
-and its steps cost HEAD's — its stream would have to reach the device while nobody waits (ADR 1898's
-idle build is where); the vertex stage draws the page's 4.4 million instances where the window shows
+**A window opened zoomed keeps its lines from the idle build** (ADR 2134): its first frame culls as
+before, and once the view has been still as long as that frame took, the render thread walks the
+page again at the same view culling no line, draws it into a texture nobody presents, and puts its
+encode in the first one's place (`raster_gpu::Device::build_whole`), so the next step takes its lines
+in runs. Last in the idle turn, after the sharp pass and the whole page drawn small, each of which
+puts its own encode in the page's place; under the lane the step will take; declined once a scene
+where it would keep nothing or would pass the residency budget.
+
+**What it leaves**: the vertex stage draws the page's 4.4 million instances where the window shows
 a tenth, which drawing a run through the indices the view admits would take back (ADR 1980's
-`Window`, asked of the resident stream); and the record replay (ADR 0087) keeps no runs.
+`Window`, asked of the resident stream); and the record replay (ADR 0087) keeps no runs, which ADR
+2134 section 5 says is not owed until a page on that road is shown to walk lines.
 
 ## 4. §10.7.4's dot asked per view on the device
 

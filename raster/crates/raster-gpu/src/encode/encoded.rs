@@ -240,7 +240,9 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
             Arc::clone(&previous.line_instances),
             previous.kept_lines.clone(),
         ),
-        super::kept_lines::Before::Nothing | super::kept_lines::Before::Diverged => (
+        super::kept_lines::Before::Nothing
+        | super::kept_lines::Before::Whole
+        | super::kept_lines::Before::Diverged => (
             Arc::new(encoder.line_instances),
             encoder.kept_build.finish(),
         ),

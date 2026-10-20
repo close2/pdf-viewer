@@ -198,10 +198,10 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   fastest class and take the minimum of several fresh processes, or the number is a lottery.
   `crates/viewer-ui/tests/launch_path.rs` derives that list rather than naming it.
 
-- **Four programs confine themselves on this kernel, and each is found beside the program that
+- **Five programs confine themselves on this kernel, and each is found beside the program that
   starts it.** `pdf-sandbox-worker` decodes an image, `pdf-view-worker` interprets and draws a
   document, `pdf-vfs-worker` generates a document-as-a-directory, `pdf-script-worker` runs a
-  document's scripts; each applies a `pdf_sandbox::lockdown::Profile` — seccomp-BPF, a Landlock
+  document's scripts, `quorra-transform-worker` runs the transform suite (ADR 2140); each applies a `pdf_sandbox::lockdown::Profile` — seccomp-BPF, a Landlock
   domain that permits nothing, and resource ceilings — before it reads a byte, and its greeting
   reports what the kernel granted. `crates/pdf-sandbox/src/lockdown_linux.rs` is each profile's
   allow-list and the `strace` run it was taken from; a system call missing from one kills the

@@ -281,6 +281,37 @@ impl Host {
         self.read_frame()
     }
 
+    /// Writes one frame and reads nothing back, for a conversation the *worker* leads.
+    ///
+    /// [`Host::exchange`] is a question and its answer, which is the shape of a worker that
+    /// answers; a worker that runs a whole program and asks its host for the world as it goes —
+    /// `quorra-transform-worker`, ADR 2140 — sends many frames that want no reply, and the host
+    /// answers the few that do with this.
+    ///
+    /// # Errors
+    ///
+    /// See [`TransportError`].
+    pub fn send(
+        &mut self,
+        kind: u8,
+        payload: &[u8],
+        descriptor: Option<SentDescriptor<'_>>,
+    ) -> Result<(), TransportError> {
+        self.still_running()?;
+        self.write_frame(kind, payload, descriptor)
+    }
+
+    /// Reads the worker's next frame, answering any resource request or notice that comes first,
+    /// exactly as [`Host::exchange`] does after it has written.
+    ///
+    /// # Errors
+    ///
+    /// See [`TransportError`].
+    pub fn receive(&mut self) -> Result<(u8, Vec<u8>), TransportError> {
+        self.still_running()?;
+        self.read_frame()
+    }
+
     /// Writes one frame and flushes it.
     ///
     /// **Header and payload in two calls, never concatenated.** A document is 19.2 MB, and putting

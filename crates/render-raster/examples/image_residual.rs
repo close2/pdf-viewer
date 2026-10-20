@@ -26,8 +26,8 @@
 //! # What that excludes, and where section 46 then points
 //!
 //! An ordinary image crosses to raster as its own samples plus §8.9.5.3's flag, and raster reduces
-//! and filters them with its own copy of the rule (`render_raster::scene::image`, the non-deferred
-//! arm; ADR 0702). This example drives exactly that arm, so the agreement rules out the residual
+//! and filters them with its own copy of the rule (`render_raster::scene::images`, the non-deferred
+//! arm of `Encoder::image`; ADR 0702). This example drives exactly that arm, so the agreement rules out the residual
 //! filter as section 46's cause. `22060`'s four heavy images are not ordinary: each is a
 //! `DCTDecode` `DeviceGray` scan carrying an `/SMask`, so it takes the *deferred* `AtDeviceScale`
 //! arm instead (§11.6.5.2's mask on a device grid), where quorra reduces on this side and uploads.

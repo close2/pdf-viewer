@@ -73,8 +73,8 @@ impl CpuRasterizer {
         // group's elements draw under the very transforms they draw under on the page.
         let draw = if narrowed {
             Surface {
-                page: surface.page,
                 rows: restricted,
+                ..surface
             }
         } else {
             surface

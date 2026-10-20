@@ -62,8 +62,22 @@
 //!   abandoned on its own thread rather than killed, and may never finish ([`in_process`]);
 //! - the no-filesystem, no-network property is gone with it.
 //!
-//! What it does not cost is memory safety: both decoders are `#![forbid(unsafe_code)]` with
-//! no unsafe dependency, in process or out of it. That is why this can be a flag at all.
+//! What it does not cost is memory safety in the decoders: both are `#![forbid(unsafe_code)]` with
+//! no unsafe dependency, in process or out of it. That is why this can be a flag at all. **The
+//! encoder is the exception the flag also moves**, and it is said here rather than left to be
+//! found: `mozjpeg-rs` forbids `unsafe` in its own source and its SIMD dependencies carry it, so a
+//! process that turns the worker off runs that code over a document's decoded samples in itself
+//! (ADR 2138).
+//!
+//! # The one encoder
+//!
+//! [`Request::Dct`] is the one request that is not a decode: samples in, ISO 32000-2 §7.4.8's
+//! baseline JPEG out ([`encode_dct`]), for the transform suite's `optimize --images` and `render
+//! --format jpeg` and for nothing a document can ask for. It is here because the samples it is
+//! handed were decoded from an untrusted file and the encoder's dependencies carry `unsafe`, so the
+//! worker's filter, its Landlock ruleset and its gigabyte are where the two meet; the system-call
+//! set is the decoders', unchanged, since an encode asks the kernel for nothing a decode does not
+//! (ADR 2138).
 
 #![forbid(unsafe_code)]
 // `landlock`, `seccompiler` and `rustix` each wrap the raw system calls in safe interfaces,
@@ -74,6 +88,7 @@
 // platform without one gets no confinement rather than an `unsafe` block (ADR 0194).
 
 mod decode;
+mod encode;
 pub mod in_process;
 pub mod lockdown;
 #[cfg(target_os = "linux")]
@@ -82,7 +97,9 @@ mod protocol;
 mod worker;
 
 pub use in_process::{decode_here, decode_here_within};
-pub use protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
+pub use protocol::{
+    Bilevel, CcittParameters, Colour, DctComponents, DctParameters, Raster, Request,
+};
 pub use worker::serve;
 
 use std::collections::HashMap;
@@ -523,6 +540,32 @@ pub enum Decoded {
     Bilevel(Bilevel),
     /// Eight bits per component: JPEG 2000.
     Raster(Raster),
+    /// The answer to the one request that encodes, [`Request::Dct`]: a baseline JPEG from SOI to
+    /// EOI, the data of a §7.4.8 `DCTDecode` stream as it stands.
+    Dct(Vec<u8>),
+}
+
+/// Encodes samples as baseline JPEG under the process's isolation policy — [`decode`]'s route,
+/// for the one request that is not a decode (ADR 2138).
+///
+/// For a caller that was asked for a JPEG, and only for one: the owner's condition on the
+/// encoder is that nothing is re-encoded unless a format is explicitly requested
+/// (`doc/questions/A01`).
+///
+/// # Errors
+///
+/// See [`SandboxError`]; [`SandboxError::Undecodable`] carries the encoder's refusal, worded by it
+/// — a grid past its budget, samples that disagree with their grid, a quality outside 1 to 100.
+pub fn encode_dct(samples: &[u8], parameters: DctParameters) -> Result<Vec<u8>, SandboxError> {
+    match decode(&Request::Dct {
+        samples,
+        parameters,
+    })? {
+        Decoded::Dct(jpeg) => Ok(jpeg),
+        Decoded::Bilevel(_) | Decoded::Raster(_) => Err(SandboxError::Malformed {
+            detail: "an encode was answered with a decoded image".to_owned(),
+        }),
+    }
 }
 
 /// A dropped connection reaps its worker.

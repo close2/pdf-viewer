@@ -17,7 +17,14 @@
 //! ZOOM_FRAME_RESIDENT=1 cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_DUMP=<dir> cargo run … --example zoom_frame -- …
 //! ZOOM_FRAME_ARENA=1 cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_IDLE=1 cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_IDLE` runs the idle build after the sequence's first frame** (ADR 2134): the frame
+//! walked again culling no line, as a window does while nobody waits, so that a window opened zoomed
+//! steps as a window from the fit does. Its time is printed apart, the minimum over the rounds, and
+//! no frame line includes it; with `ZOOM_FRAME_DIGEST` its digest is printed beside the first
+//! frame's, which it must equal.
 //!
 //! **`ZOOM_FRAME_ARENA` prints what the compute lane's segment arena holds after each frame** —
 //! its live bytes, the holes released outlines left, its buffer and its compactions — so that a
@@ -232,6 +239,8 @@ fn main() {
     let instrument = variable("ZOOM_FRAME_ENCODE_PHASES").is_some_and(|on| on != "0");
     let digest = variable("ZOOM_FRAME_DIGEST").is_some_and(|on| on != "0");
     let arena = variable("ZOOM_FRAME_ARENA").is_some_and(|on| on != "0");
+    let idle = variable("ZOOM_FRAME_IDLE").is_some_and(|on| on != "0");
+    let mut idle_best: Option<(f64, bool)> = None;
     // The one knob a *deterministic* run needs: callgrind counts instructions across every
     // thread raster's geometry phase spawns, so an attribution of the walk this example is
     // about is read from a single-threaded arm. Named like the corpus gate's own two knobs
@@ -365,10 +374,35 @@ fn main() {
             if slot.as_ref().is_none_or(|kept| sample.total < kept.total) {
                 *slot = Some(sample);
             }
+            if idle && order_of(&targets, target) == 0 {
+                let started = std::time::Instant::now();
+                let built = backend
+                    .build_whole(&frame)
+                    .unwrap_or_else(|error| panic!("the idle build refused: {error}"));
+                let spent = ms(started.elapsed());
+                if digest && let Some(raster) = built.as_ref() {
+                    let hash = raster.data.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+                        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+                    });
+                    println!(
+                        "digest {}x{} {hash:016x} the idle build",
+                        target.width, target.height
+                    );
+                }
+                if idle_best.is_none_or(|(best, _)| spent < best) {
+                    idle_best = Some((spent, built.is_some()));
+                }
+            }
         }
     }
 
     println!("{path} page {index}, {adapter}");
+    if let Some((spent, built)) = idle_best {
+        println!(
+            "idle build after frame 1: {spent:.1} ms{}",
+            if built { "" } else { ", nothing built" }
+        );
+    }
     println!(
         "{coverage:?} coverage, {threads} encode thread(s), load average {} → {}, minima of {rounds} round(s){}",
         before.map_or_else(|| "?".to_owned(), |load| format!("{load:.2}")),

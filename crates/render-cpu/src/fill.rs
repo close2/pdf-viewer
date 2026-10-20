@@ -228,7 +228,10 @@ impl CpuRasterizer {
         // exactly where this converter would round it to a quarter. §11.6.2 is what admits a path
         // stating *several* — they are portions of one object, so they may be drawn one at a time
         // only while no device pixel receives two of them (ADR 0583).
-        let exact = rectangular_mark(remaining, at);
+        // Stated on the page's grid and moved by the surface's corner, so a strip's or a window's
+        // closed form is the page's (ADR 2133).
+        let placed = to_device.placed(transform);
+        let exact = rectangular_mark(remaining, placed.page).moved(placed.corner);
         if exact.is_some() {
             scan::fill_rectangles(
                 pixmap,
@@ -239,12 +242,14 @@ impl CpuRasterizer {
             );
             return Ok(());
         }
-        scan::fill(
+        // Its vertices on the page's grid, so a strip or a window draws the page's pixels (ADR
+        // 2133).
+        scan::fill_stated(
             pixmap,
-            &path,
+            (&path, &scan::Exact::Unknown),
             &brush,
             convert::fill_rule(fill_rule),
-            convert::transform(at),
+            to_device.placed(transform),
             clip,
         );
         Ok(())

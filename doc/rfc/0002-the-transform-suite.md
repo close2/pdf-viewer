@@ -7,7 +7,13 @@ approved." §11.1's redrawn exclusion is in `CLAUDE.md` as of session 886 (ADR 0
 narrowing of the ledger's `writer-side` status went with it. **§13's remaining questions were not
 individually answered**: question 1 is the one the ratification settles; the recommendations this
 document makes on the other six stand as defaults, each recorded as a stated assumption in ADR
-0800 §6 for the owner to overrule.
+0800 §6 for the owner to overrule. **Question 2 was answered on 2026-09-06** (`doc/questions/A01`: "Use
+mozjpeg-rs", with re-encoding only where a format is explicitly requested), and is built:
+`render --format jpeg` and `optimize --images quality=…` (ADRs 2138, 2139); §6.5's `downsample=`
+is not (`doc/todo/57`). **Question 3 was answered on 2026-09-06** (`doc/questions/A02`: "Yes,
+implement it "now""), and is built: the suite parses a document in `quorra-transform-worker`, under
+seccomp-BPF and Landlock, its plan crossing as the command line that states it, and `--in-process`
+is the fallback a person selects (ADRs 2140, 2141).
 Companions: RFC 0001 (the survey this argues from), RFCs 0003–0005 (file-system faces,
 print, text editing — each consumes the transform layer proposed here). The number 0002
 held at merge (round 788); no collision arose.
@@ -760,7 +766,8 @@ requirement rather than a hope:
    `crypto-bigint` precedent, or in-tree, or decline lossy image optimisation? This gates the
    feature users will ask for first ("make it smaller").
 3. **Confinement tranche** (§8): accept in-process tranche one with the worker split as a
-   follow-up, or require the brokered worker before the first verb ships?
+   follow-up, or require the brokered worker before the first verb ships? — **Answered "now"
+   (`doc/questions/A02`) and built (ADRs 2140, 2141).**
 4. **Restrictions policy for a non-interactive tool** (§3 item 6): Table 22's assembly/extraction
    bits under the four-level shape — a pipe cannot "ask", so propose default `off` (the
    program is the reader's) with `--restrictions=on|warn` for deployments that want them

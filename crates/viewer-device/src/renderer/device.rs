@@ -178,3 +178,74 @@ pub(super) fn prepare(
         cost,
     })
 }
+
+/// The lane a step from the frame just drawn takes, which the idle build is drawn on (ADR 2134):
+/// `crate::lane::lane_for`'s for a moved view — the session's lane where it is fixed, the compute
+/// lane on a device worth the name, and on a software adapter the magnification rule's, which the
+/// frame just drawn was drawn on (`drawn`). A step to a magnification the atlas has drawn before
+/// takes the processor's lane instead, and walks whole, as it does today.
+pub(super) fn next_step_lane(
+    renderer: &QuorraWindowRenderer,
+    choice: crate::lane::CoverageChoice,
+    drawn: raster_gpu::Coverage,
+) -> raster_gpu::Coverage {
+    match choice {
+        crate::lane::CoverageChoice::Fixed(lane) => lane,
+        crate::lane::CoverageChoice::Auto => {
+            if crate::lane::software_adapter(renderer.adapter_description()) {
+                drawn
+            } else {
+                raster_gpu::Coverage::Compute
+            }
+        }
+    }
+}
+
+/// The idle build (ADR 2134): the page on hand walked again at the view it was shown at with no
+/// line culled, drawn into a texture nobody presents, so that the next view of it takes its lines
+/// in runs from a stream already on the device (ADR 2056). `target` keeps that texture for the
+/// window's size. Answers whether it built, and is silent for [`prepare`]'s reason: nobody asked
+/// for it, and a refusal here is the device's answer the next frame hears for itself.
+pub(super) fn build_whole(
+    renderer: &mut QuorraWindowRenderer,
+    (showing, lane): (&[crate::stale::Placed], raster_gpu::Coverage),
+    (width, height): (u32, u32),
+    target: &mut Option<(u32, u32, raster_gpu::wgpu::Texture)>,
+) -> bool {
+    if showing.is_empty() || width == 0 || height == 0 {
+        return false;
+    }
+    // Under the lane the step it is for will take (`next_step_lane`): an encode is kept for the
+    // view after it only on the same lane (raster's `EncodeKey::replay_compatible`).
+    renderer.set_coverage(lane);
+    let placed: Vec<(&Arc<DisplayList>, TargetSpec)> = showing
+        .iter()
+        .map(|placed| (&placed.list, placed.target))
+        .collect();
+    if target
+        .as_ref()
+        .is_none_or(|(w, h, _)| (*w, *h) != (width, height))
+    {
+        *target = Some((
+            width,
+            height,
+            renderer.layer_texture("the idle build", width, height),
+        ));
+    }
+    let Some((_, _, texture)) = target.as_ref() else {
+        return false;
+    };
+    matches!(
+        renderer.build_whole(
+            PresentFrame {
+                width,
+                height,
+                pages: &placed,
+                raster: None,
+                overlays: &[],
+            },
+            texture,
+        ),
+        Ok(Some(_))
+    )
+}

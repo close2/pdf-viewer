@@ -1,7 +1,8 @@
 //! `render` — pages to raster images, RFC 0002 section 6.4.
 //!
 //! Packaging, not construction: `interpret` → `render-cpu` at a scale derived from the dpi, PNG
-//! out through the in-tree encoder. `crates/pdf-model/examples/render_at.rs` is this verb as an
+//! out through the in-tree encoder — or, where `--format jpeg` asks for one, baseline JPEG through
+//! the DCT encoder in `pdf-sandbox`'s confined worker (ADR 2138). `crates/pdf-model/examples/render_at.rs` is this verb as an
 //! example, and the integration test holds the verb to that pipeline byte for byte, so the CLI
 //! cannot become a fourth rasteriser.
 //!
@@ -253,6 +254,18 @@ impl Sizing {
 pub enum ImageFormat {
     /// PNG, RGBA8, through the `png` crate the tree already ships. The default.
     Png,
+    /// Baseline JPEG, RGB8, at `quality`: the raster with its alpha dropped as PPM drops it,
+    /// encoded by `mozjpeg-rs` in `pdf-sandbox`'s confined worker (ADR 2138).
+    ///
+    /// **Lossy, and therefore only ever asked for**: the owner's condition on the encoder is that
+    /// nothing is re-encoded unless a format is explicitly requested (`doc/questions/A01`), so no
+    /// default and no fallback reaches this variant — only the word `jpeg` (or `jpg`) does.
+    Jpeg {
+        /// The encoder's quality, 1 to 100. ISO 32000-2 §7.4.8 leaves "the information loss" to
+        /// parameters "entirely under the control of the encoder", so this is the caller's;
+        /// [`JPEG_QUALITY`] where it states none.
+        quality: u8,
+    },
     /// Binary PPM (`P6`), RGB8: the raster with its alpha dropped, which loses nothing because
     /// §11.4.7 has already composited the page onto 𝑊 white before the raster leaves the
     /// backend (`pdf_render::Medium::PAGE_ONLY`), so every alpha is 255.
@@ -275,22 +288,34 @@ pub enum ImageFormat {
     Pgm,
 }
 
+/// The JPEG quality where a caller asks for JPEG and states none.
+///
+/// **A choice, not a derivation**: §7.4.8 leaves the loss to the encoder, and nothing in the
+/// standard ranks one quality above another for a picture leaving the document. Ninety, because a
+/// rendered page is mostly text and line art, whose edges are where a JPEG's quantisation rings
+/// first, and because a caller who wants a smaller file has `--quality` to say so.
+pub const JPEG_QUALITY: u8 = 90;
+
 impl ImageFormat {
     /// The conventional file extension.
     #[must_use]
     pub fn extension(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::Jpeg { .. } => "jpg",
             Self::Ppm => "ppm",
             Self::Pgm => "pgm",
         }
     }
 
-    /// Parses the CLI's word.
+    /// Parses the CLI's word; `jpeg` at [`JPEG_QUALITY`], which a caller's `--quality` replaces.
     #[must_use]
     pub fn parse(word: &str) -> Option<Self> {
         match word {
             "png" => Some(Self::Png),
+            "jpeg" | "jpg" => Some(Self::Jpeg {
+                quality: JPEG_QUALITY,
+            }),
             "ppm" => Some(Self::Ppm),
             "pgm" => Some(Self::Pgm),
             _ => None,
@@ -304,7 +329,7 @@ impl ImageFormat {
     pub fn holds_alpha(self) -> bool {
         match self {
             Self::Png => true,
-            Self::Ppm | Self::Pgm => false,
+            Self::Jpeg { .. } | Self::Ppm | Self::Pgm => false,
         }
     }
 }
@@ -458,14 +483,27 @@ fn overrun_of(page: Size, scale: f32, width: u32, height: u32) -> Overrun {
     }
 }
 
+/// Why a raster could not be encoded in the format asked for.
+#[derive(Debug, thiserror::Error)]
+pub enum EncodeError {
+    /// The PNG encoder's, which for an in-memory buffer means a raster whose dimensions and data
+    /// disagree — and [`Raster`] is constructed by the backend, so that does not happen.
+    #[error(transparent)]
+    Png(#[from] png::EncodingError),
+    /// The DCT encoder's refusal, or its worker's: a raster past the samples one encode is given
+    /// (`pdf_sandbox`'s budget, ADR 2138), or a worker that could not be started or answered.
+    #[error("JPEG: {0}")]
+    Jpeg(#[from] pdf_sandbox::SandboxError),
+}
+
 /// Encodes a raster in the format, deterministically: no timestamp chunk, no text chunk, the
-/// encoder's default compression, so the same raster is the same bytes on every run.
+/// encoder's default compression, so the same raster is the same bytes on every run — the JPEG
+/// encoder's own bytes included, which do not follow the processor's SIMD (ADR 2138).
 ///
 /// # Errors
 ///
-/// The encoder's, which for an in-memory buffer means a raster whose dimensions and data
-/// disagree — and [`Raster`] is constructed by the backend, so that does not happen.
-pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, png::EncodingError> {
+/// [`EncodeError`].
+pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, EncodeError> {
     match format {
         ImageFormat::Png => {
             let mut bytes = Vec::new();
@@ -477,6 +515,24 @@ pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, png::Enco
                 writer.write_image_data(&raster.data)?;
             }
             Ok(bytes)
+        }
+        ImageFormat::Jpeg { quality } => {
+            // The alpha goes as PPM's does, and for its reason: §11.4.7 has composited the page
+            // onto white before the raster leaves the backend, so every alpha is 255.
+            let samples: Vec<u8> = raster
+                .data
+                .chunks_exact(4)
+                .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+                .collect();
+            Ok(pdf_sandbox::encode_dct(
+                &samples,
+                pdf_sandbox::DctParameters {
+                    width: raster.width,
+                    height: raster.height,
+                    components: pdf_sandbox::DctComponents::Rgb,
+                    quality,
+                },
+            )?)
         }
         ImageFormat::Ppm => {
             let header = format!("P6\n{} {}\n255\n", raster.width, raster.height);
@@ -692,40 +748,40 @@ impl Job<'_> {
                 detail,
             })
             .collect();
-        let outcome = write(
-            self.sinks,
-            &expanded.name,
-            &rendered.raster,
-            self.plan.format,
-        )
-        .map(|bytes| Output {
-            name: expanded.name.clone(),
-            bytes,
-            sanitised: expanded.sanitised,
-            origin: Origin::Page {
-                source: self.plan.source,
-                page: page_number,
-                label,
-                width: rendered.raster.width,
-                height: rendered.raster.height,
-                overrun,
-            },
-        })
-        .map_err(|error| Problem::Sink(expanded.name, error));
+        // An encoder that declines a raster is this program declining the page, exit 4 with the
+        // other pages written; only the sink failing is the machine's.
+        let encoded = match encode(&rendered.raster, self.plan.format) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                return Done {
+                    warnings,
+                    ..declined(error.to_string())
+                };
+            }
+        };
+        let outcome = write(self.sinks, &expanded.name, &encoded)
+            .map(|bytes| Output {
+                name: expanded.name.clone(),
+                bytes,
+                sanitised: expanded.sanitised,
+                origin: Origin::Page {
+                    source: self.plan.source,
+                    page: page_number,
+                    label,
+                    width: rendered.raster.width,
+                    height: rendered.raster.height,
+                    overrun,
+                },
+            })
+            .map_err(|error| Problem::Sink(expanded.name, error));
         Done { outcome, warnings }
     }
 }
 
-/// Encodes and writes one raster, answering the byte count.
-fn write(
-    sinks: &dyn Sinks,
-    name: &str,
-    raster: &Raster,
-    format: ImageFormat,
-) -> std::io::Result<u64> {
-    let bytes = encode(raster, format).map_err(std::io::Error::other)?;
+/// Writes one encoded raster, answering the byte count.
+fn write(sinks: &dyn Sinks, name: &str, bytes: &[u8]) -> std::io::Result<u64> {
     let mut sink = sinks.open(name)?;
-    sink.write_all(&bytes)?;
+    sink.write_all(bytes)?;
     sink.flush()?;
     Ok(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
 }
