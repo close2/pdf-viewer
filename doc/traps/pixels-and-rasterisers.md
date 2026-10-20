@@ -693,3 +693,14 @@ units, whose `f32` integral resolves nothing; a fixed document lost a third of i
 guard's `false` is a population, not a reason: when a remedy widens what passes a guard, the first test
 input is whatever that guard was refusing before, found by reading the ADR that wrote the guard.
 
+### 216. A permission measured on one converter is not inherited by the converter that replaced it
+
+ADR 0139 proved that an axis-aligned strip cut is exact on `tiny-skia`'s path converter, and the planner
+has divided pages on that proof since. ADR 0476 later sent rectangles to the library's rectangle
+converter, which rounds a clipped rectangle differently, so a rectangle a cut crosses has been one level
+off from the page drawn whole on every page since — 144 pixels on an ordinary page at four strips —
+inside ADR 1758's bound, with no gate naming it, found by round 1616 while widening the planner's range
+rule (ADR 2068 §5). When a class of marks changes converter, every claim the planner or a gate makes
+about that class — exact at a cut, equal to the whole, byte-identical in a window — is re-measured on
+the new converter, and the ADR that made the claim is cited where the re-measurement is written.
+

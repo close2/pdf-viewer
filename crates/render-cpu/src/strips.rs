@@ -352,10 +352,13 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///   and `scan` hands the shape to `tiny-skia`'s converter, which clips it. A half of a shaped
 ///   pair and a mark in a soft mask's group are counted with them because the planner does not
 ///   follow how they are composed.
-/// - **An extent the anti-aliased converter's range cannot hold in every strip**: outside
-///   `scan::SUPERSAMPLED_LIMIT` a mark [`area`] declines is drawn by the aliased converter, and a
-///   strip moves every coordinate up by its first row, so the page's extent has to fit both before
-///   and after any such move.
+/// - **An extent [`area`]'s range cannot hold in every strip**: past `scan::MEASURED_LIMIT` a mark
+///   is drawn by `tiny-skia`'s converter without anti-aliasing, which clips it, and a strip moves
+///   every coordinate up by its first row, so the page's extent has to fit both before and after any
+///   such move. The library's own range, `scan::SUPERSAMPLED_LIMIT`, is not asked: inside the
+///   measured one a mark reaches [`area`] on either side of 8191, because that converter states
+///   every coordinate against the mark's own region (ADR 2058), so the marks of a page wider or
+///   taller than the library's range forbid no row for it (ADR 2068).
 /// - **No extent at all**, which states nothing a range can be asked of.
 ///
 /// A fill has one of its own, and it is about the measurement rather than the road:
@@ -477,7 +480,7 @@ fn converted_row_by_row(
         return false;
     };
     // A row of margin beyond the bound, which already counts a mitre at its limit.
-    let limit = scan::SUPERSAMPLED_LIMIT - 1.0;
+    let limit = scan::MEASURED_LIMIT - 1.0;
     #[expect(
         clippy::cast_precision_loss,
         reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24 rows, exact in f32"

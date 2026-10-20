@@ -2,9 +2,9 @@
 //! as text (RFC 0010 step N0, ADR 2054).
 //!
 //! The C# is hand-written for the header's own reason: it is what a .NET programmer reads. No gate
-//! of this tree compiles it — the machine the gates run on has no .NET SDK, and `dotnet build` is a
-//! CI job owed to a later step — so what stops it going stale is this test, which needs no
-//! `dotnet`:
+//! of this tree compiles it — the machine the gates run on has no .NET SDK, and `dotnet build` is
+//! CI's `interop` job, which runs after a push (ADR 2073) — so what stops it going stale before
+//! then is this test, which needs no `dotnet`:
 //!
 //! - every function the header declares is declared exactly once in C#, and the C# declares no
 //!   other;

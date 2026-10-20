@@ -551,6 +551,18 @@ pub enum Supplied {
         /// Non-standard type to standard type, in the order the file wrote them.
         by_type: Vec<(String, String)>,
     },
+    /// Either of section 6.7.4's two sites: the language a `/Lang` that is not a language
+    /// identifier is made to state.
+    ///
+    /// ISO 19005-2 section 6.7.4 requires a stated `/Lang` to be a language identifier, and which
+    /// language a malformed one meant is not in the file; an operator archiving one producer's
+    /// documents frequently does know (`doc/pdf-a-mitigations.md`, `doc/adr/2066`). The tag is
+    /// asserted for every entry the site fails at, and only for those: an identifier the file
+    /// already states well is never overwritten.
+    Language {
+        /// A BCP 47 tag, held to ISO 32000-2 §14.9.2.2's grammar when the configuration is read.
+        tag: String,
+    },
 }
 
 /// Which of an embedded `CMap`'s two statements of its writing mode stands.
@@ -813,14 +825,16 @@ pub struct Preservation {
 ///   it could be appended or prefixed as an extra page*;
 /// - the three section 6.3.1 rows', whose authorised loss takes an annotation off a page and its
 ///   normal appearance with it — the two subtype rows and ISO 19005-4's `3D` and `RichMedia` row,
-///   one removal (`doc/adr/2051` section 4). The appearance is a form `XObject` the producer
+///   one removal (`doc/adr/2051` section 4), and its `FileAttachment` row, whose file the removal
+///   keeps in the name tree (`doc/adr/2067` section 4). The appearance is a form `XObject` the producer
 ///   wrote, so the page this composes carries the producer's own marks at the producer's own
 ///   coordinates (`doc/adr/1099`).
-const PRESERVABLE_BY_PAGE: [&str; 4] = [
+const PRESERVABLE_BY_PAGE: [&str; 5] = [
     "metadata/properties-use-known-schemas",
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
     "annotations/three-dimensional-only-in-engineering-files",
+    KEPT_ATTACHMENT_SITE,
 ];
 
 /// The requirements a built `preserve` answers by replacing the packet and keeping the original.
@@ -1103,7 +1117,7 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// configuration states none of, which `doc/pdf-a-mitigations.md` section 12 makes the operator's
 /// to write (`doc/adr/1952`), and the text an ICC profile's missing description or copyright tag
 /// states (`doc/adr/1990`).
-const SUPPLIABLE: [&str; 7] = [
+const SUPPLIABLE: [&str; 9] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
     "fonts/embedded-cmap-states-its-own-write-mode",
@@ -1111,6 +1125,8 @@ const SUPPLIABLE: [&str; 7] = [
     super::icc::SITE,
     super::icc::SITE_FOUR,
     super::roles::SITE,
+    super::languages::CATALOG_SITE,
+    super::languages::MARKED_SITE,
 ];
 
 /// One remedy configuration, read from a file and validated against a target.
@@ -1176,6 +1192,8 @@ struct Row {
     profile_text: (Option<String>, Option<String>),
     /// `role-map` — the standard structure type each non-standard one is mapped to.
     role_map: Vec<(String, String)>,
+    /// `language` — the tag a `/Lang` that is not a language identifier is made to state.
+    language: Option<String>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
     /// built first. `true` where the row states none, which is the catalogue's *owed, not
     /// optional*.
@@ -1843,7 +1861,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         profile_text_key(tbl, &site, "copyright")?,
     );
     let shipped_cmaps = source_key(tbl, &site)?;
-    let unmapped = unmapped_key(tbl, &site)?;
+    let (unmapped, language) = (unmapped_key(tbl, &site)?, language_key(tbl, &site)?);
     let media_types = tbl
         .get("media-types")
         .and_then(Value::as_map)
@@ -1885,8 +1903,41 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         name_template,
         profile_text,
         role_map,
+        language,
         line: tbl.line,
     })
+}
+
+/// `language`: the BCP 47 tag section 6.7.4's two sites are answered with.
+///
+/// The empty string is accepted and states no fact — `doc/profiles/keep-everything.toml` writes
+/// `language = ""` with the note *empty stops rather than guessing* — so the site keeps its
+/// refusal. Any other value is held to the grammar the validator holds the file to, so a supply
+/// can never write a tag the requirement it answers would refuse (`doc/adr/2066`).
+fn language_key(tbl: &toml::Table, site: &str) -> Result<Option<String>, ConfigError> {
+    let Some(value) = tbl.get("language") else {
+        return Ok(None);
+    };
+    match value.as_text() {
+        Some("") => Ok(None),
+        Some(tag) if pdf_model::structure::well_formed_language_tag(tag) => {
+            Ok(Some(tag.to_owned()))
+        }
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "language".to_owned(),
+            wanted: "a BCP 47 language tag, such as \"de-DE\"",
+            found: "a string BCP 47 does not admit",
+        }),
+        None => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "language".to_owned(),
+            wanted: "a string",
+            found: value.kind(),
+        }),
+    }
 }
 
 /// A key whose value is a remedy word, `stop` where the row states none or a word no remedy is.
@@ -2036,6 +2087,9 @@ fn supplied(row: &Row) -> Option<Supply> {
         "fonts/embedded-cmap-states-its-own-write-mode" => Supplied::WriteMode(row.write_mode?),
         "optional-content/configuration-names" => Supplied::ConfigurationNames {
             template: row.name_template.clone()?,
+        },
+        super::languages::CATALOG_SITE | super::languages::MARKED_SITE => Supplied::Language {
+            tag: row.language.clone()?,
         },
         super::roles::SITE if row.role_map.is_empty() => return None,
         super::roles::SITE => Supplied::RoleMap {
@@ -2283,8 +2337,31 @@ fn check_key_shapes(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
             });
         }
     }
+    // `keep-attachment` at ISO 19005-4 section 6.3.1's `FileAttachment` row is the construction
+    // rather than a choice: the removal files the annotation's file in `/EmbeddedFiles` whatever
+    // the row says, so `false` would be read and not done (`doc/adr/2067` section 4).
+    if site == KEPT_ATTACHMENT_SITE
+        && tbl.get("keep-attachment").and_then(Value::as_bool) == Some(false)
+    {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: tbl.line,
+            site: site.to_owned(),
+            asked: "keep-attachment = false".to_owned(),
+            why: ATTACHMENT_ALWAYS_KEPT,
+        });
+    }
     Ok(())
 }
+
+/// The row whose removal keeps the file the annotation names.
+const KEPT_ATTACHMENT_SITE: &str = "annotations/file-attachment-only-in-embedded-file-files";
+
+/// Why a `FileAttachment` annotation's file cannot be discarded with it.
+const ATTACHMENT_ALWAYS_KEPT: &str = "a FileAttachment annotation removed at PDF/A-4 or PDF/A-4e \
+     has its file filed in the document's EmbeddedFiles tree, which both flavours admit, so only \
+     the marker on the page is lost. Removing the attachment as well is a second loss nothing \
+     asks for and is not built; remove the key, or answer embedded-files/embedded-file-is-itself-\
+     pdfa-in-the-plain-profile with discard where the file itself is the problem";
 
 /// What narrows a site row beyond its identifier.
 ///

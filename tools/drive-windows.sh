@@ -142,14 +142,15 @@ CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels s
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
     zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
-    bare_session_start archive_converted)
+    submission_levels bare_session_start archive_converted)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
     script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
     popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
-    transition_frames rendition_click link_levels bare_session_start archive_converted)
+    transition_frames rendition_click link_levels submission_levels bare_session_start
+    archive_converted)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
 # windows it is offered.
@@ -3462,7 +3463,10 @@ confined() {
 # for the finished page; the step photographs the window once the first of those is said and the
 # second is not, and that photograph must hold the red and no green — the page part-way, in the
 # order it is drawn — and then the finished page must hold the green. `quorra` and
-# `quorra-confined` draw elsewhere — the device, the worker — and are not offered.
+# `quorra-confined` draw elsewhere — the device, the worker — and are not offered. The toolkit
+# windows are launched with `--cpu`: their device draws a page in one call that nothing can glance
+# at, and a page is the drawing thread's only where the device refused it or was predicted slower
+# (ADR 2070), which a seed does not predict of this page.
 page_as_built() {
     local step=81-page-as-built file="$FIXTURES/drive-slow-draw.pdf" launched=$LAUNCHED traced=$LAUNCH_TRACE
     if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
@@ -3482,7 +3486,7 @@ pdf.save(sys.argv[1], compress_streams=False)
 PY
     LAUNCHED=a_window
     LAUNCH_TRACE=events,launch,frames
-    launch "$file"
+    launch "$file" --cpu
     LAUNCHED=$launched
     LAUNCH_TRACE=$traced
     if ! wait_for 60 said_since 0 "shown as it stands"; then
@@ -4045,6 +4049,145 @@ HANDLER
         fi
     done
     kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+# --- steps 92 and 93: a form sent to a server and form data fetched from one (ADR 2076) -------------
+# submission_levels: §12.7.6.2's submit-form and §12.7.6.4's import-data naming an absolute URI, each
+# one link over the whole of the drive's own form page and clicked at the window's middle, at
+# `--submissions=` `ask` answered both ways, `warn`, `send` and `refuse` — judged in all four windows
+# alike. The server is the step's own, on this machine's loopback and a port the kernel chose: it
+# writes a line for every request it reads and answers both with §12.7.8.1's media type and an FDF
+# setting the form's one field, so a send is witnessed by the server's line and by the window saying
+# the answer was imported, and a refusal or a `no` by the line's absence and the sentence that says
+# so. `quorra` and `quorra-confined` are answered by the card's two keys and the toolkits' dialogue
+# by AT-SPI, as in steps 90 and 91 (`link_answer`).
+submission_fixtures() { # port
+    python3 - "$FIXTURES" "$1" <<'PY3'
+import sys, pikepdf
+from pikepdf import Name, Dictionary, Array, String
+out, port = sys.argv[1], sys.argv[2]
+def form(path, action):
+    pdf = pikepdf.new()
+    pdf.pages.append(pikepdf.Page(Dictionary(Type=Name.Page, MediaBox=[0, 0, 612, 792],
+                                             Contents=pdf.make_indirect(pikepdf.Stream(pdf, b"")))))
+    field = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Widget, FT=Name.Tx,
+                                         T=String("name"), V=String("drive"),
+                                         Rect=Array([50, 740, 300, 770]), F=4,
+                                         DA=String("0 g /Helv 12 Tf"),
+                                         P=pdf.pages[0].obj))
+    link = pdf.make_indirect(Dictionary(Type=Name.Annot, Subtype=Name.Link,
+                                        Rect=Array([0, 0, 612, 792]), Border=Array([0, 0, 0]),
+                                        A=action))
+    pdf.pages[0].obj.Annots = Array([link, field])
+    helv = Dictionary(Type=Name.Font, Subtype=Name.Type1, BaseFont=Name.Helvetica)
+    pdf.Root.AcroForm = Dictionary(Fields=Array([field]), DA=String("0 g /Helv 12 Tf"),
+                                   DR=Dictionary(Font=Dictionary(Helv=helv)))
+    pdf.save(path)
+url = "http://127.0.0.1:%s/" % port
+form(out + "/drive-submit.pdf",
+     Dictionary(S=Name.SubmitForm, F=Dictionary(FS=Name.URL, F=String(url + "submit")), Flags=0))
+form(out + "/drive-fetch.pdf",
+     Dictionary(S=Name.ImportData, F=String(url + "values.fdf")))
+PY3
+}
+submission_levels() {
+    local log="$OUT/submitted.log" port="" server step answer level before url said
+    : > "$log"
+    python3 -u - "$log" > "$OUT/submit.port" 2>/dev/null <<'PY4' &
+import http.server, sys
+log = sys.argv[1]
+ANSWER = (b"%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [ << /T (name) /V (answered) >> ] >> >>\n"
+          b"endobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n")
+class Handler(http.server.BaseHTTPRequestHandler):
+    def answer(self, body):
+        with open(log, "a") as f:
+            f.write("%s %s %d\n" % (self.command, self.path.split("?")[0], len(body)))
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.fdf")
+        self.send_header("Content-Length", str(len(ANSWER)))
+        self.end_headers()
+        self.wfile.write(ANSWER)
+    def do_POST(self):
+        self.answer(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+    def do_GET(self):
+        self.answer(b"")
+    def log_message(self, *arguments):
+        pass
+server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+print(server.server_address[1])
+server.serve_forever()
+PY4
+    server=$!
+    for _ in $(seq 1 20); do port=$(head -1 "$OUT/submit.port" 2>/dev/null); [ -n "$port" ] && break; sleep 0.2; done
+    if [ -z "$port" ]; then
+        kill "$server" 2>/dev/null; wait "$server" 2>/dev/null
+        verdict 92-submit "not offered" "the step's loopback server did not start"
+        return
+    fi
+    submission_fixtures "$port"
+    # The two acts, each its own file, the request line the server writes for it, and the sentence
+    # the worker or the core says once the answer is imported.
+    local act file request imported declined
+    for act in submit fetch; do
+        if [ "$act" = submit ]; then
+            file="$FIXTURES/drive-submit.pdf" url="http://127.0.0.1:$port/submit"
+            request="^POST /submit [1-9]" imported="submit-form answer: 1 field(s) imported from $url"
+            declined="submit-form: declined — "
+        else
+            file="$FIXTURES/drive-fetch.pdf" url="http://127.0.0.1:$port/values.fdf"
+            request="^GET /values.fdf " imported="import-data: 1 field(s) from $url"
+            declined="import-data: declined — $url was not fetched: "
+        fi
+        local number=92
+        [ "$act" = fetch ] && number=93
+        for answer in yes no; do
+            step=$number-$act-ask-$answer
+            before=$(grep -c "$request" "$log")
+            link_clicked "$step" "$file" --submissions=ask || continue
+            if [ "$(grep -c "$request" "$log")" -ne "$before" ]; then
+                verdict "$step" wrong "sent before the question was answered"
+                continue
+            fi
+            if [ "$answer" = yes ]; then
+                link_answer "$step" yes "$imported" || continue
+            else
+                link_answer "$step" no "${declined}you answered" || continue
+            fi
+            sleep 0.5
+            shot "$step"
+            if [ "$answer" = yes ] && said_since "$MARK" "$imported" \
+                    && [ "$(grep -c "$request" "$log")" -eq $((before + 1)) ]; then
+                verdict "$step" works "asked, held, answered yes: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o "$imported[^.]*")"
+            elif [ "$answer" = no ] && said_since "$MARK" "${declined}you answered" \
+                    && [ "$(grep -c "$request" "$log")" -eq "$before" ]; then
+                verdict "$step" works "asked, answered no, and the server was not asked"
+            else
+                verdict "$step" wrong "$(grep -c "$request" "$log") request(s) after $before: $(tail -n "+$((MARK + 1))" "$LOG" | grep -E 'submit-form|import-data' | tr '\n' ' ')"
+            fi
+        done
+        for level in warn send refuse; do
+            step=$number-$act-$level
+            before=$(grep -c "$request" "$log")
+            link_clicked "$step" "$file" --submissions=$level || continue
+            said="$imported"
+            [ "$level" = refuse ] && said="$declined"
+            wait_for 10 said_since "$MARK" "$said"
+            shot "$step"
+            if [ "$level" = refuse ] && said_since "$MARK" "$declined" \
+                    && [ "$(grep -c "$request" "$log")" -eq "$before" ]; then
+                verdict "$step" works "not asked and not sent: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o "${declined}[^;(]*")"
+            elif [ "$level" = warn ] && said_since "$MARK" "$imported" && said_since "$MARK" "without asking you first" \
+                    && [ "$(grep -c "$request" "$log")" -eq $((before + 1)) ]; then
+                verdict "$step" works "not asked, sent, said and imported: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o "$imported[^.]*")"
+            elif [ "$level" = send ] && said_since "$MARK" "$imported" \
+                    && [ "$(grep -c "$request" "$log")" -eq $((before + 1)) ]; then
+                verdict "$step" works "not asked, sent and imported: $(tail -n "+$((MARK + 1))" "$LOG" | grep -m1 -o "$imported[^.]*")"
+            else
+                verdict "$step" wrong "$(grep -c "$request" "$log") request(s) after $before: $(tail -n "+$((MARK + 1))" "$LOG" | grep -E 'submit-form|import-data' | tr '\n' ' ')"
+            fi
+        done
+    done
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+    kill "$server" 2>/dev/null; wait "$server" 2>/dev/null
 }
 # zoomed_eighteen N: whether eighteen zooms have gone to the confined worker since line N and a
 # frame was drawn after the last of them, on the device or as a window on the processor.

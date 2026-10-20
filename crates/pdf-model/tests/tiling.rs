@@ -365,7 +365,7 @@ fn the_pattern_matrix_moves_the_tiling() {
 ///
 /// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
 /// to fill an area". This fixture is a unit cell at a unit step over a 100-unit fill, which
-/// [`span`](../src/content/pattern.rs)'s floor and ceil make 102 columns by 102 rows — past a
+/// [`span`](../src/content/pattern/lattice.rs)'s floor and ceil make 102 columns by 102 rows — past a
 /// fixed cap of 4096 sites, which would paint the lowest forty rows and report the rest (ADR
 /// 0477, on `7803372.pdf` of the crawl, two hatched table columns left white). The sites are
 /// copies charged to the page's `MAX_LIST_BYTES` and to the tiling's own `MAX_TILE_COPIES` (ADR

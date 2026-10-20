@@ -201,6 +201,9 @@ pub struct WindowState {
     /// [`crate::Drawing`] is the whole arrangement; what is a toolkit's is the timer that asks it
     /// whether anything has landed.
     pub drawing: crate::Drawing,
+    /// The lane beside the drawing thread, where the window has one: the graphics device, read
+    /// back (ADR 2070). `None` draws every page on the drawing thread.
+    pub lane: Option<Box<dyn crate::drawing::PageLane>>,
     /// A small picture of each page drawn lately, shown where a page arrives on the screen with
     /// no frame until its own lands (ADR 1866).
     pub retained: crate::stand_in::Retained,
@@ -334,6 +337,7 @@ impl WindowState {
             // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule that
             // nothing page one does not need happens before page one.
             drawing: crate::Drawing::new(),
+            lane: None,
             retained: crate::stand_in::Retained::default(),
             oversized: crate::oversize::Oversized::default(),
             warned: None,
@@ -381,6 +385,17 @@ impl WindowState {
     #[must_use]
     pub const fn looking(&self) -> bool {
         self.submitter.interval().is_some() || self.converter.interval().is_some()
+    }
+
+    /// When the window should look at its pages again: the drawing thread's interval or the
+    /// lane's beside it, the sooner, and `None` while neither has anything out (ADR 2070).
+    #[must_use]
+    pub fn drawing_interval(&self) -> Option<std::time::Duration> {
+        let lane = self.lane.as_ref().and_then(|lane| lane.interval());
+        match (self.drawing.interval(), lane) {
+            (Some(drawing), Some(lane)) => Some(drawing.min(lane)),
+            (drawing, lane) => drawing.or(lane),
+        }
     }
 }
 
@@ -670,9 +685,68 @@ pub trait NativeWindow {
         self.state_mut().retained.asked(&request);
         let viewport = self.state().viewport;
         if !self.state_mut().oversized.asked(&request, viewport) {
+            // The lane beside the drawing thread is offered the page first, unless the drawing
+            // thread is about to finish it from the page drawn while it was read (ADR 2070).
+            let request = if self.state().drawing.finishes_ahead(&request) {
+                Some(request)
+            } else {
+                match self.state_mut().lane.as_mut() {
+                    Some(lane) => lane.offer(request),
+                    None => Some(request),
+                }
+            };
+            if let Some(request) = request {
+                let seen = self.seen_of(&request);
+                self.state_mut().drawing.ask_showing(request, seen);
+            }
+        }
+    }
+
+    /// What the lane beside the drawing thread has finished, with what it said and the requests it
+    /// handed back given to the drawing thread (ADR 2070) — empty for a window with no lane.
+    fn take_the_lane(&mut self) -> Vec<crate::Finished> {
+        let settle = (!self.state().presented).then_some(crate::drawing::SETTLE);
+        let title = self
+            .state()
+            .lane
+            .as_ref()
+            .and_then(|lane| lane.title().map(str::to_owned));
+        let Some(handed) = self
+            .state_mut()
+            .lane
+            .as_mut()
+            .map(|lane| lane.collect(settle))
+        else {
+            return Vec::new();
+        };
+        for traced in &handed.traced {
+            self.state()
+                .trace
+                .say(Topic::Frames, format_args!("{traced}"));
+        }
+        for said in &handed.said {
+            self.say(said);
+        }
+        if self.state().lane.as_ref().and_then(|lane| lane.title()) != title.as_deref() {
+            self.retitle();
+        }
+        for request in handed.back {
             let seen = self.seen_of(&request);
             self.state_mut().drawing.ask_showing(request, seen);
         }
+        for finished in &handed.finished {
+            self.state().trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} drawn on the graphics device and read back {}x{} in {:?}",
+                    finished.request.page.saturating_add(1),
+                    finished.request.target.width,
+                    finished.request.target.height,
+                    finished.cost
+                ),
+            );
+        }
+        handed.finished
     }
 
     /// §12.8.3.4.4's policies, whose published copies are fetched under the same level a form is
@@ -762,11 +836,18 @@ pub trait NativeWindow {
     /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
     /// no input to lose, and `crate::drawing::SETTLE` bounds the whole of what it may spend.
     fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
+        let laned = self.take_the_lane();
         let drawn = if self.state().presented {
             self.state_mut().drawing.collect()
         } else {
             self.state_mut().drawing.settle(crate::drawing::SETTLE)
         };
+        if let Some(lane) = self.state_mut().lane.as_mut() {
+            for finished in drawn.iter().filter(|finished| finished.outcome.is_some()) {
+                lane.processor_drew(&finished.request, finished.cost);
+            }
+        }
+        let drawn: Vec<crate::Finished> = laned.into_iter().chain(drawn).collect();
         // A draw that ended takes the bar it was showing with it.
         if !drawn.is_empty() {
             self.show_the_drawing();

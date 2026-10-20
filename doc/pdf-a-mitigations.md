@@ -1488,7 +1488,7 @@ ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
 
 #### `annotations/three-dimensional-only-in-engineering-files` (PDF/A-4, 4f)
 #### `annotations/file-attachment-only-in-embedded-file-files` (PDF/A-4, 4e)
-ISO 19005-4 6.3.1 · today **built** for `3D` and `RichMedia`, `not-built-yet` for `FileAttachment`
+ISO 19005-4 6.3.1 · today **built** for `3D` and `RichMedia`, and for `FileAttachment` (ADR 2067 section 4)
 
 - **Built for `3D` and `RichMedia`** (ADR 2051 section 4): outside PDF/A-4e the subtype is one the
   target does not admit, so the site is the two subtype rows' loss exactly — `Loss::ForbiddenAnnotation`,
@@ -1496,8 +1496,16 @@ ISO 19005-4 6.3.1 · today **built** for `3D` and `RichMedia`, `not-built-yet` f
   (`pdf_archive::annotations_outside_the_engineering_flavour`), the artwork leaving with the
   annotation and the sentence naming PDF/A-4e as the target that keeps it. `remedy = "preserve"`,
   `placement = "append"` keeps the poster the producer drew, as at the subtype rows (ADR 1123);
-  `keep-everything` and `as-shown` answer it so, `as-if-printed` with `discard`. `FileAttachment`
-  stays refused: removing the annotation would take its file, which the entry below keeps.
+  `keep-everything` and `as-shown` answer it so, `as-if-printed` with `discard`.
+- **Built for `FileAttachment`** (ADR 2067 section 4): at PDF/A-4 and PDF/A-4e the annotation goes
+  in the same removal and under the same authorisation, and the file specification its `/FS` names
+  is filed in the `/EmbeddedFiles` tree under its own `/UF` or `/F`, so the paperclip goes and the
+  file stays — the entry below's answer, and `keep-attachment = true` is that construction rather
+  than a choice (`false` is refused by name). The appended page of ADR 1014 is not needed for the
+  file: the target holds an embedded file where it is, and only the icon's marks need a page, which
+  `preserve` with `placement = "append"` keeps as at the subtype rows (`as-shown`,
+  `keep-everything`). At plain PDF/A-4 the kept file is still held to section 6.9's
+  PDF/A-attachment rule, which is that row's question and was already asked of the input.
 
 - **Mitigation** — `discard` the annotation, **and keep what it pointed at wherever the target
   allows**. The `FileAttachment` case is the one worth stating: at plain PDF/A-4 the *annotation* is
@@ -2071,7 +2079,7 @@ ISO 19005-2 6.7.3.4 · PDF/A-2a · today **`supply` built** (ADR 1990 sections 6
 
 #### `logical-structure/catalog-language-identifier`
 #### `logical-structure/element-and-property-list-language-identifiers`
-ISO 19005-2 6.7.4 · PDF/A-2a · today `not-built-yet`
+ISO 19005-2 6.7.4 · PDF/A-2a · today **`discard` built, `supply` built** (ADRs 2066, 2067)
 
 - **Mitigation** — `supply` or `discard`. The `/Lang` value is not a valid language identifier;
   correcting it means deciding what language the producer meant (`A48`'s forbidden half) and
@@ -2082,8 +2090,15 @@ ISO 19005-2 6.7.4 · PDF/A-2a · today `not-built-yet`
   reader falls back on its own default.
 - **By target** — 2a only among the six; part 4 and Levels U and B state no language rule.
 - **From a configuration** — `remedy = "supply"`, `language = "de-DE"`, or `remedy = "discard"`. A
-  refinement worth having and cheap: `only-when = "malformed"` so a valid identifier is never
-  overwritten. The operator needs to know that the value will be asserted for the whole document.
+  valid identifier is never overwritten: only an entry the site fails at is written, so the
+  `only-when = "malformed"` refinement this entry once proposed is the construction rather than a
+  key. The operator needs to know that the value will be asserted for every such entry.
+- **Built**: `discard` writes §14.9.2.2's empty identifier, "to indicate that the language is
+  unknown", rather than removing the entry, because §14.9.2.3's inheritance would make a removal
+  assert the parent's language (ADR 2066); `supply` writes the operator's tag, held to BCP 47 when
+  the configuration is read. A property list inside a content stream is respelled in place, every
+  other byte of the stream as it was (ADR 2067). Refused by name: a structure element written
+  directly in its parent, a property list written directly in a resource dictionary.
 - **Departure** — **B**. A malformed `/Lang` is ignorable by a reader; the document still renders
   and still archives. Narrowable declaratively by where the entry sits — depart for a structure
   element's `/Lang`, enforce the catalog's — which matches how much each one costs.

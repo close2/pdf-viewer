@@ -56,7 +56,7 @@ impl Host {
                 if held == 0
                     && partial.is_none()
                     && (self.state.anticipated.is_some()
-                        || self.state.drawing.interval().is_some()) =>
+                        || self.state.drawing_interval().is_some()) =>
             {
                 vec![look.placed()]
             }

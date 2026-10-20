@@ -54,6 +54,7 @@ use viewer_host::trace::{Topic, Trace};
 
 mod archiving;
 mod drawing;
+pub use drawing::device_lane;
 mod find;
 mod forms;
 mod input;

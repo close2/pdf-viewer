@@ -88,6 +88,7 @@
 //! | [`retained`] | the stand-in's layer: a whole page drawn small while the thread is idle |
 //! | [`sharp`] | the settled view at twice the window's resolution, and what it may cost |
 //! | [`as_read`] | page one as it is drawn while it is read, uploaded for the window |
+//! | [`read_back`] | a window handed rasters: each page drawn on the device and read back |
 
 mod as_read;
 mod device;
@@ -95,6 +96,7 @@ mod device;
 mod gesture;
 mod lanes;
 mod processor;
+pub mod read_back;
 mod retained;
 mod sharp;
 mod thread;
@@ -111,6 +113,7 @@ use render_raster::{FrameCost, QuorraWindowRenderer};
 
 use lanes::Kept;
 pub use lanes::Prediction;
+pub use read_back::ReadBack;
 use sharp::Sharpened;
 pub use window::{Ungrounded, Window};
 

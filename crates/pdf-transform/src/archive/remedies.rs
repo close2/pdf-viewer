@@ -104,6 +104,8 @@ pub(super) struct Remedies {
     pub(super) supplied_profiles: BTreeMap<ObjectId, Object>,
     /// The role map entries the operator's table gives this document's unmapped structure types.
     pub(super) role_entries: Option<super::roles::RoleEntries>,
+    /// The language tag the operator gave each of section 6.7.4's two sites (`doc/adr/2066`).
+    pub(super) languages: BTreeMap<&'static str, String>,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
@@ -129,6 +131,7 @@ impl Remedies {
             configuration_names: ConfigurationNames::default(),
             supplied_profiles: BTreeMap::new(),
             role_entries: None,
+            languages: BTreeMap::new(),
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
@@ -392,6 +395,10 @@ impl Remedies {
                 self.supply_role_map(document, judgement.id, by_type);
                 return;
             }
+            Supplied::Language { tag } => {
+                self.supply_language(judgement, tag);
+                return;
+            }
         };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
@@ -577,6 +584,45 @@ impl Remedies {
         }
         self.role_entries = Some(entries);
         self.supply_sites.insert(site, Rewrite::RoleMapSupplied);
+    }
+
+    /// Either of section 6.7.4's two sites, answered by the operator's language tag.
+    ///
+    /// ISO 19005-2 section 6.7.4. Which language a malformed `/Lang` meant is not in the file, and
+    /// an archive of one producer's documents frequently does know it, so the operator states it
+    /// once and every entry at the site that is not an identifier states it instead. The places
+    /// are the validator's own findings, so the report names each one the site failed at; what
+    /// writes them is the same restatement the loss answer uses, with this tag as its value
+    /// (`doc/adr/2066`). A configuration's tag is held to BCP 47 when it is read.
+    fn supply_language(&mut self, judgement: &pdf_archive::Judgement, tag: &str) {
+        let site = judgement.id;
+        let Some(rewrite) = super::decision::rewrite_for(site) else {
+            return;
+        };
+        if let Outcome::Failed { places, total } = &judgement.outcome {
+            for finding in places {
+                self.supplied_report.push(SuppliedFact {
+                    site,
+                    subject: format!(
+                        "the Lang entry {}, which is not a language identifier",
+                        finding.place.name.as_deref().unwrap_or("stated")
+                    ),
+                    value: format!("the language identifier {tag}, from the operator's language"),
+                });
+            }
+            if *total > places.len() {
+                self.supplied_report.push(SuppliedFact {
+                    site,
+                    subject: format!(
+                        "{} further Lang entries past the validator's bound",
+                        total.saturating_sub(places.len())
+                    ),
+                    value: format!("the language identifier {tag}, from the operator's language"),
+                });
+            }
+        }
+        self.languages.insert(site, tag.to_owned());
+        self.supply_sites.insert(site, rewrite);
     }
 
     /// `optional-content/configuration-names`, answered by the operator's wording.

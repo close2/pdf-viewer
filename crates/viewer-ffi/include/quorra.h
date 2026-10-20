@@ -304,6 +304,82 @@ extern "C" {
 #define QUORRA_SCRIPT_ANSWER_UNANSWERABLE  2u
 
 /*
+ * The keys this program binds, as quorra_key_press takes them (viewer_host::keys, ADR 0526; RFC
+ * 0010 step N1, ADR 2072). A letter is the letter, not the keystroke: fold case before asking. PLUS
+ * is whichever key produces `+`, and EQUALS is bound as its equal. New keys are appended.
+ *
+ * QUORRA_KEY_COUNT is not part of quorra_abi_check: a key is a number the caller passes and one
+ * this build does not define is QUORRA_WRONG_KIND. A quorra_key_count() larger than it is a key
+ * this caller does not translate yet.
+ */
+#define QUORRA_KEY_A          0u
+#define QUORRA_KEY_C          1u
+#define QUORRA_KEY_F          2u
+#define QUORRA_KEY_H          3u
+#define QUORRA_KEY_K          4u
+#define QUORRA_KEY_L          5u
+#define QUORRA_KEY_M          6u
+#define QUORRA_KEY_O          7u
+#define QUORRA_KEY_P          8u
+#define QUORRA_KEY_R          9u
+#define QUORRA_KEY_S          10u
+#define QUORRA_KEY_T          11u
+#define QUORRA_KEY_W          12u
+#define QUORRA_KEY_Y          13u
+#define QUORRA_KEY_Z          14u
+#define QUORRA_KEY_ZERO       15u
+#define QUORRA_KEY_PLUS       16u
+#define QUORRA_KEY_MINUS      17u
+#define QUORRA_KEY_EQUALS     18u
+#define QUORRA_KEY_SLASH      19u
+#define QUORRA_KEY_QUESTION   20u
+#define QUORRA_KEY_ESCAPE     21u
+#define QUORRA_KEY_TAB        22u
+#define QUORRA_KEY_SPACE      23u
+#define QUORRA_KEY_ENTER      24u
+#define QUORRA_KEY_HOME       25u
+#define QUORRA_KEY_END        26u
+#define QUORRA_KEY_LEFT       27u
+#define QUORRA_KEY_RIGHT      28u
+#define QUORRA_KEY_UP         29u
+#define QUORRA_KEY_DOWN       30u
+#define QUORRA_KEY_PAGE_UP    31u
+#define QUORRA_KEY_PAGE_DOWN  32u
+#define QUORRA_KEY_COUNT 33u
+
+/*
+ * What is left for the window once quorra_key_press has acted: NOTHING (the events are the whole
+ * answer), SAY (quorra_key_said's sentence, where this window says things), or a job only a window
+ * can do — the same jobs, and in each window the same keys, as the three windows of this tree.
+ * SCROLL_BY moves the view by its `by`, in logical pixels; COPY is quorra_copy and then the
+ * platform's clipboard. quorra_act_name answers for any number, "unknown" for one this build does
+ * not define.
+ */
+#define QUORRA_ACT_NOTHING            0u
+#define QUORRA_ACT_SAY                1u
+#define QUORRA_ACT_SCROLL_BY          2u
+#define QUORRA_ACT_COPY               3u
+#define QUORRA_ACT_FIND               4u
+#define QUORRA_ACT_PANEL              5u
+#define QUORRA_ACT_RESTRICTIONS       6u
+#define QUORRA_ACT_NOTICES            7u
+#define QUORRA_ACT_PRESENT            8u
+#define QUORRA_ACT_PRINT              9u
+#define QUORRA_ACT_ARCHIVE            10u
+#define QUORRA_ACT_CHOOSE_ARCHIVE     11u
+#define QUORRA_ACT_LEAVE_FULL_SCREEN  12u
+#define QUORRA_ACT_NEXT_LAYOUT        13u
+#define QUORRA_ACT_FIT_CONTROLS       14u
+#define QUORRA_ACT_FREE_TEXT          15u
+#define QUORRA_ACT_MEASURE            16u
+#define QUORRA_ACT_ABORT_DRAWING      17u
+#define QUORRA_ACT_NEXT_DOCUMENT      18u
+#define QUORRA_ACT_CLOSE_DOCUMENT     19u
+#define QUORRA_ACT_OPEN_DOCUMENT      20u
+#define QUORRA_ACT_SEPARATIONS        21u
+#define QUORRA_ACT_COUNT 22u
+
+/*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per
  * control a toolkit has for the job rather than one per §12.7.5 type. `quorra_control_kind_name`
  * answers for any number, "unknown" for one this build does not define.
@@ -1165,6 +1241,35 @@ int32_t quorra_data_format_of_media_type(const char *media_type, uint32_t *forma
 int32_t quorra_data_format_of_name(const char *name, uint32_t *format);
 
 /* ------------------------------------------------------------------------------------------- */
+/* The keyboard: what a press means once it reached the page (RFC 0010 step N1, ADR 2072).        */
+/* ------------------------------------------------------------------------------------------- */
+
+/*
+ * A key press that reached the page — a field being typed into, an open find bar and a modal card
+ * take the keyboard first, and which has it is the caller's. `key` is QUORRA_KEY_*; `shift` and
+ * `command` are what was held, `command` being the platform's command modifier: Control here,
+ * Command on macOS. `present` is QUORRA_PRESENT_ON while the window is full screen for §12.4.4's
+ * presentation, and `warned` is true while the window is saying that a draw is taking long.
+ *
+ * Asked as every window asks: Space and Enter press a push-button §12.5.1's focus is on, then the
+ * shared table decides. A command it means is sent here, and `events` is what that produced; what
+ * only the window can do is `act`, QUORRA_ACT_*, with SCROLL_BY's distance in `by` (0 otherwise;
+ * `by` may be NULL). A Control the table does not bind means nothing (ADR 1192). A key or a
+ * `present` this build does not define is QUORRA_WRONG_KIND and nothing is sent.
+ */
+int32_t quorra_key_press(quorra_viewer *viewer, uint32_t key, bool shift, bool command,
+                         uint32_t present, bool warned, uint32_t *act, float *by,
+                         quorra_events **events);
+/* The sentence the last quorra_key_press answered QUORRA_ACT_SAY for, two-call idiom: a markup key
+ * with nothing selected, a push-button the document locked. QUORRA_NO_ANSWER where it owed none. */
+int32_t quorra_key_said(const quorra_viewer *viewer, char *out, size_t cap, size_t *needed);
+/* The counts this library has, against QUORRA_KEY_COUNT and QUORRA_ACT_COUNT, and an act's name.
+ * Static; never freed. */
+uint32_t    quorra_key_count(void);
+uint32_t    quorra_act_count(void);
+const char *quorra_act_name(uint32_t act);
+
+/* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */
 /* ------------------------------------------------------------------------------------------- */
 
@@ -1255,6 +1360,11 @@ int32_t quorra_event_submit_url(const quorra_events *events, size_t index, char 
                                 size_t *needed);
 int32_t quorra_event_submit_media_type(const quorra_events *events, size_t index, char *out,
                                        size_t cap, size_t *needed);
+/* A SUBMIT's owed sentences: what the action asked for that its composition does not do, one each,
+ * to print beside the request. QUORRA_EVENT_REPORTED carries them too, named by the button. */
+int32_t quorra_event_submit_owed_count(const quorra_events *events, size_t index, size_t *count);
+int32_t quorra_event_submit_owed(const quorra_events *events, size_t index, size_t owed, char *out,
+                                 size_t cap, size_t *needed);
 /* A SCRIPT_ASKING's question: QUORRA_SCRIPT_QUESTION_*, and for an alert its QUORRA_ALERT_ICON_*,
  * QUORRA_ALERT_BUTTONS_* and the QUORRA_ALERT_BUTTON_* a dialogue closed without a press answers
  * with; for a response `password` says the entry is a password's (shown as bullets, never said

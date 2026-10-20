@@ -1,16 +1,38 @@
 //! The drawing thread: the pages and windows it has finished taken back and answered for, the
 //! rows a person sees drawn first, and a draw that outlasts its warning said (ADRs 0668, 1868,
-//! 1892; filed here by ADR 1908).
+//! 1892; filed here by ADR 1908). And the graphics device beside it, whose pages are read back and
+//! taken in on the same poll (ADR 2070).
 
 use std::collections::VecDeque;
 
 use viewer_core::{Answer, Query};
+use viewer_device::renderer::ReadBack;
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use super::Host;
 
+/// The graphics device for a window of this program, brought up now on a thread of its own.
+///
+/// **No wake**: the device's pages are taken in on the drawing poll, whose interval includes the
+/// device's while a page is out (`viewer_host::native_window::WindowState::drawing_interval`). A
+/// wake would be a call from the device's thread into `QApplication::exec`, and there is no such
+/// path that does not cost this crate a second hand-written `unsafe` token — `drawing_wait`'s own
+/// reason (ADRs 0668, 2070).
+#[must_use]
+pub fn device_lane() -> ReadBack {
+    let mut lane = ReadBack::new(None);
+    lane.bring_up();
+    lane
+}
+
 impl Host {
+    /// Draws this window's pages on the graphics device and reads each back, in the lane its
+    /// prediction gives it, from now on (ADR 2070).
+    pub fn draw_on_the_device(&mut self, lane: ReadBack) {
+        self.state.lane = Some(Box::new(lane));
+    }
+
     /// The C++ side finished putting a frame on the screen, with what the copy cost.
     pub(crate) fn painted(&mut self, bytes: usize, nanos: u64) {
         self.state.trace.say(
@@ -87,7 +109,7 @@ impl Host {
             .submitter
             .interval()
             .or(self.state.converter.interval());
-        let interval = match (self.state.drawing.interval(), looking) {
+        let interval = match (self.state.drawing_interval(), looking) {
             (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
             (drawing, submitting) => drawing.or(submitting),
         };

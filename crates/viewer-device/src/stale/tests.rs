@@ -1556,8 +1556,14 @@ fn nothing_a_judge_is_built_from_knows_what_a_reprojection_is() {
 /// that comes to draw through this crate is added to `WINDOWS` by the round that argues it.
 #[test]
 fn nothing_but_a_window_depends_on_the_library_that_holds_the_stand_ins() {
-    /// The manifests that may name this crate: the workspace's table of versions, and `quorra`'s.
-    const WINDOWS: [&str; 2] = ["Cargo.toml", "crates/viewer-ui/Cargo.toml"];
+    /// The manifests that may name this crate: the workspace's table of versions, `quorra`'s, and
+    /// the two toolkit windows', which draw their pages on the device and read them back (ADR 2070).
+    const WINDOWS: [&str; 4] = [
+        "Cargo.toml",
+        "crates/viewer-ui/Cargo.toml",
+        "crates/viewer-gtk/Cargo.toml",
+        "crates/viewer-qt/Cargo.toml",
+    ];
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()

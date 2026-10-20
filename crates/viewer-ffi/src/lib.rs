@@ -133,6 +133,7 @@ pub mod abi;
 pub mod answers;
 mod events;
 pub mod form;
+mod keyboard;
 mod kinds;
 mod panels;
 mod session;
@@ -144,6 +145,7 @@ pub use answers::{
 };
 pub use events::{Events, ScriptQuestionNumbers, Searched, TransitionNumbers};
 pub use form::Form;
+pub use keyboard::{ActKind, KeyKind};
 pub use kinds::{
     AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
     BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,

@@ -1275,3 +1275,55 @@ is a few percent of that. Price the walk's thread by itself — its instructions
 or its wall under the lock with the makers pinned — and read a per-element cost against the element
 count before calling it small.
 
+## 129. "Build on the fork's `main`" is checked against the pin before a commit is made there
+
+Round 1619 was told to put the T.88 patches on `close2/hayro`'s `main`; that branch turned out to be
+thirty-one commits behind the commit this tree pins, with its own JPEG 2000 work on top, so a branch there
+would have carried a sibling codec backwards past the release the tree depends on (ADR 2074). Before
+building on any branch of a fork, ask `git merge-base --is-ancestor <pinned commit> <branch>`; where the
+answer is no, build on the pin itself — the base each patch header already names — and say so.
+
+## 130. A teaching walk's example strings are produced by running the code
+
+Round 1621 wrote the third walk with every readback, selection and clipboard string taken from a run —
+the readback example, and a C program against the ABI for the drag and both copies — rather than worked
+out by hand from the clauses (ADR 2078); the second way that touches no crate is `rustc --extern`
+against the batch target's rlibs, choosing the hashes that compile together. A string worked out by hand
+is a claim about the code that nothing checks, and the walk's reader cannot tell it from a measurement;
+a string from a run is wrong only where the code is, which is the kind of wrong a walk is allowed to be.
+
+## 131. A decision a window makes around the shared key table moves into `viewer-host` before a fourth host copies it
+
+The sentence a markup key owes when nothing is selected — "select some text first", with §12.5.6.10's
+reason — is written in `viewer-gtk`, `viewer-qt`, `quorra` and, since round 1618, `viewer-ffi`'s key
+layer (ADR 2072), beside the one `viewer_host::meaning` the four share. The key table was moved into
+`viewer-host` so that the windows would not each decide a press; a decision made around it in one
+window is the same kind of thing, and the third copy is the signal to move it, the fourth the cost of
+not having. Before adding a host, grep the windows for what they decide after `meaning` returns and move
+it first.
+
+## 132. A split that moves code one module down rewrites every `super::`, not only the `use` block
+
+Moving a body into a child module changes what `super` means for every path in it: round 1622's first
+pass rewrote the `use super::` block and missed the `super::`-prefixed paths inside expressions — the ones
+preceded by `(` — and the compiler found them (ADRs 2080, 2081). A split script treats `super::` as a
+token to rewrite wherever it stands, or rewrites to `crate::`-rooted paths that mean the same at any
+depth; `cargo check` after the move is the gate, and a path the compiler accepts because it happens to
+resolve to a different item of the same name is the case the script's assertion is for.
+
+## 133. A site identifier is checked against `--remedy-sites` before a census walk is spent on it
+
+Round 1615's first `--who` census named a FileAttachment site by a guessed identifier, printed no witness
+and cost a second 220-second walk (ADR 2067). The site identifiers are printed by `tools/state.sh
+--remedy-sites` in a few seconds; a census that takes a guessed one is a measurement of nothing, and
+its empty answer looks like a corpus with no such document. Read the identifier off the list, paste it,
+then walk.
+
+## 134. A census's first-match reason is checked by freeing that reason alone
+
+Round 1616's cut census labelled 21 020 refused marks by the first class each matched — "zero-length
+subpath", "curved", "extent past range" — and the labels said three causes where there was one: with the
+range condition alone changed, every row became legal (ADR 2068). A first-match label is the order of the
+checks, not the cause; before building for the labelled reasons, free each candidate reason by itself and
+count what the census then admits — the reason whose freeing admits everything is the one to build for.
+

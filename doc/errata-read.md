@@ -967,7 +967,7 @@ resource dictionary in force is the **parent's** — the group's content stream 
 the published sentence can be read either way, and the two readings pick different `/DefaultCMYK`
 entries whenever a form states one its page does not. `content/xobject.rs` resolves a form's
 `/Resources` and passes it as `form_resources`, falling back to the parent's only where the entry is
-absent, and `content/transparency.rs`'s `press_for_entry` and `named_press` take that dictionary —
+absent, and `content/transparency/press.rs`'s `press_for_entry` and `named_press` take that dictionary —
 so this tree has read the group's own since the construction was built, on nobody's stated
 authority. It now has the clause's. Recorded in §11.6.6's row and in `named_press`'s own comment.
 

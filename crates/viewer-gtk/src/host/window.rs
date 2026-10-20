@@ -83,8 +83,15 @@ impl Host {
     /// Puts the caption in the title bar.
     pub(super) fn retitle(&self) {
         let mark = if self.state.showing.dirty { "• " } else { "" };
+        // ADR 1831's sentence, where a page was drawn on the processor rather than the device.
+        let lane = self
+            .state
+            .lane
+            .as_ref()
+            .and_then(|lane| lane.title())
+            .map_or_else(String::new, |lane| format!(" — {lane}"));
         self.ui.window.set_title(Some(&format!(
-            "{mark}{} — {}",
+            "{mark}{} — {}{lane}",
             self.named(),
             self.state.showing.caption
         )));

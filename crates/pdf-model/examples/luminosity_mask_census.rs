@@ -18,7 +18,7 @@
 //! # The blend mode inside such a group
 //!
 //! §11.5.3 leaves one residue that changes a pixel, and
-//! [`crate::content::transparency::note_blended_luminosity`] — `content/transparency.rs` — is
+//! `content/transparency/soft_mask.rs`'s `note_blended_luminosity` — is
 //! what reports it: a **non-`Normal` blend mode inside a mask group whose channel carries more
 //! than one component**, where §11.3.5.2's per-component function meets the single weighted
 //! average this tree paints such a group in. §11.5.3's ledger row called that "a report with no

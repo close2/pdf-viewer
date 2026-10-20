@@ -84,7 +84,7 @@ mod host;
 mod keys;
 mod page;
 
-pub use host::{Host, HostError};
+pub use host::{Host, HostError, device_lane};
 
 /// Builds the Qt window around a host, shows it, and runs the application.
 ///

@@ -16,6 +16,10 @@ pdf-render.workspace = true
 # Tier 1: the host rasterises. `render-cpu` is what does it here, and ADR 0246 says why a
 # Qt Widgets host has no other tier available to it either.
 render-cpu.workspace = true
+# The graphics device, on a thread of its own, each page drawn and read back into the same
+# `Raster` the processor hands over (ADR 2049's Q1, ADR 2070). It names no toolkit (ADR 2055),
+# and a window naming it is the direction ADR 2053's rule allows.
+viewer-device.workspace = true
 # §6.3.2.2's `WidgetAppearances`, and §12.7.5's `Control` behind `viewer-host`'s decision.
 pdf-model.workspace = true
 # §12.5.6.5's link targets and §8.11's groups are named by object identity.

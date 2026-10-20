@@ -642,6 +642,22 @@ impl Events {
         }
     }
 
+    /// [`Event::Submit`]'s owed sentences: what the action asked for that its composition does
+    /// not do, one each, which a host prints beside the request (ADR 2072).
+    ///
+    /// The same sentences reach [`Event::Reported`] prefixed with the button that submitted; these
+    /// are the request's own, for a caller that shows a submission before it is sent.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn submit_owed(&self, index: usize) -> Result<&[String], Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Submit { submission, .. } => Ok(&submission.owed),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
     /// [`Event::ScriptAsking`]'s question, in Adobe's numbers: which of the two it is, an
     /// alert's icon, its buttons and the button a dialogue closed without a press answers with,
     /// and whether a response's entry is a password's. What does not apply is `None`.
@@ -938,7 +954,7 @@ mod tests {
                 media_type: "application/vnd.fdf".to_owned(),
                 body: b"%FDF-1.2".to_vec(),
                 fields: 2,
-                owed: Vec::new(),
+                owed: vec!["Table 240 bit 11 is owed".to_owned()],
             }),
         }]);
         assert_eq!(
@@ -951,7 +967,12 @@ mod tests {
             ))
         );
         assert_eq!(events.bytes(0), Ok(&b"%FDF-1.2"[..]));
+        assert_eq!(
+            events.submit_owed(0),
+            Ok(&["Table 240 bit 11 is owed".to_owned()][..])
+        );
         assert_eq!(opened().submit(0).map(|_| ()), Err(Status::WrongKind));
+        assert_eq!(opened().submit_owed(0), Err(Status::WrongKind));
     }
 
     /// A script's question crosses in Adobe's numbers, with the button a closed dialogue answers

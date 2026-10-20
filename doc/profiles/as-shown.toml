@@ -70,8 +70,10 @@ placement = "append"       # the window drew its poster; keep those marks as the
 on-failure = "stop"
 
 [site."annotations/file-attachment-only-in-embedded-file-files"]
-remedy = "discard"
-keep-attachment = true     # the paperclip goes; a conforming attachment stays in the name tree
+remedy = "preserve"
+placement = "append"       # the window drew its icon; keep those marks as the rows above do
+on-failure = "stop"
+keep-attachment = true     # the annotation goes and its file stays in the name tree (ADR 2067)
 
 [site."annotations/printable-and-visible"]
 remedy = "stop"
@@ -228,6 +230,19 @@ unmapped = "discard"
 [site."file-structure/document-information-dictionary-needs-piece-info"]
 remedy = "preserve"
 unmapped = "discard"
+
+# ---------------------------------------------------------------------------------------------
+# Language. A Lang entry is read by a screen reader and an indexer, never drawn. One that is not a
+# language identifier is restated as ISO 32000-2 14.9.2.2's empty identifier, the language
+# unknown; the producer's malformed spelling is what goes, and the report names each (ADR 2066).
+# Binds PDF/A-2a alone.
+# ---------------------------------------------------------------------------------------------
+
+[site."logical-structure/catalog-language-identifier"]
+remedy = "discard"
+
+[site."logical-structure/element-and-property-list-language-identifiers"]
+remedy = "discard"
 
 # ---------------------------------------------------------------------------------------------
 # Optional content. The window drew the default configuration's view state, which both parts

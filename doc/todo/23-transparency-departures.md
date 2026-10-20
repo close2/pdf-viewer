@@ -44,7 +44,7 @@ Priority: 23
 Corpus: 0 documents
 Clauses: §11.3.5.3, §11.3.7.2, §11.4.4, §11.4.6, §11.5.3, §11.6.4.3, §11.6.4.4, §11.6.6, §11.7.5.3,
 §8.6.5.5, §8.6.5.6, §8.6.5.7, §11.7.2, §14.11.5
-Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-colour/src/colour.rs`,
+Code: `crates/pdf-model/src/content/transparency.rs` and `transparency/`, `crates/pdf-colour/src/colour.rs`,
 `crates/pdf-render/src/blending.rs`, `crates/pdf-render/src/display_list.rs`,
 `crates/render-cpu/src/groups.rs`, `crates/render-cpu/src/soft_mask.rs`
 
@@ -561,7 +561,7 @@ follow-up rather than taken.
 
 **ADR 1000 §7 priced a form `XObject`'s non-isolated knockout group whose elements blend as
 route 2's argument "extended unchanged", and that is how it is drawn
-(ADR 1009).** `transparency::knockout_construction` tries the three constructions in the order
+(ADR 1009).** `transparency::knockout::knockout_construction` tries the three constructions in the order
 `implicit_knockout_group` does — transparency, the mode at the `Do`, the group's own backdrop —
 and the second is tried before the third because every backend draws it. Two things the pricing
 did not say are needed, and both come from reading the derivation for what it needs rather than
@@ -672,7 +672,7 @@ naming one is the document's failure and not a route anything here owes.
 Nor is anything left non-representable. `pdf_render::ColourCube` is per-axis input curves, a
 `side³` grid and an output curve — a sampled lookup, not an affine map — so it carries a
 non-affine conversion as readily as a linear one. What it carries *badly* now has a number.
-`transparency::into_parent_cube` samples `parent_channels` at `INTO_PARENT_SIDE` = 33 with
+`transparency::into_parent::into_parent_cube` samples `parent_channels` at `INTO_PARENT_SIDE` = 33 with
 **identity** input curves, which puts the whole conversion in the grid. Against evaluating that
 conversion directly — worst of 200 000 uniformly random colours, in levels of 255:
 

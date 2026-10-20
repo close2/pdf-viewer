@@ -29,11 +29,13 @@
 //! and S to save — because §12.7.4.3's commit runs where the scripts are, inside the confinement,
 //! and a boundary nobody can type across has not been shown to carry it (ADR 1592). What is complete is the part no other window has at all: every page on the screen came
 //! out of the sandboxed process, on both of ADR 0607's arms, with the drawing of the marks arm
-//! interruptible and the worker killable from the keyboard. A link to another program and a file
-//! the document names are put to the reader at the level `--links=` and `--remote-documents=` set,
-//! as in the other three windows, on a card answered by Enter and Escape (`asking`, ADR 2040); what
-//! this window still cannot serve — a form sent to a server, a file imported from one — is refused
-//! **by name**, on standard error, never quietly.
+//! interruptible and the worker killable from the keyboard. A link to another program, a file the
+//! document names, a form sent to a server and form data fetched from one are put to the reader at
+//! the level `--links=`, `--remote-documents=` and `--submissions=` set, as in the other three
+//! windows, on a card answered by Enter and Escape (`asking`, ADR 2040); the form is composed in
+//! the worker, sent from this side, and the server's answer handed back to the worker to import
+//! (`sending`, ADR 2076). What this window still cannot serve — a second document beside the one
+//! it holds — is refused **by name**, on standard error, never quietly.
 //!
 //! # When the worker dies without being asked to
 //!
@@ -96,6 +98,8 @@ mod exchange;
 mod pricing;
 #[path = "quorra-confined/screen.rs"]
 mod screen;
+#[path = "quorra-confined/sending.rs"]
+mod sending;
 #[path = "quorra-confined/typing.rs"]
 mod typing;
 
@@ -164,10 +168,14 @@ struct Arguments {
     /// §12.6.4.3: what it does when a document names another PDF file, per
     /// [`viewer_host::REMOTE_DOCUMENTS`].
     remote_documents: viewer_host::RemoteDocuments,
+    /// §12.7.6.2's form and an import named by an absolute URI, per [`viewer_host::SUBMISSIONS`]
+    /// (ADR 2076).
+    submissions: viewer_host::Submissions,
 }
 
 /// What the usage line names, after the program's name.
-const USAGE: &str = "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R]";
+const USAGE: &str =
+    "[--trace[=topics]] [--cpu] [--links=L] [--remote-documents=R] [--submissions=S]";
 
 /// A message's `Debug` form cut to a line, for the trace.
 ///
@@ -203,6 +211,7 @@ fn arguments() -> Arguments {
     let mut reader = viewer_host::ReaderWords::default();
     let mut links = viewer_host::Links::default();
     let mut remote_documents = viewer_host::RemoteDocuments::default();
+    let mut submissions = viewer_host::Submissions::default();
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         let taken = reader
@@ -227,6 +236,11 @@ fn arguments() -> Arguments {
             });
         } else if let Some(level) = argument.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
             remote_documents = viewer_host::remote_documents(level).unwrap_or_else(|complaint| {
+                eprintln!("{complaint}");
+                std::process::exit(2);
+            });
+        } else if let Some(level) = argument.strip_prefix(viewer_host::SUBMISSIONS) {
+            submissions = viewer_host::submissions(level).unwrap_or_else(|complaint| {
                 eprintln!("{complaint}");
                 std::process::exit(2);
             });
@@ -277,6 +291,7 @@ fn arguments() -> Arguments {
         reader,
         links,
         remote_documents,
+        submissions,
     }
 }
 
@@ -357,6 +372,10 @@ struct Host {
     /// read them (ADR 2040).
     links: viewer_host::Links,
     remote_documents: viewer_host::RemoteDocuments,
+    /// §12.7.6.2's level, read off the command line as the other three windows read it, and the
+    /// requests sent under it that have not been answered yet (ADR 2076).
+    submissions: viewer_host::Submissions,
+    submitter: viewer_host::submit::Submitter,
     /// The *ask* level's card — the flagship's, reused whole — and what it is asking about.
     ///
     /// While it is shown it has the keyboard and the pointer, as the password card does.
@@ -478,6 +497,8 @@ impl Host {
             report_due: viewer_host::report::Due::default(),
             links: viewer_host::Links::default(),
             remote_documents: viewer_host::RemoteDocuments::default(),
+            submissions: viewer_host::Submissions::default(),
+            submitter: viewer_host::submit::Submitter::new(),
             question: QuestionCard::default(),
             asked: None,
             offered: None,
@@ -886,28 +907,12 @@ impl Host {
             // §12.6.4.8: the same policy the other three windows ask, at the level this window was
             // started at, and the *ask* level's question on the card (ADRs 1079, 1155, 2040).
             Event::OpenUri { uri, .. } => self.open_uri(&uri),
-            // §12.7.6.2: composed by the confined process and declined here at
-            // `Submissions::Refuse`. The *ask* level's card exists now (ADR 2040); what this pin
-            // still waits for is a sender on this side and the `--submissions=` word, which this
-            // window has never had (ADRs 1062, 1291, 1527).
-            Event::Submit { submission, .. } => {
-                let why =
-                    match viewer_host::may_submit(&submission, viewer_host::Submissions::Refuse) {
-                        viewer_host::Sending::Refuse(why) => why,
-                        // Unreachable at this level and said rather than ignored, because a level that
-                        // grew a question this window cannot put would otherwise go quiet (trap 5).
-                        viewer_host::Sending::Ask(words) => {
-                            viewer_host::unanswerable(&[words.reasons])
-                        }
-                        viewer_host::Sending::Send | viewer_host::Sending::Warn(_) => {
-                            "this window sends no form to a server (ADR 1291)".to_owned()
-                        }
-                    };
-                eprintln!(
-                    "{}",
-                    viewer_host::policy::submission_note(&submission, Some(&why))
-                );
-            }
+            // §12.7.6.2: composed by the confined process and sent from this one, at the level
+            // `--submissions=` set and on the card at `ask` (ADRs 1291, 2040, 2076).
+            Event::Submit {
+                document,
+                submission,
+            } => self.submit(document, *submission),
             // A file the document asks for is a question about *this* machine's filesystem
             // (rule 2), and this window supplies none: said, not swallowed — and **answered**,
             // which is the half that was missing. `Command::Supply` with no bytes is what tells
@@ -919,27 +924,24 @@ impl Host {
             // `--remote-documents=` set, as in the other three windows (ADRs 1227, 1239, 2040);
             // §12.7.6.4's own file is the rest of this arm.
             //
-            // An import named by an absolute URI is refused at every level here, whatever
-            // `--submissions=` would say elsewhere: this window has no network (ADR 1527).
+            // An import named by an absolute URI is fetched from this side, under the level a
+            // submission is sent at, as in the other three windows (ADRs 1527, 2076).
             Event::NeedsFile { purpose, name, .. }
                 if viewer_host::under_remote_documents(purpose) =>
             {
                 self.needs_remote(purpose, &name);
             }
+            Event::NeedsFile {
+                document,
+                purpose: viewer_core::Purpose::ImportData,
+                name,
+                ..
+            } if viewer_host::import_is_fetched(&name) => self.fetch_import(document, name),
             Event::NeedsFile { purpose, name, .. } => {
-                let why = if purpose == viewer_core::Purpose::ImportData
-                    && viewer_host::import_is_fetched(&name)
-                {
-                    format!(
-                        "this window has no network, so it fetches nothing a document names, at \
-                         any level. The document asked for {name}"
-                    )
-                } else {
-                    format!(
-                        "this window supplies no file a document names, and has no dialogue to \
-                         ask you about one. The document asked for {name}"
-                    )
-                };
+                let why = format!(
+                    "this window supplies no file a document names, and has no dialogue to ask \
+                     you about one. The document asked for {name}"
+                );
                 eprintln!("{}", viewer_host::policy::supply_note(purpose, &why));
                 self.dispatch(Command::Supply {
                     purpose,
@@ -947,15 +949,16 @@ impl Host {
                 });
             }
             // §12.8.3.4.4's policy, whose published copy is a server's: declined at every level
-            // here, for the fetched import's reason above — this window has no network (ADR 1738).
+            // here, because what a fetched copy is for is a document opened beside the one that
+            // named it, and this window holds one (ADRs 1738, 2076).
             Event::SignaturePoliciesPublished { policies, .. } => {
                 for policy in &policies {
                     eprintln!(
                         "{}",
                         viewer_host::policy::signature_policy_declined(
                             policy,
-                            "this window has no network, so it fetches nothing a document names, \
-                             at any level"
+                            "this window holds one document and opens no copy beside it, so it \
+                             fetches none, at any level"
                         )
                     );
                 }
@@ -1989,6 +1992,8 @@ impl ApplicationHandler for Host {
         if let Some(reopen) = self.resume.take() {
             self.reopen(reopen);
         }
+        // A server's answer, handed to the worker — held behind a busy one like any command.
+        self.take_the_answers();
         // What the reader did while the worker was busy, now that it is not.
         if !self.busy() && !self.held.is_empty() {
             self.release_held();
@@ -2057,6 +2062,22 @@ impl ApplicationHandler for Host {
         if self.chrome.as_ref().is_some_and(Chrome::take_arrivals) {
             self.redraw();
         }
+        match self
+            .next_look()
+            .and_then(|after| Instant::now().checked_add(after))
+        {
+            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
+        }
+    }
+}
+
+impl Host {
+    /// How long the loop may sleep before something is owed a look, or `None` where nothing is:
+    /// a drawing, a face being searched for or a device frame at `viewer_host::drawing::POLL`, a
+    /// command still out at its own tick, and a request on the wire at `viewer_host::submit::LOOK`
+    /// (`sending`).
+    fn next_look(&self) -> Option<Duration> {
         let waiting = self.drawing.interval().is_some()
             || self.chrome.as_ref().is_some_and(Chrome::searching)
             || matches!(
@@ -2068,9 +2089,9 @@ impl ApplicationHandler for Host {
         } else {
             self.exchange_tick()
         };
-        match next.and_then(|after| Instant::now().checked_add(after)) {
-            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
-            None => event_loop.set_control_flow(ControlFlow::Wait),
+        match (next, self.submitter.interval()) {
+            (Some(soon), Some(look)) => Some(soon.min(look)),
+            (soon, look) => soon.or(look),
         }
     }
 }
@@ -2085,11 +2106,13 @@ fn main() {
         reader,
         links,
         remote_documents,
+        submissions,
     } = arguments();
     let mut host = Host::new(path, topics, processor, faces, began);
     host.reader = reader;
     host.links = links;
     host.remote_documents = remote_documents;
+    host.submissions = submissions;
     host.anticipate();
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -2380,6 +2403,149 @@ mod tests {
             "the link's question is still the one up"
         );
         std::fs::remove_dir_all(&directory).expect("the scratch directory goes");
+    }
+
+    /// §12.7.6.2's request as the worker raises it, to `url`.
+    fn submits_to(url: &str) -> Event {
+        Event::Submit {
+            document: DocumentId(0),
+            submission: Box::new(pdf_model::submission::Submission {
+                url: url.to_owned(),
+                method: pdf_model::submission::Method::Post,
+                format: pdf_model::submission::Format::Fdf,
+                media_type: "application/vnd.fdf".to_owned(),
+                body: b"%FDF-1.2\n".to_vec(),
+                fields: 1,
+                owed: Vec::new(),
+            }),
+        }
+    }
+
+    /// A listener on this machine that answers one request with §12.7.8.1's media type, and hands
+    /// back the request's first line — the transmission under test goes nowhere else.
+    fn one_answer() -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{BufRead as _, Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = listener.local_addr().expect("its address").port();
+        let served = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("the window's request");
+            let mut reading = std::io::BufReader::new(stream.try_clone().expect("a second handle"));
+            let mut first = String::new();
+            reading.read_line(&mut first).expect("the request line");
+            let mut length = 0usize;
+            loop {
+                let mut header = String::new();
+                reading.read_line(&mut header).expect("a header");
+                if header.trim().is_empty() {
+                    break;
+                }
+                if let Some(value) = header.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().expect("a length");
+                }
+            }
+            let mut body = vec![0; length];
+            reading.read_exact(&mut body).expect("the body");
+            let answer = b"%FDF-1.2\n";
+            let mut stream = stream;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.fdf\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n",
+                answer.len()
+            )
+            .expect("the answer's head");
+            stream.write_all(answer).expect("the answer's body");
+            first
+        });
+        (format!("http://127.0.0.1:{port}/submit"), served)
+    }
+
+    /// The answers that come back within ten seconds, collected as the loop collects them.
+    fn answers_of(host: &mut Host) -> usize {
+        let began = Instant::now();
+        let mut arrived = 0usize;
+        while host.submitter.interval().is_some() && began.elapsed().as_secs() < 10 {
+            std::thread::sleep(viewer_host::submit::LOOK);
+            arrived = arrived.saturating_add(host.submitter.collect().len());
+        }
+        arrived
+    }
+
+    /// At the default level, `ask`, a form goes on the card, and Enter sends it from this side:
+    /// the listener reads a POST and the answer comes back to be handed to the worker (ADR 2076).
+    /// Before it the window was pinned to `refuse`, so the discriminating assertions are the card
+    /// and the request the listener read.
+    #[test]
+    fn a_form_at_ask_is_put_on_the_card_and_sent_on_a_yes() {
+        let (url, served) = one_answer();
+        let mut host = a_host();
+        host.event(submits_to(&url));
+        assert!(host.question.shown, "the question is up");
+        assert!(
+            host.submitter.interval().is_none(),
+            "nothing is sent while it stands"
+        );
+        host.press(&Key::Named(NamedKey::Enter));
+        assert!(!host.question.shown, "the card came down");
+        assert!(host.submitter.interval().is_some(), "the request is out");
+        assert_eq!(answers_of(&mut host), 1, "and its answer came back");
+        let first = served.join().expect("the listener answered");
+        assert!(first.starts_with("POST /submit "), "was {first:?}");
+    }
+
+    /// Escape on the card sends nothing.
+    #[test]
+    fn a_form_answered_no_is_not_sent() {
+        let mut host = a_host();
+        host.event(submits_to("http://127.0.0.1:9/submit"));
+        assert!(host.question.shown, "the question is up");
+        host.press(&Key::Named(NamedKey::Escape));
+        assert!(!host.question.shown, "the card came down");
+        assert!(host.submitter.interval().is_none(), "nothing went out");
+    }
+
+    /// At `refuse` nothing is asked and nothing is sent; at `send` nothing is asked and the
+    /// request goes out — the two levels that need no card, the first of them the control.
+    #[test]
+    fn a_form_at_refuse_is_not_sent_and_at_send_is_not_asked() {
+        let mut host = a_host();
+        host.submissions = viewer_host::Submissions::Refuse;
+        host.event(submits_to("http://127.0.0.1:9/submit"));
+        assert!(!host.question.shown, "no question at refuse");
+        assert!(host.submitter.interval().is_none(), "and nothing sent");
+
+        let (url, served) = one_answer();
+        host.submissions = viewer_host::Submissions::Send;
+        host.event(submits_to(&url));
+        assert!(!host.question.shown, "no question at send");
+        assert_eq!(answers_of(&mut host), 1, "sent, and answered");
+        assert!(
+            served
+                .join()
+                .expect("answered")
+                .starts_with("POST /submit ")
+        );
+    }
+
+    /// An import named by an absolute URI is asked at the submissions level and fetched on a
+    /// `yes`, as in the other three windows (ADRs 1527, 2076).
+    #[test]
+    fn an_import_named_by_a_uri_is_asked_and_fetched_on_a_yes() {
+        let (url, served) = one_answer();
+        let mut host = a_host();
+        host.event(Event::NeedsFile {
+            document: DocumentId(0),
+            purpose: viewer_core::Purpose::ImportData,
+            name: url.clone(),
+            beside: false,
+        });
+        assert!(
+            matches!(&host.asked, Some(super::asking::Asked::Fetch { url: asked, .. }) if *asked == url),
+            "the fetch is the question up"
+        );
+        host.press(&Key::Named(NamedKey::Enter));
+        assert_eq!(answers_of(&mut host), 1, "fetched, and answered");
+        assert!(served.join().expect("answered").starts_with("GET /submit "));
     }
 
     /// A refusal that leaves the worker alive is not a death: nothing is restarted and the window

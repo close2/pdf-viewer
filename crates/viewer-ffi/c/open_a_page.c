@@ -748,6 +748,128 @@ static int exercise_the_eight_commands(quorra_viewer *viewer)
     return 1;
 }
 
+/* One press with nothing held, as the window stands: reading, no draw warned about. */
+static int press(quorra_viewer *viewer, uint32_t key, bool command, uint32_t present, bool warned,
+                 uint32_t *act, float *by, quorra_events **events)
+{
+    return check("quorra_key_press",
+                 quorra_key_press(viewer, key, false, command, present, warned, act, by, events));
+}
+
+/*
+ * viewer_host::keys' table through quorra_key_press (RFC 0010 step N1, ADR 2072): the counts, the
+ * acts five of the windows' keys come to, the sentence a markup key owes with nothing selected,
+ * and Space on the push-button the Tab key reached, whose submission carries its owed sentence.
+ */
+static int exercise_the_keyboard(quorra_viewer *viewer)
+{
+    printf("keys %u (header %u), acts %u (header %u), unknown is %s\n", quorra_key_count(),
+           QUORRA_KEY_COUNT, quorra_act_count(), QUORRA_ACT_COUNT, quorra_act_name(999u));
+    if (quorra_key_count() != QUORRA_KEY_COUNT || quorra_act_count() != QUORRA_ACT_COUNT) {
+        return 0;
+    }
+    quorra_events *said = NULL;
+    uint32_t act = 99u;
+    float by = 0.0f;
+    if (quorra_key_press(viewer, 99u, false, false, QUORRA_PRESENT_OFF, false, &act, &by, &said)
+            != QUORRA_WRONG_KIND
+        || quorra_key_press(viewer, QUORRA_KEY_F, false, false, 7u, false, &act, &by, &said)
+               != QUORRA_WRONG_KIND) {
+        fprintf(stderr, "a key or a presentation state this build does not define was accepted\n");
+        return 0;
+    }
+
+    uint32_t acts[5] = {0};
+    float scrolled = 0.0f;
+    const struct {
+        uint32_t key;
+        bool command;
+        uint32_t present;
+        bool warned;
+    } asked[5] = {
+        {QUORRA_KEY_DOWN, false, QUORRA_PRESENT_OFF, false},
+        {QUORRA_KEY_F, true, QUORRA_PRESENT_OFF, false},
+        {QUORRA_KEY_F, false, QUORRA_PRESENT_ON, false},
+        {QUORRA_KEY_T, true, QUORRA_PRESENT_OFF, false},
+        {QUORRA_KEY_ESCAPE, false, QUORRA_PRESENT_OFF, true},
+    };
+    for (size_t at = 0; at < 5; ++at) {
+        if (!press(viewer, asked[at].key, asked[at].command, asked[at].present, asked[at].warned,
+                   &acts[at], at == 0 ? &scrolled : NULL, &said)) {
+            return 0;
+        }
+        quorra_events_free(said);
+    }
+    printf("keyboard: Down scrolls %.1f, Control + F is %s, F presenting is %s, Control + T is %s, "
+           "Escape warned is %s\n",
+           (double)scrolled, quorra_act_name(acts[1]), quorra_act_name(acts[2]),
+           quorra_act_name(acts[3]), quorra_act_name(acts[4]));
+    if (acts[0] != QUORRA_ACT_SCROLL_BY || acts[1] != QUORRA_ACT_FIND
+        || acts[2] != QUORRA_ACT_NOTHING || acts[3] != QUORRA_ACT_NOTHING
+        || acts[4] != QUORRA_ACT_ABORT_DRAWING) {
+        return 0;
+    }
+
+    /* §12.5.6.10's highlight over nothing: the windows' sentence, kept until the next press. */
+    if (!press(viewer, QUORRA_KEY_H, false, QUORRA_PRESENT_OFF, false, &act, &by, &said)) {
+        return 0;
+    }
+    quorra_events_free(said);
+    char sentence[160] = {0};
+    size_t needed = 0;
+    if (act != QUORRA_ACT_SAY
+        || !check("quorra_key_said", quorra_key_said(viewer, sentence, sizeof sentence, &needed))) {
+        return 0;
+    }
+    printf("keyboard: H with nothing selected says \"%s\"\n", sentence);
+
+    /* §12.5.1's tab key, until the focus is on the push-button, and Space presses it. */
+    uint32_t number = 0;
+    for (int tabs = 0; tabs < 8 && number != 11u; ++tabs) {
+        if (!press(viewer, QUORRA_KEY_TAB, false, QUORRA_PRESENT_OFF, false, &act, &by, &said)) {
+            return 0;
+        }
+        quorra_events_free(said);
+        uint16_t generation = 0;
+        float quad[8] = {0};
+        (void)quorra_focused_annotation(viewer, &number, &generation, quad);
+    }
+    if (quorra_key_said(viewer, NULL, 0, &needed) != QUORRA_NO_ANSWER) {
+        fprintf(stderr, "a press that owed nothing left the last sentence standing\n");
+        return 0;
+    }
+    if (number != 11u
+        || !press(viewer, QUORRA_KEY_SPACE, false, QUORRA_PRESENT_OFF, false, &act, &by, &said)) {
+        fprintf(stderr, "the Tab key did not reach the push-button: %u\n", number);
+        return 0;
+    }
+    int submitted = 0;
+    for (size_t index = 0; index < quorra_events_len(said); ++index) {
+        size_t owed = 0;
+        char url[64] = {0};
+        char first[256] = {0};
+        if (quorra_event_submit_owed_count(said, index, &owed) != QUORRA_OK
+            || !check("quorra_event_submit_url",
+                      quorra_event_submit_url(said, index, url, sizeof url, &needed))) {
+            continue;
+        }
+        if (owed > 0
+            && !check("quorra_event_submit_owed",
+                      quorra_event_submit_owed(said, index, 0, first, sizeof first, &needed))) {
+            continue;
+        }
+        if (quorra_event_submit_owed(said, index, owed, first, sizeof first, &needed)
+            != QUORRA_OUT_OF_RANGE) {
+            continue;
+        }
+        printf("keyboard: Space on the focused button %u submits to %s, owing %zu sentence(s): %s\n",
+               number, url, owed, first);
+        submitted = act == QUORRA_ACT_NOTHING && owed > 0;
+    }
+    quorra_events_free(said);
+    return submitted;
+}
+
 /*
  * QUORRA_OVERSIZE_LISTED: a page zoomed past MAX_PIXELS is asked for whole rather than refused,
  * and this program draws the window of it the viewport shows — never the page (ADR 2060).
@@ -986,7 +1108,7 @@ static int exercise_the_form(quorra_viewer *viewer, const char *path)
     (void)quorra_dirty(viewer, &dirty);
     printf("dirty after the undo: %d\n", dirty ? 1 : 0);
 
-    if (!exercise_the_eight_commands(viewer)) {
+    if (!exercise_the_eight_commands(viewer) || !exercise_the_keyboard(viewer)) {
         return 0;
     }
 

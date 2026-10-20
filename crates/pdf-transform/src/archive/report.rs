@@ -513,6 +513,12 @@ pub struct Conversion {
     /// file claimed is gone from the output, so the report is the only place it is still
     /// readable (`doc/adr/1246`).
     pub removed_identifiers: Vec<super::prepare::RemovedIdentifier>,
+    /// Every `/Lang` this conversion restated, with the value the producer wrote there.
+    ///
+    /// ISO 19005-2 section 6.7.4, and the same obligation: the producer's malformed tag is gone
+    /// from the output, and a reader who wants to know what it said reads it here
+    /// (`doc/adr/2066`).
+    pub restated_languages: Vec<super::languages::RestatedLanguage>,
     /// Every extension schema this conversion described in a container of its own writing.
     ///
     /// ISO 19005-2 section 6.6.2.3.2's container states three fields no file holds, so a
@@ -539,6 +545,9 @@ pub struct Conversion {
     /// under a §7.9.6 name nothing else in the document states, so the report is where an
     /// archivist reads what was kept and where to look for it (`doc/adr/1270`).
     pub attached: Vec<super::AttachedFile>,
+    /// Every file the document already held that this conversion filed in the name tree, because
+    /// the annotation that named it was removed (`doc/adr/2067` section 4).
+    pub kept_attachments: Vec<super::KeptAttachment>,
     /// Every annotation appearance this conversion constructed.
     ///
     /// `doc/questions/A21`'s condition on the permission, in the answer's own words: report every
@@ -840,6 +849,15 @@ impl Conversion {
                 ),
             ),
             (
+                "kept_attachments".to_owned(),
+                Value::Array(
+                    self.kept_attachments
+                        .iter()
+                        .map(super::KeptAttachment::to_json)
+                        .collect(),
+                ),
+            ),
+            (
                 "moved_information_entries".to_owned(),
                 Value::Array(
                     self.moved_information
@@ -872,6 +890,15 @@ impl Conversion {
                     self.removed_identifiers
                         .iter()
                         .map(super::prepare::RemovedIdentifier::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "restated_language_identifiers".to_owned(),
+                Value::Array(
+                    self.restated_languages
+                        .iter()
+                        .map(super::languages::RestatedLanguage::to_json)
                         .collect(),
                 ),
             ),

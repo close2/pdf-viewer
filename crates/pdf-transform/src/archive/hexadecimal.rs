@@ -113,7 +113,7 @@ pub(super) fn complete(document: &Document, survey: Option<&Survey>) -> Result<C
 ///
 /// The resources are wanted for one thing only: §8.9.7 lets an inline image's `/CS` name a colour
 /// space the resources define, and the component count is what says where its data ends.
-fn streams(
+pub(super) fn streams(
     document: &Document,
     pages: &Pages<'_>,
     survey: Option<&Survey>,
@@ -222,7 +222,7 @@ fn missing_digits(document: &Document, data: &[u8], resources: &Dictionary) -> V
 /// not a cost: Flate-encoded output "is usually much more compact" than what most producers
 /// wrote. `None` where the encoding fails, or where the parameters being discarded name another
 /// object — discarding those would leave it in the file with nothing referring to it.
-fn repaired(stream: &Stream, data: &[u8]) -> Option<Object> {
+pub(super) fn repaired(stream: &Stream, data: &[u8]) -> Option<Object> {
     if stream
         .dict
         .get("DecodeParms")

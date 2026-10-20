@@ -203,8 +203,8 @@ This is where PDF's *meaning* lives. In `crates/pdf-model/src/content/`:
 | colour operators | `crates/pdf-model/src/content/colour.rs` | §8.6 |
 | text | `crates/pdf-model/src/content/text.rs`, `crates/pdf-model/src/content/font.rs` | clause 9 |
 | images and forms | `crates/pdf-model/src/content/image.rs`, `crates/pdf-model/src/content/xobject.rs` | §8.9, §8.10 |
-| transparency and overprint | `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/content/overprint.rs` | clause 11 |
-| patterns | `crates/pdf-model/src/content/pattern.rs` | §8.7 |
+| transparency and overprint | `crates/pdf-model/src/content/transparency.rs` (its group entry points, with a module per concern beside it in `transparency/`, ADR 2080), `crates/pdf-model/src/content/overprint.rs` | clause 11 |
+| patterns | `crates/pdf-model/src/content/pattern.rs` (the `scn` and the paints, with a module per concern beside it in `pattern/`, ADR 2081) | §8.7 |
 
 Following the example:
 

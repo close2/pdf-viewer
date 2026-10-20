@@ -121,10 +121,21 @@ impl Host {
     /// What the title bar should say.
     pub(crate) fn title(&self) -> String {
         let mark = if self.state.showing.dirty { "• " } else { "" };
+        // ADR 1831's sentence, where a page was drawn on the processor rather than the device.
+        let lane = self
+            .state
+            .lane
+            .as_ref()
+            .and_then(|lane| lane.title())
+            .map_or_else(String::new, |lane| format!(" — {lane}"));
         if self.state.showing.caption.is_empty() {
-            return format!("{mark}{}", self.named());
+            return format!("{mark}{}{lane}", self.named());
         }
-        format!("{mark}{} — {}", self.named(), self.state.showing.caption)
+        format!(
+            "{mark}{} — {}{lane}",
+            self.named(),
+            self.state.showing.caption
+        )
     }
 
     /// Where the window goes and how large it is, for Table 147's `/FitWindow` and

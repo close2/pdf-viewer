@@ -155,7 +155,7 @@ fn fill(bounds: [f32; 4], colour: Color) -> Command {
 ///
 /// A `/K true` group all of whose elements paint Normal is §11.4.4 NOTE 3's collapse — the
 /// backdrop is composited in and removed again exactly — so `pdf-model` emits it as
-/// §11.4.5's isolated group with `knockout` set (`transparency::knockout_construction`), and
+/// §11.4.5's isolated group with `knockout` set (`transparency::knockout::knockout_construction`), and
 /// the final composite over the page is `(1 − w) × P + w × buffer`. Under `ca = 1` composited
 /// back onto its own backdrop that is identical to §11.4.6's own-backdrop form for the same
 /// page, which is why the reachable knockout member is drawn on three backends rather than

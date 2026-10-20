@@ -58,6 +58,7 @@ use viewer_core::RenderRequest;
 use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
+use crate::keyboard::{ActKind, KeyKind};
 use crate::kinds::{
     AcceptKind, AlertButtonKind, AnsweredKind, AttachKind, BoxKind, ColumnTextKind, ControlKind,
     DataFormatKind, DelegateKind, ElementKind, EventKind, FocusKind, FolderTextKind, LayoutKind,
@@ -4699,6 +4700,113 @@ pub unsafe extern "C" fn quorra_data_format_of_name(
     Status::Ok.code()
 }
 
+// ---------------------------------------------------------------------------------------------
+// The keyboard: `viewer_host::keys`' table for a C caller (RFC 0010 step N1, ADR 2072).
+// ---------------------------------------------------------------------------------------------
+
+/// A key press that reached the page: `key` is `QUORRA_KEY_*`, `shift` and `command` what was
+/// held — `command` the platform's command modifier, Control here and Command on macOS — `present`
+/// is `QUORRA_PRESENT_*` as the window stands, and `warned` whether the window is saying that a
+/// draw is taking long.
+///
+/// Asked as the three windows ask: a push-button §12.5.1's focus is on takes Space and Enter
+/// first, then `viewer_host::meaning`'s table. A command the table means is sent here and
+/// `events` is what it produced; what only the window can do is `act`, `QUORRA_ACT_*`, with the
+/// logical distance a `QUORRA_ACT_SCROLL_BY` moves in `by`. `QUORRA_ACT_SAY` leaves a sentence for
+/// [`quorra_key_said`]. A key or a presentation state this build does not define is
+/// `QUORRA_WRONG_KIND` and nothing is sent.
+///
+/// # Safety
+///
+/// See the module documentation. `by` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_key_press(
+    viewer: *mut Session,
+    key: u32,
+    shift: bool,
+    command: bool,
+    present: u32,
+    warned: bool,
+    act: *mut u32,
+    by: *mut f32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(act), Some(events)) = (viewer.as_mut(), act.as_mut(), events.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let (Some(key), Some(present)) = (KeyKind::from_code(key), PresentKind::from_code(present))
+    else {
+        return Status::WrongKind.code();
+    };
+    let held = viewer_host::Modifiers {
+        shift,
+        ctrl: command,
+    };
+    let mode = match present {
+        PresentKind::Off => viewer_host::Mode::Reading,
+        PresentKind::On => viewer_host::Mode::Presenting,
+    };
+    let waiting = if warned {
+        viewer_host::Waiting::Warned
+    } else {
+        viewer_host::Waiting::Nothing
+    };
+    let (produced, kind, distance) = viewer.press(key.key(), held, mode, waiting);
+    *act = kind.code();
+    if let Some(by) = by.as_mut() {
+        *by = distance;
+    }
+    *events = Box::into_raw(Box::new(produced));
+    Status::Ok.code()
+}
+
+/// The sentence the last [`quorra_key_press`] answered `QUORRA_ACT_SAY` for, in the two-call idiom
+/// [`quorra_events_describe`] uses. `QUORRA_NO_ANSWER` where the last press owed none.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_key_said(
+    viewer: *const Session,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.said() {
+        Some(sentence) => copy_out(sentence, out, cap, needed),
+        None => Status::NoAnswer.code(),
+    }
+}
+
+/// How many keys this library binds, against the header's `QUORRA_KEY_COUNT`.
+///
+/// **Not part of [`quorra_abi_check`]**, for [`quorra_control_kind_count`]'s reason: a key is a
+/// number the caller passes and an undefined one is refused by name. A larger count than the
+/// header's is a key this caller does not translate yet.
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_key_count() -> u32 {
+    KeyKind::COUNT
+}
+
+/// How many acts [`quorra_key_press`] answers with, against the header's `QUORRA_ACT_COUNT`.
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_act_count() -> u32 {
+    ActKind::COUNT
+}
+
+/// The name of an act, NUL-terminated and never freed. `"unknown"` for one this build does not
+/// define.
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_act_name(act: u32) -> *const c_char {
+    let name = ActKind::from_code(act).map_or("unknown\0", ActKind::name);
+    name.as_ptr().cast::<c_char>()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]
@@ -5244,6 +5352,57 @@ pub unsafe extern "C" fn quorra_event_submit_media_type(
     };
     match events.submit(index) {
         Ok((_, _, _, media_type)) => copy_out(media_type, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// How many owed sentences a `QUORRA_EVENT_SUBMIT` carries: what the action asked for that its
+/// composition does not do, which a caller prints beside the request (ADR 2072).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_submit_owed_count(
+    events: *const Events,
+    index: usize,
+    count: *mut usize,
+) -> c_int {
+    let (Some(events), Some(count)) = (events.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match events.submit_owed(index) {
+        Ok(owed) => {
+            *count = owed.len();
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Owed sentence `owed` of a `QUORRA_EVENT_SUBMIT`, in the two-call idiom
+/// [`quorra_events_describe`] uses.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_submit_owed(
+    events: *const Events,
+    index: usize,
+    owed: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.submit_owed(index) {
+        Ok(sentences) => match sentences.get(owed) {
+            Some(sentence) => copy_out(sentence, out, cap, needed),
+            None => Status::OutOfRange.code(),
+        },
         Err(status) => status.code(),
     }
 }

@@ -1,5 +1,6 @@
-//! `CLAUDE.md`'s *ask* level in this window: §12.6.4.8's link and §12.6.4.3's file a document
-//! names, put on a card the window draws and answered by two keys (ADR 2040).
+//! `CLAUDE.md`'s *ask* level in this window: §12.6.4.8's link, §12.6.4.3's file a document names,
+//! §12.7.6.2's form sent to a server and an import fetched from one, put on a card the window draws
+//! and answered by two keys (ADRs 2040, 2076).
 //!
 //! **The policy is `viewer_host`'s, and nothing here decides it.** [`viewer_host::link`] and
 //! [`viewer_host::remote`] take the level and answer with a sentence to say, a file to supply or a
@@ -8,11 +9,13 @@
 //! over whatever the screen holds — and which key is the answer. Both acts are this side's: the
 //! handler a link is given to runs out here, and the file a document named is read out here and
 //! crosses to the worker as bytes inside `Command::Supply`, which the confinement then parses as it
-//! parses the document it was started with. Nothing new crosses the wire.
+//! parses the document it was started with. A form is sent from out here too, and what the server
+//! answered crosses inside `Command::Respond` for the same reason (`sending`).
 
 use std::path::{Path, PathBuf};
 
-use viewer_core::{Command, Purpose};
+use pdf_model::submission::Submission;
+use viewer_core::{Command, DocumentId, Purpose};
 use viewer_ui::chrome::Chrome;
 use winit::keyboard::{Key, NamedKey};
 
@@ -35,6 +38,21 @@ pub(crate) enum Asked {
         name: String,
         /// Where `viewer_host::resolve_import` put it, which is what would be read.
         path: PathBuf,
+    },
+    /// §12.7.6.2's request, composed by the worker, which a `yes` sends (ADR 2076).
+    Submit {
+        /// The document whose form it is, which the answer is imported into.
+        document: DocumentId,
+        /// The request, boxed for `Event::Submit`'s reason: the body travels with it.
+        submission: Box<Submission>,
+    },
+    /// Table Annex O.4's `fdf`, or §12.7.6.4's file, named by an absolute URI, which a `yes`
+    /// fetches (ADR 2076).
+    Fetch {
+        /// The document that asked, which the data is imported into.
+        document: DocumentId,
+        /// The URI, as the document named it.
+        url: String,
     },
 }
 
@@ -102,7 +120,7 @@ impl Host {
     /// document that asks nothing costs the launch no chrome (principle 2). **One question stands at
     /// a time**: a second that arrives while one is up is declined out loud rather than put over it,
     /// because a person answering a card is answering the words they read.
-    fn put_the_question(&mut self, asked: Asked, words: &viewer_host::Question) {
+    pub(crate) fn put_the_question(&mut self, asked: Asked, words: &viewer_host::Question) {
         if self.chrome.is_none() {
             match Chrome::new() {
                 Ok(chrome) => self.chrome = Some(chrome),
@@ -140,6 +158,17 @@ impl Host {
                     bytes: None,
                 });
             }
+            Asked::Submit { submission, .. } => eprintln!(
+                "{}",
+                viewer_host::policy::submission_note(&submission, Some(why))
+            ),
+            Asked::Fetch { url, .. } => {
+                eprintln!("{}", viewer_host::fetch_note(&url, Some(why)));
+                self.dispatch(Command::Supply {
+                    purpose: Purpose::ImportData,
+                    bytes: None,
+                });
+            }
         }
     }
 
@@ -174,6 +203,22 @@ impl Host {
                 eprintln!("note: {}", viewer_host::remote_declined(purpose, &name));
                 self.dispatch(Command::Supply {
                     purpose,
+                    bytes: None,
+                });
+            }
+            Asked::Submit {
+                document,
+                submission,
+            } if proceed => self.send_form(document, *submission, None),
+            Asked::Submit { submission, .. } => eprintln!(
+                "{}",
+                viewer_host::policy::submission_note(&submission, Some(&you_did_not()))
+            ),
+            Asked::Fetch { document, url } if proceed => self.start_fetch(document, url, None),
+            Asked::Fetch { url, .. } => {
+                eprintln!("{}", viewer_host::fetch_note(&url, Some(&you_did_not())));
+                self.dispatch(Command::Supply {
+                    purpose: Purpose::ImportData,
                     bytes: None,
                 });
             }
@@ -266,4 +311,9 @@ impl Host {
         self.offered = None;
         self.prompting = None;
     }
+}
+
+/// The reason a `no` on the card gives, in the words the other three windows say it in.
+fn you_did_not() -> String {
+    format!("you answered \"{}\"", viewer_host::restriction::DO_NOT)
 }

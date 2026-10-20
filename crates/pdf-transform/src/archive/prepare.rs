@@ -781,6 +781,12 @@ pub(super) struct Prepared {
     /// and a string on a page is bytes that cross byte for byte unless this repair writes into
     /// them (`doc/adr/1176`).
     pub(super) hexadecimal: Result<super::hexadecimal::Completed, Because>,
+    /// The `/Lang` entries that are not language identifiers, and what each object becomes.
+    ///
+    /// ISO 19005-2 section 6.7.4, at the catalog, the structure elements and the property lists
+    /// the survey's content streams reach. `Err` only where neither site was asked for; a half
+    /// that cannot be carried out says so in its own obstacle (`doc/adr/2066`).
+    pub(super) languages: Result<super::languages::Restated, Because>,
     /// The entries the action clauses ask each holder to restate, or why none can be.
     ///
     /// ISO 19005-2 sections 6.4.1, 6.5.1 and 6.5.2 and ISO 19005-4 sections 6.4.1, 6.6.1 and
@@ -989,6 +995,24 @@ impl Prepared {
         let hexadecimal = asked(odd_digits, || {
             super::hexadecimal::complete(document, survey.as_ref())
         });
+        // After the repair, because a content stream both reach is respelled from its bytes: the
+        // value written is the operator's where a `supply` answered the site, and §14.9.2.2's
+        // empty identifier otherwise (`doc/adr/2066`).
+        let languages = asked(
+            wanted(Rewrite::CatalogLanguageRestated) || wanted(Rewrite::MarkedLanguagesRestated),
+            || {
+                let tag = |site: &str| remedies.languages.get(site).map_or("", String::as_str);
+                Ok(super::languages::restate(
+                    document,
+                    survey.as_ref(),
+                    hexadecimal.as_ref().ok(),
+                    super::languages::Values {
+                        catalog: tag(super::languages::CATALOG_SITE),
+                        marked: tag(super::languages::MARKED_SITE),
+                    },
+                ))
+            },
+        );
         // **The replacement comes before every editor**, because a stream it replaces has no
         // producer bytes left for one to write into: ISO 19005-2 section 6.6.2.1's packet is
         // composed afresh where this tree cannot read the one the file holds, and the three
@@ -1163,6 +1187,7 @@ impl Prepared {
             &failed,
             fresh.as_ref(),
             xfa.as_ref().ok().copied(),
+            forbidden_annotations.as_ref().ok(),
             &mut spare,
         );
         let preserved_history = preserved
@@ -1387,6 +1412,7 @@ impl Prepared {
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             hexadecimal,
+            languages,
             external_data,
             boundaries,
             actions,
@@ -1517,6 +1543,14 @@ impl Prepared {
             Rewrite::XfaRemoved => self.xfa.as_ref().err().copied(),
             Rewrite::EmbeddedFileRemoved => self.embedded_files.as_ref().err().copied(),
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
+            Rewrite::CatalogLanguageRestated => match &self.languages {
+                Ok(restated) => restated.catalog_obstacle,
+                Err(because) => Some(*because),
+            },
+            Rewrite::MarkedLanguagesRestated => match &self.languages {
+                Ok(restated) => restated.marked_obstacle,
+                Err(because) => Some(*because),
+            },
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
             Rewrite::InformationMovedIntoThePacket => self.information.as_ref().err().copied(),
@@ -1810,7 +1844,8 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 7] = [
+const SURVEYED: [Rewrite; 8] = [
+    Rewrite::MarkedLanguagesRestated,
     Rewrite::OverprintModeRestated,
     Rewrite::SubstituteFontProgram,
     Rewrite::RestateFontMetrics,
@@ -2781,8 +2816,14 @@ fn prepare_forbidden_annotations(
     // ISO 19005-4 section 6.3.1's 3D and RichMedia annotations outside PDF/A-4e are the same
     // removal under the same authorisation (`doc/adr/2051` section 4): one population, so that a
     // page losing both kinds is rewritten once.
+    // `FileAttachment` outside PDF/A-4f is the same removal again, its file kept in the name tree
+    // by [`the_attached_files`] (`doc/adr/2067` section 4).
     let outside_their_flavour =
-        pdf_archive::annotations_outside_the_engineering_flavour(document, target);
+        pdf_archive::annotations_outside_the_engineering_flavour(document, target)
+            .into_iter()
+            .chain(pdf_archive::file_attachments_outside_their_flavour(
+                document, target,
+            ));
     for forbidden in pdf_archive::annotations_of_a_forbidden_subtype(document, target)
         .into_iter()
         .chain(outside_their_flavour)
@@ -3975,6 +4016,12 @@ fn the_preserved_pages(
 /// **Nothing is attached that no failed requirement asked for**, which is `doc/adr/0947`'s first
 /// rule: a site the operator answered but this document passed keeps nothing, because there is
 /// nothing being taken away.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is one source of what the tree holds — the packets, the XFA resource, the \
+              files a removed annotation named — and the catalog and the spare numbers they are \
+              filed with; a struct bundling them would be this function's arguments renamed"
+)]
 fn the_attached_files(
     plan: &ArchivePlan,
     document: &Document,
@@ -3982,6 +4029,7 @@ fn the_attached_files(
     failed: &BTreeSet<&'static str>,
     fresh: Result<&Fresh, &Because>,
     xfa: Option<Site>,
+    forbidden: Option<&ForbiddenAnnotations>,
     spare: &mut Spare,
 ) -> Result<super::attach::Attached, Because> {
     let asked = |site: &'static str| {
@@ -4033,7 +4081,8 @@ fn the_attached_files(
     } else {
         None
     };
-    if packets.is_empty() && resource.is_none() {
+    let filings = kept_attachments(document, failed, forbidden);
+    if packets.is_empty() && resource.is_none() && filings.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     let mut keeps: Vec<super::attach::Keeping<'_>> = Vec::new();
@@ -4058,7 +4107,56 @@ fn the_attached_files(
             bytes,
         });
     }
-    super::attach::attach(document, catalog, &keeps, spare)
+    super::attach::attach(document, catalog, &keeps, &filings, spare)
+}
+
+/// ISO 19005-4 section 6.3.1's `FileAttachment` row: the files its removed annotations named.
+///
+/// Only where the row failed, so a `FileAttachment` removed for another reason — a flag section
+/// 6.3.2 forbids — is not the population. The file's name is §7.11.3's `/UF` where the
+/// specification states one and its `/F` otherwise, as `pdf_model::attachment` reads it; one that
+/// states neither is filed as `attachment` (`doc/adr/2067` section 4).
+fn kept_attachments(
+    document: &Document,
+    failed: &BTreeSet<&'static str>,
+    forbidden: Option<&ForbiddenAnnotations>,
+) -> Vec<super::attach::Filing> {
+    const SITE: &str = "annotations/file-attachment-only-in-embedded-file-files";
+    let Some(forbidden) = forbidden.filter(|_| failed.contains(SITE)) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for removed in &forbidden.removed {
+        if removed.subtype != "FileAttachment" {
+            continue;
+        }
+        let Some(annotation) = document.get(removed.at).as_dict().cloned() else {
+            continue;
+        };
+        let Some(specification) = annotation.get("FS").cloned() else {
+            continue;
+        };
+        let resolved = document.resolve(&specification);
+        let name = match &resolved {
+            Object::Dictionary(dict) => ["UF", "F"].iter().find_map(|key| {
+                document
+                    .get_key(dict, key)
+                    .as_string()
+                    .map(pdf_syntax::text_string)
+                    .filter(|name| !name.is_empty())
+            }),
+            Object::String(bytes) => Some(pdf_syntax::text_string(bytes)),
+            _ => None,
+        }
+        .unwrap_or_else(|| "attachment".to_owned());
+        out.push(super::attach::Filing {
+            site: SITE,
+            annotation: removed.at,
+            name,
+            specification,
+        });
+    }
+    out
 }
 
 /// ISO 19005-2 section 6.4.2's row, whose attachment is the XFA resource.
@@ -4327,10 +4425,11 @@ const CONTENT_DID_NOT_DECODE: &str = "part of the producer's own page content do
 
 /// The three requirements whose refusal a page of preserved marks answers: one removal takes the
 /// annotations all three report (`doc/adr/2051` section 4).
-const SUBTYPE_REQUIREMENTS: [&str; 3] = [
+const SUBTYPE_REQUIREMENTS: [&str; 4] = [
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
     "annotations/three-dimensional-only-in-engineering-files",
+    "annotations/file-attachment-only-in-embedded-file-files",
 ];
 
 /// Why an annotation with no normal appearance stream is refused rather than dropped quietly.

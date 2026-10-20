@@ -3,8 +3,8 @@
   <!--
     The C ABI of crates/viewer-ffi for a .NET host (RFC 0010 step N0, ADR 2054). It names no
     Windows type, so it builds wherever a .NET SDK does. No gate of the tree builds it: the machine
-    the gates run on has no SDK, and `dotnet build` here is a CI job owed to a later step.
-    crates/viewer-ffi/tests/header_and_interop_agree.rs is what holds it to the header meanwhile.
+    the gates run on has no SDK, and `dotnet build` is CI's `interop` job (ADR 2073).
+    crates/viewer-ffi/tests/header_and_interop_agree.rs is what holds it to the header before then.
   -->
   <PropertyGroup>
     <!-- The long-term-support release in force; .NET 8's support ends in November 2026. -->

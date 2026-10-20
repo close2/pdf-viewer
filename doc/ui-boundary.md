@@ -98,15 +98,16 @@ Each `AccessibilityNode` naming a text field or a combo box carries the field's 
 the shape `Answer::Fields` gives it, read through the view's state, which only the confined side
 holds; it crosses in the node's encoding, and no message was added (ADR 1489). Beside it,
 `value_lines` carries where §12.7.4.3's layout placed each character of that value, in the shape and
-under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF17`
+under the invariant of the node's own `lines`; the greeting moved then (ADR 1501), and is `PDFVCF18`
 since a rich paragraph's tab stops cross with it with their leaders (ADRs 1666, 1679), a located
 point's `/DCS` reading in either of Table 269's shapes (ADR 1678), a text note's retyping and the
 note a popup window names (ADR 1726), and §12.8.3.4.4's published policy copies, the event
 `Event::SignaturePoliciesPublished` that every window answers under the submissions level (ADR
 1738), a script's keys and console requests (ADR 1771), and the worker's notice of how far its
-page has got, which the transport hands a listener inside the exchange it arrives in (ADR 1811), and
+page has got, which the transport hands a listener inside the exchange it arrives in (ADR 1811),
 each node's `standard`, what its type means in the namespace §14.8.6.2's walk ended in, one byte beside
-its name (ADR 2028). Where the
+its name (ADR 2028), and `Command::Respond`, §12.7.8's form data a server answered the confined
+window's submission with, which the window sends and the worker imports (ADR 2076). Where the
 viewport sits in the window is a host's to say, and `quorra-gtk` says it to the bridge
 (`Reading::at`), never to the core: it is a fact about the toolkit's layout, and no message was added
 (ADR 1516).
@@ -927,7 +928,9 @@ reordered a second time.
   2060 and 2061 added is the eight a toolkit's own controls, its clock, its network and its scripts
   need — a field committed, §7.9.4's instant, a server's answer, a page drawn a window at a time,
   the keys, and the scripts' level with its two answers, the level becoming a runner where every
-  window's does. Beside them,
+  window's does; and what ADR 2072 added is the key table — a caller translates its toolkit's key
+  into a `QUORRA_KEY_*`, `quorra_key_press` acts on it as the three windows act, and only what a
+  window alone can do comes back, as a `QUORRA_ACT_*`. Beside them,
   a hand-written `include/quorra.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers

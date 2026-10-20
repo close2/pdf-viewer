@@ -1,17 +1,64 @@
 //! The drawing thread: the pages and the windows drawn off GTK's thread taken back, and the long draw that offers a key to stop it.
+//!
+//! And the graphics device beside it, whose pages are read back and taken in the same way (ADR
+//! 2070).
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Weak;
 
 use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Answer, Query};
+use viewer_device::renderer::ReadBack;
 
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
 
 use super::{Host, with};
 
+thread_local! {
+    /// The window the device's wake looks at, on GTK's own thread: the wake is called on the
+    /// device's thread, where no `Rc` may go, so what crosses is a call to [`landed`] and this is
+    /// where it finds its window.
+    static WOKEN: RefCell<Weak<RefCell<Host>>> = const { RefCell::new(Weak::new()) };
+}
+
+/// The graphics device for a window of this program, brought up now on a thread of its own.
+///
+/// Its wake is GTK's main context: a page read back is taken in on GTK's next turn rather than at
+/// the drawing poll's (ADR 2070). The poll stays the guarantee, because a wake that finds the
+/// window inside a turn of its own is that turn's to answer.
+#[must_use]
+pub fn device_lane() -> ReadBack {
+    let mut lane = ReadBack::new(Some(viewer_device::Wake::new(|| {
+        glib::MainContext::default().invoke(landed);
+    })));
+    lane.bring_up();
+    lane
+}
+
+/// What the device's wake runs on GTK's thread: one look at what has landed.
+fn landed() {
+    let Some(host) = WOKEN.with(|me| me.borrow().upgrade()) else {
+        return;
+    };
+    // A window already borrowed is inside a turn that looks at its pages on the way out
+    // (`react`'s `pump_drawing`), so the look is that turn's rather than lost.
+    let Ok(mut host) = host.try_borrow_mut() else {
+        return;
+    };
+    host.look_at_the_drawing();
+}
+
 impl Host {
+    /// Draws this window's pages on the graphics device and reads each back, in the lane its
+    /// prediction gives it, from now on (ADR 2070).
+    pub fn draw_on_the_device(&mut self, lane: ReadBack) {
+        WOKEN.with(|me| *me.borrow_mut() = self.me.clone());
+        self.state.lane = Some(Box::new(lane));
+    }
+
     /// Obeys Table 147's `/FitWindow` at a frame of a document opened in front, while
     /// [`viewer_host::Presenting::place`] says it is owed: the window keeps its chrome and the
     /// page's viewport becomes the size of the page it shows ([`viewer_host::fitted`]), held to
@@ -98,7 +145,7 @@ impl Host {
     /// is `None` the moment nothing is being drawn, and a repeating source cannot stop.
     pub(super) fn pump_drawing(&mut self) {
         self.disarm_drawing();
-        let Some(interval) = self.state.drawing.interval() else {
+        let Some(interval) = self.state.drawing_interval() else {
             return;
         };
         let me = self.me.clone();

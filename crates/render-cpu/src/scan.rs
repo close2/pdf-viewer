@@ -70,7 +70,7 @@ pub(crate) const SUPERSAMPLED_LIMIT: f32 = 8191.0;
 /// than the measurement is built on, and a damaged stream's spike to 10^25 carries none at all —
 /// measured, `4605705.pdf`'s page lost a third of its ink to it. So past this the mark goes to
 /// the library's converter, drawn aliased by the range above, as it was before ADR 2058.
-const MEASURED_LIMIT: f32 = 32_767.0;
+pub(crate) const MEASURED_LIMIT: f32 = 32_767.0;
 
 /// Whether `bounds` lies inside [`SUPERSAMPLED_LIMIT`] on both axes.
 fn within(bounds: Option<tiny_skia::Rect>) -> bool {

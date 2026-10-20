@@ -111,13 +111,14 @@ presented from the drawing thread through a detached `Presenter` (`raster/doc/ad
 ## 5. What it must match
 
 The level-hosts rule (`doc/todo/30`) is checked by compiling. A C# host compiles in none of the
-tree's gates, so its levelness is held three ways. The constants it mirrors are compared with the
+tree's gates on the machine they run on — CI's `interop` job compiles the declarations (ADR 2073)
+and no gate compiles a window — so its levelness is held three ways. The constants it mirrors are compared with the
 header by a Rust test reading the C# source, so the check needs no `dotnet`. `quorra_abi_check` fails
 a startup, once, where a count moved. And whatever §3.2's layer exports is not re-written in C#.
 
 | `viewer-host`'s decision | in the ABI today | owed |
 |---|---|---|
-| the key table (`keys`, ADR 0526) | no: `doc/todo/30` decided "no keyboard table" | `quorra_key_meaning` and a `QUORRA_KEY_COUNT`. The modifier is the platform's *command* modifier (Ctrl here, ⌘ on macOS), not "ctrl" |
+| the key table (`keys`, ADR 0526) | **yes** (ADR 2072): `QUORRA_KEY_*` with `QUORRA_KEY_COUNT`, and `quorra_key_press`, which acts on a press as every window does and hands back a `QUORRA_ACT_*` for what only a window can do. The modifier is the platform's *command* modifier (Ctrl here, ⌘ on macOS), not "ctrl" | — |
 | the six panels (`Tab`, `panel`) | the rows, yes | the tab enumeration and its count |
 | the restriction levels' sentences and the word that turns them off (ADR 0604) | the operations, yes; the sentences, no | the sentences, or `quorra_window`'s `say` |
 | password, cannot-open, no-pages, `NOTICE` | no | through `quorra_window` |
@@ -130,7 +131,7 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 | step | what | where it builds | price |
 |---|---|---|---|
 | **N0** | `hosts/windows/Quorra.Interop/`, hand-written `[LibraryImport]` declarations for the header's 240 entry points and its constants, outside the Cargo workspace. A Rust test in `crates/viewer-ffi/tests/` reads `quorra.h` and the C# file and asserts each entry point is declared once with the same parameter count and each constant has the same value, as `header_and_library_agree.rs` does for `abi.rs` | the test on this machine; `dotnet build` in a CI job | one round. **Built** in session 1609 (ADR 2054): one file per section of the header, and the test holds each parameter's and field's type under one rule as well as the names and values. `dotnet build` is still owed |
-| N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count. **The eight commands are built** (ADRs 2060, 2061); the key table is owed | this machine | one round |
+| N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count. **Built**: the eight commands (ADRs 2060, 2061), then the key table, its two counts and a submission's owed sentences (ADR 2072). `dotnet build` of N0's layer is CI's `interop` job (ADR 2073) | this machine; CI for the C# | one round |
 | N2 | `quorra_window` (§3.2) | this machine; driven by `a_c_program_drives_the_abi.rs`'s C caller | two rounds |
 | N3a | the WinUI 3 window on the processor lane: the page, the controls over it, the panels, the cards | `windows-latest` only | three to four rounds |
 | N3b | ADR 2049's S0, then `quorra_device`, read back | this machine, then CI | one round after S0 |

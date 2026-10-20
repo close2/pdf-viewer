@@ -147,6 +147,7 @@ mod hexadecimal;
 mod icc;
 mod in_place;
 mod jpeg2000;
+mod languages;
 mod overprint;
 mod prepare;
 mod preserve;
@@ -189,6 +190,7 @@ pub use decision::{
 };
 pub use fonts::{FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
 pub use in_place::{ProxiedReference, ShownAnnotation};
+pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use report::{
@@ -202,7 +204,7 @@ pub use transfer::RemovedTransferFunction;
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
 
-pub use attach::{AttachedFile, PRESERVED_AS_AN_ATTACHMENT};
+pub use attach::{AttachedFile, KeptAttachment, PRESERVED_AS_AN_ATTACHMENT};
 use decision::decide;
 use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
@@ -583,10 +585,12 @@ fn decide_every_failure(
         removed: Vec::new(),
         replaced_packets: Vec::new(),
         removed_identifiers: Vec::new(),
+        restated_languages: Vec::new(),
         described_schemas: Vec::new(),
         described_fields: Vec::new(),
         moved_information: Vec::new(),
         attached: Vec::new(),
+        kept_attachments: Vec::new(),
         appearances: Vec::new(),
         unconstructed: Vec::new(),
         removed_files: Vec::new(),
@@ -665,6 +669,7 @@ fn decide_every_failure(
     // edited at all (`doc/adr/1270`).
     if let Ok(attached) = &prepared.attached {
         conversion.attached.clone_from(&attached.rows);
+        conversion.kept_attachments.clone_from(&attached.kept);
     }
     // Named whether or not the flag came out: the fields here are exactly why it did not, and a
     // refusal whose sentence points at a list has to be able to print the list (`doc/adr/1257`).
@@ -1185,6 +1190,21 @@ fn apply_the_decisions(
         && let Ok(amended) = &prepared.amended
     {
         conversion.removed_identifiers.clone_from(&amended.removed);
+    }
+    // `doc/adr/2066`: the same for section 6.7.4's `/Lang`, named per entry with the value the
+    // producer wrote, the restated half of each site only where its rewrite is carried out.
+    if let Ok(restated) = &prepared.languages {
+        conversion.restated_languages = restated
+            .rows
+            .iter()
+            .filter(|row| {
+                wanted.contains(&match row.class {
+                    languages::Class::Catalog => Rewrite::CatalogLanguageRestated,
+                    languages::Class::Marked => Rewrite::MarkedLanguagesRestated,
+                })
+            })
+            .cloned()
+            .collect();
     }
     // `doc/adr/1245`: a container this conversion wrote is partly its own statement, so which
     // schemas it described is named rather than counted.

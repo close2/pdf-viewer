@@ -674,8 +674,8 @@ pub fn annotations_of_a_forbidden_subtype(
 /// The population `no_three_dimensional_annotation` reports — a `3D` or `RichMedia` annotation
 /// at PDF/A-4 or PDF/A-4f — in page order, in [`annotations_of_a_forbidden_subtype`]'s shape so
 /// that one removal takes both. Empty at every other target, where the row does not bind.
-/// `FileAttachment`, the other subtype section 6.3.1 confines to a flavour, is not here: removing
-/// one would take the file it names with it, and `doc/pdf-a-mitigations.md` says that need not go.
+/// `FileAttachment`, the other subtype section 6.3.1 confines to a flavour, is
+/// [`file_attachments_outside_their_flavour`]'s, because its removal keeps the file it names.
 #[must_use]
 pub fn annotations_outside_the_engineering_flavour(
     document: &Document,
@@ -693,6 +693,34 @@ pub fn annotations_outside_the_engineering_flavour(
                 return None;
             }
             Some(ForbiddenSubtype {
+                at: annotation.id,
+                page: annotation.page,
+                subtype: Some(subtype),
+                normal_appearance: normal_appearance_stream(document, &annotation.dict),
+            })
+        })
+        .collect()
+}
+
+/// Every `FileAttachment` annotation at a part 4 target that is not PDF/A-4f.
+///
+/// The population `no_file_attachment_annotation` reports — ISO 19005-4 section 6.3.1 confines
+/// the subtype to PDF/A-4f — in [`annotations_of_a_forbidden_subtype`]'s shape, so that one removal
+/// takes it with the others. Empty at every other target, where the row does not bind.
+#[must_use]
+pub fn file_attachments_outside_their_flavour(
+    document: &Document,
+    target: Target,
+) -> Vec<ForbiddenSubtype> {
+    if !matches!(target, Target::Four(Flavour::Plain | Flavour::E)) {
+        return Vec::new();
+    }
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter_map(|annotation| {
+            let subtype = name_at(document, &annotation.dict, "Subtype")?;
+            (subtype == "FileAttachment").then(|| ForbiddenSubtype {
                 at: annotation.id,
                 page: annotation.page,
                 subtype: Some(subtype),

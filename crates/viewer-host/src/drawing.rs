@@ -342,6 +342,49 @@ impl Partial {
     }
 }
 
+/// A lane beside the drawing thread: one that draws a window's pages somewhere else and hands
+/// back what it drew, or hands a request back for the drawing thread where it will not draw it
+/// (ADR 2070).
+///
+/// **A trait here and its implementation elsewhere**, because the lane there is is the graphics
+/// device read back (`viewer_device::renderer::ReadBack`, ADR 2049's G1 and Q1) and this crate may
+/// not name a device: the confined worker's graph runs through it, and ADR 2053 keeps `wgpu` out of
+/// that. A window that holds no lane draws every page on the drawing thread, exactly as before.
+///
+/// **What it hands back is answered by the same code as the drawing thread's pages**
+/// (`NativeWindow::take_the_drawn`), so the stand-ins, the oversized windows and the answer to the
+/// core cannot tell the two lanes apart — which is what `Rendered::Raster` was for.
+pub trait PageLane: std::fmt::Debug {
+    /// Takes `request` to draw, or hands it back where the drawing thread is to draw it.
+    fn offer(&mut self, request: RenderRequest) -> Option<RenderRequest>;
+    /// What the lane has finished since it was last asked, and the requests it hands back — after
+    /// waiting at most `settle` for a page in flight, which only a window with nothing on the
+    /// screen yet passes ([`Drawing::settle`]'s reason, and its budget, [`SETTLE`]).
+    fn collect(&mut self, settle: Option<Duration>) -> Handed;
+    /// The drawing thread drew `request` in `cost`: the processor's price for the next forecast.
+    fn processor_drew(&mut self, request: &RenderRequest, cost: Duration);
+    /// When the window should look again, or `None` while nothing is out — [`Drawing::interval`]'s
+    /// rule, so a window at rest wakes for this exactly never.
+    fn interval(&self) -> Option<Duration>;
+    /// What the title says about the lane that drew the page in front, where it is owed — ADR
+    /// 1831's sentence, and `None` where the lane drew it.
+    fn title(&self) -> Option<&str>;
+}
+
+/// What a [`PageLane`] hands back to the window.
+#[derive(Debug, Default)]
+pub struct Handed {
+    /// The pages it drew, answered as the drawing thread's are.
+    pub finished: Vec<Finished>,
+    /// The requests it hands to the drawing thread: refused, predicted slower, or with no device.
+    pub back: Vec<RenderRequest>,
+    /// What changed about the lane that a person is told: on the terminal and in the status line.
+    pub said: Vec<String>,
+    /// The frames trace's lines: the adapter the device came up on, a lane chosen, a refusal in
+    /// the adapter's words in full.
+    pub traced: Vec<String>,
+}
+
 /// One finished page, on its way to the viewer that asked for it.
 #[derive(Debug)]
 pub struct Finished<R = RenderRequest> {
@@ -549,6 +592,16 @@ impl<R: DrawRequest> Drawing<R> {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether `request` would be finished from the page drawn while it was read rather than
+    /// drawn (ADR 1855) — which keeps it on this thread whatever lane a window would otherwise
+    /// give it, because that frame is already all but drawn (ADR 2070).
+    #[must_use]
+    pub fn finishes_ahead(&self, request: &R) -> bool {
+        self.ahead
+            .as_ref()
+            .is_some_and(|ahead| ahead.holds(request.list(), request.target()))
     }
 
     /// Hands over page one as it was drawn while it was read (ADR 1855): the request for it at

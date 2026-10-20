@@ -240,7 +240,11 @@ rules at all: a tier-1 host holds a **token** rather than a picture, and `viewer
 provable answer there where here it is a judgement about pixels. That is worth knowing before
 somebody unifies the two: `viewer_host::drawing` is deliberately not a second caller of
 `could_stand_in`, and could not be, because rule 2 keeps every stand-in inside `viewer-device`, which
-nothing but a window may depend on (ADR 2052).
+nothing but a window may depend on (ADR 2052). The two toolkit windows are among those windows: they
+name `viewer-device` for `renderer::ReadBack`, which draws a page on the device and reads it back
+into the same `Raster` the drawing thread hands over, and their stand-ins stay
+`viewer_host::stand_in`'s (ADR 2070). Nothing depends on either toolkit crate (`cargo tree -i`), so
+no judge links the stand-ins through them.
 
 Two consequences for anyone changing the rules above:
 

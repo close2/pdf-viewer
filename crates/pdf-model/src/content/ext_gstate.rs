@@ -462,7 +462,7 @@ impl Interpreter<'_> {
         // under `/AIS false`, and under true the drawn alpha already is the shape, because
         // §11.6.4.2 gives an elementary object an intrinsic opacity of 1.0 and this entry
         // takes the other two opacity inputs away. Both readings are drawn; see
-        // `transparency::stated_shape`.
+        // `transparency::shape::stated_shape`.
         //
         // So the flag is read, and both records of it are kept, with two scopes.
         // `state.alpha_is_shape` is the parameter itself — set either way here, bounded by

@@ -65,6 +65,7 @@ are, and what your contract names. The brief is written from
 | looks for where something lives | [`doc/crate-map.md`](crate-map.md), [`doc/PLAN.md`](PLAN.md) |
 | wants to follow one PDF operator from the file's bytes to a pixel in a window | [`doc/teaching/how-a-page-lands-on-the-screen.md`](teaching/how-a-page-lands-on-the-screen.md) |
 | wants to follow a keystroke into a form field, through its scripts and its appearance, to the bytes a save appends | [`doc/teaching/how-a-form-field-is-filled.md`](teaching/how-a-form-field-is-filled.md) |
+| wants to follow a word from its `Tj`, through a drag and the structure tree's order, to the text a copy puts on a clipboard | [`doc/teaching/how-text-is-selected-and-copied.md`](teaching/how-text-is-selected-and-copied.md) |
 | asks *when* something landed | [`doc/history/`](history/README.md), one file per round from 446 on; [`doc/history.md`](history.md) for the rows before it |
 
 ## Traps and habits

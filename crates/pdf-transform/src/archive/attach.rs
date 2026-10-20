@@ -134,6 +134,54 @@ pub(super) struct Keeping<'a> {
     pub(super) bytes: &'a [u8],
 }
 
+/// One file the document already holds, filed in the name tree because what named it is removed.
+///
+/// ISO 19005-4 section 6.3.1's `FileAttachment` annotation at PDF/A-4 and PDF/A-4e: the annotation
+/// goes and the file specification its `/FS` names stays, as the value of a `/EmbeddedFiles` key
+/// (`doc/adr/2067` section 4). Nothing is written for it but the key: the specification and its
+/// stream are the producer's objects, carried as they are.
+pub(super) struct Filing {
+    /// The requirement whose refusal this answers.
+    pub(super) site: &'static str,
+    /// The annotation that named it, for the report.
+    pub(super) annotation: ObjectId,
+    /// The file's own name, §7.11.3's `/UF` or `/F` as the specification states it.
+    pub(super) name: String,
+    /// The annotation's `/FS` value: a reference to the specification, or the dictionary itself.
+    pub(super) specification: Object,
+}
+
+/// One file this conversion filed in the name tree, for the report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeptAttachment {
+    /// The requirement whose refusal it answers.
+    pub site: &'static str,
+    /// The key it is filed under in the `/EmbeddedFiles` tree.
+    pub name: String,
+    /// The annotation that named it, which the output no longer holds.
+    pub annotation: String,
+}
+
+impl KeptAttachment {
+    /// One kept attachment as JSON.
+    pub(super) fn to_json(&self) -> crate::json::Value {
+        crate::json::Value::Object(vec![
+            (
+                "requirement".to_owned(),
+                crate::json::Value::text(self.site.to_owned()),
+            ),
+            (
+                "name".to_owned(),
+                crate::json::Value::text(self.name.clone()),
+            ),
+            (
+                "annotation".to_owned(),
+                crate::json::Value::text(self.annotation.clone()),
+            ),
+        ])
+    }
+}
+
 /// One file this conversion attached, for the report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachedFile {
@@ -203,6 +251,8 @@ pub(super) struct Attached {
     pub(super) associated: Vec<ObjectId>,
     /// What was attached, for the report.
     pub(super) rows: Vec<AttachedFile>,
+    /// What the document already held and is now filed in the tree, for the report.
+    pub(super) kept: Vec<KeptAttachment>,
 }
 
 /// Files each of `keeps` as an embedded file, or the reason none can be.
@@ -214,6 +264,7 @@ pub(super) fn attach(
     document: &Document,
     catalog: Option<&Dictionary>,
     keeps: &[Keeping<'_>],
+    filings: &[Filing],
     spare: &mut Spare,
 ) -> Result<Attached, Because> {
     let Some(catalog) = catalog else {
@@ -281,6 +332,42 @@ pub(super) fn attach(
             relationship: RELATIONSHIP,
         });
     }
+    // A file the document already holds keeps its own name where no key is filed under it yet;
+    // where one is, the object number of the specification's annotation makes it unique, the
+    // same rule [`filed_as`] states for this module's own names.
+    let mut kept = Vec::new();
+    for filed in filings {
+        // A specification the tree already files is kept already: the annotation and the tree
+        // named the same object, and a second key for it would list one file twice.
+        if filed.specification.as_reference().is_some_and(|at| {
+            existing
+                .entries
+                .iter()
+                .any(|(_, value)| value.as_reference() == Some(at))
+        }) {
+            continue;
+        }
+        let mut name = filed.name.clone();
+        if taken.contains(&pdf_syntax::text_string::encode_text_string(&name)) {
+            name = format!(
+                "{} ({} {})",
+                filed.name, filed.annotation.number, filed.annotation.generation
+            );
+        }
+        let key = pdf_syntax::text_string::encode_text_string(&name);
+        if !taken.insert(key.clone()) {
+            return Err(Because::NotBuiltYet(NAME_ALREADY_FILED));
+        }
+        entries.push((key, filed.specification.clone()));
+        kept.push(KeptAttachment {
+            site: filed.site,
+            name,
+            annotation: format!(
+                "the FileAttachment annotation in object {} {}",
+                filed.annotation.number, filed.annotation.generation
+            ),
+        });
+    }
     let tree = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
@@ -290,6 +377,7 @@ pub(super) fn attach(
         tree,
         associated,
         rows,
+        kept,
     })
 }
 

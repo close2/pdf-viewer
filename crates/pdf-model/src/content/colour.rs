@@ -183,7 +183,7 @@ impl Interpreter<'_> {
     }
 
     /// A page or group `/CS` entry parsed against no resource dictionary, as
-    /// `transparency::press_for_entry` parses it, remembered in [`Interpreter::icc_spaces`] where
+    /// `transparency::press::press_for_entry` parses it, remembered in [`Interpreter::icc_spaces`] where
     /// it is `[/ICCBased <stream>]` and its profile parsed: a group is painted at each of its
     /// `Do`s, and a profile is what costs to read (ADR 1813). Only a parsed profile is
     /// remembered, because it alone is the same space under every reading.

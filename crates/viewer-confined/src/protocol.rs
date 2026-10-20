@@ -16,14 +16,14 @@
 //! [`Uncarried`], which is a refusal a caller can read, and they are not carried because the
 //! confined process answers them *itself*: it holds the rasteriser, so the render round trip
 //! never crosses the pipe. That is `doc/ui-boundary.md`'s "one boundary, not two". A third,
-//! [`viewer_core::Command::Respond`], is [`Uncarried`] because the confined window sends no form,
-//! so no server's answer exists to cross (ADR 1291). A fourth, [`viewer_core::Command::Archive`]
-//! with its grant, is [`Uncarried`] because a conversion parses the whole document again, and the
-//! window's process is the side of this pipe that parses none (ADR 1954).
+//! [`viewer_core::Command::Archive`] with its grant, is [`Uncarried`] because a conversion parses
+//! the whole document again, and the window's process is the side of this pipe that parses none
+//! (ADR 1954).
 //!
 //! **A message that cannot be decoded is a refusal that says so.** [`ProtocolError`] names what
 //! was truncated or unrecognised; nothing here defaults, clamps or guesses.
 
+use pdf_model::action::DataFormat;
 use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_model::restriction::Operation;
 use pdf_model::submission::{Format, Method, Submission};
@@ -32,10 +32,10 @@ use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::Confinement;
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
-    Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
-    FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
-    RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection,
-    TrustPolicy, Zoom,
+    Answer, Answered, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find,
+    FindDirection, FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode,
+    Purpose, Query, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
+    Selection, TrustPolicy, Zoom,
 };
 
 use pdf_signature::verdict::Acceptance;
@@ -59,7 +59,7 @@ pub(crate) mod windowed;
 /// question — and a host would discover that at the worst moment there is, in the middle of putting
 /// a reader back after a death, as a refusal of something the reader never asked for. The greeting
 /// is the cheap place to find it out instead.
-pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF17";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF18";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -1280,6 +1280,10 @@ mod command_kind {
     // because the confined worker holds the viewer that asks for such a page, and only the window
     // knows that it draws one from its marks at the size of its window (ADR 1944).
     pub(super) const OVERSIZE: u8 = 42;
+    // §12.7.8's form data a server answered a submission or a fetched import with. It crosses
+    // because the host holds the network and the confined worker holds the form the answer is
+    // imported into, and only the worker parses it (ADR 2076).
+    pub(super) const RESPOND: u8 = 43;
 }
 
 /// A script's question, on the wire: a kind byte, then its fields in [`viewer_core::ScriptQuestion`]'s
@@ -1966,13 +1970,30 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                          conversion (ADR 1954)",
             });
         }
-        Command::Respond { .. } => {
-            return Err(Uncarried {
-                message: "Command::Respond",
-                reason: "the confined window sends no form (`viewer_host::policy::may_submit` is \
-                         asked there at `Submissions::Refuse`), so no server's answer comes back \
-                         to cross",
-            });
+        // §12.7.8's form data a server answered with, crossing to the worker that holds the form
+        // it is imported into (ADR 2076). The URL crosses as the sentence's source, and the format
+        // as the host read it off the answer — the worker parses the bytes, this side never does.
+        Command::Respond {
+            document,
+            answers,
+            source,
+            format,
+            bytes,
+        } => {
+            writer
+                .u8(k::RESPOND)
+                .document(*document)
+                .u8(match answers {
+                    Answered::Submission => 0,
+                    Answered::Import => 1,
+                })
+                .str(source)
+                .u8(match format {
+                    DataFormat::Fdf => 0,
+                    DataFormat::Xfdf => 1,
+                    DataFormat::Other => 2,
+                })
+                .bytes(bytes);
         }
         Command::RenderReady { .. } => {
             return Err(Uncarried {
@@ -2344,6 +2365,32 @@ pub(crate) fn decode_command_holding(
                 });
             }
         }),
+        k::RESPOND => Command::Respond {
+            document: reader.document(what)?,
+            answers: match reader.u8("which request an answer answers")? {
+                0 => Answered::Submission,
+                1 => Answered::Import,
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "which request an answer answers",
+                        value: u32::from(value),
+                    });
+                }
+            },
+            source: reader.string("where an answer came from")?,
+            format: match reader.u8("a form data format")? {
+                0 => DataFormat::Fdf,
+                1 => DataFormat::Xfdf,
+                2 => DataFormat::Other,
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a form data format",
+                        value: u32::from(value),
+                    });
+                }
+            },
+            bytes: reader.owned_bytes("an answer's body")?,
+        },
         k::COMMIT_FIELD => Command::CommitField {
             field: reader.string("a field's qualified name")?,
         },
@@ -5342,6 +5389,29 @@ mod tests {
             Command::AnswerScript {
                 document: DocumentId(4),
                 answer: viewer_core::ScriptAnswer::Unanswerable,
+            },
+            // §12.7.8's answer to a submission and to a fetched import, in each format byte
+            // (ADR 2076).
+            Command::Respond {
+                document: DocumentId(2),
+                answers: Answered::Submission,
+                source: "http://127.0.0.1:8080/submit".to_owned(),
+                format: DataFormat::Fdf,
+                bytes: b"%FDF-1.2".to_vec(),
+            },
+            Command::Respond {
+                document: DocumentId(3),
+                answers: Answered::Import,
+                source: "https://example.org/values.xfdf".to_owned(),
+                format: DataFormat::Xfdf,
+                bytes: Vec::new(),
+            },
+            Command::Respond {
+                document: DocumentId(4),
+                answers: Answered::Submission,
+                source: String::new(),
+                format: DataFormat::Other,
+                bytes: b"<p>thanks</p>".to_vec(),
             },
             Command::Activate(ObjectId::new(12, 1)),
             Command::SetGroup {

@@ -390,25 +390,6 @@ pub fn standard_structure_element(tree: &Tree, document: &Document, element: &Di
     tree.standard_role(document, element).is_some()
 }
 
-/// ISO 19005-2 section 6.7.4, which is one `shall` inside a subclause of recommendations.
-///
-/// Everything a reader would call the accessibility of language is `should` there — the default
-/// `/Lang` on the catalog, a `/Lang` wherever the text departs from it, the escape sequence inside
-/// a Unicode string — and a row for any of those would be this table asserting a rule the standard
-/// does not state. What the subclause *requires* is that a `/Lang` which is present be a language
-/// identifier as the base standard defines one, and §14.9.2.2 defines that:
-///
-/// > A language identifier shall either be the empty text string, to indicate that the
-/// > language is unknown, or a Language-Tag as defined in BCP 47.
-///
-/// So three things pass and everything else fails. `pdf_model::structure::document_language`
-/// already applies exactly that test to the catalog's entry — it answers `None` for an absent, an
-/// empty, or an ill-formed tag — which makes "the entry is there and not empty, and that reader
-/// still answers `None`" the failure the sentence describes, without a second BCP 47 grammar in
-/// this crate.
-///
-/// An entry that is not a text string at all is reported too: §14.9.2.2 makes a language
-/// identifier a text string, so a name or a number there is not one.
 /// ISO 19005-2 section 6.7.4's `shall`, at every structure element that states a `/Lang`.
 ///
 /// The same sentence as `catalog_language_identifier`, applied where §14.9.2's inheritance
@@ -481,6 +462,25 @@ fn element_language_identifiers(exam: &Examination<'_>, findings: &mut Findings)
     }
 }
 
+/// ISO 19005-2 section 6.7.4, which is one `shall` inside a subclause of recommendations.
+///
+/// Everything a reader would call the accessibility of language is `should` there — the default
+/// `/Lang` on the catalog, a `/Lang` wherever the text departs from it, the escape sequence inside
+/// a Unicode string — and a row for any of those would be this table asserting a rule the standard
+/// does not state. What the subclause *requires* is that a `/Lang` which is present be a language
+/// identifier as the base standard defines one, and §14.9.2.2 defines that:
+///
+/// > A language identifier shall either be the empty text string, to indicate that the
+/// > language is unknown, or a Language-Tag as defined in BCP 47.
+///
+/// So three things pass and everything else fails. `pdf_model::structure::document_language`
+/// already applies exactly that test to the catalog's entry — it answers `None` for an absent, an
+/// empty, or an ill-formed tag — which makes "the entry is there and not empty, and that reader
+/// still answers `None`" the failure the sentence describes, without a second BCP 47 grammar in
+/// this crate.
+///
+/// An entry that is not a text string at all is reported too: §14.9.2.2 makes a language
+/// identifier a text string, so a name or a number there is not one.
 fn catalog_language_identifier(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Ok(catalog) = document.catalog() else {

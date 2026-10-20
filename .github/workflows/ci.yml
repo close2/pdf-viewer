@@ -339,6 +339,40 @@ jobs:
       - name: Test what needs neither a display nor the specifications
         run: cargo test -p pdf-sandbox -p pdf-render
 
+  # The .NET interop layer for a Windows-native host (RFC 0010 step N0, ADR 2054): compiled, because
+  # no gate of the tree compiles it -- the machine the gates run on has no .NET SDK -- and
+  # `crates/viewer-ffi/tests/header_and_interop_agree.rs`, which holds it to the header, reads text
+  # and cannot see a declaration the C# compiler would refuse. It names no Windows type, so it builds
+  # on the Linux runner; the window that uses it will be `windows-latest`'s (RFC 0010 step N3a).
+  #
+  # No cache, and its absence is the decision: the project references no package, so a restore
+  # fetches nothing and a NuGet cache would hold nothing; the SDK is the setup step's to fetch.
+  #
+  # The ceiling is fifteen minutes, and it is priced rather than measured: no healthy run existed
+  # when this job was written. The setup step fetches one SDK and the build compiles seventeen
+  # files with no dependency, which is a minute or two on a healthy runner, so the ceiling is a
+  # hang's and not a slow build's -- restated at twice the longest healthy run once there are runs
+  # to read, as ADR 2024's are (ADR 2073).
+  #
+  # Not in `snapshot`'s `needs`: the snapshot ships the Rust executables, and nothing it ships
+  # contains this library yet.
+  interop:
+    runs-on: ubuntu-24.04
+    name: interop (.NET)
+    timeout-minutes: 15  # see `check` above, and the comment above this job
+    steps:
+      - uses: actions/checkout@v5
+
+      # The release the project file targets, `net10.0`, and nothing older: a runner image's
+      # preinstalled SDK is whichever the image carries that week.
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # `TreatWarningsAsErrors` is the project's own, so a warning fails here as it does in Rust.
+      - name: Build the interop layer
+        run: dotnet build hosts/windows/Quorra.Interop/Quorra.Interop.csproj --configuration Release
+
   # A rolling pre-release, retagged at every push to main that passes its gates.
   #
   # `needs` is the whole design decision here: a snapshot binary that fails the project's

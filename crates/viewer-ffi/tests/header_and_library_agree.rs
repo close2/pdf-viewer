@@ -25,13 +25,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
-    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    AcceptKind, ActKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind,
+    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
     DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, MarkupKind, MeasurePart, MethodKind, NavigatorKind, NoteKind,
-    OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey,
-    PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind, ScriptAnswerKind,
-    ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, Status, TextKind,
+    FolderTextKind, InitialKind, KeyKind, MarkupKind, MeasurePart, MethodKind, NavigatorKind,
+    NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind,
+    PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind,
+    ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind,
+    Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -133,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        261,
+        268,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -165,6 +166,7 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     the_field_flags(&mut expected);
     the_other_half_of_the_queries(&mut expected);
     the_eight_commands(&mut expected);
+    the_keyboard(&mut expected);
 
     assert_eq!(
         defined, expected,
@@ -671,6 +673,78 @@ fn the_eight_commands(expected: &mut BTreeMap<String, i64>) {
         "QUORRA_SCRIPT_ANSWER_UNANSWERABLE",
         ScriptAnswerKind::Unanswerable as i64,
     );
+}
+
+/// `quorra_key_press`'s keys and the acts it answers with, each with its count (ADR 2072).
+///
+/// The names are spelled out here, as every enumeration above is, rather than derived from the
+/// library's: what is being checked is that the *published* name carries the library's number.
+fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
+    for (name, kind) in [
+        ("A", KeyKind::A),
+        ("C", KeyKind::C),
+        ("F", KeyKind::F),
+        ("H", KeyKind::H),
+        ("K", KeyKind::K),
+        ("L", KeyKind::L),
+        ("M", KeyKind::M),
+        ("O", KeyKind::O),
+        ("P", KeyKind::P),
+        ("R", KeyKind::R),
+        ("S", KeyKind::S),
+        ("T", KeyKind::T),
+        ("W", KeyKind::W),
+        ("Y", KeyKind::Y),
+        ("Z", KeyKind::Z),
+        ("ZERO", KeyKind::Zero),
+        ("PLUS", KeyKind::Plus),
+        ("MINUS", KeyKind::Minus),
+        ("EQUALS", KeyKind::Equals),
+        ("SLASH", KeyKind::Slash),
+        ("QUESTION", KeyKind::Question),
+        ("ESCAPE", KeyKind::Escape),
+        ("TAB", KeyKind::Tab),
+        ("SPACE", KeyKind::Space),
+        ("ENTER", KeyKind::Enter),
+        ("HOME", KeyKind::Home),
+        ("END", KeyKind::End),
+        ("LEFT", KeyKind::Left),
+        ("RIGHT", KeyKind::Right),
+        ("UP", KeyKind::Up),
+        ("DOWN", KeyKind::Down),
+        ("PAGE_UP", KeyKind::PageUp),
+        ("PAGE_DOWN", KeyKind::PageDown),
+    ] {
+        expected.insert(format!("QUORRA_KEY_{name}"), kind as i64);
+    }
+    expected.insert("QUORRA_KEY_COUNT".to_owned(), i64::from(KeyKind::COUNT));
+    for (name, kind) in [
+        ("NOTHING", ActKind::Nothing),
+        ("SAY", ActKind::Say),
+        ("SCROLL_BY", ActKind::ScrollBy),
+        ("COPY", ActKind::Copy),
+        ("FIND", ActKind::Find),
+        ("PANEL", ActKind::Panel),
+        ("RESTRICTIONS", ActKind::Restrictions),
+        ("NOTICES", ActKind::Notices),
+        ("PRESENT", ActKind::Present),
+        ("PRINT", ActKind::Print),
+        ("ARCHIVE", ActKind::Archive),
+        ("CHOOSE_ARCHIVE", ActKind::ChooseArchive),
+        ("LEAVE_FULL_SCREEN", ActKind::LeaveFullScreen),
+        ("NEXT_LAYOUT", ActKind::NextLayout),
+        ("FIT_CONTROLS", ActKind::FitControls),
+        ("FREE_TEXT", ActKind::FreeText),
+        ("MEASURE", ActKind::Measure),
+        ("ABORT_DRAWING", ActKind::AbortDrawing),
+        ("NEXT_DOCUMENT", ActKind::NextDocument),
+        ("CLOSE_DOCUMENT", ActKind::CloseDocument),
+        ("OPEN_DOCUMENT", ActKind::OpenDocument),
+        ("SEPARATIONS", ActKind::Separations),
+    ] {
+        expected.insert(format!("QUORRA_ACT_{name}"), i64::from(kind.code()));
+    }
+    expected.insert("QUORRA_ACT_COUNT".to_owned(), i64::from(ActKind::COUNT));
 }
 
 /// `quorra_field_control`'s flag word.

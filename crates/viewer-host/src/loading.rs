@@ -378,6 +378,16 @@ impl Ahead {
         lock(&self.shared.look).clone()
     }
 
+    /// Whether the page drawn ahead is the picture of `list` at `target` — [`Self::take_for`]'s
+    /// question, asked without taking anything, by a window deciding which lane a request goes to
+    /// (ADR 2070): a page finished from its drawing ahead is the drawing thread's.
+    #[must_use]
+    pub fn holds(&self, list: &Arc<DisplayList>, target: TargetSpec) -> bool {
+        lock(&self.shared.drawn)
+            .as_ref()
+            .is_some_and(|(parts, underway)| parts.is(list) && underway.target() == target)
+    }
+
     /// The page drawn ahead, for the request that asks for `list` at `target` — and `None` for
     /// any other, after which nothing is held for the list's page: a request for it at another
     /// target is a frame the page drawn ahead is not.

@@ -39,6 +39,7 @@
 
 mod archiving;
 mod drawing;
+pub use drawing::device_lane;
 mod faces;
 mod find;
 mod forms;

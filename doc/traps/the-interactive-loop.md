@@ -546,3 +546,22 @@ Round 1602's scratch check kept its Xvfb pid in `X`, then evaluated `xdotool get
 the round's own process group. The helper's four names are the tool's, not the script's: every
 function that evaluates the geometry declares `X`, `Y`, `WIDTH` and `HEIGHT` `local`, and a pid lives
 in a name that says so.
+
+### 215. A feature's arrival is grepped for the refusals its absence justified
+
+Round 1620 gave the confined window a sender and found "this window has no network" standing as the
+refusal reason in two arms its brief had not named — the import fetched by absolute URI and the
+signature policy's fetch — each about to become a false sentence beside the new code (ADR 2076). A
+refusal's reason is a claim about what the program cannot do, and it decays the moment the program
+can: when a capability lands, `grep` the tree for the sentence that named its absence, and either lift
+the refusal to the new level or give it the reason that is still true.
+
+### 217. A drive step about the drawing thread pins its lane once the window has a device
+
+The drive's `page_as_built` step watches a page of two hundred thousand fills appear part-way, which is
+a statement about the drawing thread (ADR 1825). When round 1617 gave the toolkit windows a device lane
+the device drew the whole page in one call of about a second and nothing appeared part-way, so the step
+failed while meaning something else (ADR 2070). A step whose subject is one lane's behaviour names that
+lane — `--cpu` here — in its launch and says in its comment why the lane is pinned, so that a later
+round reading a red step knows whether the lane or the behaviour moved.
+

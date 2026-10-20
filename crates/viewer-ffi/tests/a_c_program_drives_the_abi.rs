@@ -26,7 +26,8 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A one-page document with §12.7's two commonest fields, written out beside the test binary.
+/// A one-page document with §12.7's two commonest fields and a push-button whose §12.7.6.2
+/// submit-form action the keyboard presses, written out beside the test binary.
 ///
 /// **The form half of this gate needs a form, and the application note has none.** The other
 /// candidate was a corpus document — `issue17492.pdf` is what `viewer-gtk` and `viewer-qt` were
@@ -48,11 +49,11 @@ fn form_fixture() -> Vec<u8> {
         )
     };
     let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R] \
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 11 0 R] \
          /DA (/Helv 0 Tf 0 g) >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
-         /Contents 4 0 R /Annots [5 0 R 6 0 R 9 0 R 10 0 R] >>\nendobj\n\
+         /Contents 4 0 R /Annots [5 0 R 6 0 R 9 0 R 10 0 R 11 0 R] >>\nendobj\n\
          4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (typed) /V (hello) \
          /Rect [10 10 90 30] /F 4 >>\nendobj\n\
@@ -63,7 +64,10 @@ fn form_fixture() -> Vec<u8> {
          9 0 obj\n<< /Type /Annot /Subtype /Text /Rect [150 70 160 80] /F 4 /T (Drive) \
          /Contents (a red word) /Popup 10 0 R /RC ({}) >>\nendobj\n\
          10 0 obj\n<< /Type /Annot /Subtype /Popup /Rect [10 40 190 95] /Parent 9 0 R /Open true \
-         /F 4 >>\nendobj\n",
+         /F 4 >>\nendobj\n\
+         11 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (sent) \
+         /Rect [150 10 190 30] /F 4 /A << /S /SubmitForm /F << /FS /URL \
+         /F (https://example.org/submit) >> /Flags 1024 >> >>\nendobj\n",
         appearance("0 0 1 rg"),
         appearance("1 1 1 rg"),
         // Table 172's `/RC`: one run red, bold, set in Courier and spaced two points (ADR 1655),
@@ -265,7 +269,7 @@ fn what_it_printed(said: &str) {
         "attachments: 0 row(s)",
         // §12.7's form, on the fixture beside the test binary. Two fields, the check box ticked
         // with the name the library handed over, and the edit read back rather than assumed.
-        "form: 2 field(s)",
+        "form: 3 field(s)",
         "[0] Entry flags 0",
         "ticking ticked with the state Yes",
         "after the edit: 1 widget(s) on",
@@ -296,6 +300,16 @@ fn what_it_printed(said: &str) {
         "clock: the save writes /M as the caller's clock said: 1",
         "respond: the field holds the server's value: 1",
         "an answer to a script that is not waiting: 0 event(s)",
+        // `viewer_host::keys`' table through `quorra_key_press` (ADR 2072): the counts against the
+        // header's, the acts the windows' keys come to, the markup key's sentence with nothing
+        // selected, and Space on the push-button the Tab key reached — whose §12.7.6.2 submission
+        // owes Table 240 bit 11, set without bit 8, as a sentence beside the request.
+        "keys 33 (header 33), acts 22 (header 22), unknown is unknown",
+        "keyboard: Down scrolls 60.0, Control + F is Find, F presenting is Nothing, Control + T is \
+         Nothing, Escape warned is AbortDrawing",
+        "keyboard: H with nothing selected says \"select some text first",
+        "keyboard: Space on the focused button 11 submits to https://example.org/submit, owing 1 \
+         sentence(s): Table 240 bit 11's ExclNonUserAnnots shall be used only when",
         // A page past `MAX_PIXELS` under `QUORRA_OVERSIZE_LISTED`: asked for whole at 40 logical
         // pixels per unit rather than refused, and drawn as a window of the viewport grown by a
         // quarter on each side — 1200 x 1500 and the pixel either span reaches into.

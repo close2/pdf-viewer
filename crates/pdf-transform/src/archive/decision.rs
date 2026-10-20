@@ -364,11 +364,23 @@ pub enum Loss {
     /// offered (`doc/adr/1978`). Where the states govern only `ICCBased` marks, changing the mode
     /// moves nothing the standard defines and is not asked.
     OverprintMode,
+    /// ISO 19005-2 section 6.7.4: a `/Lang` that is not a language identifier states that the
+    /// language is unknown.
+    ///
+    /// §14.9.2.2 admits two values and no third: the empty text string, "to indicate that the
+    /// language is unknown", or a BCP 47 tag. Correcting a malformed tag is this converter
+    /// deciding what language the producer meant, which `doc/questions/A48` forbids, and removing
+    /// the entry would let §14.9.2.3's inheritance assert a parent's language over the text. So
+    /// the entry is kept and states the one thing that is known — that nothing is — and what goes
+    /// is the producer's own spelling, which a lenient reader might have understood. Nothing on
+    /// any page moves; the report names every entry with the value it held, and `remedy =
+    /// "supply"` with `language` writes the operator's tag instead (`doc/adr/2066`).
+    LanguageIdentifier,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -390,6 +402,7 @@ impl Loss {
         Self::HalftoneName,
         Self::Halftone,
         Self::OverprintMode,
+        Self::LanguageIdentifier,
     ];
 
     /// The word a caller authorises it by.
@@ -417,6 +430,7 @@ impl Loss {
             Self::HalftoneName => "halftone-name",
             Self::Halftone => "halftone",
             Self::OverprintMode => "overprint-mode",
+            Self::LanguageIdentifier => "language-identifier",
         }
     }
 
@@ -473,6 +487,8 @@ impl Loss {
                  was on, and with it everything that annotation carried \u{2014} a sound, a \
                  movie, a rendition, 3D artwork, and its own Contents description. A 3D or \
                  RichMedia annotation is admitted by PDF/A-4e, the target that keeps it whole. \
+                 A FileAttachment annotation's file is kept: it is filed in the document's \
+                 EmbeddedFiles tree, so only the marker on the page goes. \
                  Its normal appearance is the one part of it a target will hold: answer this \
                  site with remedy = \"preserve\" and those marks are kept on a page appended to \
                  the document"
@@ -576,6 +592,14 @@ impl Loss {
                  overprinted. Nothing in this viewer's window moves, and the report names every \
                  graphics state changed and the pages whose DeviceCMYK marks it governed"
             }
+            Self::LanguageIdentifier => {
+                "a Lang entry that is not a language identifier - on the catalog, a structure \
+                 element or a marked-content property list - states the empty identifier ISO \
+                 32000-2 \u{a7}14.9.2.2 gives an unknown language, so a reader that understood \
+                 the producer's malformed tag anyway now falls back on its own default. No mark \
+                 on any page moves, and the report names every entry with the value it held; \
+                 remedy = \"supply\" with language = \"<tag>\" writes the operator's tag instead"
+            }
         }
     }
 
@@ -641,6 +665,8 @@ pub struct Authorisations {
     pub halftone: bool,
     /// Whether [`Loss::OverprintMode`] was authorised.
     pub overprint_mode: bool,
+    /// Whether [`Loss::LanguageIdentifier`] was authorised.
+    pub language_identifier: bool,
 }
 
 impl Authorisations {
@@ -669,6 +695,7 @@ impl Authorisations {
             Loss::HalftoneName => self.halftone_name,
             Loss::Halftone => self.halftone,
             Loss::OverprintMode => self.overprint_mode,
+            Loss::LanguageIdentifier => self.language_identifier,
         }
     }
 
@@ -696,6 +723,7 @@ impl Authorisations {
             Loss::HalftoneName => self.halftone_name = true,
             Loss::Halftone => self.halftone = true,
             Loss::OverprintMode => self.overprint_mode = true,
+            Loss::LanguageIdentifier => self.language_identifier = true,
         }
     }
 }
@@ -1636,9 +1664,20 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // ISO 19005-4 section 6.3.1 confines `3D` and `RichMedia` to PDF/A-4e: at PDF/A-4 and
     // PDF/A-4f the subtype is not admitted, which is the loss above exactly — the artwork goes
     // with the annotation, and the report's sentence names PDF/A-4e as the target that keeps it
-    // (`doc/adr/2051` section 4). `FileAttachment`'s row stays refused below.
+    // (`doc/adr/2051` section 4).
     Remedy {
         requirement: "annotations/three-dimensional-only-in-engineering-files",
+        answer: Answer::Loses(
+            Loss::ForbiddenAnnotation,
+            Rewrite::ForbiddenAnnotationRemoved,
+        ),
+    },
+    // The same subclause confines `FileAttachment` to PDF/A-4f, and at PDF/A-4 and PDF/A-4e the
+    // annotation goes in the same removal — but the file its `/FS` names is filed in the document's
+    // `/EmbeddedFiles` tree, which every part 4 flavour admits, so what is lost is the marker on
+    // the page and not the attachment (`doc/adr/2067` section 4).
+    Remedy {
+        requirement: "annotations/file-attachment-only-in-embedded-file-files",
         answer: Answer::Loses(
             Loss::ForbiddenAnnotation,
             Rewrite::ForbiddenAnnotationRemoved,
@@ -1710,6 +1749,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
             Loss::AmendmentIdentifier,
             Rewrite::AmendmentIdentifierRemoved,
         ),
+    },
+    // ISO 19005-2 section 6.7.4, which binds PDF/A-2a alone: a `/Lang` that is stated is a
+    // language identifier. The entry is kept and states §14.9.2.2's unknown language, a loss of
+    // the producer's spelling; an operator's `supply` writes their tag through the same two
+    // rewrites instead (`doc/adr/2066`, and `doc/adr/2067` for the content stream's half).
+    Remedy {
+        requirement: super::languages::CATALOG_SITE,
+        answer: Answer::Loses(Loss::LanguageIdentifier, Rewrite::CatalogLanguageRestated),
+    },
+    Remedy {
+        requirement: super::languages::MARKED_SITE,
+        answer: Answer::Loses(Loss::LanguageIdentifier, Rewrite::MarkedLanguagesRestated),
     },
     // ISO 19005-2 section 6.6.2.3.3's four tables, each naming the prefix its fields are to be
     // spelled with — and section 6.6.2.2 is why that is a requirement rather than a convention: a
@@ -2705,13 +2756,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/provenance-recorded-action-fields-four",
         Because::TheFence(HISTORY_IS_WHAT_HAPPENED),
     ),
-    // ISO 19005-4 section 6.3.1's later paragraphs. The two rows about the subtype *set* are
-    // answered in `REMEDIES`; these two are the flavour conditions, and their first answer is a
-    // retarget rather than a removal.
-    (
-        "annotations/file-attachment-only-in-embedded-file-files",
-        Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
-    ),
     // ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
     (
         "file-structure/stream-filters-are-standard",
@@ -2794,15 +2838,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "graphics/no-reference-xobjects",
         Because::NotBuiltYet(REFERENCE_XOBJECT_NOT_PROXIED),
-    ),
-    // ISO 19005-2 section 6.7.4, which binds PDF/A-2a alone.
-    (
-        "logical-structure/catalog-language-identifier",
-        Because::NotBuiltYet(LANGUAGE_IDENTIFIER_NOT_REMOVED),
-    ),
-    (
-        "logical-structure/element-and-property-list-language-identifiers",
-        Because::NotBuiltYet(LANGUAGE_IDENTIFIER_NOT_REMOVED),
     ),
     (
         "metadata/xmp-character-data-only-in-simple-values",
@@ -2990,22 +3025,6 @@ const HISTORY_IS_WHAT_HAPPENED: &str = "ISO 19005-4 section 6.7.5 requires every
      provenance nobody has — doc/questions/A48's line, and the opposite of what an audit trail \
      is for. This converter adds its own history entries for what it does \
      (doc/pdf-a-conversion-limits.md section 4.2); it does not complete a producer's";
-
-/// Why an annotation a flavour confines is refused rather than removed.
-///
-/// ISO 19005-4 section 6.3.1 confines `3D` and `RichMedia` to a PDF/A-4e file and
-/// `FileAttachment` to a PDF/A-4f one, which is a narrower statement than the subtype
-/// prohibitions `REMEDIES` answers: the subtype is admitted by the part and refused by the
-/// flavour, so the first answer is the flavour that admits it. The second, for a
-/// `FileAttachment`, is `doc/pdf-a-mitigations.md`'s: the annotation is a marker and the file it
-/// names may stay in the document, which is a different rewrite from the removal beside it and is
-/// not built.
-const ANNOTATION_FLAVOUR_NOT_BUILT: &str = "this FileAttachment annotation's subtype is one \
-     ISO 19005-4 admits only in a PDF/A-4f file, so the shorter route is that flavour rather \
-     than a rewrite. Removing it is what the annotation-subtype rows do with \
-     --authorise forbidden-annotation; here that would also take the embedded file it names out \
-     of the archive, which doc/pdf-a-mitigations.md says need not go, and the rewrite that keeps \
-     it is not built";
 
 /// Why a compound row is refused where none of the rules it names failed.
 ///
@@ -3239,14 +3258,6 @@ const REFERENCE_XOBJECT_NOT_PROXIED: &str = "doc/pdf-a-conversion-limits.md sect
      writes down what the file was going to show. It is an Ask rather than a mechanical rewrite, \
      because a reader that could have reached the imported content now sees the placeholder \
      instead, and neither half is built";
-
-/// Why a malformed `/Lang` is neither corrected nor removed.
-const LANGUAGE_IDENTIFIER_NOT_REMOVED: &str = "a Lang entry here is not a language identifier the \
-     base standard defines. Correcting it means deciding what language the producer meant, which \
-     doc/questions/A48 forbids; removing it drops the only statement the file makes about the \
-     text's language, which §14.9.2 has a reader use and which PDF/A-2a exists partly to \
-     require. Removal is doc/pdf-a-conversion-limits.md section 3's kind of answer and is not \
-     offered";
 
 /// Why character data outside a simple value is left where it is.
 ///

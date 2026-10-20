@@ -5819,6 +5819,7 @@ dependencies = [
  "thiserror 2.0.21",
  "viewer-accessibility",
  "viewer-core",
+ "viewer-device",
  "viewer-host",
 ]
 
@@ -5856,6 +5857,7 @@ dependencies = [
  "thiserror 2.0.21",
  "viewer-accessibility",
  "viewer-core",
+ "viewer-device",
  "viewer-host",
 ]
 

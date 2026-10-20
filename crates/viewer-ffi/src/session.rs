@@ -19,6 +19,7 @@ use viewer_core::{
 use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
+use crate::keyboard::{self, ActKind, Decided};
 use crate::kinds::{
     BoundaryKind, DirectionKind, DuplexKind, LayoutKind, PageModeKind, PreferenceKey,
     PrintScalingKind, ShortfallKind,
@@ -66,6 +67,12 @@ pub struct Session {
     /// The password each open document was opened with, which a conversion opens the file again
     /// with — the library is a C caller's host, and keeps what a window keeps (ADR 1967).
     kept: viewer_host::password::Kept,
+    /// The sentence the last key press owes the person, where it owed one — see
+    /// [`Session::press`].
+    ///
+    /// Held for [`Self::printed`]'s reason: C's two-call idiom asks for the size and then for the
+    /// text, and a press acted on twice to ask twice would be two presses (ADR 2072).
+    said: Option<String>,
 }
 
 /// One printed page, rasterised and waiting for the caller's buffer.
@@ -94,6 +101,7 @@ impl Session {
             printed: None,
             archived: None,
             kept: viewer_host::password::Kept::new(),
+            said: None,
         }
     }
 
@@ -1116,6 +1124,45 @@ impl Session {
             document: DocumentId(document),
             answer,
         })
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The keyboard: `viewer_host::keys`' table for a C caller (RFC 0010 step N1, ADR 2072).
+    // ---------------------------------------------------------------------------------------
+
+    /// A key press that reached the page, acted on as every window acts on one.
+    ///
+    /// What needs nothing of the window is done here — the command the table means is sent, and
+    /// its events are the answer — and what does is handed back as the act and the distance a
+    /// scroll carries. A press the person is owed a sentence about answers [`ActKind::Say`] and
+    /// leaves the sentence for [`Self::said`]; every other press clears it.
+    #[must_use]
+    pub fn press(
+        &mut self,
+        key: viewer_host::Key,
+        held: viewer_host::Modifiers,
+        mode: viewer_host::Mode,
+        waiting: viewer_host::Waiting,
+    ) -> (Events, ActKind, f32) {
+        self.said = None;
+        match keyboard::decide(&self.viewer, key, held, mode, waiting) {
+            Decided::Send(command) => (self.handle(command), ActKind::Nothing, 0.0),
+            Decided::Window(act) => {
+                let (kind, by) = ActKind::of(act);
+                (Events::new(Vec::new()), kind, by)
+            }
+            Decided::Say(sentence) => {
+                self.said = Some(sentence);
+                (Events::new(Vec::new()), ActKind::Say, 0.0)
+            }
+            Decided::Nothing => (Events::new(Vec::new()), ActKind::Nothing, 0.0),
+        }
+    }
+
+    /// The sentence the last [`Self::press`] owes the person, if it owed one.
+    #[must_use]
+    pub fn said(&self) -> Option<&str> {
+        self.said.as_deref()
     }
 
     /// How many pages on the screen this viewer has anything to say about.

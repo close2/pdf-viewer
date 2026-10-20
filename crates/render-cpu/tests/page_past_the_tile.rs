@@ -250,3 +250,194 @@ fn a_mark_past_what_f32_measures_is_drawn_as_the_library_draws_it() {
         );
     }
 }
+
+/// A page of `width` × `height` pixels: a frame stroked round its edge, as the owner's witness
+/// states one, and a grid of small marks over the whole page — triangles with oblique edges,
+/// filled and stroked by turns, eighteen rows tall every sixteen so that every row is crossed by
+/// one, and a rectangle with fractional edges beside each. Small, so that a strip replays a
+/// fraction of the list rather than all of it, as a page of drawing does. Every coordinate is a
+/// dyadic fraction, so a strip's whole-row shift moves each exactly.
+fn page_of_marks(width: u32, height: u32) -> DisplayList {
+    let (w, h) = (width as f32, height as f32);
+    let mut list = DisplayList::new(Size::new(w, h));
+    list.push(stroked(rectangle(4.5, 4.5, w - 4.5, h - 4.5)));
+    let mut y = 8.25_f32;
+    let mut turn = 0_u32;
+    while y + 20.0 < h {
+        let mut x = 10.375_f32;
+        while x + 30.0 < w {
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(Point::new(x, y)));
+            path.push(PathCommand::LineTo(Point::new(x + 13.75, y + 6.5)));
+            path.push(PathCommand::LineTo(Point::new(x + 2.125, y + 18.0)));
+            path.push(PathCommand::Close);
+            list.push(if turn.is_multiple_of(2) {
+                filled(path)
+            } else {
+                stroked(path)
+            });
+            list.push(filled(rectangle(
+                x + 17.25,
+                y + 3.375,
+                x + 24.625,
+                y + 9.875,
+            )));
+            turn += 1;
+            x += 40.0;
+        }
+        y += 16.0;
+    }
+    list
+}
+
+/// `list` drawn on `target` in the strips `strips` asks for, and the plan that drew it.
+fn drawn_in(list: &DisplayList, target: TargetSpec, strips: u32) -> (Vec<u32>, Raster) {
+    let mut backend = CpuRasterizer::new().with_strips(strips);
+    let plan = backend.strip_plan(list, target);
+    let raster = backend.rasterize(list, target).expect("the page draws");
+    (plan, raster)
+}
+
+/// A pixel two drawings differ at: its column, its row, and the red level of each.
+type Difference = (u32, u32, u8, u8);
+
+/// Every pixel at which `one` and `cut` differ.
+fn differences(one: &Raster, cut: &Raster) -> Vec<Difference> {
+    one.data
+        .chunks_exact(4)
+        .zip(cut.data.chunks_exact(4))
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(index, (a, b))| {
+            let index = index as u32;
+            (index % one.width, index / one.width, a[0], b[0])
+        })
+        .collect()
+}
+
+/// [`page_of_marks`] drawn in one strip and then in each count of `asked`, every count's plan
+/// asserted to cut the page: the plans and the differences, count by count.
+fn cut_against_one(width: u32, height: u32, asked: &[u32]) -> Vec<(Vec<u32>, Vec<Difference>)> {
+    let list = page_of_marks(width, height);
+    let target = TargetSpec {
+        width,
+        height,
+        transform: Transform::IDENTITY,
+    };
+    let (one_plan, one) = drawn_in(&list, target, 1);
+    assert_eq!(one_plan, vec![0, height], "one strip asked, one made");
+    asked
+        .iter()
+        .map(|&strips| {
+            let (plan, cut) = drawn_in(&list, target, strips);
+            assert!(
+                plan.len() > 2,
+                "{width} x {height}: {strips} strips asked and the page is not cut, cuts {plan:?}"
+            );
+            (plan, differences(&one, &cut))
+        })
+        .collect()
+}
+
+/// A page wider than 8191 pixels is cut into strips as a page inside the range is, and the strips
+/// are the page drawn in one to the byte (ADR 2068). Its marks past the library's range are
+/// measured by `render_cpu::area` on either side of 8191, which evaluates every row from the mark's
+/// own device coordinates, so a cut across one draws the bytes the whole page does — ADR 1837's
+/// property; and a strip is a run of whole rows, so a column past the range is past it in every
+/// strip and every rectangle there is the closed form in every division.
+#[test]
+fn a_wide_page_is_cut_and_its_strips_are_the_page() {
+    for (plan, found) in cut_against_one(WIDE, 512, &[2, 4, 16]) {
+        assert!(
+            found.is_empty(),
+            "the wide page in strips at {plan:?} differs from one strip at {} pixels: {:?}",
+            found.len(),
+            found.get(..found.len().min(12))
+        );
+    }
+}
+
+/// Asserts that `found` is only what a division of a page inside the library's rectangle range
+/// already carries: a rectangle a cut crosses, a level apart in the row beside the cut.
+///
+/// That residue is not the planner's and not a mark past 8191's. A rectangle is drawn by
+/// `tiny-skia`'s rectangle converter wherever that converter reaches the surface (ADR 0476), and
+/// clipped at a strip's edge it states the boundary row's product a level from the unclipped
+/// rectangle's or from this backend's closed form — on an ordinary 368 × 542 page, with no mark
+/// near 8191, four strips differ from one at 144 such pixels. A rectangle forbids no
+/// row (ADR 0139), so that is ADR 1758's one level for one coverage, and the wide page has none of
+/// it because every rectangle on a surface past 8191 columns is the closed form in every strip.
+fn assert_a_level_beside_a_cut(what: &str, plan: &[u32], found: &[Difference]) {
+    for &(x, y, one, cut) in found {
+        assert!(
+            one.abs_diff(cut) <= 1 && plan.iter().any(|&row| row == y || row == y + 1),
+            "{what} in strips at {plan:?} differs from one strip at ({x}, {y}), {one} against \
+             {cut}, which is not a level beside a cut"
+        );
+    }
+}
+
+/// A page taller than 8191 pixels is cut too, its marks past 8191 rows as exactly as the wide
+/// page's past 8191 columns, and its strips are the page drawn in one but for the rectangles a
+/// cut crosses (ADR 2068).
+#[test]
+fn a_tall_page_is_cut_and_its_strips_are_the_page_but_for_a_level_beside_a_cut() {
+    for (plan, found) in cut_against_one(640, 8_704, &[2, 4, 16]) {
+        assert_a_level_beside_a_cut("the tall page", &plan, &found);
+    }
+}
+
+/// A spike from the page to `(x, y)` device pixels, stated with dyadic coordinates.
+fn spike_to(x: f32, y: f32) -> Path {
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(10.25, 10.5)));
+    path.push(PathCommand::LineTo(Point::new(x, y)));
+    path.push(PathCommand::LineTo(Point::new(30.75, 10.5)));
+    path.push(PathCommand::Close);
+    path
+}
+
+/// What the planner's old bound kept out, asked first (trap 214): a mark whose extent passes 8191
+/// but not `render_cpu::area`'s own bound, which ADR 2068 frees and which must then draw the page
+/// in strips to the byte, and ADR 0269's hostile geometry past that bound, whose rows stay
+/// forbidden — `tiny-skia` draws such a mark aliased and clips it at a strip's edge (ADR 2058 §4).
+/// On ADR 0269's 368 × 542 page, a fill and a stroke of each; a freed spike leaves its strips the
+/// page drawn in one but for what that page carries without it, a rectangle a level beside a cut.
+#[test]
+fn what_the_old_bound_kept_out_is_cut_inside_the_measured_range_and_kept_past_it() {
+    let (width, height) = (368, 542);
+    let target = TargetSpec {
+        width,
+        height,
+        transform: Transform::IDENTITY,
+    };
+    for (reach, freed) in [
+        ((20_000.5_f32, 9_000.25_f32), true),
+        ((1.0e7, 2.0e9), false),
+        ((1.0e25, 2.0e27), false),
+    ] {
+        for (what, mark) in [
+            ("a fill", filled(spike_to(reach.0, reach.1))),
+            ("a stroke", stroked(spike_to(reach.0, reach.1))),
+        ] {
+            let mut list = page_of_marks(width, height);
+            list.push(mark);
+            let (_, one) = drawn_in(&list, target, 1);
+            let (plan, cut) = drawn_in(&list, target, 4);
+            if freed {
+                assert!(
+                    plan.len() > 2,
+                    "{what} to {reach:?} is inside the measured range and still forbids every \
+                     cut: {plan:?}"
+                );
+                assert_a_level_beside_a_cut(what, &plan, &differences(&one, &cut));
+            } else {
+                assert_eq!(
+                    plan,
+                    vec![0, height],
+                    "{what} to {reach:?} is past the measured range, so its rows stay forbidden"
+                );
+            }
+        }
+    }
+}

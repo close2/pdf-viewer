@@ -26,7 +26,8 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4, §12.10** — headings whose status their leaves
   derive (ADR 1599); each moves when the last row below it that owes does.
 - **§7.4.7** — the pinned `hayro-jbig2` ignores EXTTEMPLATE, so such a region is refused by segment;
-  moves when the owner's fork takes `doc/patches/hayro-jbig2-extended-template.patch` (ADR 1459).
+  moves when the owner pushes the prepared branch `quorra/t88-patches` (`doc/questions/Q514`;
+  ADRs 1459, 2074).
 - **§7.4.9** — e-sRGB, e-sYCC, CIE Jab and non-D50 CIE Lab take the device fallback because their
   defining texts are not held; moves on a text the owner buys, or a document `jpx_colour_census`
   finds stating one where it decides. The irreversible path's one-level differences are not debt.

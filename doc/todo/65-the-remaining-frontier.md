@@ -76,10 +76,11 @@ permanent) or an owner decision to acquire a specification.
 - §7.4.7 — a generic region on ISO/IEC 14492's extended template is refused out loud: the pinned
   `hayro-jbig2` reads EXTTEMPLATE and ignores it, and `doc/patches/hayro-jbig2-extended-template.patch`
   waits on the owner's fork (ADR 1459); `crates/pdf-sandbox/tests/t88_conformance.rs` says the day the
-  codec takes it. No corpus stream uses it. Read on 2026-10-08: the manifest takes the codec from
-  upstream's repository at `ea9c81dc`, the commit 0.3.1 was released from, and neither it nor any
-  branch of the owner's fork `close2/hayro` carries the patch; applying it there is the owner's step
-  (ADR 1714).
+  codec takes it. No corpus stream uses it. Read on 2026-10-20: the manifest takes the codec from
+  upstream's repository at `ea9c81dc`, the commit 0.3.1 was released from, and no branch of the
+  owner's fork `close2/hayro` carries the patch; the branch that does, the three patches on
+  `ea9c81dc`, is prepared in `/home/AI/hayro-fork/` and pushing it is the owner's step
+  (`doc/questions/Q514`; ADRs 1714, 2074).
 - §7.4.9 — the one sentence of this clause addressed to a processor asks for *support* of the JPX
   baseline enumerated colour spaces, which ITU-T T.801 M.9.2.4 lists — the held identical text of
   ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab

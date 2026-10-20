@@ -76,6 +76,15 @@ remedy = "discard"         # an amendment identifier that is malformed claims no
 [site."metadata/xmp-packet-header-attributes"]
 remedy = "discard"         # deprecated framing attributes; nothing a reader of the packet uses
 
+[site."logical-structure/catalog-language-identifier"]
+remedy = "discard"         # the document's default language, dc:language's counterpart in the
+                           # catalog; a malformed one becomes "unknown" and is named (ADR 2066)
+
+[site."logical-structure/element-and-property-list-language-identifiers"]
+remedy = "stop"
+# Deliberately `stop`. An element's or a span's Lang is a statement about one run of text rather
+# than about the document, so restating it is outside what this profile is named for.
+
 [site."metadata/provenance-recorded-action-fields-four"]
 remedy = "stop"
 # Deliberately `stop` rather than `discard`, against the profile's own sentence. An incomplete

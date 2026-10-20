@@ -71,6 +71,9 @@ struct Arguments {
     /// How many pages the window keeps a small picture of, per
     /// [`viewer_host::stand_in::RETAINED_PAGES_WORD`] (ADR 1866).
     proxy_pages: usize,
+    /// `--cpu`: every page on the processor and no graphics device brought up, the word `quorra`
+    /// takes for the same thing; the device draws otherwise (ADRs 2049, 2070).
+    processor: bool,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -86,6 +89,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut separations = false;
     let mut reader = viewer_host::ReaderWords::default();
     let mut proxy_pages = viewer_host::stand_in::RETAINED_PAGES;
+    let mut processor = false;
     let mut words = words.into_iter();
     while let Some(word) = words.next() {
         if reader.take(std::ffi::OsStr::new(&word), &mut words)? {
@@ -115,6 +119,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             separations = viewer_host::separations(setting)?;
         } else if word == viewer_host::stand_in::RETAINED_PAGES_WORD {
             proxy_pages = viewer_host::stand_in::retained_pages(words.next().as_deref())?;
+        } else if word == "--cpu" {
+            processor = true;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -138,7 +144,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
              [--remote-documents=refuse|ask|warn|open] \
              [--embedded-documents=refuse|ask|warn|open] \
              [--submissions=refuse|ask|warn|send] [--separations=on|off] {} \
-             [--proxy-pages N] <file.pdf>...",
+             [--proxy-pages N] [--cpu] <file.pdf>...",
             viewer_host::ReaderWords::USAGE
         )
     })?;
@@ -155,6 +161,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         separations,
         reader,
         proxy_pages,
+        processor,
     })
 }
 
@@ -198,6 +205,9 @@ fn main() -> glib::ExitCode {
             return glib::ExitCode::FAILURE;
         }
     };
+    // The graphics device comes up beside the document's read, off this thread, and page one is
+    // drawn on it once it exists; nothing waits for its pipelines (ADR 2070).
+    let lane = std::cell::Cell::new((!arguments.processor).then(viewer_gtk::device_lane));
     // `NON_UNIQUE` because this is a document viewer and two documents are two windows; without
     // it a second invocation would hand its file to the first process and exit, which is a
     // decision about how a desktop works rather than about how a PDF is read.
@@ -214,6 +224,9 @@ fn main() -> glib::ExitCode {
         };
         let host = Host::open(app, opening, arguments.widget_appearances, settings, trace);
         host.borrow_mut().retain_pages(arguments.proxy_pages);
+        if let Some(lane) = lane.take() {
+            host.borrow_mut().draw_on_the_device(lane);
+        }
         host.borrow_mut().open_behind(arguments.also.clone());
         held.borrow_mut().push(host);
     });

@@ -788,6 +788,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -940,6 +941,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1019,6 +1021,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3475,6 +3478,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -4270,6 +4274,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4322,6 +4327,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4372,6 +4378,7 @@ fn two_specifications_marked_best_stay_refused() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4415,6 +4422,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -6363,6 +6371,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7609,6 +7618,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -7929,6 +7939,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -7965,6 +7976,7 @@ fn every_loss() -> Authorisations {
         halftone_name: false,
         halftone: false,
         overprint_mode: false,
+        language_identifier: false,
     }
 }
 
@@ -12416,4 +12428,321 @@ fn a_three_dimensional_annotation_outside_the_engineering_flavour_is_the_forbidd
     let poster = "transform: Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 20.0, f: 30.0 }";
     assert!(drawn(&source).contains(poster));
     assert!(drawn(&output).contains(poster), "the poster is still drawn");
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.7.4: a `/Lang` that is not a language identifier, restated as the empty
+// identifier for an unknown language or as the operator's tag (`doc/adr/2066`, `doc/adr/2067`).
+// --------------------------------------------------------------------------------------------
+
+/// The content stream the language fixture draws: ISO 32000-2 §14.9.2.3's EXAMPLE 1 shape, a
+/// `Span` property list written into the `BDC` operator's operands, around a mark.
+const SPAN_CONTENTS: &[u8] = b"q /Span <</Lang (es_MX) /ActualText (x)>> BDC 0 0 10 10 re f EMC Q";
+
+/// A tagged part 2 document stating three malformed `/Lang` entries: the catalog's, one
+/// structure element's, and one inline property list's.
+fn three_malformed_languages() -> Vec<u8> {
+    Conforming {
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R /Lang (en_GB)".to_owned(),
+        objects: vec![
+            "<< /Type /StructTreeRoot /K [7 0 R] >>".to_owned(),
+            "<< /Type /StructElem /S /P /P 6 0 R /K [] /Lang (de/AT) >>".to_owned(),
+        ],
+        contents: Some((String::new(), SPAN_CONTENTS.to_vec())),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+const CATALOG_LANG: &str = "logical-structure/catalog-language-identifier";
+const MARKED_LANG: &str = "logical-structure/element-and-property-list-language-identifiers";
+
+#[test]
+fn a_malformed_language_identifier_states_an_unknown_language_once_the_loss_is_authorised() {
+    // ISO 32000-2 §14.9.2.2: "A language identifier shall either be the empty text string, to
+    // indicate that the language is unknown, or a Language-Tag as defined in BCP 47." Correcting a
+    // tag is `doc/questions/A48`'s forbidden half, and removing the entry would let §14.9.2.3's
+    // inheritance assert a parent's language, so the empty identifier is what is written.
+    let source = three_malformed_languages();
+    let target = Target::Two(Level::A);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    for (row, rewrite) in [
+        (CATALOG_LANG, Rewrite::CatalogLanguageRestated),
+        (MARKED_LANG, Rewrite::MarkedLanguagesRestated),
+    ] {
+        assert_eq!(
+            decision(&report, row),
+            Decision::Unauthorised {
+                loss: Loss::LanguageIdentifier,
+                rewrite,
+            }
+        );
+    }
+
+    let authorised = Authorisations {
+        language_identifier: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&written, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+
+    let restated = &conversion(&report).restated_languages;
+    let stated: BTreeSet<&str> = restated.iter().map(|row| row.stated.as_str()).collect();
+    assert_eq!(
+        stated,
+        BTreeSet::from(["en_GB", "de/AT", "es_MX"]),
+        "{restated:?}"
+    );
+    assert!(restated.iter().all(|row| row.now.is_empty()));
+
+    // Every other byte of the producer's stream crosses as it was (`doc/adr/2067`).
+    let expected = b"q /Span <</Lang () /ActualText (x)>> BDC 0 0 10 10 re f EMC Q";
+    assert_eq!(decoded_contents(&written), expected.to_vec());
+    let text = String::from_utf8_lossy(&written);
+    assert!(!text.contains("en_GB") && !text.contains("de/AT"));
+}
+
+/// The two rows an operator who knows the archive's language writes.
+const LANGUAGE_ROWS: &str = "[site.\"logical-structure/catalog-language-identifier\"]\n\
+     remedy = \"supply\"\nlanguage = \"de-AT\"\n\
+     [site.\"logical-structure/element-and-property-list-language-identifiers\"]\n\
+     remedy = \"supply\"\nlanguage = \"de-AT\"\n";
+
+#[test]
+fn an_operators_language_is_written_where_the_file_states_a_malformed_one() {
+    let target = Target::Two(Level::A);
+    let (report, output) = convert_with_plan(
+        &three_malformed_languages(),
+        &plan_from(LANGUAGE_ROWS, target),
+    );
+    for (row, expected) in [
+        (CATALOG_LANG, Rewrite::CatalogLanguageRestated),
+        (MARKED_LANG, Rewrite::MarkedLanguagesRestated),
+    ] {
+        let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+            panic!("the supply answers {row}: {:?}", decision(&report, row));
+        };
+        assert_eq!(rewrite, expected);
+    }
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&written, target).verdict(), Verdict::Conforms);
+    let expected = b"q /Span <</Lang (de-AT) /ActualText (x)>> BDC 0 0 10 10 re f EMC Q";
+    assert_eq!(decoded_contents(&written), expected.to_vec());
+    let document =
+        Document::open_with_limits(written.clone(), Limits::DEFAULT).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    assert_eq!(
+        document.get_key(&catalog, "Lang").as_string(),
+        Some(&b"de-AT"[..])
+    );
+    assert_eq!(
+        conversion(&report).supplied.len(),
+        3,
+        "the report names every entry the operator's tag was written over"
+    );
+}
+
+#[test]
+fn a_language_the_configuration_states_is_held_to_bcp_47_and_an_empty_one_stops() {
+    let target = Target::Two(Level::A);
+    let malformed = LANGUAGE_ROWS.replace("de-AT", "de_AT");
+    assert!(
+        pdf_transform::archive::Configuration::read(&malformed, target).is_err(),
+        "a supply may not write a tag the requirement it answers refuses"
+    );
+    let empty = LANGUAGE_ROWS.replace("de-AT", "");
+    let (report, output) =
+        convert_with_plan(&three_malformed_languages(), &plan_from(&empty, target));
+    assert!(
+        output.is_none(),
+        "an operator who stated nothing has supplied nothing"
+    );
+    assert!(matches!(
+        decision(&report, CATALOG_LANG),
+        Decision::Unauthorised {
+            loss: Loss::LanguageIdentifier,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_well_formed_language_identifier_is_not_touched() {
+    let source = Conforming {
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R /Lang (en-GB)".to_owned(),
+        objects: vec![
+            "<< /Type /StructTreeRoot /K [7 0 R] >>".to_owned(),
+            "<< /Type /StructElem /S /P /P 6 0 R /K [] /Lang () >>".to_owned(),
+        ],
+        contents: Some((String::new(), b"/Span <</Lang (es-MX)>> BDC EMC".to_vec())),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::A);
+    let held = holds(&source, target);
+    assert!(
+        held.failures()
+            .all(|judgement| judgement.id != CATALOG_LANG && judgement.id != MARKED_LANG),
+        "{}",
+        held.render()
+    );
+}
+
+#[test]
+fn a_stream_the_hexadecimal_repair_also_reaches_carries_both_edits() {
+    // `super::hexadecimal` writes §7.3.4.3's assumed final digit into the same stream, and the
+    // respelling starts from the repaired bytes, so the one stream written carries the two.
+    let source = Conforming {
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 6 0 R".to_owned(),
+        objects: vec!["<< /Type /StructTreeRoot /K [] >>".to_owned()],
+        contents: Some((
+            String::new(),
+            b"q /Span <</Lang (es_MX) /ActualText <FEFF0041A>>> BDC 0 0 10 10 re f EMC Q".to_vec(),
+        )),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::A);
+    let authorised = Authorisations {
+        language_identifier: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let written = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&written, target).verdict(), Verdict::Conforms);
+    let expected = b"q /Span <</Lang () /ActualText <FEFF0041A0>>> BDC 0 0 10 10 re f EMC Q";
+    assert_eq!(decoded_contents(&written), expected.to_vec());
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-4 section 6.3.1: a `FileAttachment` annotation outside PDF/A-4f goes in the subtype
+// rows' removal, and the file its `/FS` names stays in the name tree (`doc/adr/2067` section 4).
+// --------------------------------------------------------------------------------------------
+
+/// A part 4 page holding one `FileAttachment` annotation whose specification names a text file.
+fn a_file_attachment_annotation() -> Vec<u8> {
+    a_file_attachment_annotation_beside(String::new())
+}
+
+/// The same, with `catalog` added to the catalog dictionary.
+fn a_file_attachment_annotation_beside(catalog: String) -> Vec<u8> {
+    Conforming {
+        catalog,
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [20 30 40 60] /F 4 /FS 7 0 R \
+             /AP << /N 9 0 R >> >>"
+                .to_owned(),
+            "<< /Type /Filespec /F (notes.txt) /UF (notes.txt) /EF << /F 8 0 R /UF 8 0 R >> \
+             /AFRelationship /Unspecified >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                "/Type /EmbeddedFile /Subtype /text#2Fplain \
+                 /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+                b"notes\n",
+            ),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 30] /Length 15",
+                b"0 0 20 30 re f\n",
+            ),
+        ],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_file_attachment_annotation_outside_its_flavour_goes_and_its_file_stays_in_the_name_tree() {
+    let row = "annotations/file-attachment-only-in-embedded-file-files";
+    let source = a_file_attachment_annotation();
+    // PDF/A-4e admits any embedded file (ISO 19005-4 Annex B), so the file stays as it is; at
+    // PDF/A-4 it would have to be a PDF/A file of its own, which is that row's question.
+    let target = Target::Four(Flavour::E);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, nothing is written");
+    assert!(matches!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::ForbiddenAnnotation,
+            rewrite: Rewrite::ForbiddenAnnotationRemoved,
+        }
+    ));
+    let authorised = Authorisations {
+        forbidden_annotation: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("a name dictionary");
+    let tree = document.get_key(names, "EmbeddedFiles");
+    let tree = tree.as_dict().expect("an EmbeddedFiles tree");
+    let entries = document.get_key(tree, "Names");
+    let entries = entries.as_array().expect("one node");
+    assert_eq!(
+        entries.first().and_then(pdf_syntax::Object::as_string),
+        Some(&b"notes.txt"[..])
+    );
+    assert!(
+        document.get_key(&catalog, "AF").is_null(),
+        "nothing new is associated"
+    );
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    assert!(
+        document
+            .get_key(&page.dict, "Annots")
+            .as_array()
+            .is_none_or(<[_]>::is_empty),
+        "the annotation is gone"
+    );
+    let kept = &conversion(&report).kept_attachments;
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept.first().map(|row| row.name.as_str()), Some("notes.txt"));
+}
+
+#[test]
+fn a_configuration_may_not_ask_for_the_file_attachment_s_file_to_go_with_it() {
+    let text = "[site.\"annotations/file-attachment-only-in-embedded-file-files\"]\n\
+                remedy = \"discard\"\nkeep-attachment = false\n";
+    assert!(
+        pdf_transform::archive::Configuration::read(text, Target::Four(Flavour::Plain)).is_err()
+    );
+}
+
+#[test]
+fn a_file_the_name_tree_already_files_is_not_filed_twice() {
+    let source = a_file_attachment_annotation_beside(
+        "/Names << /EmbeddedFiles << /Names [(notes.txt) 7 0 R] >> >>".to_owned(),
+    );
+    let target = Target::Four(Flavour::E);
+    let authorised = Authorisations {
+        forbidden_annotation: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(conversion(&report).kept_attachments.is_empty());
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let tree = document.get_key(names.as_dict().expect("names"), "EmbeddedFiles");
+    let entries = document.get_key(tree.as_dict().expect("a tree"), "Names");
+    assert_eq!(
+        entries.as_array().map(<[_]>::len),
+        Some(2),
+        "one key and one value"
+    );
 }

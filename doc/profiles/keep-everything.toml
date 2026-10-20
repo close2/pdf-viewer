@@ -88,7 +88,9 @@ on-failure = "preserve"    # attach the original 3D stream, which Annex B admits
 
 [site."annotations/file-attachment-only-in-embedded-file-files"]
 remedy = "preserve"
-keep-attachment = true     # the file stays in the name tree; only the on-page marker goes
+placement = "append"       # the icon's marks are kept as the subtype rows keep theirs
+on-failure = "stop"
+keep-attachment = true     # and the file stays in the name tree (ADR 2067)
 
 [site."annotations/flags-entry-present"]
 remedy = "preserve"        # kept in place and given Print, which ISO 19005 section 6.3.2 requires (ADR 1942)
@@ -391,14 +393,13 @@ role-map = { }             # fill in with your own producer's types; an empty ma
 unlisted = "stop"
 
 [site."logical-structure/catalog-language-identifier"]
-remedy = "supply"          # NOT-YET-IN-FORMAT
-language = ""              # e.g. "de-DE"; empty stops rather than guessing
-only-when = "malformed"
+remedy = "supply"          # ADR 2066: a Lang that is not a language identifier states this tag
+language = ""              # e.g. "de-DE"; empty stops rather than guessing. Only a malformed
+                           # Lang is ever written: one the file states well is the requirement met
 
 [site."logical-structure/element-and-property-list-language-identifiers"]
-remedy = "supply"          # NOT-YET-IN-FORMAT
-language = ""
-only-when = "malformed"
+remedy = "supply"          # the same, at structure elements and marked-content property lists,
+language = ""              # an inline one respelled in its content stream (ADR 2067)
 
 [site."graphics/separations-of-one-name-agree"]
 remedy = "supply"

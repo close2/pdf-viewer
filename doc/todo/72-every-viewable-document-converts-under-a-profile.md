@@ -109,12 +109,15 @@ veraPDF corpus reaches is left at 2b or 2u. A part 4 output now writes the ident
 namespace erratum #123 states, `http` (ADR 2051), which was the intent witness's one veraPDF
 failure. `annotations/three-dimensional-only-in-engineering-files` (19 at 4) — **built** as the
 subtype rows' loss and their `preserve` (ADR 2051 section 4), `6-3-1-t01-fail-d` converting to 4
-with its poster drawn where it was under `as-shown`. **Next, by the census over the veraPDF
-corpus**: at 4, `annotations/file-attachment-only-in-embedded-file-files` (13), whose removal has to
-keep the file its `/FS` names in the name tree; at 2a,
-`logical-structure/element-and-property-list-language-identifiers` (25) and
-`…/catalog-language-identifier` (22), a `supply` of the operator's language or a `discard`, the
-first reaching marked-content property lists inside content streams.
+with its poster drawn where it was under `as-shown`. At 2a,
+`logical-structure/element-and-property-list-language-identifiers` (41 with the veraPDF corpus)
+and `…/catalog-language-identifier` (22) — **built** as ADR 2066's loss, the entry stating
+§14.9.2.2's unknown language, and its `supply` of the operator's tag, an inline property list
+respelled in its content stream (ADR 2067); 32 of the 63 witnesses convert, veraPDF-compliant, and
+the rest stop elsewhere. `annotations/file-attachment-only-in-embedded-file-files` (16 at 4) —
+**built** as the subtype rows' removal with the file its `/FS` names filed in `/EmbeddedFiles`
+(ADR 2067 section 4); `6-3-1-t01-fail-f` converts to 4 and 4e, veraPDF-compliant, its icon kept
+under `as-shown`. **Next**: the census's ranking after this round, `tools/state.sh archive`.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

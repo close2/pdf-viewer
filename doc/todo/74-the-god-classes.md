@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1, 2, 3, 5 and 6 are split (ADRs 2004, 2018, 2032, 2046, 2064); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1, 2, 3, 5, 6 and 7 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -72,11 +72,19 @@ text and the inverse), `program` (what the embedded program states), `advances` 
 metrics, pair kerning), `glyphs` (a code to a glyph index), `drawing` (outlines, the cache and the
 hinting instance) and `substitution` (a stand-in face and its classes). About 1 200 lines of types and free functions remain in the root beside its four test modules (about 1 200 lines more); moving either is a different split.
 
-## 7. The transparency and pattern interpreters (`content/transparency.rs`, `content/pattern.rs`)
+## 7. Built — the transparency and pattern interpreters (`content/transparency.rs` and `transparency/`, `content/pattern.rs` and `pattern/`), ADRs 2080 and 2081
 
-Two blocks of the one `Interpreter` type (207 methods over eighteen files; the type is the
-largest by methods and is already split by file). Not a split to make by the type: the entries are
-the two blocks, and the question for each is whether the file is one clause (§11) or several.
+Two blocks of the one `Interpreter` type (the type is the largest by methods and is already split by
+file), and the answer to "one clause or several" was several. `transparency.rs` keeps the group
+entry points (`run_transparency_group`, `transparency_group`, `appearance_group`,
+`imported_page_group`), the three types they share and the tests; twelve modules hold the rest by
+concern: `transfer`, `commands`, `blending_space`, `into_parent`, `press`, `group_runs`, `soft_mask`,
+`readings`, `shape`, `knockout`, `implicit_knockout` and `departures`. `pattern.rs` keeps the paint
+types and the entry points `pattern`, `tile`, `fill_paint`, `stroke_paint` and `mark_transfer`; eight
+modules beside `reach` hold the rest: `initial`, `colouring`, `shading`, `tiling`, `lattice`, `cell`,
+`repeat` and `wrapping`. About 1 960 lines of tests remain in the transparency root, which is a
+different split; `shape.rs`, `readings.rs` and `blending_space.rs` are each above 550 lines and are
+the next cuts if one is wanted.
 
 ## 8. `Document` (`crates/pdf-syntax/src/document.rs`), `ColourSpace` (`crates/pdf-colour/src/colour.rs`)
 

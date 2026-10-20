@@ -1083,6 +1083,16 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.7.3.4; ISO 32000-2 §14.7.3 makes `/RoleMap` the mapping. A `supply`:
     /// which standard type a producer's own type means is not in the file (`doc/adr/1990`).
     RoleMapSupplied,
+    /// The catalog's `/Lang`, where it is not a language identifier, states the empty identifier
+    /// for an unknown language, or the operator's tag.
+    ///
+    /// ISO 19005-2 section 6.7.4; ISO 32000-2 §14.9.2.2 admits those two values. A loss where the
+    /// value is the empty one and a `supply` where it is the operator's (`doc/adr/2066`).
+    CatalogLanguageRestated,
+    /// Every structure element's and marked-content property list's `/Lang` that is not a
+    /// language identifier states the same, a property list written into a content stream
+    /// respelled in place with every other byte of the stream as it was (`doc/adr/2067`).
+    MarkedLanguagesRestated,
 }
 
 impl Rewrite {
@@ -1198,7 +1208,8 @@ impl Rewrite {
             Self::ForbiddenAnnotationRemoved => {
                 "an annotation of a subtype ISO 19005 does not admit is taken out of its page's \
                  Annots array, and everything only that annotation reached — its media stream, \
-                 its 3D artwork, its popup — leaves the file with it"
+                 its 3D artwork, its popup — leaves the file with it; a FileAttachment \
+                 annotation's file is filed in the EmbeddedFiles tree instead"
             }
             Self::HiddenAnnotationRemoved => {
                 "an annotation whose F entry ISO 19005 forbids — Print clear, or Hidden, \
@@ -1461,6 +1472,17 @@ impl Rewrite {
                 "a non-standard structure type that mapped to no standard one is mapped in the \
                  role map to the standard type the operator named for it"
             }
+            Self::CatalogLanguageRestated => {
+                "the catalog's Lang, which was not a language identifier, states the empty \
+                 identifier ISO 32000-2 \u{a7}14.9.2.2 gives an unknown language, or the tag the \
+                 operator supplied"
+            }
+            Self::MarkedLanguagesRestated => {
+                "a structure element's or a marked-content property list's Lang that was not a \
+                 language identifier states the empty identifier for an unknown language, or the \
+                 tag the operator supplied; a property list inside a content stream is respelled \
+                 in place and no other byte of the stream changes"
+            }
             Self::ProfileAlternateWritten => {
                 "an ICCBased colour space whose profile this reader cannot draw through is \
                  written as the Alternate space ISO 32000-2 \u{a7}8.6.5.5 draws it in, or the \
@@ -1579,6 +1601,8 @@ impl Rewrite {
             Self::ProfileTextSupplied => "profile-text-supplied",
             Self::ProfileAlternateWritten => "profile-alternate-written",
             Self::RoleMapSupplied => "role-map-supplied",
+            Self::CatalogLanguageRestated => "catalog-language-restated",
+            Self::MarkedLanguagesRestated => "marked-languages-restated",
         }
     }
 }
@@ -1729,6 +1753,7 @@ impl<'a> Rewriter<'a> {
             attached: prepared.attached.as_ref().ok(),
             actions: prepared.actions.as_ref().ok(),
             hexadecimal: prepared.hexadecimal.as_ref().ok(),
+            languages: prepared.languages.as_ref().ok(),
             external_data: prepared.external_data.as_ref().ok(),
             boundaries: prepared.boundaries.as_ref().ok(),
         }
@@ -1863,6 +1888,24 @@ fn count_what_has_no_place(
         && let Ok(completed) = &prepared.hexadecimal
     {
         applied.insert(Rewrite::HexadecimalDigitCompleted, completed.digits);
+    }
+    // The entries rather than the objects: a content stream may respell three property lists'
+    // `/Lang`, and a report saying "1 done" would be counting the stream (`doc/adr/2066`).
+    if let Ok(restated) = &prepared.languages {
+        for (rewrite, class) in [
+            (
+                Rewrite::CatalogLanguageRestated,
+                super::languages::Class::Catalog,
+            ),
+            (
+                Rewrite::MarkedLanguagesRestated,
+                super::languages::Class::Marked,
+            ),
+        ] {
+            if wanted.contains(&rewrite) {
+                applied.insert(rewrite, restated.places(class));
+            }
+        }
     }
     if let Ok(removals) = &prepared.actions {
         for rewrite in [
@@ -2585,6 +2628,8 @@ struct Rewriter<'a> {
     actions: Option<&'a super::actions::Removals>,
     /// The content streams whose hexadecimal strings state their final digit, where any do.
     hexadecimal: Option<&'a super::hexadecimal::Completed>,
+    /// The `/Lang` entries restated, and the objects they are in (`doc/adr/2066`).
+    languages: Option<&'a super::languages::Restated>,
     /// The streams whose data comes inside the file, where any do.
     external_data: Option<&'a super::external::Embedded>,
     /// The out-of-range optional page boundary entries each page loses, where any do.
@@ -2696,6 +2741,7 @@ impl Rewriter<'_> {
             changed |= self.rewrite_catalog(&mut out, applied);
         }
         changed |= self.extend_the_role_map(id, &mut out, applied);
+        changed |= self.restate_languages(id, &mut out);
         changed |= self.preserve(id, &mut out, applied);
         changed |= self.remove_the_actions(id, &mut out);
         if Some(id) == self.sites.names
@@ -3825,10 +3871,14 @@ impl Rewriter<'_> {
     }
 
     /// The attachments this conversion filed, where it filed any.
+    ///
+    /// Two rewrites file into the tree: the `preserve` that attaches the producer's bytes, and the
+    /// removal of a `FileAttachment` annotation whose file stays (`doc/adr/2067` section 4).
     fn attachments(&self) -> Option<&super::attach::Attached> {
-        self.wants(Rewrite::PreservedAsAttachment)
-            .then_some(self.attached)
-            .flatten()
+        self.attached.filter(|attached| {
+            self.wants(Rewrite::PreservedAsAttachment)
+                || (self.wants(Rewrite::ForbiddenAnnotationRemoved) && !attached.kept.is_empty())
+        })
     }
 
     /// Files the attachments in the catalog: §7.7.4's name tree and §14.13.3's `/AF`.
@@ -3868,6 +3918,11 @@ impl Rewriter<'_> {
                 Object::Reference(attached.tree),
             );
             catalog.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));
+        }
+        // A file kept from a removed annotation is associated with nothing new, so a tree holding
+        // only those leaves the catalog's `/AF` as the producer wrote it.
+        if attached.associated.is_empty() {
+            return true;
         }
         let mut associated = self
             .document
@@ -4807,6 +4862,19 @@ impl Rewriter<'_> {
             count(applied, Rewrite::ExternalDataEmbedded);
             return Rewritten::Changed(embedded.clone());
         }
+        // A property list's `/Lang` respelled inside the stream: new bytes and a new `/Filter`
+        // together, so a whole stream. Asked before the hexadecimal repair because a stream both
+        // reach was respelled from the repaired bytes, so this one carries the two
+        // (`doc/adr/2067`).
+        if self.wants(Rewrite::MarkedLanguagesRestated)
+            && let Some(restated) = self.languages
+            && let Some(respelled) = restated.streams.get(&id)
+        {
+            if restated.carries_hexadecimal.contains(&id) {
+                count(applied, Rewrite::HexadecimalDigitCompleted);
+            }
+            return Rewritten::Changed(respelled.clone());
+        }
         // The same shape, for the same reason: the repaired bytes, their `/Filter` and their
         // `/Length` change together, so what crosses is a stream rather than a dictionary edit.
         if let Some(repaired) = self.hexadecimal_repair(id) {
@@ -5104,6 +5172,26 @@ impl Rewriter<'_> {
             data: encoded.into(),
             decryption_failed: false,
         })))
+    }
+
+    /// ISO 19005-2 section 6.7.4 at a dictionary: the catalog's `/Lang`, a structure element's,
+    /// or a property list's — the object's own or one it files under `/Properties`.
+    ///
+    /// Counted from the preparation by [`count_what_has_no_place`], since one object may hold a
+    /// restated entry of each class and a stream may hold several (`doc/adr/2066`).
+    fn restate_languages(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(restated) = self.languages else {
+            return false;
+        };
+        let mut changed = false;
+        if self.wants(Rewrite::CatalogLanguageRestated) && restated.catalog == Some(id) {
+            out.insert(Name::new(&b"Lang"[..]), restated.catalog_value.clone());
+            changed = true;
+        }
+        if self.wants(Rewrite::MarkedLanguagesRestated) {
+            changed |= super::languages::apply(restated, id, out);
+        }
+        changed
     }
 
     /// The content stream `super::hexadecimal` repaired for this object, where it repaired one.

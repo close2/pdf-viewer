@@ -80,15 +80,16 @@ and `--remote-documents=` at the other windows' default, `ask`, and puts the que
 flagship's `QuestionCard`, answered by Enter and Escape; a named file opens in place of the one
 document it holds (ADR 2040). A click reaches the page as `Command::Pointer`'s two ends: a link inside
 the document is followed, a field takes the keyboard, and a rendition's clip is handed over (ADR
-1987). For §12.7.6.4's import it answers
-`Command::Supply` with no bytes and tells the person by name (ADR 1227). It holds one document: a
+1987). It sends a form and fetches an import named by a URI under `--submissions=`, `ask` by
+default and on the same card: the worker composes the request, this side sends it through
+`viewer_host::submit`, and the server's answer crosses back as `Command::Respond` for the worker to
+import; a PDF answer is kept and said rather than opened (ADR 2076). For §12.7.6.4's import of a
+file it answers `Command::Supply` with no bytes and tells the person by name (ADR 1227). It holds one document: a
 second would first have to decide whether two documents share one worker's confinement (ADRs 0713,
 1190). What arrives with each future feature, in the feature's own round:
 
 - **selection or copy** → `--restrictions=` with that row, and the ask dialogue on the modal
   machinery ADR 0718 already loads lazily;
-- **a sender on this side** → `--submissions=` at its four levels, on the card `--links=` already
-  uses (ADRs 1291, 2040);
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
   *worker* has no filesystem, but the host holds one by design and opens the document itself;
 - **§12.7.5.3's file-select control** → a file *chooser*, as the other windows have.
@@ -257,11 +258,10 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   to `include/quorra.h` by `crates/viewer-ffi/tests/header_and_interop_agree.rs` (ADR 2054), so an
   entry point added to the header is written there too. Every `Command` reaches the ABI (ADRs
   2060, 2061), a page
-  past `MAX_PIXELS` drawn a window at a time on the processor among them; what it needs next from
-  this tree is **the key table handed over**. A C caller places its own toolkit,
-  but a level host must mean by a key what the other windows mean, so `quorra_key_meaning` with a
-  `QUORRA_KEY_*` enumeration and a count beside it is owed, its modifier named by role (Ctrl here, ⌘
-  on macOS). The framework is the owner's choice (`doc/questions/Q501`).
+  past `MAX_PIXELS` drawn a window at a time on the processor among them; **the key table is handed over**: `QUORRA_KEY_*` and `QUORRA_ACT_*` with their counts, and
+  `quorra_key_press`, which acts on a press where every window acts and returns what only a window can
+  do, its modifier named by role (Ctrl here, ⌘ on macOS) (ADR 2072); what it needs next is RFC 0010's
+  N2, `quorra_window`. The framework is the owner's choice (`doc/questions/Q501`).
 - **`quorra-gtk` and `quorra-qt` keep a device path** (ADR 2049). First the device renderer leaves
   `quorra`'s binary for a library; then both windows draw on the device and read the frame back into
   the `MemoryTexture` and `QImage` they show today. A dmabuf texture in GTK and a `QRhiWidget` in Qt
