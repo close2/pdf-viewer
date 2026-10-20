@@ -5,11 +5,13 @@ Read by: a round that measures anything — a benchmark, a profile, an A/B, or a
 to write down. `doc/performance.md` is what is already known, `doc/verify.md` the instruments
 that are not §2 gates, and `tools/state.sh` prints what may not be quoted from a document.
 
-`doc/habits.md` is the index of the six, and it states what a habit is and what each keeps.
+`doc/habits.md` is the index of the six. **A habit cited by number — `habit 107` — is this file's
+`## 107.` heading**: every numbered habit is appended here whatever its kind, so the numbered tail
+below holds habits about splits, hosts and ledgers as well as measurement.
 
 - **A datum's readers are not bounded by the crate that carries it, and one of the readers a census
   names may not be one.** `data/standard-fonts/` was recorded as having three readers inside
-  `pdf-font`. It has two — the third was a file *extension*, `.pfb` on ten programs that are bare
+  `pdf-font`. It had two — the third was a file *extension*, `.pfb` on ten programs that are bare
   CFF — and two more outside that crate, in `viewer-ui`. **The grep that gets this right is over
   the path, not over the module**: everything that names the directory, in every crate, plus
   everything that names the constant it is compiled into. A reader list assembled from one crate's
@@ -54,8 +56,8 @@ clause has subjects.
 **And a *negative* claim decays when the population grows**, which is not the same decay as any of the
 others, because nothing in the tree changes. The six-hundred-and-fifty-fifth found the ledger saying
 "no corpus document writes one" of a shading pattern's `/ExtGState`: true when written, and measured
-over corpora with no crawl in them. `doc/pdf.js` holds 38 Type 2 patterns and **zero** state one; the
-crawl holds 1504 and **42** do. A sentence of the form *no document does X* carries its population
+over corpora with no crawl in them. `doc/pdf.js` held 38 Type 2 patterns and **zero** stated one; the
+crawl held 1504 and **42** did. A sentence of the form *no document does X* carries its population
 inside it whether or not it says so, so **the round that adds a population owes a re-derivation of
 every negative measured over the old one** — and `doc/todo/03` now holds whole-population figures
 precisely so those are answerable rather than inherited.
@@ -120,7 +122,7 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   makes `grep` see the file; it does not make it see a name inside a §7.5.7 object stream or a
   content stream, which is where a modern producer puts most of them. `/SetOCGState` is the clean
   demonstration: two corpus documents state it and `grep -a` finds **neither**. So a census over
-  names walks the *objects* the cross-reference table names — `examples/witness_census` prints the
+  names walks the *objects* the cross-reference table names — `pdf-model`'s `witness_census` example prints the
   raw, object and stream counts side by side for exactly this reason, and four of the twelve
   `/IDTree` witnesses are visible only in the middle column. "Run both" means the reader and the
   grep where a reader exists, and the object walk and the grep where one does not; never the grep
@@ -141,7 +143,8 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   pinned** — `taskset -c` on a list *derived* from `cpuinfo_max_freq` rather than written down,
   because a list of CPU numbers is a claim about a machine — and **the minimum of several fresh
   processes**, since contention adds time and never removes it. Pinned and minimised, the launch
-  gate's spread fell from 100–400% to 0.6–22%. Session 922, ADR 0884.
+  gate's spread fell from 100–400% to 0.6–22%; what a person gets is the unpinned figure, which habit 48
+  takes beside it. Session 922, ADR 0884.
 - **A wall-clock gate needs something that says whether the machine is worth believing, and it
   belongs in the gate.** The same probe as above, in a child of its own, with a band: outside it,
   the gate prints every figure and judges none, saying why. Checked against the defect rather than
@@ -150,9 +153,11 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   it a gate rather than a decline: **find the figures with no clock in them and judge those
   always.** Bytes read and peak resident came back identical in forty-four runs, and they are what
   gates the claims that matter most. Session 922, ADR 0884.
-- **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
-  24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
-  the baseline on this machine rather than trusting a number in this file.
+- **Wall-clock benchmarks lie under load; count instructions while exploring, and take a verdict on a
+  duration in one `--clock` hold.** One change measured as a 24% regression and an 8.5% improvement
+  twenty minutes apart. **A/B in one sitting**, and measure the baseline on this machine rather than
+  trusting a number in this file. Where the count and the clock disagree the clock decides (habits 68,
+  87; `doc/todo/02` section 0 item 3).
 - **One sitting is not enough when the arms are minutes apart and the answer is a duration — take a
   ratio *inside* each run.** Some things cannot be counted with callgrind: a window's response to a
   gesture is two threads, an event loop and a display server, and instructions do not answer it. The
@@ -166,21 +171,18 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   a page — and divide by it; a ratio between two durations of the same run has no machine in it.
   ADR 0657 section 7.
 - **A baseline checkout carries less of the machine than the round's own worktree does, and the
-  difference reads as the round's change.** `tools/worktree.sh` links six gitignored things into a
-  round's tree; a `git worktree add` at the base commit, taken by hand for a before/after
-  comparison, links none of them — and the tree also holds `doc/*.pdf` and `doc/corpora/*`, which
-  the script does not name and which no `git` command will restore because they are gitignored or
-  submodules. The eight-hundred-and-thirty-second session's `--bin pointers` run moved **113
+  difference reads as the round's change.** `tools/worktree.sh` links the gitignored data (its
+  `linked=` list), `doc/*.pdf` and `doc/corpora/*` into a round's tree; a `git worktree add` at the
+  base commit, taken by hand for a before/after comparison, links none of them, and no `git` command
+  restores them because they are gitignored or submodules. The eight-hundred-and-thirty-second session's `--bin pointers` run moved **113
   pointers** between *live* and *not carried* on the specification PDFs alone, with the round's
   change nowhere near them; the shape it takes is a defect class shrinking, which is the reading
   nobody questions. **Diff the two checkouts' walked file sets before believing the sweep** — a
-  dozen lines of `os.scandir` — or link `doc/*.pdf`, `doc/corpora/*` and everything
-  `tools/worktree.sh` lists, and rerun. ADR 0760.
+  dozen lines of `os.scandir` — or link everything `tools/worktree.sh` links, and rerun. ADR 0760.
 - **Take the *before* half with a patch file, never with `git stash`.** `git diff > round.patch`,
   `git checkout HEAD -- <files>`, measure, `git apply round.patch` — three commands that touch
   nothing outside the worktree. Why the stash is forbidden here, and how to recover one that has
-  already gone wrong, is `doc/environment.md`'s; this entry is the measuring half and the two used
-  to carry the incident twice, dated to two different sessions.
+  already gone wrong, is `doc/environment.md`'s; this entry is the measuring half.
 - **Pin the pool before counting a serial change in a program that has one.** Callgrind counts
   every thread, so a work-stealing pool's *spin* is in the total and it is not deterministic.
   `open_one` on two corpus pages read **+0.154%** and **+0.010%** for a change that removes an
@@ -272,7 +274,7 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   answer cannot change, or the two spin. ADR 0125.
 - **A performance defect on a path no gate walks is found by a person using the program.** The
   corpus interprets page one, the oracle renders pages it is handed by index, and neither turns a
-  page. The largest document this project owns — ISO 32000-2, 1023 pages, committed in `doc/` —
+  page. The largest document this project owns — ISO 32000-2, 1023 pages, kept (gitignored) in `doc/` —
   was in no gate at all until session 141 made it two tests.
 - **Look at what a safe idiom compiles to in a loop that runs per pixel.** `.round()` on a clamped
   float is a library call — 205 M instructions on one page, 10.7%.
@@ -310,48 +312,6 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   function whose cost nobody attributed: `impose_on_medium` was 7.8 ms of a 17 ms page, all of it
   eight integer divisions per *transparent* pixel — and §11.4.7's isolated page group makes most of
   a page transparent. Amdahl's law names where to look after any successful division. ADR 0139.
-
-- **A check deferred for cost belongs wherever the cost is already being paid, and nothing tells
-  you when that place appears.** Table 45's `/CheckSum` was read and not verified for eighty-three
-  sessions, on a reason that was true — "checking would mean inflating every attachment" — and
-  that expired the moment one path decoded one stream. The clause names where it belongs:
-  "the checksum of the bytes of the **uncompressed** embedded file". **After a session that
-  makes something decoded, decompressed or laid out for the first time, re-read the entries whose
-  reason for being unread was that nobody had it yet.** ADR 0145, and it is ADR 0108's regular
-  expression looking for a different kind of blocker: not "needs §X" but "would cost too much
-  here".
-
-- **The three sweeps found a fourth shape in the hundred-and-ninety-first, and it is the
-  strongest one yet: a row whose "this program has no ___" was about a *verb*.** §12.8.6 said
-  a usage-rights signature grants "features of a PDF processor that are not available by
-  default" and that "this program has no feature behind such a gate"; §12.8.2.3 said the same.
-  Both were true when written and both stopped being true in the hundred-and-thirty-fifth and
-  -sixth sessions, when this program learned to fill in a field and save the file — which are
-  exactly the rights Table 258 grants and exactly the changes Table 257's `/P` restricts. And
-  the requirement was not a new one: §12.8.2.2.1 has always carried, in a parenthesis, "(These
-  changes to the document shall also be prevented if the signature dictionary is referred from
-  the DocMDP entry in the permissions dictionary.)" A `shall`, addressed to a processor that
-  modifies, unread for fifty-six sessions after this one became one. `ViewState::set_field` now
-  refuses at `/P` 1 and permits at 2 and 3, and §12.8.2.3's `should` — remove a UR signature
-  the modification exceeds — is named as owed. **After a session that gives the program a verb,
-  the rows to re-read are the ones whose reason is about what the program *is*, not only about
-  what a clause needs.**
-
-- **Sweep for the reason's *shape*, not for its clause.** Sessions 118 and 122 grepped the
-  ledger's notes for "while §X does not exist" and for entries claimed unread. The
-  hundred-and-seventy-fourth grepped for a third shape — "this program has no ___", "no panel",
-  "which this is not" — over `partial`, `reported` **and** `inapplicable` rows, and found
-  §12.6.3 saying "[n]othing raises an event … this crate has no events", which stopped being
-  true in the hundred-and-thirty-second when `Command::Pointer` landed. Forty-one sessions. The
-  three sweeps are twenty lines of Python apiece and each has paid on its first run.
-
-- **An `inapplicable` row whose reason is "this program has no ___" is a row waiting for a
-  session that gives the program one.** §14.3.3 was `inapplicable` because "a viewer with a
-  document-properties panel would read it; this one has no panel", and the panel arrived seven
-  sessions before anybody re-read the row. That is the second instance after §12.7.4.2's field
-  names, and the trigger is ADR 0122's: **after a session that adds a capability, sweep the rows
-  whose reason begins "this program has no"** — `inapplicable` as well as `partial`, which the
-  earlier sweeps did not cover.
 
 - **Read the whole sentence a feature is built from, and count what the other half is worth
   before deciding.** §12.3.3 says a click makes a processor "jump to a destination **or trigger
@@ -613,14 +573,6 @@ walk existed, so the walk's own cost and its scaffolding's could be told apart, 
 clusters it walks on one page genuinely leave the set (ADR 1359). A floor measured that way is a
 number; argued from the profile alone it is a guess.
 
-## 53. The disputed pixel's closed-form area is computed before either construction is called wrong
-
-A square drawn as eight pieces showed one more level at its corner than the square drawn whole; the
-corner pixel's exact coverage is 0.885 of a level, so the pieces were right and the whole square's
-fixed-point converter truncates — ADR 0476's accepted gap — while the real defect sat in the next
-column (ADR 1374). And a floor is measured step by step: switching the walk's scaffolding off one
-stage at a time is what showed no cheaper exact detector exists (ADR 1373).
-
 ## 54. A fan-out's floor is judged by timing its jobs by kind, not by counting segments
 
 After the stroke constructions a stroke's segment cost 25 times a glyph's, so a 4096-segment floor
@@ -689,13 +641,21 @@ includes the pool's size: callgrind runs at one thread, where every decode is al
 pure overhead. A speed-up is called byte-identical only after per-page digests from exported HEAD
 and change trees, each in its own target directory, agree (ADR 1479).
 
-## 62. A disputed pixel's closed form is taken to more digits than a level before an ordering is called wrong
+## 62. A disputed pixel's closed form is computed, to more digits than a level, before a construction or an ordering is called wrong
 
 Admitting a cached clip region moved three pixels of `bug1721218` by one level; their exact areas
 were 65.500037, 135.500024 and 59.500014 levels — each within 1.5·10⁻⁷ of a rounding boundary that
 `f32` sums cannot decide, and two tiles over the same pixel disagreed with each other. The fix was
 precision (a residue filled in `f64` from the same points), not a choice between constructions,
 and admission then moved nothing (ADR 1491).
+
+### 53. The disputed pixel's closed-form area is computed before either construction is called wrong
+
+A square drawn as eight pieces showed one more level at its corner than the square drawn whole; the
+corner pixel's exact coverage is 0.885 of a level, so the pieces were right and the whole square's
+fixed-point converter truncates — ADR 0476's accepted gap — while the real defect sat in the next
+column (ADR 1374). And a floor is measured step by step: switching the walk's scaffolding off one
+stage at a time is what showed no cheaper exact detector exists (ADR 1373).
 
 ## 63. The inputs per pixel are counted before a per-pixel lever is built
 
@@ -1053,10 +1013,9 @@ on its own and tested on its own.
 Batch ninety's census of 48 rounds found 85 % of everything the rounds wrote to the prompt cache
 written by the 4 % of requests that followed a gap over five minutes, and the gaps were the rounds'
 own wait-loops — `timeout 590 bash -c 'until grep -q "^bounded: exit" …'` — written to the Bash
-tool's ten-minute ceiling, every one of which outlived the cache. A command that can run past 240 s
-is started with `tools/wait.sh --start <log> -- <command>` and waited for with `tools/wait.sh <log>`
-in a call whose harness timeout is 270 000 ms, re-issued on its exit 75; no loop of a round's own
-waits longer than 240 s. ADR 1976 has the census and the price, ADR 1977 the rule.
+tool's ten-minute ceiling, every one of which outlived the cache. The rule, `tools/wait.sh`'s two calls under a
+270 000 ms harness timeout, is the fourth line of `doc/environment.md`'s rule block; ADR 1976 has the
+census and the price, ADR 1977 the rule.
 
 ## 105. A residue an ADR leaves has its premise checked in the file's bytes before it is built on
 
@@ -1382,4 +1341,42 @@ added once per code it covered and the counts still summed (round 1625, ADR 2086
 any rearrangement of the same bytes and by any pair of errors that cancel; one example with its expected
 string written out — the walk's own "Der Druc" — is what a sum cannot replace. Where a gate checks an
 invariant by counting, add one fixture whose content the test states in full.
+
+## 141. A transcript's usage is read on its input side; its output count is where the stream opened
+
+A Claude Code transcript writes a request's `usage` as the stream began, so its cache and input figures
+are the request's and its `output_tokens` is not: round 1636 found a request that wrote a 37 kB file
+recorded with 16 output tokens, and batches 96–98's 3 952 round requests summing to 0.05 M. A census
+that priced output from those figures would call generation free. `tools/cache-census.py` prices the
+input side only and takes a re-issued wait's output as a stated constant; a figure about what an agent
+generated comes from somewhere that counted it, never from a sum over a transcript's `output_tokens`.
+
+## 142. When a dependency gains a bound, every test whose only input the bound makes cheap is listed and re-aimed
+
+Round 1633 moved the JBIG2 codec to the fork that carries ADR 1447's loop bounds; the seven fuzz-found
+symbol dictionaries that had been the confined worker's only slow input were now refused in milliseconds,
+and the worker's kill — the thing those tests existed to exercise — was reached by nothing (ADR 2102). A
+pass-either-way check would have hidden it. When a dependency's new bound makes an input cheap, list the
+tests that used that input for its cost, give each one an input that is still honestly expensive, and
+require the codec's own sentence rather than any outcome, so a lock that stops naming the fork fails the
+test instead of passing at a deadline.
+
+## 143. A drive's `wrong` on a loaded machine is re-run before it is attributed
+
+Round 1634's drive of the GTK window scored two steps `wrong` — controls not yet drawn in the screenshot
+— on a machine carrying seven sibling rounds; the batch-start binary scored the same steps right, and a
+re-run of the round's own build scored them right too (ADRs 2104, 2105). A `wrong` verdict from a
+photograph is a race between the window and the camera as much as a judgement of the change. Before a
+`wrong` is attributed to a change, re-run the step once on the same binary and once on the batch-start
+build; attribute it only when the change's binary is the one that stays wrong.
+
+## 144. A substitution declined because it "settles what the processor decides" is checked against what the file can reach
+
+ADRs 0965 and 0982 declined to name an `ICCBased` space `DeviceCMYK` because §8.6.7's overprint mode
+distinguishes the two; round 1631 read §8.6.7 to its condition — the mode "shall have an effect only when
+the overprint parameter is true" — and a whole-file scan for `OP`/`op` true, no content walk, decides
+whether that difference can reach any mark in this file (ADR 2098). A decision the processor makes
+differently for the two spellings matters only on a page where the condition holds; before declining a
+substitution for the processor's sake, find the condition in the clause and ask the file whether it is
+ever met.
 

@@ -1,7 +1,8 @@
 # 1459 — Annex K is evidence about T.88, not T.88, and the extended template is refused until the fork has it
 
-Session 1312. Status: **accepted**; the in-tree half **built**, the codec half **written and not
-applied** — it is the owner's to apply to the fork, as ADR 1447's was.
+Session 1312. Status: **accepted**; the codec half **built** as a commit on the owner's fork
+`close2/hayro`, which the manifest pins, and the in-tree refusal of section 4 **deleted** with it
+(ADR 2102).
 Context: `crates/pdf-sandbox/tests/t88_conformance.rs` (new), `crates/pdf-sandbox/src/decode.rs`
 (`extended_template_region`, `segment_header`), `doc/patches/hayro-jbig2-extended-template.patch`
 (new), `doc/third-party-data.md`, `doc/questions/Q209`.

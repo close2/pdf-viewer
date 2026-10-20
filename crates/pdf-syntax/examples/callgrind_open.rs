@@ -1,9 +1,10 @@
 //! Opens one document repeatedly, for deterministic instruction counting.
 //!
 //! The launch path's first step and its largest one on a big file: §7.5's trailer and
-//! cross-reference table, and nothing after them. `CLAUDE.md` says "a 500-page document must open
-//! no slower than a 5-page one" and `doc/todo/42` says it does not, so this is where that is
-//! attributed — under callgrind, which counts instructions and is therefore unaffected by CPU
+//! cross-reference table, and nothing after them. `CLAUDE.md` says "a 500-page document must
+//! reach its first page no slower than a 5-page one", the open is that path's first step, and
+//! `doc/todo/42` says the open scales with the file, so this is where that is attributed — under
+//! callgrind, which counts instructions and is therefore unaffected by CPU
 //! frequency, background load or thermal state (`open_cost`'s wall clock moves by 2× between
 //! runs on this machine).
 //!

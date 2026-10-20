@@ -346,43 +346,41 @@ zune-png = "0.5.2"
 # project does not own, so a disagreement with ITU-T T.88 or T.800 is an issue to report
 # rather than a defect to fix. Against that, they are 19 400 lines of the most error-prone
 # code in the format, already validated against corpora far larger than this one.
-# **Upstream's 0.3.1, taken from upstream's repository at the commit it was published from rather
-# than from crates.io — for a feature, not a defect.** `hayro-syntax`, beneath the reference
-# renderer `tools/hayro-compare` drives, asks for `hayro-jbig2` `^0.3` with its `simd` feature on
-# (its own `unsafe` feature, which `hayro-interpret` turns on unconditionally). A crates.io copy
-# here would be the same package as that one, and Cargo unifies a package's features over every
-# package a build selects: `cargo build --release --bin pdf-sandbox-worker`, as `tools/batch.sh
-# install` runs it, would compile the worker's JBIG2 decoder with `fearless_simd`, the one `unsafe`
-# `default-features = false` exists to leave out. A git source is a different package, so no
-# feature of the reference renderer's copy reaches this one (ADR 1714). The commit is the one
-# upstream tags `hayro-jbig2-v0.3.1` and `hayro-jpeg2000-v0.4.1`, and each published crate's `src/`
-# is byte for byte its tree. 0.3.1 bounds a §7.4.7 text region's symbol instances by the segment's
-# own length (`segment_data_len × 32`, upstream #1278) where 0.3.0 refused more than a flat 10 000,
-# which a page of scanned text exceeds: three crawled documents state 13 264, 22 043 and 4 794.
+# **The owner's fork `close2/hayro`, at upstream's 0.3.1 commit with three T.88 patches on it, taken
+# from git rather than from crates.io — for a feature as well as for the patches.** `hayro-syntax`,
+# beneath the reference renderer `tools/hayro-compare` drives, asks for `hayro-jbig2` `^0.3` with
+# its `simd` feature on (its own `unsafe` feature, which `hayro-interpret` turns on
+# unconditionally). A crates.io copy here would be the same package as that one, and Cargo unifies a
+# package's features over every package a build selects: `cargo build --release --bin
+# pdf-sandbox-worker`, as `tools/batch.sh install` runs it, would compile the worker's JBIG2 decoder
+# with `fearless_simd`, the one `unsafe` `default-features = false` exists to leave out. A git
+# source is a different package, so no feature of the reference renderer's copy reaches this one
+# (ADR 1714).
 #
-# **Three patches are owed to this codec, and the owner's fork `close2/hayro` is where they land**:
-# `doc/patches/hayro-jbig2-symbol-dictionary-bounds.patch` (three loops T.88 leaves unbounded, ADR
-# 1447), `doc/patches/hayro-jbig2-extended-template.patch` (T.88 7.4.6.2's EXTTEMPLATE, which 0.3.1
-# reads and ignores, so `pdf_sandbox::decode` refuses such a region by segment; ADR 1459) and
-# `doc/patches/hayro-jbig2-annex-h2-test.patch` (T.88 Annex H.2 as a unit test, no behaviour). Each
-# is written against this commit and applies there. The owner applies them to the fork on it,
-# pushes, and moves this stanza, `hayro-jpeg2000`'s and `hayro-ccitt`'s to the fork at the pushed
-# commit; the fork's URL then joins `deny.toml`'s `allow-git` in this one's place.
-hayro-jbig2 = { git = "https://github.com/LaurenzV/hayro", rev = "ea9c81dc70cde40c64205986fdcfcd481fe934d8", version = "0.3.1", default-features = false, features = ["std"] }
-# **Upstream's 0.4.1, from the same repository and commit as `hayro-jbig2` above** — one source
-# for the three codecs, so the reference renderer's `simd` cannot reach this one either the day it
-# asks for a `0.4` (it asks for `^0.3.5` today; ADR 1714). 0.4.1 is the first release carrying the
-# three ISO/IEC 15444-1 fixes this tree needs. Two are E-6's reconstruction term `r * 2 ^ (Mb -
-# Nb)`, which 0.4.0 left out and which was then wrong where `Mb - Nb` is zero (upstream `9cce046b`
-# and #1340; against ISO/IEC 15444-5's reference software the worst sample error over the corpus
-# falls from 87 levels to 1, ADR 0190). The third is a decode asked for a reduced resolution level
-# no longer reserving a coefficient for every sample of the full-resolution image (#1352): 3.4 GB of
-# address space for `issue19517.pdf` without it, a dead worker inside `pdf_sandbox::lockdown`'s
-# gigabyte (ADRs 0233, 0321). `pdf-sandbox` asks for a reduced level where an image does not fit
-# its sample budget, and counts that budget from the header before a sample is decoded — which is
-# why 0.4.1 having no ceiling of its own on a side (#1355) admits nothing the worker did not
-# already bound.
-hayro-jpeg2000 = { git = "https://github.com/LaurenzV/hayro", rev = "ea9c81dc70cde40c64205986fdcfcd481fe934d8", version = "0.4.1", default-features = false, features = ["std"] }
+# The revision is the tip of the fork's `quorra/t88-patches` (doc/questions/A514, ADR 2102):
+# upstream's commit `ea9c81dc`, which upstream tags `hayro-jbig2-v0.3.1` and `hayro-jpeg2000-v0.4.1`
+# and whose tree is each published crate's `src/` byte for byte, with three commits on `hayro-jbig2`
+# and nothing else — T.88's three symbol-dictionary loops bounded (ADR 1447), section 7.4.6.2's
+# EXTTEMPLATE decoded (ADR 1459), and Annex H.2's arithmetic-decoder sequence as a unit test (ADR
+# 1485). The day an upstream release carries all three, this line goes back to upstream. 0.3.1
+# bounds a §7.4.7 text region's symbol instances by the segment's own length (`segment_data_len ×
+# 32`, upstream #1278) where 0.3.0 refused more than a flat 10 000, which a page of scanned text
+# exceeds: three crawled documents state 13 264, 22 043 and 4 794.
+hayro-jbig2 = { git = "https://github.com/close2/hayro", rev = "7e39af411b807cc267fb7a72545083f10ca2077f", version = "0.3.1", default-features = false, features = ["std"] }
+# **Upstream's 0.4.1, from the fork and commit `hayro-jbig2` comes from above**, whose three commits
+# leave this crate's tree as upstream published it — one source for the three codecs, so the
+# reference renderer's `simd` cannot reach this one either the day it asks for a `0.4` (it asks for
+# `^0.3.5` today; ADR 1714). 0.4.1 is the first release carrying the three ISO/IEC 15444-1 fixes
+# this tree needs. Two are E-6's reconstruction term `r * 2 ^ (Mb - Nb)`, which 0.4.0 left out and
+# which was then wrong where `Mb - Nb` is zero (upstream `9cce046b` and #1340; against ISO/IEC
+# 15444-5's reference software the worst sample error over the corpus falls from 87 levels to 1, ADR
+# 0190). The third is a decode asked for a reduced resolution level no longer reserving a
+# coefficient for every sample of the full-resolution image (#1352): 3.4 GB of address space for
+# `issue19517.pdf` without it, a dead worker inside `pdf_sandbox::lockdown`'s gigabyte (ADRs 0233,
+# 0321). `pdf-sandbox` asks for a reduced level where an image does not fit its sample budget, and
+# counts that budget from the header before a sample is decoded — which is why 0.4.1 having no
+# ceiling of its own on a side (#1355) admits nothing the worker did not already bound.
+hayro-jpeg2000 = { git = "https://github.com/close2/hayro", rev = "7e39af411b807cc267fb7a72545083f10ca2077f", version = "0.4.1", default-features = false, features = ["std"] }
 
 # Cryptography, for ISO 32000-2 §7.6's standard security handler. Five primitives, all
 # from RustCrypto, all named by the clause that needs them: RC4 and AES for §7.6.3.2's
@@ -569,7 +567,7 @@ getrandom = "0.4.3"
 # **From the repository and commit `hayro-jbig2` comes from**, because that crate names this one by
 # path inside its workspace, and the same crate from two sources would be two crates with one name
 # compiled into one binary. 0.4.0's code is 0.3.0's under a new number.
-hayro-ccitt = { git = "https://github.com/LaurenzV/hayro", rev = "ea9c81dc70cde40c64205986fdcfcd481fe934d8", version = "0.4.0", default-features = false }
+hayro-ccitt = { git = "https://github.com/close2/hayro", rev = "7e39af411b807cc267fb7a72545083f10ca2077f", version = "0.4.0", default-features = false }
 
 # The whole `hayro` renderer, used by `tools/hayro-compare` and by nothing else. It is the
 # only other feature-complete pure-Rust PDF rasteriser, which makes it two things this

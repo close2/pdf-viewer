@@ -4037,6 +4037,320 @@ fn a_profile_reference_listing_an_embedded_file_stays_refused() {
     assert!(output.is_none());
 }
 
+/// A part 4 page selecting from `resources` with `content`, where object 6 is the shipped press
+/// profile and object 7 a PDF/A output intent naming it — listed in the catalog where `intent` —
+/// and `more` are objects 8 and up: with `intent` and an `ICCBased` space over object 6, the
+/// shape of veraPDF's `6-2-4-2-t03-fail-a`.
+fn a_duplicated_profile(
+    intent: bool,
+    resources: &str,
+    page: &str,
+    content: &str,
+    more: &[&str],
+) -> Vec<u8> {
+    let icc = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/icc/GRACoL2006_Coated1v2.icc"
+    ))
+    .expect("the shipped profile is in the tree");
+    let mut hex = String::new();
+    for byte in &icc {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let mut objects = vec![
+        format!(
+            "<< /N 4 /Alternate /DeviceCMYK /Filter /ASCIIHexDecode /Length {} >> stream\n\
+             {hex}\nendstream",
+            hex.len()
+        ),
+        "<< /Type /OutputIntent /S /GTS_PDFA1 /OutputConditionIdentifier (Custom) \
+         /DestOutputProfile 6 0 R >>"
+            .to_owned(),
+    ];
+    objects.extend(more.iter().map(|object| (*object).to_owned()));
+    Conforming {
+        catalog: if intent {
+            "/OutputIntents [7 0 R]".to_owned()
+        } else {
+            String::new()
+        },
+        page: page.to_owned(),
+        resources: resources.to_owned(),
+        objects,
+        contents: Some((String::new(), content.as_bytes().to_vec())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// The `ICCBased` space over the press profile, as a page's one colour space resource.
+const DUPLICATED_SPACE: &str = "/ColorSpace << /C0 [/ICCBased 6 0 R] >>";
+
+/// A fill in that space.
+const DUPLICATED_FILL: &str = "/C0 cs 0.2 0.4 0.6 0.1 scn 10 10 50 50 re f";
+
+/// The decision on `row`, which must have been refused as not yet built, and its sentence.
+fn not_built_sentence(report: &Report, row: &str) -> &'static str {
+    let Decision::Refused(Because::NotBuiltYet(sentence)) = decision(report, row) else {
+        panic!("refused: {:?}", decision(report, row));
+    };
+    sentence
+}
+
+#[test]
+fn a_space_over_the_output_intents_profile_is_named_device_cmyk() {
+    // ISO 19005-4 section 6.2.4.2 forbids the duplicate; section 6.2.4.3 renders DeviceCMYK
+    // through the output intent's profile, which is the one the array named, and nothing in the
+    // file turns overprinting on (`doc/adr/2098`).
+    let row = "graphics/no-icc-space-duplicating-the-output-intent-profile";
+    let source = a_duplicated_profile(true, DUPLICATED_SPACE, "", DUPLICATED_FILL, &[]);
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DuplicateProfileWrittenDeviceCmyk,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        !text.contains("/ICCBased"),
+        "every array naming the profile is rewritten"
+    );
+    assert!(text.contains("/DestOutputProfile"), "the intent keeps it");
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_separations_alternate_over_the_intents_profile_is_named_device_cmyk() {
+    // ISO 19005-4 section 6.2.4.4 sends section 6.2.4.2's restriction to the alternate, and the
+    // same substitution answers it there (`doc/adr/2098`).
+    let row = "graphics/separation-alternate-space-does-not-duplicate-a-current-profile";
+    let source = a_duplicated_profile(
+        true,
+        "/ColorSpace << /S0 [/Separation /Spot [/ICCBased 6 0 R] 8 0 R] >>",
+        "",
+        "/S0 cs 0.5 scn 10 10 50 50 re f",
+        &["<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 1 0 0] /N 1 >>"],
+    );
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DuplicateProfileWrittenDeviceCmyk,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(!String::from_utf8_lossy(&output).contains("/ICCBased"));
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_space_over_the_blending_spaces_profile_is_named_device_cmyk_and_the_group_keeps_it() {
+    // ISO 32000-2 §11.7.2 composites a DeviceCMYK mark as the nearest four-component CIE-based
+    // group's space, which is the profile the array named; the group's own `CS` is the space it
+    // was compared with, not a use, and stays (`doc/adr/2098`).
+    let row = "graphics/no-icc-space-duplicating-the-output-intent-profile";
+    let source = a_duplicated_profile(
+        false,
+        DUPLICATED_SPACE,
+        "/Group << /S /Transparency /CS [/ICCBased 6 0 R] >>",
+        DUPLICATED_FILL,
+        &[],
+    );
+    let (report, output) = to_part_four(&source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::DuplicateProfileWrittenDeviceCmyk,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert_eq!(
+        String::from_utf8_lossy(&output)
+            .matches("/ICCBased")
+            .count(),
+        1,
+        "the group's space is the one left"
+    );
+    assert_eq!(drawn(&source), drawn(&output));
+}
+
+#[test]
+fn a_duplicated_profile_in_a_file_that_turns_overprinting_on_stays_refused() {
+    // ISO 32000-2 §11.7.2 keeps DeviceCMYK's overprinting semantics, so with overprinting on
+    // anywhere the name could decide what §8.6.5.7 leaves to the processor (`doc/adr/2098`).
+    let source = a_duplicated_profile(
+        true,
+        "/ColorSpace << /C0 [/ICCBased 6 0 R] >> /ExtGState << /G0 << /OP true >> >>",
+        "",
+        DUPLICATED_FILL,
+        &[],
+    );
+    let (report, output) = to_part_four(&source);
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/no-icc-space-duplicating-the-output-intent-profile",
+    );
+    assert!(sentence.contains("turns overprinting on"), "{sentence}");
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_duplicated_profile_used_in_a_group_of_another_space_stays_refused() {
+    // Inside an RGB group the substitution would be converted in a way §11.7.2 leaves to the
+    // implementation, where the profile had been converted through itself (`doc/adr/2098`).
+    let profile = stream(&format!("/N 3 /Length {}", SRGB.len()), SRGB);
+    let profile = String::from_utf8_lossy(&profile).into_owned();
+    let source = a_duplicated_profile(
+        true,
+        DUPLICATED_SPACE,
+        "/Group << /S /Transparency /CS [/ICCBased 8 0 R] >>",
+        DUPLICATED_FILL,
+        &[&profile],
+    );
+    let (report, output) = to_part_four(&source);
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/no-icc-space-duplicating-the-output-intent-profile",
+    );
+    assert!(sentence.contains("different profile"), "{sentence}");
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_duplicated_profile_used_on_a_page_with_a_device_group_stays_refused() {
+    // The survey records a blending profile only for an `ICCBased` group, so a use beside a group
+    // in a device space is one whose blending space this conversion has not read (`doc/adr/2098`).
+    let source = a_duplicated_profile(
+        true,
+        DUPLICATED_SPACE,
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        DUPLICATED_FILL,
+        &[],
+    );
+    let (report, output) = to_part_four(&source);
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/no-icc-space-duplicating-the-output-intent-profile",
+    );
+    assert!(
+        sentence.contains("transparency group colour space"),
+        "{sentence}"
+    );
+    assert!(output.is_none());
+}
+
+#[test]
+fn a_duplicated_profile_that_is_also_a_default_space_stays_refused() {
+    // `DefaultCMYK` remaps DeviceCMYK itself, so writing DeviceCMYK there would name the space it
+    // replaces (`doc/adr/2098`).
+    let source = a_duplicated_profile(
+        true,
+        "/ColorSpace << /C0 [/ICCBased 6 0 R] /DefaultCMYK [/ICCBased 6 0 R] >>",
+        "",
+        DUPLICATED_FILL,
+        &[],
+    );
+    let (report, output) = to_part_four(&source);
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/no-icc-space-duplicating-the-output-intent-profile",
+    );
+    assert!(sentence.contains("DefaultCMYK"), "{sentence}");
+    assert!(output.is_none());
+}
+
+/// A part 4 page filling in an `ICCBased` space whose profile stream, object 6, carries
+/// `profile` under `dict`.
+fn an_icc_space_stating(dict: &str, profile: &[u8]) -> Vec<u8> {
+    Conforming {
+        resources: "/ColorSpace << /C0 [/ICCBased 6 0 R] >>".to_owned(),
+        binary_objects: vec![stream(
+            &format!("{dict} /Length {}", profile.len()),
+            profile,
+        )],
+        contents: Some((
+            String::new(),
+            b"/C0 cs 0.2 0.4 0.6 scn 10 10 50 50 re f".to_vec(),
+        )),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// Converts `source` to part 4 and holds the base-standard row to the count restatement.
+fn restates_the_component_count(source: &[u8]) {
+    let row = "graphics/icc-profiles-conform-to-the-base-standard";
+    let (report, output) = to_part_four(source);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Stated {
+                rewrite: Rewrite::IccComponentCountRestated,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert!(String::from_utf8_lossy(&output).contains("/N 3"));
+    assert_eq!(drawn(source), drawn(&output));
+}
+
+#[test]
+fn an_icc_profile_stating_no_component_count_states_its_own() {
+    // ISO 32000-2 §8.6.5.5's Table 66 requires `N`, matching the profile; the profile's header
+    // says three, and this reader draws through the profile reading no `N` (`doc/adr/2099`).
+    restates_the_component_count(&an_icc_space_stating("", SRGB));
+}
+
+#[test]
+fn an_icc_profile_stating_the_wrong_component_count_states_its_own() {
+    // veraPDF's `6-2-3-2-t01-fail-b` shape: an RGB profile under `/N 4` (`doc/adr/2099`).
+    restates_the_component_count(&an_icc_space_stating("/N 4", SRGB));
+}
+
+#[test]
+fn an_icc_profile_of_a_class_the_base_standard_does_not_admit_stays_refused() {
+    // A device link profile is not one §8.6.5.5 admits for an `ICCBased` space, and no entry of
+    // the stream dictionary can make it one (`doc/adr/2099`).
+    let mut link = SRGB.to_vec();
+    link[12..16].copy_from_slice(b"link");
+    let (report, output) = to_part_four(&an_icc_space_stating("/N 3", &link));
+    let sentence = not_built_sentence(
+        &report,
+        "graphics/icc-profiles-conform-to-the-base-standard",
+    );
+    assert!(sentence.contains("does not admit"), "{sentence}");
+    assert!(output.is_none());
+}
+
 #[test]
 fn two_entries_carrying_one_profile_are_pointed_at_one_object() {
     // ISO 19005-4 section 6.2.3 requires every entry that states a `DestOutputProfile` to state

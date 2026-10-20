@@ -2,12 +2,12 @@
 
 Status: **standing** — the every-round half of the habits (ADR 1639).
 
-**This is the short list.** The six habit files hold the rest, one bold-led item each
-(`grep -c '^- \*\*' doc/habits/*.md` counts them), and a round opens the one its kind of work is
-about (`tools/round.sh <kind>` names it); the ten below
-are the ones the records of the last batches show rounds paying for most often, whatever the
-round was about. Each line is a pointer — the file and the heading — and the habit itself, with
-the incident that earned it, is under that heading. Nothing is decided from a line here alone.
+**This is the short list.** The six habit files hold the rest, each a bold-led item or a numbered
+`## <n>.` heading (`grep -cE '^- \*\*|^## [0-9]+\.' doc/habits/*.md` counts them), and a round
+opens the one its kind of work is about (`tools/round.sh <kind>` names it); the ten below are the
+ones the records of the last batches show rounds paying for most often, whatever the round was
+about. Each line is a pointer — the file and the bold lead — and the habit itself, with the
+incident that earned it, is there. Nothing is decided from a line here alone.
 
 | read when | the habit | where |
 |---|---|---|
@@ -18,7 +18,7 @@ the incident that earned it, is under that heading. Nothing is decided from a li
 | you call a host feature done | **A host feature is driven under Xvfb with more than one document before it is called done** | [`tests-gates-and-reports.md`](tests-gates-and-reports.md) |
 | you need a baseline from a file a sibling may be editing | **Never plant-and-restore with `cp` on a file a sibling is editing** — a patch of your own, applied and reversed | [`tests-gates-and-reports.md`](tests-gates-and-reports.md) |
 | you add a document to a gate's held list | **A held gate population is checked for a published answer before it is accepted** | [`tests-gates-and-reports.md`](tests-gates-and-reports.md) |
-| you are sent to act on a sweep's count | **A sweep's count is not a finding until ten of its hits have been read against the standard** | [`measuring.md`](measuring.md), `doc/todo/02` section 8 |
+| you are sent to act on a sweep's count | **A number from an instrument that has never fired is not a finding** — ten of its hits are read against the standard first | [`measuring.md`](measuring.md), `doc/todo/02` section 8 |
 | you want a figure about a dependency | **A dependency's `unsafe` is counted with grep, and a derived status is never hand-written** | [`code-bounds-and-dependencies.md`](code-bounds-and-dependencies.md) |
 | two backends disagree on a pixel | **A cross-backend difference is settled against the clause's own set, drawn in both directions** | [`judging-against-other-implementations.md`](judging-against-other-implementations.md) |
 

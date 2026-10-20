@@ -1,35 +1,16 @@
 # Handover
 
-Read `/CLAUDE.md` first — the five principles, what *done* means, and the closed exclusion list.
-**Principle 5 is the one that changes how you work**: the specification is the only source of
-truth, and agreement with poppler, mupdf or pdf.js is evidence that we read it right, never the
-definition of right.
-
 **This file is an index and nothing else.** It says which file a round with a given job opens;
 everything it points at is stated in full one hop away. It carries no numbers — `tools/state.sh`
-prints those (ADR 0281) — and no round reads it top to bottom: the every-round reading is the
-five short things `tools/round.sh` prints, and this table is opened for a file that list did not
-give you (ADR 1639).
+prints those (ADR 0281) — and no round reads it top to bottom: what every round reads is what
+`tools/round.sh <kind>` prints (`--lines` counts it), and this table is opened for a file that
+list did not give you (ADR 1639). The brief is written from
+[`doc/todo/_brief-template.md`](todo/_brief-template.md) and repeats none of it.
 
-**A lesson lives here exactly once**: in a trap if it changes how you write code, in a habit if it
-changes how you work. A session's narrative belongs in its ADR and in [`doc/history/`](history/README.md),
-nowhere else; every sentence here carries the current reason and the ADR by number, and a retired
-sentence is deleted rather than annotated (ADRs 0232, 0281, 0428, 0974, 0983, 1023).
-
-**The round's own record is one *new file*, never an edit to an existing one** —
-`doc/history/<session>-<slug>.md`, and nothing about the round anywhere else
-([`doc/history/README.md`](history/README.md), `doc/todo/02` section 0).
-
-## Every round
-
-`tools/round.sh` prints it, and `tools/round.sh --lines` counts it: `CLAUDE.md`;
-[`doc/todo/02`](todo/02-every-round.md) **section 0** (the round on one page — contract, tier 1,
-the record); the rule block that opens [`doc/environment.md`](environment.md) (one line per
-shared-machine rule); [`doc/traps/every-round.md`](traps/every-round.md) (the ten traps the records cite
-most, as `tools/state.sh traps` counts them); [`doc/habits/every-round.md`](habits/every-round.md) (the ten
-habits the records show rounds paying for). Then `tools/round.sh <kind>` for the kind of round you
-are, and what your contract names. The brief is written from
-[`doc/todo/_brief-template.md`](todo/_brief-template.md) and repeats none of this.
+**A lesson lives exactly once**: in a trap if it changes how you write code, in a habit if it
+changes how you work; a session's narrative in its ADR and its one new
+[`doc/history/`](history/README.md) record, nowhere else (`CLAUDE.md`, "Where knowledge lives";
+ADRs 0232, 0974, 0983, 1023).
 
 ## By what the round is
 
@@ -45,7 +26,7 @@ are, and what your contract names. The brief is written from
 | needs the owner's word on something | [`doc/questions/`](questions/) — one `Q` file per open question with a recommendation, answered by an `A` file of the same name; written in the same commit as the work that raised it (`doc/todo/02` section 6a) |
 | **measures** anything | [`doc/habits/measuring.md`](habits/measuring.md), [`doc/performance.md`](performance.md), [`doc/verify.md`](verify.md); the number is printed, never quoted — and a figure a gate already holds (a band in `doc/checks/`, a ratchet, a held list) is read from the gate, not re-taken (ADR 1638) |
 | changes what `render-raster` or `raster` draws | a change under `raster/crates/raster-gpu/src/` runs `tools/batch.sh raster-examples` behind the lock (ADR 1575); `crates/render-raster/tests/corpus.rs` is the gate against the processor's raster at 1× and 4×, its `differs` lists empty, a page that comes to differ read first against a per-pixel reference from its own geometry (ADRs 1435, 1471) |
-| measures **latency** — a page turn, a zoom step, launch | [`doc/performance.md`](performance.md) section 3e is the baseline, re-taken in one sitting; **the gate a performance round leaves green is `turn_path`** (`cargo test --release -p render-raster --test turn_path -- --ignored --nocapture`, ADRs 1513, 1537, 1577, 1607), its bands in `doc/checks/turn-path.toml`, a band moved only with its reason beside it (trap 97). A stroke has two expansion paths in `raster-gpu` (trap 78). The other instruments: `tools/state.sh frame`, `tools/state.sh heavy` (a heavy page through the four windows, launch to page, memory and a key's wait, ADR 1815), `--test launch_path` with `PDFVIEWER_LAUNCH_CLOCKS=1` ([`doc/verify.md`](verify.md)), callgrind — each arm built once per commit in a target directory of its own (trap 50) |
+| measures **latency** — a page turn, a zoom step, launch | [`doc/performance.md`](performance.md) section 3e is the baseline, re-taken in one sitting; **the gate a performance round leaves green is `turn_path`** (`cargo test --release -p render-raster --test turn_path -- --ignored --nocapture`, ADRs 1513, 1537, 1577, 1607), its bands in `doc/checks/turn-path.toml`, a band moved only with its reason beside it (trap 97). A stroke has two expansion paths in `raster-gpu` (trap 78). The other instruments: `tools/state.sh frame`, `tools/state.sh heavy` (a heavy page through the four windows, launch to page, memory and a key's wait, ADR 1815), `--test launch_path` with `PDFVIEWER_LAUNCH_CLOCKS=1` ([`doc/verify.md`](verify.md)), callgrind — each arm built once per commit in a target directory of its own (trap 129) |
 | works on performance — loading, display, zoom, on the processor or the device | [`doc/todo/69`](todo/69-a-mark-sized-before-it-becomes-geometry.md), the increments ADR 1817 chose, in their order, and [`doc/todo/75`](todo/75-the-page-resident-on-the-device.md), the page kept on the device that the owner asked to be evaluated (`doc/questions/A473`), measured by `render-raster`'s `examples/zoom_frame` (ADR 1992); the page is profiled before a lever is built ([`doc/habits/measuring.md`](habits/measuring.md)); `examples/tile_price` and `examples/heavy_drawing` in `crates/render-raster/` and `tools/state.sh heavy` are the instruments (ADRs 1815, 1817, 1823), and `doc/state-of-play.md` says what is built |
 | improves code without changing what it does — the owner's "switch to code improvements/refactoring … until I say otherwise" | [`doc/todo/74`](todo/74-the-god-classes.md), the god classes in the order `tools/state.sh gods` ranks them (ADR 2005), each split as ADRs 2004, 2018 and 2032 split theirs: a move proved by the multiset of its lines, with the ledger rows that named the file re-pointed |
 | writes a host, or adds a message | [`doc/ui-boundary.md`](ui-boundary.md), [`doc/todo/30`](todo/30-a-native-host.md)–[`33`](todo/33-annotation-editing.md), [`doc/todo/38`](todo/38-a-documents-restrictions-have-levels.md) — and the last thing it runs is [`tools/drive-windows.sh`](../tools/drive-windows.sh), all three windows under Xvfb, each step waiting for the window's own word (ADRs 1453, 1478, 1605; trap 86); `tools/state.sh drive` counts its verdicts |
@@ -70,17 +51,12 @@ are, and what your contract names. The brief is written from
 
 ## Traps and habits
 
-[`doc/traps/README.md`](traps/README.md) is the full trap index — one row per trap, the position
-that springs it and the rule, resolving any citation by number in one hop, and
-`cargo test -p conformance --test traps` holds every row to its entry in the group file it names
-and every entry to its row (ADR 1379). A round reads [`every-round.md`](traps/every-round.md) up
-front and opens a group file where a line bites (ADR 1036). A trap's story is never rewritten,
-but a pointer in it is kept current (ADR 1525). `tools/state.sh traps` counts what the rounds cite.
-
-[`doc/habits.md`](habits.md) is the index of the six habit files, one per kind of work (ADR 0983);
-[`doc/habits/every-round.md`](habits/every-round.md) is the ten every round reads, and
-`tools/round.sh <kind>` names the file for the rest. Three habits bind every round and live in
-`doc/todo/02` section 7.
+[`doc/traps/README.md`](traps/README.md) is the full trap index, resolving any citation by
+number in one hop; `cargo test -p conformance --test traps` holds every row to its entry in the
+group file it names (ADR 1379). A trap's story is never rewritten, but a pointer in it is kept
+current (ADR 1525). [`doc/habits.md`](habits.md) is the index of the six habit files, one per kind
+of work (ADR 0983); a habit cited by number is a `## <n>.` heading of
+[`doc/habits/measuring.md`](habits/measuring.md).
 
 ## The texts under `doc/md/`, and the one rule that is not about code
 

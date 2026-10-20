@@ -1,6 +1,7 @@
 # 0965 — Four more owed rewrites, the proof that decides two of them, and four catalogue entries that were wrong
 
-Session 962. Status: **accepted**. It **continues ADR 0957** over the eleven of
+Session 962. Status: **accepted**; its correction 2, the duplicate-profile rows, **reversed by ADR
+2098**. It **continues ADR 0957** over the eleven of
 `doc/pdf-a-mitigations.md` §13.3's twenty-two that were left, moves **four** more rows out of
 `decision.rs`'s `REFUSED_BY_NAME`, and — the part worth keeping longer than the code —
 **corrects four catalogue entries that were wrong about the standard or about the work**, one of

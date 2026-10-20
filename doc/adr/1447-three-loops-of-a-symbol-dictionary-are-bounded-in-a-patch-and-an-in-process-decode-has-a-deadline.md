@@ -1,7 +1,7 @@
 # 1447 — Three loops of a symbol dictionary are bounded in a patch, and an in-process decode has a deadline
 
-Session 1306. Status: **accepted**; the in-tree half **built**, the codec half **written and not
-applied** — it is the owner's to apply to the fork.
+Session 1306. Status: **accepted**; both halves **built** — the codec half is a commit on the
+owner's fork `close2/hayro`, which the manifest pins (ADR 2102).
 Context: `crates/pdf-sandbox/src/in_process.rs` (new), `crates/pdf-sandbox/src/lockdown{,_linux}.rs`
 (`is_confined`), `crates/pdf-sandbox/src/lib.rs`
 (`Sandbox::with_timeout`, `SandboxError::{Overran, TooManyOverran, Thread}`),

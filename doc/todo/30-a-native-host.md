@@ -262,8 +262,11 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   2060, 2061), a page
   past `MAX_PIXELS` drawn a window at a time on the processor among them; **the key table is handed over**: `QUORRA_KEY_*` and `QUORRA_ACT_*` with their counts, and
   `quorra_key_press`, which acts on a press where every window acts and returns what only a window can
-  do, its modifier named by role (Ctrl here, ⌘ on macOS) (ADR 2072); what it needs next is RFC 0010's
-  N2, `quorra_window`. The framework is the owner's choice (`doc/questions/Q501`).
+  do, its modifier named by role (Ctrl here, ⌘ on macOS) (ADR 2072); `quorra_window`, RFC 0010's
+  N2, runs the loop the toolkit windows share and hands over the panels' rows, the controls and the
+  marks over the page, with their commits (ADRs 2088, 2104). What it still owes is the archive
+  chooser, a script's dialogue and a print grant, each declined aloud, and the reader's policy
+  flags; then N3a, the WinUI 3 window the owner chose (`doc/questions/A501`).
 - **`quorra-gtk` and `quorra-qt` keep a device path** (ADR 2049). First the device renderer leaves
   `quorra`'s binary for a library; then both windows draw on the device and read the frame back into
   the `MemoryTexture` and `QImage` they show today. A dmabuf texture in GTK and a `QRhiWidget` in Qt

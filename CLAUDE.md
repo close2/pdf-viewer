@@ -3,14 +3,13 @@
 A PDF viewer in Rust, targeting Acrobat-class fidelity, with the goal of being the
 noticeably fastest PDF viewer available — and clean enough to be taught from.
 
-> **New here?** Read `doc/HANDOVER.md` after this file. It is an index: which file this round
-> opens, and which of `doc/traps/`'s five groups this round is in a position to spring.
+> **New here?** Run `tools/round.sh <kind>`: it prints what a round reads, in order.
+> `doc/HANDOVER.md` is the index for any file that list did not give you, and
 > `doc/state-of-play.md` is what the program already does.
 
-**This file holds the principles and nothing that a command can print.** A fact that can be
-counted is not written down here; what is written down is the command that counts it, and
-`tools/state.sh` is that command. Where a number appears below it is the standard's, not
-ours.
+**This file holds the principles and nothing that a command can print** — a fact that can be
+counted is written down as the command that counts it, and `tools/state.sh` is that command. Where
+a number appears below it is the standard's, not ours.
 
 | moved out of this file | now in | opened when |
 |---|---|---|
@@ -38,12 +37,13 @@ than quietly compromising.
 ### 2. Fast — including startup
 
 - Performance is a feature owned from day one, not an optimization phase later.
-- Parallelism (rayon) and GPU offload (vello/wgpu) are used wherever they genuinely help.
+- Parallelism (rayon) and GPU offload (quorra, `render-raster`, on wgpu; vello's `render-gpu`
+  is the cross-backend comparison) are used wherever they genuinely help.
 - "Genuinely" is decided by measurement, never by assumption. For an interactive viewer,
   *latency* usually matters more than throughput — a parallel path that improves
   throughput while worsening time-to-first-page is a regression.
-- Perf gates run in CI: cold open, time-to-first-page, page-turn latency, memory
-  high-water. A regression fails the build.
+- Perf gates run at every merge: cold open, time-to-first-page, page-turn latency, memory
+  high-water (`launch_path` and `turn_path`, `doc/todo/02` §2). A regression fails the gate.
 - Remember where the time actually goes: parsing, xref resolution, and font loading
   usually dominate time-to-first-page — not rasterization.
 
@@ -52,25 +52,23 @@ than quietly compromising.
 Launch latency is what a user judges the program by before it has rendered anything, and
 it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
 
-- **Nothing eager.** No system font enumeration, no full page-tree walk, no
-  configuration or recent-file scanning, no thumbnail generation on the launch path.
-  Anything not needed to show page one is deferred until first use (`OnceLock`, not
-  startup).
+- **Nothing eager.** Anything not needed to show page one is deferred until first use
+  (`OnceLock`, not startup). No system font enumeration unless page one names a font it does
+  not embed, no full page-tree walk unless page one needs it, no configuration or recent-file
+  scanning, no thumbnail generation on the launch path.
 - **No parsed data at startup.** The Arlington-generated tables are compiled-in `static`
   data, so the object model costs zero parse time at launch. Any future data resource
   follows the same rule.
 - **Incremental parsing.** Opening a document reads the trailer and the objects page one
-  needs — not the whole file. A 500-page document must open no slower than a 5-page one.
+  needs — not the whole file — and defers what page one does not need: a 500-page document
+  must reach its first page no slower than a 5-page one.
 - **Page one goes to the GPU by default, and GPU bring-up is therefore on the critical path
   by choice.** Stated by the project owner: drawing the first page on the graphics device is
-  what is wanted, so the alternative — showing page one from the processor while the
-  device initialises on another thread — is *not* the rule here. What follows from that
-  choice is an obligation rather than a licence: **creating the device and compiling the
-  pipelines is now part of time-to-first-page, so it is a number to measure and to keep
-  small.** Tens to hundreds of milliseconds of it are the driver's, which is exactly why
-  it may not be left unmeasured.
-
-  Three things follow, and they are requirements:
+  what is wanted, so showing page one from the processor while the device initialises on
+  another thread is *not* the rule here. The obligation that follows: **creating the device and
+  compiling the pipelines is now part of time-to-first-page, so it is a number to measure and to
+  keep small** — tens to hundreds of milliseconds of it are the driver's, which is exactly why
+  it may not be left unmeasured. Three requirements follow:
 
   - **The graphics library must return a usable device before it is warm.** Shaders
     compile in the background and the first frames go through whatever is ready; a
@@ -83,24 +81,22 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
     itself rather than as a slower page.
 
   **The CPU backend keeps its other two jobs, and takes page one only where it is
-  predicted the faster lane.** It is still the correctness oracle — the whole
-  cross-backend comparison rests on it — and it is still what draws a frame the graphics
-  device refuses (a coverage or budget refusal, not a swapchain state), reported out loud.
-  It is not a way to hide the device's bring-up: the device comes up whatever page one
-  costs, so a processor frame drawn only to cover that wait is the unnecessary work this
-  rule exists to prevent. **Where the page itself is past what a frame was budgeted to be,
-  the faster lane draws it, page one included.** Stated by the project owner on
-  2026-10-12: "yes, you are allowed to print the first frame on the CPU instead of the
-  GPU. (The limitation was just to avoid 'unnecessary' work and assumed that the only
-  reason to draw on the CPU was to avoid the cost of setting up the GPU pipeline)". The
-  device draws every frame it is predicted to draw inside the warning bound, and past it
-  the lane with the smaller prediction draws, said out loud in the title and on the
+  predicted the faster lane.** It is the correctness oracle — the whole cross-backend
+  comparison rests on it — and it draws a frame the graphics device refuses (a coverage or
+  budget refusal, not a swapchain state), reported out loud. It is not a way to hide the
+  device's bring-up: the device comes up whatever page one costs, so a processor frame drawn
+  only to cover that wait is the unnecessary work this rule exists to prevent. **Where the page
+  itself is past what a frame was budgeted to be, the faster lane draws it, page one included.**
+  Stated by the project owner on 2026-10-12: "yes, you are allowed to print the first frame on
+  the CPU instead of the GPU. (The limitation was just to avoid 'unnecessary' work and assumed
+  that the only reason to draw on the CPU was to avoid the cost of setting up the GPU
+  pipeline)". The device draws every frame it is predicted to draw inside the warning bound,
+  and past it the lane with the smaller prediction draws, said out loud in the title and on the
   terminal (ADR 1831, `doc/questions/A393`).
 - **No heavy runtime.** No async runtime unless something genuinely requires one; a
   thread pool for rasterisation is not a reason to pull in one.
-- Cold-start and time-to-first-page are CI gates with numbers attached, measured with a
-  cold page cache. Targets are set once Spike A gives a real baseline, rather than
-  invented now.
+- Cold-start and time-to-first-page are gates with numbers attached, measured with a cold
+  page cache; `doc/checks/launch-path.toml` holds the band on each.
 
 ### 3. Secure from the start
 
@@ -180,12 +176,10 @@ In practice:
   a deliberate choice, and document it *as a choice*. Presenting a de-facto convention as
   though it were derived is the failure mode this rule exists to prevent.
 - **"The specification defines nothing here" is itself a claim about the specification, and
-  it decays.** The standing example used to be `DeviceCMYK` → RGB, on the evidence of
-  §8.6.4.4, which says only that the components are "concentrations of process colourants".
-  §10.4.2.5 defines that conversion outright, and §10.4.2.1 ranks it below §10.3's ICC route
-  — so the question is answered twice, in an order, and the code was right for a reason
-  nobody had found. Before recording a silence, read the *titles* around the subject in
-  `doc/md/`; it takes a minute, and that claim survived thirty-two sessions in this file.
+  it decays.** `DeviceCMYK` → RGB was recorded as a silence on §8.6.4.4's "the concentrations
+  of these process colourants", while §10.4.2.5 defines that conversion outright and §10.4.2.1
+  ranks it below §10.3's ICC route (trap 6). Before recording a silence, read the *titles*
+  around the subject in `doc/md/`; it takes a minute.
 - Curve-fitting to another renderer's output is forbidden outright. An implementation is
   correct for all valid PDFs or it is not correct; tuning constants until a corpus matches
   produces neither correctness nor knowledge.
@@ -209,36 +203,30 @@ In scope, without exclusions:
   synthesised ones, form field appearance construction, optional content, outlines,
   destinations, page labels.
 - **What a reader does with an open document**: selecting its text, filling a field, adding an
-  annotation or a markup. A viewer that can only look is not the target and never was; the
-  exclusion it amends is below.
+  annotation or a markup. A viewer that can only look is not the target and never was.
 - **Clause 10 where it applies to a screen**, and the standard decides which clauses those are
-  rather than this file. **This entry used to say "[h]alftones and transfer functions describe a
-  marking device; those are *inapplicable*", and it was wrong about the second of the two** —
-  found on a corpus document that draws wrong because of it, on evidence the standard states
-  three times over. So **§10.6's halftones are inapplicable on the standard's own condition**, and
-  **§10.5's transfer functions are in scope**: they decide what a screen shows. Flatness and
-  smoothness are **not** inapplicable either, and the difference is worth the words: §10.7.2 makes
-  ignoring flatness an explicit permission, and §10.7.3 says "each output device may have internal
-  limits" on smoothness — a clause that permits is a clause that has been read, and it is a
-  stronger answer than one that does not apply. The reading itself, with the standard's own words
-  under each clause number, is `doc/todo/13-the-transfer-function.md` and §10.5's ledger row.
+  rather than this file: **§10.6's halftones are inapplicable on the standard's own condition**,
+  and **§10.5's transfer functions are in scope** — they decide what a screen shows, and a corpus
+  document drew wrong while this entry called them inapplicable. Flatness and smoothness are
+  **not** inapplicable either: §10.7.2 makes ignoring flatness an explicit permission, and
+  §10.7.3 says "[e]ach output device may have internal limits" on smoothness — a clause that
+  permits is a clause that has been read, and it is a stronger answer than one that does not
+  apply. The reading, with the standard's words under each clause number, is
+  `doc/todo/13-the-transfer-function.md` and §10.5's ledger row.
 
-  **The lesson is more general than the clause**, and it is the project owner's: the restrictions
-  in this file were drawn early, around the most important functionality, and they come off step
-  by step as each is read against the standard rather than staying because they are written down.
-  An entry here that says a clause does not apply is a *claim about the specification*, and it
-  decays exactly the way a ledger row's does.
+  **The lesson is the project owner's**: the restrictions in this file were drawn early, around
+  the most important functionality, and they come off step by step as each is read against the
+  standard rather than staying because they are written down. An entry here that says a clause
+  does not apply is a *claim about the specification*, and it decays exactly the way a ledger
+  row's does.
 - **Clause 14** — output intents, and tagged PDF as far as accessibility needs it.
-- **The normative annexes**, which this list did not mention for a long time and which were
-  therefore in scope all along with nothing looking at them. The normative ones are **D**
-  (character sets and encodings), **E** (extending PDF), **F** (linearised PDF), **I** (versions
-  and compatibility), **K** (XFA), **L** (structure element nesting), **O** (fragment identifiers)
-  and **Q** (a method for determining transparency) — and the ledger carries a row for each because
-  a requirement is a requirement wherever the standard prints it. The rest say *informative* on
-  their own title line and state nothing. Annex O is the reason this entry is not a formality: its
-  `shall`s are addressed to "the PDF processor", and when this entry was written not one of them
-  was implemented and not one reported. `tools/state.sh annex-o` counts where they stand;
-  `doc/todo/39` and ADR 0209 say what each of the remainder needs.
+- **The normative annexes**: **D** (character sets and encodings), **E** (extending PDF), **F**
+  (linearised PDF), **I** (versions and compatibility), **K** (XFA), **L** (structure element
+  nesting), **O** (fragment identifiers) and **Q** (a method for determining transparency) — the
+  ledger carries a row for each, because a requirement is a requirement wherever the standard
+  prints it. The rest say *informative* on their own title line and state nothing. Annex O's
+  `shall`s are addressed to "the PDF processor"; `tools/state.sh annex-o` counts where they
+  stand, and `doc/todo/39` and ADR 0209 say what each of the remainder needs.
 
 The exclusions, closed, each with its reason:
 
@@ -250,20 +238,15 @@ The exclusions, closed, each with its reason:
   **Excluded still**, each with the trigger that reopens it: decoding or presenting audio and
   video (an H.264 and AAC decoder admissible under `deny.toml`, or C in a confined media worker
   accepted in writing under ADR 0014), and rendering U3D or PRC artwork (a U3D reader in Rust).
-  Ratified on 2026-10-08, when the owner answered `doc/questions/Q254` — "For everything else I
-  agree with your suggestions" — and so adopted RFC 0009 section 11's question 2 as written;
-  `A254` keeps the owner's words and the round's reading apart, RFC 0009 section 3 is the
-  argument, and ADR 1946 reads the ledger's clause 13 rows against the line as amended.
+  Ratified on 2026-10-08 (`doc/questions/Q254`, `A254`: RFC 0009 section 11's question 2
+  adopted as written); RFC 0009 section 3 is the argument, ADR 1946 the ledger's reading.
 - **XFA** — the standard hands this one over itself: "[t]he implementation of such a schema
   driven page generation involves considerable effort beyond that for a simple PDF viewer and
-  therefore **a PDF processor may choose to not implement this feature**" (§K.1). **This entry
-  used to read "deprecated by ISO 32000-2 itself and specified outside it", and the second half
-  was wrong**: Annex K is normative and it is *in* ISO 32000-2. What is documented separately is
-  the XFA template architecture, not the annex — and the exclusion is stronger for resting on a
-  permission the standard grants than on a claim about where it was printed. Annex K also says
-  what makes declining it safe, which is worth knowing rather than assuming: in a conforming
-  hybrid file "[t]he other entries in the interactive form dictionary shall be consistent with
-  the information in the XFA resource", so the AcroForm this tree reads *is* the form.
+  therefore **a PDF processor may choose to not implement this feature**" (§K.1). Annex K is
+  normative and in ISO 32000-2; what is documented separately is the XFA template architecture.
+  Annex K also says what makes declining it safe: in a conforming hybrid file "[t]he other
+  entries in the interactive form dictionary shall be consistent with the information in the XFA
+  resource", so the AcroForm this tree reads *is* the form.
 - **JavaScript and script-driven form behaviour beyond this document and this viewer** — a script
   runs in scope as far as it reaches *this document's* field values and appearance properties and
   *this viewer's* state, evaluated in a confined worker of its own under a memory and a wall-clock
@@ -273,92 +256,69 @@ The exclusions, closed, each with its reason:
   call that leaves the process — the network, the filesystem, mail, printing, other documents, the
   application's chrome, persistence across documents, privileged functions — each refused by a
   named exception the script can see; any effect that would mutate `pdf_syntax::Document`; ISO
-  21757-1's 3D API under clause 13; XFA under Annex K. Ratified on 2026-10-08, when the owner
-  answered `doc/questions/Q286`; ADR 1904 names what is built under each half.
+  21757-1's 3D API under clause 13; XFA under Annex K. Ratified on 2026-10-08
+  (`doc/questions/Q286`, `A286`); ADR 1904 names what is built under each half.
 - **Authoring content from nothing** — we do not compose pages: no layout engine, no
   text-setting, no chart drawing, no "HTML to PDF". No clause whose subject is deciding what
   marks a page should contain falls on this project.
 
-  **Assembling documents from existing documents is in scope.** Splitting, merging, reordering,
-  rotating, extracting and optimising operate on content some producer already specified; every
-  content stream in their output is a producer's, carried byte for byte or recompressed without
-  reinterpretation. The writer this requires is §10 of RFC 0002's serializer: it emits
-  structure (object table, streams containers, cross-reference, trailer, identifiers), never
-  content. §7.5.6's incremental update remains the only writing that touches a file a user is
-  *editing in place*; the serializer is how a *new* file is derived from old ones.
-
-  Generator obligations come into scope only where the serializer actually emits the construct:
-  §7.5.4/§7.5.5/§7.5.7/§7.5.8 on the way out, §14.4, §7.6 encryption on the way out. Annex F
-  is in scope since the owner ratified linearisation on 2026-09-22 (`doc/questions/A03`), and
-  `optimize --linearize` emits it. The ledger's `writer-side` status narrows accordingly.
+  **Assembling documents from existing documents is in scope** (RFC 0002 §11.1, ratified on
+  2026-09-03). Splitting, merging, reordering, rotating, extracting and optimising operate on
+  content some producer already specified; every content stream in their output is a producer's,
+  carried byte for byte or recompressed without reinterpretation. The writer this requires is
+  §10 of RFC 0002's serializer: it emits structure (object table, streams containers,
+  cross-reference, trailer, identifiers), never content. §7.5.6's incremental update remains the
+  only writing that touches a file a user is *editing in place*; the serializer is how a *new*
+  file is derived from old ones. Generator obligations come into scope only where the serializer
+  actually emits the construct:
+  §7.5.4/§7.5.5/§7.5.7/§7.5.8 on the way out, §14.4, §7.6 encryption on the way out, and Annex
+  F, which `optimize --linearize` emits (`doc/questions/A03`). The ledger's `writer-side` status
+  narrows accordingly.
 
   The boundary line that keeps the exclusion enforceable: **does the operation invent marks?**
-  Rotate does not (it writes an integer the producer's renderer already honours); a watermark
-  stamp *does* (it composes new content over pages), which is why qpdf's `--overlay`/`--underlay`
-  and Stirling's watermarking are **deliberately not in this suite** despite being conventional —
-  they are the first feature on the far side of the redrawn line, and taking them later must be
-  its own argued amendment, not scope creep. Variable-text field appearances
-  (`crates/pdf-model/src/variable_text.rs`) already sit on this line today, sanctioned by
-  §12.7.4.3's own requirement; the line is where it always was, now written down.
+  It is about the **provenance of the marks**, not about the operation of writing. Rotate does
+  not invent (it writes an integer the producer's renderer already honours); a watermark stamp
+  *does* (it composes new content over pages), which is why qpdf's `--overlay`/`--underlay` and
+  Stirling's watermarking are **deliberately not in this suite** despite being conventional —
+  taking them later must be its own argued amendment, not scope creep. Variable-text field
+  appearances (`crates/pdf-model/src/variable_text.rs`) sit on this line, sanctioned by
+  §12.7.4.3's own requirement. Two amendments, each ratified by the owner, place two
+  constructions on the near side:
 
-  **A page composed solely of content the document already holds is on the near side of that
-  line, and the third amendment says so.** An archival conversion may *append a page* to carry
-  what its target will not otherwise admit — an embedded image the target may not attach, a
-  metadata packet whose properties the target's schemas do not define, the statement a signature
-  made to its reader (who signed, when, and whether it verified) — where the alternative is losing
-  that content outright. What such a page holds is the document's own; what this program composes
-  is the page it sits on, and nothing may be put on it whose content did not come from the file.
-  The ruling is one, not two: under a Level A target the structure-tree entries such a page owes
-  (ISO 19005-2 section 6.7) are inside the same permission, because refusing to describe a page
-  this program itself appended would make the output non-conforming rather than more honest. An
-  appended page is the one content stream this program writes that no clause specifies — the
-  appearances on the line above each have one — and it is an exception the paragraph above now
-  has rather than a sentence it lost. **The watermark stays on the far side**: it composes new
-  content *over* pages, and nothing here reaches it. Ratified on 2026-09-12, when the owner
-  answered `doc/questions/Q58` with "Q58 agree with recommendation" — the recommendation being
-  "[t]reat it as needing the amendment, and make it", on the argument that "an exclusion written
-  to stop this program becoming a layout engine was not written to force that choice"; the
-  one-ruling reading was the round's summary, which that answer ratified, and `A58` keeps the
-  owner's four words and the round's reading visibly apart. ADR 1014 is the argument, and names
-  what an appended page then owes — page labels, the outline, the structure tree, and the report's
-  sentence saying a page was appended.
+  - **A page composed solely of content the document already holds.** An archival conversion
+    may *append a page* to carry what its target will not otherwise admit — an embedded image
+    the target may not attach, a metadata packet whose properties the target's schemas do not
+    define, the statement a signature made to its reader (who signed, when, and whether it
+    verified) — where the alternative is losing that content outright. Nothing may be put on it
+    whose content did not come from the file, and under a Level A target the structure-tree
+    entries such a page owes (ISO 19005-2 section 6.7) are inside the same permission, because
+    refusing to describe a page this program appended would make the output non-conforming
+    rather than more honest. It is the one content stream this program writes that no clause
+    specifies. Ratified 2026-09-12 (`doc/questions/Q58`, `A58`: "Q58 agree with
+    recommendation"); ADR 1014 is the argument and names what an appended page owes —
+    page labels, the outline, the structure tree, and the report's sentence saying a page was
+    appended.
+  - **A producer's own marks written onto a page the producer wrote** — **clause-driven
+    relocation of producer-written appearance streams**, on a two-part test: a clause requires
+    the move, and that clause fixes the position (§12.5.5 computes an appearance's matrix from
+    the annotation's own `/Rect`, `/BBox` and `/Matrix`), so the operators that place it decide
+    nothing a reader sees, and an appearance whose annotation a target will not admit goes back
+    onto its own page under §12.5.5's own matrix. It takes in later sites of the same shape, a
+    flattened form field among them, and **stops where the marks become this program's
+    invention**: the watermark
+    stays on the far side, and so do the redaction's overlay and its fill — §12.5.6.23's `/RO`,
+    `/OverlayText` and `/IC` (`doc/questions/A64`). ADR 1123 is the construction — a `q` before
+    the producer's operators and a closing stream after them, §8.4.2's balance kept across the
+    `/Contents` array — with ADR 1099's appended page as the fallback for its two refusals, each
+    stated in a sentence: a producer whose content stream pops further than it pushes, and a
+    moved appearance a remaining, unhidden annotation would be drawn over. Ratified 2026-09-14
+    (`doc/questions/Q65`, `A65`: "Rule provenance."); ADR 1120 is the argument.
 
-  **Writing a producer's own marks onto a page the producer wrote is on the near side of that
-  line too, and the fourth amendment says so.** The sentence that draws the line — *it composes
-  new content over pages* — is about the **provenance of the marks**, not about the operation of
-  writing. Where a clause requires the content to move and fixes where it goes, the operators
-  that place it decide nothing a reader sees: §12.5.5 computes an appearance's matrix from the
-  annotation's own `/Rect`, `/BBox` and `/Matrix`, so an appearance whose annotation a target will
-  not admit belongs onto its own page at coordinates the standard states and the producer chose.
-  The class this opens is named and bounded — **clause-driven relocation of producer-written
-  appearance streams** — and it will take in later sites of the same shape, a flattened form field
-  among them, on the same two-part test: a clause requires the move, and that clause fixes the
-  position. **It stops where the marks become this program's invention.** The watermark stays on
-  the far side, and so do the redaction's overlay and its fill — §12.5.6.23's `/RO`,
-  `/OverlayText` and `/IC` — which `doc/questions/A64` puts there for this fence's own reason.
-  **This amendment is the scope decision; the on-page construction is ADR 1123, built.** A
-  forbidden annotation's marks now go back onto the producer's own page — a `q` before the
-  producer's operators and a closing stream after them, §8.4.2's balance kept across the
-  `/Contents` array, the appearance placed under §12.5.5's own matrix — and ADR 1099's appended
-  page is the fallback for the two costs, each a refusal with a sentence rather than a difference on
-  the page: a producer whose content stream pops the graphics state stack further than it pushes,
-  and a moved appearance that a remaining, unhidden annotation would be drawn over. The construction
-  and those refusals are ADR 1123, against the reading ADR 1120 writes down. Ratified on 2026-09-14,
-  when the owner answered `doc/questions/Q65` with "Rule provenance."; `A65` keeps the owner's two
-  words and the round's reading visibly apart, as `A58` does. ADR 1120 is the argument, ADR 1123 the
-  build.
-
-  **This exclusion read "we do not create files", then "we do not *create* PDFs", and has been
-  amended four times — each by argument rather than by attrition** (the second on 2026-09-03,
-  when the owner ratified RFC 0002 §11.1 with "RFC 002 and 003 are approved"; the third on
-  2026-09-12, by `doc/questions/A58` and ADR 1014, and the fourth on 2026-09-14, by
-  `doc/questions/A65` and ADR 1120, as the two paragraphs above record). What a *user*
-  does to a document already open — an annotation added, a field filled — is not authoring, and it is
-  written back by §7.5.6's incremental update: the new objects and a new cross-reference section
-  appended, never a rewrite of what was there. The
-  producer's bytes stay in the file, byte for byte, under whatever the user added. This tree
-  already reads that construction (ADR 0100), which is why it is the one form of writing it is
-  placed to get right.
+  What a *user* does to a document already open — an annotation added, a field filled — is not
+  authoring, and it is written back by §7.5.6's incremental update: the new objects and a new
+  cross-reference section appended, never a rewrite of what was there. The producer's bytes stay
+  in the file, byte for byte, under whatever the user added. This tree already reads that
+  construction (ADR 0100), which is why it is the one form of writing it is placed to get right.
 
   **`pdf_syntax::Document` stays immutable, and that is not a style preference.** An edit is a
   log beside the document rather than a change to it — the pattern `view.rs` already uses for
@@ -393,10 +353,10 @@ to treat a corpus as a specification:
 | **Robustness** | what share of the files that actually exist render correctly | the world | corpus + oracle |
 
 Real files are malformed, truncated and written by twenty-year-old generators; the standard
-describes *valid* files and says nothing about the rest. The corpus and the oracle are not
-demoted by any of the above — they are the only instrument for the second question, and no
-amount of clause coverage answers it. Equally, a corpus cannot rank a requirement no document
-exercises, and it declares success the moment the last file goes green.
+describes *valid* files and says nothing about the rest. The corpus and the oracle are the only
+instrument for the second question, and no amount of clause coverage answers it. Equally, a
+corpus cannot rank a requirement no document exercises, and it declares success the moment the
+last file goes green.
 
 **Work is chosen from both, never one.** A session that ships code while leaving the clauses
 it touched `unreviewed` has answered only the robustness question.
@@ -450,27 +410,22 @@ works; deleting one is the only unrecoverable mistake a round can make.
 The sharpest consequence: **a round asked to measure something must not be able to read the
 answer in a document.** A table of gate numbers is what lets a round write "unchanged" without
 running anything. So the numbers are not in the instruction files — `tools/state.sh` prints
-them — and session bookkeeping is one file per round under `doc/history/`, which no round reads to do its
-work.
-ADR 0281 has the argument, ADR 0232 its predecessor.
+them — and session bookkeeping is one file per round under `doc/history/`, which no round reads
+to do its work. ADR 0281 has the argument, ADR 0232 its predecessor.
 
-**And the same rule points the other way, at the prose beside the code: a comment carries the
+**The same rule points the other way, at the prose beside the code: a comment carries the
 current reason and nothing about how it got there.** A comment states why the code is as it is
 *today* and cites by number the ADR that argued it; it does not say what the comment used to say,
 which session changed it, or that an earlier reading was wrong. A retired sentence is deleted
-rather than annotated — the retirement is `doc/adr/`'s and `doc/history/`'s, and both are still
-there to be read by anyone who wants them. The four navigational documents — `doc/PLAN.md`,
-`doc/crate-map.md`, `doc/state-of-play.md`, `doc/HANDOVER.md` — are written the same way, as *what
-is*. The reason is principle 4's, and it is the one measurement that decides between a correction
-appended and a correction applied: when the correction is appended, the first sentence a reader
-meets is the retired one, and **the reading cost of a function becomes the history of that
-function**. A student should learn from `run_reader` how a content stream is interpreted, not which
-session moved a classification into a table; `tools/comment-history.py` sorts what `grep -rE
-"hundred-and-|session" --include=*.rs crates tools` finds into history, names and legitimate uses,
-and three gates (`spelled_ordinals`, `round_numbers`, `ledger_notes` in `tools/conformance/tests/`)
-hold the history at zero; the grep alone is a reading list. What this does **not** bind: `doc/adr/`,
-`doc/history/` and `doc/reviews/` are *records*, they keep their chronology, and rewriting one for
-tidiness is the single thing a record may not have done to it. Nor does it bind a trap or a habit,
-each of which **is** an incident with a rule attached — there the history is the lesson, and
-deleting it deletes the reason anybody believes the rule. ADR 1023 states the rule, ADR 1005 §2
-priced it, and `doc/reviews/984-direction-and-boundaries.md` Finding 2 measured what it costs.
+rather than annotated, because when a correction is appended the first sentence a reader meets
+is the retired one, and **the reading cost of a function becomes the history of that function**. The
+four navigational documents — `doc/PLAN.md`, `doc/crate-map.md`, `doc/state-of-play.md`,
+`doc/HANDOVER.md` — are written the same way, as *what is*. `tools/comment-history.py` sorts
+what `grep -rE "hundred-and-|session" --include=*.rs crates tools` finds, and three gates
+(`spelled_ordinals`, `round_numbers`, `ledger_notes` in `tools/conformance/tests/`) hold the
+history at zero. What this does **not** bind: `doc/adr/`, `doc/history/` and `doc/reviews/` are
+*records*, they keep their chronology, and rewriting one for tidiness is the single thing a
+record may not have done to it. Nor does it bind a trap or a habit, each of which **is** an
+incident with a rule attached — there the history is the lesson, and deleting it deletes the
+reason anybody believes the rule. ADR 1023 states the rule, ADR 1005 §2 priced it, and
+`doc/reviews/984-direction-and-boundaries.md` Finding 2 measured what it costs.

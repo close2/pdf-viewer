@@ -1,15 +1,18 @@
-//! Seven JBIG2 inputs whose symbol dictionaries `hayro-jbig2` decodes for minutes, and what ending
-//! one of them looks like.
+//! Seven JBIG2 inputs whose symbol dictionaries an unbounded decoder works on for minutes, which
+//! the codec this build carries refuses by its own bounds, and a region that is slow for an honest
+//! reason, which only a deadline ends.
 //!
-//! Written by the `jbig2` fuzz target and minimised against two codecs at once: the pinned one,
-//! which each input still keeps busy past three seconds, and the pinned one with
-//! `doc/patches/hayro-jbig2-symbol-dictionary-bounds.patch` applied, which refuses each at once by
-//! the bound this input's name says. Three loops of ITU-T T.88's symbol dictionary procedure are
-//! behind them (ADR 1447): section 6.5.5's height classes, which may be empty and are not
-//! counted; section 6.5.10's export runs, which may have length zero and do not advance; and the
-//! symbols' own sizes, which only their 32 bits bound. Past the end of its data the arithmetic
-//! decoder is fed 1-bits for as long as it is asked (section E.3.4), so a few hundred bytes are
-//! enough for any of the three.
+//! The seven were written by the `jbig2` fuzz target and minimised against two codecs at once:
+//! upstream's 0.3.1, which each keeps busy past three seconds, and the same commit with the bounds
+//! the owner's fork now carries (ADR 1447), which refuses each by the bound its name says in under
+//! a second. Three loops of ITU-T T.88's symbol dictionary procedure are behind them: section
+//! 6.5.5's height classes, which may be empty and are not counted; section 6.5.10's export runs,
+//! which may have length zero and do not advance; and the symbols' own sizes, which only their 32
+//! bits bound. Past the end of its data the arithmetic decoder is fed 1-bits for as long as it is
+//! asked (section E.3.4), so a few hundred bytes are enough for any of the three. Each is held to
+//! the codec's own sentence under [`BOUND_DEADLINE`], so a lock that stopped naming the fork fails
+//! here rather than at a deadline that would hide it; the deadlines are held by [`one_region`],
+//! whose cost is its area.
 //!
 //! Framed as the fuzz target reads its input: a two-byte big-endian length, the `/JBIG2Globals`
 //! stream, then the page's own segments.
@@ -21,9 +24,11 @@ use pdf_sandbox::{Decoded, Request, SandboxError};
 /// How long any of these may take to be refused, wherever it is decoded.
 pub(crate) const REFUSED_WITHIN: Duration = Duration::from_secs(1);
 
-/// The deadline these tests give a decode: short enough that one refused at it is refused well
-/// inside [`REFUSED_WITHIN`], long enough for the ordinary request beside it to be answered.
-pub(crate) const DEADLINE: Duration = Duration::from_millis(250);
+/// The deadline the seven are decoded under, long enough that the codec's own bound is what ends
+/// each: the symbol-pixel bound decodes its 2^28 pixels before it refuses, about two thirds of a
+/// second in the `dev` profile, past the quarter of a second the deadline tests give. A deadline ending one of them is then a sentence
+/// about the lock, which no longer names a codec carrying the bounds.
+pub(crate) const BOUND_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The globals and the segments of a framed input.
 #[must_use]
@@ -38,17 +43,11 @@ pub(crate) fn request(framed: &[u8]) -> Request<'_> {
     Request::Jbig2 { data, globals }
 }
 
-/// Whether `outcome` is one of the refusals that ends such an input: a deadline — the worker's
-/// kill, or an in-process decode abandoned or not started — or, where the codec carries the
-/// patch, its own sentence naming the bound.
+/// Whether `outcome` is the codec's refusal of one of the seven: its own sentence naming the bound
+/// (ADR 1447).
 #[must_use]
-pub(crate) fn ended(outcome: &Result<Decoded, SandboxError>) -> bool {
+pub(crate) fn refused_by_the_codec(outcome: &Result<Decoded, SandboxError>) -> bool {
     match outcome {
-        Err(
-            SandboxError::TimedOut
-            | SandboxError::Overran { .. }
-            | SandboxError::TooManyOverran { .. },
-        ) => true,
         Err(SandboxError::Undecodable { detail }) => [
             "height classes without a symbol",
             "symbol pixels",
@@ -463,7 +462,44 @@ pub(crate) const EMPTY_EXPORT_RUNS_B: &[u8] = &[
     0x5b, 0x00, 0x00, 0x03, 0xe5, 0x00,
 ];
 
-/// Every input above, by name.
+/// A segment header of ITU-T T.88 section 7.2 for the embedded organisation: segment number,
+/// flags carrying the type, no referred-to segments, page 1, and the data length.
+pub(crate) fn segment(number: u32, kind: u8, data: &[u8]) -> Vec<u8> {
+    let length = u32::try_from(data.len()).unwrap_or(u32::MAX);
+    let mut out = Vec::with_capacity(data.len().saturating_add(11));
+    out.extend_from_slice(&number.to_be_bytes());
+    out.extend_from_slice(&[kind, 0x00, 0x01]);
+    out.extend_from_slice(&length.to_be_bytes());
+    out.extend_from_slice(data);
+    out
+}
+
+/// A page and one immediate generic region covering it, `side` pixels square: section 7.4.8's
+/// page information (type 48) and section 7.4.6's region (type 38), template 0 with its nominal
+/// adaptive pixels, arithmetic-coded from four bytes. The decoder is fed 1-bits past them, so the
+/// whole region decodes, and its cost is its area — a decode that is slow for an honest reason.
+pub(crate) fn one_region(side: u32) -> Vec<u8> {
+    let mut page = Vec::with_capacity(19);
+    for field in [side, side, 0, 0] {
+        page.extend_from_slice(&field.to_be_bytes());
+    }
+    page.extend_from_slice(&[0x00, 0x00, 0x00]);
+
+    let mut region = Vec::with_capacity(30);
+    for field in [side, side, 0, 0] {
+        region.extend_from_slice(&field.to_be_bytes());
+    }
+    region.push(0x00);
+    region.push(0x00);
+    region.extend_from_slice(&[0x03, 0xff, 0xfd, 0xff, 0x02, 0xfe, 0xfe, 0xfe]);
+    region.extend_from_slice(&[0x00; 4]);
+
+    let mut stream = segment(0, 48, &page);
+    stream.extend_from_slice(&segment(1, 38, &region));
+    stream
+}
+
+/// Every symbol dictionary above, by name.
 pub(crate) const INPUTS: &[(&str, &[u8])] = &[
     ("empty_height_classes_a", EMPTY_HEIGHT_CLASSES_A),
     ("empty_height_classes_b", EMPTY_HEIGHT_CLASSES_B),

@@ -1,7 +1,8 @@
 # 2074 — The three T.88 patches are a branch on the pinned commit, not on the fork's `main`
 
 Session 1619, slot 5 of batch ninety-seven, a clause round. Status: **accepted**; the branch is
-**built** and waits for the owner's push (`doc/questions/Q514`). Context: ADRs 1447, 1459, 1485
+**built**, pushed by the owner (`doc/questions/A514`) and pinned, and section 4's steps are done
+(ADR 2102). Context: ADRs 1447, 1459, 1485
 (the three patches), 1714 (the codecs taken at their release commit), 0014 (a codec this project
 does not own). Clauses: ISO 32000-2 §7.4.7; ITU-T T.88 7.4.6.2, cited and paraphrased. ADR 2075 is
 unused.

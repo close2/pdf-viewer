@@ -134,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        300,
+        324,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -168,6 +168,7 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     the_eight_commands(&mut expected);
     the_keyboard(&mut expected);
     the_window(&mut expected);
+    the_tabs(&mut expected);
 
     assert_eq!(
         defined, expected,
@@ -749,7 +750,30 @@ fn the_keyboard(expected: &mut BTreeMap<String, i64>) {
     expected.insert("QUORRA_ACT_COUNT".to_owned(), i64::from(ActKind::COUNT));
 }
 
-/// What a `quorra_window` owes its caller, `QUORRA_OWED_*` and its count (ADR 2088).
+/// The panels a window offers, `QUORRA_TAB_*` and their count, by `viewer_host::Tab`'s own index
+/// (RFC 0010 section 5, ADR 2104).
+fn the_tabs(expected: &mut BTreeMap<String, i64>) {
+    use viewer_host::Tab;
+    for (name, tab) in [
+        ("CONTENTS", Tab::Contents),
+        ("PAGES", Tab::Pages),
+        ("LAYERS", Tab::Layers),
+        ("FILES", Tab::Files),
+        ("ARTICLES", Tab::Articles),
+        ("DOCUMENT", Tab::Document),
+    ] {
+        expected.insert(
+            format!("QUORRA_TAB_{name}"),
+            i64::try_from(tab.index()).unwrap_or(i64::MAX),
+        );
+    }
+    expected.insert(
+        "QUORRA_TAB_COUNT".to_owned(),
+        i64::try_from(Tab::ALL.len()).unwrap_or(i64::MAX),
+    );
+}
+
+/// What a `quorra_window` owes its caller, `QUORRA_OWED_*` and its count (ADRs 2088, 2104).
 fn the_window(expected: &mut BTreeMap<String, i64>) {
     use viewer_ffi::OwedKind;
     for (name, kind) in [
@@ -763,6 +787,9 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("PANELS", OwedKind::Panels),
         ("CHROME", OwedKind::Chrome),
         ("PLACE", OwedKind::Place),
+        ("CONTROLS", OwedKind::Controls),
+        ("POPUPS", OwedKind::Popups),
+        ("STRIP", OwedKind::Strip),
     ] {
         expected.insert(format!("QUORRA_OWED_{name}"), i64::from(kind.code()));
     }

@@ -17,15 +17,14 @@ use viewer_core::{
 };
 use viewer_host::Decided;
 
-use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
+use crate::answers::{Collection, Miniature, Structure};
 use crate::events::Events;
-use crate::form::Form;
 use crate::keyboard::ActKind;
 use crate::kinds::{
     BoundaryKind, DirectionKind, DuplexKind, LayoutKind, PageModeKind, PreferenceKey,
     PrintScalingKind, ShortfallKind,
 };
-use crate::panels::{Outline, Panel};
+use crate::reads::Reads;
 use crate::shapes::Quads;
 use crate::status::Status;
 
@@ -96,6 +95,12 @@ struct PrintedPage {
 }
 
 impl Session {
+    /// What the viewer answers, read through the view both handles lend (ADR 2104).
+    #[must_use]
+    pub const fn reads(&self) -> Reads<'_> {
+        Reads::of(&self.viewer)
+    }
+
     /// A viewer for a viewport of this size.
     ///
     /// The scale is device pixels per logical pixel, which is 2.0 on a doubled display.
@@ -312,18 +317,6 @@ impl Session {
         })
     }
 
-    /// How many pages the focused document has.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn page_count(&self) -> Result<usize, Status> {
-        match self.viewer.query(Query::PageCount) {
-            Answer::Count(count) => Ok(count),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
     /// Which page is showing, and how many there are.
     ///
     /// # Errors
@@ -493,18 +486,6 @@ impl Session {
             .map_or(&[] as &[String], |printed| &printed.reports)
     }
 
-    /// §12.3.3's outline, flattened into rows with a depth on each.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused or it states no outline.
-    pub fn outline(&self) -> Result<Outline, Status> {
-        match self.viewer.query(Query::Outline) {
-            Answer::Outline(outline) => Ok(Outline::of(&outline)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
     /// What the focused document still reads after page one, for the caller to run on a thread
     /// of its own: §12.3.3's outline and §7.7.3's page tree, placed (ADRs 1543, 1553).
     ///
@@ -599,67 +580,9 @@ impl Session {
             .ok_or(Status::NoAnswer)
     }
 
-    /// The shapes covering what is selected, in device pixels of the viewport.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn selection_quads(&self) -> Result<Quads, Status> {
-        match self.viewer.query(Query::Selection) {
-            Answer::Selected(selected) => Ok(Quads::new(selected.quads)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
-    /// Annex O's highlighted rectangles on the page being shown.
-    ///
-    /// Table Annex O.4's `highlight`, which a URI's fragment states and this program cannot draw
-    /// for a caller: "[t]he nature of the highlighting is implementation-dependent", so the shapes
-    /// cross and the colour is the caller's. Empty where the fragment named none, which is why
-    /// this cannot fail for an open document.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn highlight_quads(&self) -> Result<Quads, Status> {
-        match self.viewer.query(Query::Highlight) {
-            Answer::Highlighted(quads) => Ok(Quads::new(quads)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
-    /// Which annotation holds §12.5.1's focus, and where it is on the screen.
-    ///
-    /// Named for the *annotation* rather than for the query, because [`Self::focus`] is already
-    /// [`Command::Focus`] — a document being made the one commands apply to, which is a different
-    /// thing entirely and was here first.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where nothing is focused or it states no usable `/Rect`.
-    pub fn focused_annotation(&self) -> Result<((u32, u16), [f32; 8]), Status> {
-        match self.viewer.query(Query::Focus) {
-            Answer::Focus { object, quad } => Ok(((object.number, object.generation), quad)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
     // ---------------------------------------------------------------------------------------
     // §12.7's form, and the four edits.
     // ---------------------------------------------------------------------------------------
-
-    /// §12.7's fields with a widget on the page being shown.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused. A page with no widget on it answers an
-    /// empty form, which is an answer rather than a refusal.
-    pub fn fields(&self) -> Result<Form, Status> {
-        match self.viewer.query(Query::Fields) {
-            Answer::Fields(fields) => Ok(Form::of(&fields)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
 
     /// What the field at a point is called: §12.7.4.2's qualified name and §14.9.3's shown one.
     ///
@@ -881,30 +804,6 @@ impl Session {
     // ---------------------------------------------------------------------------------------
     // The other two panels, and §8.11's switch.
     // ---------------------------------------------------------------------------------------
-
-    /// §8.11.4.3's `/Order`, flattened.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused or it states no optional content.
-    pub fn layers(&self) -> Result<Panel, Status> {
-        match self.viewer.query(Query::Layers) {
-            Answer::Layers(layers) => Ok(Panel::of_layers(&layers)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
-    /// §7.11.4's embedded files, listed rather than extracted.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused or it states no `/EmbeddedFiles` tree.
-    pub fn attachments(&self) -> Result<Panel, Status> {
-        match self.viewer.query(Query::Attachments) {
-            Answer::Attachments(attachments) => Ok(Panel::of_attachments(&attachments)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
 
     /// §8.11: switch an optional content group on or off.
     #[must_use]
@@ -1244,24 +1143,6 @@ impl Session {
     // `QUORRA_EVENT_KIND_COUNT` already is for events and which nothing was for a question.
     // ---------------------------------------------------------------------------------------
 
-    /// Every occurrence of a string on the page being shown, as shapes to draw over it.
-    ///
-    /// **This page, and [`Self::find_start`] is the document.** The two are one search asked
-    /// twice: this answers from a readback that already exists, in microseconds, so a find bar may
-    /// ask it on every repaint; the other interprets pages nobody is looking at and takes one step
-    /// at a time. A caller that had only the second could run a search and not draw a match, which
-    /// is what this ABI was until now.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn find(&self, needle: &str) -> Result<Matches, Status> {
-        match self.viewer.query(Query::Find(needle)) {
-            Answer::Found(occurrences) => Ok(Matches::new(occurrences)),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
     /// Table 29's `/PageMode` and `/PageLayout`: what the catalogue asks of the window opening it.
     ///
     /// Both, in one call, because §7.7.2 states them as one instruction to a window and a caller
@@ -1361,67 +1242,6 @@ impl Session {
         }
     }
 
-    /// §14.3.3's Table 349 and §14.3.2's metadata stream, as a panel would show them.
-    ///
-    /// **`viewer_host::property_rows`, unchanged**, which is what makes this two lines rather than
-    /// a second reading of two tables: both are shown rather than merged, because Table 349's text
-    /// entries each carry a NOTE pointing at an XMP counterpart, §12.2 ranks `dc:title` above
-    /// `/Title` and nothing ranks the rest, and §14.3.4 leaves the disagreement "at the discretion
-    /// of the PDF processor". A panel that merged them would hide a disagreement rather than
-    /// resolve one, and this ABI is not the place that decision changes.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn properties(&self) -> Result<Panel, Status> {
-        match self.viewer.query(Query::Properties) {
-            Answer::Properties {
-                information,
-                metadata,
-            } => Ok(Panel::of_rows(&viewer_host::property_rows(
-                &information,
-                metadata.as_ref(),
-            ))),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
-    /// §12.4.3's article threads, as a panel would list them.
-    ///
-    /// Each row acts through `quorra_activate` on the thread's object, which is the same message an
-    /// outline row sends and for the same reason: the *document* decides what activating a thing
-    /// means, and `viewer_core::interact` composes §12.6.4.7's thread action out of it so that
-    /// following a thread lands on Table 163's `/R` rather than on the page the first bead sits on.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn articles(&self) -> Result<Panel, Status> {
-        match self.viewer.query(Query::Articles) {
-            Answer::Articles(threads) => Ok(Panel::of_rows(&viewer_host::article_rows(&threads))),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
-    /// §12.4.2's label for one page, where the document states one.
-    ///
-    /// **A page at a time, and separate from [`Self::thumbnail`] on purpose.** A caller drawing a
-    /// page list needs a name per row and a picture only for the rows it is showing; folding the
-    /// two into one call would make listing a thousand pages decode a thousand images, which is
-    /// exactly the launch-path defect ADR 0564 names.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused or the page states no label, which is
-    /// most pages of most documents — the clause makes the index what identifies a page and the
-    /// label an addition, so a caller falls back to the number rather than to nothing.
-    pub fn page_label(&self, index: usize) -> Result<String, Status> {
-        match self.viewer.query(Query::PageLabel(index)) {
-            Answer::Label(label) => Ok(label),
-            _ => Err(Status::NoAnswer),
-        }
-    }
-
     /// §12.9's measurement of a traced path, as one of its parts or as the whole sentence.
     ///
     /// `part` is `0` for the sentence `viewer_host::measuring::said` composes — which is the only
@@ -1458,21 +1278,6 @@ impl Session {
             crate::MeasurePart::Slope => traced.slope,
         };
         part.ok_or(Status::NoAnswer)
-    }
-
-    /// §12.3.4's thumbnail for one page, decoded.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused, where the page states no `/Thumb` — the
-    /// clause's own NOTE says they "are not required, and can be included for some pages and not
-    /// for others" — or where this reader could not decode the one it states, which is reported
-    /// through the same channel any other undecodable image is.
-    pub fn thumbnail(&self, index: usize) -> Result<Miniature, Status> {
-        match self.viewer.query(Query::Thumbnail(index)) {
-            Answer::Thumbnail(thumbnail) => Ok(Miniature::new(thumbnail)),
-            _ => Err(Status::NoAnswer),
-        }
     }
 
     /// §12.3.6's preview picture for one of §12.3.5's attachments, by its `/EmbeddedFiles` key.
@@ -1548,19 +1353,6 @@ impl Session {
             .get(entry)
             .map(|page| which.of(&page.shortfall))
             .ok_or(Status::OutOfRange)
-    }
-
-    /// §12.5.6.14's open popup windows on the page being shown.
-    ///
-    /// # Errors
-    ///
-    /// [`Status::NoAnswer`] where no document is focused. An **empty list** where the page has
-    /// none open, which is a different answer and is why the two are told apart.
-    pub fn popups(&self) -> Result<Popups, Status> {
-        match self.viewer.query(Query::Popups) {
-            Answer::Popups(windows) => Ok(Popups::new(&windows)),
-            _ => Err(Status::NoAnswer),
-        }
     }
 
     /// §14.7's logical structure for every page the arrangement is showing.
@@ -1754,7 +1546,7 @@ mod tests {
         let raster = rasterise(&request).expect("the note's first page draws");
         drop(session.render_ready_raster(&request, raster));
 
-        assert_eq!(session.page_count(), Ok(5));
+        assert_eq!(session.reads().page_count(), Ok(5));
         assert_eq!(session.current_page(), Ok((0, 5)));
         let before = session.frame_info(0).expect("a frame was handed back");
         assert_eq!(before.page, 0);
@@ -1961,7 +1753,11 @@ mod tests {
             "its one page, beside the source"
         );
         drop(session.focus(1));
-        assert_eq!(session.page_count(), Ok(2), "the source is still itself");
+        assert_eq!(
+            session.reads().page_count(),
+            Ok(2),
+            "the source is still itself"
+        );
     }
 
     /// `QUORRA_EVENT_NEEDS_FILE` says whether the file opens beside the document that asked:
@@ -2002,10 +1798,10 @@ mod tests {
     #[test]
     fn nothing_open_is_an_answer_and_not_a_count() {
         let session = Session::new(100, 100, 1.0);
-        assert_eq!(session.page_count(), Err(Status::NoAnswer));
+        assert_eq!(session.reads().page_count(), Err(Status::NoAnswer));
         assert_eq!(session.current_page(), Err(Status::NoAnswer));
         assert!(session.frame_info(0).is_err());
-        assert!(session.outline().is_err());
+        assert!(session.reads().outline().is_err());
     }
 
     /// §14.7's per-character offsets and boxes reach a C caller, and the invariant holds.
@@ -2070,7 +1866,7 @@ mod tests {
     fn the_outline_crosses_as_rows_with_a_depth_and_an_object_on_each() {
         let mut session = Session::new(800, 1000, 1.0);
         drop(session.open(1, note(), None, None));
-        let outline = session.outline().expect("the note has an outline");
+        let outline = session.reads().outline().expect("the note has an outline");
         assert_eq!(outline.len(), 14, "the note's outline is fourteen rows");
         assert_eq!(outline.depth(0), Ok(0), "the first row is at the top level");
         assert!(
@@ -2142,7 +1938,7 @@ mod tests {
 
     /// The value the form's one field holds now.
     fn typed(session: &Session) -> String {
-        let fields = session.fields().expect("the form is open");
+        let fields = session.reads().fields().expect("the form is open");
         let field = (0..fields.len())
             .find(|field| fields.name(*field, crate::kinds::TextKind::Qualified) == Ok("typed"))
             .expect("the field is there");

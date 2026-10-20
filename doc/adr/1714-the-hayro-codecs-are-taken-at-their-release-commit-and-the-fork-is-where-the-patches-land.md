@@ -1,6 +1,7 @@
 # 1714 — The `hayro` codecs are taken at their release commit, from a git source, and the fork is where the patches land
 
-Session 1441. Status: **accepted**. Amends ADRs 0190, 0233 and 0321 on where `hayro-jpeg2000` comes
+Session 1441. Status: **accepted**; the patches have landed and the fork is the git source the
+manifest pins, for the same reason (ADR 2102). Amends ADRs 0190, 0233 and 0321 on where `hayro-jpeg2000` comes
 from, and ADRs 1447 and 1459 on what the three `hayro-jbig2` patches are written against; their
 arguments stand.
 Context: `Cargo.toml` (the `hayro-jbig2`, `hayro-jpeg2000` and `hayro-ccitt` stanzas), `Cargo.lock`,

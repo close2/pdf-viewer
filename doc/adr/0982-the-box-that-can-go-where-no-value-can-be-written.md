@@ -1,6 +1,7 @@
 # 0982 — The box that can go where no value can be written
 
-Session 971. Status: **accepted**. It **overturns ADR 0965's verdict** on the two JPEG 2000
+Session 971. Status: **accepted**; its section 5, the duplicate-profile pair, **reversed by ADR
+2098**. It **overturns ADR 0965's verdict** on the two JPEG 2000
 colour-box rows, builds the rewrite that verdict had ruled out, and **re-examines and upholds**
 the two duplicate-profile rows against machinery that had arrived since they were refused.
 

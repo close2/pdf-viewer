@@ -6,44 +6,12 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 use viewer_core::{Command, DocumentId};
-use viewer_host::native_window::NativeWindow;
+use viewer_host::native_window::{Asked, NativeWindow};
 
 use super::window::named;
 use super::{Answered, Host, with};
 
 impl Host {
-    /// `CLAUDE.md`'s *ask* level over what a document asserts, as a window a person answers.
-    pub(super) fn ask_whether_to_proceed(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        notes: &[String],
-    ) {
-        let words = viewer_host::asked(operation, notes);
-        self.put_a_question(
-            viewer_host::Subject::Restricted.title(),
-            &words,
-            Rc::new(move |host: &mut Self, proceed| host.answer(document, operation, proceed)),
-        );
-    }
-
-    /// RFC 0008 section 6.3's one question per document, in the same window (ADR 1616).
-    pub(super) fn ask_whether_to_run_scripts(
-        &mut self,
-        document: DocumentId,
-        script: &str,
-        first_line: &str,
-    ) {
-        self.put_a_question(
-            viewer_host::Subject::Scripts.title(),
-            &viewer_host::asked_to_run_scripts(script, first_line),
-            Rc::new(move |host: &mut Self, proceed| {
-                host.say(&viewer_host::scripts_answered(proceed));
-                host.dispatch(Command::AnswerScripts { document, proceed });
-            }),
-        );
-    }
-
     /// RFC 0008 section 4.2's `app.alert` and `app.response`, as a dialogue titled with the
     /// document that asks: the script's text, the buttons its alert asked for or an entry holding
     /// its response's default, and a close answered as [`viewer_core::ScriptAnswer::dismissed`]
@@ -169,18 +137,22 @@ impl Host {
         self.say(&viewer_host::script_asks::withdrawn(&name));
     }
 
-    /// `CLAUDE.md`'s *ask* level over §12.6.4.8's link, in the same window.
+    /// `CLAUDE.md`'s *ask* level, in a window of its own titled by what the question is about.
     ///
-    /// The same dialogue as the one above because it is the same kind of question — this program
-    /// holding something until a person says a word — and what differs is only whose sentence is
-    /// being decided about: the document's assertion there, and here the URI the document asks
-    /// this machine to start a program on (ADR 1155).
-    pub(super) fn ask_whether_to_open(&mut self, uri: String, words: &viewer_host::Question) {
+    /// Every subject is the same kind of question — this program holding something until a person
+    /// says a word — so every one is the same dialogue, and what the answer does is
+    /// `viewer_host::native_window`'s for every window (ADR 2105). The question is held beside the
+    /// dialogue and taken by the first answer, so a window answered and then closed answers once.
+    pub(super) fn put_the_question(&mut self, about: Asked, words: &viewer_host::Question) {
+        let title = about.subject().title();
+        let held = Cell::new(Some(about));
         self.put_a_question(
-            viewer_host::Subject::Link.title(),
+            title,
             words,
             Rc::new(move |host: &mut Self, proceed| {
-                host.say(&viewer_host::answered(&uri, proceed));
+                if let Some(about) = held.take() {
+                    host.answer_the_question(about, proceed);
+                }
             }),
         );
     }
@@ -267,29 +239,6 @@ impl Host {
         });
         dialog.add_controller(keys);
         dialog.present();
-    }
-
-    /// What a person answered, on its way to the viewer that is holding the operation.
-    ///
-    /// The decline is said out loud because `viewer-core` says nothing at all on a `no` —
-    /// deliberately, since a question declined is neither the document doing something nor this
-    /// program refusing (ADR 0814) — and the person is still owed the fact that what they asked
-    /// for did not happen.
-    fn answer(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        proceed: bool,
-    ) {
-        if !proceed {
-            self.say(&viewer_host::declined(operation));
-        }
-        self.dispatch(Command::Answer { document, proceed });
-        // §12.11.6's `no` puts the document down unopened, so one on its way to a tab never
-        // arrives and the next may start.
-        if !proceed && operation == pdf_model::restriction::Operation::Process {
-            self.given_up(document);
-        }
     }
 
     /// §7.6.4.1's prompt, in a window of the platform's own.

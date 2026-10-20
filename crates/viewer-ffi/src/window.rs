@@ -28,25 +28,24 @@
 //! trait can carry out it carries out. What only a toolkit can do — the find bar, the panel, the
 //! file chooser, a print dialogue — comes back as the `QUORRA_ACT_*` [`crate::ActKind`] names, as
 //! `quorra_key_press` hands it back. The pointer, the find bar's search and the strip of open
-//! documents are the window's too; the panels' rows and the controls placed over the page reach it
-//! in RFC 0010's second N2 round (section 6).
+//! documents are the window's too, and the panels' rows, the controls placed over the page and the
+//! marks over it are read and committed through it (`shown`, ADR 2104).
 
-mod asked;
 mod owed;
+mod shown;
 
 use std::collections::VecDeque;
 use std::path::Path;
 
 use pdf_model::view::WidgetAppearances;
 use viewer_core::{Answer, Command, DocumentId, Event, Query, Viewer};
-use viewer_host::native_window::{DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
 use viewer_host::trace::{Topic, Trace};
 
 pub use owed::{OwedKind, Owing};
 
 use crate::keyboard::ActKind;
 use crate::status::Status;
-use asked::Pending;
 use owed::Owed;
 
 /// One native window's toolkit-free half, and the whole of what a `quorra_window *` points at.
@@ -60,18 +59,15 @@ pub struct Window {
     state: WindowState,
     /// What this window owes its host since the host last took it.
     owing: Owing,
-    /// §12.6.4.8: what a link asking for a URI does, at the window's level (ADR 1155).
-    links: viewer_host::Links,
-    /// §12.6.4.3: what an action naming another file does, at the window's level (ADR 1227).
-    remote_documents: viewer_host::RemoteDocuments,
     /// Device pixels per logical pixel, from the last resize.
     scale: f32,
     /// Whether the first resize has joined the document the opening thread opened.
     joined: bool,
     /// The sentence the status line now says.
     status: String,
-    /// The one question at the *ask* level that is waiting for its answer.
-    question: Option<Pending>,
+    /// The one question at the *ask* level that is waiting for its answer: one at a time, which
+    /// is `viewer_core::Command::Answer`'s own rule, so a second question replaces the first.
+    question: Option<Asked>,
     /// Which document §7.6.4.1's prompt now out is about; `None` while no prompt is out, so that a
     /// password nobody asked for opens nothing.
     prompting: Option<DocumentId>,
@@ -81,6 +77,8 @@ pub struct Window {
     bar_said: bool,
     /// The launch document's outline and placed page tree, read beside page one (ADR 1553).
     preparing: Option<std::sync::mpsc::Receiver<viewer_core::Prepared>>,
+    /// The controls and popups the caller was last told of (ADR 2104).
+    shown: shown::Shown,
 }
 
 impl Window {
@@ -137,8 +135,6 @@ impl Window {
             )
             .opening(anticipated),
             owing: Owing::default(),
-            links: settings.links,
-            remote_documents: settings.remote_documents,
             scale: 1.0,
             joined: false,
             status: String::new(),
@@ -147,6 +143,7 @@ impl Window {
             arrival_due: false,
             bar_said: false,
             preparing: None,
+            shown: shown::Shown::default(),
         })
     }
 
@@ -419,6 +416,7 @@ impl Window {
                 ]));
                 self.retitle();
                 self.owing.owe(Owed::Panels);
+                self.owing.owe(Owed::Strip);
                 self.say(&viewer_host::documents::closed(
                     &label,
                     self.state.documents.len(),
@@ -446,15 +444,18 @@ impl Window {
         Ok(())
     }
 
-    /// The person answered the one question at the *ask* level.
+    /// The person answered the one question at the *ask* level, carried out as every window
+    /// carries it out (ADR 2105); taking the question is what makes a dialogue closed twice
+    /// answer once.
     ///
     /// # Errors
     ///
     /// [`Status::NoAnswer`] where no question is waiting.
-    pub fn answer_the_question(&mut self, proceed: bool) -> Result<(), Status> {
-        let answered = self.answer(proceed);
+    pub fn answer(&mut self, proceed: bool) -> Result<(), Status> {
+        let about = self.question.take().ok_or(Status::NoAnswer)?;
+        NativeWindow::answer_the_question(self, about, proceed);
         self.settle();
-        answered
+        Ok(())
     }
 
     /// The caller put the page area on the screen: the launch's first frame is counted from the
@@ -717,6 +718,7 @@ impl Window {
         self.state
             .documents
             .add(id, label.clone(), Showing::new(path, bytes, None));
+        self.owing.owe(Owed::Strip);
         if self.take_the_front(id) {
             self.owing.owe(Owed::Panels);
         }
@@ -738,6 +740,7 @@ impl Window {
             .restrictions
             .depart(self.state.showing.departures);
         self.retitle();
+        self.owing.owe(Owed::Strip);
         true
     }
 }
@@ -837,40 +840,6 @@ impl NativeWindow for Window {
         }
     }
 
-    fn follow_the_link(&mut self, uri: &str) {
-        self.link_under_the_level(uri);
-    }
-
-    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
-        self.submit_under_the_level(document, submission);
-    }
-
-    fn needs_file(
-        &mut self,
-        document: DocumentId,
-        purpose: viewer_core::Purpose,
-        name: String,
-        beside: bool,
-        queue: &mut VecDeque<Command>,
-    ) {
-        self.file_under_the_level(document, purpose, &name, beside, queue);
-    }
-
-    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
-        self.fetch_policy_under_the_level(document, policy);
-    }
-
-    fn extracted(
-        &mut self,
-        document: DocumentId,
-        asked: viewer_core::Extraction,
-        name: &str,
-        bytes: Vec<u8>,
-        fragment: Option<String>,
-    ) {
-        self.extracted_under_the_level(document, asked, name, bytes, fragment);
-    }
-
     fn print(&mut self, pages: usize, _fidelity: viewer_core::Fidelity) {
         // §7.6.4.2's bit 3 was granted, and this layer has no print path to its caller yet
         // (RFC 0010 section 6, N4): said, and the operation ended, so that §8.11.4.5's print
@@ -890,26 +859,17 @@ impl NativeWindow for Window {
     /// whenever one is out (ADRs 1291, 1954).
     fn look_for_answers(&mut self) {}
 
-    fn ask_whether_to_proceed(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        notes: &[String],
-    ) {
-        self.put_the_question(
-            Pending::Restricted {
-                document,
-                operation,
-            },
-            &viewer_host::asked(operation, notes),
-        );
+    /// Held, and owed as one record: its two paragraphs joined by an empty line, as `viewer-qt`
+    /// joins them for its one label; answered with `quorra_window_answer`.
+    fn put_the_question(&mut self, about: Asked, words: &viewer_host::Question) {
+        let text = format!("{}\n\n{}", words.reasons, words.choice);
+        self.question = Some(about);
+        self.owing.owe(Owed::Question(text));
     }
 
-    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
-        self.put_the_question(
-            Pending::Scripts { document },
-            &viewer_host::asked_to_run_scripts(script, first_line),
-        );
+    /// One question at a time, as `viewer-qt`'s one dialogue holds it.
+    fn question_waiting(&self) -> bool {
+        self.question.is_some()
     }
 
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion) {
@@ -987,6 +947,7 @@ impl NativeWindow for Window {
         // Idempotent and after every drain, which keeps the window a function of the viewer's
         // state rather than of the order events arrived in (ADR 0244 finding 5).
         self.repaint();
+        self.owe_what_moved();
     }
 
     fn prepare(&mut self) {

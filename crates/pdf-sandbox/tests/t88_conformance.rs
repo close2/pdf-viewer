@@ -55,11 +55,6 @@ enum Expected {
     /// it or draws something else. A match is a failure — it means the decoder has grown the
     /// sample software's habit.
     Departs(&'static str),
-    /// A refusal from the filter, which says out loud what the codec this build carries would draw
-    /// wrongly, until the fork takes the patch named under `doc/patches/`. The codec is asked
-    /// directly as well, and its matching the reference is a failure that says the fork has taken
-    /// the patch and the filter's refusal is to be deleted (ADR 1459).
-    WaitsOn(&'static str),
     /// Nothing either way: ISO 32000-2 §7.4.7 excludes the feature from a PDF's `JBIG2Decode`.
     Outside(&'static str),
 }
@@ -70,7 +65,6 @@ impl Expected {
         match self {
             Self::Matches => "held to its reference".to_owned(),
             Self::Departs(clause) => format!("departs from T.88 at {clause}"),
-            Self::WaitsOn(patch) => format!("waits on doc/patches/{patch}"),
             Self::Outside(reason) => format!("outside the PDF profile: {reason}"),
         }
     }
@@ -221,7 +215,7 @@ const CASES: [Case; 16] = [
         stream: "codeStreamTest1_TT7",
         page: 1,
         part: Part::GenericRegion,
-        expected: Expected::WaitsOn("hayro-jbig2-extended-template.patch"),
+        expected: Expected::Matches,
     },
     // Item 8: a text region in colour.
     Case {
@@ -435,36 +429,6 @@ fn decoded(image: &Bilevel) -> Picture {
     }
 }
 
-/// The codec's own answer, asked without the filter in front of it.
-struct CodecPicture {
-    ink: Vec<bool>,
-}
-
-impl hayro_jbig2::Decoder for CodecPicture {
-    fn push_pixel(&mut self, black: bool) {
-        self.ink.push(black);
-    }
-
-    fn push_pixel_chunk(&mut self, black: bool, chunk_count: u32) {
-        let pixels = usize::try_from(chunk_count).expect("fits") * 8;
-        self.ink.extend(std::iter::repeat_n(black, pixels));
-    }
-
-    fn next_line(&mut self) {}
-}
-
-/// Whether `hayro_jbig2` alone decodes the embedded streams to `reference`.
-fn codec_matches(data: &[u8], globals: &[u8], reference: &Picture) -> bool {
-    let globals = (!globals.is_empty()).then_some(globals);
-    let Ok(image) = hayro_jbig2::Image::new_embedded(data, globals) else {
-        return false;
-    };
-    let mut picture = CodecPicture { ink: Vec::new() };
-    image.decode(&mut picture).is_ok()
-        && (image.width(), image.height()) == (reference.width, reference.height)
-        && picture.ink == reference.ink
-}
-
 /// The reference with the text region's rectangle cleared: what the generic region alone draws.
 fn without_text_region(mut picture: Picture) -> Picture {
     let (left, top, width, height) = (4, 1, 37, 8);
@@ -599,15 +563,6 @@ fn annex_k_streams_against_their_reference_bitmaps() {
                 None => streams.push((case.stream, matched)),
             }
         }
-        if let Expected::WaitsOn(patch) = case.expected
-            && codec_matches(&data, &globals, &reference)
-        {
-            failures.push(format!(
-                "{name}: the codec now decodes it to its reference, so the fork has taken \
-                 doc/patches/{patch}: delete the filter's refusal in decode.rs (ADR 1459) and hold \
-                 this as Matches"
-            ));
-        }
         match (case.expected, &here) {
             (Expected::Matches, Outcome::Matches) => {}
             (Expected::Matches, other) => {
@@ -617,15 +572,7 @@ fn annex_k_streams_against_their_reference_bitmaps() {
                 "{name} departs from T.88 ({clause}) and now matches the sample software's \
                  reference: read the clause again before believing either"
             )),
-            (Expected::WaitsOn(patch), Outcome::Matches) => failures.push(format!(
-                "{name} matches through the filter, which was to refuse it until the fork took \
-                 doc/patches/{patch}"
-            )),
-            (Expected::WaitsOn(patch), Outcome::Differs(how)) => failures.push(format!(
-                "{name}: drawn wrongly ({how}) where the filter was to refuse it out loud until \
-                 the fork took doc/patches/{patch}"
-            )),
-            (Expected::Departs(_) | Expected::WaitsOn(_) | Expected::Outside(_), _) => {}
+            (Expected::Departs(_) | Expected::Outside(_), _) => {}
         }
     }
     println!("{table}");

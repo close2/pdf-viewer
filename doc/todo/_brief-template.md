@@ -20,7 +20,7 @@ lines; a slot's part at most twenty-five. `wc -l` both.
 One shared worktree `<path>`, branch `<branch>`. Never edit `<main checkout>` (read-only for you;
 the owner's uncommitted `A` files and `doc/adr_revisit/` notes are read there). Do not commit or
 push; the orchestrator merges. Scratch under `scratchpad/r<session>/` only. A command longer than
-240 s is waited for through `tools/wait.sh` (section 0 item 3 of `doc/todo/02`; ADR 1977).
+240 s is waited for through `tools/wait.sh` (the environment rule block's fourth line; ADR 1977).
 
 ## 2. Read first
 `tools/round.sh <your kind>` prints the five every-round things and your kind's two or three

@@ -393,7 +393,9 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 /// What it does not need to ask is the region's size: [`area`] measures a tall region a run of
 /// rows at a time, so no strip's height decides which converter draws a mark. Nor the paint: a
 /// shading drawn as a raster is still put through its shape by `scan::fill`, and a paint is read
-/// at absolute device positions, which is why ADR 0139's rule never asked about it either.
+/// at absolute device positions, which is why ADR 0139's rule never asked about it either — an
+/// unfiltered image's samples are chosen at the page's own pixel centres for that reason (ADR
+/// 2100), and a filtered one carries ADR 0219's shifted origin as every mark below a cut does.
 ///
 /// [`carries_coverage_as_alpha`]: crate::compose::carries_coverage_as_alpha
 pub(crate) fn drawn_row_by_row(

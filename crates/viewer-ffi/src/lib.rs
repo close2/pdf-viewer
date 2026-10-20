@@ -136,6 +136,7 @@ pub mod form;
 mod keyboard;
 mod kinds;
 mod panels;
+mod reads;
 mod session;
 mod shapes;
 mod status;
@@ -158,6 +159,7 @@ pub use kinds::{
     SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
+pub use reads::Reads;
 pub use session::{
     FrameInfo, Session, clock_date, data_format_of_media_type, rasterise, rasterise_window,
     window_for,

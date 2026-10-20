@@ -34,8 +34,8 @@
 //! is `presentation`; the window's widgets, title and chrome are `window`, and what a person does
 //! to it is `input`. The strip of documents is `tabs`, the six panels `panels`, the find bar
 //! `find`; the controls over the page are `forms`, the popups `notes`, and a note's rich text
-//! `rich_text`. What the window asks a person is `questions`, the levels menu `restrictions`, what
-//! a document sends or fetches `requests`, and what is written out `saving` and `printing`.
+//! `rich_text`. What the window asks a person is `questions`, the levels menu `restrictions`, the
+//! timer a document's request is looked for on `requests`, and what is printed `printing`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -46,7 +46,7 @@ use gtk4::glib;
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Command, DocumentId, Event, Viewer};
-use viewer_host::native_window::{DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
 
 use crate::controls::Placed;
 use viewer_host::panel::{self, Miniatures};
@@ -68,7 +68,6 @@ mod react;
 mod requests;
 mod restrictions;
 mod rich_text;
-mod saving;
 mod stand_in;
 mod tabs;
 #[cfg(test)]
@@ -456,20 +455,6 @@ pub struct Host {
     pub(crate) access_interval: Option<i32>,
     /// The source draining that flag, at the interval the bridge asks for.
     pub(crate) access_draining: Option<glib::SourceId>,
-    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
-    ///
-    /// The other direction from [`WindowState::restrictions`], and that is why it is a second
-    /// value rather than a seventh operation of the first: what a document *asserts over its reader* is one subject,
-    /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
-    /// `CLAUDE.md`'s four levels over the second (ADR 1155).
-    links: viewer_host::Links,
-    /// §12.6.4.3: what this window does when an action names another file, per
-    /// `--remote-documents=`.
-    ///
-    /// A third value for a third subject, on the entry above's argument: starting another program
-    /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
-    /// for both would make each of them mean the other (ADR 1227).
-    remote_documents: viewer_host::RemoteDocuments,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -607,8 +592,6 @@ impl Host {
                 access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 access_interval: None,
                 access_draining: None,
-                links: settings.links,
-                remote_documents: settings.remote_documents,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -669,51 +652,13 @@ impl NativeWindow for Host {
         Self::password_required(self, document);
     }
 
-    fn follow_the_link(&mut self, uri: &str) {
-        Self::follow_the_link(self, uri);
+    fn put_the_question(&mut self, about: Asked, words: &viewer_host::Question) {
+        Self::put_the_question(self, about, words);
     }
 
-    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
-        Self::submit(self, document, submission);
-    }
-
-    fn needs_file(
-        &mut self,
-        document: DocumentId,
-        purpose: viewer_core::Purpose,
-        name: String,
-        beside: bool,
-        queue: &mut VecDeque<Command>,
-    ) {
-        Self::needs_file(self, document, purpose, name, beside, queue);
-    }
-
-    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
-        Self::fetch_policy(self, document, policy);
-    }
-
-    fn extracted(
-        &mut self,
-        document: DocumentId,
-        asked: viewer_core::Extraction,
-        name: &str,
-        bytes: Vec<u8>,
-        fragment: Option<String>,
-    ) {
-        Self::extracted(self, document, asked, name, bytes, fragment);
-    }
-
-    fn ask_whether_to_proceed(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        notes: &[String],
-    ) {
-        Self::ask_whether_to_proceed(self, document, operation, notes);
-    }
-
-    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
-        Self::ask_whether_to_run_scripts(self, document, script, first_line);
+    /// Each question is a window of its own, so none waits behind another.
+    fn question_waiting(&self) -> bool {
+        false
     }
 
     fn withdraw_script_question(&mut self, document: DocumentId) {

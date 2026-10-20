@@ -1903,7 +1903,20 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
  *                      milliseconds, or stop it at -1;
  *   on a repaint:      quorra_window_frame_count, quorra_window_frame, quorra_window_frame_copy,
- *                      then quorra_window_presented once the pixels are on the screen.
+ *                      then the marks over them — quorra_window_selection_quads,
+ *                      quorra_window_find_matches, quorra_window_highlight_quads and
+ *                      quorra_window_focused_annotation — and quorra_window_presented once the
+ *                      pixels are on the screen;
+ *   on PANELS:         the rows again, quorra_window_outline_read and the four _read beside it;
+ *   on CONTROLS:       the controls over the page rebuilt from quorra_window_fields_read, each
+ *                      committed with quorra_window_set_field_text, _set_field_options,
+ *                      _clear_field, _commit_field or _toggle_field; a push-button is the page's,
+ *                      and a row's object is quorra_window_activate's;
+ *   on POPUPS:         quorra_window_popups_read; on STRIP: quorra_window_document_count.
+ *
+ * What a record says is "again"; what it changed to is read with the same handles the calls
+ * above hand over — a quorra_outline, a quorra_panel, quorra_fields, quorra_popups, quorra_quads,
+ * quorra_matches, a quorra_thumbnail — read and freed with their own accessors (ADR 2104).
  *
  * QUORRA_OWED_KIND_COUNT is not part of quorra_abi_check, whose signature is frozen; compare it
  * with quorra_owed_kind_count() at startup beside that call, and name a kind with no arm with
@@ -1923,7 +1936,11 @@ typedef struct quorra_owed quorra_owed;
 #define QUORRA_OWED_PANELS     7u  /* the panels, built again */
 #define QUORRA_OWED_CHROME     8u  /* the chrome, as Table 29's /PageMode and §12.2 now permit */
 #define QUORRA_OWED_PLACE      9u  /* Table 147's /FitWindow or /CenterWindow, owed at this frame */
-#define QUORRA_OWED_KIND_COUNT 10u
+#define QUORRA_OWED_CONTROLS  10u  /* the set of controls over the page changed: rebuilt, not moved */
+#define QUORRA_OWED_POPUPS    11u  /* §12.5.6.14's open popup windows changed, or one moved */
+#define QUORRA_OWED_STRIP     12u  /* the strip of open documents: one added, closed, or brought
+                                    * to the front */
+#define QUORRA_OWED_KIND_COUNT 13u
 
 /* Opens a window on the file at `path`; nothing is drawn until the first quorra_window_resize,
  * which joins the open. `fragment` (Annex O) may be null. QUORRA_UNREADABLE where the file cannot
@@ -1996,6 +2013,57 @@ int32_t quorra_owed_text(const quorra_owed *owed, size_t index, char *out, size_
 int32_t quorra_owed_document(const quorra_owed *owed, size_t index, uint64_t *document);
 uint32_t quorra_owed_kind_count(void);
 const char *quorra_owed_kind_name(uint32_t kind);
+
+/* What the window shows over and beside the page, read through the handles the calls above hand
+ * over and released with their own _free (ADR 2104). The document is the one in front. */
+int32_t quorra_window_outline_read(const quorra_window *window, quorra_outline **outline);
+int32_t quorra_window_layers_read(const quorra_window *window, quorra_panel **panel);
+int32_t quorra_window_attachments_read(const quorra_window *window, quorra_panel **panel);
+int32_t quorra_window_properties_read(const quorra_window *window, quorra_panel **panel);
+int32_t quorra_window_articles_read(const quorra_window *window, quorra_panel **panel);
+int32_t quorra_window_page_count(const quorra_window *window, size_t *pages);
+int32_t quorra_window_page_label(const quorra_window *window, size_t page, char *out, size_t cap,
+                                 size_t *needed);
+int32_t quorra_window_thumbnail_read(const quorra_window *window, size_t page,
+                                     quorra_thumbnail **thumbnail);
+int32_t quorra_window_fields_read(const quorra_window *window, quorra_fields **fields);
+int32_t quorra_window_popups_read(const quorra_window *window, quorra_popups **popups);
+int32_t quorra_window_selection_quads(const quorra_window *window, quorra_quads **quads);
+int32_t quorra_window_highlight_quads(const quorra_window *window, quorra_quads **quads);
+/* The find bar's occurrences on the page shown, for the needle quorra_window_find last gave. */
+int32_t quorra_window_find_matches(const quorra_window *window, quorra_matches **matches);
+int32_t quorra_window_focused_annotation(const quorra_window *window, uint32_t *number,
+                                         uint16_t *generation, float *quad);
+
+/* What a person did to a row or a control. A field is named by its qualified name and must have a
+ * widget on the page shown (QUORRA_NO_ANSWER otherwise); a check box or radio button by its
+ * widget annotation (QUORRA_WRONG_KIND for any other). A refusal the document's flags state is a
+ * SAID record, not a status. */
+int32_t quorra_window_activate(quorra_window *window, uint32_t number, uint16_t generation);
+int32_t quorra_window_set_field_text(quorra_window *window, const char *field, const char *text);
+int32_t quorra_window_set_field_options(quorra_window *window, const char *field,
+                                        const size_t *options, size_t count);
+int32_t quorra_window_clear_field(quorra_window *window, const char *field);
+int32_t quorra_window_commit_field(quorra_window *window, const char *field);
+int32_t quorra_window_toggle_field(quorra_window *window, uint32_t number, uint16_t generation,
+                                   bool on);
+int32_t quorra_window_set_group(quorra_window *window, uint32_t number, uint16_t generation,
+                                bool on);
+int32_t quorra_window_extract(quorra_window *window, const char *name);
+
+/* The panels a window offers, in the order every window offers them (RFC 0010 section 5): the
+ * outline is quorra_window_outline_read's, the pages quorra_window_page_count's with a label and a
+ * thumbnail each, and the other four quorra_panel's. QUORRA_TAB_COUNT against quorra_tab_count()
+ * at startup says a panel was added; quorra_tab_label is the tab's one wording. */
+#define QUORRA_TAB_CONTENTS 0u  /* §12.3.3's outline */
+#define QUORRA_TAB_PAGES    1u  /* §12.3.4's pages */
+#define QUORRA_TAB_LAYERS   2u  /* §8.11.4.3's /Order */
+#define QUORRA_TAB_FILES    3u  /* §7.11.4's embedded files */
+#define QUORRA_TAB_ARTICLES 4u  /* §12.4.3's article threads */
+#define QUORRA_TAB_DOCUMENT 5u  /* §14.3's information and metadata */
+#define QUORRA_TAB_COUNT    6u
+uint32_t quorra_tab_count(void);
+int32_t quorra_tab_label(uint32_t tab, char *out, size_t cap, size_t *needed);
 
 #ifdef __cplusplus
 }

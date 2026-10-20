@@ -2380,7 +2380,7 @@ checksum = "9f4d0e94ddd48749f06bbe4e5389fb9799a0c45bcaf00495042076ef05e3241a"
 [[package]]
 name = "hayro-ccitt"
 version = "0.4.0"
-source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
+source = "git+https://github.com/close2/hayro?rev=7e39af411b807cc267fb7a72545083f10ca2077f#7e39af411b807cc267fb7a72545083f10ca2077f"
 
 [[package]]
 name = "hayro-cmap"
@@ -2436,7 +2436,7 @@ dependencies = [
 [[package]]
 name = "hayro-jbig2"
 version = "0.3.1"
-source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
+source = "git+https://github.com/close2/hayro?rev=7e39af411b807cc267fb7a72545083f10ca2077f#7e39af411b807cc267fb7a72545083f10ca2077f"
 dependencies = [
  "hayro-ccitt 0.4.0",
 ]
@@ -2453,7 +2453,7 @@ dependencies = [
 [[package]]
 name = "hayro-jpeg2000"
 version = "0.4.1"
-source = "git+https://github.com/LaurenzV/hayro?rev=ea9c81dc70cde40c64205986fdcfcd481fe934d8#ea9c81dc70cde40c64205986fdcfcd481fe934d8"
+source = "git+https://github.com/close2/hayro?rev=7e39af411b807cc267fb7a72545083f10ca2077f#7e39af411b807cc267fb7a72545083f10ca2077f"
 
 [[package]]
 name = "hayro-postscript"

@@ -11,16 +11,23 @@ the rule, which group holds which, and why every trap keeps its number.
 
 ## How to read what `tools/state.sh` prints
 
-**The numbers are not in any document** — `tools/state.sh` prints them, and that is deliberate
-rather than tidy: a round told to *measure* something must not be able to read the answer in a
-document, because a table of gate figures is exactly what lets a round write "unchanged" without
-running anything (ADR 0281).
+**The numbers are not in any document** — `tools/state.sh` prints them, for the reason `CLAUDE.md`'s
+"Where knowledge lives" gives (ADR 0281).
 
 - **Counts are ratcheted**: they may only improve, except where a rise is a *new report* and is
   written down as one (trap 5).
 - **A gate's own number, never arithmetic beside it.** This project has twice carried a sum that
   was stale while the gate figure two lines above it was current, which is why `state.sh` filters
   a gate's output and adds nothing up. If you need a total, print it.
+
+## Things worth knowing
+
+- **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
+  containment and a memory ceiling, not memory safety. There is deliberately no path that falls
+  back to in-process decoding when the worker fails to start.
+- **Debug builds are much slower here**, and it changes what a test can assert: the corpus gate is
+  seconds in release and minutes in debug. Run timing assertions in release and say so; the figure
+  is measured, never quoted from a document (ADR 0428 §6).
 
 ## Traps
 
@@ -47,10 +54,10 @@ was the compiler.
 
 **What it cannot hold, which is now the only part a round owes by hand.** The lint fires on *outer*
 attributes only, so a crate- or module-level `#![allow(...)]` — the form the census examples under
-`crates/*/examples/` use — is not seen by it, and about forty of those stand today. Calibrated
-rather than assumed (trap 13): an outer `#[allow]` planted in `raster-pages` failed the clippy line
-by name — `error: #[allow] attribute found`, exit 101 — and an inner `#![allow]` planted in its
-place exited 0 and said nothing. 160 inner `#![allow]` stand in the tree today.
+`crates/*/examples/` use — is not seen by it; `grep -rn '#!\[allow(' --include=*.rs crates tools
+raster fuzz` lists those that stand. Calibrated rather than assumed (trap 13): an outer `#[allow]`
+planted in `raster-pages` failed the clippy line by name — `error: #[allow] attribute found`, exit
+101 — and an inner `#![allow]` planted in its place exited 0 and said nothing.
 
 ### 10. The sandbox worker is a separate binary, and Cargo will not rebuild it for you
 
@@ -62,8 +69,7 @@ wrapper's own `--build '--profile gates -p pdf-sandbox --bins'` (or `--release`,
 no older than the tree the walk reads (trap 109, ADR 1710). A missing worker and a stale one look
 nothing alike.
 
-**"Both gates fail loudly if the worker is missing" was this paragraph's last sentence, and it was
-true of *two* gates out of eight.** `pdf-model`'s `corpus` and `oracle` check; the accessibility
+**Only two of the eight corpus gates once failed loudly on a missing worker.** `pdf-model`'s `corpus` and `oracle` check; the accessibility
 census, the selection census, `text_extraction`, `fixed_documents`, `jpeg2000` and
 `render-raster`'s `corpus` did not — and the census's ratchet moved by nine structure elements
 because of it, deterministically, for at least a dozen rounds while four rounds diagnosed it as
@@ -129,7 +135,7 @@ edit. The tell is a `Finished` with no `Compiling` line after an edit you know y
 Traps 10, 10a and 10b are all about an instrument being *stale*. This one is not stale at all: it is
 current, it runs, it prints a plausible number, and the number is about **another worktree**.
 
-`tools/conformance`'s `root()` is `Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")`, which is
+`tools/conformance`'s `workspace_root()` is `Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")`, which is
 baked in at compile time and does not move with the working directory. So every sweep — `counts`,
 `owed`, `pointers`, `quotations`, `tables`, all of them — reads the ledger and the `SOURCE_ROOTS` of
 the tree it was *built from*, whatever directory it is invoked in. The same holds for
@@ -159,11 +165,12 @@ The tell is the same one as above — *nothing moves when you re-run after an ed
 the same: derive the directory. §5 does now, `tools/round.sh` always did, and `tools/state.sh disk`
 does since the same round.
 - **A before/after comparison needs a before that was compiled from the "before" tree.** `git stash`
-  is forbidden here (the stack is shared), so export it — `git archive HEAD | tar -x -C <dir>` — and
-  build the sweeps *inside* the export with its own `target-dir`. The export carries only tracked
-  files, so symlink `doc/md`, the specification PDFs, the submodules and `corpus-cache` back in
-  first; without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports
-  dozens of live paths as "not carried" and the comparison invents deltas the round did not cause.
+  is forbidden here (the stack is shared), so the before is an export — `tools/batch.sh export
+  <session> --as <name>`, which links every gitignored path back in and builds under a target
+  directory of its own (ADR 1890; traps 129, 162). A bare `git archive` carries only tracked files:
+  without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports dozens of
+  live paths as "not carried" and the comparison invents deltas the round did not cause. A sweep
+  that reads git's tracked files does not run in an export at all (trap 163).
 
 ### 16. A gate can measure a program **the build did not finish producing**
 
@@ -399,13 +406,10 @@ under it yet. ADR 0759.
 
 ### 13. A sweep for a defect must be run against the defect before it is believed — and trap 29, the lifting that is the same experiment with the sign reversed
 
-**Trap 29 is the same rule applied to a *constant* and is the last section of this trap**, merged
-here in the one-thousand-and-twenty-fifth session on
-`doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s recommendation, which observed that trap
-29's own text already made the argument: a lifting experiment is a sweep whose instrument is a
-number, and its calibration is this one's with the sign reversed. Both incidents are kept and both
-numbers are still citable — neither is renamed, because ADRs and records cite each by number and an
-ADR is not edited to follow a file that moved underneath it (ADR 0232 §2).
+**Trap 29 is the same rule applied to a *constant* and is the last section of this trap**
+(`doc/reviews/1018-what-retiring-a-trap-would-cost.md`): a lifting experiment is a sweep whose
+instrument is a number, and its calibration is this one's with the sign reversed. Both incidents
+are kept and both numbers stay citable (ADR 0232 §2).
 
 #### 13. A sweep for a defect must be run against the defect before it is believed
 
@@ -671,12 +675,9 @@ declined a few lines later by §7.6.4.1's crypt-filter pairing, whose sentence b
 crypt filter method"*. The substring is there, the test is green, and the clause the test is named
 after is not implemented at all. Two ledger rows rested on it.
 
-**This paragraph used to add "and states no algorithm for" to Table 21's sentence, and the
-eight-hundred-and-eighty-seventh session implemented the revision** (ADR 0820), which changes
-nothing about the trap and is worth one line all the same: the counterfactual above — *accept
-revision 5 and watch the test stay green* — is now the tree's actual behaviour, and the test that
-survives asserts on `/R 7`. A trap keeps its incident; it does not keep the incident's claims about
-the standard.
+**Revision 5 is implemented now** (ADR 0820), so the counterfactual above — *accept revision 5 and
+watch the test stay green* — is the tree's actual behaviour, and the test that survives asserts on
+`/R 7`.
 
 The tell is that the expected value was assembled from the *input* rather than from the answer: a
 document stating `/R 5` will have `/R 5` in almost any sentence about it. So:
@@ -804,9 +805,9 @@ fail by returning a clean answer to a question nobody asked.
 
 ### 39. A signal that always fires has stopped being a signal, and it looks like caution
 
-`tools/round.sh` prints whether this is a **fifth round** — the round that runs `doc/todo/02`'s
+`tools/round.sh` printed whether this was a **fifth round** — the round that ran `doc/todo/02`'s
 whole gate sequence whatever it touched, because a change→gate map is a claim about the crate graph
-and a claim decays. It computed that from the session number, and it took the session number from
+and a claim decays (the merge runs that sequence now, ADR 1638). It computed that from the session number, and it took the session number from
 the branch name, which on a campaign branch is the number the *campaign* started at. On
 `round-945/the-fifth-round` it printed `session 945` for fourteen rounds, and because 945 divides by
 five it printed **a fifth round** for all fourteen (ADR 0969).
@@ -876,17 +877,11 @@ below their minima together — 99, 103, 104 and 116 MiB against floors of 127, 
 re-runs on the same binary with 29 GiB free read 161 to 182 MiB, inside every band, two of them
 judging every figure with nothing outside. `open_peak_mib`, the memory figure with **no graphics
 device in it**, did not move by a megabyte in either state, which names the mechanism as the
-driver's allocation — the thing the harness's own doc comment already says nothing in the process
-can see. A clock cannot sense an allocator, and would read in band on a machine with a gigabyte free
+driver — the resident pages of its shared objects, which the kernel reclaims under exactly that
+pressure and nothing in the process can see (trap 35, ADR 0910). A clock cannot sense an allocator, and would read in band on a machine with a gigabyte free
 and on one with sixty. So: *the same work, in the same state, and in the same units* — and the third
 of those is the one a `steady: false` classification can look like it has already handled. ADR
 0909.
-
-**One word of that paragraph is superseded by the trap below, and the correction is worth having:**
-what falls is not "the driver's allocation" but the *resident pages of the driver's shared
-objects*, which the kernel reclaims under exactly the pressure session 934 measured. The
-allocation did not move at all — session 935 evicted two named libraries and watched the anonymous
-total hold to 30 KiB while the whole-process figure fell a quarter (ADR 0910).
 
 ### 35. A process's resident high-water is mostly its libraries, and the kernel decides how much of them is resident
 
@@ -973,13 +968,6 @@ unattributed, and two fell through to an earlier ISO clause and failed as not ve
 `citation::section_in_prose` now reads a project document named before "section N" as the
 attribution. Run the quotation gate after every chunk of such a sweep, not at its end.
 
-### 50. Two exported trees sharing a build directory can hand you the same binary twice
-
-cargo hashes a path dependency relative to the workspace root, so a "before" export and an "after"
-export under one `CARGO_TARGET_DIR` reuse each other's artifacts by mtime, and the A/B's first pass
-produced two identical binaries (ADR 1311). Give each export its own target directory, or touch the
-overlaid sources, and `md5sum` the two binaries before quoting a difference.
-
 ### 55. A note's figure can be made false by an ADR that never names the note
 
 Sixty-nine oracle notes were flagged as overtaken; eighteen had a sentence made false and were
@@ -1008,13 +996,6 @@ The comment-history sweep's first version excused any line holding a legitimate 
 which also excused the history sentence on the same line, and paired backticks across a joined line,
 which swallowed "session 625" between two code spans (ADR 1403). Remove the excused phrase and read
 what is left; pair code spans per line.
-
-### 69. A Python import under `tools/` leaves a directory that the workspace reads as a crate
-
-Calibrating `comment-history.py` by importing it wrote `tools/__pycache__/`; the workspace member
-pattern `tools/*` then read that directory as a member and every `cargo` command in the shared
-worktree failed on its missing `Cargo.toml` (round 1289). Run `tools/` Python with
-`PYTHONDONTWRITEBYTECODE=1`, or remove the directory the moment it appears.
 
 ### 74. The overtaken sweep reads `ADR NNNN`, not `ADRs NNNN and MMMM`
 
@@ -1105,9 +1086,11 @@ conformance tests run there right after the fast-forward, before `install` and `
 what the seed scripts would write today. Round 1355 ran `forms_data` for twenty minutes from a disk
 corpus that reached coverage 270; fresh seeds reached 1 241 — `display_list` likewise, 105 against
 956 — and both campaigns were re-run. Before a campaign, run the target over the disk corpus and
-over fresh seeds and compare libFuzzer's `INITED cov`; when they differ, re-seed in the main
-checkout first. And a bounded campaign's one crash may be a known one: `jpeg_bands` stops on
-`zune-jpeg`'s overflow (Q227) unless run `-fork=1 -ignore_crashes=1`, which `doc/verify.md` says.
+over fresh seeds and compare libFuzzer's `INITED cov` — `fuzz/seeds.sh check <target>` does both
+(ADR 1559); when they differ, re-seed in the main checkout first. And a bounded campaign's one crash
+may be a known one, which is why a campaign meant to last runs `-fork=1 -ignore_crashes=1` as
+`doc/verify.md` says; `jpeg_bands`' was `zune-jpeg`'s overflow (Q227), patched on the owner's fork
+since A227.
 
 ### 109. The worker a gate spawns is as old as the last build, and a copied binary has none
 
@@ -1132,8 +1115,9 @@ never showed.
 `fuzz/corpus` and `fuzz/artifacts` are symlinks into the owner's checkout. `cargo fuzz run` creates
 `fuzz/artifacts/<target>` there whatever `-artifact_prefix` it is given — round 1362 removed seven
 empty directories it had made; `cargo fuzz build` and the binary run by path write only where told.
-And `fuzz/seeds.sh`'s `documents` are every file under `corpus-cache`, 90 763 files and 126 GB today,
-so a recipe over the whole population writes about 46 000 seeds and 4.5 GB and takes an hour behind
+And `fuzz/seeds.sh`'s `documents` are every file under `corpus-cache`, `doc/corpora` and
+`doc/pdf.js/test/pdfs` — tens of thousands of files, over a hundred gigabytes (`find -L` over the
+three counts them) — so a recipe over the whole population writes about 46 000 seeds and 4.5 GB and takes an hour behind
 the lock; every recipe keeps the smallest seed of each shape it names (ADRs 1559, 1571); the four
 whole-document targets — `document`, `serialize`, `linearize`, `page` — are still about 1 GB each,
 because the coarser shape that would be megabytes lost 4.6–4.8% of coverage on the sample.
@@ -1258,6 +1242,13 @@ mtime — so a sibling's next build of that unit comes from the export's tree. R
 probe build did this to a `pdf-model` fingerprint and deleted it within minutes. Every export's build
 gets its own `CARGO_TARGET_DIR`.
 
+#### 50. Two exported trees sharing a build directory can hand you the same binary twice
+
+cargo hashes a path dependency relative to the workspace root, so a "before" export and an "after"
+export under one `CARGO_TARGET_DIR` reuse each other's artifacts by mtime, and the A/B's first pass
+produced two identical binaries (ADR 1311). Give each export its own target directory, or touch the
+overlaid sources, and `md5sum` the two binaries before quoting a difference.
+
 ### 130. A running shell script is replaced by rename, never edited in place
 
 Bash reads a script from the file as it runs, so an in-place edit shifts the offsets the running copy
@@ -1279,10 +1270,9 @@ An `sccache` server started by a `cargo` command inside round 1412's hold inheri
 descriptor on `heavy-walk.lock` and held the lock about 18 minutes after that wrapper had ended,
 until it idled out; rounds 1408 and 1411 queued behind it (ADR 1659). When the lock is held and no
 wrapper is running, `ls -l /proc/*/fd` for the lock's path names the holder; the shared server is
-never killed, and it is started once outside any hold. The wrapper still owes a marker
-(`HEAVY_WALK_HELD_BY`) so its command can run without the descriptor while `arms-held`'s check
-(ADR 1662) still finds the hold.
-
+never killed, and it is started once outside any hold. The wrapper hands its command
+`HEAVY_WALK_HELD_BY` in place of the descriptor, which is how `arms-held`'s check (ADR 1662) still
+finds the hold (ADR 1674).
 
 ### 133. A `static` table of references is paid at load, by the loader, before `main`
 
@@ -1350,14 +1340,6 @@ which grep that line, would have started timing a half-drawn page without anybod
 means the finished page; and an instrument that reads a trace line is re-read whenever the line's
 meaning could move.
 
-### 145. A directory for the owner's loop belongs to group `coders` with the setgid bit
-
-The owner's loop runs as `cl`; a directory this user makes under `tmp/` is in group `AI`, so the
-loop's script cannot write into it. Round 1495's first owner's-display run wrote nothing and
-reported "never" for every figure instead of an error (ADR 1827). Before a script is placed,
-`chgrp coders` and `chmod g+ws` its directory, and have the script fail loudly on any write it
-cannot make, so a missing figure is a refusal and not a number.
-
 ### 147. A refusal's byte figure is traced to its site, not factorised
 
 The device refused the witness at 423 206 976 B, which is 4 408 406 marks × 96, and 96 = 6 × 16 read
@@ -1375,17 +1357,6 @@ lock, and every clock figure in it was declined as "not judged" (ADR 1851). A ro
 judges anything only when no sibling is building; a quiet reading comes from the merge's hold, where
 nothing else builds, or is taken with the run's printed load average beside it after a build-free
 moment has been waited for.
-
-### 150. An export made with `git archive` has no corpora
-
-`git archive` writes the tracked files; the submodules and the symlinked corpora (`doc/pdf.js`,
-`doc/corpora/*`, `corpus-cache`, `fuzz/corpus`) come out as empty directories and the untracked
-documents (`doc/*.pdf`) are not there at all, and a gate run from
-such an export skips their pages and says so only in a line nobody greps — round 1502's first `turn`
-run reported "10 page(s) absent" (ADR 1841). An export links the corpora in the way
-`tools/batch.sh open` does before any walk, and a gate's "absent" count is read as a refusal.
-`tools/batch.sh export <session>` is that export: HEAD's archive with every submodule and every
-gitignored path linked in (ADR 1890).
 
 ### 153. An export's copy of a shared file is HEAD plus your own hunks
 
@@ -1429,6 +1400,17 @@ worktree; a round's own export does the same from `git status --ignored`, every 
 the first gate runs in it. `tools/batch.sh export <session> [<path>...]` does, and its record in
 `scratchpad/r<session>/export.export` counts what it linked (ADR 1890).
 
+#### 150. An export made with `git archive` has no corpora
+
+`git archive` writes the tracked files; the submodules and the symlinked corpora (`doc/pdf.js`,
+`doc/corpora/*`, `corpus-cache`, `fuzz/corpus`) come out as empty directories and the untracked
+documents (`doc/*.pdf`) are not there at all, and a gate run from
+such an export skips their pages and says so only in a line nobody greps — round 1502's first `turn`
+run reported "10 page(s) absent" (ADR 1841). An export links the corpora in the way
+`tools/batch.sh open` does before any walk, and a gate's "absent" count is read as a refusal.
+`tools/batch.sh export <session>` is that export: HEAD's archive with every submodule and every
+gitignored path linked in (ADR 1890).
+
 ### 163. An export under the worktree is patched with the repository search stopped, and conformance runs in the worktree
 
 Three rounds of batch eighty-three patched an export kept under `scratchpad/r<n>/` with `git apply`
@@ -1455,6 +1437,14 @@ owner's-loop runs on nothing. A hold script asserts its binaries before it measu
 loop. Round 1531 made `tmp/r1531` with group AI instead of `coders`, so the owner's loop could not
 write its exit file and the hold waited 900 s holding both lanes; a wait on the loop watches
 `run-on-gpu.exit` as well as its own done line, and the directory is made `chgrp coders; chmod g+ws`.
+
+#### 145. A directory for the owner's loop belongs to group `coders` with the setgid bit
+
+The owner's loop runs as `cl`; a directory this user makes under `tmp/` is in group `AI`, so the
+loop's script cannot write into it. Round 1495's first owner's-display run wrote nothing and
+reported "never" for every figure instead of an error (ADR 1827). Before a script is placed,
+`chgrp coders` and `chmod g+ws` its directory, and have the script fail loudly on any write it
+cannot make, so a missing figure is a refusal and not a number.
 
 ### 171. A figure moved by a per-mapping kernel policy is fixed in the child, not guarded by a counter
 
@@ -1503,18 +1493,6 @@ by neither: round 1551 planted a misquotation inside one and both runs stayed gr
 standard that matters goes in a blockquote under its clause number, where it is checked; an inline
 quotation is prose that claims to be a quote, which principle 5 forbids unless it is verbatim and
 somebody looked.
-## Things worth knowing
-
-**This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under
-a `##` heading that is not about them; it is at the end now because nothing in the file is about it.
-
-- **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
-  containment and a memory ceiling, not memory safety. There is deliberately no path that falls
-  back to in-process decoding when the worker fails to start.
-- **Debug builds are ~15× slower here**, and it changes what a test can assert: the corpus gate is
-  seconds in release and minutes in debug. Run timing assertions in release and say so. (This line
-  said *2 s* for a long run of rounds; `tools/state.sh` prints what it is, and ADR 0428 §6 took the
-  same figure out of `doc/todo/02` for the same reason.)
 
 ### 183. A sweep for a lint lift that matches the attribute's exact text is blind to the multi-line form
 
@@ -1602,6 +1580,13 @@ interpreter from the environment, `PYTHONDONTWRITEBYTECODE` included, so the byt
 environment forbids is written anyway. `-B` forbids it on the command line, where `-I` cannot undo it;
 the census's usage line says `python3 -I -B`, and so does every script under `tools/` that another
 script may import.
+
+#### 69. A Python import under `tools/` leaves a directory that the workspace reads as a crate
+
+Calibrating `comment-history.py` by importing it wrote `tools/__pycache__/`; the workspace member
+pattern `tools/*` then read that directory as a member and every `cargo` command in the shared
+worktree failed on its missing `Cargo.toml` (round 1289). Run `tools/` Python with
+`PYTHONDONTWRITEBYTECODE=1`, or remove the directory the moment it appears.
 
 ### 196. A wall clock below the poll measures the processor, not the lock
 
@@ -1718,4 +1703,12 @@ minutes (ADRs 2090, 2082). A `-U0` hunk is correct against the tree it was cut f
 any other; when the file has moved under it, apply the hunk with three lines of context or by the
 anchor the round names, and compile the crate's tests before starting the chain, so a misplaced hunk
 costs a minute rather than a chain.
+
+### 221. A sanitised fuzz target cannot run under the bounded wrapper's data limit
+
+AddressSanitizer reserves its shadow memory as one enormous mapping at start, and `tools/bounded.sh`'s
+`RLIMIT_DATA` refuses it; round 1633 lost 730 s to a build that could never have started before running
+the JBIG2 target with `-s none`, as `doc/verify.md` already says and `tools/fuzz.sh` does not yet do
+(ADR 2102). Two rules until the wrapper is fixed: a fuzz target under the lock is built with `-s none`,
+and it is started from a scratch directory, because `-jobs=1` writes `fuzz-0.log` into the current one.
 

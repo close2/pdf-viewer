@@ -5,8 +5,7 @@ Read by: a round that changes what gets drawn — the interpreter's marks, eithe
 colour, or a cross-backend scene. **If this round can change a pixel, trap 1 is the one that may
 not be skipped.**
 
-[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
-the rule, which group holds which, and why every trap keeps its number.
+[`README.md`](README.md) is the index, one row per trap, and says why each keeps its number.
 
 ## Traps
 
@@ -138,6 +137,16 @@ while its *name* claimed a cause no line under it measured. **Two claims in one 
 another group's and one of them unmeasured, is the shape to read first.** Twice the instrument that
 settled one was the font's own `cmap`, `loca` and `post` tables read directly: ten minutes, exact.
 
+#### 182. What this reader already draws is a claim to render before it is written down
+
+Round 1553's brief hypothesised a TrueType remedy that would state in the font's `/Differences`
+the glyph this reader already selected for each code. Rendering page 8 of Pol.pdf (trap 1) showed
+"50²%": the code named `space` had no glyph in the subset, and the reader's fallback offered it to
+the Macintosh subtable as a Macintosh code, reaching `twosuperior`. Built as hypothesised, the
+remedy would have written that glyph into a PDF/A file as the document's meaning. A sentence of the
+form "what this program already draws" is a claim about pixels, and it is checked by drawing them
+(ADR 1943 is what the drawing changed).
+
 ### 2. A paint is positioned in the *path's* space, not the device's
 
 Both `tiny-skia` and Vello apply the drawing transform to a paint as well as to the shape, so
@@ -231,8 +240,8 @@ dependency returns success, ask what it does when it fails**: if the answer is "
 that report is this project's to construct. And **a fix belongs on the path the person uses**: the
 check first landed in `rasterize`, which is tier 1 and what the tests call, while the window draws
 to its own surface through tier 2 — so the test went green while the black page stayed black.
-`render_gpu::render_checked` is public for that reason and `Renderer::render_to_texture` is not
-called anywhere in this tree.
+`render_gpu::render_checked` is public for that reason and `vello::Renderer::render_to_texture` is
+not called anywhere in this tree.
 
 And a fourth, from what enabling the feature cost: **a feature flag taken for one effect brings
 its others.** `debug_layers` also makes vello hand wgpu a zero-length buffer slice whenever a
@@ -255,7 +264,7 @@ Three things out of it, and the third is the general one.
 **A note is not a decision.** Principle 1 says every error is "typed, propagated, and handled
 somewhere deliberate", and a handler that prints has satisfied none of the three verbs. The fix is
 to make what the handler was told into a value a host can *take* —
-`render_quorra::UncapturedErrors` — and then to decide with it at the call that provoked it.
+`render_raster::UncapturedErrors` — and then to decide with it at the call that provoked it.
 
 **Ask which of a dependency's failures are fatal and what makes them so.** wgpu's acquire has two
 answers to "this surface is not configured", and it picks between them by a field that is set
@@ -376,12 +385,6 @@ square to the chord left a 45-level seam inside a stroke (ADR 1359).
 ten-thousandth of a pixel to a full level along a whole column outside an edge (ADR 1374). The
 floor is now asked once per shape — a mark none of whose pixels reaches one level is still lifted,
 every other mark's pixels are rounded to nearest — and eleven golden pages lost one false level.
-
-### 62. A residue attributed to a mechanism is measured in isolation before anything is built on it
-
-The hook's 557.87 against the set's 565.50 was attributed to a rim counted twice; the pieces' union,
-sampled with no rasteriser, read 557.83, so the whole gap was the centre line's flattening and the
-double count was real only on short tight bends (ADR 1375). One number separated the two.
 
 ### 65. A more exact CPU lane is checked against the lanes promised to match it, on the real adapter
 
@@ -508,6 +511,17 @@ that idled (ADR 1519). Nothing was built — spinning before a frame is work don
 and the band keeps its width with that reason. And `turn_path`'s load ceiling counts processor load:
 a neighbour's GPU work failed step rows by 2.5× at a load the gate admits; check the device first.
 
+#### 110. A light child on an idle machine runs at the idle clock, and a neighbour on other cores slows the pinned ones
+
+`personwithdog.pdf`'s turn read 11.4–11.7 ms in three rounds' runs against a band of 7.3–10.8 taken
+warm. Neither tree nor device: the banded commit and HEAD read the same interleaved, and the device
+was idle. After 1.5 s of idle the turn reads 11.5–11.7 ms, after a 30 ms spin 8.9–9.3, back to back
+9.1–9.8 — a child that lives its whole life at the idle clock reads a quarter high, and the
+calibration probe declines most such children but not all. At the other end, sixteen spinners on
+the cores the child is NOT pinned to give 13.3–13.9 ms on both trees at a load the ceiling admits:
+one package, one clock and power budget (ADR 1556). The band keeps its reason; a gate that warms the
+processor before measuring would be a decision of its own.
+
 ### 105. A comparison figure older than a few rounds is re-taken before it decides anything
 
 ADR 1471 recorded the CPU backend drawing `bug1721218_reduced.pdf` in 84 ms; two rounds measured
@@ -528,17 +542,6 @@ difference. `MarkInputs::Owned` moves them. And when the outline read was taken 
 (ADR 1543), callgrind by function showed the caption's section walking the whole page tree at
 65.1 M instructions for an outline read of 35.5 M: the consumer of an eager read can cost more than
 the read, and is deferred with it.
-
-### 110. A light child on an idle machine runs at the idle clock, and a neighbour on other cores slows the pinned ones
-
-`personwithdog.pdf`'s turn read 11.4–11.7 ms in three rounds' runs against a band of 7.3–10.8 taken
-warm. Neither tree nor device: the banded commit and HEAD read the same interleaved, and the device
-was idle. After 1.5 s of idle the turn reads 11.5–11.7 ms, after a 30 ms spin 8.9–9.3, back to back
-9.1–9.8 — a child that lives its whole life at the idle clock reads a quarter high, and the
-calibration probe declines most such children but not all. At the other end, sixteen spinners on
-the cores the child is NOT pinned to give 13.3–13.9 ms on both trees at a load the ceiling admits:
-one package, one clock and power budget (ADR 1556). The band keeps its reason; a gate that warms the
-processor before measuring would be a decision of its own.
 
 ### 127. An excess that follows idle time is not always the processor's clock, and a "before" build never waits on a pipe
 
@@ -606,6 +609,12 @@ rounded only — so the residue was the processor's extra rounding of each area,
 was nothing (round 1519, ADR 1876). A mechanism is named after the model reproduces the figure,
 not before.
 
+#### 62. A residue attributed to a mechanism is measured in isolation before anything is built on it
+
+The hook's 557.87 against the set's 565.50 was attributed to a rim counted twice; the pieces' union,
+sampled with no rasteriser, read 557.83, so the whole gap was the centre line's flattening and the
+double count was real only on short tight bends (ADR 1375). One number separated the two.
+
 ### 166. Two display lists are compared with the memos masked and NaN tolerated
 
 `==` on a `DisplayList` is false for any list holding a NaN, and its `Debug` rendering prints each
@@ -635,13 +644,13 @@ by kind and format so the lane refuses once and the processor draws.
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in
-  `render-cpu/src/lib.rs`, ADR 0010. The device transform handed to a command already carries the
+  `render-cpu/src/surface.rs`, ADR 0010. The device transform handed to a command already carries the
   band's row offset, and the clip mask is band-tall and page-wide because `tiny-skia` needs it to
   share the pixmap's row stride.
 - **The display list is deliberately flat.** `tiny-skia` wants per-clip masks, Vello a layer stack;
   both translate. That neither library's model is native is the evidence the neutral form is right.
-- **RADV and lavapipe produce byte-identical output**, so goldens need not be per-adapter. A test
-  pins this; if it fails, the assumption has broken, not the code.
+- **RADV and lavapipe produce byte-identical output**, so goldens need not be per-adapter.
+  `headless_gpu.rs`'s `hardware_and_software_adapters_agree_exactly` pins this; if it fails, the assumption has broken, not the code.
 - **`test-scenes` holds the same page twice**, as a display list and as PDF bytes. That pairing let
   the harness work before a parser existed.
 
@@ -712,4 +721,24 @@ whose even cuts are fixed before the page is read, then gave up drawing ahead on
 HEAD's 19. The fix that stayed draws the cut rows unclipped where the converter is called and leaves the
 planner alone (ADR 2084). A planner rule has more than one caller, and the one that cannot move its cuts
 pays for every row the rule forbids; price it there before keeping the rule.
+
+### 222. A clip that removes nothing can still move the surface
+
+Round 1635 was sent after a stroke's interior pixel that read full alone and 0.949 under a clip that
+removed nothing, with the brief's hypothesis that the two drawings took different converters. They took
+the same one; the clip had made the mark draw into the clip's own 173-row surface, 546 rows down the
+page, and ADR 0219's shifted origin flipped one of the sixteen supersamples (ADR 2106). Before a
+clip-dependent pixel is blamed on a converter or a clause, print the surface size and the translation
+each drawing actually received; a clip is a surface as well as a mask, and the mask half can be empty
+while the surface half moves everything.
+
+### 223. An image at one sample per pixel from a half-pixel origin puts every centre on a sample edge
+
+Round 1632's first formulation of the page-space centre — invert the mark's matrix, then multiply the
+centre back — moved 3 200 pixels of `issue269_2.pdf` at 1×: on that page the image is placed at one
+sample per pixel from a half-pixel origin, so every pixel centre lies exactly on an edge two samples
+share, and the order of a division and a multiplication in `f64` decides which sample a whole column
+takes (ADR 2100). The final form composes the two matrices, inverts once and divides last, and the test
+`a_centre_on_a_samples_edge_takes_the_sample_whose_corner_it_is` walks two hundred half-pixel origins
+at a non-power-of-two size. Any change to how a sample is chosen runs that placement first.
 

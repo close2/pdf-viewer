@@ -121,11 +121,14 @@ under `as-shown`. The field description is also the operator's `supply` now
 (`field-descriptions`, ADR 2082), the converter's sentence for any field it does not name.
 At 2b, 2u and 2a the census ranks no `not-built-yet` site with a document. At part 4,
 `graphics/no-destination-profile-reference` (1, `6-2-3-t04-fail-a`) — **built** where the intent
-embeds its profile (ADR 2083), converting to 4 and 4e. **Next**: the two duplicate-profile rows (6
-and 2, veraPDF's `6-2-4-2-t03-fail-*` and `6-2-4-4-t01-fail-i`, `-j`), which ADRs 0965 and 0982
-answer with no mitigation and ADR 2083 section 2 leaves to a round that argues ADR 1978's
-conditional shape for them; then `graphics/icc-profiles-conform-to-the-base-standard` (2), whose
-witnesses a `--who` census names first.
+embeds its profile (ADR 2083), converting to 4 and 4e. The two duplicate-profile rows (6 and 2,
+veraPDF's `6-2-4-2-t03-fail-a` to `-f` and `6-2-4-4-t01-fail-i`, `-j`) — **built** as ADR 2098's
+statement, an `ICCBased` array over the profile in force at every use written `DeviceCMYK` in a file
+that turns overprinting on nowhere; all eight convert to 4, veraPDF-compliant, pages byte-identical.
+`graphics/icc-profiles-conform-to-the-base-standard` (2, `ISO 32000-1/6-2-3-2-t01-fail-b` and
+`Undefined/6-2-3-2-t01-undefined-a`, both its `N` sentence) — **built** as ADR 2099's statement, `N`
+written from the profile's header. At part 4 the census now ranks no `not-built-yet` site with a
+document.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

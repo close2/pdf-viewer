@@ -33,9 +33,16 @@
               from tests should fail as loudly as it does inside one"
 )]
 
+use std::time::Duration;
+
 use pdf_sandbox::{Decoded, Isolation, Request, Sandbox, SandboxError};
 
 mod symbol_dictionaries;
+
+/// The deadline the deadline test gives a decode: short enough that one refused at it is refused
+/// well inside [`symbol_dictionaries::REFUSED_WITHIN`], long enough for the ordinary request
+/// beside it to be answered.
+const DEADLINE: Duration = Duration::from_millis(250);
 
 /// The `/JBIG2Globals` stream: segment 0, a symbol dictionary, page association 0.
 ///
@@ -213,29 +220,47 @@ fn rubbish_is_refused_and_the_worker_survives_it() {
     assert!(sandbox.decode(&request()).is_ok());
 }
 
-/// Each of the seven symbol dictionaries of minutes is ended at a deadline, and the worker that
-/// replaces the killed one answers the next request.
+/// A decode past the deadline is ended by the worker's kill, and the worker that replaces it
+/// answers the next request.
 ///
-/// `hayro-jbig2` has no limit to be given and no way to be asked to stop, so what ends these in
-/// the confined path is the parent's deadline and the kill that follows it — thirty seconds for
-/// the shared worker, and [`symbol_dictionaries::DEADLINE`] for this sandbox of the test's own. Where
-/// the codec carries `doc/patches/hayro-jbig2-symbol-dictionary-bounds.patch`, each is refused by
-/// the codec's own bound before the deadline, and [`symbol_dictionaries::ended`] admits that
-/// sentence too (ADR 1447).
+/// `hayro-jbig2` has no limit to be given and no way to be asked to stop, so what ends a decode in
+/// the confined path is the parent's deadline and the kill that follows it — thirty seconds for the
+/// shared worker, and [`DEADLINE`] for this sandbox of the test's own. The
+/// decode is the largest bilevel image the filter produces, whose cost is its area.
 #[test]
-fn each_symbol_dictionary_of_minutes_is_ended_at_the_deadline() {
-    let sandbox = Sandbox::with_timeout(symbol_dictionaries::DEADLINE);
+fn a_decode_past_the_deadline_is_killed_and_the_next_request_answered() {
+    let sandbox = Sandbox::with_timeout(DEADLINE);
+    let large = symbol_dictionaries::one_region(1 << 14);
+    let started = std::time::Instant::now();
+    let outcome = sandbox.decode(&Request::Jbig2 {
+        data: &large,
+        globals: &[],
+    });
+    let spent = started.elapsed();
+    assert!(
+        matches!(outcome, Err(SandboxError::TimedOut)),
+        "ended by the deadline, not {outcome:?}"
+    );
+    assert!(
+        spent < symbol_dictionaries::REFUSED_WITHIN,
+        "refused at the deadline, not after the decode: {spent:?}"
+    );
+    assert!(
+        sandbox.decode(&request()).is_ok(),
+        "the next request is answered"
+    );
+}
+
+/// Each of the seven symbol dictionaries of minutes is refused by the codec's own bound in the
+/// confined path, and the worker answers the next request (ADR 1447).
+#[test]
+fn each_symbol_dictionary_of_minutes_is_refused_by_the_codecs_bound() {
+    let sandbox = Sandbox::with_timeout(symbol_dictionaries::BOUND_DEADLINE);
     for (name, framed) in symbol_dictionaries::INPUTS {
-        let started = std::time::Instant::now();
         let outcome = sandbox.decode(&symbol_dictionaries::request(framed));
-        let spent = started.elapsed();
         assert!(
-            symbol_dictionaries::ended(&outcome),
-            "{name}: ended by the deadline or by the codec's bound, not {outcome:?}"
-        );
-        assert!(
-            spent < symbol_dictionaries::REFUSED_WITHIN,
-            "{name}: refused at the deadline, not after the decode: {spent:?}"
+            symbol_dictionaries::refused_by_the_codec(&outcome),
+            "{name}: refused by the codec's bound, not {outcome:?}"
         );
         assert!(
             sandbox.decode(&request()).is_ok(),

@@ -449,5 +449,15 @@ internal static partial class Native
     internal const uint QUORRA_OWED_PANELS = 7;
     internal const uint QUORRA_OWED_CHROME = 8;
     internal const uint QUORRA_OWED_PLACE = 9;
-    internal const uint QUORRA_OWED_KIND_COUNT = 10;
+    internal const uint QUORRA_OWED_CONTROLS = 10;
+    internal const uint QUORRA_OWED_POPUPS = 11;
+    internal const uint QUORRA_OWED_STRIP = 12;
+    internal const uint QUORRA_OWED_KIND_COUNT = 13;
+    internal const uint QUORRA_TAB_CONTENTS = 0;
+    internal const uint QUORRA_TAB_PAGES = 1;
+    internal const uint QUORRA_TAB_LAYERS = 2;
+    internal const uint QUORRA_TAB_FILES = 3;
+    internal const uint QUORRA_TAB_ARTICLES = 4;
+    internal const uint QUORRA_TAB_DOCUMENT = 5;
+    internal const uint QUORRA_TAB_COUNT = 6;
 }

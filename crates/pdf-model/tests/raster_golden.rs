@@ -628,6 +628,15 @@ const RARE: usize = 1_000;
 /// held past the bound left it when a strip stated that row as the page does (ADR 2084).
 const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
     (
+        "pdfjs_wikipedia.pdf p1",
+        566,
+        1,
+        "the heading rules and glyph tops, on sample rows — a mark its clip contains is drawn on \
+         the surface's own rows and carries the strip residual every unclipped mark carries \
+         (ADR 2106), where the page-space image centres alone had taken the page inside the bound \
+         (ADR 2100)",
+    ),
+    (
         "blendmode.pdf p1",
         83,
         3,
@@ -690,12 +699,6 @@ const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
         "single pixels on the edges of the four large glyphs, below the cuts the title block's \
          round-capped curved frame now grants: a glyph whose contours overlap is several rounded \
          results in a pixel, at a shifted origin (ADR 1847)",
-    ),
-    (
-        "pdfjs_wikipedia.pdf p1",
-        713,
-        1,
-        "the heading rules and glyph tops, on sample rows",
     ),
     (
         "prefilled_f1040.pdf p1",

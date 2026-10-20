@@ -1,6 +1,6 @@
 /*
  * drive_a_window.c — quorra_window driven from C: the loop a toolkit host runs, one call per thing
- * that happened to the window (RFC 0010 section 3.2a, ADR 2088).
+ * that happened to the window (RFC 0010 section 3.2a, ADRs 2088 and 2104).
  *
  * Where open_a_page.c answers every viewer-core event itself, this program answers none: the
  * window holds the loop the three toolkit windows share, and what it owes the program — a
@@ -55,6 +55,10 @@ static void wait_ms(int32_t millis)
 struct seen {
     int repaints;
     int questions;
+    int panels;
+    int controls;
+    int popups;
+    int strips;
     uint64_t prompted;
     char title[256];
     char said[512];
@@ -110,9 +114,20 @@ static int act_on_what_is_owed(quorra_window *window, struct seen *seen)
                 return 0;
             }
             break;
+        case QUORRA_OWED_PANELS:
+            seen->panels += 1;
+            break;
+        case QUORRA_OWED_CONTROLS:
+            seen->controls += 1;
+            break;
+        case QUORRA_OWED_POPUPS:
+            seen->popups += 1;
+            break;
+        case QUORRA_OWED_STRIP:
+            seen->strips += 1;
+            break;
         case QUORRA_OWED_CLIPBOARD:
         case QUORRA_OWED_BEEP:
-        case QUORRA_OWED_PANELS:
         case QUORRA_OWED_CHROME:
         case QUORRA_OWED_PLACE:
             break;
@@ -190,6 +205,85 @@ static int copy_the_page(quorra_window *window)
     return check("quorra_window_presented", quorra_window_presented(window));
 }
 
+/* The panels' rows, read on the PANELS record the open owed, through the handles the vocabulary
+ * layer hands over: the outline, the information, the page list's count, label and thumbnail. */
+static int read_the_panels(quorra_window *window, struct seen *seen)
+{
+    quorra_outline *outline = NULL;
+    quorra_panel *properties = NULL;
+    size_t pages = 0;
+    if (!check("quorra_window_outline_read", quorra_window_outline_read(window, &outline))
+        || !check("quorra_window_properties_read",
+                  quorra_window_properties_read(window, &properties))
+        || !check("quorra_window_page_count", quorra_window_page_count(window, &pages))) {
+        quorra_outline_free(outline);
+        quorra_panel_free(properties);
+        return 0;
+    }
+    char label[64] = {0};
+    size_t needed = 0;
+    int32_t labelled = quorra_window_page_label(window, 0, label, sizeof label, &needed);
+    quorra_thumbnail *thumbnail = NULL;
+    int32_t pictured = quorra_window_thumbnail_read(window, 0, &thumbnail);
+    quorra_thumbnail_free(thumbnail);
+    printf("window panels: %d owed, %zu outline row(s), %zu property row(s), %zu page(s); page 1 "
+           "is labelled \"%s\" (%s), its thumbnail: %s\n",
+           seen->panels, quorra_outline_len(outline), quorra_panel_len(properties), pages,
+           labelled == QUORRA_OK ? label : "", quorra_status_message(labelled),
+           quorra_status_message(pictured));
+    quorra_panel_free(properties);
+    quorra_outline_free(outline);
+    return 1;
+}
+
+/* An outline row clicked: its object, activated, is §12.3.3's destination followed. */
+static int activate_a_row(quorra_window *window, size_t row, struct seen *seen)
+{
+    quorra_outline *outline = NULL;
+    uint32_t number = 0;
+    uint16_t generation = 0;
+    char title[128] = {0};
+    size_t needed = 0;
+    if (!check("quorra_window_outline_read", quorra_window_outline_read(window, &outline))
+        || !check("quorra_outline_object",
+                  quorra_outline_object(outline, row, &number, &generation))
+        || !check("quorra_outline_title",
+                  quorra_outline_title(outline, row, title, sizeof title, &needed))) {
+        quorra_outline_free(outline);
+        return 0;
+    }
+    quorra_outline_free(outline);
+    if (!check("quorra_window_activate", quorra_window_activate(window, number, generation))
+        || !act_on_what_is_owed(window, seen) || !run_the_timer(window, seen)) {
+        return 0;
+    }
+    printf("window outline row \"%s\" activated: %s\n", title, seen->title);
+    return 1;
+}
+
+/* What the page area draws over the frames on a repaint: the find bar's occurrences, the selection
+ * and Annex O's highlight, each a set of quadrilaterals the caller colours. */
+static int read_the_marks(quorra_window *window, const char *when)
+{
+    quorra_matches *matches = NULL;
+    quorra_quads *selection = NULL;
+    quorra_quads *highlight = NULL;
+    int ok = check("quorra_window_find_matches", quorra_window_find_matches(window, &matches))
+             && check("quorra_window_selection_quads",
+                      quorra_window_selection_quads(window, &selection))
+             && check("quorra_window_highlight_quads",
+                      quorra_window_highlight_quads(window, &highlight));
+    if (ok) {
+        printf("window marks %s: %zu match(es), %zu selection quad(s), %zu highlight(s)\n", when,
+               quorra_matches_len(matches), quorra_quads_len(selection),
+               quorra_quads_len(highlight));
+    }
+    quorra_matches_free(matches);
+    quorra_quads_free(selection);
+    quorra_quads_free(highlight);
+    return ok;
+}
+
 /* The application note: opened, drawn, presented, turned with a key, two keys that are not the
  * window's to finish, a search, the pointer, and a second document beside it in the strip. */
 static int the_note(const char *path, const char *beside)
@@ -205,6 +299,10 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window title: %s\n", seen.title);
+    if (!read_the_panels(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
 
     uint32_t act = QUORRA_ACT_NOTHING;
     if (!press(window, QUORRA_KEY_PAGE_DOWN, false, &act, &seen) || !copy_the_page(window)) {
@@ -232,7 +330,9 @@ static int the_note(const char *path, const char *beside)
     }
     printf("window search: %s\n", seen.said);
     bool over = true;
-    if (!check("quorra_window_find_stop", quorra_window_find_stop(window))
+    if (!read_the_marks(window, "with the find bar open")
+        || !check("quorra_window_find_stop", quorra_window_find_stop(window))
+        || !read_the_marks(window, "after it closed")
         || !check("quorra_window_pointer",
                   quorra_window_pointer(window, 2.0f, 2.0f, QUORRA_POINTER_MOVED, &over))
         || !act_on_what_is_owed(window, &seen)) {
@@ -240,6 +340,10 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window pointer at the corner: over a link %d\n", over ? 1 : 0);
+    if (!activate_a_row(window, 0, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
 
     /* A file chooser's answer opens in a tab of its own; the strip says so, and closing both
      * documents ends at the last, which is the window's to close. */
@@ -256,8 +360,8 @@ static int the_note(const char *path, const char *beside)
         quorra_window_free(window);
         return 0;
     }
-    printf("window strip: %zu document(s), %s in front at %zu\n", documents, label,
-           quorra_window_focused_document(window));
+    printf("window strip: %zu document(s), %s in front at %zu, the strip owed %s\n", documents,
+           label, quorra_window_focused_document(window), seen.strips > 0 ? "yes" : "no");
     bool last = true;
     if (!check("quorra_window_choose_document", quorra_window_choose_document(window, 0))
         || !check("quorra_window_close_document", quorra_window_close_document(window, &last))
@@ -288,6 +392,40 @@ static int the_form(const char *path)
         quorra_window_free(window);
         return 0;
     }
+    /* The form's first field is a text field, a control placed over the page — so the open owed
+     * the controls once — which toggles nothing; a field the page does not show refuses an edit. */
+    quorra_fields *fields = NULL;
+    if (!check("quorra_window_fields_read", quorra_window_fields_read(window, &fields))) {
+        quorra_window_free(window);
+        return 0;
+    }
+    char name[128] = {0};
+    size_t needed = 0;
+    uint32_t number = 0;
+    uint16_t generation = 0;
+    float quad[8] = {0};
+    bool on = false;
+    if (quorra_fields_len(fields) == 0
+        || !check("quorra_field_name",
+                  quorra_field_name(fields, 0, QUORRA_TEXT_QUALIFIED, name, sizeof name, &needed))
+        || !check("quorra_field_widget",
+                  quorra_field_widget(fields, 0, 0, &number, &generation, quad, &on))) {
+        quorra_fields_free(fields);
+        quorra_window_free(window);
+        return 0;
+    }
+    size_t count = quorra_fields_len(fields);
+    quorra_fields_free(fields);
+    int32_t toggled = quorra_window_toggle_field(window, number, generation, true);
+    int32_t unknown = quorra_window_set_field_text(window, "no such field", "text");
+    printf("window form: %zu field(s), %s; %d control record(s); toggling it: %s; an unknown "
+           "field: %s\n",
+           count, name, seen.controls, quorra_status_message(toggled),
+           quorra_status_message(unknown));
+    if (toggled != QUORRA_WRONG_KIND || unknown != QUORRA_NO_ANSWER) {
+        quorra_window_free(window);
+        return 0;
+    }
     uint32_t act = QUORRA_ACT_NOTHING;
     for (int tabs = 0; tabs < 8 && seen.questions == 0; ++tabs) {
         if (!press(window, QUORRA_KEY_TAB, false, &act, &seen)
@@ -314,8 +452,21 @@ static int the_form(const char *path)
     printf("a second answer: %s\n", quorra_status_message(again));
     int32_t unasked = quorra_window_password(window, 1, "secret");
     printf("a password nobody asked for: %s\n", quorra_status_message(unasked));
+    /* The placed text control typed into and finished with, and the value read back. */
+    char value[64] = {0};
+    if (!check("quorra_window_set_field_text", quorra_window_set_field_text(window, name, "typed in C"))
+        || !check("quorra_window_commit_field", quorra_window_commit_field(window, name))
+        || !act_on_what_is_owed(window, &seen)
+        || !check("quorra_window_fields_read", quorra_window_fields_read(window, &fields))) {
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t valued = quorra_field_value(fields, 0, value, sizeof value, &needed);
+    quorra_fields_free(fields);
+    printf("window control committed: %s is \"%s\" (%s)\n", name, value,
+           quorra_status_message(valued));
     quorra_window_free(window);
-    return again == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER;
+    return again == QUORRA_NO_ANSWER && unasked == QUORRA_NO_ANSWER && valued == QUORRA_OK;
 }
 
 int main(int argc, char **argv)
@@ -331,6 +482,21 @@ int main(int argc, char **argv)
            QUORRA_OWED_KIND_COUNT, quorra_owed_kind_name(QUORRA_OWED_KIND_COUNT));
     if (quorra_owed_kind_count() != QUORRA_OWED_KIND_COUNT) {
         fprintf(stderr, "this program was compiled against another set of owed kinds\n");
+        return 1;
+    }
+    /* The panels every window offers, by the library's count and its one wording for each. */
+    printf("panels offered %u (header %u):", quorra_tab_count(), QUORRA_TAB_COUNT);
+    for (uint32_t tab = 0; tab < quorra_tab_count(); ++tab) {
+        char label[32] = {0};
+        size_t needed = 0;
+        if (!check("quorra_tab_label", quorra_tab_label(tab, label, sizeof label, &needed))) {
+            return 1;
+        }
+        printf(" %s", label);
+    }
+    printf("\n");
+    if (quorra_tab_count() != QUORRA_TAB_COUNT) {
+        fprintf(stderr, "this program was compiled against another set of panels\n");
         return 1;
     }
     quorra_window *nothing = NULL;

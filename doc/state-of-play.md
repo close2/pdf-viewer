@@ -68,7 +68,7 @@ character its `/ToUnicode` states for it (ADR 1943). **Three rasterisers behind 
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -177,14 +177,15 @@ place of 0.5.15 (`doc/questions/A227`), and both reproducers are regression test
 symbol dictionary the codec decodes for minutes is ended at a deadline on either isolation — the
 in-process one abandons rather than kills, and says so, and a process behind its own seccomp filter
 decodes on its own thread instead, because a kept thread asks for `prctl` — and its three unbounded
-loops are bounded in a patch the owner applies to the codec's fork (ADR 1447), which ends in
-seconds every input the campaigns have left past the deadline (ADR 1746). The filter is held to ITU-T T.88
-Annex K's conformance data, read from outside the tree: T.88's own Annex H datastream and Annex K's
-fax pages decode bit for bit, the streams that depart from the clauses they exercise are held by
-name with the clause, and a generic region on the extended template — which the codec reads as the
-ordinary one — is refused out loud until the fork takes the patch for it (ADR 1459). Annex H.2's arithmetic-coder
-sequence holds the codec's decoder register for register in a unit test a third patch gives the fork
-(ADR 1485).
+loops are bounded in the codec itself: the manifest takes the JBIG2, JPEG 2000 and CCITT codecs from
+the owner's fork `close2/hayro`, upstream's 0.3.1 commit with three T.88 commits on it (ADRs 1447,
+2102), which ends in under a second every input the campaigns have left past the deadline (ADR
+1746). The filter is held to ITU-T T.88 Annex K's conformance data, read from outside the tree:
+T.88's own Annex H datastream and Annex K's fax pages decode bit for bit, the streams that depart
+from the clauses they exercise are held by name with the clause, and a generic region on the
+extended template decodes, Annex K's to its reference (ADRs 1459, 2102). Annex H.2's
+arithmetic-coder sequence holds the codec's decoder register for register in the fork's own unit
+test (ADR 1485).
 
 It is **used**, which is a separate claim from the one above — and
 the first sentence of it is **measured** rather than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
@@ -872,6 +873,11 @@ pass.
   joined at the first resize, the drawing thread on a tick the window times, a key acted on, the
   prompt and the *ask* level's question answered — and owes a C host its sentences, repaints and
   dialogues as a batch of records, never a callback; `c/drive_a_window.c` is that loop (ADR 2088).
+  **What changed is a record and what it changed to is read**: the panels' rows, the form whose
+  controls the caller places, the popups and the marks over the page cross as the handles the
+  vocabulary already hands over, and a control's commit goes through the decision every window
+  takes (ADR 2104). What a document asks of the machine is carried out once in
+  `viewer_host::native_window` for all three windows, each keeping only its dialogue (ADR 2105).
   ADRs 0247, 0509.
 
 **A password field's value does not reach the file it is saved into.** Table 231 bit 14's own

@@ -1989,6 +1989,37 @@ pub(super) const REMEDIES: &[Remedy] = &[
             PROFILE_ALTERNATE_REINTERPRETS,
         ),
     },
+    // ISO 19005-4 section 6.2.4.2's first sentence through ISO 32000-2 §8.6.5.5's Table 66: an
+    // `N` that is missing or is not the profile's own count states the profile's, which this
+    // reader drew with; `super::component_counts` refuses a profile it does not draw through or
+    // whose header the clause does not admit (`doc/adr/2099`).
+    Remedy {
+        requirement: "graphics/icc-profiles-conform-to-the-base-standard",
+        answer: Answer::Stated(
+            None,
+            Rewrite::IccComponentCountRestated,
+            COMPONENT_COUNT_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-4 section 6.2.4.2's last requirement, and section 6.2.4.4 sending it to an
+    // alternate space: an `ICCBased` array whose profile is the one in force at every use is
+    // written `DeviceCMYK`, and `super::duplicate_profiles` names each refusal (`doc/adr/2098`).
+    Remedy {
+        requirement: "graphics/no-icc-space-duplicating-the-output-intent-profile",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DuplicateProfileWrittenDeviceCmyk,
+            DUPLICATE_PROFILE_REINTERPRETS,
+        ),
+    },
+    Remedy {
+        requirement: "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
+        answer: Answer::Stated(
+            None,
+            Rewrite::DuplicateProfileWrittenDeviceCmyk,
+            DUPLICATE_PROFILE_REINTERPRETS,
+        ),
+    },
     // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3 — the half an `/AS` entry answers.
     Remedy {
         requirement: "annotations/normal-appearance-shape",
@@ -2802,10 +2833,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "graphics/icc-profiles-claim-a-permitted-edition",
         Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
     ),
-    (
-        "graphics/icc-profiles-conform-to-the-base-standard",
-        Because::NotBuiltYet(ICC_SPACE_PROFILE_NOT_REPLACED),
-    ),
     // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the shape of the array itself.
     (
         "graphics/page-output-intents-have-the-same-shape",
@@ -2830,15 +2857,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "graphics/jpeg2000-uses-the-baseline-feature-set",
         Because::NotBuiltYet(JPEG2000_BASELINE_NOT_REACHED),
-    ),
-    // ISO 19005-4 section 6.2.4.2 and section 6.2.4.4.
-    (
-        "graphics/no-icc-space-duplicating-the-output-intent-profile",
-        Because::NotBuiltYet(DUPLICATE_PROFILE_NOT_COLLAPSED),
-    ),
-    (
-        "graphics/separation-alternate-space-does-not-duplicate-a-current-profile",
-        Because::NotBuiltYet(DUPLICATE_PROFILE_NOT_COLLAPSED),
     ),
     // ISO 19005-2 section 6.2.4.4, ISO 19005-4 section 6.2.4.4: section 4.5's two rows.
     (
@@ -3205,32 +3223,25 @@ const JPEG2000_BASELINE_NOT_REACHED: &str = "ITU-T T.801 M.9.2 defines the JPX b
      what the samples mean, so writing a baseline one in its place, or a ColorSpace beside a Flate \
      copy, relabels the picture";
 
-/// Why an `ICCBased` space duplicating the output intent's profile is not collapsed.
-///
-/// **Examined against `Rewrite::SpotColorantEntry`** (ADR 0982), the first rewrite to reach an
-/// object that is a colour space array, because the question is whether it settles the siting
-/// half. It does
-/// not, and the reason is worth stating once: that rewrite is sited from the object its finding
-/// *names*, and these findings name the content stream that **used** the space rather than the
-/// array that states it. The second half is now stronger rather than weaker, because §8.6.5.7
-/// says outright whose decision the substitution would be taking.
-const DUPLICATE_PROFILE_NOT_COLLAPSED: &str = "ISO 19005-4 forbids an ICCBased space, or a \
-     Separation's alternate space, from carrying a CMYK destination profile identical to the one \
-     the output intent or the blending space already supplies, and naming DeviceCMYK in its \
-     place looks mechanical: the identical profile is already the file's, and ISO 19005-4 \
-     section 6.2.4.3 licenses that device space through that very intent. **Two things stop it, \
-     and neither is the want of a rewrite that can reach an array.** The rule binds a space that \
-     is *used*, so the witness a finding carries is the content stream that selected it — this \
-     crate's colourant rewrite reaches an array only because its own finding names that array's \
-     object, and these findings name the stream instead. The array to rewrite sits in a resource \
-     dictionary nothing points at, so siting would mean walking the content streams a second \
-     time to decide which space was used, which is the validator's reading made again in this \
-     crate. And even sited it would not be a restatement. §8.6.7 applies non-zero overprint mode \
-     only where the current colour space is DeviceCMYK or is implicitly converted to it, and \
-     §8.6.5.7 says of that conversion that the conditions under which it is done cannot be \
-     specified in PDF and that it is completely hidden by the processor — so writing DeviceCMYK \
-     takes a decision the base standard leaves to the processor and settles it in the file, \
-     which is the ambiguity section 6.2.4.2's own NOTE 2 names as the reason for the prohibition";
+/// What restating an `ICCBased` profile stream's `N` asserts (`doc/adr/2099`).
+const COMPONENT_COUNT_REINTERPRETS: &str = "an ICCBased colour space in this file states an N \
+     that is missing or is not the number of components its profile has, which ISO 32000-2 \
+     8.6.5.5's Table 66 requires it to match, so N is written as the count the profile's own \
+     header gives. This reader draws such a space through its profile and reads no N there, so \
+     every page is drawn where it was; a processor that took the stated N over the profile no \
+     longer has a stated N to take. The report counts every profile restated";
+
+/// What naming `DeviceCMYK` for a duplicated profile asserts (`doc/adr/2098`).
+const DUPLICATE_PROFILE_REINTERPRETS: &str = "an ICCBased CMYK space in this file, or the \
+     alternate of a Separation or DeviceN space, carries the profile of the PDF/A output intent or \
+     of the transparency blending space in force wherever it is used, which ISO 19005-4 section \
+     6.2.4.2 forbids, so every ICCBased array naming that profile is written DeviceCMYK. ISO \
+     19005-4 section 6.2.4.3 renders DeviceCMYK through the output intent's profile, and ISO \
+     32000-2 11.7.2 composites it as the blending space's, so each colour is the same colour \
+     through the same profile; and no graphics state in the file turns overprinting on, so \
+     8.6.7's overprint mode, the semantics DeviceCMYK keeps, acts on no mark. What changes is that \
+     the space no longer depends on whether a processor makes 8.6.5.7's implicit conversion. The \
+     report counts every array rewritten";
 
 /// What setting an `ICCBased` mark's overprint mode to 0 asserts (`doc/adr/1978`).
 const OVERPRINT_MODE_REINTERPRETS: &str = "a graphics state in this file sets overprint mode 1 \

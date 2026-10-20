@@ -469,7 +469,7 @@ wrote?
    the whole file: the original bytes untouched, then the new objects, a cross-reference section for
    them, and a trailer whose `/Prev` points at the old one. The host writes them somewhere —
    `quorra` beside the original (`crates/viewer-ui/src/bin/quorra/files.rs::write_saved`), the
-   toolkits where a person chose (`crates/viewer-gtk/src/host/saving.rs`) — on `Event::Saved`.
+   toolkits where a person chose (`crates/viewer-host/src/native_window.rs`) — on `Event::Saved`.
 
 **And the loop closes when the file is opened again.** §7.5.6 binds the reader too: "it shall build
 its cross-reference information in such a way that the most recent copy of each object shall be the
@@ -486,7 +486,7 @@ flowchart TD
     AP["the appearance, under its own number<br/>Update::write_appearance, appearance.rs::for_saving"]
     OWED["what could not be written, named<br/>/NeedAppearances, ADR 1159; Table 231 bit 14"]
     INC["original bytes, new objects, xref, trailer /Prev<br/>pdf-syntax/src/write.rs<br/>clause 7.5.6"]
-    HOST["Event::Saved: the host writes the bytes<br/>viewer-ui/src/bin/quorra/files.rs, viewer-gtk/src/host/saving.rs"]
+    HOST["Event::Saved: the host writes the bytes<br/>viewer-ui/src/bin/quorra/files.rs, viewer-host/src/native_window.rs"]
     REOPEN["the next open: newest section first<br/>pdf-syntax/src/xref.rs<br/>clause 7.5.6, ADR 0100"]
 
     CMD --> LOGW
@@ -502,7 +502,7 @@ flowchart TD
 **Maintenance note.** Depends on: `crates/viewer-core/src/viewer/editing.rs`,
 `crates/pdf-model/src/view/writing.rs`, `crates/pdf-model/src/appearance.rs`,
 `crates/pdf-syntax/src/write.rs`, `crates/pdf-syntax/src/xref.rs`,
-`crates/viewer-ui/src/bin/quorra/files.rs`, `crates/viewer-gtk/src/host/saving.rs`, ADR 0100 and
+`crates/viewer-ui/src/bin/quorra/files.rs`, `crates/viewer-host/src/native_window.rs`, ADR 0100 and
 ADR 1159. Redraw it when a save stops being an incremental update, when the appearance stops being
 written beside the value, when the document scripts around a save move, or when a host's writing of
 `Event::Saved` changes.

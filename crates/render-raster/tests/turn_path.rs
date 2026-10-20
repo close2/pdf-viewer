@@ -2,8 +2,8 @@
 //!
 //! # Why this exists
 //!
-//! `CLAUDE.md` principle 2: "Perf gates run in CI: cold open, time-to-first-page, page-turn
-//! latency, memory high-water. A regression fails the build." `crates/viewer-ui/tests/launch_path.rs`
+//! `CLAUDE.md` principle 2: "Perf gates run at every merge: cold open, time-to-first-page,
+//! page-turn latency, memory high-water". `crates/viewer-ui/tests/launch_path.rs`
 //! holds the first two and one page turn inside one already-drawn document — the cheap end of
 //! the gesture. The table `examples/frame_budget` prints is the other end, a turn onto a page whose
 //! outlines the device has not seen and a notch of zoom on it, across ten page classes, and until

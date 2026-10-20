@@ -393,10 +393,13 @@ impl MaskCache {
         marks: Option<pdf_render::Rect>,
     ) -> Result<Option<Admitted<'_>>, CpuRasterError> {
         // ISO 32000-2 §10.7.4's intersection with a region that contains the mark is the mark, so
-        // the clip is left off it entirely and the composition below never runs. The mask still
-        // has to be *built*, because it is what bands the draw: the mark lies inside the region,
-        // so the region's rows are rows enough for it, and keeping them is what keeps this saving
-        // from costing a page-tall buffer per command.
+        // the clip is left off it entirely: not composed, not built, and not banding the draw
+        // either. A band is a surface that starts some rows down the page, and the mark's matrix
+        // reaches it with those rows taken off its translation (ADR 0219) — the same real number,
+        // rounded in another binade, which `tiny-skia`'s converter turns into one of its sixteen
+        // samples and `crate::area` into a level: at 10x the paperclip of veraPDF's
+        // `6-3-1-t01-fail-f` covers its pixel `(798, 567)` 255 on the page's rows and 240 on its
+        // own `/BBox`'s. So the mark is drawn on the rows an unclipped mark is drawn on (ADR 2106).
         let contained = match clip {
             Some(clip) => self.cuts_nothing(list, clip, marks),
             None => false,
@@ -404,39 +407,13 @@ impl MaskCache {
         match (clip.filter(|_| !contained), mask) {
             // Unmasked, and still carrying the scratch buffer: a mark whose own portions share a
             // device pixel is composed in one whether or not anything clips it (§11.6.2, ADR 0590).
-            (None, None) if !contained => Ok(Some(Admitted {
+            (None, None) => Ok(Some(Admitted {
                 band: self.surface.rows,
                 mask: scan::Clip::Unclipped {
                     scratch: &self.scratch,
                 },
                 admits: None,
             })),
-            // The same answer, banded by the clip this mark is inside of rather than by the page.
-            (None, None) => {
-                let Some(clip) = clip else {
-                    // `contained` is only ever set for a clip, so this cannot be reached; the
-                    // page-wide band is the answer that draws the mark anyway if it ever is.
-                    return Ok(Some(Admitted {
-                        band: self.surface.rows,
-                        mask: scan::Clip::Unclipped {
-                            scratch: &self.scratch,
-                        },
-                        admits: None,
-                    }));
-                };
-                if self.get(list, clip)?.is_none() {
-                    return Ok(None);
-                }
-                let Self { built, scratch, .. } = self;
-                Ok(built
-                    .get(&Key::Clip(clip))
-                    .and_then(Option::as_ref)
-                    .map(|built| Admitted {
-                        band: built.band,
-                        mask: scan::Clip::Unclipped { scratch },
-                        admits: built.admits,
-                    }))
-            }
             // A clip on its own is §10.7.4's set of pixels, which is the one case a mark's
             // own coverage may be composed with by `min`. Built first and looked up after, the
             // way the `(Some, Some)` arm below does, because the composition needs the cache's

@@ -6,17 +6,16 @@ frame — and any round that converts between the page's space, the display list
 `doc/ui-boundary.md` is the interface; `doc/environment.md`'s `Xvfb` recipe is the only way to
 exercise the whole loop.
 
-[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
-the rule, which group holds which, and why every trap keeps its number.
+[`README.md`](README.md) is the index, one row per trap, and says why each keeps its number.
 
 ## Traps
 
 ### 12a. The display list's space is not the raster's, and a doc comment said it was
 
 PDF's y axis points up from the bottom of the page; a raster's points down from its top row. The
-flip lives in `TargetSpec::for_page` — "the page's top edge is raster row zero", ADR 0064 — and
-**not** in `base_transform`, so a caller holding a pixel position must subtract it from the page's
-height before asking `user_space_at` anything.
+flip lives in `TargetSpec::for_page` — "the page's top edge must land on pixel row zero", ADR 0064 —
+and **not** in `base_transform`, so a caller holding a pixel position must subtract it from the
+page's height before asking `user_space_at` anything.
 
 `user_space_at`'s own doc comment said it took a point in "the page's space — the display list's,
 and the raster's" for seventy-five sessions, and **every click followed that sentence into the
@@ -148,18 +147,19 @@ asserts both halves, because neither was written down anywhere a host could read
 
 **Where the rule now lives, so that a host cannot get it wrong by writing it a third time:**
 `viewer_host::drawing::Finished::outcome` is an `Option<Rendered>` and `None` means nothing is owed
-(ADR 0668). Both native windows write the same two lines — a `let else` that continues — so the trap
-is visible at the call site instead of being a sentence somebody has to remember. The same shape is
+(ADR 0668). The native windows share one consumer of it, `viewer_host::native_window`, whose `let
+else` continues past a `None`, so the trap is visible at the call site instead of being a sentence
+somebody has to remember. The same shape is
 what makes the *positive* rule checkable: a tier-1 host abandons only a draw whose token
 `viewer_core` has already replaced or dropped, so silence is not merely safe, it is what the core
 would have done with the answer anyway.
 
 ### 22. A shared key table is only as level as the narrowest path a key takes to reach it
 
-`viewer_host::keys` states what a press means for all three windows and each host translates its
+`viewer_host::keys` states what a press means for every window and each host translates its
 toolkit's key into it — and that arrangement is checked in exactly one direction. Every host has a
-test that it can translate the whole of `Key::ALL`, and `WindowAct` is matched exhaustively in three
-hosts so that a new binding fails to compile in each. Both of those ask whether a host *can* obey
+test that it can translate the whole of `Key::ALL`, and `WindowAct` is matched exhaustively in each
+host so that a new binding fails to compile in each. Both of those ask whether a host *can* obey
 the table. Neither asks whether a press actually gets there.
 
 **`viewer-qt` had been swallowing Escape entirely**, and did so from the round the table was written
@@ -200,13 +200,6 @@ a `pump` nested inside a `pump`. Split into `take_the_front` (state only) and `s
 (state plus the message), which is the shape `viewer-gtk` already has by taking the queue as a
 parameter (ADR 1264).
 
-### 57. A toolkit that owns keyboard focus swallows Tab before the shared key table sees it
-
-Qt's own focus chain took every Tab, so §12.5.1's walk over the document's `/Tabs` never reached
-the Rust side at all, and no test could see it; GTK's move-focus did the same for its own controls
-(ADR 1357). The page now declines the toolkit's focus chain and an event filter hands Tab to the
-shared key table. After any focus or controls change, drive Tab under Xvfb in every window.
-
 ### 70. The launch gate measures launch minus the window, so a chrome cost is invisible to it
 
 ADR 1382's fallback walked the machine's font catalogue on the drawing thread for a label the
@@ -246,6 +239,13 @@ string `/V` with `/AS` untouched reopened unticked in all three windows. After a
 or chrome, run `tools/drive-windows.sh`: it drives the key after an arrow and after a page click,
 and photographs each top-level window of the process, because without a window manager a popup
 is missing from the root capture and looks like a feature that did nothing.
+
+#### 57. A toolkit that owns keyboard focus swallows Tab before the shared key table sees it
+
+Qt's own focus chain took every Tab, so §12.5.1's walk over the document's `/Tabs` never reached
+the Rust side at all, and no test could see it; GTK's move-focus did the same for its own controls
+(ADR 1357). The page now declines the toolkit's focus chain and an event filter hands Tab to the
+shared key table. After any focus or controls change, drive Tab under Xvfb in every window.
 
 ### 88. A generated table of pointers is relocated before `main`
 
@@ -433,7 +433,7 @@ on the critical path keeps the thread the launch already placed; the helper is w
 
 ### 156. A face matches the window's settled picture, edge row included
 
-A page whose device extent is fractional has its last row rounded up (ADR 0064). `viewer_host::face`
+A page whose device extent is fractional has its last row rounded up (ADR 0064). `viewer_host::clock::face`
 drew a transition's faces over the window's surround, so the half of that last row outside the page
 carried the surround's colour where the settled page carries the page's own, and every mid-transition
 frame in `quorra-gtk` differed from the settled page along the page's edge by about 2 970 pixels;
@@ -473,9 +473,9 @@ characters, 8–11 s a frame: a cut that comes after the formatting has paid for
 Round 1532 read PdfCraft's "Rendering…" placeholder as a 0.56 s first frame and a 0.08 s zoom, and
 threw both away when the settled picture was looked at (ADR 1900). The quiet window a figure waits
 for is longer than the longest stage in which the program shows nothing new, and the picture at the
-end is looked at before the figure is written. And after a session change a window started through
-the owner's loop may draw and be found by nothing — `xdotool` by pid, title or class — so a run that
-pressed no key says "not pressed" and reports no figure (seven of eight toolkit runs on 2026-10-14).
+end is looked at before the figure is written. And a window started through the owner's loop may
+draw and be found by nothing, so a run that pressed no key says "not pressed" and reports no figure —
+trap 174 is that incident and its probe.
 
 ### 174. A locked session photographs nothing, and the owner's loop does not say so
 

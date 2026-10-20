@@ -33,9 +33,9 @@
 //! the status line and the window's placement, [`input`] the keys and the pointer, [`tabs`] the
 //! strip of open documents, [`faces`] the machine's faces, [`panels`] the six panels, [`find`] the
 //! find bar, [`forms`] §12.7's placed controls, [`notes`] §12.5.6.14's popups, [`questions`] the
-//! dialogues a person answers, [`restrictions`] the levels menu, [`requests`] what a document asks
-//! of this machine, [`saving`] §7.5.6's update and §7.11.4's files, and [`printing`] RFC 0004's
-//! print path.
+//! dialogues a person answers, [`restrictions`] the levels menu, and [`printing`] RFC 0004's print
+//! path. What a document asks of this machine is carried out by `viewer_host::native_window` for
+//! every window, and this one holds the dialogue (ADR 2105).
 
 mod archiving;
 mod drawing;
@@ -51,9 +51,7 @@ mod presentation;
 mod printing;
 mod questions;
 mod react;
-mod requests;
 mod restrictions;
-mod saving;
 mod stand_in;
 mod tabs;
 #[cfg(test)]
@@ -66,7 +64,7 @@ use std::path::{Path, PathBuf};
 use pdf_model::view::WidgetAppearances;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Command, DocumentId, FormField, Viewer};
-use viewer_host::native_window::{DOCUMENT, NativeWindow, Showing, WindowState};
+use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowState};
 use viewer_host::panel::Tab;
 use viewer_host::trace::{Topic, Trace};
 
@@ -77,7 +75,6 @@ pub(crate) use notes::{leader_cycles, reached_stop, rule_pieces, rule_thickness}
 use forms::Placement;
 use panels::Flat;
 use printing::{PrintJob, PrintedPage};
-use questions::Pending;
 
 /// What the contents panel says while the launch document's outline is read beside page one
 /// (ADR 1553): a sentence about this window, since the document's answer is not in yet.
@@ -157,20 +154,6 @@ pub struct Host {
     /// cannot take `QApplication::exec` with it. What is left on this thread is bounded by *this
     /// host's* own asking rather than by what a document chose to state.
     rasterizer: CpuRasterizer,
-    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
-    ///
-    /// The other direction from [`WindowState::restrictions`], and that is why it is a second
-    /// value rather than a seventh operation of the first: what a document *asserts over its reader* is one subject,
-    /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
-    /// `CLAUDE.md`'s four levels over the second (ADR 1155).
-    links: viewer_host::Links,
-    /// §12.6.4.3: what this window does when an action names another file, per
-    /// `--remote-documents=`.
-    ///
-    /// A third value for a third subject, on the entry above's argument: starting another program
-    /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
-    /// for both would make each of them mean the other (ADR 1227).
-    remote_documents: viewer_host::RemoteDocuments,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -204,7 +187,7 @@ pub struct Host {
     /// One at a time, which is `viewer_core::Command::Answer`'s own rule — a second question
     /// replaces the first — and `None` while nothing is outstanding, so that a dialogue closed
     /// twice answers once.
-    question: Option<(Pending, String)>,
+    question: Option<(Asked, String)>,
     /// RFC 0008 section 4.2's `app.alert` or `app.response` a script is waiting on: which
     /// document's, what that document is called, and what it asks — taken once, by the answer,
     /// so that a dialogue closed twice answers once (ADR 1628).
@@ -473,8 +456,6 @@ impl Host {
             documents_moved: false,
             closing: false,
             rasterizer: CpuRasterizer::new(),
-            links: settings.links,
-            remote_documents: settings.remote_documents,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -557,51 +538,13 @@ impl NativeWindow for Host {
         Self::password_required(self, document);
     }
 
-    fn follow_the_link(&mut self, uri: &str) {
-        Self::follow_the_link(self, uri);
+    fn put_the_question(&mut self, about: Asked, words: &viewer_host::Question) {
+        Self::put_the_question(self, about, words);
     }
 
-    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
-        Self::submit(self, document, submission);
-    }
-
-    fn needs_file(
-        &mut self,
-        document: DocumentId,
-        purpose: viewer_core::Purpose,
-        name: String,
-        beside: bool,
-        queue: &mut VecDeque<Command>,
-    ) {
-        Self::needs_file(self, document, purpose, name, beside, queue);
-    }
-
-    fn fetch_policy(&mut self, document: DocumentId, policy: viewer_host::PublishedPolicy) {
-        Self::fetch_policy(self, document, policy);
-    }
-
-    fn extracted(
-        &mut self,
-        document: DocumentId,
-        asked: viewer_core::Extraction,
-        name: &str,
-        bytes: Vec<u8>,
-        fragment: Option<String>,
-    ) {
-        Self::extracted(self, document, asked, name, bytes, fragment);
-    }
-
-    fn ask_whether_to_proceed(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        notes: &[String],
-    ) {
-        Self::ask_whether_to_proceed(self, document, operation, notes);
-    }
-
-    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
-        Self::ask_whether_to_run_scripts(self, document, script, first_line);
+    /// One dialogue, so one question at a time.
+    fn question_waiting(&self) -> bool {
+        self.question.is_some()
     }
 
     fn withdraw_script_question(&mut self, document: DocumentId) {

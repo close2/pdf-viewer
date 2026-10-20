@@ -1,6 +1,7 @@
 # 1485 — The public-key handler stays untriggered, and Annex H.2 is a test in the codec's fork
 
-Session 1325. Status: accepted. Code: `doc/patches/hayro-jbig2-annex-h2-test.patch` (new). Rows:
+Session 1325. Status: accepted; the test is a commit on the owner's fork `close2/hayro`, which the
+manifest pins (ADR 2102). Code: `doc/patches/hayro-jbig2-annex-h2-test.patch` (new). Rows:
 §7.6.5, §7.6.5.1, §7.6.5.2, §7.6.5.3 stay `reported`; §7.6 and §7.6.6 stay `partial`.
 
 ## 1. What the owner's two answers decide

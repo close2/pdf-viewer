@@ -1375,7 +1375,7 @@ pub unsafe extern "C" fn quorra_page_count(viewer: *const Session, pages: *mut u
     let (Some(viewer), Some(pages)) = (viewer.as_ref(), pages.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.page_count() {
+    match viewer.reads().page_count() {
         Ok(count) => {
             *pages = count;
             Status::Ok.code()
@@ -1958,7 +1958,7 @@ pub unsafe extern "C" fn quorra_outline_read(
     let (Some(viewer), Some(outline)) = (viewer.as_ref(), outline.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.outline() {
+    match viewer.reads().outline() {
         Ok(read) => {
             *outline = Box::into_raw(Box::new(read));
             Status::Ok.code()
@@ -2271,7 +2271,7 @@ pub unsafe extern "C" fn quorra_selection_quads(
     let (Some(viewer), Some(quads)) = (viewer.as_ref(), quads.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.selection_quads() {
+    match viewer.reads().selection_quads() {
         Ok(found) => {
             *quads = Box::into_raw(Box::new(found));
             Status::Ok.code()
@@ -2299,7 +2299,7 @@ pub unsafe extern "C" fn quorra_highlight_quads(
     let (Some(viewer), Some(quads)) = (viewer.as_ref(), quads.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.highlight_quads() {
+    match viewer.reads().highlight_quads() {
         Ok(found) => {
             *quads = Box::into_raw(Box::new(found));
             Status::Ok.code()
@@ -2373,7 +2373,7 @@ pub unsafe extern "C" fn quorra_focused_annotation(
     let Some(viewer) = viewer.as_ref() else {
         return Status::NullArgument.code();
     };
-    match viewer.focused_annotation() {
+    match viewer.reads().focused_annotation() {
         Ok(((found, made), shape)) => {
             if let Some(number) = number.as_mut() {
                 *number = found;
@@ -2411,7 +2411,7 @@ pub unsafe extern "C" fn quorra_fields_read(
     let (Some(viewer), Some(fields)) = (viewer.as_ref(), fields.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.fields() {
+    match viewer.reads().fields() {
         Ok(read) => {
             *fields = Box::into_raw(Box::new(read));
             Status::Ok.code()
@@ -3507,7 +3507,7 @@ pub unsafe extern "C" fn quorra_layers_read(
     let (Some(viewer), Some(panel)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.layers() {
+    match viewer.reads().layers() {
         Ok(read) => {
             *panel = Box::into_raw(Box::new(read));
             Status::Ok.code()
@@ -3533,7 +3533,7 @@ pub unsafe extern "C" fn quorra_attachments_read(
     let (Some(viewer), Some(panel)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.attachments() {
+    match viewer.reads().attachments() {
         Ok(read) => {
             *panel = Box::into_raw(Box::new(read));
             Status::Ok.code()
@@ -5651,7 +5651,7 @@ pub unsafe extern "C" fn quorra_find_matches(
     let Ok(Some(needle)) = owned_text(needle) else {
         return Status::NotUtf8.code();
     };
-    match viewer.find(&needle) {
+    match viewer.reads().find(&needle) {
         Ok(found) => {
             *out = Box::into_raw(Box::new(found));
             Status::Ok.code()
@@ -5875,7 +5875,7 @@ pub unsafe extern "C" fn quorra_properties_read(
     let (Some(viewer), Some(out)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.properties() {
+    match viewer.reads().properties() {
         Ok(rows) => {
             *out = Box::into_raw(Box::new(rows));
             Status::Ok.code()
@@ -5901,7 +5901,7 @@ pub unsafe extern "C" fn quorra_articles_read(
     let (Some(viewer), Some(out)) = (viewer.as_ref(), panel.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.articles() {
+    match viewer.reads().articles() {
         Ok(rows) => {
             *out = Box::into_raw(Box::new(rows));
             Status::Ok.code()
@@ -5934,7 +5934,7 @@ pub unsafe extern "C" fn quorra_page_label(
     let Some(viewer) = viewer.as_ref() else {
         return Status::NullArgument.code();
     };
-    match viewer.page_label(page) {
+    match viewer.reads().page_label(page) {
         Ok(label) => copy_out(&label, out, cap, needed),
         Err(status) => status.code(),
     }
@@ -6011,7 +6011,7 @@ pub unsafe extern "C" fn quorra_thumbnail_read(
     let (Some(viewer), Some(out)) = (viewer.as_ref(), thumbnail.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.thumbnail(page) {
+    match viewer.reads().thumbnail(page) {
         Ok(miniature) => {
             *out = Box::into_raw(Box::new(miniature));
             Status::Ok.code()
@@ -6250,7 +6250,7 @@ pub unsafe extern "C" fn quorra_popups_read(
     let (Some(viewer), Some(out)) = (viewer.as_ref(), popups.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.popups() {
+    match viewer.reads().popups() {
         Ok(windows) => {
             *out = Box::into_raw(Box::new(windows));
             Status::Ok.code()
@@ -8314,7 +8314,7 @@ pub unsafe extern "C" fn quorra_window_answer(window: *mut Window, proceed: bool
     let Some(window) = window.as_mut() else {
         return Status::NullArgument.code();
     };
-    match window.answer_the_question(proceed) {
+    match window.answer(proceed) {
         Ok(()) => Status::Ok.code(),
         Err(status) => status.code(),
     }
@@ -8589,4 +8589,498 @@ pub extern "C" fn quorra_owed_kind_count() -> u32 {
 pub extern "C" fn quorra_owed_kind_name(kind: u32) -> *const c_char {
     let name = OwedKind::from_code(kind).map_or("unknown\0", OwedKind::name);
     name.as_ptr().cast::<c_char>()
+}
+
+/// Writes what a read answered into the caller's out-parameter as an owning handle, or answers
+/// the status that says why there is none; the out-parameter is written only on `QUORRA_OK`.
+fn hand_over<T>(read: Result<T, Status>, out: &mut *mut T) -> c_int {
+    match read {
+        Ok(value) => {
+            *out = Box::into_raw(Box::new(value));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.3.3's outline of the document in front, flattened as [`quorra_outline_read`] hands it over
+/// and released with [`quorra_outline_free`]; read again on a `QUORRA_OWED_PANELS`.
+///
+/// # Safety
+///
+/// See the module documentation. `outline` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_outline_read(
+    window: *const Window,
+    outline: *mut *mut Outline,
+) -> c_int {
+    let (Some(window), Some(outline)) = (window.as_ref(), outline.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().outline(), outline)
+}
+
+/// §8.11.4.3's `/Order` of the document in front, as [`quorra_layers_read`] hands it over.
+///
+/// # Safety
+///
+/// See the module documentation. `panel` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_layers_read(
+    window: *const Window,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(window), Some(panel)) = (window.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().layers(), panel)
+}
+
+/// §7.11.4's embedded files of the document in front, as [`quorra_attachments_read`] hands them
+/// over.
+///
+/// # Safety
+///
+/// See the module documentation. `panel` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_attachments_read(
+    window: *const Window,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(window), Some(panel)) = (window.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().attachments(), panel)
+}
+
+/// §14.3's information of the document in front, as [`quorra_properties_read`] hands it over.
+///
+/// # Safety
+///
+/// See the module documentation. `panel` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_properties_read(
+    window: *const Window,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(window), Some(panel)) = (window.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().properties(), panel)
+}
+
+/// §12.4.3's article threads of the document in front, as [`quorra_articles_read`] hands them
+/// over.
+///
+/// # Safety
+///
+/// See the module documentation. `panel` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_articles_read(
+    window: *const Window,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(window), Some(panel)) = (window.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().articles(), panel)
+}
+
+/// How many pages the document in front has: the rows of §12.3.4's panel.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_page_count(
+    window: *const Window,
+    pages: *mut usize,
+) -> c_int {
+    let (Some(window), Some(pages)) = (window.as_ref(), pages.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match window.reads().page_count() {
+        Ok(count) => {
+            *pages = count;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.4.2's label for one page of the document in front, in the two-call idiom;
+/// `QUORRA_NO_ANSWER` where the page states none.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_page_label(
+    window: *const Window,
+    page: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match window.reads().page_label(page) {
+        Ok(label) => copy_out(&label, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.3.4's thumbnail for one page of the document in front, as [`quorra_thumbnail_read`] hands
+/// it over and released with [`quorra_thumbnail_free`].
+///
+/// # Safety
+///
+/// See the module documentation. `thumbnail` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_thumbnail_read(
+    window: *const Window,
+    page: usize,
+    thumbnail: *mut *mut Miniature,
+) -> c_int {
+    let (Some(window), Some(thumbnail)) = (window.as_ref(), thumbnail.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().thumbnail(page), thumbnail)
+}
+
+/// §12.7's fields with a widget on the page shown — the controls the caller places over the page —
+/// as [`quorra_fields_read`] hands them over; read again on a `QUORRA_OWED_CONTROLS`.
+///
+/// # Safety
+///
+/// See the module documentation. `fields` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_fields_read(
+    window: *const Window,
+    fields: *mut *mut Form,
+) -> c_int {
+    let (Some(window), Some(fields)) = (window.as_ref(), fields.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().fields(), fields)
+}
+
+/// §12.5.6.14's open popup windows, placed, as [`quorra_popups_read`] hands them over; read again
+/// on a `QUORRA_OWED_POPUPS`.
+///
+/// # Safety
+///
+/// See the module documentation. `popups` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_popups_read(
+    window: *const Window,
+    popups: *mut *mut Popups,
+) -> c_int {
+    let (Some(window), Some(popups)) = (window.as_ref(), popups.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().popups(), popups)
+}
+
+/// The shapes covering what is selected, in device pixels of the viewport, drawn over the frames
+/// on every `QUORRA_OWED_REPAINT`.
+///
+/// # Safety
+///
+/// See the module documentation. `quads` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_selection_quads(
+    window: *const Window,
+    quads: *mut *mut Quads,
+) -> c_int {
+    let (Some(window), Some(quads)) = (window.as_ref(), quads.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().selection_quads(), quads)
+}
+
+/// Annex O's highlighted rectangles on the page shown, as [`quorra_highlight_quads`] hands them
+/// over: shapes, because Table Annex O.4 leaves the nature of the highlighting to the
+/// implementation.
+///
+/// # Safety
+///
+/// See the module documentation. `quads` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_highlight_quads(
+    window: *const Window,
+    quads: *mut *mut Quads,
+) -> c_int {
+    let (Some(window), Some(quads)) = (window.as_ref(), quads.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.reads().highlight_quads(), quads)
+}
+
+/// Every occurrence of what the find bar holds on the page shown — the needle the last
+/// [`quorra_window_find`] gave, and none after [`quorra_window_find_stop`] — as
+/// [`quorra_find_matches`] hands them over.
+///
+/// # Safety
+///
+/// See the module documentation. `matches` receives an owning handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_find_matches(
+    window: *const Window,
+    matches: *mut *mut Matches,
+) -> c_int {
+    let (Some(window), Some(matches)) = (window.as_ref(), matches.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    hand_over(window.matches(), matches)
+}
+
+/// Which annotation holds §12.5.1's focus, and the quadrilateral the caller draws its ring on.
+///
+/// # Safety
+///
+/// See the module documentation. `quad` is writable for eight `float`s, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_focused_annotation(
+    window: *const Window,
+    number: *mut u32,
+    generation: *mut u16,
+    quad: *mut f32,
+) -> c_int {
+    let Some(window) = window.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match window.reads().focused_annotation() {
+        Ok(((found, made), shape)) => {
+            if let Some(number) = number.as_mut() {
+                *number = found;
+            }
+            if let Some(generation) = generation.as_mut() {
+                *generation = made;
+            }
+            if !quad.is_null() {
+                core::slice::from_raw_parts_mut(quad, shape.len()).copy_from_slice(&shape);
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Activates an object: an outline item's or a thread's row, or a push-button's widget.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_activate(
+    window: *mut Window,
+    number: u32,
+    generation: u16,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.activate(number, generation);
+    Status::Ok.code()
+}
+
+/// A placed control's text, as typed; §12.7.5.3's file-select field takes the file it names.
+/// `QUORRA_NO_ANSWER` where no field of that qualified name has a widget on the page shown.
+///
+/// # Safety
+///
+/// See the module documentation. `field` and `text` are NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_set_field_text(
+    window: *mut Window,
+    field: *const c_char,
+    text: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match (owned_text(field), owned_text(text)) {
+        (Ok(Some(field)), Ok(Some(text))) => match window.set_field_text(&field, text) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        (Ok(None), _) | (_, Ok(None)) => Status::NullArgument.code(),
+        (Err(()), _) | (_, Err(())) => Status::NotUtf8.code(),
+    }
+}
+
+/// §12.7.5.4: which of Table 234's `/Opt` entries a placed choice control has selected, by index;
+/// none is a field with nothing chosen.
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8; `options` is readable for
+/// `count` elements, or null when `count` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_set_field_options(
+    window: *mut Window,
+    field: *const c_char,
+    options: *const usize,
+    count: usize,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let field = match owned_text(field) {
+        Ok(Some(field)) => field,
+        Ok(None) => return Status::NullArgument.code(),
+        Err(()) => return Status::NotUtf8.code(),
+    };
+    let chosen = if count == 0 {
+        Vec::new()
+    } else if options.is_null() {
+        return Status::NullArgument.code();
+    } else {
+        core::slice::from_raw_parts(options, count).to_vec()
+    };
+    match window.set_field_options(&field, chosen) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// Empties a placed control's field: §12.7.6.3's "its V entry shall be removed".
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_clear_field(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.clear_field(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// A placed control finished with: Enter in a single-line field, or the keyboard taken elsewhere.
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_commit_field(
+    window: *mut Window,
+    field: *const c_char,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(field) {
+        Ok(Some(field)) => match window.commit_field(&field) {
+            Ok(()) => Status::Ok.code(),
+            Err(status) => status.code(),
+        },
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// A placed check box or radio button, by its widget annotation, clicked to `on`; a refusal the
+/// field's flags state is said. `QUORRA_NO_ANSWER` where no widget on the page is that annotation,
+/// `QUORRA_WRONG_KIND` where it toggles nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_toggle_field(
+    window: *mut Window,
+    number: u32,
+    generation: u16,
+    on: bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.toggle_field(number, generation, on) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// §8.11's switch on a layer's row moved; a locked group (Table 99) is said and left.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_set_group(
+    window: *mut Window,
+    number: u32,
+    generation: u16,
+    on: bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    window.set_group(number, generation, on);
+    Status::Ok.code()
+}
+
+/// §7.11.4: takes out the file an attachment's row names, by its `/EmbeddedFiles` key.
+///
+/// # Safety
+///
+/// See the module documentation. `name` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_extract(window: *mut Window, name: *const c_char) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match owned_text(name) {
+        Ok(Some(name)) => {
+            window.extract(name);
+            Status::Ok.code()
+        }
+        Ok(None) => Status::NullArgument.code(),
+        Err(()) => Status::NotUtf8.code(),
+    }
+}
+
+/// How many panels a window offers, against the header's `QUORRA_TAB_COUNT`: `viewer_host::Tab`'s
+/// list, in the order every window offers it, so that a panel added fails a C host's startup check
+/// as it fails to compile in the toolkit windows (RFC 0010 section 5, ADR 2104).
+#[unsafe(no_mangle)]
+pub extern "C" fn quorra_tab_count() -> u32 {
+    u32::try_from(viewer_host::Tab::ALL.len()).unwrap_or(u32::MAX)
+}
+
+/// What a panel's tab says — the one wording every window shows — in the two-call idiom;
+/// `QUORRA_OUT_OF_RANGE` for a `QUORRA_TAB_*` this build does not define.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_tab_label(
+    tab: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let label = usize::try_from(tab)
+        .ok()
+        .and_then(|index| viewer_host::Tab::ALL.get(index))
+        .map(|tab| tab.label());
+    match label {
+        Some(label) => copy_out(label, out, cap, needed),
+        None => Status::OutOfRange.code(),
+    }
 }

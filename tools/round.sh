@@ -135,7 +135,7 @@ every_round_reading() {
     printf 'CLAUDE.md                                the five principles, and what *done* means\n'
     printf 'doc/todo/02-every-round.md#0             section 0: the round on one page — the contract, tier 1, the record\n'
     printf 'doc/environment.md#rules                 the rule block that opens it: one line per shared-machine rule\n'
-    printf 'doc/traps/every-round.md                 the ten traps that carry four-fifths of the citations\n'
+    printf 'doc/traps/every-round.md                 the ten traps the records cite most (tools/state.sh traps)\n'
     printf 'doc/habits/every-round.md                the ten habits the records show rounds paying for\n'
 }
 

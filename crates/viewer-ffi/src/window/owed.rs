@@ -41,11 +41,19 @@ pub enum OwedKind {
     Chrome = 8,
     /// Table 147's `/FitWindow` or `/CenterWindow` is owed at this frame.
     Place = 9,
+    /// The set of controls placed over the page changed: rebuilt from `quorra_window_fields_read`
+    /// rather than moved, so a control a person is typing into keeps the keyboard while it stays.
+    Controls = 10,
+    /// §12.5.6.14's open popup windows changed, or one moved: `quorra_window_popups_read`.
+    Popups = 11,
+    /// The strip of open documents changed — one added, one closed, or the one in front moved:
+    /// `quorra_window_document_count` and the calls beside it.
+    Strip = 12,
 }
 
 impl OwedKind {
     /// How many kinds this build defines: `QUORRA_OWED_KIND_COUNT`.
-    pub const COUNT: u32 = 10;
+    pub const COUNT: u32 = 13;
 
     /// The number the header declares, as C sees it.
     #[must_use]
@@ -67,6 +75,9 @@ impl OwedKind {
             7 => Self::Panels,
             8 => Self::Chrome,
             9 => Self::Place,
+            10 => Self::Controls,
+            11 => Self::Popups,
+            12 => Self::Strip,
             _ => return None,
         })
     }
@@ -85,6 +96,9 @@ impl OwedKind {
             Self::Panels => "panels\0",
             Self::Chrome => "chrome\0",
             Self::Place => "place\0",
+            Self::Controls => "controls\0",
+            Self::Popups => "popups\0",
+            Self::Strip => "strip\0",
         }
     }
 }
@@ -117,6 +131,12 @@ pub(crate) enum Owed {
     Chrome,
     /// Table 147's placement.
     Place,
+    /// The controls over the page rebuilt.
+    Controls,
+    /// The popups rebuilt.
+    Popups,
+    /// The strip of open documents read again.
+    Strip,
 }
 
 impl Owed {
@@ -134,6 +154,9 @@ impl Owed {
             Self::Panels => OwedKind::Panels,
             Self::Chrome => OwedKind::Chrome,
             Self::Place => OwedKind::Place,
+            Self::Controls => OwedKind::Controls,
+            Self::Popups => OwedKind::Popups,
+            Self::Strip => OwedKind::Strip,
         }
     }
 
@@ -146,7 +169,14 @@ impl Owed {
             | Self::Question(text)
             | Self::Clipboard(text)
             | Self::Password { words: text, .. } => Some(text),
-            Self::Repaint | Self::Beep | Self::Panels | Self::Chrome | Self::Place => None,
+            Self::Repaint
+            | Self::Beep
+            | Self::Panels
+            | Self::Chrome
+            | Self::Place
+            | Self::Controls
+            | Self::Popups
+            | Self::Strip => None,
         }
     }
 }
@@ -167,7 +197,13 @@ impl Owing {
     /// One more record, kept once where its kind says only "again".
     pub(crate) fn owe(&mut self, owed: Owed) {
         match owed {
-            Owed::Repaint | Owed::Panels | Owed::Chrome | Owed::Place
+            Owed::Repaint
+            | Owed::Panels
+            | Owed::Chrome
+            | Owed::Place
+            | Owed::Controls
+            | Owed::Popups
+            | Owed::Strip
                 if self.records.contains(&owed) => {}
             Owed::Title(title) => {
                 match self

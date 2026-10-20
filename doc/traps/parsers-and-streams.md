@@ -4,8 +4,7 @@ Status: **standing** — each is a mistake somebody actually made in this tree.
 Read by: a round that touches `pdf-syntax`, a filter, a font program, an image codec, a colour
 space, or anything that decides what to do with input it cannot fully handle.
 
-[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
-the rule, which group holds which, and why every trap keeps its number.
+[`README.md`](README.md) is the index, one row per trap, and says why each keeps its number.
 
 ## Traps
 
@@ -188,14 +187,10 @@ not to be *parsed*.
 
 ### 8. A corpus finds what documents contain, not what the specification says — and trap 4, the fragment that is not the tree either
 
-**Trap 4 is the other half of this trap and is the section below**, merged here in the
-one-thousand-and-twenty-fifth session on `doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s
-recommendation. Both incidents are kept and both numbers are still citable: neither is renamed,
-because ADRs and records cite each by number and an ADR is not edited to follow a file that moved
-underneath it (ADR 0232 §2). The reason for putting them under one heading is that **a round
-reading either one alone is reading half a rule** — trap 8 says the corpus is not the
-specification, trap 4 says the hand-built fragment is not the tree, and the pair is the only form
-in which either is true.
+**Trap 4 is the other half of this trap and is the section below** (`doc/reviews/1018`; the
+index says why both numbers stay). **A round reading either one alone is reading half a rule** —
+trap 8 says the corpus is not the specification, trap 4 says the hand-built fragment is not the
+tree, and the pair is the only form in which either is true.
 
 #### 4. Test against real documents, not hand-written fragments
 

@@ -104,7 +104,9 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId, Stream};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
-use crate::survey::{DefaultSpace, DeviceColour, DeviceFamily, IccProfile, Route, SpaceKind};
+use crate::survey::{
+    DefaultSpace, DeviceColour, DeviceFamily, IccProfile, IccSelection, Route, SpaceKind,
+};
 use crate::table::{name_of, states, states_name};
 use crate::target::{Flavour, Part};
 
@@ -1740,6 +1742,24 @@ const ICC_DEVICE_CLASSES: [&[u8]; 4] = [b"scnr", b"mntr", b"prtr", b"spac"];
 /// in the profile's header is what says so.
 const ICC_COLOUR_SPACES: [(&[u8], i64); 4] =
     [(b"GRAY", 1), (b"RGB ", 3), (b"CMYK", 4), (b"Lab ", 3)];
+
+/// The number of components a profile's header says it has, where its device class and data
+/// colour space are ones ISO 32000-2 §8.6.5.5 admits for an `ICCBased` space's profile.
+///
+/// Public because the converter restates a wrong or missing `N` as this number, and it reads the
+/// same header test the requirement below fails a profile on (`doc/adr/2099`). `None` is a
+/// profile with no `acsp` signature, a class or a colour space the clause does not admit.
+#[must_use]
+pub fn icc_profile_component_count(data: &[u8]) -> Option<i64> {
+    let (class, space) = profile_header(data)?;
+    if !ICC_DEVICE_CLASSES.contains(&class) {
+        return None;
+    }
+    ICC_COLOUR_SPACES
+        .iter()
+        .find(|(signature, _)| *signature == space)
+        .map(|(_, count)| *count)
+}
 
 /// ISO 19005-4 section 6.2.4.2, first sentence.
 ///
@@ -3829,10 +3849,78 @@ fn duplicating_a_current_profile(
     findings: &mut Findings,
     wanted: impl Fn(Route) -> bool,
 ) {
-    let document = exam.document;
-    let selections = exam.survey().icc_selections();
+    for used in cmyk_profile_uses(exam.document, exam.survey().icc_selections(), wanted) {
+        let selection = used.selection;
+        if used.intent == Beside::Same {
+            findings.record(
+                selection.place.clone(),
+                format!(
+                    "{} uses {} whose profile is the profile in the PDF/A output intent then \
+                     current",
+                    selection.what,
+                    icc_space_reached(selection.via),
+                ),
+            );
+        }
+        if used.blending == Beside::Same {
+            findings.record(
+                selection.place.clone(),
+                format!(
+                    "{} uses {} whose profile is the profile of the transparency blending \
+                     colour space then in force",
+                    selection.what,
+                    icc_space_reached(selection.via),
+                ),
+            );
+        }
+    }
+}
+
+/// How the profile an `ICCBased` selection is formed from stands to one ISO 19005-4 section
+/// 6.2.4.2 compares it with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Beside {
+    /// No such profile is in force where the space was selected.
+    Absent,
+    /// The two are one profile by one of the clause's two tests.
+    Same,
+    /// A profile is in force and it is a different one.
+    Different,
+}
+
+/// One `ICCBased` CMYK selection read against the two profiles ISO 19005-4 section 6.2.4.2's last
+/// requirement compares it with.
+///
+/// Public because the requirement has a converter as well as a validator: `pdf_transform`'s
+/// archive names `DeviceCMYK` where the profile is the one already in force, and it decides
+/// where that is by this reading rather than by one of its own, so the two cannot drift
+/// (`doc/adr/2098`).
+#[derive(Debug, Clone, Copy)]
+pub struct CmykProfileUse<'a> {
+    /// The selection itself.
+    pub selection: &'a IccSelection,
+    /// The profile of the PDF/A output intent then current: section 6.2.3 makes a page's own the
+    /// current one where it states one, and the document's otherwise.
+    pub intent: Beside,
+    /// The profile of ISO 32000-2 §11.3.4's blending colour space then in force, where that space
+    /// is an `ICCBased` one; [`Beside::Absent`] where it is any other space or there is none.
+    pub blending: Beside,
+}
+
+/// Every selection of an `ICCBased` space whose profile is a CMYK one, on a route `wanted`
+/// admits, beside the output intent's and the blending space's profiles.
+///
+/// The clause binds a CMYK destination profile, which `N` is what tells: §8.6.5.5's Table 66
+/// makes the component count the profile's own, so a three-component profile duplicating an RGB
+/// output intent is not what it forbids.
+#[must_use]
+pub fn cmyk_profile_uses<'a>(
+    document: &Document,
+    selections: &'a [IccSelection],
+    wanted: impl Fn(Route) -> bool,
+) -> Vec<CmykProfileUse<'a>> {
     if selections.is_empty() {
-        return;
+        return Vec::new();
     }
     let of_document = output_intent_arrays(document)
         .first()
@@ -3847,50 +3935,31 @@ fn duplicating_a_current_profile(
         })
         .collect();
     let mut read = Profiles::default();
+    let mut beside = |used: &Candidate, other: Option<&Candidate>| match other {
+        None => Beside::Absent,
+        Some(other) if same_profile(document, &mut read, used, other) => Beside::Same,
+        Some(_) => Beside::Different,
+    };
+    let mut out = Vec::new();
     for selection in selections {
-        if !wanted(selection.via) {
-            continue;
-        }
-        // The clause binds a CMYK destination profile, which `N` is what tells: §8.6.5.5's
-        // Table 66 makes the component count the profile's own, so a three-component profile
-        // duplicating an RGB output intent is not what this forbids.
-        if selection.profile.family != Some(DeviceFamily::Cmyk) {
+        if !wanted(selection.via) || selection.profile.family != Some(DeviceFamily::Cmyk) {
             continue;
         }
         let used = Candidate::of(&selection.profile);
-        // Section 6.2.3: a page's own PDF/A output intent is the current one where it states one,
-        // and the document's otherwise.
         let current = of_page
             .get(selection.page)
             .and_then(Option::as_ref)
             .or(of_document.as_ref());
-        if let Some(current) = current
-            && same_profile(document, &mut read, &used, current)
-        {
-            findings.record(
-                selection.place.clone(),
-                format!(
-                    "{} uses {} whose profile is the profile in the PDF/A output intent then \
-                     current",
-                    selection.what,
-                    icc_space_reached(selection.via),
-                ),
-            );
-        }
-        if let Some(blending) = &selection.blending
-            && same_profile(document, &mut read, &used, &Candidate::of(blending))
-        {
-            findings.record(
-                selection.place.clone(),
-                format!(
-                    "{} uses {} whose profile is the profile of the transparency blending \
-                     colour space then in force",
-                    selection.what,
-                    icc_space_reached(selection.via),
-                ),
-            );
-        }
+        let intent = beside(&used, current);
+        let blending = selection.blending.as_ref().map(Candidate::of);
+        let blending = beside(&used, blending.as_ref());
+        out.push(CmykProfileUse {
+            selection,
+            intent,
+            blending,
+        });
     }
+    out
 }
 
 /// How a report names the `ICCBased` space a finding is about, given how it was reached.

@@ -634,7 +634,10 @@ profile
 #### `graphics/icc-profiles-conform-to-the-base-standard` (part 4)
 ISO 19005-2 6.2.4.2, ISO 19005-4 6.2.4.2 · the part 4 tag row **built** as the part 2 one is
 (ADR 2006: the edition its header names, the same three answers — the operator's text, the
-Table 65 alternate, a refusal), the other two `not-built-yet`
+Table 65 alternate, a refusal); the base-standard row's `N` sentence **built** as a statement (ADR
+2099: a missing or wrong `N` states the count the profile's header gives, which this reader draws
+with; a profile it does not draw through, or of a class or colour space §8.6.5.5 does not admit,
+refused); the permitted-edition row `not-built-yet`
 
 - **Mitigation** — **`preserve`, on a route the limits document treats as a loss and the base
   standard actually states.** An `ICCBased` space carries an `/Alternate`, and Table 65 says of it:
@@ -660,36 +663,24 @@ Table 65 alternate, a refusal), the other two `not-built-yet`
 
 #### `graphics/no-icc-space-duplicating-the-output-intent-profile`
 #### `graphics/separation-alternate-space-does-not-duplicate-a-current-profile`
-ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · today `the-fence` in its siting ·
-**corrected in session 962, re-examined and held in session 971**
+ISO 19005-4 6.2.4.2 and 6.2.4.4 · PDF/A-4, 4f, 4e · **built** as a statement (ADR 2098, which
+reverses ADRs 0965 and 0982 on this pair)
 
-- **Mitigation** — **none, and this entry was wrong twice** (ADR 0965; §13.3.1). It read: mechanical
-  and lossless, name `DeviceCMYK` where the duplicate profile was, which ISO 19005-4 6.2.4.3
-  licenses exactly because the identical profile is already the file's. Two things stop it. The rule
-  binds a space that is *used*, so the failure is reported where the content stream selected it — a
-  page, with no object — and the colour space array sits in a resource dictionary no finding names;
-  siting the rewrite means walking the content streams a second time to decide which space was used,
-  which is the validator's reading made again in the converter. And even sited it would not be a
-  restatement: §8.6.7 applies non-zero overprint mode only where the current space is `DeviceCMYK`
-  or is implicitly converted to it, so the substitution can decide a composite §8.6.5.7 leaves
-  open — the very ambiguity 6.2.4.2's NOTE 2 gives as the reason for the prohibition.
-- **Session 971 asked whether `SpotColorantEntry` had changed the siting half, and it has not**
-  (ADR 0982). That rewrite was the first to reach an object that is a colour space array, so the
-  question was fair; the answer is that it reaches one **because its own finding names that array's
-  object**, and these findings name the content stream that *used* the space. Run against the
-  corpus witness the finding reads `page 1, ICCBased: a colour space operator uses an ICCBased CMYK
-  colour space whose profile is the profile in the PDF/A output intent then current` — a page, a
-  name of `ICCBased`, and no object at all. The array is still in a resource dictionary nothing
-  points at.
-- **The value half is stronger than it was written, not weaker.** §8.6.5.7 says of the implicit
-  conversion outright that *"[t]he conditions under which such implicit conversion is done cannot be
-  specified in PDF"* and that it *"is completely hidden by the PDF processor and plays no part in
-  the interpretation of PDF colour spaces"*. So whether an `ICCBased` CMYK space behaves as
-  `DeviceCMYK` — and therefore whether non-zero overprint mode applies to it — is the processor's
-  decision by the base standard's own words. Writing `/DeviceCMYK` into the file takes that decision
-  away from the processor and settles it. That is not a restatement under any reading.
+- **Mitigation** — **name `DeviceCMYK` where the array named the duplicated profile, a `Stated`
+  rewrite with conditions.** The profile is the one already in force, so the colour is the same
+  colour wherever the device space is read through it: ISO 19005-4 6.2.4.3 renders `DeviceCMYK`
+  through the current output intent's profile, and §11.7.2 composites a device-space object in a
+  four-component CIE-based group as that group's space. What `DeviceCMYK` keeps beyond its colour
+  is overprinting (§11.7.2's next sentence), and §8.6.7's mode acts only with overprinting on — so
+  a file that turns it on anywhere is refused, and so is a use of the profile under another
+  intent's or blending space's profile, a use beside a group space the survey records no profile
+  for, a `DefaultCMYK` naming the profile and an array object a group's `CS` shares. Every array
+  naming the profile is rewritten, a group's `CS` excepted; the uses are the validator's own
+  survey selections (`pdf_archive::cmyk_profile_uses`), so the population is not a second walk.
+- **Witnesses** — veraPDF's `6-2-4-2-t03-fail-a` to `-f` and `6-2-4-4-t01-fail-i`, `-j` convert
+  to 4 and pass veraPDF, each page byte-identical at 72 and 720 dpi.
 - **By target** — part 2 states neither rule, so a PDF/A-2 target never asks (kind A, confirmed).
-- **From a configuration** — nothing, by design.
+- **From a configuration** — nothing: a statement asks nothing of the operator.
 - **Departure** — **A**, and pointless: the remedy loses nothing.
 
 #### `graphics/spot-colourants-appear-in-the-colorants-dictionary`
@@ -2405,7 +2396,8 @@ afternoon, and §13.3.1 has all five — the two duplicate-profile rows
 rows (`graphics/jpeg2000-colour-specification-method`,
 `graphics/jpeg2000-one-best-colour-space-specification`), and
 `graphics/spot-colourants-appear-in-the-colorants-dictionary` — **and the last of those five did not
-stay refused**, which is the correction below.
+stay refused**, which is the correction below. **Nor did the duplicate-profile pair**: ADR 2098
+builds it as a statement on conditions that answer both grounds below (section 4.2's entry).
 
 **Two more were built in the nine-hundred-and-sixty-sixth session** (ADR 0973), and are struck here
 as they were struck from `REFUSED_BY_NAME`:
@@ -2500,7 +2492,9 @@ about the standard and two about the work, and the first would have written a wr
   sited it would not be a restatement: §8.6.7 applies non-zero overprint mode only where the
   current space is `DeviceCMYK` or is implicitly converted to it, so the substitution can decide a
   composite §8.6.5.7 leaves open — the very ambiguity 6.2.4.2's NOTE 2 gives as the reason for the
-  prohibition.
+  prohibition. **ADR 2098 reverses both halves**: the uses are the survey's selections and the
+  rewrite reaches every array naming the profile, so nothing is sited twice; and the mode acts only
+  with overprinting on, which the remedy refuses anywhere in the file.
 - **The JPEG 2000 entry was right about the cost and silent about the value.** These two fields do
   live in the JP2 wrapper, and the rewrite is a hundred-odd bytes that touches no sample — but
   every value it could write is a choice. A `METH` outside the three the part admits describes the
@@ -2584,6 +2578,8 @@ catalogue's habits and one settles a question it had left open:
   somewhere else; what sites a rewrite is the finding naming the object. And §8.6.5.7 turns out to
   say outright that the implicit conversion "cannot be specified in PDF", which makes writing
   `/DeviceCMYK` a decision taken away from the processor rather than one restated from the file.
+  ADR 2098 later found the decision has no mark to decide in a file that turns overprinting on
+  nowhere, and built the pair on that condition.
 
 ---
 

@@ -10,6 +10,8 @@ use crate::compose::premultiply;
 use crate::surface::ToDevice;
 use crate::{CpuRasterError, CpuRasterizer, HIGH_PRECISION_PIPELINE, convert, scan};
 
+mod centres;
+
 /// Where and how an image is placed.
 ///
 /// Grouped because these four always travel together, and passing them separately made
@@ -60,6 +62,10 @@ impl CpuRasterizer {
             return Ok(());
         }
         let placement = to_device.of(transform);
+        let placement_of_image = centres::Placement {
+            mark: transform,
+            to_device,
+        };
         // Where a command's samples do not exist until the device scale does — §11.6.5.2's
         // soft mask on a grid of its own is the case — this is where they are produced, and
         // `pdf_render` decides the grid so that the three backends cannot ask for different
@@ -134,6 +140,18 @@ impl CpuRasterizer {
             tiny_skia::FilterQuality::Nearest
         };
 
+        // §10.7.4 colours an unsmoothed image's pixel by the sample its centre maps back to, and the
+        // centre is the page's, so `centres` chooses the samples on the page's device grid (ADR
+        // 2100).
+        if filter == tiny_skia::FilterQuality::Nearest {
+            let drawn = centres::Drawn {
+                alpha,
+                blend,
+                anti_alias: self.anti_alias,
+            };
+            return centres::draw(pixmap, &samples, placement_of_image, drawn, clip);
+        }
+
         let paint = tiny_skia::Paint {
             shader: tiny_skia::Pattern::new(
                 samples.as_ref(),
@@ -148,20 +166,9 @@ impl CpuRasterizer {
             ..tiny_skia::Paint::default()
         };
 
-        // The unit square, which the command's transform carries onto the page.
-        let mut builder = tiny_skia::PathBuilder::new();
-        builder.push_rect(tiny_skia::Rect::from_xywh(0.0, 0.0, 1.0, 1.0).ok_or(
-            CpuRasterError::InvalidImage {
-                width: 1,
-                height: 1,
-                bytes: 0,
-            },
-        )?);
-        let square = builder.finish().ok_or(CpuRasterError::InvalidPath)?;
-
         scan::fill(
             pixmap,
-            &square,
+            &unit_square()?,
             &paint,
             tiny_skia::FillRule::Winding,
             convert::transform(placement),
@@ -169,4 +176,17 @@ impl CpuRasterizer {
         );
         Ok(())
     }
+}
+
+/// The unit square, which a command's transform carries onto the page.
+fn unit_square() -> Result<tiny_skia::Path, CpuRasterError> {
+    let mut builder = tiny_skia::PathBuilder::new();
+    builder.push_rect(tiny_skia::Rect::from_xywh(0.0, 0.0, 1.0, 1.0).ok_or(
+        CpuRasterError::InvalidImage {
+            width: 1,
+            height: 1,
+            bytes: 0,
+        },
+    )?);
+    builder.finish().ok_or(CpuRasterError::InvalidPath)
 }

@@ -353,7 +353,8 @@ fn what_it_printed(said: &str) {
 
 /// `quorra_window` from C: `c/drive_a_window.c` runs the loop a toolkit host runs — a resize, the
 /// window's timer, some keys, an answer — and every one of them is one call and the same reading of
-/// what the window owes (RFC 0010 section 3.2a, ADR 2088).
+/// what the window owes, then the rows, the marks and a control's commit read and sent through it
+/// (RFC 0010 section 3.2a, ADRs 2088 and 2104).
 #[test]
 fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     let Some(cc) = compiler() else {
@@ -418,7 +419,9 @@ fn what_the_window_owed(said: &str) {
     for expected in [
         // The counted kinds against the header's, and a path that names no file refused by its
         // own status rather than opened into a window that says nothing.
-        "owed kinds 10 (header 10), unknown is unknown",
+        "owed kinds 13 (header 13), unknown is unknown",
+        // `viewer_host::Tab`'s six, in the order and the words every window shows them.
+        "panels offered 6 (header 6): Contents Pages Layers Files Read About",
         "an unreadable file: the file named could not be opened for reading",
         // Table 29's `/PageLayout`, obeyed when the document opened and said, as every window says
         // it.
@@ -431,6 +434,11 @@ fn what_the_window_owed(said: &str) {
         // and §12.3.3's item the page is in.
         "window title: PDF 2.0 Application Note 001: Usage of Black Point Compensation — Cover — \
          page 1 of 5",
+        // The panels' rows, read on the record the open owed through the vocabulary's own
+        // handles: §12.3.3's fourteen items (mutool lists the same fourteen, as evidence), the
+        // five pages, and §12.4.2's label for the first (ADR 2104).
+        "window panels: 2 owed, 14 outline row(s), 14 property row(s), 5 page(s); page 1 is \
+         labelled \"Cover\" (ok), its thumbnail: ok",
         // Page Down is a message the window sent itself, so nothing is handed back.
         "window frame: 1 picture(s), page 2, 708x1000",
         "— page 2 of 5 — PDF 2.0 Application Note 001: Black Point Compensation, act Nothing",
@@ -441,12 +449,21 @@ fn what_the_window_owed(said: &str) {
         // copyright page and is on the third, which `pdftotext` agrees with as evidence.
         "said: searching for \"Black Point\": 5 page(s) left",
         "window search: found \"Black Point\" on page 3",
+        // What a repaint draws over the frames: the page's three occurrences of the needle, any
+        // case, as the search counts them, the one it landed on selected; and none once the bar
+        // closed, while the selection stays.
+        "window marks with the find bar open: 3 match(es), 6 selection quad(s), 0 highlight(s)",
+        "window marks after it closed: 0 match(es), 6 selection quad(s), 0 highlight(s)",
         "window pointer at the corner: over a link 0",
+        // An outline row's click: `/Dest` names page 3, so the caption and the count follow.
+        "window outline row \"Preface\" activated: PDF 2.0 Application Note 001: Usage of Black \
+         Point Compensation — 2 — page 3 of 5",
         // A file chooser's answer opens in a tab of its own and takes the front; the first is
         // chosen and closed, and closing the other is the last, which the window leaves open for
         // its caller to close.
         "said: quorra_window_form_fixture.pdf opened beside — 2 document(s) open",
-        "window strip: 2 document(s), quorra_window_form_fixture.pdf in front at 1",
+        "window strip: 2 document(s), quorra_window_form_fixture.pdf in front at 1, the strip \
+         owed yes",
         "window closed one: closed PDF20_AN001-BPC.pdf — 1 document(s) open; the last 0",
         "window closing the other: the last 1, 1 document(s) left open",
         // Tab reaches the push-button and Space presses it: the submission's owed sentence, then
@@ -461,6 +478,13 @@ fn what_the_window_owed(said: &str) {
         "a second answer: there is nothing to answer with",
         // And a password for a document no prompt is out for opens nothing.
         "a password nobody asked for: there is nothing to answer with",
+        // The fixture's text field is a control placed over the page — the open owed the controls
+        // once — and toggles nothing; a field the page does not show refuses an edit by status;
+        // typed into and finished with, the field holds what was typed.
+        "window form: 3 field(s), typed; 1 control record(s); toggling it: the message at that \
+         index is not of the kind this accessor reads; an unknown field: there is nothing to \
+         answer with",
+        "window control committed: typed is \"typed in C\" (ok)",
         "ok",
     ] {
         assert!(

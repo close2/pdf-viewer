@@ -480,3 +480,53 @@ A ledger audit that counts rows by `(is|are) (read|applied|executed)` without `\
 counts `this read` and `his read` as claims: the text rows' audit printed 70 claims without the
 boundaries and 61 with them (round 1468, ADR 1772). Put `\b` round the phrase before the count is
 written into a brief, and write the pattern beside the figure so the next round re-derives the same one.
+
+## A reason that says what the program lacks expires when the program gains it
+
+Four habits on the decay of a row's *reason* — a check deferred for cost, a reason about a verb,
+the sweep for a reason's shape, and the `inapplicable` row waiting for a capability — each with its
+incident (ADR 0983).
+
+- **A check deferred for cost belongs wherever the cost is already being paid, and nothing tells
+  you when that place appears.** Table 45's `/CheckSum` was read and not verified for eighty-three
+  sessions, on a reason that was true — "checking would mean inflating every attachment" — and
+  that expired the moment one path decoded one stream. The clause names where it belongs:
+  "the checksum of the bytes of the **uncompressed** embedded file". **After a session that
+  makes something decoded, decompressed or laid out for the first time, re-read the entries whose
+  reason for being unread was that nobody had it yet.** ADR 0145, and it is ADR 0108's regular
+  expression looking for a different kind of blocker: not "needs §X" but "would cost too much
+  here".
+
+- **The three sweeps found a fourth shape in the hundred-and-ninety-first, and it is the
+  strongest one yet: a row whose "this program has no ___" was about a *verb*.** §12.8.6 said
+  a usage-rights signature grants "features of a PDF processor that are not available by
+  default" and that "this program has no feature behind such a gate"; §12.8.2.3 said the same.
+  Both were true when written and both stopped being true in the hundred-and-thirty-fifth and
+  -sixth sessions, when this program learned to fill in a field and save the file — which are
+  exactly the rights Table 258 grants and exactly the changes Table 257's `/P` restricts. And
+  the requirement was not a new one: §12.8.2.2.1 has always carried, in a parenthesis, "(These
+  changes to the document shall also be prevented if the signature dictionary is referred from
+  the DocMDP entry in the permissions dictionary.)" A `shall`, addressed to a processor that
+  modifies, unread for fifty-six sessions after this one became one. The restriction is now stated
+  by `pdf_model::restriction::asserted` and decided by the host's policy (ADR 0212), and
+  §12.8.2.3's `should` — remove a UR signature the modification exceeds — is implemented: a save
+  beyond the granted rights withdraws the signature. **After a session that gives the program a verb,
+  the rows to re-read are the ones whose reason is about what the program *is*, not only about
+  what a clause needs.**
+
+- **Sweep for the reason's *shape*, not for its clause.** Sessions 118 and 122 grepped the
+  ledger's notes for "while §X does not exist" and for entries claimed unread. The
+  hundred-and-seventy-fourth grepped for a third shape — "this program has no ___", "no panel",
+  "which this is not" — over `partial`, `reported` **and** `inapplicable` rows, and found
+  §12.6.3 saying "[n]othing raises an event … this crate has no events", which stopped being
+  true in the hundred-and-thirty-second when `Command::Pointer` landed. Forty-one sessions. The
+  three sweeps were twenty lines of Python apiece and each paid on its first run; they are
+  `tools/conformance`'s `blockers`, `unread` and `capabilities` now (`doc/todo/01`, ADR 0345).
+
+- **An `inapplicable` row whose reason is "this program has no ___" is a row waiting for a
+  session that gives the program one.** §14.3.3 was `inapplicable` because "a viewer with a
+  document-properties panel would read it; this one has no panel", and the panel arrived seven
+  sessions before anybody re-read the row. That is the second instance after §12.7.4.2's field
+  names, and the trigger is ADR 0122's, stated above — **after a session that adds a capability, sweep
+  the rows whose reason begins "this program has no"** — taken over `inapplicable` rows as well
+  as `partial` ones.

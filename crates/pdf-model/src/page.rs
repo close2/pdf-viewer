@@ -799,8 +799,8 @@ impl<'a> Pages<'a> {
         // the scan; the probe runs only where `/Count` was *believed without a walk*, since a
         // count that came from `count_leaves` above has already answered the question by
         // walking. So a well-formed document pays one leftmost-spine descent — the descent
-        // `get(0)` is about to perform anyway — and `CLAUDE.md`'s "a 500-page document must open
-        // no slower than a 5-page one" is what fixes the order.
+        // `get(0)` is about to perform anyway — and `CLAUDE.md`'s "a 500-page document must
+        // reach its first page no slower than a 5-page one" is what fixes the order.
         let recovering = count == 0
             || (believed.is_some()
                 && !root.as_ref().is_some_and(|node| {

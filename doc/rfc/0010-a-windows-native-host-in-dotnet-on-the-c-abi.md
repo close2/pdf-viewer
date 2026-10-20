@@ -88,10 +88,23 @@ answered, the frame presented, the title, the status, the page area's pictures, 
 seven. A key is decided
 by `viewer_host::decide` and the acts the trait carries out are carried out; the widget acts come
 back as `QUORRA_ACT_*`. `c/drive_a_window.c` is a toolkit's loop with one call per thing that
-happened to the window. **N2's second round**: the panels' rows, the placed controls and their
-commits, the find bar's matches and highlights, the selection's quadrilaterals, the archive chooser,
-a script's dialogue and a print grant (each declined aloud until then), and the reader's policy
-flags (§5).
+happened to the window.
+
+**Built** (session 1634, ADR 2104): **what changed is a record and what it changed to is read**, as
+`viewer-qt`'s flags sit beside its getters. Three more kinds say "again" — `CONTROLS` (the set of
+controls over the page moved: rebuild, do not move), `POPUPS` and `STRIP` — and every `REPAINT`
+draws the frames and then the marks over them. Twenty-four entry points read and commit through the
+window, the panels' tab enumeration and its count among them: the five panels' rows, the page count, label and thumbnail, the form, the popups, the
+selection's, the find bar's and the highlight's quadrilaterals and the focus, each answered by the
+handle the vocabulary layer already hands over through one `Reads` both handles lend; and the
+commits a toolkit window makes — a row or a push-button activated, a field's text, options, clear
+and commit by qualified name, a check box or radio button toggled by its widget through
+`viewer_host::toggling`, a layer's switch (Table 99's lock said) and an attachment extracted. The
+carrying-out of what a document asks — the link, the submission, the two fetches, the import, the
+remote file, the embedded document and the one question's answer — is `viewer_host::native_window`'s
+now, and GTK, Qt and this window each keep only the dialogue (ADR 2105). **Still owed**: the
+archive chooser, a script's dialogue and a print grant (each declined aloud), and the reader's
+policy flags (§5).
 
 ### 3.3 Which .NET UI framework (the owner's choice, Q501)
 
@@ -144,7 +157,7 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 | `viewer-host`'s decision | in the ABI today | owed |
 |---|---|---|
 | the key table (`keys`, ADR 0526) | **yes** (ADR 2072): `QUORRA_KEY_*` with `QUORRA_KEY_COUNT`, and `quorra_key_press`, which acts on a press as every window does and hands back a `QUORRA_ACT_*` for what only a window can do. The modifier is the platform's *command* modifier (Ctrl here, ⌘ on macOS), not "ctrl" | — |
-| the six panels (`Tab`, `panel`) | the rows, yes | the tab enumeration and its count |
+| the six panels (`Tab`, `panel`) | **yes** (ADR 2104): the rows through `quorra_window`, and `QUORRA_TAB_*` with `QUORRA_TAB_COUNT`, `quorra_tab_count` and `quorra_tab_label` | — |
 | the restriction levels' sentences and the word that turns them off (ADR 0604) | the operations, yes; the sentences, no | the sentences, or `quorra_window`'s `say` |
 | password, cannot-open, no-pages, `NOTICE` | password, cannot-open and no-pages through `quorra_window` (ADR 2088) | `NOTICE` |
 | the drawing queue, loading, page one drawn while read, stand-ins, the oversize window | **yes**, through `quorra_window` (ADR 2088): the window runs them and hands over the pictures | — |
@@ -157,7 +170,7 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 |---|---|---|---|
 | **N0** | `hosts/windows/Quorra.Interop/`, hand-written `[LibraryImport]` declarations for the header's 240 entry points and its constants, outside the Cargo workspace. A Rust test in `crates/viewer-ffi/tests/` reads `quorra.h` and the C# file and asserts each entry point is declared once with the same parameter count and each constant has the same value, as `header_and_library_agree.rs` does for `abi.rs` | the test on this machine; `dotnet build` in a CI job | one round. **Built** in session 1609 (ADR 2054): one file per section of the header, and the test holds each parameter's and field's type under one rule as well as the names and values. `dotnet build` is still owed |
 | N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count. **Built**: the eight commands (ADRs 2060, 2061), then the key table, its two counts and a submission's owed sentences (ADR 2072). `dotnet build` of N0's layer is CI's `interop` job (ADR 2073) | this machine; CI for the C# | one round |
-| N2 | `quorra_window` (§3.2, §3.2a) | this machine; driven by `a_c_program_drives_the_abi.rs`'s C caller | two rounds. **The first is built** (ADR 2088): the loop, the keys, the pointer, the search, the strip, the prompt and the question, the pictures |
+| N2 | `quorra_window` (§3.2, §3.2a) | this machine; driven by `a_c_program_drives_the_abi.rs`'s C caller | two rounds. **Both are built**: the loop, the keys, the pointer, the search, the strip, the prompt and the question, the pictures (ADR 2088); the panels' rows, the controls and their commits, the marks over the page, and the request handling one function for three hosts (ADRs 2104, 2105). The three dialogues of §3.2a's last sentence remain |
 | N3a | the WinUI 3 window on the processor lane: the page, the controls over it, the panels, the cards | `windows-latest` only | three to four rounds |
 | N3b | ADR 2049's S0, then `quorra_device`, read back | this machine, then CI | one round after S0 |
 | N3c | `quorra_surface_attach` on a `SwapChainPanel` | `windows-latest`; to be seen on a Windows machine | two rounds and an ADR |

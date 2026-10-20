@@ -312,10 +312,10 @@ def patches(main, owed):
     preamble names the repository and the revision it was written against; the owner applies it
     to the fork and bumps the `rev` the manifest pins. A patch is owed while the manifest still
     pins its base: a bumped `rev` is the patch applied, and it drops off the list. Where the manifest
-    pins the upstream repository itself and the preamble names the `Fork:` to carry the patch — the
-    `hayro` codecs, taken at upstream's release commit so that the reference renderer's features
-    cannot reach the worker's copy (ADR 1714) — the owner applies it to the fork and moves those
-    pins to it.
+    pins the upstream repository itself and the preamble names the `Fork:` to carry the patch — a
+    dependency taken at upstream's release commit so that another package's features cannot reach
+    this tree's copy, as ADR 1714 argues for the `hayro` codecs — the owner applies it to the fork
+    and moves those pins to it.
 
     A patch whose `Fork:` the manifest pins is applied: the fork carries it, as `close2/zune-image`
     carries both `zune-jpeg` patches (ADR 1730). A patch to a dependency the manifest takes from

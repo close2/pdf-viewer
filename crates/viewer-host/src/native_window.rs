@@ -36,6 +36,10 @@ use viewer_core::{
 
 use crate::trace::{Topic, Trace};
 
+mod requests;
+
+pub use requests::Asked;
+
 /// The identity a native window gives the one document it opens with.
 pub const DOCUMENT: DocumentId = DocumentId(1);
 
@@ -310,6 +314,20 @@ pub struct WindowState {
     /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
     /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
     pub separations: bool,
+    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
+    ///
+    /// The other direction from [`Self::restrictions`], and that is why it is a second value
+    /// rather than a seventh operation of the first: what a document *asserts over its reader* is
+    /// one subject, and what a document asks **this machine to start** is the other.
+    /// [`crate::Links`] holds `CLAUDE.md`'s four levels over the second (ADR 1155).
+    pub links: crate::Links,
+    /// §12.6.4.3: what this window does when an action names another file, per
+    /// `--remote-documents=`.
+    ///
+    /// A third value for a third subject, on the entry above's argument: starting another program
+    /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
+    /// for both would make each of them mean the other (ADR 1227).
+    pub remote_documents: crate::RemoteDocuments,
 }
 
 impl WindowState {
@@ -362,6 +380,8 @@ impl WindowState {
             widget_appearances,
             restrictions: standing(settings),
             separations: settings.separations,
+            links: settings.links,
+            remote_documents: settings.remote_documents,
         }
     }
 
@@ -446,11 +466,15 @@ pub trait NativeWindow {
     /// partial, then opened, declined or put to the person by the one policy three windows share
     /// — `CLAUDE.md`'s four levels over the act of starting another program on a string the
     /// *document* chose (ADRs 1079, 1155). What the toolkit owns is the dialogue.
-    fn follow_the_link(&mut self, uri: &str);
+    fn follow_the_link(&mut self, uri: &str) {
+        requests::link(self, uri);
+    }
 
     /// §12.7.6.2's submission, composed by `viewer-core`; whether this machine transmits it is
     /// `crate::may_submit`'s one answer rather than the window's (ADRs 1062, 1291).
-    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission);
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
+        requests::submit(self, document, submission);
+    }
 
     /// A file the document named and the core cannot read for itself.
     ///
@@ -468,12 +492,16 @@ pub trait NativeWindow {
         name: String,
         beside: bool,
         queue: &mut VecDeque<Command>,
-    );
+    ) {
+        requests::needs_file(self, document, purpose, &name, beside, queue);
+    }
 
     /// A signature policy's published copy, under the level the menu holds — the one answer
     /// `crate::policy::may_fetch_signature_policy` gives (ADR 1738). Declined, it is said;
     /// fetched, its answer is looked for as a submission's is and a bound PDF opens beside.
-    fn fetch_policy(&mut self, document: DocumentId, policy: crate::PublishedPolicy);
+    fn fetch_policy(&mut self, document: DocumentId, policy: crate::PublishedPolicy) {
+        requests::fetch_policy(self, document, policy);
+    }
 
     /// §7.11.4's file, or §O.2.1's, taken out of the document: written, or opened beside it.
     fn extracted(
@@ -483,7 +511,9 @@ pub trait NativeWindow {
         name: &str,
         bytes: Vec<u8>,
         fragment: Option<String>,
-    );
+    ) {
+        requests::extracted(self, document, asked, name, bytes, fragment);
+    }
 
     /// §7.6.4.2's bit 3 granted: the print this toolkit offers, with the fidelity the core
     /// decided (ADR 1180).
@@ -496,16 +526,47 @@ pub trait NativeWindow {
     /// looked for until now: a server's, or a conversion's report (ADRs 1291, 1954).
     fn look_for_answers(&mut self);
 
-    /// `CLAUDE.md`'s *ask* level over an operation the document restricts.
+    /// `CLAUDE.md`'s *ask* level over an operation the document restricts, held as
+    /// [`Asked::Restricted`]: the words are `crate::restriction`'s and the dialogue the toolkit's
+    /// (ADR 1145).
     fn ask_whether_to_proceed(
         &mut self,
         document: DocumentId,
         operation: pdf_model::restriction::Operation,
         notes: &[String],
-    );
+    ) {
+        self.put_the_question(
+            Asked::Restricted {
+                document,
+                operation,
+            },
+            &crate::asked(operation, notes),
+        );
+    }
 
-    /// RFC 0008 section 6.3's one question per document before its scripts run (ADR 1616).
-    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str);
+    /// RFC 0008 section 6.3's one question per document before its scripts run, held as
+    /// [`Asked::Scripts`] (ADR 1616).
+    fn ask_whether_to_run_scripts(&mut self, document: DocumentId, script: &str, first_line: &str) {
+        self.put_the_question(
+            Asked::Scripts { document },
+            &crate::asked_to_run_scripts(script, first_line),
+        );
+    }
+
+    /// Puts one question at `CLAUDE.md`'s *ask* level in front of the person, in this toolkit's
+    /// dialogue, and hands what they answered — a dismissed dialogue answers `false` — to
+    /// [`Self::answer_the_question`] with the same [`Asked`] (ADR 2105).
+    fn put_the_question(&mut self, about: Asked, words: &crate::Question);
+
+    /// Whether a question is already waiting for its answer in a dialogue a second one would take
+    /// the place of; `false` for a toolkit that puts each question in a window of its own.
+    fn question_waiting(&self) -> bool;
+
+    /// What the person answered to the question [`Self::put_the_question`] put, carried out the
+    /// way every window carries it out (ADR 2105).
+    fn answer_the_question(&mut self, about: Asked, proceed: bool) {
+        requests::answer(self, about, proceed);
+    }
 
     /// RFC 0008 section 4.2's `app.alert` and `app.response`, in a dialogue of its own (ADR 1628).
     fn ask_for_a_script(&mut self, document: DocumentId, question: viewer_core::ScriptQuestion);

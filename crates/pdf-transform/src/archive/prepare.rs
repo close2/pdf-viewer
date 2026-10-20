@@ -1503,6 +1503,12 @@ impl Prepared {
                     alternates.unlicensed_by(self.intent.as_ref().ok().map(|intent| intent.family))
                 }
             },
+            Rewrite::IccComponentCountRestated => {
+                self.owed.component_counts.as_ref().err().copied()
+            }
+            Rewrite::DuplicateProfileWrittenDeviceCmyk => {
+                self.owed.duplicate_profiles.as_ref().err().copied()
+            }
             Rewrite::PacketHeaderAttributes => self.owed.packet_headers.as_ref().err().copied(),
             Rewrite::SymbolicTrueTypeEncodingRemoved => {
                 self.owed.symbolic_encodings.as_ref().err().copied()
@@ -1702,6 +1708,11 @@ pub(super) struct Owed {
     pub(super) transfers: Result<super::transfer::TransferFunctions, Because>,
     /// The space each unreadable ICC profile's arrays are written as, or why none are.
     pub(super) profile_alternates: Result<super::icc::Alternates, Because>,
+    /// The profiles whose `ICCBased` arrays are named `DeviceCMYK`, or why none are
+    /// (`doc/adr/2098`).
+    pub(super) duplicate_profiles: Result<super::duplicate_profiles::Duplicates, Because>,
+    /// The `ICCBased` profile streams whose `N` is restated, or why none are (`doc/adr/2099`).
+    pub(super) component_counts: Result<super::component_counts::ComponentCounts, Because>,
 }
 
 impl Owed {
@@ -1766,6 +1777,13 @@ impl Owed {
             }),
             profile_alternates: asked(wanted(Rewrite::ProfileAlternateWritten), || {
                 super::icc::Alternates::of(document, super::icc::Reading::of(plan.target))
+            }),
+            duplicate_profiles: asked(wanted(Rewrite::DuplicateProfileWrittenDeviceCmyk), || {
+                let survey = survey.ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+                super::duplicate_profiles::collapse(document, survey)
+            }),
+            component_counts: asked(wanted(Rewrite::IccComponentCountRestated), || {
+                super::component_counts::restated(document)
             }),
             transfers,
             packet_headers,
@@ -1853,8 +1871,9 @@ pub(super) struct Already<'a> {
 ///
 /// Every one of them needs `pdf_archive::survey::Survey`, which walks each page's content
 /// streams — so the walk is made once where any of them is wanted and not at all where none is.
-const SURVEYED: [Rewrite; 8] = [
+const SURVEYED: [Rewrite; 9] = [
     Rewrite::MarkedLanguagesRestated,
+    Rewrite::DuplicateProfileWrittenDeviceCmyk,
     Rewrite::OverprintModeRestated,
     Rewrite::SubstituteFontProgram,
     Rewrite::RestateFontMetrics,

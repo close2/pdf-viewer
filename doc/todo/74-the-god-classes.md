@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1, 2, 3, 5, 6, 7 and 8 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 8 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -42,16 +42,15 @@ side of them is `painting` and `frames`. What is left in the root past the walk 
 writing (`write_document`, `build_page`, `Carried`) and the sample arithmetic, free functions and
 types that are a different split.
 
-## 4. `Rewriter` (`crates/pdf-transform/src/archive/rewrite.rs`)
+## 4. Built — `Rewriter` (`crates/pdf-transform/src/archive/rewrite.rs`, with `rewrite/`), ADR 2112
 
-One block of the archive conversion's restatements: values (`restate_*`, `agree_separations`,
-`write_colorants`, `write_default_cmyk`), appearance states (`collapse_appearance_states` to
-`strip_automatic_states`), configurations (`name_*`), page structure (`attach_page_resources`,
-`remove_page_boundaries`, `take_out_of_the_page`, `append_the_pages`), attachments (`file_*`,
-`attachments`), annotations (`remove_the_*annotations`, `relocate_onto_page`), the catalogue and
-form (`rewrite_catalog`, `edit_*`, `unsign`, permissions) and streams (`rewrite_stream`,
-`reencode`, `hexadecimal_repair`). Split along those seven; `archive/` already has `attach.rs`,
-`boundaries.rs`, `decision.rs`, `hexadecimal.rs`, `prepare.rs` beside it, so some of the names exist.
+One `impl` of 65 methods, now a root and eight modules. `rewrite.rs` keeps `Rewrite`, the state
+`Rewriter` holds, the object walk, the routing (`rewrite`, `rewrite_array`, `rewrite_dictionary`,
+`owed_rewrites`) and the free helpers; each module holds an `impl Rewriter` for one concern: `values`
+(an entry restated in place), `appearance_states`, `configurations`, `page_structure` (resources,
+boundaries, content taken out of the page, appended pages), `attachments`, `annotations`, `catalogue`
+(the catalogue and the interactive form, permissions, signatures) and `streams` (dictionary, filter
+chain, data). About 1 100 lines of the root are the `Rewrite` enum and its descriptions, a different split.
 
 ## 5. Built — `Tree` (`crates/pdf-model/src/structure.rs`, with `structure/`), ADR 2046
 

@@ -8,8 +8,7 @@ itself; this file is what it does wrong.
 **Principle 5 is over all of it**: another implementation is evidence about our reading of the
 specification, never the definition of correct.
 
-[`README.md`](README.md) is the index: one line per trap saying the position that springs it and
-the rule, which group holds which, and why every trap keeps its number.
+[`README.md`](README.md) is the index, one row per trap, and says why each keeps its number.
 
 ## Traps
 
@@ -230,8 +229,8 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   session found on the fifth page of the same group: on `transparent.pdf`'s single ink,
   `0.82 0.7 0.54 0.67 k`, the *Artifex* profile through our evaluator is **eleven levels** from all
   three renderers that read it, while the CGATS one is within one — a colorimetric black point
-  walked off the device range against Little CMS's round trip through `B2A`, which
-  `icc.rs::detect_black` already said agree "everywhere except in the darkest few percent". **A
+  walked off the device range against Little CMS's round trip through `B2A`, two methods that
+  agree everywhere except in the darkest few percent. **A
   profile predicts a renderer over the colours somebody sampled, and that is not a property of the
   file.** ADR 0510. What the three
   share is the *press*: Artifex's `desc` says **SWOP** and CGATS TR 001 is the characterisation
@@ -773,16 +772,6 @@ static census before it is called unused.
   it — and they fill the whole positive head down to +2.6 (session 613). Read a positive gap as a
   question about *which* reference is light before reading it as ink of ours; the panel sizes are
   printed beside the number for the same reason.
-
-### 182. What this reader already draws is a claim to render before it is written down
-
-Round 1553's brief hypothesised a TrueType remedy that would state in the font's `/Differences`
-the glyph this reader already selected for each code. Rendering page 8 of Pol.pdf (trap 1) showed
-"50²%": the code named `space` had no glyph in the subset, and the reader's fallback offered it to
-the Macintosh subtable as a Macintosh code, reaching `twosuperior`. Built as hypothesised, the
-remedy would have written that glyph into a PDF/A file as the document's meaning. A sentence of the
-form "what this program already draws" is a claim about pixels, and it is checked by drawing them
-(ADR 1943 is what the drawing changed).
 
 ### 212. an erratum on the wrong part's row corrects nothing
 
