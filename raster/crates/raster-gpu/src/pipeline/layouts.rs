@@ -222,7 +222,11 @@ fn bind_layouts(device: &wgpu::Device) -> BindLayouts {
             // shading. Declaring it vertex-only is a validation error rather than a
             // wrong picture, which is the good kind — wgpu refused every pipeline
             // that read it from a fragment stage.
-            &[uniform_entry(0, 16, QUAD_UNIFORM)],
+            &[uniform_entry(
+                0,
+                crate::encode::GLOBALS_BYTES as u64,
+                QUAD_UNIFORM,
+            )],
         ),
         textures: make(
             "raster lane sources",

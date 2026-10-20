@@ -101,6 +101,12 @@ pub const EXTENSION_SCHEMA: &str = "http://www.aiim.org/pdfa/ns/schema#";
 /// The Property value type's field namespace, whose required prefix is `pdfaProperty`.
 pub const EXTENSION_PROPERTY: &str = "http://www.aiim.org/pdfa/ns/property#";
 
+/// The `ValueType` value type's field namespace, whose required prefix is `pdfaType`.
+pub const EXTENSION_TYPE: &str = "http://www.aiim.org/pdfa/ns/type#";
+
+/// The Field value type's field namespace, whose required prefix is `pdfaField`.
+pub const EXTENSION_FIELD: &str = "http://www.aiim.org/pdfa/ns/field#";
+
 /// The largest metadata stream this module will look at, decoded.
 ///
 /// The clause states no limit and a stream is arbitrary compressed data, so this is a
@@ -620,6 +626,23 @@ pub enum WriteError {
         prefix: String,
         /// What the packet binds it to instead.
         namespace: String,
+    },
+    /// The packet does not describe a value type a field is to be added to in a form
+    /// [`describe_fields`] can extend.
+    ///
+    /// Exactly one description of the type in the packet, with a close tag of its own and at most
+    /// one `pdfaType:field` that is a single `rdf:Seq` with one, is what that writer needs: a type
+    /// described twice leaves no answer to which description the field belongs in, and one written
+    /// as a self-closing element has no inside to put it.
+    #[error(
+        "the packet describes the value type {type_name} {found} times in a form this writer can \
+         add a field to, and it needs exactly one"
+    )]
+    NoPlaceForAField {
+        /// The `pdfaType:type` the field was to be added to.
+        type_name: String,
+        /// How many descriptions of it this writer could extend.
+        found: usize,
     },
     /// The packet nests deeper than [`MAX_DEPTH`].
     #[error("the packet nests deeper than this writer follows")]
@@ -1176,6 +1199,336 @@ pub fn describe(bytes: &[u8], schemas: &[SchemaDescription<'_>]) -> Result<Vec<u
     container(schemas, &mut out);
     out.push_str(text.get(at..).unwrap_or_default());
     Ok(out.into_bytes())
+}
+
+/// One field of a custom value type, as ISO 19005-2 section 6.6.2.3.3's Table 6 states one.
+///
+/// The strings are the caller's throughout, for [`SchemaDescription`]'s reason: this module
+/// writes what it is given and decides nothing about what a field means.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldDescription<'a> {
+    /// The `pdfaType:type` of the value type the field is added to.
+    pub type_name: &'a str,
+    /// That value type's `pdfaType:namespaceURI`, which a description of it has to state too.
+    pub type_namespace: &'a str,
+    /// `pdfaField:name` — the field's local name.
+    pub name: &'a str,
+    /// `pdfaField:valueType` — the XMP value type it carries.
+    pub value_type: &'a str,
+    /// `pdfaField:description` — what it means, in one sentence for a person.
+    pub description: &'a str,
+}
+
+/// `bytes` with each of `fields` described in the value type it names.
+///
+/// **Written into the producer's own description of the type, and nowhere else.** Table 5 gives a
+/// value type one `pdfaType:field`, a sequence of Table 6 structures, so a field is described by an
+/// item of that sequence: appended to the end of the one the type states, or, where it states none,
+/// in a `pdfaType:field` of its own just before the description's close tag. Every element written
+/// declares the bindings it uses, for `supplements`' reason, and every other byte of the packet
+/// crosses unchanged, for [`remove`]'s reason and by the same means — insertions only, and no other
+/// edit.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched;
+/// [`WriteError::NoPlaceForAField`] where a type is not described exactly once in a form this
+/// writer can extend.
+pub fn describe_fields(
+    bytes: &[u8],
+    fields: &[FieldDescription<'_>],
+) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let sites = TypeSites::run(text)?;
+    let mut insertions: Vec<(usize, String)> = Vec::new();
+    let mut done: Vec<(&str, &str)> = Vec::new();
+    for wanted in fields {
+        let kind = (wanted.type_name, wanted.type_namespace);
+        if done.contains(&kind) {
+            continue;
+        }
+        done.push(kind);
+        let group: Vec<&FieldDescription<'_>> = fields
+            .iter()
+            .filter(|other| (other.type_name, other.type_namespace) == kind)
+            .collect();
+        let found: Vec<&TypeSite> = sites
+            .iter()
+            .filter(|site| site.name == wanted.type_name && site.namespace == wanted.type_namespace)
+            .collect();
+        let place = match found.as_slice() {
+            [site] => match (site.content_ends, site.fields_stated, site.field_seq_ends) {
+                (Some(at), 0, _) => Some((at, true)),
+                (Some(_), 1, Some(at)) => Some((at, false)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some((at, whole)) = place else {
+            return Err(WriteError::NoPlaceForAField {
+                type_name: wanted.type_name.to_owned(),
+                found: found
+                    .iter()
+                    .filter(|site| site.content_ends.is_some())
+                    .count(),
+            });
+        };
+        let mut written = String::new();
+        if whole {
+            written.push_str("<pdfaType:field xmlns:rdf=\"");
+            escaped(RDF, &mut written);
+            written.push_str("\" xmlns:pdfaType=\"");
+            escaped(EXTENSION_TYPE, &mut written);
+            written.push_str("\"><rdf:Seq>\n");
+        }
+        for field_of in &group {
+            field_item(field_of, &mut written);
+        }
+        if whole {
+            written.push_str("</rdf:Seq></pdfaType:field>\n");
+        }
+        insertions.push((at, written));
+    }
+    insertions.sort_by_key(|(at, _)| *at);
+    let extra: usize = insertions.iter().map(|(_, written)| written.len()).sum();
+    let mut out = String::with_capacity(text.len().saturating_add(extra));
+    let mut from = 0usize;
+    for (at, written) in &insertions {
+        out.push_str(text.get(from..*at).unwrap_or_default());
+        out.push_str(written);
+        from = *at;
+    }
+    out.push_str(text.get(from..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// One Table 6 structure, as an item of a `pdfaType:field` sequence declaring its own bindings.
+fn field_item(described: &FieldDescription<'_>, out: &mut String) {
+    out.push_str("<rdf:li xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:pdfaField=\"");
+    escaped(EXTENSION_FIELD, out);
+    out.push_str("\" rdf:parseType=\"Resource\">\n");
+    for (local, value) in [
+        ("name", described.name),
+        ("valueType", described.value_type),
+        ("description", described.description),
+    ] {
+        field("pdfaField", local, value, out);
+    }
+    out.push_str("</rdf:li>\n");
+}
+
+/// One description of a custom value type, found by its `pdfaType:type`.
+#[derive(Debug, Default)]
+struct TypeSite {
+    /// `pdfaType:type`.
+    name: String,
+    /// `pdfaType:namespaceURI`, empty where the description states none.
+    namespace: String,
+    /// The offset of the description's close tag, `None` for a self-closing one.
+    content_ends: Option<usize>,
+    /// How many `pdfaType:field` elements the description states.
+    fields_stated: usize,
+    /// The offset of the close tag of the `rdf:Seq` inside its one `pdfaType:field`, where there
+    /// is one.
+    field_seq_ends: Option<usize>,
+}
+
+/// One open element, while [`TypeSites`] walks a packet.
+#[derive(Debug, Default)]
+struct TypeFrame {
+    /// The prefix and local name as the packet spelled them, for [`Opened::tag`]'s reason.
+    tag: (String, String),
+    /// The element's namespace, resolved.
+    namespace: String,
+    /// How many namespace bindings it declared.
+    bindings: usize,
+    /// Its character data, unescaped, where it has no element inside it.
+    text: String,
+    /// Whether an element opened inside it.
+    has_children: bool,
+    /// The site this element describes, once a `pdfaType:type` inside it or on it names one.
+    site: TypeSite,
+    /// Whether this element is a `pdfaType:field`.
+    is_field: bool,
+    /// Whether this element is the `rdf:Seq` directly inside a `pdfaType:field`.
+    is_field_seq: bool,
+}
+
+/// Every description of a custom value type one packet states.
+struct TypeSites;
+
+impl TypeSites {
+    /// Walks the packet and returns each element a `pdfaType:type` names, in packet order.
+    fn run(text: &str) -> Result<Vec<TypeSite>, WriteError> {
+        let mut bindings: Vec<(String, String)> = Vec::new();
+        let mut stack: Vec<TypeFrame> = Vec::new();
+        let mut out = Vec::new();
+        let mut pending: Option<(String, String)> = None;
+        let mut attributes: Vec<(String, String, String)> = Vec::new();
+        for token in xmlparser::Tokenizer::from(text) {
+            let token = token.map_err(|error| WriteError::Malformed {
+                detail: error.to_string(),
+            })?;
+            match token {
+                xmlparser::Token::ElementStart { prefix, local, .. } => {
+                    pending = Some((prefix.to_string(), local.to_string()));
+                    attributes.clear();
+                }
+                xmlparser::Token::Attribute {
+                    prefix,
+                    local,
+                    value,
+                    ..
+                } => attributes.push((prefix.to_string(), local.to_string(), value.to_string())),
+                xmlparser::Token::Text { text } => {
+                    if let Some(open) = stack.last_mut() {
+                        unescape(text.as_str(), &mut open.text);
+                    }
+                }
+                xmlparser::Token::ElementEnd { end, span } => match end {
+                    xmlparser::ElementEnd::Open => {
+                        let Some(tag) = pending.take() else { continue };
+                        Self::open(tag, &attributes, &mut bindings, &mut stack)?;
+                    }
+                    xmlparser::ElementEnd::Empty => {
+                        let Some(tag) = pending.take() else { continue };
+                        let closing = tag.clone();
+                        Self::open(tag, &attributes, &mut bindings, &mut stack)?;
+                        Self::close(&closing, None, &mut bindings, &mut stack, &mut out)?;
+                    }
+                    xmlparser::ElementEnd::Close(prefix, local) => {
+                        let tag = (prefix.to_string(), local.to_string());
+                        Self::close(
+                            &tag,
+                            Some(span.start()),
+                            &mut bindings,
+                            &mut stack,
+                            &mut out,
+                        )?;
+                    }
+                },
+                _ => {}
+            }
+        }
+        if let Some(open) = stack.last() {
+            return Err(WriteError::Malformed {
+                detail: format!("<{}> is never closed", spelled(&open.tag)),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Opens an element: installs its bindings, and reads a type named in attribute form.
+    fn open(
+        tag: (String, String),
+        attributes: &[(String, String, String)],
+        bindings: &mut Vec<(String, String)>,
+        stack: &mut Vec<TypeFrame>,
+    ) -> Result<(), WriteError> {
+        if stack.len() >= MAX_DEPTH {
+            return Err(WriteError::TooDeep);
+        }
+        let mut declared = 0usize;
+        for (prefix, local, value) in attributes {
+            match (prefix.as_str(), local.as_str()) {
+                ("", "xmlns") => bindings.push((String::new(), value.clone())),
+                ("xmlns", _) => bindings.push((local.clone(), value.clone())),
+                _ => continue,
+            }
+            declared = declared.saturating_add(1);
+        }
+        let resolve = |prefix: &str| -> String {
+            if prefix == "xml" {
+                return XML.to_owned();
+            }
+            bindings
+                .iter()
+                .rev()
+                .find(|(bound, _)| bound == prefix)
+                .map_or_else(String::new, |(_, uri)| uri.clone())
+        };
+        let namespace = resolve(&tag.0);
+        let mut frame = TypeFrame {
+            namespace,
+            bindings: declared,
+            ..TypeFrame::default()
+        };
+        // ISO 16684-1's attribute form of a structure field: `pdfaType:type="…"` on the element
+        // that is the structure.
+        for (prefix, local, value) in attributes {
+            if prefix.is_empty() || resolve(prefix) != EXTENSION_TYPE {
+                continue;
+            }
+            let mut read = String::new();
+            unescape(value, &mut read);
+            match local.as_str() {
+                "type" => read.trim().clone_into(&mut frame.site.name),
+                "namespaceURI" => read.trim().clone_into(&mut frame.site.namespace),
+                _ => {}
+            }
+        }
+        if let Some(parent) = stack.last_mut() {
+            parent.has_children = true;
+            if frame.namespace == EXTENSION_TYPE && tag.1 == "field" {
+                parent.site.fields_stated = parent.site.fields_stated.saturating_add(1);
+                frame.is_field = true;
+            }
+            if parent.is_field && frame.namespace == RDF && tag.1 == "Seq" {
+                frame.is_field_seq = true;
+            }
+        }
+        frame.tag = tag;
+        stack.push(frame);
+        Ok(())
+    }
+
+    /// Closes an element, handing what it named to the element it sits in.
+    fn close(
+        tag: &(String, String),
+        content_ends: Option<usize>,
+        bindings: &mut Vec<(String, String)>,
+        stack: &mut Vec<TypeFrame>,
+        out: &mut Vec<TypeSite>,
+    ) -> Result<(), WriteError> {
+        let Some(mut frame) = stack.pop() else {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes nothing", spelled(tag)),
+            });
+        };
+        if content_ends.is_some() && frame.tag != *tag {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes <{}>", spelled(tag), spelled(&frame.tag)),
+            });
+        }
+        for _ in 0..frame.bindings {
+            bindings.pop();
+        }
+        if let Some(parent) = stack.last_mut() {
+            if frame.namespace == EXTENSION_TYPE && !frame.has_children {
+                match frame.tag.1.as_str() {
+                    "type" => frame.text.trim().clone_into(&mut parent.site.name),
+                    "namespaceURI" => frame.text.trim().clone_into(&mut parent.site.namespace),
+                    _ => {}
+                }
+            }
+            if frame.is_field_seq {
+                parent.site.field_seq_ends = content_ends;
+            }
+            if frame.is_field {
+                parent.site.field_seq_ends = frame.site.field_seq_ends;
+            }
+        }
+        if !frame.site.name.is_empty() {
+            frame.site.content_ends = content_ends;
+            out.push(frame.site);
+        }
+        Ok(())
+    }
 }
 
 /// Which of ISO 16684-1's shapes one supplemented property is written in.
@@ -2606,6 +2959,9 @@ mod tests {
         XmpError, describe, empty_packet, instant, packet, record, remove, respell, restate,
         spelled_date, supplement,
     };
+    use super::{
+        EXTENSION_FIELD, EXTENSION_SCHEMA, EXTENSION_TYPE, FieldDescription, describe_fields,
+    };
 
     /// A packet stating no property parses, states one `rdf:RDF`, and takes a description.
     ///
@@ -3758,5 +4114,107 @@ mod tests {
         assert_eq!(xmp.modified(), None, "the fixture states no xmp:ModifyDate");
         assert_eq!(xmp.creator_tool(), None);
         assert_eq!(xmp.description(), None);
+    }
+
+    /// A packet describing one custom value type, `T` in `http://example.test/t/`, with `fields`
+    /// as the inside of its description after `pdfaType:namespaceURI`.
+    fn typed_packet(fields: &str) -> String {
+        format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"{RDF}\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdfaExtension=\"{EXTENSION}\" \
+             xmlns:pdfaSchema=\"{EXTENSION_SCHEMA}\" xmlns:pdfaType=\"{EXTENSION_TYPE}\" \
+             xmlns:pdfaField=\"{EXTENSION_FIELD}\">\
+             <pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType=\"Resource\">\
+             <pdfaSchema:valueType><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\
+             <pdfaType:type>T</pdfaType:type>\
+             <pdfaType:namespaceURI>http://example.test/t/</pdfaType:namespaceURI>{fields}\
+             </rdf:li></rdf:Seq></pdfaSchema:valueType></rdf:li></rdf:Bag></pdfaExtension:schemas>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>"
+        )
+    }
+
+    /// The `pdfaField:name` of every item of the one value type's `pdfaType:field`.
+    fn described_field_names(bytes: &[u8]) -> Vec<String> {
+        let properties = Xmp::parse_detail(bytes).expect("the packet parses");
+        let container = properties
+            .iter()
+            .find(|property| property.name.local == "schemas")
+            .expect("the container is there");
+        let schema = &container.value.array().expect("a bag")[0];
+        let kind = &schema
+            .field(EXTENSION_SCHEMA, "valueType")
+            .and_then(|types| types.value.array())
+            .expect("a sequence of value types")[0];
+        kind.field(EXTENSION_TYPE, "field")
+            .and_then(|field| field.value.array())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|item| item.field(EXTENSION_FIELD, "name"))
+            .filter_map(|name| name.value.text().map(str::to_owned))
+            .collect()
+    }
+
+    /// One field of the fixture's value type, described in one sentence.
+    fn one_field(name: &str) -> FieldDescription<'_> {
+        FieldDescription {
+            type_name: "T",
+            type_namespace: "http://example.test/t/",
+            name,
+            value_type: "Text",
+            description: "a sentence",
+        }
+    }
+
+    /// ISO 19005-2 section 6.6.2.3.3's Table 5: a type stating no `pdfaType:field` gains one, a
+    /// sequence of one Table 6 structure, and every byte the producer wrote is still there.
+    #[test]
+    fn a_type_stating_no_field_gains_a_field_sequence() {
+        let original = typed_packet("");
+        let written =
+            describe_fields(original.as_bytes(), &[one_field("f1")]).expect("it is written");
+        assert_eq!(described_field_names(&written), ["f1"]);
+        let text = std::str::from_utf8(&written).expect("UTF-8");
+        let mut left = text.to_owned();
+        let at = left.find("<pdfaType:field").expect("inserted");
+        let end = left.find("</pdfaType:field>\n").expect("closed") + "</pdfaType:field>\n".len();
+        left.replace_range(at..end, "");
+        assert_eq!(left, original, "an insertion and nothing else");
+    }
+
+    /// A type that already states a sequence of fields keeps them, and the new one goes after.
+    #[test]
+    fn a_type_stating_fields_gains_one_at_the_end() {
+        let original = typed_packet(
+            "<pdfaType:field><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\
+             <pdfaField:name>f0</pdfaField:name><pdfaField:valueType>Text</pdfaField:valueType>\
+             <pdfaField:description>d</pdfaField:description></rdf:li></rdf:Seq></pdfaType:field>",
+        );
+        let written = describe_fields(original.as_bytes(), &[one_field("f1"), one_field("f2")])
+            .expect("it is written");
+        assert_eq!(described_field_names(&written), ["f0", "f1", "f2"]);
+    }
+
+    /// A type described twice leaves no answer to which description the field belongs in.
+    #[test]
+    fn a_type_described_twice_is_refused_and_the_packet_untouched() {
+        let twice = typed_packet(
+            "</rdf:li><rdf:li rdf:parseType=\"Resource\"><pdfaType:type>T</pdfaType:type>\
+             <pdfaType:namespaceURI>http://example.test/t/</pdfaType:namespaceURI>",
+        );
+        assert_eq!(
+            describe_fields(twice.as_bytes(), &[one_field("f1")]),
+            Err(WriteError::NoPlaceForAField {
+                type_name: "T".to_owned(),
+                found: 2
+            })
+        );
+        let elsewhere = FieldDescription {
+            type_namespace: "http://example.test/other/",
+            ..one_field("f1")
+        };
+        assert!(matches!(
+            describe_fields(typed_packet("").as_bytes(), &[elsewhere]),
+            Err(WriteError::NoPlaceForAField { found: 0, .. })
+        ));
     }
 }

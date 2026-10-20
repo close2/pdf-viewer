@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1, 2, 3 and 5 are split (ADRs 2004, 2018, 2032, 2046); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1, 2, 3, 5 and 6 are split (ADRs 2004, 2018, 2032, 2046, 2064); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -62,12 +62,15 @@ The largest source file. `structure.rs` is the root — the state, the entry poi
 the clause slot of batch ninety-five that edits it has merged; moving it into `logical` is then one
 cut. About 3 000 lines of types and helpers remain in the root, a different split.
 
-## 6. `LoadedFont` (`crates/pdf-font/src/loading.rs`)
+## 6. Built — `LoadedFont` (`crates/pdf-font/src/loading.rs`, with `loading/`), ADR 2064
 
-64 methods in one block: loading (`standard`, `load_simple`, `load_composite`, `metrics_only`),
-substitution (`substitute_program`, `substitutes_notdef`, `substituted_glyph`), text from codes
-(`text`, `decode`, `to_unicode_*`), program access (`program_*`), vertical metrics, glyph lookup
-(`glyph_for*`, `selector`, `class_face`) and outlines (`outline`, `build_outline`, `cached_outline`).
+64 methods in one block, now a root and eight modules. `loading.rs` keeps the state (`LoadedFont`),
+the entry points (`standard`, `load`, `metrics_only`), the types and free functions the concerns
+share, and the tests; each module holds an `impl LoadedFont` for one concern: `opening` (the simple
+and the composite route), `findings` (what loading found out and repaired), `codes` (a code, its
+text and the inverse), `program` (what the embedded program states), `advances` (widths, vertical
+metrics, pair kerning), `glyphs` (a code to a glyph index), `drawing` (outlines, the cache and the
+hinting instance) and `substitution` (a stand-in face and its classes). About 1 200 lines of types and free functions remain in the root beside its four test modules (about 1 200 lines more); moving either is a different split.
 
 ## 7. The transparency and pattern interpreters (`content/transparency.rs`, `content/pattern.rs`)
 
@@ -84,7 +87,7 @@ test lines): one family per colour-space kind, which is the module boundary `col
 ## 9. `App` (`crates/viewer-ui/src/bin/quorra/surface.rs`)
 
 Already twelve files; `surface.rs` is the block left (1 652 lines, 30 methods). Read it against
-`window.rs` and `renderer/` before cutting.
+`window.rs` and `viewer-device`'s `renderer/` before cutting.
 
 ## 10. Files with no large block
 

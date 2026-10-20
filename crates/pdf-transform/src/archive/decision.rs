@@ -471,10 +471,11 @@ impl Loss {
             Self::ForbiddenAnnotation => {
                 "an annotation whose subtype ISO 19005 does not admit is removed from the page it \
                  was on, and with it everything that annotation carried \u{2014} a sound, a \
-                 movie, a rendition, 3D artwork, and its own Contents description. Its normal \
-                 appearance is the one part of it a target will hold: answer this site with \
-                 remedy = \"preserve\" and those marks are kept on a page appended to the \
-                 document"
+                 movie, a rendition, 3D artwork, and its own Contents description. A 3D or \
+                 RichMedia annotation is admitted by PDF/A-4e, the target that keeps it whole. \
+                 Its normal appearance is the one part of it a target will hold: answer this \
+                 site with remedy = \"preserve\" and those marks are kept on a page appended to \
+                 the document"
             }
             Self::InteractiveBehaviour => {
                 "an action of a type ISO 19005 does not admit is taken out of the file, an /AA \
@@ -1632,6 +1633,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
             Rewrite::ForbiddenAnnotationRemoved,
         ),
     },
+    // ISO 19005-4 section 6.3.1 confines `3D` and `RichMedia` to PDF/A-4e: at PDF/A-4 and
+    // PDF/A-4f the subtype is not admitted, which is the loss above exactly — the artwork goes
+    // with the annotation, and the report's sentence names PDF/A-4e as the target that keeps it
+    // (`doc/adr/2051` section 4). `FileAttachment`'s row stays refused below.
+    Remedy {
+        requirement: "annotations/three-dimensional-only-in-engineering-files",
+        answer: Answer::Loses(
+            Loss::ForbiddenAnnotation,
+            Rewrite::ForbiddenAnnotationRemoved,
+        ),
+    },
     // ISO 19005-2 section 6.6.2.3.1, and the only route of the three
     // `doc/pdf-a-conversion-limits.md` section 3.9 leaves open — which is why it is a loss rather
     // than a default.
@@ -1678,6 +1690,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
             None,
             Rewrite::ExtensionSchemaDescribed,
             CONTAINER_DESCRIBES_SHAPE,
+        ),
+    },
+    // ISO 19005-2 section 6.6.2.3.1, the half that reaches inside a structure: a field the
+    // packet states and its own value type leaves out is described in that type. **`Stated` for
+    // the container's reason, one level down** — the description Table 6 requires is nowhere in
+    // the file, so what goes in it is this converter's sentence (`doc/adr/2050`).
+    Remedy {
+        requirement: "metadata/extension-schema-structure-fields-are-described",
+        answer: Answer::Stated(
+            None,
+            Rewrite::ExtensionFieldDescribed,
+            TYPE_DESCRIBES_FIELD_SHAPE,
         ),
     },
     Remedy {
@@ -2685,10 +2709,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     // answered in `REMEDIES`; these two are the flavour conditions, and their first answer is a
     // retarget rather than a removal.
     (
-        "annotations/three-dimensional-only-in-engineering-files",
-        Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
-    ),
-    (
         "annotations/file-attachment-only-in-embedded-file-files",
         Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
     ),
@@ -2788,11 +2808,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/xmp-character-data-only-in-simple-values",
         Because::NotBuiltYet(XMP_STRAY_CHARACTER_DATA_NOT_REMOVED),
     ),
-    // ISO 19005-2 section 6.6.2.3.1, the half of it that reaches inside a structure.
-    (
-        "metadata/extension-schema-structure-fields-are-described",
-        Because::NotBuiltYet(UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED),
-    ),
     // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the one of section 3.8's three rules
     // still refused. The `/Order` rule and the `/AS` rule are both rows of `REMEDIES`.
     (
@@ -2800,6 +2815,16 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(CONFIGURATION_NAME_NOT_WRITTEN),
     ),
 ];
+
+/// What an operator is told when this conversion describes a field its producer's value type left
+/// out.
+pub(super) const TYPE_DESCRIBES_FIELD_SHAPE: &str = "a structure field this file states and its \
+     own extension schema value type leaves out is described in that value type by this \
+     conversion. The field's namespace and name are the packet's own and its value type is the \
+     form the packet's own serialisation shows - but ISO 19005-2 section 6.6.2.3.3's Table 6 \
+     requires a description no file states for a field its producer did not describe, and what \
+     this conversion put in it is one fixed sentence saying so. The report names every field \
+     described";
 
 /// What an operator is told when this conversion describes a schema its producer did not.
 pub(super) const CONTAINER_DESCRIBES_SHAPE: &str = "an extension schema this file uses and \
@@ -2975,13 +3000,12 @@ const HISTORY_IS_WHAT_HAPPENED: &str = "ISO 19005-4 section 6.7.5 requires every
 /// `FileAttachment`, is `doc/pdf-a-mitigations.md`'s: the annotation is a marker and the file it
 /// names may stay in the document, which is a different rewrite from the removal beside it and is
 /// not built.
-const ANNOTATION_FLAVOUR_NOT_BUILT: &str = "this annotation's subtype is one ISO 19005-4 admits \
-     only in another flavour of PDF/A-4 — 3D and RichMedia in a PDF/A-4e file, \
-     FileAttachment in a PDF/A-4f one — so the shorter route is that flavour rather than a \
-     rewrite. Removing it is what the other two annotation-subtype rows do with \
-     --authorise forbidden-annotation; here that would also take the embedded file a \
-     FileAttachment names out of the archive, which doc/pdf-a-mitigations.md says need not go, \
-     and the rewrite that keeps it is not built";
+const ANNOTATION_FLAVOUR_NOT_BUILT: &str = "this FileAttachment annotation's subtype is one \
+     ISO 19005-4 admits only in a PDF/A-4f file, so the shorter route is that flavour rather \
+     than a rewrite. Removing it is what the annotation-subtype rows do with \
+     --authorise forbidden-annotation; here that would also take the embedded file it names out \
+     of the archive, which doc/pdf-a-mitigations.md says need not go, and the rewrite that keeps \
+     it is not built";
 
 /// Why a compound row is refused where none of the rules it names failed.
 ///
@@ -3238,19 +3262,6 @@ const XMP_STRAY_CHARACTER_DATA_NOT_REMOVED: &str = "this packet writes non-white
      Whether taking it out is mechanical or an authorised loss is a question this row does not \
      settle: it expresses nothing a reader of the packet can use, and it is still bytes somebody \
      wrote, which is section 3.9's shape exactly";
-
-/// Why a structure field no value type describes is left where it is.
-///
-/// The census ratchet catches this (ADR 1093) — `XMP_STRAY_CHARACTER_DATA_NOT_REMOVED`'s shape
-/// exactly, and for the same reason.
-const UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED: &str = "this packet states a structure field for a \
-     property of an extension schema value type that describes no such field, so the packet \
-     contradicts its own description. There are two repairs and this converter can make neither \
-     without deciding something the file does not say: describing the field means writing a \
-     pdfaField:name, a pdfaField:valueType and a pdfaField:description that only the producer \
-     holds, which is doc/pdf-a-conversion-limits.md section 4.2's Ask; removing the field means \
-     cutting a value somebody wrote, which is section 3.9's authorised loss and needs the span \
-     remover in pdf_model::xmp to take a field of a structure rather than a property";
 
 /// Why a configuration's `/Name` is not written.
 ///

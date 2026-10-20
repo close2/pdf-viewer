@@ -7,8 +7,8 @@ Corpus: `doc/ISO_32000-2_sponsored_EC3.pdf` (a page whose raster does not follow
 `tmp/Entwurf.pdf` (one whose raster does); `doc/PDF20_AN001-BPC.pdf` as a third.
 Code: `crates/viewer-ui/src/bin/quorra/window.rs` (`WindowEvent::Resized`),
 `crates/viewer-core/src/viewer.rs` (`Command::Resize` and `settle`),
-`crates/viewer-ui/src/bin/quorra/renderer/thread.rs` (the render thread) and `renderer/sharp.rs`
-(`sharp_pass_affordable`), `crates/viewer-ui/src/bin/quorra/stale/plan.rs` (`Refusal::Resized`)
+`crates/viewer-device/src/renderer/thread.rs` (the render thread) and `renderer/sharp.rs`
+(`sharp_pass_affordable`), `crates/viewer-device/src/stale/plan.rs` (`Refusal::Resized`)
 and `stale.rs` (`Stale::plan`, the retained-page answer).
 
 ## The attribution, and the command that reproduces it

@@ -923,7 +923,11 @@ reordered a second time.
   unasked and is none at all for a question, which is how eleven queries came to reach no symbol with
   nothing saying so.
   What ADR 0346 added is the pointer and the selection, §12.7's form and the four edits,
-  save and extract, the other two panels, §12.4.4's clock and the three policy values. Beside them,
+  save and extract, the other two panels, §12.4.4's clock and the three policy values; what ADRs
+  2060 and 2061 added is the eight a toolkit's own controls, its clock, its network and its scripts
+  need — a field committed, §7.9.4's instant, a server's answer, a page drawn a window at a time,
+  the keys, and the scripts' level with its two answers, the level becoming a runner where every
+  window's does. Beside them,
   a hand-written `include/quorra.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
@@ -1064,9 +1068,11 @@ The read-back is 0.34–1.18 ms of a frame on this machine's adapter, and the pa
 | a .NET host | a WinUI 3 `SwapChainPanel` (wgpu 30's DX12 target), XAML controls composed over it | one surface entry point in `viewer-ffi`'s `abi.rs` | proposed (RFC 0010 §4) |
 | a macOS host | a `CAMetalLayer` behind an `NSView`, made on the main thread | the same entry point, kind `CA_METAL_LAYER` | in mind, not built (ADR 2048) |
 
-**All four need the same first step**: the device renderer (the chooser, the kept scene, the
-presenter thread) is `quorra`'s *binary*'s today, tied to winit by a wake and a surface, and it moves
-to a library before any other host can draw on the device without copying it (ADR 2049 §2). **And
+**All four share one first step, and it is taken**: the device renderer (the chooser, the kept
+scene, the presenter thread), its stand-ins and the processor's composition are `viewer-device`, a
+library that names no window — a host supplies a `Wake`, its frame trace and its clock, and makes
+its surface from whatever its window converts to a `wgpu::SurfaceTarget` (ADRs 2049 §2, 2052).
+`quorra` is its one consumer so far, and nothing but a window may depend on it (rule 2). **And
 all four rule out a native child window over which nothing composes.** The controls
 `Command::Delegate` places over the page have to be drawn above the device's picture, which a Qt
 window container and a WPF `HwndHost` both prevent.

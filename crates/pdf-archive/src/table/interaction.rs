@@ -668,6 +668,40 @@ pub fn annotations_of_a_forbidden_subtype(
         .collect()
 }
 
+/// Every annotation of a subtype ISO 19005-4 section 6.3.1 confines to PDF/A-4e, at a target that
+/// is not one.
+///
+/// The population `no_three_dimensional_annotation` reports — a `3D` or `RichMedia` annotation
+/// at PDF/A-4 or PDF/A-4f — in page order, in [`annotations_of_a_forbidden_subtype`]'s shape so
+/// that one removal takes both. Empty at every other target, where the row does not bind.
+/// `FileAttachment`, the other subtype section 6.3.1 confines to a flavour, is not here: removing
+/// one would take the file it names with it, and `doc/pdf-a-mitigations.md` says that need not go.
+#[must_use]
+pub fn annotations_outside_the_engineering_flavour(
+    document: &Document,
+    target: Target,
+) -> Vec<ForbiddenSubtype> {
+    if !matches!(target, Target::Four(Flavour::Plain | Flavour::F)) {
+        return Vec::new();
+    }
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter_map(|annotation| {
+            let subtype = name_at(document, &annotation.dict, "Subtype")?;
+            if subtype != THREE_DIMENSIONAL && subtype != "RichMedia" {
+                return None;
+            }
+            Some(ForbiddenSubtype {
+                at: annotation.id,
+                page: annotation.page,
+                subtype: Some(subtype),
+                normal_appearance: normal_appearance_stream(document, &annotation.dict),
+            })
+        })
+        .collect()
+}
+
 /// One annotation whose stated flags ISO 19005 section 6.3.2 forbids.
 ///
 /// The population [`flags_permitted`] rejects, read as a population rather than as a verdict for

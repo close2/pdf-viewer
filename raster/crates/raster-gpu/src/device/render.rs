@@ -35,7 +35,7 @@ use crate::frame::{
 use crate::layers;
 use crate::readback;
 use crate::report::Report;
-use crate::retained::{EncodeKey, RetainedScene};
+use crate::retained::{EncodeFrom, EncodeKey, RetainedScene};
 use crate::target::Target;
 use crate::viewport::Viewport;
 
@@ -82,7 +82,7 @@ impl Device {
         // across targets.
         let encode_started = Instant::now();
         let generation = self.atlas.generation;
-        let encoded = self.encode_scene(scene, viewport)?;
+        let encoded = self.encode_scene(scene, viewport, None)?;
         let encode_time = encode_started.elapsed();
         // A reset the encode took for a stale atlas is a repack of this frame's (ADR 1467
         // section 4), reported as one.
@@ -155,9 +155,10 @@ impl Device {
         // Borrowed from `retained`, which is not `self`: the encode and the device it
         // draws through are two objects, so nothing here needs a clone.
         let generation = self.atlas.generation;
-        let (source, encoded, kept) = retained.prepare(key, |scene, list| match list {
-            Some(list) => self.replay_scene(scene, viewport, list),
-            None => self.encode_scene(scene, viewport),
+        let (source, encoded, kept) = retained.prepare(key, |scene, from| match from {
+            EncodeFrom::Records(list) => self.replay_scene(scene, viewport, list),
+            EncodeFrom::After(previous) => self.encode_scene(scene, viewport, Some(previous)),
+            EncodeFrom::Scene => self.encode_scene(scene, viewport, None),
         })?;
         let encode_time = encode_started.elapsed();
         let reset_in_encode = self.atlas.generation != generation;
@@ -198,30 +199,56 @@ impl Device {
     /// frame — drawn or refused — is encoded again on a reset atlas, which is the frame a
     /// fresh device draws. It costs one encode on the frame after a change of working
     /// set, and nothing where the atlas holds only what the frame uses.
+    ///
+    /// `previous` is the encode of this scene at another view, whose line runs the walk keeps
+    /// where they are this view's (ADR 2056).
     fn encode_scene(
         &mut self,
         scene: &Scene,
         viewport: &Viewport<'_>,
+        previous: Option<&Encoded>,
     ) -> Result<Encoded, RenderError> {
         self.atlas.begin_frame();
         // Once a render, before either walk: a frame encoded again on a reset atlas reads
         // the meets its first walk kept, which are the same bytes (ADR 1517).
         self.kept_meets.begin_render(self.limits.max_frame_bytes);
-        let encoded = self.encode_once(scene, viewport);
+        let encoded = self.encode_once(scene, viewport, previous);
         if !self.atlas.stale_for_frame() {
             return encoded;
         }
         self.atlas.reset();
         self.atlas.begin_frame();
-        self.encode_once(scene, viewport)
+        self.encode_once(scene, viewport, previous)
     }
 
-    /// One walk of the scene against the atlas as it stands.
+    /// One walk of the scene against the atlas as it stands: `previous`'s line runs kept where
+    /// they are this view's, the whole walk otherwise.
     fn encode_once(
         &mut self,
         scene: &Scene,
         viewport: &Viewport<'_>,
+        previous: Option<&Encoded>,
     ) -> Result<Encoded, RenderError> {
+        if let Some(previous) = previous
+            && let Some(kept) = encode::encode_kept(
+                scene,
+                viewport,
+                self.limits.max_frame_bytes,
+                self.limits.max_target_size,
+                &self.resources,
+                &mut self.atlas,
+                &mut self.kept_meets,
+                self.glyph_quantum,
+                self.coverage,
+                self.compute_assist,
+                self.coverage_samples,
+                self.instrument_encode,
+                self.encode_threads,
+                previous,
+            )?
+        {
+            return Ok(kept);
+        }
         encode::encode(
             scene,
             viewport,
@@ -483,6 +510,7 @@ impl Device {
             coverage: encoded.coverage,
             commands_culled: encoded.commands_culled,
             layers_culled: encoded.layers_culled,
+            lines_kept: encoded.lines_kept,
             bytes_uploaded: upload_bytes.total(),
             uploads: upload_bytes,
             layer_textures,

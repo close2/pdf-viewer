@@ -12,7 +12,10 @@
 use pdf_model::navigation::{Dimension, Direction, Motion, Style};
 use viewer_core::{Event, Extraction, RenderRequest};
 
-use crate::kinds::{EventKind, PurposeKind};
+use crate::kinds::{
+    AlertButtonKind, AlertButtonsKind, AlertIconKind, EventKind, MethodKind, PurposeKind,
+    ScriptQuestionKind, ScriptTextKind,
+};
 use crate::status::Status;
 
 /// What a step of a document-wide search reported, flattened for C.
@@ -376,9 +379,11 @@ impl Events {
         })
     }
 
-    /// The bytes of an [`Event::Saved`] or an [`Event::Extracted`].
+    /// The bytes of an [`Event::Saved`], an [`Event::Extracted`], an embedded [`Event::Media`]
+    /// clip, or the body of an [`Event::Submit`] (ADR 2060).
     ///
-    /// **One accessor for two kinds, and that is the point rather than a shortcut.** `doc/todo/30`
+    /// **One accessor for every kind that carries bytes, and that is the point rather than a
+    /// shortcut.** `doc/todo/30`
     /// named this as wanting "a byte-buffer accessor rather than a string one": both events carry a
     /// `Vec<u8>` that is a *file*, and a file is not text — §7.5.6's update is a PDF and an
     /// embedded one may be anything at all, so passing either through the NUL-terminated idiom
@@ -395,6 +400,7 @@ impl Events {
                 media: viewer_core::Media::Embedded { bytes, .. },
                 ..
             } => Ok(bytes),
+            Event::Submit { submission, .. } => Ok(&submission.body),
             _ => Err(Status::WrongKind),
         }
     }
@@ -617,6 +623,102 @@ impl Events {
             _ => Err(Status::WrongKind),
         }
     }
+
+    /// [`Event::Submit`]'s request: how it is sent, how many fields its body names, where to, and
+    /// the media type to put on the body (ADR 2060).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn submit(&self, index: usize) -> Result<(MethodKind, usize, &str, &str), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Submit { submission, .. } => Ok((
+                MethodKind::of(submission.method),
+                submission.fields,
+                &submission.url,
+                &submission.media_type,
+            )),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::ScriptAsking`]'s question, in Adobe's numbers: which of the two it is, an
+    /// alert's icon, its buttons and the button a dialogue closed without a press answers with,
+    /// and whether a response's entry is a password's. What does not apply is `None`.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn script_question(&self, index: usize) -> Result<ScriptQuestionNumbers, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::ScriptAsking { question, .. } => Ok(match question {
+                viewer_core::ScriptQuestion::Alert { icon, buttons, .. } => ScriptQuestionNumbers {
+                    kind: ScriptQuestionKind::Alert,
+                    icon: Some(AlertIconKind::of(*icon)),
+                    buttons: Some(AlertButtonsKind::of(*buttons)),
+                    dismissed: Some(AlertButtonKind::of(buttons.dismissed())),
+                    password: false,
+                },
+                viewer_core::ScriptQuestion::Response { password, .. } => ScriptQuestionNumbers {
+                    kind: ScriptQuestionKind::Response,
+                    icon: None,
+                    buttons: None,
+                    dismissed: None,
+                    password: *password,
+                },
+            }),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// One of [`Event::ScriptAsking`]'s strings.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`]; [`Status::NoAnswer`]
+    /// for a title or a label the script did not give, and for a default or a label asked of an
+    /// alert, which has neither.
+    pub fn script_text(&self, index: usize, part: ScriptTextKind) -> Result<&str, Status> {
+        let Event::ScriptAsking { question, .. } =
+            self.events.get(index).ok_or(Status::OutOfRange)?
+        else {
+            return Err(Status::WrongKind);
+        };
+        let text = match (question, part) {
+            (_, ScriptTextKind::Message) => Some(script_question_text(question)),
+            (
+                viewer_core::ScriptQuestion::Alert { title, .. }
+                | viewer_core::ScriptQuestion::Response { title, .. },
+                ScriptTextKind::Title,
+            ) => title.as_deref(),
+            (viewer_core::ScriptQuestion::Response { default, .. }, ScriptTextKind::Default) => {
+                Some(default.as_str())
+            }
+            (viewer_core::ScriptQuestion::Response { label, .. }, ScriptTextKind::Label) => {
+                label.as_deref()
+            }
+            (
+                viewer_core::ScriptQuestion::Alert { .. },
+                ScriptTextKind::Default | ScriptTextKind::Label,
+            ) => None,
+        };
+        text.ok_or(Status::NoAnswer)
+    }
+}
+
+/// What `quorra_event_script_question` writes, as numbers: [`Events::script_question`]'s answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptQuestionNumbers {
+    /// `app.alert` or `app.response`.
+    pub kind: ScriptQuestionKind,
+    /// An alert's `nIcon`.
+    pub icon: Option<AlertIconKind>,
+    /// An alert's `nType`.
+    pub buttons: Option<AlertButtonsKind>,
+    /// The button an alert closed without a press answers with (ADR 1628's choice).
+    pub dismissed: Option<AlertButtonKind>,
+    /// Whether a response's entry is a password's.
+    pub password: bool,
 }
 
 /// Table 164's numbers for one transition, flattened for C.
@@ -818,6 +920,90 @@ mod tests {
         );
         assert_eq!(
             events.policy_bound(0, 1, Vec::new()),
+            Err(Status::OutOfRange)
+        );
+    }
+
+    /// A submission's request crosses whole: its method, its field count, its URL, its media type
+    /// and its body (ADR 2060).
+    #[test]
+    fn a_submission_crosses_with_everything_a_caller_sends() {
+        use crate::kinds::MethodKind;
+        let events = Events::new(vec![viewer_core::Event::Submit {
+            document: DocumentId(3),
+            submission: Box::new(pdf_model::submission::Submission {
+                url: "https://example.org/form".to_owned(),
+                method: pdf_model::submission::Method::Post,
+                format: pdf_model::submission::Format::Fdf,
+                media_type: "application/vnd.fdf".to_owned(),
+                body: b"%FDF-1.2".to_vec(),
+                fields: 2,
+                owed: Vec::new(),
+            }),
+        }]);
+        assert_eq!(
+            events.submit(0),
+            Ok((
+                MethodKind::Post,
+                2,
+                "https://example.org/form",
+                "application/vnd.fdf"
+            ))
+        );
+        assert_eq!(events.bytes(0), Ok(&b"%FDF-1.2"[..]));
+        assert_eq!(opened().submit(0).map(|_| ()), Err(Status::WrongKind));
+    }
+
+    /// A script's question crosses in Adobe's numbers, with the button a closed dialogue answers
+    /// and every string it gave — and the strings it did not give are no answer, not "".
+    #[test]
+    fn a_scripts_question_crosses_in_adobes_numbers() {
+        use crate::kinds::{
+            AlertButtonKind, AlertButtonsKind, AlertIconKind, ScriptQuestionKind, ScriptTextKind,
+        };
+        let events = Events::new(vec![
+            viewer_core::Event::ScriptAsking {
+                document: DocumentId(3),
+                question: viewer_core::ScriptQuestion::Alert {
+                    message: "Sure?".to_owned(),
+                    icon: viewer_core::AlertIcon::Question,
+                    buttons: viewer_core::AlertButtons::YesNo,
+                    title: None,
+                },
+            },
+            viewer_core::Event::ScriptAsking {
+                document: DocumentId(3),
+                question: viewer_core::ScriptQuestion::Response {
+                    question: "Name?".to_owned(),
+                    title: Some("Form".to_owned()),
+                    default: String::new(),
+                    label: None,
+                    password: true,
+                },
+            },
+        ]);
+        let alert = events.script_question(0).expect("an alert");
+        assert_eq!(alert.kind, ScriptQuestionKind::Alert);
+        assert_eq!(alert.icon, Some(AlertIconKind::Question));
+        assert_eq!(alert.buttons, Some(AlertButtonsKind::YesNo));
+        assert_eq!(alert.dismissed, Some(AlertButtonKind::No));
+        assert_eq!(events.script_text(0, ScriptTextKind::Message), Ok("Sure?"));
+        assert_eq!(
+            events.script_text(0, ScriptTextKind::Title),
+            Err(Status::NoAnswer)
+        );
+        let response = events.script_question(1).expect("a response");
+        assert_eq!(response.kind, ScriptQuestionKind::Response);
+        assert!(response.password);
+        assert_eq!(response.dismissed, None);
+        assert_eq!(events.script_text(1, ScriptTextKind::Title), Ok("Form"));
+        assert_eq!(events.script_text(1, ScriptTextKind::Default), Ok(""));
+        assert_eq!(
+            events.script_text(1, ScriptTextKind::Label),
+            Err(Status::NoAnswer)
+        );
+        assert_eq!(
+            events.script_question(2).map(|_| ()),
             Err(Status::OutOfRange)
         );
     }

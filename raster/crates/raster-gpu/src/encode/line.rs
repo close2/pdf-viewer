@@ -18,14 +18,22 @@
 //! or rasterised for the mark, and no outline is resident for it, which is the whole of what
 //! the page of millions of such marks needed (ADR 1817, ADR 1823).
 //!
+//! **The instance is the page's and the view is the shader's** (ADR 2022): the endpoints, the pen
+//! and the clip's rectangle are written after the line's own transform and before the view, and
+//! `line.wgsl`'s vertex stage maps them, resolves the width for its view and collapses a line the
+//! view admits nothing of. A walk at a view no encode of the scene came before culls a line its
+//! view admits nothing of, as the walk always has, so a page's first frame in a window sends what
+//! the window shows; a walk that culled none wrote the page's whole stream, and the encode of the
+//! next view takes it in runs and sends none of it again (`kept_lines`, ADR 2056).
+//!
 //! **A line of no length under a round cap is §8.5.3.2's dot**, "a filled circle centred at the
 //! single point", and this set at length zero: the band vanishes and the two half discs about
 //! one point are the disc. The closed form needs no direction for it — the shader takes any unit
 //! vector where the endpoints coincide — so the dot is one instance like any line (viewer ADR
 //! 1857). Under the other two caps a line of no length is refused by the scene.
 //!
-//! **Everything else about a line takes the general road, exactly**: a transform that does
-//! not keep the axes, a clip with a non-rectangular link, or a segment the device transform
+//! **Everything else about a line takes the general road, exactly**: a view or a transform that
+//! does not keep the axes, a clip with a non-rectangular link, or a segment its own transform
 //! collapses to a point. There the segment is a two-point outline expanded and filled as the
 //! stroke arm would expand and fill it, so the line command draws what a stroke of the same
 //! path draws wherever the closed form does not apply — except the dot, which the stroke arm
@@ -37,7 +45,7 @@ use raster_scene::{
 };
 
 use super::Encoder;
-use super::device_space::{apply, compose, transform_preserves_axes};
+use super::device_space::{apply, compose, transform_preserves_axes, unviewed};
 use super::expansion::{self, Expansion};
 use super::instance::{LINE_HEAD_BYTES, LineInstance, line_head};
 use crate::error::RenderError;
@@ -87,14 +95,17 @@ impl LineMark {
     }
 }
 
-/// What the closed form makes of a line at one view before its clip is known: the instance's
-/// head ([`line_head`]) and the box the line's ink lies in on the device.
+/// What the closed form makes of a line before its clip is known: the instance's head
+/// ([`line_head`]), which is the page's, and the box the line's ink lies in on the device at
+/// this view.
 ///
 /// **A pure function of the command and the view** (ADR 1878 §3): nothing it reads is decided
 /// by the frame's order, nor by the clip chain, whose resolution is the walk's. That is what lets
 /// the walk have it made on other threads before it reaches the line (`lines_ahead`, ADR 1884),
 /// and it is the one construction both the walk and those threads ask, so the two cannot come to
-/// differ.
+/// differ. **The head reads no view at all** (ADR 2022): it is the line in the page's space, and
+/// `line.wgsl` maps it by the view uniform, so the stream a zoom step writes is the stream the
+/// view before it wrote.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Unclipped {
     head: [u8; LINE_HEAD_BYTES],
@@ -102,25 +113,162 @@ pub(super) struct Unclipped {
 }
 
 impl Unclipped {
-    /// The closed form of `line` under `to_device`, or `None` where the line takes the stroke
-    /// road: a transform that does not keep the axes, or no pen ([`pen`]).
-    pub(super) fn of(line: &LineMark, to_device: &DeviceTransform) -> Option<Self> {
-        if !transform_preserves_axes(to_device) {
+    /// The closed form of `line` under the view `view`, or `None` where the line takes the
+    /// stroke road: a view or a transform that does not keep the axes, or no pen
+    /// ([`page_pen`]).
+    pub(super) fn of(line: &LineMark, view: &DeviceTransform) -> Option<Self> {
+        if !transform_preserves_axes(view) {
             return None;
         }
-        let pen = pen(line, to_device)?;
+        let page = page_pen(line)?;
         Some(Self {
-            head: line_head((pen.from, pen.to), (pen.half, pen.cap), line.color),
-            ink: pen.ink(),
+            head: line_head(
+                (page.from, page.to),
+                (page.half, page.cap, page.resolution.code()),
+                line.color,
+            ),
+            ink: page.on_device(view).ink(),
         })
     }
 
-    /// The instance under a chain of rectangles alone whose rectangle, met with the target's,
-    /// is `admit` — or `None` where no pixel of the ink is admitted, which is a culled line.
-    pub(super) fn under(&self, admit: Rect) -> Option<LineInstance> {
+    /// The instance under a chain of rectangles alone, whose rectangle is `page_admit` in the
+    /// page's space and, met with the target's, `admit` on the device — or `None` where no pixel
+    /// of the ink is admitted, which is a line the walk culls and a kept run's vertex stage
+    /// collapses (ADR 2056).
+    pub(super) fn under(&self, page_admit: Rect, admit: Rect) -> Option<LineInstance> {
         let ink = self.ink.intersection(admit);
-        (!ink.is_empty()).then(|| LineInstance::under(&self.head, admit, ink))
+        (!ink.is_empty()).then(|| LineInstance::under(&self.head, page_admit, ink))
     }
+}
+
+/// The box a closed-form line's ink lies in on the device under the view `view`, or `None` where
+/// the line takes the stroke road at every view ([`page_pen`]) — the box [`Unclipped::of`] carries,
+/// by the same arithmetic, for a walk that keeps the line's instance from the encode before
+/// (`kept_lines`, ADR 2056).
+pub(super) fn device_ink(line: &LineMark, view: &DeviceTransform) -> Option<Rect> {
+    Some(page_pen(line)?.on_device(view).ink())
+}
+
+/// How the vertex stage resolves a line's width at the view it draws in: ADR 0085's rule,
+/// §8.4.3.2's zero and §10.7.5's adjustment, asked of the device's stretch per view rather than
+/// decided on the host (ADR 2022). The number is `line.wgsl`'s, packed beside Table 53's end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// The stated width under the view's stretch.
+    Scaled,
+    /// The stated width under the view's stretch, or one device pixel where §10.7.5's
+    /// adjustment finds it below half a pixel.
+    Adjusted,
+    /// A device pen no view changes: §8.4.3.2's zero width, which is one device pixel, or the
+    /// width the resolution substitutes under a transform that stretches nothing.
+    Fixed,
+}
+
+impl Resolution {
+    /// The number `line.wgsl` reads the resolution by: 0, 1 or 2.
+    fn code(self) -> u32 {
+        match self {
+            Self::Scaled => 0,
+            Self::Adjusted => 1,
+            Self::Fixed => 2,
+        }
+    }
+}
+
+/// A line in the page's space, as its instance states it (ADR 2022): the two endpoints after
+/// the line's own transform, the pen's semi-axes there — half the width times each page axis's
+/// stretch, or the device pen [`Resolution::Fixed`] names — the end, and how the view resolves
+/// the width.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PagePen {
+    from: Point,
+    to: Point,
+    half: (f32, f32),
+    cap: LineCap,
+    resolution: Resolution,
+}
+
+impl PagePen {
+    /// The device shape `line.wgsl`'s vertex stage makes of this pen under a view that keeps
+    /// the axes, by the same steps: the endpoints through the view; the semi-axes each device
+    /// axis receives — under a quarter turn the page's y stretch is the device's x — and one
+    /// device pixel where the adjustment finds the device width below half a pixel. The host
+    /// asks it for the box the plan is grown by; the pixels are the shader's, which WGSL
+    /// section 15.7.5 lets a driver fuse, so the two may differ by an ulp (ADR 2022).
+    fn on_device(self, view: &DeviceTransform) -> Pen {
+        let (from, to) = (apply(view, self.from), apply(view, self.to));
+        let (hx, hy) = self.half;
+        let half = match self.resolution {
+            Resolution::Fixed => self.half,
+            Resolution::Scaled | Resolution::Adjusted => {
+                let half = (
+                    hx * view.a.abs() + hy * view.c.abs(),
+                    hx * view.b.abs() + hy * view.d.abs(),
+                );
+                let thin = 2.0 * half.0.max(half.1) < 0.5;
+                if self.resolution == Resolution::Adjusted && thin {
+                    (0.5, 0.5)
+                } else {
+                    half
+                }
+            }
+        };
+        Pen {
+            from,
+            to,
+            half,
+            cap: self.cap,
+        }
+    }
+}
+
+/// The line in the page's space where the closed form applies at every view that keeps the
+/// axes: a transform of its own that keeps them, two distinct endpoints — or one, under a round
+/// cap, which is the dot — and a pen of positive, finite size.
+///
+/// **Which road a line takes is the page's, not the view's** (ADR 2022), so that the line
+/// stream is a function of the page: [`pen`]'s device rule asked of the page. Where a view
+/// stretches nothing ADR 0085's resolution substitutes `max(width, 1)` device pixels, and
+/// §8.4.3.2's zero is one device pixel, at every view — both [`Resolution::Fixed`]. Everything
+/// else is half the width times each page axis's stretch, which the view scales; a page axis
+/// the transform collapses has no pen at any view and takes the stroke road, whatever the
+/// adjustment would substitute at one.
+fn page_pen(line: &LineMark) -> Option<PagePen> {
+    let page = unviewed(line.transform);
+    if !transform_preserves_axes(&page) {
+        return None;
+    }
+    let (from, to) = (apply(&page, line.from), apply(&page, line.to));
+    if (from == to && line.cap != LineCap::Round) || !(from.is_finite() && to.is_finite()) {
+        return None;
+    }
+    let usable = |v: f32| v > 0.0 && v.is_finite();
+    let stretch = page.max_stretch();
+    let (half, resolution) = if !stretch.is_finite() || stretch <= 0.0 {
+        let side = line.width.max(1.0) / 2.0;
+        ((side, side), Resolution::Fixed)
+    } else if line.width <= 0.0 {
+        ((0.5, 0.5), Resolution::Fixed)
+    } else {
+        let half = line.width / 2.0;
+        let half = (
+            half * (page.a.abs() + page.c.abs()),
+            half * (page.b.abs() + page.d.abs()),
+        );
+        let resolution = if line.adjust {
+            Resolution::Adjusted
+        } else {
+            Resolution::Scaled
+        };
+        (half, resolution)
+    };
+    (usable(half.0) && usable(half.1)).then_some(PagePen {
+        from,
+        to,
+        half,
+        cap: line.cap,
+        resolution,
+    })
 }
 
 /// The device shape of a line under a transform that keeps the axes: the two endpoints and
@@ -220,34 +368,48 @@ impl Encoder<'_> {
         // Per viewport, like a stroke: which road a line takes is decided by where the
         // transform puts it, so the replay re-dispatches the command (`replay.rs`).
         self.record_slow();
+        // Taken before the mask: a soft mask's first use walks the mask's own commands, which
+        // moves the walk's current index (`layer.rs`).
+        let index = self.current_command;
         let mask_index = self.use_mask(line.mask)?;
         let resolved = self.resolve_clip(line.clip)?;
-        let to_device = compose(line.transform, self.viewport);
         if resolved.residues.is_none()
-            && let Some(unclipped) = Unclipped::of(line, &to_device)
+            && let Some(unclipped) = Unclipped::of(line, &unviewed(self.viewport.transform))
         {
-            return self.place_line(
+            if self.place_line(
                 &unclipped,
-                resolved.rect.intersection(self.visible),
+                (resolved.page_rect, resolved.rect.intersection(self.visible)),
                 mask_index,
-            );
+            )? {
+                self.keep_line(index, (line.clip, line.mask), resolved.page_rect);
+            }
+            return Ok(());
         }
+        let to_device = compose(line.transform, self.viewport);
         self.encode_line_as_stroke(line, &to_device, &resolved, mask_index)
     }
 
-    /// Place a line's closed form under the rectangle `admit` its chain and the target leave:
-    /// counted as culled where no pixel of its ink is admitted, an instance otherwise.
+    /// Place a line's closed form under its chain's rectangle, `page_admit` in the page's space
+    /// and `admit` met with the target's on the device: counted as culled where no pixel of its
+    /// ink is admitted, an instance otherwise — and answers which.
+    ///
+    /// **A culled line is a stream that is this view's**, so the encode keeps no runs for the next
+    /// view, which walks the page again (`kept_lines`, ADR 2056). That is the price of a page's
+    /// first frame in a window sending what the window shows rather than the page's whole stream:
+    /// on the owner's witness 26 MB against 264, which the frame would otherwise wait for.
     pub(super) fn place_line(
         &mut self,
         unclipped: &Unclipped,
-        admit: Rect,
+        (page_admit, admit): (Rect, Rect),
         mask_index: Option<u32>,
-    ) -> Result<(), RenderError> {
-        if let Some(instance) = unclipped.under(admit) {
-            return self.push_line_instance(instance, mask_index);
-        }
-        self.note_culled();
-        Ok(())
+    ) -> Result<bool, RenderError> {
+        let Some(instance) = unclipped.under(page_admit, admit) else {
+            self.note_culled();
+            self.kept_build.whole = false;
+            return Ok(false);
+        };
+        self.push_line_instance(instance, mask_index)?;
+        Ok(true)
     }
 
     /// A line the closed form does not reach, drawn as the stroke of a two-point outline.

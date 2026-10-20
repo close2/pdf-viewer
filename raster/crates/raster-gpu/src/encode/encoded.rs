@@ -12,6 +12,7 @@
 //! filled or an exact function of one.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use super::clips::ClipResolver;
 use super::{
@@ -26,8 +27,18 @@ use crate::instrument::EncodeClock;
 pub(crate) struct Encoded {
     pub rect_instances: Vec<u8>,
     pub quad_instances: Vec<u8>,
-    /// The line lane's instances (ADR 0097).
-    pub line_instances: Vec<u8>,
+    /// The line lane's instances (ADR 0097), every one in the page's space (ADR 2022): shared
+    /// with the encode of the view before, where this one kept its runs (ADR 2056).
+    pub line_instances: Arc<Vec<u8>>,
+    /// The line lane as runs of the page's plan, which the encode of the next view of this scene
+    /// takes in one step each — `None` where a line instance went to another plan (ADR 2056).
+    pub kept_lines: Option<super::KeptLines>,
+    /// The view the line lane maps `line_instances` by (ADR 2022).
+    pub line_view: super::LineView,
+    /// The device's copy of `line_instances` that the retained encode before this one left,
+    /// where its runs are this encode's (`retained.rs`, ADR 2022): the frame draws from it and
+    /// sends none of the stream. `None` for every encode no retained handle adopted it into.
+    pub adopted_line: Option<wgpu::Buffer>,
     /// The page's own plan; child layers live in `layers`.
     pub root: LayerPlan,
     pub layers: Vec<LayerPlan>,
@@ -66,6 +77,8 @@ pub(crate) struct Encoded {
     pub commands_culled: u32,
     /// Child layers the walk built and then did not composite (ADR 0041).
     pub layers_culled: u32,
+    /// Line instances the walk took in runs from the encode of the view before (ADR 2056).
+    pub lines_kept: u32,
     /// The GPU lane's triangles and tiles for this frame; empty under `Coverage::Cpu`
     /// and for every command that took the CPU lane anyway.
     pub winding: crate::winding::Sheet,
@@ -135,6 +148,7 @@ impl Encoded {
             self.rect_instances.len() as u64,
             self.quad_instances.len() as u64,
             self.line_instances.len() as u64,
+            self.kept_lines.as_ref().map_or(0, super::KeptLines::bytes),
             self.replay
                 .as_ref()
                 .map_or(0, super::ReplayList::retained_bytes),
@@ -219,11 +233,26 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
         list.segments = segments;
         list
     });
+    // A walk that kept the encode before's runs wrote the stream that encode holds, for the same
+    // commands (ADR 2056): it is shared, not copied.
+    let (line_instances, kept_lines) = match encoder.before {
+        super::kept_lines::Before::Kept(previous) => (
+            Arc::clone(&previous.line_instances),
+            previous.kept_lines.clone(),
+        ),
+        super::kept_lines::Before::Nothing | super::kept_lines::Before::Diverged => (
+            Arc::new(encoder.line_instances),
+            encoder.kept_build.finish(),
+        ),
+    };
     Ok(Encoded {
         replay,
         rect_instances: encoder.rect_instances,
         quad_instances: encoder.quad_instances,
-        line_instances: encoder.line_instances,
+        line_instances,
+        kept_lines,
+        line_view: super::LineView::of(encoder.viewport),
+        adopted_line: None,
         root: encoder.root,
         layers: encoder.layers,
         mask_plans: encoder.mask_plans,
@@ -255,6 +284,7 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
             |(_, segments)| segments,
         ),
         commands_culled: encoder.culled,
+        lines_kept: encoder.lines_kept,
         layers_culled: encoder.culled_layers,
         winding,
         compute,

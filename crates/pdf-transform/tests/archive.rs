@@ -1995,20 +1995,28 @@ fn a_packet_claiming_another_part_is_edited_in_place_and_keeps_its_other_propert
         Some("Somebody's exporter"),
         "the producer's own property crosses the conversion"
     );
+    // ISO 19005-4 section 6.7.3 as erratum #123 corrects it: the namespace is the `http` one
+    // part 2 prints, and the `https` spelling is a reader's to accept rather than a writer's.
     assert_eq!(
-        read.text("https://www.aiim.org/pdfa/ns/id/", "part"),
+        read.text("http://www.aiim.org/pdfa/ns/id/", "part"),
         Some("4")
     );
     assert_eq!(
-        read.text("https://www.aiim.org/pdfa/ns/id/", "rev"),
+        read.text("http://www.aiim.org/pdfa/ns/id/", "rev"),
         Some("2020")
     );
-    assert_eq!(
-        read.text("http://www.aiim.org/pdfa/ns/id/", "conformance"),
-        None,
-        "ISO 19005-4 section 6.7.3 reserves the conformance property for its two annexes, so the \
-         old claim's is removed under both spellings of the namespace"
-    );
+    assert_eq!(read.text("https://www.aiim.org/pdfa/ns/id/", "part"), None);
+    for namespace in [
+        "http://www.aiim.org/pdfa/ns/id/",
+        "https://www.aiim.org/pdfa/ns/id/",
+    ] {
+        assert_eq!(
+            read.text(namespace, "conformance"),
+            None,
+            "ISO 19005-4 section 6.7.3 reserves the conformance property for its two annexes, so \
+             the old claim's is removed under both spellings of the namespace"
+        );
+    }
 }
 
 #[test]
@@ -2033,7 +2041,7 @@ fn a_document_with_no_metadata_stream_is_given_one() {
     );
     let read = pdf_model::xmp::Xmp::parse(&document_packet(&output)).expect("it parses");
     assert_eq!(
-        read.text("https://www.aiim.org/pdfa/ns/id/", "part"),
+        read.text("http://www.aiim.org/pdfa/ns/id/", "part"),
         Some("4")
     );
 }
@@ -12212,4 +12220,200 @@ fn a_type_the_operators_table_does_not_name_stays_refused() {
     };
     assert!(sentence.contains("role-map"), "{sentence}");
     assert!(output.is_none());
+}
+
+/// A packet describing one extension schema whose one property is of a custom value type that
+/// describes no field, and stating that property as a structure with one field in `field_ns` —
+/// the shape of the veraPDF corpus's `6-6-2-3-3-t03-fail-b`.
+fn a_packet_whose_structure_states_an_undescribed_field(field_ns: &str) -> String {
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\">\n");
+    packet.push_str("<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    packet.push_str("</rdf:Description>\n");
+    packet.push_str(
+        "<rdf:Description rdf:about=\"\" \
+         xmlns:pdfaExtension=\"http://www.aiim.org/pdfa/ns/extension/\" \
+         xmlns:pdfaSchema=\"http://www.aiim.org/pdfa/ns/schema#\" \
+         xmlns:pdfaProperty=\"http://www.aiim.org/pdfa/ns/property#\" \
+         xmlns:pdfaType=\"http://www.aiim.org/pdfa/ns/type#\">\n\
+         <pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaSchema:namespaceURI>http://acme.example/ns/1.0/</pdfaSchema:namespaceURI>\n\
+         <pdfaSchema:prefix>acme</pdfaSchema:prefix>\n\
+         <pdfaSchema:schema>Acme batches</pdfaSchema:schema>\n\
+         <pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaProperty:category>internal</pdfaProperty:category>\n\
+         <pdfaProperty:description>The batch</pdfaProperty:description>\n\
+         <pdfaProperty:name>Batch</pdfaProperty:name>\n\
+         <pdfaProperty:valueType>BatchType</pdfaProperty:valueType>\n\
+         </rdf:li></rdf:Seq></pdfaSchema:property>\n\
+         <pdfaSchema:valueType><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <pdfaType:description>A batch</pdfaType:description>\n\
+         <pdfaType:namespaceURI>http://acme.example/batch/</pdfaType:namespaceURI>\n\
+         <pdfaType:prefix>batch</pdfaType:prefix>\n\
+         <pdfaType:type>BatchType</pdfaType:type>\n\
+         </rdf:li></rdf:Seq></pdfaSchema:valueType>\n\
+         </rdf:li></rdf:Bag></pdfaExtension:schemas>\n</rdf:Description>\n",
+    );
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:acme=\"http://acme.example/ns/1.0/\" ");
+    packet.push_str("xmlns:batch=\"");
+    packet.push_str(field_ns);
+    packet.push_str("\">\n");
+    packet.push_str("<acme:Batch rdf:parseType=\"Resource\">\n");
+    packet.push_str("<batch:number>4417</batch:number>\n</acme:Batch>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    packet
+}
+
+#[test]
+fn a_structure_field_its_value_type_leaves_out_is_described_in_that_type() {
+    // ISO 19005-2 section 6.6.2.3.1 requires a property to use the extension schema describing
+    // it, and section 6.6.2.3.3's Tables 5 and 6 are the whole of what describes a value type's
+    // fields. The field's namespace and name are the packet's and its value type is the form its
+    // serialisation shows; Table 6's description is nowhere in the file, so the decision is
+    // `Stated` for the container's reason, one level down (`doc/adr/2050`).
+    let source = a_document_carrying(
+        a_packet_whose_structure_states_an_undescribed_field("http://acme.example/batch/"),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let requirement = "metadata/extension-schema-structure-fields-are-described";
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(&report, requirement);
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("described without anything to authorise: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::ExtensionFieldDescribed);
+    assert!(
+        reinterprets.contains("one fixed sentence"),
+        "{reinterprets}"
+    );
+    let output = output.expect("nothing is lost, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let described = &conversion(&report).described_fields;
+    assert_eq!(described.len(), 1, "one field described: {described:?}");
+    let field = described.first().expect("the field described");
+    assert_eq!(
+        (
+            field.type_name.as_str(),
+            field.namespace.as_str(),
+            field.name.as_str(),
+            field.value_type.as_str()
+        ),
+        ("BatchType", "http://acme.example/batch/", "number", "Text")
+    );
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        written.contains("<pdfaField:name>number</pdfaField:name>"),
+        "{written}"
+    );
+    assert!(
+        written.contains("<batch:number>4417</batch:number>"),
+        "and the producer's field is still in the packet: describing it is what keeps it"
+    );
+}
+
+#[test]
+fn a_structure_field_in_another_namespace_than_its_type_is_refused_by_name() {
+    // Table 5 gives a value type one field namespace, so a field named in another has no
+    // description it could be added to; the document is refused rather than half-described.
+    let source = a_document_carrying(
+        a_packet_whose_structure_states_an_undescribed_field("http://acme.example/elsewhere/"),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(
+        &report,
+        "metadata/extension-schema-structure-fields-are-described",
+    );
+    let Decision::Refused(because) = decided else {
+        panic!("refused by name: {decided:?}");
+    };
+    assert!(
+        format!("{because:?}").contains("namespace other than the field namespace"),
+        "{because:?}"
+    );
+}
+
+#[test]
+fn a_three_dimensional_annotation_outside_the_engineering_flavour_is_the_forbidden_subtype_loss() {
+    // ISO 19005-4 section 6.3.1 admits `3D` only in a PDF/A-4e file, so at PDF/A-4 and PDF/A-4f
+    // it is a subtype the target does not admit: the same removal, under the same authorisation,
+    // as the two subtype rows (`doc/adr/2051` section 4). At PDF/A-4e the row does not bind and
+    // nothing is removed.
+    let row = "annotations/three-dimensional-only-in-engineering-files";
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /3D /Rect [20 30 60 70] /F 4 /AP << /N 7 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length 15",
+            b"0 0 40 40 re f\n",
+        )],
+        ..Conforming::default()
+    }
+    .build();
+    // PDF/A-4f binds the row too, and also requires an embedded file this fixture does not hold.
+    let target = Target::Four(Flavour::Plain);
+    {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        assert!(output.is_none(), "unauthorised, nothing is written");
+        assert!(
+            matches!(
+                decision(&report, row),
+                Decision::Unauthorised {
+                    loss: Loss::ForbiddenAnnotation,
+                    ..
+                }
+            ),
+            "{:?}",
+            decision(&report, row)
+        );
+        let (report, output) = convert(&source, target, every_loss());
+        let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+        let held = holds(&output, target);
+        assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+        assert!(!String::from_utf8_lossy(&output).contains("/3D"));
+    }
+
+    // The poster the producer drew is a form XObject, so a `preserve` puts it back on the page
+    // as it does for the subtype rows (`doc/adr/1123`).
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(
+        matches!(
+            decision(&report, row),
+            Decision::Configured {
+                kind: pdf_transform::archive::RemedyKind::Preserve,
+                rewrite: Rewrite::ForbiddenAnnotationRemoved,
+                ..
+            }
+        ),
+        "{:?}",
+        decision(&report, row)
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    // §12.5.5's matrix maps the /BBox onto the /Rect's corner, so the producer's square is drawn
+    // where it was; the relocation adds a clip to the box, which `doc/adr/1123` constructs.
+    let poster = "transform: Transform { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 20.0, f: 30.0 }";
+    assert!(drawn(&source).contains(poster));
+    assert!(drawn(&output).contains(poster), "the poster is still drawn");
 }

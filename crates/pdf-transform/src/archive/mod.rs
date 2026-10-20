@@ -584,6 +584,7 @@ fn decide_every_failure(
         replaced_packets: Vec::new(),
         removed_identifiers: Vec::new(),
         described_schemas: Vec::new(),
+        described_fields: Vec::new(),
         moved_information: Vec::new(),
         attached: Vec::new(),
         appearances: Vec::new(),
@@ -1194,6 +1195,12 @@ fn apply_the_decisions(
             .described_schemas
             .clone_from(&described.described);
         conversion.removed.extend(described.cut.iter().cloned());
+    }
+    // `doc/adr/2050`: the same for a field described in its value type, one level down.
+    if wanted.contains(&Rewrite::ExtensionFieldDescribed)
+        && let Ok(fields) = &prepared.fields_described
+    {
+        conversion.described_fields.clone_from(&fields.described);
     }
     // `doc/adr/1269`: the dictionary is gone from the output, so the report is the only place a
     // reader can see which of its entries the packet took and which value went with it.

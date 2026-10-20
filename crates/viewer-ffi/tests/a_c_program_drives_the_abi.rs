@@ -290,6 +290,16 @@ fn what_it_printed(said: &str) {
         // The window names its note, object 9, and the note retyped through it is what the
         // window shows next (ADR 1726).
         "note 9 0 retyped: \"retyped\"",
+        // The eight commands RFC 0010 section 3.1 priced (ADRs 2060, 2061). The clock is what the
+        // save writes as Table 166's `/M`, a server's FDF answer is the field's value, and an
+        // answer to a script that is not waiting reaches nothing.
+        "clock: the save writes /M as the caller's clock said: 1",
+        "respond: the field holds the server's value: 1",
+        "an answer to a script that is not waiting: 0 event(s)",
+        // A page past `MAX_PIXELS` under `QUORRA_OVERSIZE_LISTED`: asked for whole at 40 logical
+        // pixels per unit rather than refused, and drawn as a window of the viewport grown by a
+        // quarter on each side — 1200 x 1500 and the pixel either span reaches into.
+        "oversize: page 2 is 23812x33676, a window 1201x1501 at ",
         "ok",
     ] {
         assert!(

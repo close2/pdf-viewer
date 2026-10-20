@@ -33,7 +33,8 @@ use std::thread;
 use raster_scene::{ClipId, Command, MaskId, Rect};
 
 use super::Encoder;
-use super::device_space::compose;
+use super::device_space::{compose, unviewed};
+use super::instance::LINE_INSTANCE_STRIDE;
 use super::line::{LineMark, Unclipped};
 use crate::error::RenderError;
 
@@ -56,15 +57,39 @@ const FLOOR: usize = 4 * BLOCK;
 /// walk is what the frame waits for, and another thread would wait with it (ADR 1884 §2).
 const MAKERS: usize = 3;
 
+/// The chain asked last and what it admits — the page's rectangle and the device's, or `None`
+/// for a chain with a residue link — kept because the lines of a page come in long runs under
+/// one chain.
+type LastAdmitted = Option<(Option<ClipId>, Option<(Rect, Rect)>)>;
+
 /// One line made ahead: where it is in the walk, what its draw asks of the walk, and its closed
 /// form.
 #[derive(Debug, Clone, Copy)]
 struct Made {
     /// Its position in the walk.
     at: usize,
+    /// Its command's index in the scene.
+    index: usize,
     clip: Option<ClipId>,
     mask: Option<MaskId>,
+    /// How many of the block's made lines from this one on are a run the encode of the next view
+    /// may keep (`kept_lines`, ADR 2056): consecutive commands under this chain and this mask.
+    /// Counted by the thread that made the block, so that the walk notes a run once and not a
+    /// line at a time.
+    run: u32,
     form: Unclipped,
+}
+
+/// What the threads read on every line they make, on cache lines of its own (ADR 2036).
+///
+/// The walk's own frame holds the slots it writes on every line; a value the threads read on
+/// every line beside one of them is a line the cores pass back and forth, and which of the
+/// walk's slots shares a line with it is decided by where the stack happens to stand.
+#[repr(align(128))]
+struct Ahead<'v, F> {
+    viewport: crate::viewport::Viewport<'v>,
+    positions: usize,
+    line_at: F,
 }
 
 /// One block's place in the ring.
@@ -262,23 +287,38 @@ impl<'s> Encoder<'s> {
             }
             return Ok(());
         }
-        let viewport = self.viewport;
+        let ahead = Ahead {
+            viewport: *self.viewport,
+            positions,
+            line_at,
+        };
         let form_block = |block: usize, made: &mut Vec<Made>| {
+            let Ahead {
+                viewport,
+                positions,
+                line_at,
+            } = &ahead;
+            let (viewport, positions) = (*viewport, *positions);
             made.clear();
             let start = block.saturating_mul(BLOCK);
             for at in start..start.saturating_add(BLOCK).min(positions) {
-                let Some(line) = line_at(at).and_then(|(_, command)| LineMark::of(command)) else {
+                let Some((index, line)) = line_at(at)
+                    .and_then(|(index, command)| LineMark::of(command).map(|line| (index, line)))
+                else {
                     continue;
                 };
-                if let Some(form) = Unclipped::of(&line, &compose(line.transform, viewport)) {
+                if let Some(form) = Unclipped::of(&line, &unviewed(viewport.transform)) {
                     made.push(Made {
                         at,
+                        index,
                         clip: line.clip,
                         mask: line.mask,
+                        run: 1,
                         form,
                     });
                 }
             }
+            count_runs(made);
         };
         let blocks = positions.div_ceil(BLOCK);
         let per_block = (size_of::<Made>() as u64).saturating_mul(BLOCK as u64);
@@ -303,16 +343,17 @@ impl<'s> Encoder<'s> {
                     pipe.give_back(block, Vec::new());
                     continue;
                 };
+                let base = self.line_instances.len();
                 let mut next = made.iter().peekable();
                 for at in start..end {
                     match next.next_if(|line| line.at == at) {
                         Some(line) => {
-                            let index = line_at(at).map_or(at, |(index, _)| index);
-                            self.place_made(index, line, &mut admitted, &line_at)?;
+                            self.place_made(line.index, line, &mut admitted, &ahead.line_at)?;
                         }
                         None => walk(self, at)?,
                     }
                 }
+                self.keep_made(&made, base, &mut admitted)?;
                 pipe.give_back(block, made);
             }
             Ok(())
@@ -326,7 +367,7 @@ impl<'s> Encoder<'s> {
         &mut self,
         index: usize,
         line: &Made,
-        admitted: &mut Option<(Option<ClipId>, Option<Rect>)>,
+        admitted: &mut LastAdmitted,
         line_at: &impl Fn(usize) -> Option<(usize, &'s Command)>,
     ) -> Result<(), RenderError> {
         self.begin_command_records(index);
@@ -339,7 +380,9 @@ impl<'s> Encoder<'s> {
             mask => self.use_mask(mask)?,
         };
         if let Some(admit) = self.admitted(line.clip, admitted)? {
-            return self.place_line(&line.form, admit, mask_index);
+            // Kept as runs at the block's end (`keep_made`), not a line at a time.
+            self.place_line(&line.form, admit, mask_index)?;
+            return Ok(());
         }
         // A chain with a residue link, which the closed form does not meet: the stroke road, as
         // the walk takes it.
@@ -352,9 +395,10 @@ impl<'s> Encoder<'s> {
         self.encode_line_as_stroke(&mark, &to_device, &resolved, mask_index)
     }
 
-    /// The rectangle a line under `clip` is admitted to — the chain's met with the target's —
-    /// or `None` where the chain has a residue link; `last` keeps the answer for the chain
-    /// asked last, since the lines of a page come in long runs under one chain.
+    /// The rectangle a line under `clip` is admitted to — the chain's in the page's space, and
+    /// met with the target's on the device (ADR 2022) — or `None` where the chain has a residue
+    /// link; `last` keeps the answer for the chain asked last, since the lines of a page come in
+    /// long runs under one chain.
     ///
     /// The chain is resolved the first time it is asked in encounter order, as the walk
     /// resolves it; asked again it is the resolver's memo of the same function (`clips.rs`),
@@ -362,8 +406,8 @@ impl<'s> Encoder<'s> {
     fn admitted(
         &mut self,
         clip: Option<ClipId>,
-        last: &mut Option<(Option<ClipId>, Option<Rect>)>,
-    ) -> Result<Option<Rect>, RenderError> {
+        last: &mut LastAdmitted,
+    ) -> Result<Option<(Rect, Rect)>, RenderError> {
         if let Some((asked, admit)) = *last
             && asked == clip
         {
@@ -373,8 +417,81 @@ impl<'s> Encoder<'s> {
         let admit = resolved
             .residues
             .is_none()
-            .then(|| resolved.rect.intersection(self.visible));
+            .then(|| (resolved.page_rect, resolved.rect.intersection(self.visible)));
         *last = Some((clip, admit));
         Ok(admit)
+    }
+
+    /// Note a block's made lines as the runs the encode of the next view may keep
+    /// (`kept_lines`, ADR 2056), once the walk has placed them; `base` is the line stream's
+    /// length in bytes before the block.
+    ///
+    /// **A run at a time where every made line wrote its instance**, which is every block of a
+    /// walk that culled nothing and met no residue: the block's instances are its made lines',
+    /// in order, so the runs its thread counted are the stream's. Where some took the stroke road
+    /// under a residue link, only the lines whose chain is rectangles alone wrote one, and they
+    /// are noted a line at a time; a walk that culled a line keeps nothing anyway.
+    fn keep_made(
+        &mut self,
+        made: &[Made],
+        base: usize,
+        admitted: &mut LastAdmitted,
+    ) -> Result<(), RenderError> {
+        if !self.kept_build.whole || made.is_empty() {
+            return Ok(());
+        }
+        // The stride is sixty bytes, so the conversion is exact and the divisions cannot fail.
+        let stride = usize::try_from(LINE_INSTANCE_STRIDE).unwrap_or(usize::MAX);
+        let written = self
+            .line_instances
+            .len()
+            .saturating_sub(base)
+            .checked_div(stride)
+            .unwrap_or(0);
+        let first = base.checked_div(stride).unwrap_or(0);
+        if written == made.len() {
+            let mut at = 0;
+            while let Some(head) = made.get(at) {
+                // Every made line here wrote its instance, so its chain is rectangles alone.
+                if let Some((page_rect, _)) = self.admitted(head.clip, admitted)? {
+                    self.keep_run(
+                        (head.index, head.run),
+                        first.saturating_add(at),
+                        (head.clip, head.mask),
+                        page_rect,
+                    );
+                }
+                at = at.saturating_add(head.run.max(1) as usize);
+            }
+            return Ok(());
+        }
+        let mut instance = first;
+        for line in made {
+            if let Some((page_rect, _)) = self.admitted(line.clip, admitted)? {
+                self.keep_run((line.index, 1), instance, (line.clip, line.mask), page_rect);
+                instance = instance.saturating_add(1);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// How many made lines from each one on are a run: consecutive commands under one chain and one
+/// mask. Counted from the block's end, so each line's count is its own plus the next one's where
+/// the two continue each other.
+fn count_runs(made: &mut [Made]) {
+    let mut following: Option<(usize, Option<ClipId>, Option<MaskId>, u32)> = None;
+    for line in made.iter_mut().rev() {
+        line.run = match following {
+            Some((index, clip, mask, run))
+                if index == line.index.saturating_add(1)
+                    && clip == line.clip
+                    && mask == line.mask =>
+            {
+                run.saturating_add(1)
+            }
+            _ => 1,
+        };
+        following = Some((line.index, line.clip, line.mask, line.run));
     }
 }

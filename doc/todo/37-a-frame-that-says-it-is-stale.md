@@ -7,7 +7,7 @@ low-resolution page by ADR 0443, the processor's window and the identity of a pa
 fire on a real one. A view change whose last frame was slow
 now shows the pixels already on the screen, moved to where the new view puts them, and the real
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
-was refused**, and `crates/viewer-ui/src/bin/quorra/stale.rs` carries the five rules with the
+was refused**, and `crates/viewer-device/src/stale.rs` carries the five rules with the
 thing that enforces each.
 Cited by: comments in `crates/viewer-ui` and `crates/pdf-render` — the reason the file is kept whole rather than deleted (ADR 1416).
 Priority: 37 — both surfaces, one policy, and the only thing they still differ in is what a
@@ -239,8 +239,8 @@ rules at all: a tier-1 host holds a **token** rather than a picture, and `viewer
 `RenderReady` whose token is not the one outstanding — so *is this answer still wanted* has a
 provable answer there where here it is a judgement about pixels. That is worth knowing before
 somebody unifies the two: `viewer_host::drawing` is deliberately not a second caller of
-`could_stand_in`, and could not be, because rule 2 keeps every stand-in inside `viewer-ui`'s own
-binary.
+`could_stand_in`, and could not be, because rule 2 keeps every stand-in inside `viewer-device`, which
+nothing but a window may depend on (ADR 2052).
 
 Two consequences for anyone changing the rules above:
 
@@ -322,8 +322,8 @@ What binds it, none of it new:
   so the proxy is produced *after* the first real frame — on the render thread, when it is otherwise
   idle — and never in front of it. A round that measures a launch regression here has built it wrong.
 - **The five rules are still the five.** Rule 2 above all: the proxy and its resample belong in
-  `stale.rs`, a private module of the binary, so that no gate, oracle or harness can link to a
-  stand-in. Rule 1 is unchanged — a proxy is still never the last word.
+  `stale.rs`, in a library only a window may depend on (ADR 2052), so that no gate, oracle or
+  harness can link to a stand-in. Rule 1 is unchanged — a proxy is still never the last word.
 - **Rule 3 has to grow one distinction.** "Approximated from the last frame" and "approximated from a
   low-resolution page" are *different amounts of wrong*, and a frame line that says only
   `approximated` for both has stopped saying what it is showing. The trace names which source filled
@@ -349,10 +349,10 @@ answered by not choosing:
 > regarding the question if we should have only one page or a small window of neighbouring pages.
 > Make it configurable.
 
-**Where the configuration lives is decided by rule 2 and is not free.** The stand-in is a private
-module of a binary so that no gate, oracle or harness can link to one, so the neighbour count may
-**not** become a `Command`, a field of a boundary type, or anything below `crates/viewer-ui/src/bin`
-— that would make a wrong picture visible to the tree that judges pictures, which is the one thing
+**Where the configuration lives is decided by rule 2 and is not free.** The stand-in is in a library
+only a window may depend on, so that no gate, oracle or harness can link to one (ADR 2052), and the
+neighbour count may **not** become a `Command`, a field of a boundary type, or anything a judge is
+built from — that would make a wrong picture visible to the tree that judges pictures, which is the one thing
 rule 2 exists to prevent. It is the **host's** setting: a flag today, and whatever a host's own
 configuration becomes later, the same way `--cpu`, `--backend` and `--no-sandbox` are the host's.
 `doc/todo/30`'s "all three hosts stay level" applies to it as it does to a feature.

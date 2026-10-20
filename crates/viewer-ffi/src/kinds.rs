@@ -93,19 +93,17 @@ pub enum EventKind {
     /// interpreted for paper until `quorra_print_finish`.
     Printing = 21,
     /// [`viewer_core::Event::AskingToRunScripts`] — RFC 0008 section 6.3's one question per
-    /// document. A caller of this ABI supplies no runner, so its sessions are at the level `off`
-    /// and the kind is named for a caller's `default` arm rather than sent (ADR 1616).
+    /// document, sent at `QUORRA_SCRIPTS_ASK` and answered with `quorra_answer_scripts` (ADRs
+    /// 1616, 2061).
     AskingToRunScripts = 22,
-    /// [`viewer_core::Event::ScriptAsking`] — a script's `app.alert` or `app.response`. Sent to
-    /// no caller of this ABI for [`Self::AskingToRunScripts`]'s reason: its sessions run no
-    /// script (ADR 1628).
+    /// [`viewer_core::Event::ScriptAsking`] — a script's `app.alert` or `app.response`, read with
+    /// `quorra_event_script_question` and answered with `quorra_answer_script` (ADRs 1628, 2061).
     ScriptAsking = 23,
     /// [`viewer_core::Event::ScriptQuestionWithdrawn`] — the question a script put is withdrawn,
-    /// its wait run out. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason (ADR
-    /// 1643).
+    /// its wait run out (ADR 1643).
     ScriptQuestionWithdrawn = 24,
-    /// [`viewer_core::Event::Beep`] — a document's script asked for a sound. Sent to no caller of
-    /// this ABI, for [`Self::ScriptAsking`]'s reason: a session supplies no runner (ADR 1702).
+    /// [`viewer_core::Event::Beep`] — a document's script asked for a sound, which is the
+    /// caller's to play (ADR 1702).
     Beep = 25,
     /// [`viewer_core::Event::SignaturePoliciesPublished`] — §12.8.3.4.4's signatures name servers
     /// where a copy of their policy's document is published. `quorra_events_describe` gives each
@@ -113,8 +111,7 @@ pub enum EventKind {
     /// copy to the signer's digest is the Rust hosts' and is not offered here (ADR 1738).
     SignaturePoliciesPublished = 26,
     /// [`viewer_core::Event::Console`] — a document's script asked something of the host's
-    /// console. Sent to no caller of this ABI, for [`Self::ScriptAsking`]'s reason: a session
-    /// supplies no runner (ADR 1771).
+    /// console, which `quorra_events_describe` words (ADR 1771).
     Console = 27,
     /// [`viewer_core::Event::Media`] — §13.2.2 called a rendition's clip viable and the reader's
     /// level let it through. `quorra_events_describe` says what it is and `quorra_events_bytes`
@@ -1967,6 +1964,343 @@ impl ColumnKind {
             }
             pdf_model::collection::FieldKind::Other(name) => (Self::Other, name.as_str()),
         }
+    }
+}
+
+/// What a caller does with a page past [`viewer_core::MAX_PIXELS`], as `quorra_oversize` takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum OversizeKind {
+    /// Refused by name, once for each magnification. The default.
+    Refused = 0,
+    /// Asked for whole and answered `quorra_render_ready_listed`; the caller draws windows of it.
+    Listed = 1,
+}
+
+impl OversizeKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Refused,
+            1 => Self::Listed,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn oversize(self) -> viewer_core::Oversize {
+        match self {
+            Self::Refused => viewer_core::Oversize::Refused,
+            Self::Listed => viewer_core::Oversize::Listed,
+        }
+    }
+}
+
+/// Which request `quorra_respond`'s bytes answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AnsweredKind {
+    /// §12.7.6.2's submission.
+    Submission = 0,
+    /// An import named by an absolute URI, which the caller fetched.
+    Import = 1,
+}
+
+impl AnsweredKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Submission,
+            1 => Self::Import,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn answered(self) -> viewer_core::Answered {
+        match self {
+            Self::Submission => viewer_core::Answered::Submission,
+            Self::Import => viewer_core::Answered::Import,
+        }
+    }
+}
+
+/// §12.7.8's form data as an answer arrives in it: taken by `quorra_respond` and answered by
+/// `quorra_data_format_of_media_type` and `quorra_data_format_of_name`, so it has both conversions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum DataFormatKind {
+    /// §12.7.8's Forms Data Format.
+    Fdf = 0,
+    /// ISO 19444-1's XML spelling of the same data.
+    Xfdf = 1,
+    /// Anything else, which §12.7.6.4 permits and this library reads none of.
+    Other = 2,
+}
+
+impl DataFormatKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Fdf,
+            1 => Self::Xfdf,
+            2 => Self::Other,
+            _ => return None,
+        })
+    }
+
+    /// Which kind a format is; exhaustive, so a fourth format fails to compile here.
+    #[must_use]
+    pub const fn of(format: pdf_model::action::DataFormat) -> Self {
+        match format {
+            pdf_model::action::DataFormat::Fdf => Self::Fdf,
+            pdf_model::action::DataFormat::Xfdf => Self::Xfdf,
+            pdf_model::action::DataFormat::Other => Self::Other,
+        }
+    }
+
+    /// What `pdf-model` calls it.
+    #[must_use]
+    pub const fn format(self) -> pdf_model::action::DataFormat {
+        match self {
+            Self::Fdf => pdf_model::action::DataFormat::Fdf,
+            Self::Xfdf => pdf_model::action::DataFormat::Xfdf,
+            Self::Other => pdf_model::action::DataFormat::Other,
+        }
+    }
+}
+
+/// Table 240 bit 4, as `quorra_event_submit` answers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum MethodKind {
+    /// An HTTP GET: the form data is in the URL's query and the body is empty.
+    Get = 0,
+    /// An HTTP POST: the form data is the body.
+    Post = 1,
+}
+
+impl MethodKind {
+    /// Which kind a method is; exhaustive, so a third fails to compile here.
+    #[must_use]
+    pub const fn of(method: pdf_model::submission::Method) -> Self {
+        match method {
+            pdf_model::submission::Method::Get => Self::Get,
+            pdf_model::submission::Method::Post => Self::Post,
+        }
+    }
+}
+
+/// The reader's level for a document's scripts, as `quorra_scripts` takes it: `viewer_host`'s four,
+/// in [`viewer_host::Scripts::ALL`]'s order (ADR 2061).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ScriptsKind {
+    /// No runner and no process. The default.
+    Off = 0,
+    /// One question per document before its first script runs.
+    Ask = 1,
+    /// Scripts run, and each run is said.
+    Warn = 2,
+    /// Scripts run.
+    On = 3,
+}
+
+impl ScriptsKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Off,
+            1 => Self::Ask,
+            2 => Self::Warn,
+            3 => Self::On,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-host` calls it.
+    #[must_use]
+    pub const fn level(self) -> viewer_host::Scripts {
+        match self {
+            Self::Off => viewer_host::Scripts::Off,
+            Self::Ask => viewer_host::Scripts::Ask,
+            Self::Warn => viewer_host::Scripts::Warn,
+            Self::On => viewer_host::Scripts::On,
+        }
+    }
+}
+
+/// Which of the two questions a script put, as `quorra_event_script_question` answers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ScriptQuestionKind {
+    /// `app.alert`.
+    Alert = 0,
+    /// `app.response`.
+    Response = 1,
+}
+
+/// Which of a script question's strings `quorra_event_script_text` copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ScriptTextKind {
+    /// An alert's message, or a response's question.
+    Message = 0,
+    /// The script's own title for the dialogue.
+    Title = 1,
+    /// The text a response's entry starts with.
+    Default = 2,
+    /// The label beside a response's entry.
+    Label = 3,
+}
+
+impl ScriptTextKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Message,
+            1 => Self::Title,
+            2 => Self::Default,
+            3 => Self::Label,
+            _ => return None,
+        })
+    }
+}
+
+/// `app.alert`'s `nIcon`, in Adobe's own numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AlertIconKind {
+    /// 0, and the default.
+    Error = 0,
+    /// 1.
+    Warning = 1,
+    /// 2.
+    Question = 2,
+    /// 3.
+    Status = 3,
+}
+
+impl AlertIconKind {
+    /// Which kind an icon is; exhaustive, so a fifth fails to compile here.
+    #[must_use]
+    pub const fn of(icon: viewer_core::AlertIcon) -> Self {
+        match icon {
+            viewer_core::AlertIcon::Error => Self::Error,
+            viewer_core::AlertIcon::Warning => Self::Warning,
+            viewer_core::AlertIcon::Question => Self::Question,
+            viewer_core::AlertIcon::Status => Self::Status,
+        }
+    }
+}
+
+/// `app.alert`'s `nType`, in Adobe's own numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AlertButtonsKind {
+    /// 0: OK, and the default.
+    Ok = 0,
+    /// 1: OK and Cancel.
+    OkCancel = 1,
+    /// 2: Yes and No.
+    YesNo = 2,
+    /// 3: Yes, No and Cancel.
+    YesNoCancel = 3,
+}
+
+impl AlertButtonsKind {
+    /// Which kind a set is; exhaustive, so a fifth fails to compile here.
+    #[must_use]
+    pub const fn of(buttons: viewer_core::AlertButtons) -> Self {
+        match buttons {
+            viewer_core::AlertButtons::Ok => Self::Ok,
+            viewer_core::AlertButtons::OkCancel => Self::OkCancel,
+            viewer_core::AlertButtons::YesNo => Self::YesNo,
+            viewer_core::AlertButtons::YesNoCancel => Self::YesNoCancel,
+        }
+    }
+}
+
+/// One `app.alert` button, in the numbers that function returns: answered by
+/// `quorra_event_script_question` and taken by `quorra_answer_script`, so it has both conversions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AlertButtonKind {
+    /// OK: 1.
+    Ok = 1,
+    /// Cancel: 2.
+    Cancel = 2,
+    /// No: 3.
+    No = 3,
+    /// Yes: 4.
+    Yes = 4,
+}
+
+impl AlertButtonKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            1 => Self::Ok,
+            2 => Self::Cancel,
+            3 => Self::No,
+            4 => Self::Yes,
+            _ => return None,
+        })
+    }
+
+    /// Which kind a button is; exhaustive, so a fifth fails to compile here.
+    #[must_use]
+    pub const fn of(button: viewer_core::AlertButton) -> Self {
+        match button {
+            viewer_core::AlertButton::Ok => Self::Ok,
+            viewer_core::AlertButton::Cancel => Self::Cancel,
+            viewer_core::AlertButton::No => Self::No,
+            viewer_core::AlertButton::Yes => Self::Yes,
+        }
+    }
+
+    /// What `viewer-core` calls it.
+    #[must_use]
+    pub const fn button(self) -> viewer_core::AlertButton {
+        match self {
+            Self::Ok => viewer_core::AlertButton::Ok,
+            Self::Cancel => viewer_core::AlertButton::Cancel,
+            Self::No => viewer_core::AlertButton::No,
+            Self::Yes => viewer_core::AlertButton::Yes,
+        }
+    }
+}
+
+/// How a person answered a script's question, as `quorra_answer_script` takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ScriptAnswerKind {
+    /// An alert's button.
+    Pressed = 0,
+    /// A response's text, or its cancel.
+    Typed = 1,
+    /// The caller has no dialogue to put the question on.
+    Unanswerable = 2,
+}
+
+impl ScriptAnswerKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Pressed,
+            1 => Self::Typed,
+            2 => Self::Unanswerable,
+            _ => return None,
+        })
     }
 }
 

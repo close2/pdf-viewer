@@ -2,7 +2,7 @@
 
 Status: **proposed**. Session 1606, from the owner's `doc/questions/A287` of 2026-10-19 and ADR 2048.
 One choice in it is the owner's, the UI framework (§3.3), and `doc/questions/Q501` asks it. The rest
-can start whichever way that is answered. **The first buildable step is §6's N0.**
+can start whichever way that is answered. **§6's N0 is built (ADR 2054); N1 is the next step.**
 
 ## 1. Motivation
 
@@ -37,8 +37,10 @@ convention and not correctness (principle 5): nothing here decides what a page l
 **The C ABI.** The wire would buy a confinement Windows does not provide, and it would cost a
 second implementation of a protocol nobody froze.
 
-**What the ABI lacks.** `tools/state.sh hosts` prints 37 of 45 `Command`s reaching it. The eight
-missing, and what each costs:
+**What the ABI lacked.** `tools/state.sh hosts` printed 37 of 45 `Command`s reaching it. The eight
+are **built** (ADRs 2060, 2061), each in the shape the table prices except `Oversize`, which the
+processor serves now — the request is the list, and a window of it is drawn and read back — and the
+three script commands, whose runner is `viewer_host`'s, made beside the library:
 
 | missing | what it is | the .NET host needs it for | price |
 |---|---|---|---|
@@ -127,8 +129,8 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 
 | step | what | where it builds | price |
 |---|---|---|---|
-| **N0** | `hosts/windows/Quorra.Interop/`, hand-written `[LibraryImport]` declarations for the header's 240 entry points and its constants, outside the Cargo workspace. A Rust test in `crates/viewer-ffi/tests/` reads `quorra.h` and the C# file and asserts each entry point is declared once with the same parameter count and each constant has the same value, as `header_and_library_agree.rs` does for `abi.rs` | the test on this machine; `dotnet build` in a CI job | one round |
-| N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count | this machine | one round |
+| **N0** | `hosts/windows/Quorra.Interop/`, hand-written `[LibraryImport]` declarations for the header's 240 entry points and its constants, outside the Cargo workspace. A Rust test in `crates/viewer-ffi/tests/` reads `quorra.h` and the C# file and asserts each entry point is declared once with the same parameter count and each constant has the same value, as `header_and_library_agree.rs` does for `abi.rs` | the test on this machine; `dotnet build` in a CI job | one round. **Built** in session 1609 (ADR 2054): one file per section of the header, and the test holds each parameter's and field's type under one rule as well as the names and values. `dotnet build` is still owed |
+| N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count. **The eight commands are built** (ADRs 2060, 2061); the key table is owed | this machine | one round |
 | N2 | `quorra_window` (§3.2) | this machine; driven by `a_c_program_drives_the_abi.rs`'s C caller | two rounds |
 | N3a | the WinUI 3 window on the processor lane: the page, the controls over it, the panels, the cards | `windows-latest` only | three to four rounds |
 | N3b | ADR 2049's S0, then `quorra_device`, read back | this machine, then CI | one round after S0 |

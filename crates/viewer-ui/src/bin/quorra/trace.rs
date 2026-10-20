@@ -158,6 +158,13 @@ impl Trace {
     }
 }
 
+/// The stand-in policy's lines are this trace's `frames` topic (ADR 2052).
+impl viewer_device::FrameLines for Trace {
+    fn say(self, what: std::fmt::Arguments<'_>) {
+        Trace::say(self, Topic::Frames, what);
+    }
+}
+
 /// The set of topics a `--trace` argument asks for, or the word that named none of them.
 ///
 /// Empty asks for everything, which is what a bare `--trace` has always meant and what the

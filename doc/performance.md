@@ -339,7 +339,11 @@ rise was false sharing on its own stack** (ADR 2036): the line makers read the `
 captured slice and the view out of the walk's frame on every line, and the build's frame put a slot the
 walk writes on every line beside them — about forty cycles a line, by where the stack stood, which is
 why a duration could not attribute it and the processor's own counters, sampled per instruction, did.
-The answer returns with the build.
+**Both are in the tree with the op list built once** (ADR 2056): a walk with no encode of the scene
+before it still culls, so a page's first frame in a window sends what the window shows; a walk that
+culled no line — the fit a page opens at — keeps its lines as runs, and every later view of the page
+walks only the commands outside them, sending no line byte and reading the stream already on the
+device. `zoom_frame`'s `lanes:` line ends in `lines kept`, the instances a step took in runs.
 
 ### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
 

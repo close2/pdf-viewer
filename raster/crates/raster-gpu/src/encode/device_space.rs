@@ -34,6 +34,20 @@ pub(super) fn compose(transform: Affine, viewport: &Viewport<'_>) -> DeviceTrans
     }
 }
 
+/// A command's transform alone, under no view: the page's space, in which the line lane states
+/// its instances so that the stream is the page's and the view a uniform its shader applies
+/// (ADR 2022).
+pub(super) fn unviewed(transform: Affine) -> DeviceTransform {
+    DeviceTransform {
+        a: transform.a,
+        b: transform.b,
+        c: transform.c,
+        d: transform.d,
+        e: transform.e,
+        f: transform.f,
+    }
+}
+
 pub(super) fn transform_preserves_axes(t: &DeviceTransform) -> bool {
     // Exact zeros, as in `Affine::preserves_axes`: document transforms carry them. No lint
     // is silenced here either: `clippy::float_cmp` exempts a comparison against a zero literal.

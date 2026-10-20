@@ -71,14 +71,15 @@ pub use crate::table::interaction::{
     ActionHolder, ActionSite, AdditionalActions, ExtraAppearances, ForbiddenFlags,
     ForbiddenSubtype, MissingAppearance, VisibleWidget, action_admitted, action_entry_admitted,
     action_sites, additional_actions_admitted, annotation_subtype_permitted, annotation_trigger,
-    annotations_of_a_forbidden_subtype, annotations_the_flags_forbid,
-    annotations_with_extra_appearance_states, annotations_without_an_appearance, flags_permitted,
-    flags_permitting, visible_widgets,
+    annotations_of_a_forbidden_subtype, annotations_outside_the_engineering_flavour,
+    annotations_the_flags_forbid, annotations_with_extra_appearance_states,
+    annotations_without_an_appearance, flags_permitted, flags_permitting, visible_widgets,
 };
 pub use crate::table::metadata::{
-    ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedProperty,
-    UndescribedSchema, dates_stated, extension_container_fields, malformed_amendment_identifiers,
-    metadata_streams, packet_faults, properties_outside_their_schema, undescribed_schemas,
+    ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedField,
+    UndescribedProperty, UndescribedSchema, dates_stated, extension_container_fields,
+    malformed_amendment_identifiers, metadata_streams, packet_faults,
+    properties_outside_their_schema, undescribed_fields, undescribed_schemas,
 };
 pub use crate::target::{Flavour, Level, Part, Target};
 pub use crate::withdrawal::{Reaches, Subject, subjects};

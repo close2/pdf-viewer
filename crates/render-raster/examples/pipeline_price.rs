@@ -23,7 +23,7 @@
 //!    drawer behind it would be waiting on. `PIPELINE_READ_ONLY` stops here, for a read timed on
 //!    one class of core against the other.
 //! 3. **What `quorra` predicts**: its two seeds (`Costs::DEVICE_SEED` and
-//!    `Costs::PROCESSOR_SEED` in `crates/viewer-ui/src/bin/quorra/renderer.rs`) times this list's
+//!    `Costs::PROCESSOR_SEED` in `crates/viewer-device/src/renderer/lanes.rs`) times this list's
 //!    commands, beside what the processor measures below.
 //! 4. **The draw, whole**: the list at the window's fit on this process's rayon pool, as
 //!    `viewer_ui::software::compose_pages` draws it — strips on the pool's threads.

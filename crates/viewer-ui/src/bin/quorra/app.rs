@@ -351,10 +351,10 @@ pub(crate) struct App {
     /// policy, or one lane pinned for a measuring session.
     pub(crate) coverage: crate::arguments::CoverageChoice,
     /// The lane the last asked frame used — the sticky half of
-    /// [`crate::surface::lane_for`], so a chrome-only ask keeps its replay.
+    /// [`viewer_device::lane::lane_for`], so a chrome-only ask keeps its replay.
     pub(crate) lane: Option<raster_gpu::Coverage>,
     /// Magnifications the atlas has drawn (linear parts, by bits, newest last, at most
-    /// eight) — the revisit half of [`crate::surface::lane_for`].
+    /// eight) — the revisit half of [`viewer_device::lane::lane_for`].
     pub(crate) atlas_saw: Vec<[u32; 4]>,
     /// The settled frame's resolution factor, from `--supersample`: 1 off, 2 on.
     ///

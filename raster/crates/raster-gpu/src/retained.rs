@@ -136,6 +136,16 @@ impl EncodeKey {
     }
 }
 
+/// What a frame's encode is made from, beside the scene the handle owns.
+pub(crate) enum EncodeFrom<'p> {
+    /// The scene, walked whole.
+    Scene,
+    /// The records of an encode at another viewport (ADR 0087).
+    Records(&'p crate::encode::ReplayList),
+    /// The scene, walked with the line runs of its encode at another view kept (ADR 2056).
+    After(&'p Encoded),
+}
+
 /// One retained encode and the key it is valid under.
 #[derive(Debug)]
 struct Held {
@@ -149,6 +159,29 @@ struct Held {
     /// the device's refusal to hold them, decided by that same frame and kept for the encode's
     /// life (viewer ADR 2030).
     instances: OnceCell<Residency>,
+}
+
+impl Held {
+    /// The line stream this encode keeps on the device, for the encode `encoded` that replaces
+    /// it under `key` — where that encode's stream is this one's (viewer ADRs 2022, 2056).
+    ///
+    /// **A shared stream is the same bytes**: an encode that kept this one's line runs holds this
+    /// one's stream itself rather than a copy of it (`kept_lines`), so the two are one allocation
+    /// and the device's copy of it is the new encode's to the byte, at any two views. The rest of
+    /// the key is [`EncodeKey::replay_compatible`]'s: the same device, which made the buffer, and
+    /// the same resource generation, which the clips' rectangles are read from. Only a stream the
+    /// residency budget admitted is there to adopt.
+    fn line_stream_for(&self, key: &EncodeKey, encoded: &Encoded) -> Option<wgpu::Buffer> {
+        if !self.key.replay_compatible(key)
+            || !std::sync::Arc::ptr_eq(&self.encoded.line_instances, &encoded.line_instances)
+        {
+            return None;
+        }
+        match self.instances.get()? {
+            Residency::Kept { streams, .. } => streams.line().cloned(),
+            Residency::Refused(_) => None,
+        }
+    }
 }
 
 /// A [`Scene`] the caller keeps across frames, and the encode of its last frame.
@@ -177,7 +210,7 @@ struct Held {
 /// | its damage list | replayed — `encode` never reads damage (ADR 0012) |
 /// | the target it draws into | replayed — phase 1 knows no target |
 /// | a scroll of a whole number of device pixels | **re-encoded**: the atlas tiles are still valid and are reused, but every device bound, cull and clip rectangle is an absolute position |
-/// | a scroll of a fraction of a pixel, or a zoom | **re-encoded**, and nothing in the glyph lane survives it: the quantised phase and the linear part are inside every atlas key (ADR 0009) |
+/// | a scroll of a fraction of a pixel, or a zoom | **re-encoded**, and nothing in the glyph lane survives it: the quantised phase and the linear part are inside every atlas key (ADR 0009) — while the line lane does, where the encode before culled no line: its runs are taken whole and its stream read from the device (viewer ADR 2056) |
 /// | the scene | **re-encoded** |
 ///
 /// A zoom step is a different rasterisation of every glyph on the page, so no design
@@ -313,13 +346,21 @@ impl RetainedScene {
     pub(crate) fn prepare<E>(
         &mut self,
         key: EncodeKey,
-        build: impl FnOnce(&Scene, Option<&crate::encode::ReplayList>) -> Result<Encoded, E>,
+        build: impl FnOnce(&Scene, EncodeFrom<'_>) -> Result<Encoded, E>,
     ) -> Result<(EncodeSource, &Encoded, &OnceCell<Residency>), E> {
         // Taken and put back rather than matched in place: `Option::insert` returns the
         // stored value infallibly, so the encode this call draws is the encode this
         // call stored, with no unwrap and no unreachable arm between the two.
         let (source, held) = match self.held.take() {
-            Some(held) if held.key == key => (EncodeSource::Replayed, held),
+            Some(mut held) if held.key == key => {
+                // An adopted line stream the budget then refused is this encode's to keep no
+                // longer than the frame that adopted it: every frame of a refused encode makes
+                // its own streams (viewer ADRs 2022, 2030).
+                if matches!(held.instances.get(), Some(Residency::Refused(_))) {
+                    held.encoded.adopted_line = None;
+                }
+                (EncodeSource::Replayed, held)
+            }
             // A different viewport over the same everything-else, and the held encode
             // wrote its records down: the walk is replayed from them instead of the
             // scene (ADR 0087). A failure falls through to nothing held, exactly as a
@@ -333,7 +374,8 @@ impl RetainedScene {
                     .replay
                     .as_ref()
                     .expect("checked by the guard above");
-                let encoded = build(&self.scene, Some(list))?;
+                let mut encoded = build(&self.scene, EncodeFrom::Records(list))?;
+                encoded.adopted_line = held.line_stream_for(&key, &encoded);
                 let bytes = encoded.retained_bytes();
                 (
                     EncodeSource::RecordReplayed,
@@ -345,8 +387,19 @@ impl RetainedScene {
                     },
                 )
             }
-            _ => {
-                let encoded = build(&self.scene, None)?;
+            previous => {
+                // The same scene at another view of the same device, lane and resources: its line
+                // runs are this view's where the walk finds them so (ADR 2056).
+                let from = match previous.as_ref() {
+                    Some(held) if held.key.replay_compatible(&key) => {
+                        EncodeFrom::After(&held.encoded)
+                    }
+                    _ => EncodeFrom::Scene,
+                };
+                let mut encoded = build(&self.scene, from)?;
+                encoded.adopted_line = previous
+                    .as_ref()
+                    .and_then(|held| held.line_stream_for(&key, &encoded));
                 let bytes = encoded.retained_bytes();
                 let held = Held {
                     key,

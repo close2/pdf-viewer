@@ -509,6 +509,11 @@ pub struct Counters {
     /// rendering was saved. Multiplying this by what a group costs to encode would
     /// overstate it.
     pub layers_culled: u32,
+    /// Line instances this frame's encode took in runs from the encode of the same scene at the
+    /// view before, rather than walking their lines (viewer ADR 2056): the instances, their
+    /// batches and their lane count are that encode's, and only each line's box at this view was
+    /// asked, until the page's plan held the whole target. Zero for a frame walked whole.
+    pub lines_kept: u32,
     /// Bytes scheduled for CPU→GPU transfer this frame.
     pub bytes_uploaded: u64,
     /// [`bytes_uploaded`](Counters::bytes_uploaded) divided by the stream it went to.

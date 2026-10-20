@@ -65,7 +65,9 @@ placement = "append"
 on-failure = "stop"
 
 [site."annotations/three-dimensional-only-in-engineering-files"]
-remedy = "discard"
+remedy = "preserve"
+placement = "append"       # the window drew its poster; keep those marks as the rows above do
+on-failure = "stop"
 
 [site."annotations/file-attachment-only-in-embedded-file-files"]
 remedy = "discard"

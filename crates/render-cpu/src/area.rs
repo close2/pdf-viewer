@@ -83,8 +83,11 @@
 //!   converters on either side of a cut (ADR 1819).
 //! - **A mark outside the raster, or a transform that states no bounds.** There is nothing to
 //!   measure.
-//! - **Anything the caller has already withdrawn anti-aliasing from**, which is `scan`'s range
-//!   rule: outside `SUPERSAMPLED_LIMIT` the aliased converter draws, and this module is not it.
+//! - **A mark drawn without anti-aliasing**, which its caller asked for. `scan`'s range is not a
+//!   reason: it bounds the library's fixed-point converter, and every coordinate here is stated
+//!   against the region's own corner, so a mark past `SUPERSAMPLED_LIMIT` is measured where it
+//!   lies — up to `scan`'s `MEASURED_LIMIT`, past which an `f32` coordinate no longer carries the
+//!   precision this integral is built on (ADR 2058).
 
 use tiny_skia::{FillRule, Path, PathSegment, Point, Transform};
 
@@ -111,9 +114,10 @@ const FLATNESS: f32 = 1.0 / 256.0;
 
 /// The most line segments one curve is flattened into.
 ///
-/// A cost guard rather than a condition, and the geometry reaches it nowhere: `scan`'s
-/// `SUPERSAMPLED_LIMIT` bounds a device coordinate at 8191, which bounds a cubic's second
-/// difference by the same figure and [`steps_for`] by 1256.
+/// A cost guard rather than a condition: [`steps_for`] reaches it only where a cubic's second
+/// difference passes 87 381 device pixels or a quadratic's 262 144, which takes control points
+/// tens of thousands of pixels apart, and such a curve is flattened more coarsely than
+/// [`FLATNESS`] rather than refused.
 const STEPS_PER_CURVE: u32 = 4096;
 
 /// The device pixels a mark can reach, as the accumulator's own extent.
@@ -1965,9 +1969,9 @@ fn floored(value: f32) -> usize {
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
-    reason = "a coordinate a mark reaches this converter with is held inside `scan`'s \
-              SUPERSAMPLED_LIMIT, so the truncated value is far inside i64 and exact in f32; a NaN \
-              casts to zero"
+    reason = "the cast truncates a finite value toward zero and saturates past i64, where an f32 \
+              is already whole; every f32 of 2^24 or more is whole, so the value cast back is \
+              exact wherever a fraction could be lost; a NaN casts to zero"
 )]
 fn floored_signed(value: f32) -> i64 {
     let whole = value as i64;

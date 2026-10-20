@@ -1698,3 +1698,12 @@ issued three of them as parallel tool calls in one response; the harness ran the
 the model sent nothing for 354 s. The cache survived by luck (ADR 2039 counted every such gap a hit).
 A wait is a thing a response does once: the call returns, the model reads it, and the next wait is
 the next response's. The same arithmetic that bounds one call bounds the response.
+
+### 211. `cargo tree` reads one platform unless told otherwise
+
+ADR 2048 wrote the rule that the application and the C ABI depend on no widget toolkit as a `cargo
+tree -e normal,build -i <toolkit>` command; round 1609 planted `cxx` under `cfg(windows)` in
+`viewer-ffi` and the command printed "nothing to print" and exited 0. `cargo tree` resolves the host
+target unless `--target all` says every one, and a check that reads one platform's graph proves
+nothing about a host written for another. ADR 2055 amends the command and the test calibrates itself
+with a platform-gated plant.

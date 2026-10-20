@@ -107,22 +107,21 @@ extern "C" {
  * go against the sheet. `quorra_events_describe` gives the page count. */
 #define QUORRA_EVENT_PRINTING          21u
 
-/* RFC 0008 section 6.3's one question per document before its scripts run. A caller of this ABI
- * supplies no runner, so its sessions run no script and this kind is not sent to it; it is named
- * for the default arm of a switch over a newer build (ADR 1616). */
+/* RFC 0008 section 6.3's one question per document before its scripts run, sent at
+ * QUORRA_SCRIPTS_ASK and answered with quorra_answer_scripts (ADRs 1616, 2061). */
 #define QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS 22u
 
-/* A document's script asks the person something: app.alert or app.response. Not sent to a caller
- * of this ABI, for the kind above's reason; named for the default arm of a switch (ADR 1628). */
+/* A document's script asks the person something: app.alert or app.response. Read it with
+ * quorra_event_script_question and quorra_event_script_text; answer with quorra_answer_script
+ * (ADRs 1628, 2061). */
 #define QUORRA_EVENT_SCRIPT_ASKING     23u
 
 /* The question QUORRA_EVENT_SCRIPT_ASKING put is withdrawn: its wait ran out and the script was
- * answered as a closed dialogue answers. Not sent to a caller of this ABI, for the kinds above's
- * reason; named for the default arm of a switch (ADR 1643). */
+ * answered as a closed dialogue answers, so drop the dialogue (ADR 1643). */
 #define QUORRA_EVENT_SCRIPT_QUESTION_WITHDRAWN 24u
 
-/* A document's script asked for a sound: app.beep. Not sent to a caller of this ABI, for the kinds
- * above's reason; named for the default arm of a switch (ADR 1702). */
+/* A document's script asked for a sound: app.beep. Playing one is the caller's; one with no sound
+ * says so rather than staying silent (ADR 1702). */
 #define QUORRA_EVENT_BEEP 25u
 
 /* ISO 32000-2 §12.8.3.4.4: a signature names a server where a copy of its policy's document is
@@ -132,9 +131,8 @@ extern "C" {
  * hosts' and is not offered here (ADR 1738). */
 #define QUORRA_EVENT_SIGNATURE_POLICIES_PUBLISHED 26u
 
-/* A document's script asked something of the host's console: console.show, hide or clear. Not
- * sent to a caller of this ABI, for the script kinds above's reason; named for the default arm of
- * a switch (ADR 1771). */
+/* A document's script asked something of the host's console: console.show, hide or clear, as
+ * quorra_events_describe words it (ADR 1771). */
 #define QUORRA_EVENT_CONSOLE 27u
 
 /* ISO 32000-2 §13.2.2 judged a rendition's clip viable and the reader's level let it through:
@@ -250,6 +248,60 @@ extern "C" {
 #define QUORRA_PURPOSE_NAMED_PAGE  3u
 #define QUORRA_PURPOSE_THREAD_DOCUMENT  4u
 #define QUORRA_PURPOSE_LAUNCH_DOCUMENT  5u
+
+/* What the eight commands below take (ADR 2060). */
+/* `quorra_oversize`: what this caller does with a page past MAX_PIXELS, or whose window keeps an
+ * eighth fewer of its commands. REFUSED is the default; LISTED asks for it whole, and the caller
+ * answers with quorra_render_ready_listed and draws windows of it. */
+#define QUORRA_OVERSIZE_REFUSED  0u
+#define QUORRA_OVERSIZE_LISTED   1u
+/* `quorra_respond`: which request the bytes answer — §12.7.6.2's submission, or an import named by
+ * an absolute URI that the caller fetched. */
+#define QUORRA_ANSWERED_SUBMISSION  0u
+#define QUORRA_ANSWERED_IMPORT      1u
+/* §12.7.8's form data as an answer arrives in it. OTHER is any other format, which §12.7.6.4
+ * permits and this library reads none of: it is said, not imported. */
+#define QUORRA_DATA_FDF    0u
+#define QUORRA_DATA_XFDF   1u
+#define QUORRA_DATA_OTHER  2u
+/* §12.7.6.2's Table 240 bit 4, as quorra_event_submit answers it. */
+#define QUORRA_METHOD_GET   0u
+#define QUORRA_METHOD_POST  1u
+/* `quorra_scripts`: the reader's level for a document's scripts (RFC 0008 section 6.3, ADR 2061).
+ * OFF is the default. The others start `pdf-script-worker` at a document's first trigger, found
+ * beside the running executable or where PDF_SCRIPT_WORKER names it. */
+#define QUORRA_SCRIPTS_OFF   0u
+#define QUORRA_SCRIPTS_ASK   1u
+#define QUORRA_SCRIPTS_WARN  2u
+#define QUORRA_SCRIPTS_ON    3u
+/* A QUORRA_EVENT_SCRIPT_ASKING's question: app.alert or app.response. */
+#define QUORRA_SCRIPT_QUESTION_ALERT     0u
+#define QUORRA_SCRIPT_QUESTION_RESPONSE  1u
+/* Which of its strings quorra_event_script_text copies. TITLE and LABEL are QUORRA_NO_ANSWER where
+ * the script gave none; DEFAULT is "" where it gave none. */
+#define QUORRA_SCRIPT_TEXT_MESSAGE  0u
+#define QUORRA_SCRIPT_TEXT_TITLE    1u
+#define QUORRA_SCRIPT_TEXT_DEFAULT  2u
+#define QUORRA_SCRIPT_TEXT_LABEL    3u
+/* app.alert's nIcon and nType, in Adobe's own numbers. */
+#define QUORRA_ALERT_ICON_ERROR     0u
+#define QUORRA_ALERT_ICON_WARNING   1u
+#define QUORRA_ALERT_ICON_QUESTION  2u
+#define QUORRA_ALERT_ICON_STATUS    3u
+#define QUORRA_ALERT_BUTTONS_OK             0u
+#define QUORRA_ALERT_BUTTONS_OK_CANCEL      1u
+#define QUORRA_ALERT_BUTTONS_YES_NO         2u
+#define QUORRA_ALERT_BUTTONS_YES_NO_CANCEL  3u
+/* The button pressed, in the numbers app.alert returns. */
+#define QUORRA_ALERT_BUTTON_OK      1u
+#define QUORRA_ALERT_BUTTON_CANCEL  2u
+#define QUORRA_ALERT_BUTTON_NO      3u
+#define QUORRA_ALERT_BUTTON_YES     4u
+/* `quorra_answer_script`: how the person answered. PRESSED takes `button`; TYPED takes `text`, a
+ * NULL `text` being app.response's null (cancelled); UNANSWERABLE is a caller with no dialogue. */
+#define QUORRA_SCRIPT_ANSWER_PRESSED       0u
+#define QUORRA_SCRIPT_ANSWER_TYPED         1u
+#define QUORRA_SCRIPT_ANSWER_UNANSWERABLE  2u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per
@@ -1064,6 +1116,55 @@ int32_t quorra_separations(quorra_viewer *viewer, bool simulate, quorra_events *
 int32_t quorra_beside(quorra_viewer *viewer, bool reserved, uint64_t name, quorra_events **events);
 
 /* ------------------------------------------------------------------------------------------- */
+/* The eight commands a toolkit's own controls, its clock, its network and its scripts need      */
+/* (ADRs 2060, 2061; RFC 0010 section 3.1).                                                      */
+/* ------------------------------------------------------------------------------------------- */
+
+/* §12.7.4.3: a caller's own control lost the keyboard, or Enter in a single-line field — the moment
+ * Table 199's /K in its commit form and /V wait for. A field nobody is typing into does nothing. */
+int32_t quorra_commit_field(quorra_viewer *viewer, const char *field, quorra_events **events);
+/* §7.9.4's instant, from the caller's clock: what Table 166's /M is written as on every annotation a
+ * save writes. Read the clock just before quorra_save. `known` false withdraws it (no /M at all,
+ * the default). `zoned` false is a date that states no zone; `offset_minutes` is minutes east of
+ * UT. A field outside the clause's range is QUORRA_NUMBER_OUT_OF_RANGE and nothing changes. */
+int32_t quorra_clock(quorra_viewer *viewer, bool known, int32_t year, uint8_t month, uint8_t day,
+                     uint8_t hour, uint8_t minute, uint8_t second, bool zoned,
+                     int16_t offset_minutes, quorra_events **events);
+/* §12.7.8's form data a server answered with: a QUORRA_EVENT_SUBMIT's answer, or an import named
+ * by an absolute URI (QUORRA_ANSWERED_*). `source` is where it went, named in the sentences;
+ * `format` is QUORRA_DATA_* — quorra_data_format_of_media_type for a submission's answer,
+ * quorra_data_format_of_name for an import's. A document no longer open takes nothing. */
+int32_t quorra_respond(quorra_viewer *viewer, uint64_t document, uint32_t answers,
+                       const char *source, uint32_t format, const uint8_t *bytes, size_t len,
+                       quorra_events **events);
+/* What this caller does with a page past MAX_PIXELS: QUORRA_OVERSIZE_*. Under LISTED a
+ * request quorra_render_request_oversized names is answered with quorra_render_ready_listed and
+ * drawn a window at a time with quorra_render_request_rasterise_window. */
+int32_t quorra_oversize(quorra_viewer *viewer, uint32_t how, quorra_events **events);
+/* What the keyboard holds, for a script's event.shift and event.modifier and a choice field's
+ * arrow-key selection. Send it whenever it changes, before the pointer or key that raises an
+ * event. `modifier` is the platform's command modifier: Control here, Command on macOS. */
+int32_t quorra_keys(quorra_viewer *viewer, bool shift, bool modifier, bool arrows,
+                    quorra_events **events);
+/* The reader's level for every document's scripts: QUORRA_SCRIPTS_*. Applies to every open
+ * document and every one opened afterwards, until sent again. */
+int32_t quorra_scripts(quorra_viewer *viewer, uint32_t level, quorra_events **events);
+/* The answer to a QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS: true runs what was withheld, false keeps
+ * every script withheld until the document closes. A document that is not asking does nothing. */
+int32_t quorra_answer_scripts(quorra_viewer *viewer, uint64_t document, bool proceed,
+                              quorra_events **events);
+/* The answer to a QUORRA_EVENT_SCRIPT_ASKING: QUORRA_SCRIPT_ANSWER_*, with `button`
+ * (QUORRA_ALERT_BUTTON_*) for PRESSED and `text` for TYPED; the other is ignored. A dialogue closed
+ * without a press answers with the `dismissed` button quorra_event_script_question gave. An answer
+ * after QUORRA_EVENT_SCRIPT_QUESTION_WITHDRAWN reaches nothing. */
+int32_t quorra_answer_script(quorra_viewer *viewer, uint64_t document, uint32_t how,
+                             uint32_t button, const char *text, quorra_events **events);
+/* Which QUORRA_DATA_* a server's answer is in, by its media type (§12.7.8.1's application/vnd.fdf
+ * and the registry's names), or by the name an import's URI ends in. OTHER where neither. */
+int32_t quorra_data_format_of_media_type(const char *media_type, uint32_t *format);
+int32_t quorra_data_format_of_name(const char *name, uint32_t *format);
+
+/* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */
 /* ------------------------------------------------------------------------------------------- */
 
@@ -1102,9 +1203,10 @@ int32_t quorra_event_render_request(const quorra_events *events, size_t index,
 /* Which document the event is about. QUORRA_WRONG_KIND for DAMAGE, which is about the viewport. */
 int32_t quorra_event_document(const quorra_events *events, size_t index, uint64_t *document);
 /*
- * The bytes of a SAVED or an EXTRACTED. A BYTE buffer, not a string: both carry a file, and a
- * file is not text — the NUL-terminated idiom would cut either at its first zero byte. `needed`
- * counts no terminator, and nothing is written unless the whole file fits.
+ * The bytes of a SAVED or an EXTRACTED, an embedded MEDIA clip, or a SUBMIT's body. A BYTE buffer,
+ * not a string: each is a file or a body, and neither is text — the NUL-terminated idiom would cut
+ * either at its first zero byte. `needed` counts no terminator, and nothing is written unless the
+ * whole of it fits.
  */
 int32_t quorra_event_bytes(const quorra_events *events, size_t index, uint8_t *out, size_t cap,
                          size_t *needed);
@@ -1144,6 +1246,25 @@ int32_t quorra_event_transition(const quorra_events *events, size_t index, float
  * define, "kept as the file wrote it". A number would have had to lose that one. */
 int32_t quorra_event_transition_style(const quorra_events *events, size_t index, char *out,
                                     size_t cap, size_t *needed);
+/* A SUBMIT's request, which quorra_respond answers: QUORRA_METHOD_*, how many fields the body
+ * names, the URL (the form data in its query for a GET) and the media type to send the body under.
+ * The body is quorra_event_bytes'. */
+int32_t quorra_event_submit(const quorra_events *events, size_t index, uint32_t *method,
+                            size_t *fields);
+int32_t quorra_event_submit_url(const quorra_events *events, size_t index, char *out, size_t cap,
+                                size_t *needed);
+int32_t quorra_event_submit_media_type(const quorra_events *events, size_t index, char *out,
+                                       size_t cap, size_t *needed);
+/* A SCRIPT_ASKING's question: QUORRA_SCRIPT_QUESTION_*, and for an alert its QUORRA_ALERT_ICON_*,
+ * QUORRA_ALERT_BUTTONS_* and the QUORRA_ALERT_BUTTON_* a dialogue closed without a press answers
+ * with; for a response `password` says the entry is a password's (shown as bullets, never said
+ * back). Fields that do not apply are written 0. */
+int32_t quorra_event_script_question(const quorra_events *events, size_t index, uint32_t *kind,
+                                     uint32_t *icon, uint32_t *buttons, uint32_t *dismissed,
+                                     bool *password);
+/* One of its strings, QUORRA_SCRIPT_TEXT_*. */
+int32_t quorra_event_script_text(const quorra_events *events, size_t index, uint32_t part,
+                                 char *out, size_t cap, size_t *needed);
 
 /* ------------------------------------------------------------------------------------------- */
 /* Rendering. The display list stays opaque; what crosses is "draw this" and the pixels.          */
@@ -1155,6 +1276,33 @@ int32_t quorra_render_request_page(const quorra_render_request *request, size_t 
 /* Draws it with the processor rasteriser. May be called on a thread of the caller's own. */
 int32_t quorra_render_request_rasterise(const quorra_render_request *request, quorra_raster **raster);
 void quorra_raster_free(quorra_raster *raster);
+/* QUORRA_OVERSIZE_LISTED's half of the round trip (ADR 2060). */
+/* Whether this request is a page to draw a window at a time in a viewport this size: its whole
+ * raster is past MAX_PIXELS, or the largest window of it is half its area or less, or keeps seven
+ * eighths of its commands or fewer (ADRs 1892, 1930, 1994). */
+int32_t quorra_render_request_oversized(const quorra_render_request *request,
+                                        uint32_t viewport_width, uint32_t viewport_height,
+                                        bool *oversized);
+/* The window of the request's target to draw for a page whose top-left corner sits at `origin`
+ * in a viewport this size: what it shows, with a margin round it. QUORRA_NO_ANSWER where none of
+ * the page is in the viewport. */
+int32_t quorra_render_request_window(const quorra_render_request *request, float origin_x,
+                                     float origin_y, uint32_t viewport_width,
+                                     uint32_t viewport_height, uint32_t *x, uint32_t *y,
+                                     uint32_t *width, uint32_t *height);
+/* Draws that window of the request's target with the processor rasteriser. Any thread. */
+int32_t quorra_render_request_rasterise_window(const quorra_render_request *request, uint32_t x,
+                                               uint32_t y, uint32_t width, uint32_t height,
+                                               quorra_raster **raster);
+/* Tells the viewer this caller took the request's list and holds the page itself. The request is
+ * NOT consumed: it is the list a window is drawn from, freed with quorra_render_request_free. */
+int32_t quorra_render_ready_listed(quorra_viewer *viewer, const quorra_render_request *request,
+                                   quorra_events **events);
+/* A raster's size and pixels, for one the viewer will not hold: a window. One copy. */
+int32_t quorra_raster_info(const quorra_raster *raster, uint32_t *width, uint32_t *height,
+                           uint32_t *format, size_t *bytes);
+int32_t quorra_raster_copy(const quorra_raster *raster, uint8_t *into, size_t cap,
+                           size_t *written);
 
 /* ------------------------------------------------------------------------------------------- */
 /* What page one does not need, read on a thread you choose (ADRs 1543, 1553).                     */
@@ -1193,8 +1341,7 @@ int32_t quorra_frame_copy(const quorra_viewer *viewer, size_t frame, uint8_t *in
                         size_t *written);
 int32_t quorra_dirty(const quorra_viewer *viewer, bool *dirty);
 /* How many milliseconds of quorra_tick may pass before a script's timer is owed: *held is false
- * where no document holds one, which is every session, since a session supplies no script runner
- * (ADR 1702). */
+ * where no document holds one, which is every session at QUORRA_SCRIPTS_OFF (ADRs 1702, 2061). */
 int32_t quorra_timer_due(const quorra_viewer *viewer, bool *held, uint32_t *millis);
 /* §12.5.6.5: whether activating here would follow a link. Asked on every pointer move. */
 int32_t quorra_link_at(const quorra_viewer *viewer, float x, float y, bool *link);

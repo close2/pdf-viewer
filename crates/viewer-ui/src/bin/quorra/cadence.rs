@@ -303,6 +303,13 @@ impl Cadence {
     }
 }
 
+/// The stand-in policy arms this clock for the real frame (ADR 2052).
+impl viewer_device::FrameClock for Cadence {
+    fn owed(&mut self, now: Instant) {
+        Cadence::owed(self, now);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};

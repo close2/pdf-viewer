@@ -803,7 +803,7 @@ pub struct Preservation {
 
 /// The requirements a built `preserve` may answer by appending pages.
 ///
-/// Three, and they are the sites whose authorised loss takes content out of the document that the
+/// Four, and they are the sites whose authorised loss takes content out of the document that the
 /// document still holds somewhere a page could carry:
 ///
 /// - ISO 19005-2 section 6.6.2.3.1's, whose only other answer is
@@ -811,14 +811,16 @@ pub struct Preservation {
 ///   the packet either way, and this keeps what the producer wrote where a person can still read
 ///   it. It is the owner's own example in `doc/rfc/0007` section 2 — *instead of losing metadata
 ///   it could be appended or prefixed as an extra page*;
-/// - the two section 6.3.1 rows', whose authorised loss takes an annotation off a page and its
-///   normal appearance with it. The appearance is a form `XObject` the producer wrote, so the page
-///   this composes carries the producer's own marks at the producer's own coordinates
-///   (`doc/adr/1099`).
-const PRESERVABLE_BY_PAGE: [&str; 3] = [
+/// - the three section 6.3.1 rows', whose authorised loss takes an annotation off a page and its
+///   normal appearance with it — the two subtype rows and ISO 19005-4's `3D` and `RichMedia` row,
+///   one removal (`doc/adr/2051` section 4). The appearance is a form `XObject` the producer
+///   wrote, so the page this composes carries the producer's own marks at the producer's own
+///   coordinates (`doc/adr/1099`).
+const PRESERVABLE_BY_PAGE: [&str; 4] = [
     "metadata/properties-use-known-schemas",
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
+    "annotations/three-dimensional-only-in-engineering-files",
 ];
 
 /// The requirements a built `preserve` answers by replacing the packet and keeping the original.

@@ -68,6 +68,12 @@ pub(crate) struct KeptInstances {
 }
 
 impl KeptInstances {
+    /// The line lane's stream, which the next encode of the same scene draws from where its
+    /// runs are this encode's (viewer ADR 2022).
+    pub(crate) fn line(&self) -> Option<&wgpu::Buffer> {
+        self.line.as_ref()
+    }
+
     /// Device bytes the three streams hold.
     pub(crate) fn bytes(&self) -> u64 {
         [&self.rect, &self.quad, &self.line]
@@ -220,7 +226,7 @@ impl Device {
             }
         };
         let mut make_streams = || {
-            let [rect, quad, line] = [
+            let [rect, quad] = [
                 (
                     "raster rect instances",
                     &encoded.rect_instances,
@@ -231,16 +237,20 @@ impl Device {
                     &encoded.quad_instances,
                     &mut split.quad_instances,
                 ),
-                (
-                    "raster line instances",
-                    &encoded.line_instances,
-                    &mut split.line_instances,
-                ),
             ]
             .map(|(label, data, share)| {
                 *share = data.len() as u64;
                 make_instances(label, data)
             });
+            // The line stream the encode before this one left on the device, where it is this
+            // encode's to the byte (viewer ADR 2022): drawn from where it is, so none of its
+            // bytes cross again.
+            let line = if let Some(adopted) = encoded.adopted_line.as_ref() {
+                Some(adopted.clone())
+            } else {
+                split.line_instances = encoded.line_instances.len() as u64;
+                make_instances("raster line instances", &encoded.line_instances)
+            };
             KeptInstances { rect, quad, line }
         };
         let Some(cell) = kept else {

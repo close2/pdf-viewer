@@ -1,12 +1,13 @@
-//! `doc/teaching/how-a-page-lands-on-the-screen.md` names only files, symbols and records that exist.
+//! The walks under `doc/teaching/` name only files, symbols and records that exist.
 //!
-//! The document is a walk a student follows from a content stream's bytes to a pixel, and every
-//! stage of it names the crate, the module and the decision that stands there. A walk that names a
+//! Each document is a walk a student follows — [`WALKS`] lists them: a content stream's bytes to a
+//! pixel, and a form field from its `/AcroForm` entry to the update a save appends — and every
+//! stage of one names the crate, the module and the decision that stands there. A walk that names a
 //! file the tree no longer has teaches the wrong tree, and nothing else would notice: the prose is
 //! read by people and by no compiler. This gate is the floor under it — it holds *names* true. It
-//! cannot hold a sentence true, which is why each diagram in the document ends with a maintenance
-//! note saying which files it depends on and the document's last section says what a round that
-//! changes one of them owes.
+//! cannot hold a sentence true, which is why each diagram in a walk ends with a maintenance note
+//! saying which files it depends on and each walk's last section says what a round that changes one
+//! of them owes (ADR 2003).
 //!
 //! What is checked, in the order the checks run:
 //!
@@ -15,8 +16,9 @@
 //! 2. every `path::name` pair names a file that contains `name` as a whole word, which is what
 //!    keeps a function the document points at from being renamed away unseen;
 //! 3. every `ADR NNNN` names a record in `doc/adr/`, and `raster ADR NNNN` one in `raster/doc/adr/`;
-//! 4. every Mermaid diagram is followed, before the next heading, by a maintenance note;
-//! 5. `doc/HANDOVER.md` and `doc/crate-map.md` each point at the document.
+//! 4. every Mermaid diagram is followed, before the next heading, by a maintenance note, and the
+//!    walk has as many diagrams as it has stages and one for the whole;
+//! 5. `doc/HANDOVER.md` and `doc/crate-map.md` each point at every walk.
 //!
 //! The checks are a function of a text and a root, so that the calibration at the bottom can run
 //! them over a text with four planted faults and see all four reported.
@@ -24,12 +26,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The document under test, relative to the repository root.
-const DOCUMENT: &str = "doc/teaching/how-a-page-lands-on-the-screen.md";
-
-/// How many diagrams the document owes: one for the whole walk and one for each of the seven
-/// stages. A document with fewer has dropped a stage's diagram or merged two stages.
-const DIAGRAMS_OWED: usize = 8;
+/// The walks under test, relative to the repository root, each with the diagrams it owes: one for
+/// the whole walk and one for each stage — seven stages from bytes to pixel (ADR 2002), six from a
+/// field's declaration to its save (ADR 2062). A walk with fewer has dropped a stage's diagram or
+/// merged two stages.
+const WALKS: [(&str, usize); 2] = [
+    ("doc/teaching/how-a-page-lands-on-the-screen.md", 8),
+    ("doc/teaching/how-a-form-field-is-filled.md", 7),
+];
 
 /// The prefixes that make a word a path from the repository root.
 const ROOT_PREFIXES: [&str; 4] = ["crates/", "raster/", "doc/", "tools/"];
@@ -191,29 +195,35 @@ fn read(relative: &str) -> std::io::Result<String> {
 }
 
 #[test]
-fn every_name_the_walk_makes_exists() {
-    let found = faults(
-        &repository_root(),
-        &read(DOCUMENT).expect("the teaching document's text"),
-        DIAGRAMS_OWED,
-    );
+fn every_name_each_walk_makes_exists() {
+    let root = repository_root();
+    let found: Vec<String> = WALKS
+        .iter()
+        .flat_map(|(walk, owed)| {
+            faults(
+                &root,
+                &read(walk).expect("the teaching document's text"),
+                *owed,
+            )
+            .into_iter()
+            .map(move |fault| format!("{walk}: {fault}"))
+        })
+        .collect();
     assert!(
         found.is_empty(),
-        "{DOCUMENT} names what the tree does not have — redraw the stage, then the sentence \
-         beside it:\n{}",
+        "a walk names what the tree does not have — redraw the stage, then the sentence beside \
+         it:\n{}",
         found.join("\n")
     );
 }
 
 #[test]
-fn the_index_and_the_crate_map_point_at_the_walk() {
+fn the_index_and_the_crate_map_point_at_every_walk() {
     for pointer in ["doc/HANDOVER.md", "doc/crate-map.md"] {
-        assert!(
-            read(pointer)
-                .expect("the pointing document's text")
-                .contains(DOCUMENT),
-            "{pointer} does not point at {DOCUMENT}"
-        );
+        let text = read(pointer).expect("the pointing document's text");
+        for (walk, _) in WALKS {
+            assert!(text.contains(walk), "{pointer} does not point at {walk}");
+        }
     }
 }
 

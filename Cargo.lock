@@ -5777,6 +5777,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "viewer-device"
+version = "0.1.0"
+dependencies = [
+ "pdf-model",
+ "pdf-render",
+ "raster-gpu",
+ "raster-scene",
+ "render-cpu",
+ "render-raster",
+ "thiserror 2.0.21",
+ "viewer-core",
+ "viewer-host",
+]
+
+[[package]]
 name = "viewer-ffi"
 version = "0.1.0"
 dependencies = [
@@ -5870,6 +5885,7 @@ dependencies = [
  "viewer-accessibility",
  "viewer-confined",
  "viewer-core",
+ "viewer-device",
  "viewer-host",
  "winit",
 ]

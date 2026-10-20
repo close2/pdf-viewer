@@ -1,7 +1,7 @@
 # 75 — The page resident on the device, and a zoom that sends only a matrix
 
-Status: **open** — the evaluation is ADR 1992; items 1 and 5 are built (ADRs 1993, 2030); the rest are the order,
-item 3 after item 2 (ADR 2008); the window's trace prints each frame's streams (ADR 2009).
+Status: **open** — the evaluation is ADR 1992; items 1, 2, 3 and 5 are built (ADRs 1993, 2022, 2056, 2030); the
+rest are the order; the window's trace prints each frame's streams (ADR 2009).
 Priority: the owner's, 2026-10-19: "evaluate: keep the page's intermediate representation resident
 on the GPU and have a compute stage re-rasterise it at the new transform, so a zoom sends only a
 matrix."
@@ -24,53 +24,37 @@ same view reads them from the device. It is the mechanism every item below stand
 held on the device, keyed by the encode it was made from, given back with it — measured where it is
 reachable today: the replay of the witness's page.
 
-## 2. Line instances in page space, the view a uniform (ADR 1877 §5) — built, measured, taken back (ADR 2022)
-
-**The owner accepted the change of bar (`doc/questions/A473`), and the build is not in the tree**: it
-saved the witness's step its 264 MB of line bytes and 29–47 ms of transfer, and in the window, where a
-line the view does not admit became an instance, the step went from 144–151 ms to 249–252 (ADR 2022).
-**Its slower walk is explained and answered** (ADR 2036): the line makers read the `line_at` closure's
-captured slice and the view from the walk's own stack frame on every line, and whichever slot of the
-walk's shared their cache line paid about forty cycles a line — a layout the build happened to strike
-and HEAD does not. The answer, `lines_ahead.rs`'s 128-byte `Ahead` and the `line_at` closures taking
-their slices by `move`, returns with the build; the build plus it is
-`/home/AI/r1600-walk-false-sharing/line-lane-with-fix.patch`. With it the fit's step is 31–45 ms
-faster and the window's steps are HEAD's, but the window's first frame is 48 ms slower, sending the
-page's 264 MB of lines where HEAD's cull sends what the view admits — so the build waits for item 3,
-where that send is paid once a page.
+## 2. Built — line instances in page space, the view a uniform (ADRs 2022, 2036, 2056)
 
 `line.wgsl` reads the endpoints after the line's own transform, the width and the clip rectangle in
 the same space, and maps all three by a view uniform (a scale and a translation; a turned view stays
-a re-encode). §8.4.3.2's zero width and §10.7.5's adjustment, which `raster::resolve_width` decides
-per view on the host, move into the vertex stage, and the cull moves with them: an instance outside
-the admitted rectangle collapses its quad. **The bytes move**: the device mapping is computed in
-WGSL, which section 15.7.5 of that standard lets a driver fuse, so a line's endpoints may differ by
-an ulp from the host's, held by raster ADR 0082's close best effort and the lane's bound against the
-processor, and a kept frame equals a fresh one by construction. `doc/questions/Q473` asks the owner
-to accept that change of bar. Saves the line stream's transfer on every step.
+a re-encode). §8.4.3.2's zero width and §10.7.5's adjustment are resolved per view in the vertex stage,
+which collapses the quad of a line the view admits nothing of. The device mapping is computed in WGSL,
+which section 15.7.5 of that standard lets a driver fuse, so a line's endpoints may differ by an ulp
+from the host's, held by raster ADR 0082's close best effort (the owner's `A473`). The line makers read
+what they read from a 128-byte-aligned `Ahead` of their own (ADR 2036). **A walk with no encode of the
+scene before it still culls** a line its view admits nothing of, so a page's first frame in a window
+sends the window's lines and not the page's (ADR 2056).
 
-## 3. The op list built once, the view-dependent remainder re-encoded per view — after item 2
+## 3. Built — the op list once a page, a step's lines taken in runs (ADR 2056)
 
-A retained encode whose line batches are view-free replays at a new view by writing the uniform and
-re-encoding only the commands whose answer is the view's: glyph atlas keys, host-expanded strokes,
-residue clips, image levels, compute tile records. On the witness that remainder is 9 474 marks of
-4 408 406, so the walk that is the step's encode drops to the remainder's. The batches interleave
-lines with the remainder in page order, so the remainder's instances are placed into the kept
-batches' slots rather than rebuilding them.
+A walk that culled no line — the fit a page opens at — wrote the page's whole stream, and keeps it as
+runs: consecutive top-level commands, consecutive instances, one chain, one soft mask. The encode of
+another view of the scene walks every other command and takes each run in one step — the batch noted
+once, the stream shared and adopted on the device, the plan's box asked per line only while it can
+still grow — so a step from the fit sends no line byte and walks 9 474 commands where it walked
+4 408 406. A line the new view does not admit stays in the kept stream and draws nothing.
 
-**It stands on item 2 and is not built before it** (ADR 2008): until the cull is the vertex stage's,
-a line the host culls leaves the list, so the batches' ranges are the view's — in the window on the
-witness the admitted lines go 438 940 → 332 995 → 235 905 over two steps — and 40 of a line
-instance's 60 bytes are device-space. Two things the item also owes, found there: the witness
-leaves the record replay (ADR 0087) at its twenty-sixth command for a residue clip, so the kept
-list is held apart from the record list or a residue clip's frame-wide rasterisation is made
-replayable; and the step's encode to beat is HEAD's 114–121 ms (`Compute`, ADR 1992 §2), its walk
-137.5 ms of 179.1 instrumented.
+**What it leaves**: a page whose first frame is a window (a turn at a magnification) keeps nothing
+and its steps cost HEAD's — its stream would have to reach the device while nobody waits (ADR 1898's
+idle build is where); the vertex stage draws the page's 4.4 million instances where the window shows
+a tenth, which drawing a run through the indices the view admits would take back (ADR 1980's
+`Window`, asked of the resident stream); and the record replay (ADR 0087) keeps no runs.
 
 ## 4. §10.7.4's dot asked per view on the device
 
 ADR 1877 asks every dot drawn as a line again at the new view (13–40 ms for 28 684 on the witness).
-Under item 3 the ask is the shader's: a dot whose disc reaches no level at this view takes the
+Under item 3's runs the ask is the shader's: a dot whose disc reaches no level at this view takes the
 substitution in the vertex stage, so no mark disappears and the host asks nothing.
 
 ## 5. Built — a residency budget that refuses by name (ADR 2030)

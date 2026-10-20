@@ -233,12 +233,17 @@ fn ladder_scene(cases: &[Case]) -> Scene {
 }
 
 fn draw(device: &mut Device, scene: &Scene) -> (Vec<u8>, raster_gpu::Counters) {
+    draw_through(device, scene, Affine::IDENTITY)
+}
+
+/// The scene drawn through the view `view`.
+fn draw_through(
+    device: &mut Device,
+    scene: &Scene,
+    view: Affine,
+) -> (Vec<u8>, raster_gpu::Counters) {
     let frame = device
-        .render(
-            scene,
-            &Viewport::full(SIDE, SIDE, Affine::IDENTITY),
-            Target::Readback,
-        )
+        .render(scene, &Viewport::full(SIDE, SIDE, view), Target::Readback)
         .expect("the ladder is inside every budget");
     let counters = frame.counters();
     (common::headless::pixels(frame), counters)
@@ -249,13 +254,63 @@ fn draw(device: &mut Device, scene: &Scene) -> (Vec<u8>, raster_gpu::Counters) {
 /// area to one level of 255 — and the lane made no coverage tile for any of them.
 #[test]
 fn every_line_of_the_ladder_carries_its_exact_area() {
+    ladder_carries_its_exact_area_through(Affine::IDENTITY, "the identity view");
+}
+
+/// **The view is the shader's** (viewer ADR 2022): a line's instance is stated in the page's
+/// space and `line.wgsl` maps it by the view, so the ladder is held to the same set through
+/// views that are not the identity — unequal scales with a translation, and a quarter turn,
+/// under which the page's y stretch is the device's x. Each case's own transform is the
+/// ladder's composed with the view's inverse, every coefficient a power of two times the
+/// ladder's, so the device placement is the ladder's exactly and the expected areas are the
+/// same polygons.
+#[test]
+fn every_line_of_the_ladder_carries_its_exact_area_through_a_view() {
+    let stretched = Affine {
+        a: 2.0,
+        b: 0.0,
+        c: 0.0,
+        d: 0.5,
+        e: -16.0,
+        f: 8.0,
+    };
+    let turned = Affine {
+        a: 0.0,
+        b: 2.0,
+        c: -2.0,
+        d: 0.0,
+        e: SIDE as f32,
+        f: 0.0,
+    };
+    ladder_carries_its_exact_area_through(stretched, "unequal scales and a translation");
+    ladder_carries_its_exact_area_through(turned, "a quarter turn");
+}
+
+/// The ladder drawn through `view`, its cases placed so that the device sees the ladder, held
+/// to the set's exact area to one level on every adapter and both lanes.
+fn ladder_carries_its_exact_area_through(view: Affine, what: &str) {
     let cases = ladder();
     let polygons: Vec<Vec<(f64, f64)>> = cases.iter().map(reference_polygon).collect();
-    let scene = ladder_scene(&cases);
+    let back = view.invert().expect("the views here invert");
+    let placed: Vec<Case> = cases
+        .iter()
+        .map(|case| Case {
+            transform: case.transform.then(back),
+            ..*case
+        })
+        .collect();
+    for (case, placed) in cases.iter().zip(&placed) {
+        assert_eq!(
+            placed.transform.then(view),
+            case.transform,
+            "{what}: the placement is exact"
+        );
+    }
+    let scene = ladder_scene(&placed);
     for adapter in adapters() {
         for coverage in [Coverage::Cpu, Coverage::Compute] {
             let mut device = device_on(&adapter, coverage);
-            let (pixels, counters) = draw(&mut device, &scene);
+            let (pixels, counters) = draw_through(&mut device, &scene, view);
             assert_eq!(
                 counters.lanes.line as usize,
                 cases.len(),
@@ -280,12 +335,12 @@ fn every_line_of_the_ladder_carries_its_exact_area() {
                     }
                 }
             }
-            println!("{adapter} {coverage:?}: worst {worst:.3} levels at {at:?}");
+            println!("{what}: {adapter} {coverage:?}: worst {worst:.3} levels at {at:?}");
             let detail = at.map(|(index, ..)| cases[index]);
             assert!(
                 worst <= 1.0,
-                "{adapter} {coverage:?}: a pixel is {worst:.3} levels from the set's area: \
-                 {at:?} {detail:?}"
+                "{what}: {adapter} {coverage:?}: a pixel is {worst:.3} levels from the set's \
+                 area: {at:?} {detail:?}"
             );
         }
     }

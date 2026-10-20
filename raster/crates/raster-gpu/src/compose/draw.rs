@@ -193,7 +193,9 @@ impl Executor<'_> {
         let (ready, needed, shadings) = self.prepare_run(ops, format)?;
         // The attachment this pass writes is the current plan's region, and every lane
         // maps device space through it (ADR 0036).
-        let globals = self.device.region_globals(self.region);
+        let globals = self
+            .device
+            .region_globals(self.region, self.encoded.line_view);
         let mut pipelines = HashMap::new();
         for kind in needed {
             let (pipeline, compiled) = self.device.pipelines().get(kind, format)?;

@@ -60,7 +60,7 @@ flowchart TD
     RAS["render-raster over raster/: the window's lane<br/>crates/render-raster, raster/crates/raster-gpu<br/>ADR 0697"]
     GPU["render-gpu: the comparison backend<br/>crates/render-gpu"]
     COMP["compositing: groups, blend modes, soft masks<br/>stage 6: clause 11.3, 11.4<br/>ADR 0026, ADR 0047"]
-    WIN["a window presents the frame<br/>stage 7: crates/viewer-core, crates/viewer-host, crates/viewer-ui<br/>ADR 0391, ADR 0116"]
+    WIN["a window presents the frame<br/>stage 7: crates/viewer-core, crates/viewer-host, crates/viewer-ui, crates/viewer-device<br/>ADR 0391, ADR 0116"]
 
     FILE -->|objects| PAGE
     PAGE -->|"decoded content bytes + the page's transform"| LIST
@@ -366,7 +366,7 @@ scroll and resize are the same scene at another viewport.
 
 A frame the device cannot or should not draw — a refusal, or a page predicted faster on the
 processor — is drawn by `render-cpu` instead and **said out loud** (`CLAUDE.md` principle 2,
-ADR 1831, `crates/viewer-ui/src/bin/quorra/renderer/lanes.rs`).
+ADR 1831, `crates/viewer-device/src/renderer/lanes.rs`).
 
 ```mermaid
 flowchart TD
@@ -484,9 +484,10 @@ a **vocabulary and not a trait** (ADR 0116, `doc/ui-boundary.md`): a host sends 
    their own (`crates/viewer-host/src/drawing.rs`, `CpuRasterizer`) and answer `Rendered::Raster`.
    `quorra` (`crates/viewer-ui/src/bin/quorra.rs`) keeps the list and draws it with
    `QuorraWindowRenderer` onto its swapchain, on a render thread that owns the device, while the
-   event thread owns the surface and presents on the display's clock
-   (`crates/viewer-ui/src/bin/quorra/renderer.rs`, ADR 0391 and ADR 0461). The render thread never
-   sees a `Document` or a `Viewer`, which keeps `interpret` a pure function.
+   event thread owns the surface and presents on the display's clock. That device renderer is a
+   library of its own, `crates/viewer-device`, so that a toolkit window can draw through the same
+   chooser (`crates/viewer-device/src/renderer.rs`, ADR 0391, ADR 0461 and ADR 2049). The render
+   thread never sees a `Document` or a `Viewer`, which keeps `interpret` a pure function.
 5. In the confined build, the document, the interpreter and the rasteriser run in a process that has
    no filesystem and no network (`crates/viewer-confined`, ADR 0218). A page then crosses to the
    host as the smaller of pixels and marks (ADR 0607), and a page past the bound as the window it
@@ -517,7 +518,7 @@ sequenceDiagram
 **Maintenance note.** Depends on: `crates/viewer-core/src/viewer.rs`,
 `crates/viewer-core/src/command.rs`, `crates/viewer-core/src/event.rs`,
 `crates/viewer-core/src/open.rs`, `crates/viewer-host/src/drawing.rs`,
-`crates/viewer-ui/src/bin/quorra/renderer.rs`, `crates/viewer-ui/src/bin/quorra/dispatch.rs`,
+`crates/viewer-device/src/renderer.rs`, `crates/viewer-ui/src/bin/quorra/dispatch.rs`,
 `crates/viewer-confined/src/lib.rs`, `doc/ui-boundary.md`, ADR 0116, ADR 0391, ADR 0461, ADR 0607 and
 ADR 1986. Redraw it when a host stops answering a `Rendered` it answered, when the render thread's
 duties move, or when `Command` or `Event` gain a variant on the path from `NeedsRender` to a

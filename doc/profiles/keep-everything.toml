@@ -66,6 +66,13 @@ remedy = "preserve"
 placement = "append"
 on-failure = "stop"
 
+# A 3D or RichMedia annotation outside PDF/A-4e is the same removal, and its poster is kept the
+# same way (ADR 2051); PDF/A-4e keeps the artwork itself.
+[site."annotations/three-dimensional-only-in-engineering-files"]
+remedy = "preserve"
+placement = "append"
+on-failure = "stop"
+
 # The media a Screen, Movie or Sound annotation named is the half of this site that is not built:
 # `placement = "attach"` would keep the stream as an embedded file at 4f and 4e, and
 # doc/pdf-a-mitigations.md section 6 is the entry. An annotation that drew nothing has nothing to
@@ -259,10 +266,9 @@ remedy = "preserve"
 keep = "attach"
 on-failure = "stop"
 
-[site."graphics/no-halftone-phase-in-a-graphics-state"]
-remedy = "preserve"
-keep = "attach"
-on-failure = "stop"
+# No row for `graphics/no-halftone-phase-in-a-graphics-state`: neither ISO 32000-1 nor ISO 32000-2
+# defines the entry, so taking it away changes nothing a processor draws, and every profile has it
+# stated rather than asked (ADR 2035) - a `preserve` here answered a question nobody is asked.
 
 [site."graphics/no-halftone-origin-in-a-graphics-state"]
 remedy = "preserve"

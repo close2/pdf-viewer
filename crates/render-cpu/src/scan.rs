@@ -41,11 +41,19 @@
 //! calls `path::fill_path` when the clipped bounds would overflow the shift — so this is the
 //! library's own remedy applied where its test does not reach.
 //!
-//! So a path outside the range is **drawn without anti-aliasing** rather than refused. A
-//! refusal would cost the page: `CpuRasterError` stops the whole raster, so one damaged path
-//! would take every mark after it, and this backend is the correctness oracle. What the
-//! substitution costs is at most half a pixel of edge quality on a shape whose own extent is
-//! thousands of pages across.
+//! So a path outside the range is **not given to the library's anti-aliased converter** rather
+//! than refused. A refusal would cost the page: `CpuRasterError` stops the whole raster, so one
+//! damaged path would take every mark after it, and this backend is the correctness oracle.
+//!
+//! **The range is the library's, and it withdraws the library's anti-aliasing only.** The
+//! closed form of a rectangle and [`crate::area`]'s integral state every coordinate against the
+//! mark's own region in this crate's own floating point, so a mark past the range is still
+//! measured where it lies, and only a mark both of them decline is drawn by the aliased converter,
+//! at a cost of at most half a pixel of edge quality on a shape whose extent is past 8191 device
+//! pixels. That matters on any page drawn wider or taller than that, where every mark on its far
+//! side is past the range however small it is, and the page drawn whole would otherwise lose its
+//! anti-aliasing there while a window of the same page, its corner moved to the origin, kept it
+//! (ADR 2058).
 
 /// The largest device coordinate the anti-aliased scan converter's arithmetic can express.
 ///
@@ -55,16 +63,37 @@
 /// the geometry, which is the half it leaves open.
 pub(crate) const SUPERSAMPLED_LIMIT: f32 = 8191.0;
 
+/// The largest device coordinate [`crate::area`] measures a mark at.
+///
+/// Below 2^15 an `f32` states a coordinate to 2^-9 of a pixel or finer, under half the
+/// integral's own flattening tolerance of 1/256; past it the edges' crossings carry less precision
+/// than the measurement is built on, and a damaged stream's spike to 10^25 carries none at all —
+/// measured, `4605705.pdf`'s page lost a third of its ink to it. So past this the mark goes to
+/// the library's converter, drawn aliased by the range above, as it was before ADR 2058.
+const MEASURED_LIMIT: f32 = 32_767.0;
+
 /// Whether `bounds` lies inside [`SUPERSAMPLED_LIMIT`] on both axes.
 fn within(bounds: Option<tiny_skia::Rect>) -> bool {
+    within_limit(bounds, SUPERSAMPLED_LIMIT)
+}
+
+/// Whether `bounds` lies inside `limit` on both axes.
+fn within_limit(bounds: Option<tiny_skia::Rect>, limit: f32) -> bool {
     // `None` is a rectangle the transform could not produce — a coordinate that overflowed or
-    // is not finite — which is exactly the case this is here to keep out.
+    // is not finite, or a transform that collapses the mark — which is exactly the case this is
+    // here to keep out.
     bounds.is_some_and(|bounds| {
-        bounds.left() >= -SUPERSAMPLED_LIMIT
-            && bounds.top() >= -SUPERSAMPLED_LIMIT
-            && bounds.right() <= SUPERSAMPLED_LIMIT
-            && bounds.bottom() <= SUPERSAMPLED_LIMIT
+        bounds.left() >= -limit
+            && bounds.top() >= -limit
+            && bounds.right() <= limit
+            && bounds.bottom() <= limit
     })
+}
+
+/// Whether [`crate::area`] measures `path` drawn under `at`: its device extent inside
+/// [`MEASURED_LIMIT`] (ADR 2058).
+fn measurable(path: &tiny_skia::Path, at: tiny_skia::Transform) -> bool {
+    within_limit(path.bounds().transform(at), MEASURED_LIMIT)
 }
 
 /// Whether `path` drawn under `at` stays inside the range, grown by `outset` first.
@@ -88,6 +117,22 @@ fn expressible(path: &tiny_skia::Path, at: tiny_skia::Transform, outset: f32) ->
 /// Anti-aliasing, kept only where the scan converter's arithmetic reaches the geometry.
 fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
     anti_alias && expressible
+}
+
+/// The widest and tallest surface `tiny-skia`'s rectangle scan converter draws on.
+///
+/// `tiny_skia::PixmapMut::fill_rect` takes that converter only where its `DrawTiler` is not
+/// required — both sides at most `DrawTiler::MAX_DIMENSIONS`, the library's own `8192 - 1` — and
+/// on a larger surface builds a path from the rectangle and hands it to the supersampled converter
+/// one tile at a time. So the closed form [`fill_rectangles`] is for is lost to a quarter of a
+/// pixel on every rectangle of a page drawn past it, and a window of that page drawn on a surface
+/// of its own keeps it: on the owner's witness at 9.3 times the fit, 11 176 pixels wide, the same
+/// edge of one glyph's bar came out 0 on the page and 58 in its window (ADR 2058).
+const RECTANGLE_SURFACE_LIMIT: u32 = 8191;
+
+/// Whether `tiny-skia`'s rectangle scan converter reaches a surface `pixmap`'s size.
+fn rectangle_converter_reaches(pixmap: &tiny_skia::PixmapMut<'_>) -> bool {
+    pixmap.width() <= RECTANGLE_SURFACE_LIMIT && pixmap.height() <= RECTANGLE_SURFACE_LIMIT
 }
 
 /// The device rectangles a mark **is**, where `pdf_render::edge` says it is rectangles at all —
@@ -378,7 +423,10 @@ fn fill_as(
     clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
+    // The anti-aliasing the mark asked for goes to [`intersected`] wherever `crate::area` can
+    // measure it, and the range withdraws it from the library's converter alone (ADR 2058).
+    let library = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, at));
     // No guard in front of the call, and that is measured rather than assumed: `composable().is_some()`
     // here is exactly [`intersected`]'s own first two declines for an [`Exact::Unknown`] mark, and
     // adding it costs 13 000 instructions on ISO 32000-2's page 101 rather than saving any. One
@@ -386,6 +434,7 @@ fn fill_as(
     if intersected(pixmap, path, &paint, fill_rule, (at, exact), clip) {
         return;
     }
+    paint.anti_alias = library;
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
 }
 
@@ -454,9 +503,12 @@ fn fill_as(
 ///
 /// # The two things it does hand back
 ///
-/// - **A mark whose anti-aliasing was withdrawn**, which is `fill`'s range rule: outside
-///   [`SUPERSAMPLED_LIMIT`] the aliased converter is what draws, and the two round a boundary
-///   pixel to opposite ends. Nothing about the range changes here.
+/// - **A mark past the range**, which is `fill`'s range rule: outside [`SUPERSAMPLED_LIMIT`] the
+///   library's rectangle converter is not asked, [`intersected`] measures the mark by
+///   `crate::area` instead, and only a mark that declines too is drawn by the aliased converter.
+/// - **A surface past [`RECTANGLE_SURFACE_LIMIT`]**, where the library's rectangle call is its
+///   supersampled converter in disguise: [`intersected`] writes the closed form into its buffer
+///   instead, which is the construction a clipped rectangle already takes (ADR 2058).
 /// - **Nothing else.** Every blend mode and every shader is safe, because `fill_rect_aa` and
 ///   `fill_path` hand their coverage to the *same* `RasterPipelineBlitter` — as alpha runs and as
 ///   one-pixel masks — so the composition each pixel receives is the same function of its
@@ -471,7 +523,8 @@ pub(crate) fn fill_rectangles(
     clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, exact.usable());
+    let library = keep_anti_alias(paint.anti_alias, exact.usable());
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, measurable(path, at));
     if intersected(
         pixmap,
         path,
@@ -482,6 +535,7 @@ pub(crate) fn fill_rectangles(
     ) {
         return;
     }
+    paint.anti_alias = library;
     if !paint.anti_alias || exact.portions_share_a_pixel() {
         pixmap.fill_path(path, &paint, tiny_skia::FillRule::Winding, at, clip.mask());
         return;
@@ -589,9 +643,14 @@ fn intersected(
     let (admitted, value) = clip.factors();
     // §10.7.4's own reason, which is the third and the commonest: a mark that is not rectangles
     // is measured as area by [`crate::area`], and that measurement is a coverage buffer rather
-    // than a run of alpha the library's converter hands its blitter. ADR 1082.
-    let exactly = !exact.usable()
-        && crate::area::region(path, at, (pixmap.width(), pixmap.height())).is_some();
+    // than a run of alpha the library's converter hands its blitter. ADR 1082. Rectangles are
+    // measured by the library's rectangle converter where it reaches the surface, and written by
+    // [`mask_rectangle`] into the buffer where it does not (ADR 2058).
+    let exactly = if exact.usable() {
+        !rectangle_converter_reaches(pixmap)
+    } else {
+        crate::area::region(path, at, (pixmap.width(), pixmap.height())).is_some()
+    };
     // No clause is asking: there is no set to intersect, the mark is not several portions in one
     // pixel, and its own coverage is one the library already states exactly. A soft mask alone is
     // in here, and correctly — §11.3.7.2 asks for the product the library already applies.
@@ -1101,8 +1160,8 @@ pub(crate) fn mask_fill(
     anti_alias: bool,
     (at, exact): (tiny_skia::Transform, &Exact),
 ) {
-    let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
-    if anti_alias && exact.usable() {
+    let library = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
+    if library && exact.usable() {
         let floor = owed_a_floor(exact.iter());
         match exact {
             Exact::Shared(rectangles) => mask_shared_rectangles(mask, rectangles, floor),
@@ -1116,11 +1175,13 @@ pub(crate) fn mask_fill(
     }
     // Everything that is not rectangles — a glyph, a curve, a diagonal, a stroke's outline — is
     // measured as area rather than supersampled, which is ADR 1082 and §10.7.4's "not rounded to
-    // device pixel boundaries". The library's converter is what draws a mark [`crate::area`]
-    // declines: one past its cell budget, one the transform states no bounds for, and one whose
-    // anti-aliasing the range rule above has already withdrawn.
+    // device pixel boundaries", and measured wherever it lies, because the range above is the
+    // library's arithmetic and not this one's (ADR 2058). The library's converter is what draws a
+    // mark [`crate::area`] declines — one past its cell budget or past [`MEASURED_LIMIT`], one the
+    // transform states no bounds for — and it draws it aliased where the range withdrew its
+    // anti-aliasing.
     let extent = (mask.width(), mask.height());
-    if anti_alias
+    if keep_anti_alias(anti_alias, measurable(path, at))
         && !matches!(exact, Exact::Pieces)
         && let Some(region) = crate::area::region(path, at, extent)
         && crate::area::fill(
@@ -1134,7 +1195,7 @@ pub(crate) fn mask_fill(
     {
         return;
     }
-    mask.fill_path(path, fill_rule, anti_alias, at);
+    mask.fill_path(path, fill_rule, library, at);
 }
 
 /// Writes the coverage of portions two of which fall in one device pixel — ISO 32000-2 §11.6.2

@@ -253,9 +253,12 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
 - **§12.5.6.6's free-text drag is refused by name in the two native windows**, because authoring
   that annotation is a drag mode plus an editor; it is `doc/todo/33`'s.
 - **A Windows-native .NET host joins the level hosts through the C ABI** (the owner's `A287`, ADR
-  2048), and RFC 0010 proposes it. Its first buildable step is the C# declarations held to
-  `include/quorra.h` by a Rust test. What it needs first from this tree: `CommitField`, `Clock` and
-  `Respond` reaching the ABI, and **the key table handed over**. A C caller places its own toolkit,
+  2048), and RFC 0010 proposes it. Its C# declarations are `hosts/windows/Quorra.Interop/`, held
+  to `include/quorra.h` by `crates/viewer-ffi/tests/header_and_interop_agree.rs` (ADR 2054), so an
+  entry point added to the header is written there too. Every `Command` reaches the ABI (ADRs
+  2060, 2061), a page
+  past `MAX_PIXELS` drawn a window at a time on the processor among them; what it needs next from
+  this tree is **the key table handed over**. A C caller places its own toolkit,
   but a level host must mean by a key what the other windows mean, so `quorra_key_meaning` with a
   `QUORRA_KEY_*` enumeration and a count beside it is owed, its modifier named by role (Ctrl here, ⌘
   on macOS). The framework is the owner's choice (`doc/questions/Q501`).

@@ -104,12 +104,8 @@ mod find;
 mod overlays;
 #[path = "quorra/presentation.rs"]
 mod presentation;
-#[path = "quorra/renderer.rs"]
-mod renderer;
 #[path = "quorra/sidebar.rs"]
 mod sidebar;
-#[path = "quorra/stale.rs"]
-mod stale;
 #[path = "quorra/surface.rs"]
 mod surface;
 #[path = "quorra/timing.rs"]
@@ -124,6 +120,9 @@ mod window;
 use std::path::PathBuf;
 
 use viewer_core::{Command, DocumentId, Event, PageTarget, RestrictionPolicy, Viewer};
+// The device renderer and the stand-in policy are `viewer-device`'s, named here so that every
+// module of this window reaches them as `crate::renderer` and `crate::stale` (ADR 2052).
+use viewer_device::{renderer, stale};
 use viewer_ui::chrome::{About, Chrome, FindBar, Sidebar};
 use winit::event_loop::{ControlFlow, EventLoop};
 

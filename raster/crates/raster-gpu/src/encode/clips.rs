@@ -24,7 +24,7 @@ use std::sync::Arc;
 use raster_scene::{ClipId, FillRule, OutlineId, Point, Rect, Scene, Segment};
 
 use super::Encoder;
-use super::device_space::{apply, compose, transform_preserves_axes};
+use super::device_space::{apply, compose, transform_preserves_axes, unviewed};
 use super::hull::HullMemo;
 use super::residue::{Edges, Fill, LinkKey, Verdict};
 use crate::error::RenderError;
@@ -51,6 +51,10 @@ pub(super) struct ResolvedClip {
     /// from the curve, and it is what a rasterised coverage tile is sized by
     /// ([`ResolvedClip::mark_bounds`]).
     residue_bounds: Rect,
+    /// The rectangular links' intersection in the page's space — each link under its own
+    /// transform and no view — which is what a line instance carries, so that the line lane's
+    /// stream is a function of the page alone and the shader maps it by the view (ADR 2022).
+    pub(super) page_rect: Rect,
 }
 
 impl ResolvedClip {
@@ -100,6 +104,7 @@ pub(super) fn open_clip() -> ResolvedClip {
         rect: open_rect(),
         residues: None,
         residue_bounds: open_rect(),
+        page_rect: open_rect(),
     }
 }
 
@@ -157,6 +162,9 @@ impl ClipResolver {
                     rect: current.rect.intersection(rect_link_box(&to_device, rect)),
                     residues: current.residues.clone(),
                     residue_bounds: current.residue_bounds,
+                    page_rect: current
+                        .page_rect
+                        .intersection(rect_link_box(&unviewed(def.transform), rect)),
                 },
                 // Not a rectangle under this transform: a residue link, met with
                 // coverage masks at draw time (M5, ADR 1444). Its *rectangle* is untouched,
@@ -174,6 +182,7 @@ impl ClipResolver {
                         &stored.segments,
                         &to_device,
                     )),
+                    page_rect: current.page_rect,
                 },
             };
             self.resolved[link.0 as usize] = Some(current.clone());

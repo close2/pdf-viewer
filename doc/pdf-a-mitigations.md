@@ -1488,7 +1488,16 @@ ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
 
 #### `annotations/three-dimensional-only-in-engineering-files` (PDF/A-4, 4f)
 #### `annotations/file-attachment-only-in-embedded-file-files` (PDF/A-4, 4e)
-ISO 19005-4 6.3.1 · today `not-built-yet`
+ISO 19005-4 6.3.1 · today **built** for `3D` and `RichMedia`, `not-built-yet` for `FileAttachment`
+
+- **Built for `3D` and `RichMedia`** (ADR 2051 section 4): outside PDF/A-4e the subtype is one the
+  target does not admit, so the site is the two subtype rows' loss exactly — `Loss::ForbiddenAnnotation`,
+  `Rewrite::ForbiddenAnnotationRemoved`, one removal over both populations
+  (`pdf_archive::annotations_outside_the_engineering_flavour`), the artwork leaving with the
+  annotation and the sentence naming PDF/A-4e as the target that keeps it. `remedy = "preserve"`,
+  `placement = "append"` keeps the poster the producer drew, as at the subtype rows (ADR 1123);
+  `keep-everything` and `as-shown` answer it so, `as-if-printed` with `discard`. `FileAttachment`
+  stays refused: removing the annotation would take its file, which the entry below keeps.
 
 - **Mitigation** — `discard` the annotation, **and keep what it pointed at wherever the target
   allows**. The `FileAttachment` case is the one worth stating: at plain PDF/A-4 the *annotation* is
@@ -1947,6 +1956,31 @@ for an absent one
   schema and its property types, which is what a later reader needs. Narrowable declaratively by
   field name: departing for `description` while enforcing `schema` and `valueType` is a defensible
   line and a much smaller hole than dropping the rule.
+
+#### `metadata/extension-schema-structure-fields-are-described`
+ISO 19005-2 6.6.2.3.1 · PDF/A-2b, 2u, 2a · today **built**
+
+- **Mitigation** — a packet that types a property with one of its own custom value types and then
+  states, inside the structure, a field that type's description leaves out contradicts its own
+  description. Section 6.6.2.3.3's Tables 5 and 6 are the whole of what describes a value type's
+  fields, so there are two repairs: describe the field in its type, or cut the field (the limits
+  document's section 3.9, a loss).
+- **Built** (ADR 2050), as a `Stated` decision for `metadata/extension-schemas-embedded`'s reason one
+  level down. The field's namespace and name are the packet's own and its value type is the form its
+  serialisation shows (`pdf_archive::undescribed_fields`, the row's own reading as a population);
+  Table 6's `pdfaField:description` is nowhere in the file, so it is one fixed sentence saying the
+  converter wrote it, and the report's `described_extension_fields` names every field described.
+  `pdf_model::xmp::describe_fields` inserts the Table 6 structure into the producer's own
+  description of the type, so every other byte of the packet crosses unchanged. Refused by name: a
+  field named in another namespace than its type's (Table 5 gives a type one field namespace), a
+  field whose value is itself a structure (the undeterminable case one level down), and a type the
+  packet does not describe exactly once in a form a field can be added to.
+- **By target** — part 4 states no extension schema requirement (confirmed **A**).
+- **From a configuration** — nothing yet. A `supply` of the operator's own description for a named
+  field is the configuration this entry's next row would read, and the cut is section 3.9's `discard`
+  once `pdf_model::xmp` can take a field out of a structure; neither is built.
+- **Departure** — **B**, for `metadata/extension-schema-container-fields`' reason: an undescribed
+  field still says what the producer wrote.
 
 #### `metadata/identification-amendment-form`
 ISO 19005-2 6.6.4 · PDF/A-2b, 2u, 2a · today **built**

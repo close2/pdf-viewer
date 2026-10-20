@@ -39,6 +39,7 @@ viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0"
 confined-transport = { path = "crates/confined-transport", version = "0.1.0" }
 viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
 viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
+viewer-device = { path = "crates/viewer-device", version = "0.1.0" }
 viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }
 viewer-qt = { path = "crates/viewer-qt", version = "0.1.0" }
 viewer-ffi = { path = "crates/viewer-ffi", version = "0.1.0" }

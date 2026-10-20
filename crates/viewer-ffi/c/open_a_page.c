@@ -610,6 +610,226 @@ static int retype_the_note(quorra_viewer *viewer)
  * one, which is what `quorra_field_widget_text(QUORRA_TEXT_LABEL)` is for. Sending a guess would tick
  * nothing.
  */
+/* Whether `needle` occurs in the `len` bytes at `bytes`: a saved file is not a string. */
+static int contains(const uint8_t *bytes, size_t len, const char *needle)
+{
+    size_t want = strlen(needle);
+    for (size_t at = 0; want <= len && at <= len - want; ++at) {
+        if (memcmp(bytes + at, needle, want) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/*
+ * The eight commands a toolkit's own controls, its clock, its network and its scripts need (ADRs
+ * 2060, 2061), on the form: each said once with its status checked, and the two whose effect is in
+ * the document read back — the clock as Table 166's /M in a save, a server's answer as the field's
+ * value.
+ */
+static int exercise_the_eight_commands(quorra_viewer *viewer)
+{
+    quorra_events *said = NULL;
+    if (quorra_clock(viewer, true, 2026, 13, 1, 0, 0, 0, false, 0, &said)
+        != QUORRA_NUMBER_OUT_OF_RANGE) {
+        fprintf(stderr, "a thirteenth month was taken as a clock\n");
+        return 0;
+    }
+    if (!check("quorra_clock",
+               quorra_clock(viewer, true, 2026, 10, 20, 9, 30, 0, true, 120, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_keys", quorra_keys(viewer, true, false, false, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_set_field_text",
+               quorra_set_field_text(viewer, "typed", "committed", &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_commit_field", quorra_commit_field(viewer, "typed", &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+
+    quorra_events *saved = NULL;
+    if (!check("quorra_save", quorra_save(viewer, &saved))) {
+        return 0;
+    }
+    int dated = 0;
+    for (size_t index = 0; index < quorra_events_len(saved); ++index) {
+        size_t needed = 0;
+        if (quorra_event_bytes(saved, index, NULL, 0, &needed) != QUORRA_BUFFER_TOO_SMALL) {
+            continue;
+        }
+        uint8_t *file = malloc(needed);
+        if (file != NULL && quorra_event_bytes(saved, index, file, needed, &needed) == QUORRA_OK) {
+            /* The writer spells strings in hexadecimal: D:20261020093000+02'00'. */
+            dated = contains(file, needed, "/M <443A32303236313032303039333030302B303227303027>");
+        }
+        free(file);
+    }
+    quorra_events_free(saved);
+    printf("clock: the save writes /M as the caller's clock said: %d\n", dated);
+    if (!dated) {
+        return 0;
+    }
+
+    /* A server's FDF answer, in the format its media type names, into the document that sent. */
+    uint32_t format = 99u;
+    if (!check("quorra_data_format_of_media_type",
+               quorra_data_format_of_media_type("application/vnd.fdf; charset=x", &format))
+        || format != QUORRA_DATA_FDF) {
+        return 0;
+    }
+    uint32_t named = 99u;
+    if (!check("quorra_data_format_of_name",
+               quorra_data_format_of_name("https://example.org/answer.xfdf", &named))
+        || named != QUORRA_DATA_XFDF) {
+        return 0;
+    }
+    static const char fdf[] = "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [<< /T (typed) /V (answered) "
+                              ">>] >> >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
+    if (!check("quorra_respond",
+               quorra_respond(viewer, 2, QUORRA_ANSWERED_SUBMISSION, "https://example.org/form",
+                              format, (const uint8_t *)fdf, sizeof fdf - 1, &said))) {
+        return 0;
+    }
+    printf("respond: %zu event(s)\n", quorra_events_len(said));
+    quorra_events_free(said);
+    quorra_fields *fields = NULL;
+    int answered = 0;
+    if (check("quorra_fields_read", quorra_fields_read(viewer, &fields))) {
+        for (size_t field = 0; field < quorra_fields_len(fields); ++field) {
+            char value[32] = {0};
+            size_t needed = 0;
+            if (quorra_field_value(fields, field, value, sizeof value, &needed) == QUORRA_OK
+                && strcmp(value, "answered") == 0) {
+                answered = 1;
+            }
+        }
+        quorra_fields_free(fields);
+    }
+    printf("respond: the field holds the server's value: %d\n", answered);
+    if (!answered) {
+        return 0;
+    }
+
+    /* The scripts' level and its two answers. Nothing on this form asks, so both answers reach
+     * nothing; a level this build does not define is refused by name. */
+    if (!check("quorra_scripts", quorra_scripts(viewer, QUORRA_SCRIPTS_ASK, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_answer_scripts", quorra_answer_scripts(viewer, 2, false, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_answer_script",
+               quorra_answer_script(viewer, 2, QUORRA_SCRIPT_ANSWER_PRESSED,
+                                    QUORRA_ALERT_BUTTON_OK, NULL, &said))) {
+        return 0;
+    }
+    printf("an answer to a script that is not waiting: %zu event(s)\n", quorra_events_len(said));
+    quorra_events_free(said);
+    if (quorra_answer_script(viewer, 2, QUORRA_SCRIPT_ANSWER_PRESSED, 9u, NULL, &said)
+            != QUORRA_WRONG_KIND
+        || quorra_scripts(viewer, 9u, &said) != QUORRA_WRONG_KIND) {
+        fprintf(stderr, "a button or a level this build does not define was accepted\n");
+        return 0;
+    }
+    if (!check("quorra_scripts", quorra_scripts(viewer, QUORRA_SCRIPTS_OFF, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    return 1;
+}
+
+/*
+ * QUORRA_OVERSIZE_LISTED: a page zoomed past MAX_PIXELS is asked for whole rather than refused,
+ * and this program draws the window of it the viewport shows — never the page (ADR 2060).
+ */
+static int draw_a_page_past_the_bound(quorra_viewer *viewer)
+{
+    quorra_viewing was;
+    memset(&was, 0, sizeof was);
+    if (!check("quorra_view", quorra_view(viewer, &was))) {
+        return 0;
+    }
+    quorra_events *said = NULL;
+    if (!check("quorra_oversize", quorra_oversize(viewer, QUORRA_OVERSIZE_LISTED, &said))) {
+        return 0;
+    }
+    quorra_events_free(said);
+    if (!check("quorra_zoom", quorra_zoom(viewer, QUORRA_ZOOM_SCALE, 40.0f, &said))) {
+        return 0;
+    }
+    size_t at = say_and_find_render(said, "zoomed past the bound");
+    quorra_render_request *request = NULL;
+    if (at == (size_t)-1
+        || !check("quorra_event_render_request", quorra_event_render_request(said, at, &request))) {
+        quorra_events_free(said);
+        return 0;
+    }
+    quorra_events_free(said);
+    size_t page = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    bool oversized = false;
+    quorra_geometry geometry;
+    memset(&geometry, 0, sizeof geometry);
+    uint32_t x = 0, y = 0, w = 0, h = 0;
+    quorra_raster *raster = NULL;
+    int ok = check("quorra_render_request_page",
+                   quorra_render_request_page(request, &page, &width, &height))
+             && check("quorra_render_request_oversized",
+                      quorra_render_request_oversized(request, 800, 1000, &oversized))
+             && oversized
+             && check("quorra_page_geometry", quorra_page_geometry(viewer, page, &geometry))
+             && check("quorra_render_request_window",
+                      quorra_render_request_window(request, geometry.origin_x, geometry.origin_y,
+                                                   800, 1000, &x, &y, &w, &h))
+             && check("quorra_render_request_rasterise_window",
+                      quorra_render_request_rasterise_window(request, x, y, w, h, &raster));
+    if (ok) {
+        uint32_t rw = 0, rh = 0, format = 0;
+        size_t bytes = 0;
+        ok = check("quorra_raster_info", quorra_raster_info(raster, &rw, &rh, &format, &bytes))
+             && rw == w && rh == h && format == QUORRA_FORMAT_RGBA8;
+        uint8_t *pixels = ok ? malloc(bytes) : NULL;
+        size_t written = 0;
+        ok = ok && pixels != NULL
+             && check("quorra_raster_copy", quorra_raster_copy(raster, pixels, bytes, &written))
+             && written == bytes;
+        free(pixels);
+        printf("oversize: page %zu is %ux%u, a window %ux%u at %u,%u drawn of it\n", page + 1,
+               width, height, w, h, x, y);
+    }
+    quorra_raster_free(raster);
+    if (ok) {
+        ok = check("quorra_render_ready_listed", quorra_render_ready_listed(viewer, request, &said));
+        if (ok) {
+            quorra_events_free(said);
+        }
+    }
+    quorra_render_request_free(request);
+    /* And back as it was: the page drawn whole again, under the default. */
+    if (check("quorra_oversize", quorra_oversize(viewer, QUORRA_OVERSIZE_REFUSED, &said))) {
+        quorra_events_free(said);
+    }
+    if (check("quorra_set_view", quorra_set_view(viewer, was, &said))) {
+        size_t again = say_and_find_render(said, "back at the opening view");
+        if (again != (size_t)-1 && !draw_what_was_asked(viewer, said, again)) {
+            ok = 0;
+        }
+        quorra_events_free(said);
+    }
+    return ok;
+}
+
 static int exercise_the_form(quorra_viewer *viewer, const char *path)
 {
     size_t len = 0;
@@ -765,6 +985,10 @@ static int exercise_the_form(quorra_viewer *viewer, const char *path)
     quorra_events_free(undone);
     (void)quorra_dirty(viewer, &dirty);
     printf("dirty after the undo: %d\n", dirty ? 1 : 0);
+
+    if (!exercise_the_eight_commands(viewer)) {
+        return 0;
+    }
 
     quorra_events *closed = NULL;
     (void)quorra_close(viewer, 2, &closed);
@@ -1249,6 +1473,12 @@ int main(int argc, char **argv)
         return 1;
     }
     printf("an undefined pointer action: %s\n", quorra_status_message(QUORRA_WRONG_KIND));
+
+    /* A page past MAX_PIXELS, drawn a window at a time (ADR 2060). */
+    if (!draw_a_page_past_the_bound(viewer)) {
+        quorra_viewer_free(viewer);
+        return 1;
+    }
 
     /* And the other half of the queries, every one of which reached no symbol before ADR 0576. */
     exercise_the_other_half(viewer);

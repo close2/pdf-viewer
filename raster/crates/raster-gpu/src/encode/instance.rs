@@ -34,9 +34,10 @@ pub(crate) const RECT_INSTANCE_STRIDE: u64 = 32;
 /// `coverage.wgsl`.
 pub(crate) const QUAD_INSTANCE_STRIDE: u64 = 64;
 
-/// Bytes per line instance: the two device endpoints (4 × f32), the pen's semi-axes and the
-/// cap (3 × f32), premultiplied colour (4 × f32) and the rectangle the clip admits (4 × f32) —
-/// fifteen floats. Must match `line.wgsl` (ADR 0097).
+/// Bytes per line instance: the two endpoints (4 × f32), the pen's semi-axes and the end with
+/// the width's resolution (3 × f32), premultiplied colour (4 × f32) and the rectangle the clip
+/// admits (4 × f32) — fifteen floats, every one of them the page's and none the view's, which
+/// `line.wgsl` applies (ADR 2022). Must match `line.wgsl` (ADR 0097).
 pub(crate) const LINE_INSTANCE_STRIDE: u64 = 60;
 
 /// [`LINE_INSTANCE_STRIDE`] as the length of the array one instance is written from, held to it
@@ -48,6 +49,35 @@ const _: () = assert!(LINE_INSTANCE_BYTES as u64 == LINE_INSTANCE_STRIDE);
 /// the chain admits, which is the instance's last four floats.
 pub(super) const LINE_HEAD_BYTES: usize = 44;
 const _: () = assert!(LINE_HEAD_BYTES + 16 == LINE_INSTANCE_BYTES);
+
+/// The view `line.wgsl` maps a line's page-space instance by (ADR 2022): the viewport's affine,
+/// `a b c d` then `e f`, and the target's size, whose rectangle meets every line's clip as
+/// [`target_rect`](super::device_space::target_rect) does on the host. The eight floats
+/// `Globals` carries after the attachment's own four, written into every region's globals.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LineView(pub [f32; 8]);
+
+/// The bytes of `line.wgsl`'s `Globals`: the attachment's four floats, which are all
+/// `rect.wgsl`'s and `coverage.wgsl`'s declare, then the [`LineView`]'s eight.
+pub(crate) const GLOBALS_BYTES: usize = 48;
+
+impl LineView {
+    /// The view of `viewport`.
+    #[expect(clippy::cast_precision_loss)] // extents inside f32's exact integer range
+    pub(super) fn of(viewport: &crate::viewport::Viewport<'_>) -> Self {
+        let t = viewport.transform;
+        Self([
+            t.a,
+            t.b,
+            t.c,
+            t.d,
+            t.e,
+            t.f,
+            viewport.width as f32,
+            viewport.height as f32,
+        ])
+    }
+}
 
 /// Which lane a batch draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,13 +151,14 @@ pub(crate) struct Batch {
 pub(super) struct LineInstance {
     /// The instance's bytes, in `line.wgsl`'s order.
     pub bytes: [u8; LINE_INSTANCE_BYTES],
-    /// The mark's box inside the rectangle the clip and the target admit, for the plan.
+    /// The mark's box on the device inside the rectangle the clip and the target admit, for
+    /// the plan.
     pub ink: Rect,
 }
 
 impl LineInstance {
     /// The instance whose head is `head` — the line's own fields, [`line_head`] — under the
-    /// rectangle `admit`, the clip chain's and the target's.
+    /// clip chain's rectangle `admit` in the page's space (ADR 2022).
     pub(super) fn under(head: &[u8; LINE_HEAD_BYTES], admit: Rect, ink: Rect) -> Self {
         let mut bytes = [0_u8; LINE_INSTANCE_BYTES];
         let (front, back) = bytes.split_at_mut(LINE_HEAD_BYTES);
@@ -140,15 +171,16 @@ impl LineInstance {
     }
 }
 
-/// The head of a line instance (`line.wgsl`'s first eleven floats): the two device endpoints,
-/// the pen's device semi-axes, Table 53's end, and the premultiplied colour.
+/// The head of a line instance (`line.wgsl`'s first eleven floats): the two endpoints and the
+/// pen's semi-axes in the page's space, Table 53's end packed with how the view resolves the
+/// width (ADR 2022), and the premultiplied colour.
 ///
 /// Assembled once into an array rather than written four bytes at a time: the stream grows by
 /// millions of these on a page of lines (ADR 1878), and the array is what a line made ahead of
 /// the walk carries to it (ADR 1884).
 pub(super) fn line_head(
     (from, to): (Point, Point),
-    ((half_x, half_y), cap): ((f32, f32), raster_scene::LineCap),
+    ((half_x, half_y), cap, resolution): ((f32, f32), raster_scene::LineCap, u32),
     color: raster_scene::Color,
 ) -> [u8; LINE_HEAD_BYTES] {
     let values = [
@@ -158,7 +190,7 @@ pub(super) fn line_head(
         to.y,
         half_x,
         half_y,
-        cap_code(cap),
+        end_code(cap, resolution),
         color.r * color.a,
         color.g * color.a,
         color.b * color.a,
@@ -171,13 +203,23 @@ pub(super) fn line_head(
     head
 }
 
-/// The number `line.wgsl` reads Table 53's end by: 0 a butt, 1 a round, 2 a projecting end.
-fn cap_code(cap: raster_scene::LineCap) -> f32 {
-    match cap {
-        raster_scene::LineCap::Butt => 0.0,
-        raster_scene::LineCap::Round => 1.0,
-        raster_scene::LineCap::Square => 2.0,
-    }
+/// The number `line.wgsl` reads Table 53's end and the width's resolution by: the end — 0 a
+/// butt, 1 a round, 2 a projecting end — plus three times the resolution's own number, so that
+/// the instance keeps its fifteen floats (ADR 2022). Every value is a small integer, exact in an
+/// `f32`.
+fn end_code(cap: raster_scene::LineCap, resolution: u32) -> f32 {
+    let end = match cap {
+        raster_scene::LineCap::Butt => 0_u8,
+        raster_scene::LineCap::Round => 1,
+        raster_scene::LineCap::Square => 2,
+    };
+    let resolution = match resolution {
+        0 => 0_u8,
+        1 => 3,
+        _ => 6,
+    };
+    // At most eight, so the sum is exact and never saturates.
+    f32::from(end.saturating_add(resolution))
 }
 
 /// Bytes to reserve for one instance stream, from the command count the frame budget
@@ -262,6 +304,10 @@ impl Encoder<'_> {
         let ink = line.ink;
         self.plan_mut()
             .mark([ink.min.x, ink.min.y, ink.max.x, ink.max.y]);
+        // A walk keeping the encode before's stream writes no line of its own: a line outside its
+        // runs that takes the closed form here did not take it there, so the runs are not this
+        // view's (`kept_lines`, ADR 2056).
+        self.before.diverge();
         // One write of the whole instance: each `extend_from_slice` asks for room (ADR 1878).
         self.line_instances.extend_from_slice(&line.bytes);
         self.lanes.line = self.lanes.line.saturating_add(1);
@@ -338,8 +384,9 @@ impl Encoder<'_> {
     ///
     /// # Why the `- 1` cannot wrap, and the `as u32` cannot truncate
     ///
-    /// This is private and every caller appends **one whole instance** immediately before
-    /// calling it, so the stream holds at least one stride and the index of its last
+    /// This is private to `encode`, and every caller appends **one whole instance** immediately
+    /// before calling it — `kept_lines`'s `keep_line` included, which asks just after the line's
+    /// instance is written — so the stream holds at least one stride and the index of its last
     /// instance is at least zero. There is no path that asks before writing one; if one were added, the subtraction would wrap to `u32::MAX` in
     /// release and the batch would name an instance the draw call does not have. The
     /// `no_batch_is_noted_before_its_instance_is_written` test states the invariant from
@@ -351,7 +398,7 @@ impl Encoder<'_> {
     /// `Options::max_frame_bytes` (2 GiB by default, and never above the largest buffer the
     /// device makes) long before, having charged one rect and one quad per command up front.
     #[expect(clippy::cast_possible_truncation, clippy::arithmetic_side_effects)]
-    fn last_instance(&self, kind: BatchKind) -> u32 {
+    pub(super) fn last_instance(&self, kind: BatchKind) -> u32 {
         (match kind {
             BatchKind::Rect => (self.rect_instances.len() as u64 / RECT_INSTANCE_STRIDE) - 1,
             BatchKind::Quad => (self.quad_instances.len() as u64 / QUAD_INSTANCE_STRIDE) - 1,

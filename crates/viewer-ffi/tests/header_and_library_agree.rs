@@ -25,12 +25,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
-    ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, MarkupKind, MeasurePart, NavigatorKind, NoteKind, OrderKind,
-    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
-    PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind,
-    Status, TextKind,
+    AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
+    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
+    FolderTextKind, InitialKind, MarkupKind, MeasurePart, MethodKind, NavigatorKind, NoteKind,
+    OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey,
+    PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind, ScriptAnswerKind,
+    ScriptQuestionKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -132,7 +133,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        240,
+        261,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -163,6 +164,7 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     the_answered_enumerations(&mut expected);
     the_field_flags(&mut expected);
     the_other_half_of_the_queries(&mut expected);
+    the_eight_commands(&mut expected);
 
     assert_eq!(
         defined, expected,
@@ -598,6 +600,77 @@ fn the_answered_enumerations(expected: &mut BTreeMap<String, i64>) {
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
+}
+
+/// What the eight commands RFC 0010 section 3.1 priced take, and what the events they answer are
+/// read as (ADRs 2060, 2061).
+///
+/// **No `_COUNT` beside any of them**, for the content orders' reason: Table 240 bit 4 states two
+/// methods, and Adobe's reference states `app.alert`'s four icons, four button sets and four
+/// buttons as fixed numbers, so there is nothing for a count to guard; the enumerations a caller
+/// *passes* refuse a number they do not define with `QUORRA_WRONG_KIND`.
+fn the_eight_commands(expected: &mut BTreeMap<String, i64>) {
+    let mut put = |name: &str, value: i64| {
+        expected.insert(name.to_owned(), value);
+    };
+    put("QUORRA_OVERSIZE_REFUSED", OversizeKind::Refused as i64);
+    put("QUORRA_OVERSIZE_LISTED", OversizeKind::Listed as i64);
+    put(
+        "QUORRA_ANSWERED_SUBMISSION",
+        AnsweredKind::Submission as i64,
+    );
+    put("QUORRA_ANSWERED_IMPORT", AnsweredKind::Import as i64);
+    put("QUORRA_DATA_FDF", DataFormatKind::Fdf as i64);
+    put("QUORRA_DATA_XFDF", DataFormatKind::Xfdf as i64);
+    put("QUORRA_DATA_OTHER", DataFormatKind::Other as i64);
+    put("QUORRA_METHOD_GET", MethodKind::Get as i64);
+    put("QUORRA_METHOD_POST", MethodKind::Post as i64);
+    put("QUORRA_SCRIPTS_OFF", ScriptsKind::Off as i64);
+    put("QUORRA_SCRIPTS_ASK", ScriptsKind::Ask as i64);
+    put("QUORRA_SCRIPTS_WARN", ScriptsKind::Warn as i64);
+    put("QUORRA_SCRIPTS_ON", ScriptsKind::On as i64);
+    put(
+        "QUORRA_SCRIPT_QUESTION_ALERT",
+        ScriptQuestionKind::Alert as i64,
+    );
+    put(
+        "QUORRA_SCRIPT_QUESTION_RESPONSE",
+        ScriptQuestionKind::Response as i64,
+    );
+    put("QUORRA_SCRIPT_TEXT_MESSAGE", ScriptTextKind::Message as i64);
+    put("QUORRA_SCRIPT_TEXT_TITLE", ScriptTextKind::Title as i64);
+    put("QUORRA_SCRIPT_TEXT_DEFAULT", ScriptTextKind::Default as i64);
+    put("QUORRA_SCRIPT_TEXT_LABEL", ScriptTextKind::Label as i64);
+    put("QUORRA_ALERT_ICON_ERROR", AlertIconKind::Error as i64);
+    put("QUORRA_ALERT_ICON_WARNING", AlertIconKind::Warning as i64);
+    put("QUORRA_ALERT_ICON_QUESTION", AlertIconKind::Question as i64);
+    put("QUORRA_ALERT_ICON_STATUS", AlertIconKind::Status as i64);
+    put("QUORRA_ALERT_BUTTONS_OK", AlertButtonsKind::Ok as i64);
+    put(
+        "QUORRA_ALERT_BUTTONS_OK_CANCEL",
+        AlertButtonsKind::OkCancel as i64,
+    );
+    put(
+        "QUORRA_ALERT_BUTTONS_YES_NO",
+        AlertButtonsKind::YesNo as i64,
+    );
+    put(
+        "QUORRA_ALERT_BUTTONS_YES_NO_CANCEL",
+        AlertButtonsKind::YesNoCancel as i64,
+    );
+    put("QUORRA_ALERT_BUTTON_OK", AlertButtonKind::Ok as i64);
+    put("QUORRA_ALERT_BUTTON_CANCEL", AlertButtonKind::Cancel as i64);
+    put("QUORRA_ALERT_BUTTON_NO", AlertButtonKind::No as i64);
+    put("QUORRA_ALERT_BUTTON_YES", AlertButtonKind::Yes as i64);
+    put(
+        "QUORRA_SCRIPT_ANSWER_PRESSED",
+        ScriptAnswerKind::Pressed as i64,
+    );
+    put("QUORRA_SCRIPT_ANSWER_TYPED", ScriptAnswerKind::Typed as i64);
+    put(
+        "QUORRA_SCRIPT_ANSWER_UNANSWERABLE",
+        ScriptAnswerKind::Unanswerable as i64,
+    );
 }
 
 /// `quorra_field_control`'s flag word.

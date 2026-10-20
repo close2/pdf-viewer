@@ -9,19 +9,17 @@
 //! # Three things the two parts disagree about, and one printing error
 //!
 //! - **The schema's namespace URI is printed differently.** ISO 19005-2 section 6.6.4 gives it
-//!   with an `http` scheme and ISO 19005-4 section 6.7.3 with an `https` one. Nothing else about
-//!   the identifier moves, and a producer writing either has named the schema the standard defines,
-//!   so both are accepted for both parts — [`IDENTIFICATION_URIS`].
+//!   with an `http` scheme and ISO 19005-4 section 6.7.3 with an `https` one, and erratum #123
+//!   (`crate::errata`) corrects part 4 to `http` with a note that an implementation may accept
+//!   `https` as well. So `http` is the URI both parts state, and the `https` spelling is accepted
+//!   for both on the erratum's own permission — [`IDENTIFICATION_URIS`].
 //! - **Part 4 adds `pdfaid:rev` and takes the conformance level away from every file but two.**
 //!   Part 2's level is A, B or U and every conforming file states one; part 4's is E or F and
 //!   only a PDF/A-4e or PDF/A-4f file may state anything at all.
 //! - **Part 4's Table 2 spells the conformance property with a `pdfa` prefix**, in a schema whose
 //!   required prefix the same table gives as `pdfaid` and whose namespace is the identification
-//!   one. A `pdfa` prefix is bound to nothing anywhere in that part, so reading the property as
-//!   belonging to any other namespace would make the table name a schema it never defines; these
-//!   rows therefore look it up in the identification namespace, which is the reading that leaves
-//!   the table self-consistent. That is a departure from the letter of one cell and it is written
-//!   down here rather than buried in a predicate.
+//!   one. Erratum #123 corrects the cell to `pdfaid:conformance`, so these rows look the property
+//!   up in the identification namespace whatever prefix spells it, which is the corrected text.
 //! - Part 2 builds its own extension-schema machinery (section 6.6.2.3, five tables of it); part 4
 //!   replaces the whole of it with one sentence pointing at ISO 16684-2, a standard this project
 //!   does not hold. So section 6.6.2.3's three rows are implemented and section 6.7.2.3's is not,
@@ -448,9 +446,9 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
 /// The two spellings the two parts print for the identification schema's namespace.
 ///
 /// ISO 19005-2 section 6.6.4 gives it with an `http` scheme and ISO 19005-4 section 6.7.3 with an
-/// `https` one. A producer that writes either has named the schema each part defines, and a
-/// validator that insisted on one spelling would refuse files over the standard's own
-/// inconsistency.
+/// `https` one; erratum #123 corrects part 4 to `http` and adds a note that an implementation may
+/// accept `https` in addition. The first is the URI both parts state, and the second is accepted
+/// for both on that note's permission (`doc/adr/2051`).
 const IDENTIFICATION_URIS: [&str; 2] = [
     "http://www.aiim.org/pdfa/ns/id/",
     "https://www.aiim.org/pdfa/ns/id/",
@@ -2707,8 +2705,17 @@ fn extension_schema_structure_fields(exam: &Examination<'_>, findings: &mut Find
                 continue;
             };
             let place = spelled(property);
-            judge_structures(&property.value, kind, &described, 0, &mut |complaint| {
-                findings.record(Where::object(id).named(place.clone()), complaint);
+            judge_structures(&property.value, kind, &described, 0, &mut |kind, field| {
+                findings.record(
+                    Where::object(id).named(place.clone()),
+                    format!(
+                        "the packet states a {} field for a property of the extension schema \
+                         value type {}, which describes {}",
+                        spelled(field),
+                        kind.name,
+                        describes(kind)
+                    ),
+                );
             });
         }
     });
@@ -2725,7 +2732,7 @@ fn judge_structures(
     kind: &CustomType,
     described: &Described,
     depth: usize,
-    report: &mut impl FnMut(String),
+    report: &mut impl FnMut(&CustomType, &XmpProperty),
 ) {
     if depth >= DESCRIPTION_DEPTH || !kind.complete {
         return;
@@ -2748,13 +2755,7 @@ fn judge_structures(
             })
             .flatten();
         let Some((_, field_type)) = stated else {
-            report(format!(
-                "the packet states a {} field for a property of the extension schema value type \
-                 {}, which describes {}",
-                spelled(field),
-                kind.name,
-                describes(kind)
-            ));
+            report(kind, field);
             continue;
         };
         // Table 6: a field's own value type may be another custom type of the same description,
@@ -2769,6 +2770,74 @@ fn judge_structures(
             );
         }
     }
+}
+
+/// One structure field a packet states and its value type does not describe.
+///
+/// **The same reading as `extension_schema_structure_fields`, as a population rather than as a
+/// verdict**, for `doc/adr/1234`'s reason: a findings list is capped where a packet's structures
+/// are not, so a converter describing the fields off findings would half-edit a packet holding
+/// more of them than the bound keeps. Every field here is one that row reports, and no other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndescribedField {
+    /// The value type's `pdfaType:type`, the name the property's description selects it by.
+    pub type_name: String,
+    /// The value type's `pdfaType:namespaceURI`, the namespace its fields are named in.
+    pub type_namespace: String,
+    /// The namespace URI the packet names the field in.
+    pub namespace: String,
+    /// The field's local name, which a `pdfaField:name` describing it would state.
+    pub local: String,
+    /// The XMP value type the field's own serialisation shows, where it shows one.
+    ///
+    /// `None` for a structured value, for [`UndescribedProperty::value_type`]'s reason.
+    pub value_type: Option<&'static str>,
+}
+
+/// Every structure field one packet states that its own value type does not describe.
+///
+/// `described` is the catalog's own packet where the caller holds one: ISO 19005-2 section
+/// 6.6.2.3.2 lets every stream inherit the catalog's descriptions, and the row reads the two
+/// together in the same way. A packet that does not parse yields nothing, as
+/// [`undescribed_schemas`] does. Listed once per value type and field name, in the order stated.
+#[must_use]
+pub fn undescribed_fields(packet: &[u8], described: Option<&[u8]>) -> Vec<UndescribedField> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    let mut known = Described::default();
+    if let Some(inherited) = described.and_then(|bytes| Xmp::parse_detail(bytes).ok()) {
+        describe(&inherited, &mut known);
+    }
+    describe(&properties, &mut known);
+    let mut out: Vec<UndescribedField> = Vec::new();
+    for property in &properties {
+        let Some(value_type) = known.value_type_of(&property.name.namespace, &property.name.local)
+        else {
+            continue;
+        };
+        let Some(kind) = known.custom(item_type(value_type)) else {
+            continue;
+        };
+        judge_structures(&property.value, kind, &known, 0, &mut |kind, field| {
+            let found = UndescribedField {
+                type_name: kind.name.clone(),
+                type_namespace: kind.namespace.clone(),
+                namespace: field.name.namespace.clone(),
+                local: field.name.local.clone(),
+                value_type: serialised_value_type(&field.value),
+            };
+            let listed = out.iter().any(|stated| {
+                stated.type_name == found.type_name
+                    && stated.namespace == found.namespace
+                    && stated.local == found.local
+            });
+            if !listed {
+                out.push(found);
+            }
+        });
+    }
+    out
 }
 
 /// What a value type describes, for a finding that has to say what the alternative was.

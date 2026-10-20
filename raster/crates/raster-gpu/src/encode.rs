@@ -88,6 +88,8 @@
 //! **What the walk writes into, and what it hands back:**
 //!
 //! - `instance` — one mark's instance bytes, and the run of consecutive marks it joins.
+//! - `kept_lines` — the line lane's runs, kept for the encode of the next view of the same
+//!   scene, which takes each run in one step (ADR 2056).
 //! - `plan` — the ops one layer draws, in order, and the box that has to hold them.
 //! - `encoded` — what one walk hands back, and what the walk cost.
 
@@ -100,6 +102,7 @@ mod fill;
 mod function;
 mod hull;
 mod instance;
+mod kept_lines;
 mod layer;
 mod line;
 mod lines_ahead;
@@ -143,8 +146,10 @@ use crate::viewport::Viewport;
 pub(crate) use encoded::Encoded;
 pub(crate) use function::{FunctionOp, empty_stack_reports};
 pub(crate) use instance::{
-    Batch, BatchKind, DrawStyle, LINE_INSTANCE_STRIDE, QUAD_INSTANCE_STRIDE, RECT_INSTANCE_STRIDE,
+    Batch, BatchKind, DrawStyle, GLOBALS_BYTES, LINE_INSTANCE_STRIDE, LineView,
+    QUAD_INSTANCE_STRIDE, RECT_INSTANCE_STRIDE,
 };
+pub(crate) use kept_lines::KeptLines;
 pub(crate) use layer::{ChildOp, MaskPlan};
 pub(crate) use meet::KeptMeets;
 pub(crate) use plan::{LayerPlan, Op};
@@ -199,6 +204,13 @@ struct Encoder<'a> {
     rect_instances: Vec<u8>,
     quad_instances: Vec<u8>,
     line_instances: Vec<u8>,
+    /// The same instances as runs of the page's plan, for the next view's encode (ADR 2056).
+    kept_build: kept_lines::KeptBuilder,
+    /// The encode of an earlier view of this scene whose line runs this walk takes instead of
+    /// walking their lines (`kept_lines`, ADR 2056).
+    before: kept_lines::Before<'a>,
+    /// Line instances taken in `previous`'s runs (`Counters::lines_kept`).
+    lines_kept: u32,
     /// The walk's viewport-free half, recorded as it goes (`replay.rs`, ADR 0087):
     /// `Some` while every structure met so far can be replayed per record, `None` the
     /// moment one cannot. Attempted only under [`Coverage::Compute`].
@@ -361,6 +373,7 @@ pub(crate) fn encode(
             Coverage::Cpu | Coverage::Gpu => None,
         },
         None,
+        kept_lines::Before::Nothing,
     );
 
     // The line commands' closed forms are made on other threads ahead of the walk where the
@@ -368,7 +381,7 @@ pub(crate) fn encode(
     encoder.walk_lines_ahead(
         commands.len(),
         lines,
-        |at| commands.get(at).map(|command| (at, command)),
+        move |at| commands.get(at).map(|command| (at, command)),
         |encoder, at| {
             commands
                 .get(at)
@@ -405,6 +418,78 @@ fn instance_precount(commands: &[Command]) -> (u64, usize) {
         .saturating_mul(per_command)
         .saturating_add((lines as u64).saturating_mul(per_line));
     (needed, lines)
+}
+
+/// The walk at a new view of a scene `previous` encoded at another, taking each of `previous`'s
+/// kept line runs in one step and walking every other command (`kept_lines`, ADR 2056) — or
+/// `None` where `previous` kept no runs, the view turns the axes, or the runs turned out not to be
+/// this view's, and the caller walks the scene whole.
+///
+/// The same construction as [`encode`], so the frame is the walk's to the byte where it is
+/// `Some`: every command outside a run is walked as the walk walks it, and a run places the
+/// instances, batch, count and box its lines would have placed one by one.
+#[expect(clippy::too_many_arguments)] // encode()'s own signature plus the encode before
+pub(crate) fn encode_kept(
+    scene: &Scene,
+    viewport: &Viewport<'_>,
+    frame_budget_bytes: u64,
+    max_dimension: u32,
+    resources: &ResourceStore,
+    atlas: &mut AtlasStore,
+    kept: &mut KeptMeets,
+    quantum: Option<u16>,
+    coverage: Coverage,
+    compute_assist: bool,
+    coverage_samples: u32,
+    instrument: bool,
+    threads: usize,
+    previous: &Encoded,
+) -> Result<Option<Encoded>, RenderError> {
+    let Some(runs) = previous.kept_lines.as_ref() else {
+        return Ok(None);
+    };
+    // A view that turns the axes sends every line down the stroke road (`line.rs`).
+    if !device_space::transform_preserves_axes(&device_space::unviewed(viewport.transform)) {
+        return Ok(None);
+    }
+    let commands = scene.commands();
+    let (needed, lines) = instance_precount(commands);
+    if needed > frame_budget_bytes {
+        return Err(RenderError::FrameBudgetExceeded {
+            needed,
+            budget: frame_budget_bytes,
+        });
+    }
+    let mut encoder = encoder_for(
+        scene,
+        viewport,
+        frame_budget_bytes,
+        max_dimension,
+        resources,
+        atlas,
+        kept,
+        quantum,
+        coverage,
+        compute_assist,
+        coverage_samples,
+        instrument,
+        threads,
+        (needed, lines),
+        match coverage {
+            Coverage::Compute => Some(ReplayList::default()),
+            Coverage::Cpu | Coverage::Gpu => None,
+        },
+        None,
+        kept_lines::Before::Kept(previous),
+    );
+    // The lines the runs do not hold take the stroke road, a handful on a page of lines, so no
+    // thread makes them ahead.
+    encoder.walk_kept(commands, runs)?;
+    if encoder.before.diverged() {
+        return Ok(None);
+    }
+    encoder.drain_last()?;
+    finish(encoder, commands.len()).map(Some)
 }
 
 /// The walk, replayed from its records at a new viewport (`replay.rs`, ADR 0087).
@@ -461,6 +546,7 @@ pub(crate) fn replay(
         (needed, lines),
         Some(ReplayList::default()),
         Some((list.distinct_outlines, list.segments)),
+        kept_lines::Before::Nothing,
     );
 
     let records = &list.records;
@@ -469,7 +555,7 @@ pub(crate) fn replay(
     encoder.walk_lines_ahead(
         records.len(),
         lines,
-        |at| match records.get(at) {
+        move |at| match records.get(at) {
             Some(&ReplayRecord::Slow { index }) => commands
                 .get(index as usize)
                 .map(|command| (index as usize, command)),
@@ -563,6 +649,7 @@ fn encoder_for<'a>(
     (needed, lines): (u64, usize),
     replay: Option<ReplayList>,
     seeded_counts: Option<(u32, u32)>,
+    before: kept_lines::Before<'a>,
 ) -> Encoder<'a> {
     Encoder {
         scene,
@@ -600,7 +687,15 @@ fn encoder_for<'a>(
             scene.commands().len().saturating_sub(lines),
             QUAD_INSTANCE_STRIDE,
         )),
-        line_instances: Vec::with_capacity(instance_reserve(lines, LINE_INSTANCE_STRIDE)),
+        // A walk that keeps the encode before's line stream writes none of its own.
+        line_instances: Vec::with_capacity(if before.keeps() {
+            0
+        } else {
+            instance_reserve(lines, LINE_INSTANCE_STRIDE)
+        }),
+        kept_build: kept_lines::KeptBuilder::default(),
+        before,
+        lines_kept: 0,
         replay,
         current_command: 0,
         command_records_start: 0,

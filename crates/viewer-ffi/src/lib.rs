@@ -142,17 +142,22 @@ mod status;
 pub use answers::{
     Collection, ColumnFacts, Matches, Miniature, NodeFacts, ObjectRef, Popups, Structure,
 };
-pub use events::{Events, Searched, TransitionNumbers};
+pub use events::{Events, ScriptQuestionNumbers, Searched, TransitionNumbers};
 pub use form::Form;
 pub use kinds::{
-    AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
-    ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, LayoutKind, MarkupKind, MeasurePart, NavigatorKind, NoteKind,
-    OrderKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
-    PrintScalingKind, PurposeKind, RestrictKind, RestrictedKind, RowKind, ScopeKind, SelectKind,
-    ShortfallKind, TextKind, ZoomKind,
+    AcceptKind, AlertButtonKind, AlertButtonsKind, AlertIconKind, AnsweredKind, AttachKind,
+    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
+    FolderTextKind, InitialKind, LayoutKind, MarkupKind, MeasurePart, MethodKind, NavigatorKind,
+    NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind,
+    PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RestrictedKind,
+    RowKind, ScopeKind, ScriptAnswerKind, ScriptQuestionKind, ScriptTextKind, ScriptsKind,
+    SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
-pub use session::{FrameInfo, Session, rasterise};
+pub use session::{
+    FrameInfo, Session, clock_date, data_format_of_media_type, rasterise, rasterise_window,
+    window_for,
+};
 pub use shapes::Quads;
 pub use status::Status;

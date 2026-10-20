@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 use render_raster::QuorraWindowRenderer;
 use viewer_core::{RestrictionLevel, RestrictionPolicy};
+// `--coverage`'s answer is the device library's type, read by the lane decision (ADR 2052).
+pub(crate) use viewer_device::lane::CoverageChoice;
 
 use crate::trace::{Trace, parse_topics, speak_up, topic_names};
 
@@ -440,16 +442,6 @@ fn audience_usage() {
     eprintln!("                first three to give several. Without these words neither category");
     eprintln!("                is answered and every layer stands where the file's own");
     eprintln!("                configuration put it; nothing is read off this machine.");
-}
-
-/// Which coverage lane `--coverage` pinned, or the magnification policy where it
-/// did not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CoverageChoice {
-    /// The magnification policy (`crate::surface::coverage_for`'s own).
-    Auto,
-    /// One lane, held for the whole session.
-    Fixed(raster_gpu::Coverage),
 }
 
 /// The lane `--coverage` asked for. Refused rather than defaulted, for

@@ -1,0 +1,31 @@
+[package]
+name = "viewer-device"
+description = "A viewer window's frames: the graphics device on a thread of its own, the lane each frame is drawn in, the processor's composition, and the stand-ins between frames."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pdf-render.workspace = true
+# The processor's half: the oracle's rasteriser, which composes a frame the device is not
+# predicted to draw faster and every frame of a window with no device.
+render-cpu.workspace = true
+# The device's half. `raster-gpu` re-exports the `wgpu` it was built against, which is the one
+# this crate names; `raster-scene` is the placement and filter of a finished layer.
+render-raster.workspace = true
+raster-gpu.workspace = true
+raster-scene.workspace = true
+viewer-core.workspace = true
+# `WARN`, the bound past which a frame is said out loud, and page one drawn while it is read
+# (`Ahead`). Toolkit-free, so it costs no widget (ADR 0310).
+viewer-host.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# `stale`'s tests lay a column out under §7.7.2's `/PageLayout`.
+pdf-model.workspace = true
+
+[lints]
+workspace = true

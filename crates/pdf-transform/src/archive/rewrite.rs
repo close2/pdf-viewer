@@ -24,8 +24,9 @@ use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
     Amended, Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, FieldAppearances,
-    ForbiddenAnnotations, Fresh, Headers, HiddenAnnotations, Intent, Metadata, Prepared, Respelled,
-    SchemasDescribed, intent_dictionary, metadata_stream, needs_a_profile, output_intent_entries,
+    FieldsDescribed, ForbiddenAnnotations, Fresh, Headers, HiddenAnnotations, Intent, Metadata,
+    Prepared, Respelled, SchemasDescribed, intent_dictionary, metadata_stream, needs_a_profile,
+    output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -260,6 +261,18 @@ pub enum Rewrite {
     /// file, so each is one fixed sentence saying so — and the report names every schema
     /// described, because a container written by the converter is not a producer's statement.
     ExtensionSchemaDescribed,
+    /// Every structure field a packet states and its own value type leaves out is described in
+    /// that value type.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.1 requires every property to use the extension schema that
+    /// describes it, and a value type's fields are described by its `pdfaType:field` and by
+    /// nothing else (section 6.6.2.3.3's Tables 5 and 6). **The same decision as the container's,
+    /// one level down** (`doc/adr/2050`): the field's namespace, its name and the value type its
+    /// serialisation shows are the packet's own, and the description Table 6 requires is one fixed
+    /// sentence saying the converter wrote it. `pdf_model::xmp::describe_fields` inserts the
+    /// Table 6 structure into the producer's own description of the type, so every other byte of
+    /// the packet crosses unchanged; the report names every field described.
+    ExtensionFieldDescribed,
     /// Every annotation but a `Popup` that states no `/F` is given one whose only set bit is
     /// `Print`.
     ///
@@ -1172,6 +1185,12 @@ impl Rewrite {
                  type its own serialisation shows, with one fixed sentence in each field the \
                  file does not state"
             }
+            Self::ExtensionFieldDescribed => {
+                "a structure field the packet states and its own value type leaves out is \
+                 described in that value type: the field's name and the value type its own \
+                 serialisation shows, with one fixed sentence for the description the file does \
+                 not state"
+            }
             Self::AnnotationFlags => {
                 "an annotation stating no /F is given one whose only set bit is Print, which is \
                  the value the requirement asks for and the default in every other bit"
@@ -1496,6 +1515,7 @@ impl Rewrite {
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
             Self::AmendmentIdentifierRemoved => "amendment-identifier-removed",
             Self::ExtensionSchemaDescribed => "extension-schema-described",
+            Self::ExtensionFieldDescribed => "extension-field-described",
             Self::AnnotationFlags => "annotation-flags",
             Self::ForbiddenAnnotationRemoved => "forbidden-annotation-removed",
             Self::HiddenAnnotationRemoved => "hidden-annotation-removed",
@@ -1656,6 +1676,7 @@ impl<'a> Rewriter<'a> {
             fresh: prepared.fresh.as_ref().ok(),
             amended: prepared.amended.as_ref().ok(),
             described: prepared.described.as_ref().ok(),
+            fields_described: prepared.fields_described.as_ref().ok(),
             cleaned: prepared.properties.as_ref().ok(),
             respelled: prepared.respelled.as_ref().ok(),
             appearances: prepared.appearances.as_ref().ok(),
@@ -1817,6 +1838,11 @@ fn count_what_has_no_place(
         && let Ok(described) = &prepared.described
     {
         applied.insert(Rewrite::ExtensionSchemaDescribed, described.described.len());
+    }
+    if wanted.contains(&Rewrite::ExtensionFieldDescribed)
+        && let Ok(fields) = &prepared.fields_described
+    {
+        applied.insert(Rewrite::ExtensionFieldDescribed, fields.described.len());
     }
     // The entries rather than the dictionary: one `/Info` may hold eight of them, and a report
     // saying "1 done" would be counting the object instead of what moved.
@@ -2460,6 +2486,8 @@ struct Rewriter<'a> {
     amended: Option<&'a Amended>,
     /// The packet each metadata stream is to carry, where an extension schema gains a container.
     described: Option<&'a SchemasDescribed>,
+    /// The packet each metadata stream is to carry, where a value type gains its fields.
+    fields_described: Option<&'a FieldsDescribed>,
     /// The packet each metadata stream is to carry, where properties are being removed.
     cleaned: Option<&'a Cleaned>,
     /// The packet each metadata stream is to carry, where container prefixes are being respelled.
@@ -4817,7 +4845,18 @@ impl Rewriter<'_> {
         // is not the document's, and no part restricts any of these requirements to the catalog's.
         // **Asked in reverse writing order**, because each writer's bytes carry every edit before
         // it — so the last of them is the one branch that writes the whole of what was done.
-        // The container is the last, and therefore the first asked.
+        // The field descriptions are the last, and therefore the first asked (`doc/adr/2050`).
+        if self.wants(Rewrite::ExtensionFieldDescribed)
+            && let Some(packet) = self
+                .fields_described
+                .and_then(|fields| fields.packets.get(&id))
+        {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
+        // The container, which ran before the field descriptions and after the amendment cut.
         if self.wants(Rewrite::ExtensionSchemaDescribed)
             && let Some(packet) = self
                 .described
@@ -5112,6 +5151,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::FreshMetadataPacket)
             || self.wants(Rewrite::AmendmentIdentifierRemoved)
             || self.wants(Rewrite::ExtensionSchemaDescribed)
+            || self.wants(Rewrite::ExtensionFieldDescribed)
             || self.wants(Rewrite::InformationMovedIntoThePacket)
     }
 }

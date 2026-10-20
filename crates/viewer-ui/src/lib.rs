@@ -1,13 +1,12 @@
 //! Window, input, dialogs and accessibility.
 //!
 //! The shell: a `winit` window and event loop, input translated into `viewer-core`
-//! intents, file dialogs through the XDG desktop portal via `ashpd`, and an
-//! accessibility tree exposed through `AccessKit`.
+//! intents, cards this crate draws itself where a toolkit would open a dialogue — the file
+//! to open is a path typed into one — and an accessibility tree exposed through `AccessKit`.
 //!
-//! Using the portal rather than a toolkit's own dialog is what allows this crate to
-//! avoid Qt while still presenting the desktop's native file chooser — under Plasma,
-//! `xdg-desktop-portal-kde` serves the real KDE dialog. `AccessKit` covers the other
-//! reason a mature toolkit would have been needed, exposing AT-SPI on Linux so a
+//! Drawing those cards itself is what keeps this crate free of every widget toolkit, which
+//! ADR 2048 makes a rule and `tools/conformance/tests/toolkits.rs` checks. `AccessKit` covers
+//! the other reason a mature toolkit would have been needed, exposing AT-SPI on Linux so a
 //! custom-drawn interface is still reachable by a screen reader.
 //!
 //! Accessibility is treated as a requirement here rather than an enhancement,

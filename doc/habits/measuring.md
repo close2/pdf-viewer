@@ -1092,7 +1092,8 @@ write to one that exists, so a moved function fails the test by name (ADR 2003).
 diagram around the name it cannot judge: a stage whose function moved into a sibling module may still
 read as if it lived where it did. Each diagram ends with a maintenance note naming the files and ADRs
 it rests on; a round that touches one of them reads the note and redraws the diagram in the same
-round, and the test's failure is the reminder, never the whole of the work.
+round — `cargo test -p conformance --test teaching` is the command, run before the report — and the
+test's failure is the reminder, never the whole of the work.
 
 ## 109. A split that walks up from a method's body stops at the `impl` line
 
@@ -1237,4 +1238,40 @@ and graphics for pasting into other applications" and "[c]onversion to other com
 two operations, so the copy is neither the export nor the interpretation, and only the reading of
 types inside the subtree is bound (ADR 2042). Before deciding which half of a disjunction binds an
 operation, the standard's own vocabulary for that operation is found, and the decision quotes it.
+
+## 125. A header's sentence about what an accessor returns is read against the accessor's `match`
+
+`quorra.h` said `quorra_event_bytes` gives a submission's body; the accessor's `match` had no arm for
+`Submit`, and the sentence had been false since the kind was added. Round 1612 found it only because it
+was building the command that needed the body (ADR 2060). A sentence in a header or a doc comment that
+claims coverage ("gives", "returns", "for every kind") is a claim about one `match`; the round that
+builds on it opens the `match` first, and a test that calls the accessor for the kind in question is
+what keeps the sentence true.
+
+## 126. A doc comment moved out of the module that imported its link target is re-qualified in the same edit
+
+A rustdoc link written as [`Engine::Interpreter`] resolves through the `use` lines of the module it
+sits in; when a split moves the comment into a module that does not import `Engine`, the link breaks
+and the `names` sweep is what finds it, one gate later. Round 1614 met this once in `pdf-font`'s split
+(ADR 2064 §3). The split script qualifies every bare path in a moved doc comment — or carries the `use`
+with it — in the same pass, so the sweep has nothing to find.
+
+## 127. Code moved out of a binary is grepped first for the guarantees its location was giving
+
+ADR 0378's second rule — nothing that judges a picture ever sees one — was held by the stand-in policy
+living in `quorra`'s binary, which no crate can link to; ADR 2049 planned the renderer's move without
+seeing that the rule depended on the address, and the rule's test fired on five moved files (round
+1608, ADR 2053). Before planning a move out of a binary or a private module, grep the code and the
+ADRs for what its location was providing — "a private module of a binary", "cannot link", "no caller
+outside" — and decide for each whether the new home holds it by structure or by a test.
+
+## 128. A walk change on a line-heavy page is priced on the walk's thread, apart from the makers
+
+Round 1610's first build noted the kept runs line by line on the encode walk's own thread; a
+one-threaded callgrind run put the note at 154–229 M of about 3.5 G instructions, and the fit frame paid
+15–20 ms of encode for it (ADR 2056). As a duration the cost was invisible, because one-threaded counts
+fold the parallel line makers' share into the same total and a thirty-five-instruction note per line
+is a few percent of that. Price the walk's thread by itself — its instructions with the makers' excluded,
+or its wall under the lock with the makers pinned — and read a per-element cost against the element
+count before calling it small.
 

@@ -520,6 +520,12 @@ pub struct Conversion {
     /// and an archive's owner is entitled to see which schemas that happened to
     /// (`doc/adr/1245`).
     pub described_schemas: Vec<super::prepare::DescribedSchema>,
+    /// Every structure field this conversion described in its value type.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.3's Table 6 requires a description no file states for a field
+    /// its producer left out, so the description written is this converter's statement, for the
+    /// list above's reason (`doc/adr/2050`).
+    pub described_fields: Vec<super::prepare::DescribedField>,
     /// Every document information dictionary entry this conversion moved, dropped or kept.
     ///
     /// ISO 19005-4 section 6.1.3, and the same obligation the lists above carry: a reader's
@@ -848,6 +854,15 @@ impl Conversion {
                     self.described_schemas
                         .iter()
                         .map(super::prepare::DescribedSchema::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "described_extension_fields".to_owned(),
+                Value::Array(
+                    self.described_fields
+                        .iter()
+                        .map(super::prepare::DescribedField::to_json)
                         .collect(),
                 ),
             ),

@@ -59,11 +59,11 @@ use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    AcceptKind, AttachKind, BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind,
-    EventKind, FocusKind, FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind,
-    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
-    PurposeKind, RestrictKind, RestrictedKind, RowKind, SelectKind, ShortfallKind, TextKind,
-    ZoomKind,
+    AcceptKind, AlertButtonKind, AnsweredKind, AttachKind, BoxKind, ColumnTextKind, ControlKind,
+    DataFormatKind, DelegateKind, ElementKind, EventKind, FocusKind, FolderTextKind, LayoutKind,
+    MarkupKind, NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat,
+    PointerKind, PreferenceKey, PresentKind, PurposeKind, RestrictKind, RestrictedKind, RowKind,
+    ScriptAnswerKind, ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -1074,6 +1074,185 @@ pub unsafe extern "C" fn quorra_raster_free(raster: *mut Raster) {
     if !raster.is_null() {
         drop(Box::from_raw(raster));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// `QUORRA_OVERSIZE_LISTED`'s half of the round trip: the request stays the list a window is
+// drawn from (ADR 2060).
+// ---------------------------------------------------------------------------------------------
+
+/// Whether a request is for a page drawn a window at a time in a viewport this size — every
+/// toolkit window's rule, `viewer_host::oversize::oversized` (ADRs 1892, 1930, 1994).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_render_request_oversized(
+    request: *const RenderRequest,
+    viewport_width: u32,
+    viewport_height: u32,
+    oversized: *mut bool,
+) -> c_int {
+    let (Some(request), Some(oversized)) = (request.as_ref(), oversized.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *oversized = viewer_host::oversize::oversized(request, (viewport_width, viewport_height));
+    Status::Ok.code()
+}
+
+/// The window of a request's target to draw for a page whose top-left corner sits at `origin` in
+/// a viewport this size: what it shows, grown by the margin every toolkit window draws with.
+/// [`Status::NoAnswer`] where none of the page is in the viewport.
+///
+/// # Safety
+///
+/// See the module documentation. The four out-parameters are writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_render_request_window(
+    request: *const RenderRequest,
+    origin_x: f32,
+    origin_y: f32,
+    viewport_width: u32,
+    viewport_height: u32,
+    x: *mut u32,
+    y: *mut u32,
+    width: *mut u32,
+    height: *mut u32,
+) -> c_int {
+    let (Some(request), Some(x), Some(y), Some(width), Some(height)) = (
+        request.as_ref(),
+        x.as_mut(),
+        y.as_mut(),
+        width.as_mut(),
+        height.as_mut(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    let Some(window) = session::window_for(
+        request,
+        (origin_x, origin_y),
+        (viewport_width, viewport_height),
+    ) else {
+        return Status::NoAnswer.code();
+    };
+    (*x, *y, *width, *height) = (window.x, window.y, window.width, window.height);
+    Status::Ok.code()
+}
+
+/// Draws one window of a request's target with the processor rasteriser. May be called on a
+/// thread of the caller's own. The raster is an owning handle, read with [`quorra_raster_info`]
+/// and [`quorra_raster_copy`] and released with [`quorra_raster_free`]: the viewer holds no pixels
+/// for a page it was told the caller took.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_render_request_rasterise_window(
+    request: *const RenderRequest,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    raster: *mut *mut Raster,
+) -> c_int {
+    let (Some(request), Some(raster)) = (request.as_ref(), raster.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let window = viewer_host::oversize::Window {
+        x,
+        y,
+        width,
+        height,
+    };
+    match session::rasterise_window(request, window) {
+        Ok(drawn) => {
+            *raster = Box::into_raw(Box::new(drawn));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Tells the viewer the caller took this request's list and holds the page itself —
+/// `Rendered::Listed`. The request is **not** consumed: it is the list the caller draws windows
+/// from, released with [`quorra_render_request_free`].
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_render_ready_listed(
+    viewer: *mut Session,
+    request: *const RenderRequest,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(request), Some(events)) =
+        (viewer.as_mut(), request.as_ref(), events.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.render_ready_listed(request)));
+    Status::Ok.code()
+}
+
+/// A raster's size, its `QUORRA_FORMAT_*` and how many bytes [`quorra_raster_copy`] writes.
+///
+/// # Safety
+///
+/// See the module documentation. Every out-parameter is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_raster_info(
+    raster: *const Raster,
+    width: *mut u32,
+    height: *mut u32,
+    format: *mut u32,
+    bytes: *mut usize,
+) -> c_int {
+    let Some(raster) = raster.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if let Some(width) = width.as_mut() {
+        *width = raster.width;
+    }
+    if let Some(height) = height.as_mut() {
+        *height = raster.height;
+    }
+    if let Some(format) = format.as_mut() {
+        *format = PixelFormat::of(raster.format).code();
+    }
+    if let Some(bytes) = bytes.as_mut() {
+        *bytes = raster.data.len();
+    }
+    Status::Ok.code()
+}
+
+/// Copies a raster's pixels into a buffer the caller owns: one copy, as for a frame.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for `cap` bytes; `written` is writable, or
+/// null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_raster_copy(
+    raster: *const Raster,
+    into: *mut u8,
+    cap: usize,
+    written: *mut usize,
+) -> c_int {
+    let (Some(raster), false) = (raster.as_ref(), into.is_null()) else {
+        return Status::NullArgument.code();
+    };
+    let pixels = &raster.data;
+    if cap < pixels.len() {
+        return Status::BufferTooSmall.code();
+    }
+    core::slice::from_raw_parts_mut(into, pixels.len()).copy_from_slice(pixels);
+    if let Some(written) = written.as_mut() {
+        *written = pixels.len();
+    }
+    Status::Ok.code()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -4214,6 +4393,312 @@ pub unsafe extern "C" fn quorra_beside(
     Status::Ok.code()
 }
 
+// ---------------------------------------------------------------------------------------------
+// The eight commands a toolkit's own controls, its clock, its network and its scripts need — RFC
+// 0010 section 3.1's table, each in C's shape (ADRs 2060, 2061).
+// ---------------------------------------------------------------------------------------------
+
+/// §12.7.4.3: a caller's own control lost the keyboard, or Enter in a single-line text field —
+/// the moment Table 199's `/K` in its commit form and `/V` wait for.
+///
+/// A field nobody is typing into does nothing. Where the field's scripts refuse the value, the
+/// field shows what it showed before the typing began and the sentence arrives on a
+/// `QUORRA_EVENT_REPORTED`.
+///
+/// # Safety
+///
+/// See the module documentation. `field` is NUL-terminated UTF-8, §12.7.4.2's fully qualified name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_commit_field(
+    viewer: *mut Session,
+    field: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), field.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(field)) = owned_text(field) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.commit_field(field)));
+    Status::Ok.code()
+}
+
+/// §7.9.4's instant from the caller's clock, which Table 166's `/M` is written as on every
+/// annotation a save writes; `known` false withdraws it.
+///
+/// **`pdf_syntax::Date`'s fields, one argument each** (RFC 0010 section 3.1): `zoned` false is a
+/// date that states no zone, which is not the same claim as `Z`, and `offset_minutes` is minutes
+/// east of UT. A field outside the clause's range is [`Status::OutOfRange64`] and nothing is sent
+/// (ADR 2060).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_clock(
+    viewer: *mut Session,
+    known: bool,
+    year: i32,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    zoned: bool,
+    offset_minutes: i16,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let now = if known {
+        let Some(date) = session::clock_date(
+            (year, month, day),
+            (hour, minute, second),
+            zoned.then_some(offset_minutes),
+        ) else {
+            return Status::OutOfRange64.code();
+        };
+        Some(date)
+    } else {
+        None
+    };
+    *events = Box::into_raw(Box::new(viewer.clock(now)));
+    Status::Ok.code()
+}
+
+/// §12.7.8's form data a server answered with — a `QUORRA_EVENT_SUBMIT`'s answer or a fetched
+/// import's, `QUORRA_ANSWERED_*` — imported into the document that asked.
+///
+/// `source` is where the request went, which the sentences name; `format` is `QUORRA_DATA_*`. A
+/// document no longer open takes nothing. What reaches the network, and whether, is the caller's.
+///
+/// # Safety
+///
+/// See the module documentation. `source` is NUL-terminated UTF-8; `bytes` is readable for `len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_respond(
+    viewer: *mut Session,
+    document: u64,
+    answers: u32,
+    source: *const c_char,
+    format: u32,
+    bytes: *const u8,
+    len: usize,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false, false) = (
+        viewer.as_mut(),
+        events.as_mut(),
+        source.is_null(),
+        bytes.is_null(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    let (Some(answers), Some(format)) = (
+        AnsweredKind::from_code(answers),
+        DataFormatKind::from_code(format),
+    ) else {
+        return Status::WrongKind.code();
+    };
+    let Ok(Some(source)) = owned_text(source) else {
+        return Status::NotUtf8.code();
+    };
+    let body = core::slice::from_raw_parts(bytes, len).to_vec();
+    *events = Box::into_raw(Box::new(viewer.respond(
+        document,
+        answers.answered(),
+        source,
+        format.format(),
+        body,
+    )));
+    Status::Ok.code()
+}
+
+/// What this caller does with a page past `MAX_PIXELS`, or one whose window keeps few of its
+/// commands: `QUORRA_OVERSIZE_*`.
+///
+/// Under `QUORRA_OVERSIZE_LISTED` such a page is asked for at its whole target; a request
+/// [`quorra_render_request_oversized`] names is answered with [`quorra_render_ready_listed`] and
+/// drawn a window at a time with [`quorra_render_request_rasterise_window`].
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_oversize(
+    viewer: *mut Session,
+    how: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(how) = OversizeKind::from_code(how) else {
+        return Status::WrongKind.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.oversize(how.oversize())));
+    Status::Ok.code()
+}
+
+/// What the keyboard holds: a script's `event.shift` and `event.modifier`, and whether an arrow
+/// key made a choice field's selection.
+///
+/// Sent whenever it changes, before the pointer or key that raises an event; every open document
+/// holds it until it is sent again. `modifier` is the platform's command modifier, named by role
+/// (RFC 0010 section 7).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_keys(
+    viewer: *mut Session,
+    shift: bool,
+    modifier: bool,
+    arrows: bool,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let keys = pdf_model::view::Keys {
+        shift,
+        modifier,
+        arrows,
+    };
+    *events = Box::into_raw(Box::new(viewer.keys(keys)));
+    Status::Ok.code()
+}
+
+/// RFC 0008 section 6.3's level for every document's scripts: `QUORRA_SCRIPTS_*`.
+///
+/// At every level but off each document is handed a `pdf-script-worker`, started at its first
+/// trigger and never before, found beside the running executable or where `PDF_SCRIPT_WORKER`
+/// names it (ADR 2061).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_scripts(
+    viewer: *mut Session,
+    level: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(level) = ScriptsKind::from_code(level) else {
+        return Status::WrongKind.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.scripts(level.level())));
+    Status::Ok.code()
+}
+
+/// The answer to a `QUORRA_EVENT_ASKING_TO_RUN_SCRIPTS`, for the document the event named.
+///
+/// `true` runs what was withheld; `false` keeps every script withheld until the document closes.
+/// A document that is not asking does nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_answer_scripts(
+    viewer: *mut Session,
+    document: u64,
+    proceed: bool,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.answer_scripts(document, proceed)));
+    Status::Ok.code()
+}
+
+/// The answer to a `QUORRA_EVENT_SCRIPT_ASKING`: `QUORRA_SCRIPT_ANSWER_*`.
+///
+/// `button` (`QUORRA_ALERT_BUTTON_*`) is read for a press and `text` for a typed answer, where a
+/// null `text` is `app.response`'s `null`; the other is ignored. An answer for a script no longer
+/// waiting does nothing.
+///
+/// # Safety
+///
+/// See the module documentation. `text` is NUL-terminated UTF-8, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_answer_script(
+    viewer: *mut Session,
+    document: u64,
+    how: u32,
+    button: u32,
+    text: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let answer = match ScriptAnswerKind::from_code(how) {
+        Some(ScriptAnswerKind::Pressed) => match AlertButtonKind::from_code(button) {
+            Some(button) => viewer_core::ScriptAnswer::Pressed(button.button()),
+            None => return Status::WrongKind.code(),
+        },
+        Some(ScriptAnswerKind::Typed) => match owned_text(text) {
+            Ok(typed) => viewer_core::ScriptAnswer::Typed(typed),
+            Err(()) => return Status::NotUtf8.code(),
+        },
+        Some(ScriptAnswerKind::Unanswerable) => viewer_core::ScriptAnswer::Unanswerable,
+        None => return Status::WrongKind.code(),
+    };
+    *events = Box::into_raw(Box::new(viewer.answer_script(document, answer)));
+    Status::Ok.code()
+}
+
+/// Which `QUORRA_DATA_*` a server's answer is in, by its media type — §12.7.8.1's
+/// `application/vnd.fdf` and the registry's names, as every window reads them.
+///
+/// # Safety
+///
+/// See the module documentation. `media_type` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_data_format_of_media_type(
+    media_type: *const c_char,
+    format: *mut u32,
+) -> c_int {
+    let (Some(format), false) = (format.as_mut(), media_type.is_null()) else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(media_type)) = owned_text(media_type) else {
+        return Status::NotUtf8.code();
+    };
+    *format = DataFormatKind::of(session::data_format_of_media_type(&media_type)) as u32;
+    Status::Ok.code()
+}
+
+/// Which `QUORRA_DATA_*` an import's file is in, by the name its URI or file specification ends
+/// in — `pdf_model::action::data_format`, the one opinion both §12.7.6.4's route and Annex O's take.
+///
+/// # Safety
+///
+/// See the module documentation. `name` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_data_format_of_name(
+    name: *const c_char,
+    format: *mut u32,
+) -> c_int {
+    let (Some(format), false) = (format.as_mut(), name.is_null()) else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(name)) = owned_text(name) else {
+        return Status::NotUtf8.code();
+    };
+    *format = DataFormatKind::of(pdf_model::action::data_format(&name)) as u32;
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]
@@ -4684,6 +5169,152 @@ pub unsafe extern "C" fn quorra_event_transition_style(
     };
     match events.transition_style(index) {
         Ok(style) => copy_out(&style, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// A `QUORRA_EVENT_SUBMIT`'s request: `QUORRA_METHOD_*` and how many fields its body names. The
+/// body is [`quorra_event_bytes`]'; the URL and the media type are the two accessors below.
+///
+/// # Safety
+///
+/// See the module documentation. `method` and `fields` are writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_submit(
+    events: *const Events,
+    index: usize,
+    method: *mut u32,
+    fields: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.submit(index) {
+        Ok((how, count, _, _)) => {
+            if let Some(method) = method.as_mut() {
+                *method = how as u32;
+            }
+            if let Some(fields) = fields.as_mut() {
+                *fields = count;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// A `QUORRA_EVENT_SUBMIT`'s URL: Table 239's `/F`, with the form data as its query for a GET.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_submit_url(
+    events: *const Events,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.submit(index) {
+        Ok((_, _, url, _)) => copy_out(url, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// A `QUORRA_EVENT_SUBMIT`'s media type, the one to send the body under — §12.7.5.3's
+/// `multipart/form-data` with its boundary where a file-select control made it one.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_submit_media_type(
+    events: *const Events,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.submit(index) {
+        Ok((_, _, _, media_type)) => copy_out(media_type, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// A `QUORRA_EVENT_SCRIPT_ASKING`'s question, in Adobe's numbers: `QUORRA_SCRIPT_QUESTION_*`; for
+/// an alert its `QUORRA_ALERT_ICON_*`, its `QUORRA_ALERT_BUTTONS_*` and the `QUORRA_ALERT_BUTTON_*`
+/// a dialogue closed without a press answers with (ADR 1628's choice); for a response whether its
+/// entry is a password's. What does not apply is written 0.
+///
+/// # Safety
+///
+/// See the module documentation. Every out-parameter is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_script_question(
+    events: *const Events,
+    index: usize,
+    kind: *mut u32,
+    icon: *mut u32,
+    buttons: *mut u32,
+    dismissed: *mut u32,
+    password: *mut bool,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.script_question(index) {
+        Ok(question) => {
+            if let Some(kind) = kind.as_mut() {
+                *kind = question.kind as u32;
+            }
+            if let Some(icon) = icon.as_mut() {
+                *icon = question.icon.map_or(0, |icon| icon as u32);
+            }
+            if let Some(buttons) = buttons.as_mut() {
+                *buttons = question.buttons.map_or(0, |buttons| buttons as u32);
+            }
+            if let Some(dismissed) = dismissed.as_mut() {
+                *dismissed = question.dismissed.map_or(0, |button| button as u32);
+            }
+            if let Some(password) = password.as_mut() {
+                *password = question.password;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of a `QUORRA_EVENT_SCRIPT_ASKING`'s strings, `QUORRA_SCRIPT_TEXT_*`. A title or a label the
+/// script did not give is [`Status::NoAnswer`].
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_script_text(
+    events: *const Events,
+    index: usize,
+    part: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(part) = ScriptTextKind::from_code(part) else {
+        return Status::WrongKind.code();
+    };
+    match events.script_text(index, part) {
+        Ok(text) => copy_out(text, out, cap, needed),
         Err(status) => status.code(),
     }
 }

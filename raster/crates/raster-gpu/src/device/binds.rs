@@ -22,17 +22,18 @@
 
 use super::Device;
 use crate::compose::Region;
-use crate::encode::{ChildOp, MaskPlan};
+use crate::encode::{ChildOp, GLOBALS_BYTES, LineView, MaskPlan};
 use crate::mask::MaskPlacement;
 
 impl Device {
     /// The globals a pass rendering into `region` reads: the attachment's size, and the
-    /// device corner its texel (0, 0) is (ADR 0036).
-    pub(crate) fn region_globals(&self, region: Region) -> wgpu::BindGroup {
-        let bytes = globals_bytes(region);
+    /// device corner its texel (0, 0) is (ADR 0036) — then the view the line lane maps its
+    /// page-space instances by (viewer ADR 2022).
+    pub(crate) fn region_globals(&self, region: Region, view: LineView) -> wgpu::BindGroup {
+        let bytes = globals_bytes(region, view);
         let buffer = self.gpu.create_buffer(&wgpu::BufferDescriptor {
             label: Some("raster globals"),
-            size: 16,
+            size: GLOBALS_BYTES as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -217,17 +218,22 @@ impl Device {
     }
 }
 
-/// The 16 bytes `rect.wgsl`'s and `coverage.wgsl`'s `Globals` read: the attachment's
-/// size, then the device corner its texel (0, 0) is (ADR 0036).
+/// The 48 bytes `line.wgsl`'s `Globals` reads: the attachment's size, then the device corner its
+/// texel (0, 0) is (ADR 0036) — the 16 `rect.wgsl`'s and `coverage.wgsl`'s read — then the
+/// view's affine and the viewport's size (viewer ADR 2022).
 #[expect(clippy::cast_precision_loss)] // extents inside f32's exact integer range
-fn globals_bytes(region: Region) -> [u8; 16] {
-    let values = [
+fn globals_bytes(region: Region, view: LineView) -> [u8; GLOBALS_BYTES] {
+    let attachment = [
         region.width as f32,
         region.height as f32,
         region.x as f32,
         region.y as f32,
     ];
-    let mut bytes = [0_u8; 16];
+    let mut values = [0.0_f32; 12];
+    let (head, tail) = values.split_at_mut(attachment.len());
+    head.copy_from_slice(&attachment);
+    tail.copy_from_slice(&view.0);
+    let mut bytes = [0_u8; GLOBALS_BYTES];
     for (slot, value) in bytes.chunks_exact_mut(4).zip(values) {
         slot.copy_from_slice(&value.to_le_bytes());
     }
@@ -345,34 +351,48 @@ fn blit_placement_bytes(origin: [f32; 2], size: [f32; 2]) -> [u8; 16] {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChildOp, MaskPlacement, MaskPlan, Region, blit_placement_bytes, composite_params_bytes,
-        globals_bytes, reduce_params_bytes,
+        ChildOp, LineView, MaskPlacement, MaskPlan, Region, blit_placement_bytes,
+        composite_params_bytes, globals_bytes, reduce_params_bytes,
     };
     use crate::shaders;
     use crate::shaders::layout::{Lane, check};
 
-    /// The globals both instanced lanes read. Two shaders declare the struct, textually
-    /// identically, and both are checked: a copy that drifts is a lane drawn at the
-    /// wrong origin, which is the defect ADR 0028 shipped with once already.
+    /// The globals the three instanced lanes read. Two shaders declare the struct's first two
+    /// fields, textually identically, and the line lane's declares the view after them; all
+    /// three are checked: a copy that drifts is a lane drawn at the wrong origin, which is the
+    /// defect ADR 0028 shipped with once already, or a line mapped by the wrong view.
     #[test]
-    fn the_region_globals_are_the_two_lanes_globals() {
-        let bytes = globals_bytes(Region {
+    fn the_region_globals_are_the_three_lanes_globals() {
+        let region = Region {
             x: 11,
             y: 12,
             width: 13,
             height: 14,
-        });
+        };
+        let view = LineView([21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0]);
+        let bytes = globals_bytes(region, view);
+        let head = || {
+            [
+                ("target_size", Lane::Vec2([13.0, 14.0])),
+                ("origin", Lane::Vec2([11.0, 12.0])),
+            ]
+        };
         for source in [shaders::RECT, shaders::COVERAGE] {
-            check(
-                source,
-                "Globals",
-                &bytes,
-                &[
-                    ("target_size", Lane::Vec2([13.0, 14.0])),
-                    ("origin", Lane::Vec2([11.0, 12.0])),
-                ],
-            );
+            check(source, "Globals", &bytes[..16], &head());
         }
+        let [size, origin] = head();
+        check(
+            shaders::LINE,
+            "Globals",
+            &bytes,
+            &[
+                size,
+                origin,
+                ("view_linear", Lane::Vec4([21.0, 22.0, 23.0, 24.0])),
+                ("view_offset", Lane::Vec2([25.0, 26.0])),
+                ("view_size", Lane::Vec2([27.0, 28.0])),
+            ],
+        );
     }
 
     /// The composite pass's uniform (§11.4.5), whose four leading words are the one

@@ -353,8 +353,9 @@ fn strips_in(boundaries: Option<&[u32]>) -> u32 {
 ///   pair and a mark in a soft mask's group are counted with them because the planner does not
 ///   follow how they are composed.
 /// - **An extent the anti-aliased converter's range cannot hold in every strip**: outside
-///   `scan::SUPERSAMPLED_LIMIT` the aliased converter draws, and a strip moves every coordinate up
-///   by its first row, so the page's extent has to fit both before and after any such move.
+///   `scan::SUPERSAMPLED_LIMIT` a mark [`area`] declines is drawn by the aliased converter, and a
+///   strip moves every coordinate up by its first row, so the page's extent has to fit both before
+///   and after any such move.
 /// - **No extent at all**, which states nothing a range can be asked of.
 ///
 /// A fill has one of its own, and it is about the measurement rather than the road:

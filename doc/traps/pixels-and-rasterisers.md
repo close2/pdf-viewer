@@ -671,3 +671,25 @@ lines, and three stack positions in four put one of the walk's own per-line slot
 line (ADR 2036). A hunk-by-hunk bisection would have blamed whichever hunk last moved the frame. The
 machine has no `perf`; two small `perf_event_open` tools, kept beside the patches, sampled the
 instruction pointer per cycle, and sample counts do not move with the machine's load as durations do.
+
+### 213. a page wider than the raster library's range is drawn by another path
+
+ADR 1930 §4 saw a window of a page differ from the page drawn whole by up to 58 levels at 1.25¹⁰ and
+left it as rounding. Round 1611 found the page was 11 176 pixels wide: past `tiny-skia`'s 8191-pixel
+range a rectangle fell back to the supersampled converter and every mark reaching past the range was
+drawn without anti-aliasing (ADR 2058). The first classification, by bounding box, blamed four frame
+strokes whose boxes cover every pixel; the cause was one glyph's bar, found only by isolating the worst
+pixel on the full-size target. Two rules: when a dependency has a size limit, a comparison across that
+limit compares code paths and is isolated at full size; and a differing pixel belongs to the smallest
+mark that holds it.
+
+### 214. A widened remedy is tested on what the old guard kept out
+
+Round 1611's first build let every mark whose anti-aliasing the range rule withdrew reach the exact
+converter, because the marks it was built for — past `tiny-skia`'s 8191-pixel range — are measured
+correctly there. The same guard had been keeping out ADR 0269's hostile geometry, a spike to 10²⁵ device
+units, whose `f32` integral resolves nothing; a fixed document lost a third of its ink and the
+`t3-fixed_docs` gate was what found it, after the round's own tests and arms had passed (ADR 2058 §4). A
+guard's `false` is a population, not a reason: when a remedy widens what passes a guard, the first test
+input is whatever that guard was refusing before, found by reading the ADR that wrote the guard.
+

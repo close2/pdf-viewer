@@ -361,9 +361,9 @@ const MAX_FIELD_DEPTH: usize = 256;
 /// The two spellings the two parts print for the identification schema's namespace.
 ///
 /// ISO 19005-2 section 6.6.4 gives it with an `http` scheme and ISO 19005-4 section 6.7.3 with an
-/// `https` one. A conversion writes the one its target's part prints and **removes both**, because
-/// a property left behind under the other spelling would be a second claim standing beside the one
-/// just written.
+/// `https` one, which erratum #123 corrects to `http` (`pdf_archive::errata`). A conversion writes
+/// the first for every target and **removes both**, because a property left behind under the other
+/// spelling would be a second claim standing beside the one just written (`doc/adr/2051`).
 const IDENTIFICATION_URIS: [&str; 2] = [
     "http://www.aiim.org/pdfa/ns/id/",
     "https://www.aiim.org/pdfa/ns/id/",
@@ -413,11 +413,9 @@ const NO_SPARE_OBJECT: &str = "this document uses every object number a conversi
 /// ISO 19005-2 section 6.6.4 asks for a part number of 2 and a conformance level of A, B or U;
 /// ISO 19005-4 section 6.7.3 asks for a part number of 4 and a revision year, and reserves a
 /// conformance property for the two annexes — a file that is neither PDF/A-4e nor PDF/A-4f states
-/// none at all. **Part 4's own table spells that property with a `pdfa` prefix** in a schema whose
-/// required prefix the same table gives as `pdfaid`; `pdf_archive`'s metadata tranche records why
-/// it reads the property in the identification namespace whatever prefix spells it, and this
-/// writes `pdfaid` because that is the prefix the subclause makes required and the one
-/// `metadata/identification-schema-prefix` holds a file to.
+/// none at all. Part 4's printed table spells that property `pdfa:conformance` and erratum #123
+/// corrects it to `pdfaid:conformance`, the prefix the subclause makes required and the one
+/// `metadata/identification-schema-prefix` holds a file to — so `pdfaid` is what this writes.
 fn identification_properties(target: Target) -> Vec<(&'static str, String)> {
     match target {
         Target::Two(level) => vec![
@@ -444,11 +442,14 @@ fn identification_properties(target: Target) -> Vec<(&'static str, String)> {
     }
 }
 
-/// The namespace URI the target's own part prints for the identification schema.
+/// The namespace URI the target's own part states for the identification schema.
+///
+/// The same for both parts once erratum #123 is read: part 4's printed `https` is the error it
+/// corrects, and the note it adds permits a reader to accept that spelling, not a writer to
+/// produce it (`doc/adr/2051`).
 const fn identification_uri(target: Target) -> &'static str {
     match target.part() {
-        pdf_archive::Part::Two => IDENTIFICATION_URIS[0],
-        pdf_archive::Part::Four => IDENTIFICATION_URIS[1],
+        pdf_archive::Part::Two | pdf_archive::Part::Four => IDENTIFICATION_URIS[0],
     }
 }
 
@@ -694,6 +695,13 @@ pub(super) struct Prepared {
     /// container describes what the packet says once the four editors before it have said their
     /// piece (`doc/adr/1245`).
     pub(super) described: Result<SchemasDescribed, Because>,
+    /// The packets whose value types gain a description of every structure field they state, or
+    /// why not.
+    ///
+    /// Prepared **last of the six writers over a packet**, for the container's reason: ISO
+    /// 19005-2 section 6.6.2.3.1 is held against the value type the packet states once the five
+    /// editors before it have said their piece (`doc/adr/2050`).
+    pub(super) fields_described: Result<FieldsDescribed, Because>,
     /// The document's packet with a malformed amendment identifier cut out, or why not.
     ///
     /// Prepared **after** the three writers above and **before** the metadata, because it is the
@@ -1027,6 +1035,7 @@ impl Prepared {
                     respelled: respelled.as_ref().ok(),
                     amended: None,
                     described: None,
+                    fields: None,
                 },
             )
         });
@@ -1047,6 +1056,25 @@ impl Prepared {
                     respelled: respelled.as_ref().ok(),
                     amended: amended.as_ref().ok(),
                     described: None,
+                    fields: None,
+                },
+            )
+        });
+        // Section 6.6.2.3.1's undescribed structure fields are described last of the six editors,
+        // in what the five before it left: the value type a field is added to is the one the
+        // packet states once every other edit is in it (`doc/adr/2050`).
+        let fields_described = asked(wanted(Rewrite::ExtensionFieldDescribed), || {
+            prepare_field_descriptions(
+                document,
+                catalog.as_ref(),
+                Edited {
+                    fresh: fresh.as_ref().ok(),
+                    headers: headers.as_ref().ok(),
+                    cleaned: properties.as_ref().ok(),
+                    respelled: respelled.as_ref().ok(),
+                    amended: amended.as_ref().ok(),
+                    described: described.as_ref().ok(),
+                    fields: None,
                 },
             )
         });
@@ -1164,6 +1192,7 @@ impl Prepared {
             respelled: respelled.as_ref().ok(),
             amended: amended.as_ref().ok(),
             described: described.as_ref().ok(),
+            fields: fields_described.as_ref().ok(),
         };
         // ISO 19005-4 section 6.1.3's two rows, read against the packet as the five writers
         // above left it: §14.3.4 permits an addition only into a silence, so what the packet
@@ -1349,6 +1378,7 @@ impl Prepared {
             fresh,
             amended,
             described,
+            fields_described,
             properties,
             respelled,
             substitutes,
@@ -1410,6 +1440,7 @@ impl Prepared {
             Rewrite::FreshMetadataPacket => self.fresh.as_ref().err().copied(),
             Rewrite::AmendmentIdentifierRemoved => self.amended.as_ref().err().copied(),
             Rewrite::ExtensionSchemaDescribed => self.described.as_ref().err().copied(),
+            Rewrite::ExtensionFieldDescribed => self.fields_described.as_ref().err().copied(),
             Rewrite::ExtensionSchemaPrefixes => self.respelled.as_ref().err().copied(),
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
@@ -2747,7 +2778,15 @@ fn prepare_forbidden_annotations(
 ) -> Result<ForbiddenAnnotations, Because> {
     let mut at = BTreeSet::new();
     let mut removed = Vec::new();
-    for forbidden in pdf_archive::annotations_of_a_forbidden_subtype(document, target) {
+    // ISO 19005-4 section 6.3.1's 3D and RichMedia annotations outside PDF/A-4e are the same
+    // removal under the same authorisation (`doc/adr/2051` section 4): one population, so that a
+    // page losing both kinds is rewritten once.
+    let outside_their_flavour =
+        pdf_archive::annotations_outside_the_engineering_flavour(document, target);
+    for forbidden in pdf_archive::annotations_of_a_forbidden_subtype(document, target)
+        .into_iter()
+        .chain(outside_their_flavour)
+    {
         let annotation = forbidden
             .at
             .ok_or(Because::NotBuiltYet(REMOVAL_OF_A_DIRECT_ANNOTATION))?;
@@ -3195,6 +3234,165 @@ fn prepare_schema_descriptions(
         // validator will see.
         if !pdf_archive::undescribed_schemas(&written, catalog_packet.as_deref()).is_empty() {
             return Err(Because::NotBuiltYet(SCHEMA_STILL_UNDESCRIBED));
+        }
+        out.packets.insert(at, written);
+        out.described.extend(rows);
+    }
+    if out.packets.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    Ok(out)
+}
+
+/// The packets whose value types gain a description of the structure fields they state.
+#[derive(Debug, Default)]
+pub(super) struct FieldsDescribed {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// Every field described, for the report, in the order the packets state them.
+    pub(super) described: Vec<DescribedField>,
+}
+
+/// One structure field this conversion described in its value type, as the report names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DescribedField {
+    /// The value type's `pdfaType:type`, which is the packet's own.
+    pub type_name: String,
+    /// The value type's field namespace, which is the packet's own.
+    pub namespace: String,
+    /// The field's local name, which is the packet's own.
+    pub name: String,
+    /// The value type its serialisation showed.
+    pub value_type: String,
+}
+
+impl DescribedField {
+    /// One described field as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("type".to_owned(), Value::text(self.type_name.clone())),
+            ("namespace".to_owned(), Value::text(self.namespace.clone())),
+            ("name".to_owned(), Value::text(self.name.clone())),
+            (
+                "value_type".to_owned(),
+                Value::text(self.value_type.clone()),
+            ),
+        ])
+    }
+}
+
+/// The `pdfaField:description` field, which no file states for a field its producer described
+/// nowhere.
+///
+/// ISO 19005-2 section 6.6.2.3.3's Table 6 makes the field required and calls it the field's
+/// description. A producer whose description of the value type left the field out stated nothing
+/// about what it means, so what goes here is a sentence saying exactly that, for [`SCHEMA_NAME`]'s
+/// reason (`doc/adr/2050`).
+const FIELD_DESCRIPTION: &str = "a field this file states for a value of this type, described by \
+     the converter that archived it because the producer's description of the type left it out";
+
+/// Why a field named in another namespace than its value type's is not described.
+const FIELD_IN_ANOTHER_NAMESPACE: &str = "this packet states a structure field in a namespace \
+     other than the field namespace its value type's own description gives, and a value type \
+     describes fields in its one namespace alone (ISO 19005-2 section 6.6.2.3.3, Table 5), so \
+     there is no description the field could be added to; what remains is cutting a value \
+     somebody wrote, which is section 3.9's authorised loss and is not built for a field of a \
+     structure";
+
+/// Why a field holding a structure of its own is not described.
+const FIELD_TYPE_NOT_DETERMINABLE: &str = "this packet states a structure field whose own value \
+     is a structure, so the value type a pdfaField:valueType would have to name is a custom one \
+     whose fields' types the file does not state - the extension schema container's \
+     undeterminable case, one level down";
+
+/// Why the value type a field belongs in could not be given its description.
+const FIELD_NOT_WRITTEN: &str = "the value type this packet's structure field belongs to is not \
+     described exactly once in this packet in a form a field can be added to - described twice, \
+     described only in the catalog's packet, or written as a self-closing element - and \
+     describing it anywhere else would leave the packet's own description contradicting it";
+
+/// Why a packet whose fields were described is not written after all.
+const FIELD_STILL_UNDESCRIBED: &str = "a structure field this conversion described is still \
+     undescribed in the packet afterwards, so the packet is half-edited rather than corrected - \
+     and a half-edited packet is not written at all, which is the rule the property removal \
+     states";
+
+/// Describes, in its own value type, every structure field a packet states and that type leaves
+/// out.
+///
+/// **Nothing is judged here.** `pdf_archive::undescribed_fields` is the same reading the
+/// requirement's own row is, asked of one packet's bytes, so a field this describes is exactly
+/// one that row reported. The field's namespace, name and the value type its serialisation shows
+/// are the packet's own; the description Table 6 requires is nowhere in the file, so it is
+/// [`FIELD_DESCRIPTION`], and the report names every field described (`doc/adr/2050`). A field
+/// this cannot describe without deciding something — one in another namespace than its type's,
+/// one whose value is itself a structure, one whose type the packet does not describe once —
+/// refuses the document by name.
+fn prepare_field_descriptions(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    edited: Edited<'_>,
+) -> Result<FieldsDescribed, Because> {
+    let catalog_at = catalog
+        .and_then(|catalog| catalog.get("Metadata"))
+        .and_then(Object::as_reference);
+    let catalog_packet = catalog_at.and_then(|at| match document.get(at) {
+        Object::Stream(stream) => edited
+            .packet(at)
+            .or_else(|| document.decoded_stream_data(&stream).map(|it| it.to_vec())),
+        _ => None,
+    });
+    let mut out = FieldsDescribed::default();
+    for at in pdf_archive::metadata_streams(document) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = edited.packet(at).or_else(|| {
+            document
+                .decoded_stream_data(&stream)
+                .map(|bytes| bytes.to_vec())
+        }) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        // The catalog's own packet is read alone: inheriting it from itself would put its
+        // unedited description of a type ahead of the one this writes.
+        let inherited = (catalog_at != Some(at))
+            .then_some(catalog_packet.as_deref())
+            .flatten();
+        let undescribed = pdf_archive::undescribed_fields(&bytes, inherited);
+        if undescribed.is_empty() {
+            continue;
+        }
+        let mut rows = Vec::with_capacity(undescribed.len());
+        for field in &undescribed {
+            if field.namespace != field.type_namespace {
+                return Err(Because::NotBuiltYet(FIELD_IN_ANOTHER_NAMESPACE));
+            }
+            let Some(value_type) = field.value_type else {
+                return Err(Because::NotBuiltYet(FIELD_TYPE_NOT_DETERMINABLE));
+            };
+            rows.push(DescribedField {
+                type_name: field.type_name.clone(),
+                namespace: field.type_namespace.clone(),
+                name: field.local.clone(),
+                value_type: value_type.to_owned(),
+            });
+        }
+        let descriptions: Vec<xmp::FieldDescription<'_>> = rows
+            .iter()
+            .map(|row| xmp::FieldDescription {
+                type_name: &row.type_name,
+                type_namespace: &row.namespace,
+                name: &row.name,
+                value_type: &row.value_type,
+                description: FIELD_DESCRIPTION,
+            })
+            .collect();
+        let written = xmp::describe_fields(&bytes, &descriptions)
+            .map_err(|_| Because::NotBuiltYet(FIELD_NOT_WRITTEN))?;
+        // Read back rather than trusted, which is `prepare_properties`'s rule.
+        if !pdf_archive::undescribed_fields(&written, inherited).is_empty() {
+            return Err(Because::NotBuiltYet(FIELD_STILL_UNDESCRIBED));
         }
         out.packets.insert(at, written);
         out.described.extend(rows);
@@ -4127,10 +4325,12 @@ const CONTENT_DID_NOT_DECODE: &str = "part of the producer's own page content do
      \u{a7}8.4.2 requires cannot be counted over all of it, and the marks take an appended page \
      rather than a relocation whose closing stream might be unbalanced";
 
-/// The two requirements whose refusal a page of preserved marks answers.
-const SUBTYPE_REQUIREMENTS: [&str; 2] = [
+/// The three requirements whose refusal a page of preserved marks answers: one removal takes the
+/// annotations all three report (`doc/adr/2051` section 4).
+const SUBTYPE_REQUIREMENTS: [&str; 3] = [
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
+    "annotations/three-dimensional-only-in-engineering-files",
 ];
 
 /// Why an annotation with no normal appearance stream is refused rather than dropped quietly.
@@ -4441,13 +4641,19 @@ struct Edited<'a> {
     amended: Option<&'a Amended>,
     /// The packets an extension schema container has already been written into.
     described: Option<&'a SchemasDescribed>,
+    /// The packets whose value types have already gained a description of their fields.
+    fields: Option<&'a FieldsDescribed>,
 }
 
 impl Edited<'_> {
     /// What one stream's packet holds after every edit made before the caller's.
     fn packet(self, at: ObjectId) -> Option<Vec<u8>> {
-        self.described
-            .and_then(|described| described.packets.get(&at).cloned())
+        self.fields
+            .and_then(|fields| fields.packets.get(&at).cloned())
+            .or_else(|| {
+                self.described
+                    .and_then(|described| described.packets.get(&at).cloned())
+            })
             .or_else(|| {
                 self.amended
                     .and_then(|amended| amended.packets.get(&at).cloned())

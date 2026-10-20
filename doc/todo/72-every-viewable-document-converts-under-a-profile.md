@@ -102,9 +102,19 @@ written as the digest; `6-2-3-t01-fail-d` converts to 2b and 4 — and
 graphics states its `ExtGState` table names, now not halftones — and
 `graphics/no-halftone-phase-in-a-graphics-state` and
 `graphics/pdfa-output-intent-states-a-destination-profile` (1 each) — **built** as ADR 2035's
-statements, a `Custom` PDF/A entry stating no profile given its construction's. Next:
-`metadata/extension-schema-structure-fields-are-described` (1, `6-6-2-3-3-t03-fail-b`), the last
-`not-built-yet` site the veraPDF corpus reaches at 2b.
+statements, a `Custom` PDF/A entry stating no profile given its construction's — and
+`metadata/extension-schema-structure-fields-are-described` (1, `6-6-2-3-3-t03-fail-b`) — **built**
+as ADR 2050's statement, the field described in its own value type; no `not-built-yet` site the
+veraPDF corpus reaches is left at 2b or 2u. A part 4 output now writes the identification
+namespace erratum #123 states, `http` (ADR 2051), which was the intent witness's one veraPDF
+failure. `annotations/three-dimensional-only-in-engineering-files` (19 at 4) — **built** as the
+subtype rows' loss and their `preserve` (ADR 2051 section 4), `6-3-1-t01-fail-d` converting to 4
+with its poster drawn where it was under `as-shown`. **Next, by the census over the veraPDF
+corpus**: at 4, `annotations/file-attachment-only-in-embedded-file-files` (13), whose removal has to
+keep the file its `/FS` names in the name tree; at 2a,
+`logical-structure/element-and-property-list-language-identifiers` (25) and
+`…/catalog-language-identifier` (22), a `supply` of the operator's language or a `discard`, the
+first reaching marked-content property lists inside content streams.
 
 **The validation that did not end, ends** (ADR 1953): Isartor's `6-1-12-t01-fail-a.pdf` (ten
 thousand pages in one `/Kids` array) cost 269 s per target in quadratic page lookups and costs

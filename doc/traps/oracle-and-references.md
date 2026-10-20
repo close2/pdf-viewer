@@ -783,3 +783,12 @@ the Macintosh subtable as a Macintosh code, reaching `twosuperior`. Built as hyp
 remedy would have written that glyph into a PDF/A file as the document's meaning. A sentence of the
 form "what this program already draws" is a claim about pixels, and it is checked by drawing them
 (ADR 1943 is what the drawing changed).
+
+### 212. an erratum on the wrong part's row corrects nothing
+
+PDF Association erratum 123 corrects ISO 19005-4's identification namespace from `https` to `http`; it
+sat on a part 2 row (`identification-conformance-level`), where the part-4 schema is never read, and
+every part-4 output kept failing 6.7.3-1 while the erratum was "recorded". Round 1607 moved it to the
+four part-4 rows and wrote `every_erratum_names_a_row_that_binds_part_four` (ADR 2051). An erratum is
+a claim about one part's text; the row it hangs on must be one that binds a target of that part, and
+the test is what makes the attachment load-bearing.

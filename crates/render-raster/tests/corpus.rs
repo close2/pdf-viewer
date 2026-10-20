@@ -136,7 +136,7 @@ fn scale() -> f32 {
 /// the glyph atlas in front of it — and that is the lane this tree draws a *still* page with.**
 /// The other two exist for magnification and for motion: nothing in the sampled `gpu` lane
 /// depends on the scale, so a frame at 100× re-uses what a frame at 1× built, and `viewer-ui`
-/// switches to it past `GPU_COVERAGE_MAGNIFICATION`; and `surface::lane_for` takes `compute` —
+/// switches to it past `GPU_COVERAGE_MAGNIFICATION`; and `lane::lane_for` takes `compute` —
 /// the device-side port of the CPU scanline — for **any moved view on a real adapter** (ADR
 /// 0700), so a drag or zoom step is drawn by a lane this gate has to be able to name: otherwise
 /// the lane a person sees the most motion through is judged by fixtures alone — trap 12b's exact

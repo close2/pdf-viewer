@@ -798,8 +798,8 @@ impl Session {
     }
 
     /// How many milliseconds of [`Self::tick`] may pass before a script's timer is owed, or `None`
-    /// where no document holds one — every session's answer, since a session supplies no runner
-    /// (ADR 1702). Asked of every open document, so it is never refused for want of a focused one.
+    /// where no document holds one — every session's answer at the level off (ADRs 1702, 2061).
+    /// Asked of every open document, so it is never refused for want of a focused one.
     #[must_use]
     pub fn timer_due(&self) -> Option<u32> {
         match self.viewer.query(Query::TimerDue) {
@@ -1026,6 +1026,96 @@ impl Session {
     /// under which a destination in another file replaces the one it was reached from. ADR 1263.
     pub fn beside(&mut self, name: Option<u64>) -> Events {
         self.handle(Command::Beside(name.map(DocumentId)))
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The eight commands a toolkit's own controls, its clock, its network and its scripts need,
+    // which RFC 0010 section 3.1 priced for the .NET host (ADRs 2060, 2061).
+    // ---------------------------------------------------------------------------------------
+
+    /// §12.7.4.3: the caller's own control lost the keyboard, or Enter in a single-line field.
+    #[must_use]
+    pub fn commit_field(&mut self, field: String) -> Events {
+        self.handle(Command::CommitField { field })
+    }
+
+    /// §7.9.4's instant from the caller's clock, which Table 166's `/M` is written as; `None`
+    /// withdraws it.
+    #[must_use]
+    pub fn clock(&mut self, now: Option<pdf_syntax::Date>) -> Events {
+        self.handle(Command::Clock(now))
+    }
+
+    /// §12.7.8's form data a server answered a submission or a fetched import with.
+    #[must_use]
+    pub fn respond(
+        &mut self,
+        document: u64,
+        answers: viewer_core::Answered,
+        source: String,
+        format: pdf_model::action::DataFormat,
+        bytes: Vec<u8>,
+    ) -> Events {
+        self.handle(Command::Respond {
+            document: DocumentId(document),
+            answers,
+            source,
+            format,
+            bytes,
+        })
+    }
+
+    /// What this caller does with a page past [`viewer_core::MAX_PIXELS`].
+    #[must_use]
+    pub fn oversize(&mut self, how: viewer_core::Oversize) -> Events {
+        self.handle(Command::Oversize(how))
+    }
+
+    /// Says the caller took a request's list and holds the page itself, which is
+    /// [`viewer_core::Oversize::Listed`]'s answer; the request stays the caller's to draw windows
+    /// of.
+    #[must_use]
+    pub fn render_ready_listed(&mut self, request: &RenderRequest) -> Events {
+        self.handle(Command::RenderReady {
+            token: request.token,
+            rendered: Rendered::Listed,
+        })
+    }
+
+    /// What the keyboard holds, for a script's `event.shift` and `event.modifier`.
+    #[must_use]
+    pub fn keys(&mut self, keys: pdf_model::view::Keys) -> Events {
+        self.handle(Command::Keys(keys))
+    }
+
+    /// RFC 0008 section 6.3's level for every document's scripts.
+    ///
+    /// **The level becomes a runner where every window's does**, in
+    /// [`viewer_host::policy::scripting`]: at `ask`, `warn` and `on` each document is handed a
+    /// `pdf-script-worker` that starts at its first trigger and never before, found beside the
+    /// running executable or where `PDF_SCRIPT_WORKER` names it. This library is a C caller's host
+    /// and supplies the runner a window supplies (ADR 2061).
+    #[must_use]
+    pub fn scripts(&mut self, level: viewer_host::Scripts) -> Events {
+        self.handle(Command::Scripts(viewer_host::policy::scripting(level)))
+    }
+
+    /// The person's answer to [`viewer_core::Event::AskingToRunScripts`].
+    #[must_use]
+    pub fn answer_scripts(&mut self, document: u64, proceed: bool) -> Events {
+        self.handle(Command::AnswerScripts {
+            document: DocumentId(document),
+            proceed,
+        })
+    }
+
+    /// The person's answer to [`viewer_core::Event::ScriptAsking`].
+    #[must_use]
+    pub fn answer_script(&mut self, document: u64, answer: viewer_core::ScriptAnswer) -> Events {
+        self.handle(Command::AnswerScript {
+            document: DocumentId(document),
+            answer,
+        })
     }
 
     /// How many pages on the screen this viewer has anything to say about.
@@ -1472,6 +1562,96 @@ pub fn rasterise(request: &RenderRequest) -> Result<Raster, Status> {
         .map_err(|_| Status::RenderRefused)
 }
 
+/// Draws one window of a request's target with the processor rasteriser: what a caller under
+/// [`viewer_core::Oversize::Listed`] allocates in place of the page (ADR 2060).
+///
+/// The window is `viewer_host`'s, so that its corner moves to the origin by the construction every
+/// toolkit window draws through ([`viewer_host::oversize::Window::target_of`]).
+///
+/// # Errors
+///
+/// [`Status::OutOfRange`] where the window is empty or reaches past the target;
+/// [`Status::RenderRefused`] where the rasteriser declined.
+pub fn rasterise_window(
+    request: &RenderRequest,
+    window: viewer_host::oversize::Window,
+) -> Result<Raster, Status> {
+    let whole = viewer_host::oversize::Window {
+        x: 0,
+        y: 0,
+        width: request.target.width,
+        height: request.target.height,
+    };
+    if window.width == 0 || window.height == 0 || !whole.holds(window) {
+        return Err(Status::OutOfRange);
+    }
+    CpuRasterizer::new()
+        .rasterize(&request.list, window.target_of(request.target))
+        .map_err(|_| Status::RenderRefused)
+}
+
+/// The window of a request's target to draw for a page whose top-left corner sits at `origin` in
+/// a viewport `viewport` device pixels across: what it shows, grown by `viewer_host`'s margin —
+/// the two rules every toolkit window places its window by (ADRs 1892, 1930).
+#[must_use]
+pub fn window_for(
+    request: &RenderRequest,
+    origin: (f32, f32),
+    viewport: (u32, u32),
+) -> Option<viewer_host::oversize::Window> {
+    viewer_host::oversize::shown_at(request.target, origin, viewport)
+        .map(|shown| viewer_host::oversize::with_margin(shown, request.target, viewport))
+}
+
+/// §7.9.4's date from a caller's fields, or `None` where a field is outside the clause's range.
+///
+/// **The clause's own grammar decides**, rather than a second statement of its ranges here: the
+/// fields are spelt by the writer that spells Table 166's `/M`
+/// ([`pdf_model::attachment::filing::pdf_date`]) and read back by [`pdf_syntax::Date::parse`],
+/// and a date is taken only where what it reads is what was given. A month of 13, a 30 February,
+/// a five-digit year and an offset of a day or more are each not a date, as they are not in a
+/// file (ADR 2060).
+#[must_use]
+pub fn clock_date(
+    (year, month, day): (i32, u8, u8),
+    (hour, minute, second): (u8, u8, u8),
+    offset: Option<i16>,
+) -> Option<pdf_syntax::Date> {
+    let given = pdf_syntax::Date {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        offset,
+    };
+    let read = pdf_syntax::Date::parse(&pdf_model::attachment::filing::pdf_date(given))?;
+    ((read.year, read.month, read.day) == (year, month, day)
+        && (read.hour, read.minute, read.second) == (hour, minute, second)
+        && read.offset == offset)
+        .then_some(read)
+}
+
+/// The format a server's answer is in by its media type: §12.7.8.1's and the registry's names,
+/// as [`viewer_host::submit::reply`] reads them, and `Other` for every other type.
+#[must_use]
+pub fn data_format_of_media_type(media_type: &str) -> pdf_model::action::DataFormat {
+    let media = media_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if viewer_host::submit::FDF_TYPES.contains(&media.as_str()) {
+        pdf_model::action::DataFormat::Fdf
+    } else if viewer_host::submit::XFDF_TYPES.contains(&media.as_str()) {
+        pdf_model::action::DataFormat::Xfdf
+    } else {
+        pdf_model::action::DataFormat::Other
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use viewer_core::PageTarget;
@@ -1817,5 +1997,210 @@ mod tests {
             assert!(!outline.title(row).expect("in range").is_empty());
         }
         assert_eq!(outline.title(outline.len()), Err(Status::OutOfRange));
+    }
+
+    /// §7.9.4's ranges are the clause's grammar's: a date the writer spells and the reader reads
+    /// back unchanged is taken, and every other is refused (ADR 2060).
+    #[test]
+    fn a_clock_is_taken_only_as_a_date_the_clause_can_spell() {
+        let taken = super::clock_date((2026, 10, 20), (9, 30, 0), Some(120))
+            .expect("a date and a zone two hours east of UT");
+        assert_eq!((taken.year, taken.month, taken.day), (2026, 10, 20));
+        assert_eq!(taken.offset, Some(120));
+        assert!(super::clock_date((2026, 10, 20), (9, 30, 0), None).is_some());
+        assert!(super::clock_date((2026, 10, 20), (9, 30, 0), Some(0)).is_some());
+        assert!(super::clock_date((2026, 10, 20), (9, 30, 0), Some(-330)).is_some());
+        for (date, time, offset) in [
+            ((2026, 13, 1), (0, 0, 0), None),
+            ((2026, 2, 30), (0, 0, 0), None),
+            ((10_000, 1, 1), (0, 0, 0), None),
+            ((-1, 1, 1), (0, 0, 0), None),
+            ((2026, 1, 1), (24, 0, 0), None),
+            ((2026, 1, 1), (0, 60, 0), None),
+            ((2026, 1, 1), (0, 0, 0), Some(24 * 60)),
+        ] {
+            assert!(
+                super::clock_date(date, time, offset).is_none(),
+                "{date:?} {time:?} {offset:?} is not a §7.9.4 date"
+            );
+        }
+    }
+
+    /// The media types every window imports under, and nothing else.
+    #[test]
+    fn an_answers_media_type_names_its_format_as_every_window_reads_it() {
+        use pdf_model::action::DataFormat;
+        assert_eq!(
+            super::data_format_of_media_type("application/vnd.fdf"),
+            DataFormat::Fdf
+        );
+        assert_eq!(
+            super::data_format_of_media_type("Application/XFDF; charset=utf-8"),
+            DataFormat::Xfdf
+        );
+        assert_eq!(
+            super::data_format_of_media_type("text/html"),
+            DataFormat::Other
+        );
+    }
+
+    /// A one-page form with one text field, `typed`.
+    fn form() -> Vec<u8> {
+        assembled(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /DA (/Helv 0 Tf 0 g) >> \
+             /OpenAction << /S /JavaScript /JS (app.alert\\('opened'\\);) >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (typed) /V (hello) /Rect [10 10 90 30] \
+             /F 4 >>",
+        ])
+    }
+
+    /// The value the form's one field holds now.
+    fn typed(session: &Session) -> String {
+        let fields = session.fields().expect("the form is open");
+        let field = (0..fields.len())
+            .find(|field| fields.name(*field, crate::kinds::TextKind::Qualified) == Ok("typed"))
+            .expect("the field is there");
+        fields.value(field).expect("it holds a value").to_owned()
+    }
+
+    /// §12.7.8's answer from a server is imported into the document that asked, by its id, through
+    /// the same reader an import-data action uses.
+    #[test]
+    fn a_servers_form_data_is_imported_into_the_document_that_sent_the_form() {
+        let mut session = Session::new(800, 600, 1.0);
+        drop(session.open(7, form(), None, None));
+        assert_eq!(typed(&session), "hello");
+        let fdf = b"%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [<< /T (typed) /V (answered) >>] >> >>\n\
+                    endobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n";
+        drop(session.respond(
+            7,
+            viewer_core::Answered::Submission,
+            "https://example.org/form".to_owned(),
+            pdf_model::action::DataFormat::Fdf,
+            fdf.to_vec(),
+        ));
+        assert_eq!(typed(&session), "answered");
+    }
+
+    /// Under `ask` the document's open script is put to the person before anything runs, and a
+    /// `no` keeps it withheld — no worker is started for either (ADR 2061).
+    #[test]
+    fn at_the_ask_level_a_documents_scripts_wait_on_the_person() {
+        let mut session = Session::new(800, 600, 1.0);
+        drop(session.scripts(viewer_host::Scripts::Ask));
+        drop(session.open(7, form(), None, None));
+        let presented = session.presented();
+        let asking = (0..presented.len())
+            .find(|index| presented.kind(*index) == Ok(EventKind::AskingToRunScripts))
+            .expect("the open script is asked about");
+        assert_eq!(presented.document(asking), Ok(7));
+        let declined = session.answer_scripts(7, false);
+        assert!(
+            (0..declined.len()).all(|index| declined.kind(index) != Ok(EventKind::ScriptAsking)),
+            "a declined document's scripts ask nothing"
+        );
+        // And an answer to a script that is not waiting reaches nothing.
+        let unasked = session.answer_script(7, viewer_core::ScriptAnswer::Unanswerable);
+        assert!(unasked.is_empty());
+    }
+
+    /// Under `off`, the default, the same document asks nothing and says its script did not run.
+    #[test]
+    fn at_the_off_level_nothing_is_asked() {
+        let mut session = Session::new(800, 600, 1.0);
+        drop(session.open(7, form(), None, None));
+        let presented = session.presented();
+        assert!(
+            (0..presented.len())
+                .all(|index| presented.kind(index) != Ok(EventKind::AskingToRunScripts))
+        );
+    }
+
+    /// A page past `MAX_PIXELS` is asked for whole under `Listed`, a window of it is drawn to the
+    /// window's size, and the viewer is told the caller took the list (ADR 2060).
+    #[test]
+    fn a_page_past_the_bound_is_drawn_a_window_at_a_time() {
+        let mut session = Session::new(800, 1000, 1.0);
+        let opened = session.open(1, note(), None, None);
+        let first = (0..opened.len())
+            .find(|index| opened.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("page one is asked for");
+        let request = opened.render_request(first).expect("that is the kind");
+        drop(session.render_ready_raster(&request, rasterise(&request).expect("it draws")));
+        drop(session.oversize(viewer_core::Oversize::Listed));
+        let zoomed = session.zoom(viewer_core::Zoom::Scale(40.0));
+        let asked = (0..zoomed.len())
+            .find(|index| zoomed.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("the zoomed page is asked for, not refused");
+        let request = zoomed.render_request(asked).expect("that is the kind");
+        assert!(
+            u64::from(request.target.width) * u64::from(request.target.height)
+                > viewer_core::MAX_PIXELS
+        );
+        assert!(viewer_host::oversize::oversized(&request, (800, 1000)));
+        let window = super::window_for(&request, (0.0, 0.0), (800, 1000))
+            .expect("the page's corner is in the viewport");
+        let raster = super::rasterise_window(&request, window).expect("the window draws");
+        assert_eq!((raster.width, raster.height), (window.width, window.height));
+        let past = viewer_host::oversize::Window {
+            x: request.target.width,
+            ..window
+        };
+        assert_eq!(
+            super::rasterise_window(&request, past).map(|_| ()),
+            Err(Status::OutOfRange)
+        );
+        let listed = session.render_ready_listed(&request);
+        assert!(
+            (0..listed.len()).any(|index| listed.kind(index) == Ok(EventKind::Damage)),
+            "taking a list is followed by the damage the caller draws into"
+        );
+    }
+
+    /// A field typed into and committed by a caller's own control keeps what was typed.
+    #[test]
+    fn a_field_committed_by_a_callers_control_keeps_its_text() {
+        let mut session = Session::new(800, 600, 1.0);
+        drop(session.open(7, form(), None, None));
+        drop(session.keys(pdf_model::view::Keys {
+            shift: true,
+            modifier: false,
+            arrows: false,
+        }));
+        drop(session.set_field(
+            "typed".to_owned(),
+            pdf_model::view::Entered::Text("committed".to_owned()),
+        ));
+        drop(session.commit_field("typed".to_owned()));
+        assert_eq!(typed(&session), "committed");
+    }
+
+    /// The caller's clock is what a save writes as Table 166's `/M` on the widget of the field it
+    /// typed into, and a session that sent none writes none (ADRs 1160, 2060).
+    #[test]
+    fn a_save_writes_the_callers_clock_as_the_modified_date() {
+        let saved = |clock: Option<pdf_syntax::Date>| {
+            let mut session = Session::new(800, 600, 1.0);
+            drop(session.open(7, form(), None, None));
+            drop(session.clock(clock));
+            drop(session.set_field(
+                "typed".to_owned(),
+                pdf_model::view::Entered::Text("dated".to_owned()),
+            ));
+            drop(session.commit_field("typed".to_owned()));
+            let events = session.save();
+            let index = (0..events.len())
+                .find(|index| events.kind(*index) == Ok(EventKind::Saved))
+                .expect("the save answers with its bytes");
+            String::from_utf8_lossy(events.bytes(index).expect("a save's bytes")).into_owned()
+        };
+        let now = super::clock_date((2026, 10, 20), (9, 30, 0), Some(120));
+        let dated = saved(now);
+        // The writer spells every string in hexadecimal: `D:20261020093000+02'00'`.
+        let stamp = "/M <443A32303236313032303039333030302B303227303027>";
+        assert!(dated.contains(stamp), "no {stamp} in the update");
+        assert!(!saved(None).contains("/M <"));
     }
 }

@@ -68,6 +68,10 @@
 //! outline the page states and frame 2 uploads almost none, which is the difference between a
 //! launch and a zoom step.
 //!
+//! **`lines kept` on the `lanes:` line counts the line instances a step took in runs from the
+//! encode of the view before** (ADR 2056): a step whose line lane is that encode's walked only the
+//! commands outside the runs, and its `encode` is that walk's.
+//!
 //! **`bytes_uploaded` is printed because nothing else in this tree prints it.** raster counts the
 //! bytes it schedules for transfer and `FrameCost` has carried the number across the boundary
 //! since ADR 0227; no host had ever read it, so `transfer` was a duration with no denominator and
@@ -141,6 +145,9 @@ struct Sample {
     split: raster_gpu::UploadSplit,
     /// The marks each of raster's lanes drew.
     lanes: raster_gpu::LaneCounts,
+    /// The line instances the encode took in runs from the encode of the view before rather than
+    /// walking them (ADR 2056).
+    kept: u32,
 }
 
 /// Milliseconds, which is the unit every frame line in this project is in.
@@ -188,6 +195,7 @@ impl Sample {
             repacked: cost.atlas_repacked,
             split: cost.streams,
             lanes: counters.lanes,
+            kept: counters.lines_kept,
             phases: phases
                 .iter()
                 .map(|(name, spent)| ((*name).to_owned(), ms(*spent)))
@@ -432,8 +440,8 @@ fn main() {
         );
         let lanes = sample.lanes;
         println!(
-            "        lanes: line {} rectangle {} glyph {} path {} image {}",
-            lanes.line, lanes.rectangle, lanes.glyph, lanes.path, lanes.image
+            "        lanes: line {} rectangle {} glyph {} path {} image {}; lines kept {}",
+            lanes.line, lanes.rectangle, lanes.glyph, lanes.path, lanes.image, sample.kept
         );
         for (phase, spent) in &sample.phases {
             println!("        {phase:<20}{spent:>9.3}");

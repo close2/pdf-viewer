@@ -66,8 +66,47 @@ static ERRATA: &[(&str, Erratum)] = &[
                      so no PDF/A-4 target is held to it",
         },
     ),
+    // Issue 123 corrects section 6.7.3 twice, and reaches every part 4 row that reads the
+    // schema: the namespace for all four, and the conformance property's prefix for the three
+    // that judge it. Part 2's rows print `http` and `pdfaid` already, so none of them is here.
     (
-        "metadata/identification-conformance-level",
+        "metadata/identification-part-number-four",
+        Erratum {
+            issue: 123,
+            standard: "ISO 19005-4:2020",
+            change: "Table 2 states the conformance property with a `pdfa` prefix where the \
+                     subclause requires `pdfaid`, and states the namespace with an `https` \
+                     scheme where it should be `http`; both are errors the working group agreed \
+                     require fixing, with a note that an implementation may accept `https` as \
+                     well",
+        },
+    ),
+    (
+        "metadata/identification-states-no-flavour",
+        Erratum {
+            issue: 123,
+            standard: "ISO 19005-4:2020",
+            change: "Table 2 states the conformance property with a `pdfa` prefix where the \
+                     subclause requires `pdfaid`, and states the namespace with an `https` \
+                     scheme where it should be `http`; both are errors the working group agreed \
+                     require fixing, with a note that an implementation may accept `https` as \
+                     well",
+        },
+    ),
+    (
+        "metadata/identification-declares-flavour-e",
+        Erratum {
+            issue: 123,
+            standard: "ISO 19005-4:2020",
+            change: "Table 2 states the conformance property with a `pdfa` prefix where the \
+                     subclause requires `pdfaid`, and states the namespace with an `https` \
+                     scheme where it should be `http`; both are errors the working group agreed \
+                     require fixing, with a note that an implementation may accept `https` as \
+                     well",
+        },
+    ),
+    (
+        "metadata/identification-declares-flavour-f",
         Erratum {
             issue: 123,
             standard: "ISO 19005-4:2020",
@@ -118,6 +157,26 @@ pub fn withdrawn_from_part_four(requirement: &Requirement) -> bool {
 mod tests {
     use super::{ERRATA, all, amending};
     use crate::table;
+
+    /// Every erratum here corrects ISO 19005-4:2020, so a row it names that binds no part 4
+    /// target is one it cannot amend — the module's own sentence that part 2 has no errata.
+    #[test]
+    fn every_erratum_names_a_row_that_binds_part_four() {
+        use crate::{Flavour, Target};
+        for (id, erratum) in all() {
+            let row = table::requirements()
+                .find(|requirement| requirement.id == id)
+                .expect("the row above holds every name");
+            assert!(
+                [Flavour::Plain, Flavour::E, Flavour::F]
+                    .iter()
+                    .any(|flavour| row.binds(Target::Four(*flavour))),
+                "erratum #{} corrects {} and names {id}, which binds no part 4 target",
+                erratum.issue,
+                erratum.standard
+            );
+        }
+    }
 
     /// An erratum naming a row that does not exist is a table that has drifted.
     #[test]

@@ -8,8 +8,12 @@
 // half-width one around the segment — squared off at the endpoints, or carried one further
 // past them for a projecting end — and, for a round end, the half of the unit disc beyond
 // each endpoint. The host writes the endpoints, the pen, the cap and the rectangle the clip
-// admits; this shader is a pure evaluator of the set's area in each pixel's unit cell, as
-// rect.wgsl is of a rectangle's (ADR 0005's exact-area rule).
+// admits **in the page's space** — after the line's own transform, before the view — and the
+// vertex stage maps all three by the view `Globals` carries, resolving the width as ADR 0085's
+// rule does for this view and collapsing the quad of a line the view admits nothing of, so that
+// the instance stream is the page's and a zoom step draws from the stream the view before it
+// left on the device (viewer ADR 2022). The fragment stage is a pure evaluator of the set's area
+// in each pixel's unit cell, as rect.wgsl is of a rectangle's (ADR 0005's exact-area rule).
 //
 // The band's area in a box is the shoelace area of the band clipped to the box. A half disc's
 // is the unit disc inside the box cut by the endpoint's square line, summed edge by edge of
@@ -18,8 +22,10 @@
 // end of the band — so the cell's coverage is their sum, times the pen's two semi-axes.
 //
 // Determinism (ADR 0082): `sqrt`, `atan2` and `normalize` are the operations whose precision
-// WGSL leaves to the implementation, so a line's bytes are the same on one adapter frame
-// after frame and close, not identical, across adapters — the relaxed contract's case.
+// WGSL leaves to the implementation, and WGSL section 15.7.5 lets a driver reassociate and fuse
+// the view's multiply-adds, so a line's device endpoints may differ from the host's by an ulp:
+// its bytes are the same on one adapter frame after frame and close, not identical, across
+// adapters — the relaxed contract's case, which viewer ADR 2022 states for the view's mapping.
 
 struct Globals {
     // Target size in pixels, for the NDC mapping.
@@ -27,6 +33,12 @@ struct Globals {
     // The device-space corner this attachment's texel (0, 0) is (ADR 0036); rect.wgsl
     // states the mapping both stages share.
     origin: vec2<f32>,
+    // The view, page to device: a b c d of the affine, then e f, then the viewport's size,
+    // whose rectangle every line's clip meets (viewer ADR 2022). rect.wgsl and coverage.wgsl
+    // declare the first two fields alone, which is the same buffer read shorter.
+    view_linear: vec4<f32>,
+    view_offset: vec2<f32>,
+    view_size: vec2<f32>,
 }
 
 // Where the active soft mask sits and what it is elsewhere (ADR 0037).
@@ -66,16 +78,77 @@ const HALF_PI: f32 = 1.5707963267948966;
 // √2/2 of any point of it.
 const MARGIN: f32 = 0.7072;
 
+// Every field in the page's space (viewer ADR 2022).
 struct Instance {
-    // The segment's two device endpoints: from in .xy, to in .zw.
+    // The segment's two endpoints after its own transform: from in .xy, to in .zw.
     @location(0) ends: vec4<f32>,
-    // The pen's semi-axes along device x and y in .xy, and Table 53's end in .z:
-    // 0 a butt, 1 a round, 2 a projecting end.
+    // The pen's semi-axes along page x and y in .xy — or, under the fixed resolution, along
+    // device x and y — and in .z Table 53's end (0 a butt, 1 a round, 2 a projecting end) plus
+    // three times how the view resolves the width: 0 by its stretch, 1 by its stretch or one
+    // device pixel where §10.7.5's adjustment finds it below half a pixel, 2 fixed.
     @location(1) pen: vec3<f32>,
     // Premultiplied device RGB, premultiplied once at encode time.
     @location(2) color: vec4<f32>,
-    // The rectangle the clip and the target admit, min in .xy and max in .zw.
+    // The rectangle the clip's rectangular links admit, min in .xy and max in .zw.
     @location(3) admit: vec4<f32>,
+}
+
+// A line as the fragment stage measures it: the instance mapped to the device.
+struct DeviceLine {
+    // The two device endpoints: from in .xy, to in .zw.
+    ends: vec4<f32>,
+    // The pen's device semi-axes in .xy, and Table 53's end in .z.
+    pen: vec3<f32>,
+    // The rectangle the clip and the target admit on the device.
+    admit: vec4<f32>,
+}
+
+// A page point on the device, by §8.3.3's equations.
+fn on_view(p: vec2<f32>) -> vec2<f32> {
+    let m = globals.view_linear;
+    return vec2<f32>(m.x * p.x + m.z * p.y, m.y * p.x + m.w * p.y) + globals.view_offset;
+}
+
+// The instance under the view, by the steps `PagePen::on_device` states on the host (viewer
+// ADR 2022): the endpoints mapped; the semi-axes each device axis receives under a view that
+// keeps the axes — under a quarter turn the page's y stretch is the device's x — or one device
+// pixel where the adjustment finds the device width below half a pixel; and the clip's
+// rectangle mapped, its corners ordered, met with the viewport's.
+fn device_line(instance: Instance) -> DeviceLine {
+    let packed = u32(instance.pen.z + 0.5);
+    let resolution = packed / 3u;
+    let page_half = instance.pen.xy;
+    let m = abs(globals.view_linear);
+    var half = vec2<f32>(
+        page_half.x * m.x + page_half.y * m.z,
+        page_half.x * m.y + page_half.y * m.w,
+    );
+    if resolution == 2u {
+        half = page_half;
+    } else if resolution == 1u && 2.0 * max(half.x, half.y) < 0.5 {
+        half = vec2<f32>(0.5);
+    }
+    let a = on_view(instance.admit.xy);
+    let b = on_view(instance.admit.zw);
+    var line: DeviceLine;
+    line.ends = vec4<f32>(on_view(instance.ends.xy), on_view(instance.ends.zw));
+    line.pen = vec3<f32>(half, f32(packed % 3u));
+    line.admit = vec4<f32>(
+        max(min(a, b), vec2<f32>(0.0)),
+        min(max(a, b), globals.view_size),
+    );
+    return line;
+}
+
+// Whether no pixel can carry any of the line under its rectangle: the ink's box — the segment's
+// grown by √2 of the pen each way, which holds every end Table 53 states — misses the rectangle.
+// The fragment stage would find zero in every pixel; collapsing the quad is the cull the host
+// made before the instance was the page's (viewer ADR 2022).
+fn admits_nothing(line: DeviceLine) -> bool {
+    let reach = line.pen.xy * 1.4143;
+    let low = max(min(line.ends.xy, line.ends.zw) - reach, line.admit.xy);
+    let high = min(max(line.ends.xy, line.ends.zw) + reach, line.admit.zw);
+    return any(high <= low);
 }
 
 struct VsOut {
@@ -103,7 +176,18 @@ fn direction(ends: vec4<f32>, pen: vec2<f32>) -> vec2<f32> {
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: Instance) -> VsOut {
+fn vs_main(@builtin(vertex_index) vertex_index: u32, page: Instance) -> VsOut {
+    let instance = device_line(page);
+    var out: VsOut;
+    if admits_nothing(instance) {
+        // Four vertices at one point outside the clip volume: a strip of no area.
+        out.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
+        out.ends = instance.ends;
+        out.pen = instance.pen;
+        out.color = page.color;
+        out.admit = instance.admit;
+        return out;
+    }
     let corner = vec2<f32>(f32(vertex_index & 1u), f32(vertex_index >> 1u));
     // The ink lies in the band from one pen-radius before `from` to one past `to`, one
     // radius either side, in the unit-pen frame: a rectangle there, a parallelogram U × V
@@ -124,11 +208,10 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: Instance) -> VsOu
         (pos.x - globals.origin.x) / globals.target_size.x * 2.0 - 1.0,
         1.0 - (pos.y - globals.origin.y) / globals.target_size.y * 2.0,
     );
-    var out: VsOut;
     out.position = vec4<f32>(ndc, 0.0, 1.0);
     out.ends = instance.ends;
     out.pen = instance.pen;
-    out.color = instance.color;
+    out.color = page.color;
     out.admit = instance.admit;
     return out;
 }
