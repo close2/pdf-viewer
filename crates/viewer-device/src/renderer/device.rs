@@ -121,6 +121,8 @@ pub(super) fn draw(
         refused = drawn.refused;
     }
     Done {
+        coverage,
+        extent: (width, height),
         textures,
         pages,
         // An abandoned frame drew nothing, and the device's last frame is somebody else's.

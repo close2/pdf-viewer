@@ -101,16 +101,16 @@ image's texture is resident per reduction level and a step writes only the texel
 (ADR 1493); a ramp is made once. `Cpu` coverage is the still page's lane, and a zoom gesture in the
 window takes `Compute` (`viewer-ui`'s `lane_for`), so nothing above is owed to it.
 
-## 8. Investigate — GPU time estimate stays fixed while zooming
+## 8. Estimate provenance and live surface observation
 
-Owner report, 2026-10-21: after zooming into documents, the displayed estimated GPU frame time
-stays at the same value while the CPU estimate adapts to the amount visible. Requested for a
-future round; stale GPU feedback is a hypothesis, not yet a diagnosed defect.
+A fixed GPU estimate may be a seed or a retained measurement. Samples apply only to matching
+view, output extent, command population and coverage; incompatible feedback uses an explicitly
+labelled seed. Arrangement trial flags stay independent, so a new view does not introduce an
+automatic GPU probe. See [ADR 2196](../adr/2196-a-frame-price-names-the-view-that-measured-it.md)
+and the [validation record](../history/1681-frame-estimates-name-their-measured-view.md).
 
-Trace both estimates from completed frames to the displayed message: which cost is predicted,
-which samples update it, and which view/page/lane changes invalidate or rescale it. Distinguish a
-whole-page estimate from a visible-frame estimate and a retained sample from a hard-coded default.
-Exercise fit → deep zoom → pan → fit on one document, then change page/document and rendering lane;
-record both displayed estimates and the actual timed work with a quiet GPU. Add a stateful
-regression witness if the update path is stale. Do not force the number to vary if unchanged work
-legitimately predicts an unchanged cost; make the estimate's meaning clear instead.
+The remaining obligation is a quiet hardware surface observation of the owner's large-document
+fit → deep zoom → pan → fit gesture, then page/document and coverage changes. Inspect the displayed
+provenance alongside actual frame work, including held scenes. Headless read-back eligibility
+does not establish live-surface behavior or a performance improvement. Do not force extra device
+work or scale the whole graphics cost by visible share merely to make the number change.

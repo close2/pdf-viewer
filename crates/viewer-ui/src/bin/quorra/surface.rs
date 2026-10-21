@@ -39,27 +39,7 @@ mod settling;
 
 /// What the window predicted for a frame, as a person reads it (ADRs 1831, 1886).
 fn predicted(chose: &crate::renderer::Prediction) -> String {
-    let whence = |measured: bool| {
-        if measured {
-            "as this window measured it"
-        } else {
-            "before this window had measured it"
-        }
-    };
-    let scene = if chose.scene_kept {
-        "drawing the scene it holds"
-    } else {
-        "building its scene"
-    };
-    format!(
-        "{} commands predicted at {:.2} s on the processor ({}) against {:.2} s on the graphics \
-         device ({scene}, {})",
-        chose.commands,
-        chose.processor.as_secs_f64(),
-        whence(chose.processor_measured),
-        chose.device.as_secs_f64(),
-        whence(chose.device_measured),
-    )
+    chose.said()
 }
 
 /// How this window's pixels reach it: with a graphics device, or without one.

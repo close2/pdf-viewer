@@ -112,7 +112,7 @@ use raster_gpu::wgpu;
 use render_raster::{FrameCost, QuorraWindowRenderer};
 
 use lanes::Kept;
-pub use lanes::Prediction;
+pub use lanes::{EstimateBasis, Prediction};
 pub use read_back::ReadBack;
 use sharp::Sharpened;
 pub use window::{Ungrounded, Window};
@@ -204,10 +204,10 @@ struct Job {
     look: Option<Arc<pdf_render::Raster>>,
     /// What building these pages' scene on the device is predicted to cost, where the processor
     /// draws this frame and the device would draw the next one of these pages from the scene it
-    /// then holds ([`Costs::build_ahead`]): the render thread builds it once the view has been
+    /// then holds ([`Costs::build_ahead_for`]): the render thread builds it once the view has been
     /// still that long (ADR 1898).
     ///
-    /// [`Costs::build_ahead`]: lanes::Costs::build_ahead
+    /// [`Costs::build_ahead_for`]: lanes::Costs::build_ahead_for
     build_ahead: Option<Duration>,
 }
 
@@ -222,6 +222,9 @@ struct Known {
 /// One finished window frame, on its way back to the thread that will present it.
 #[derive(Debug)]
 struct Done {
+    /// The requested lane and output size, retained for compatible timing feedback.
+    coverage: raster_gpu::Coverage,
+    extent: (u32, u32),
     textures: Pair,
     pages: Vec<crate::stale::Placed>,
     cost: FrameCost,

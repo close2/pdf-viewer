@@ -236,7 +236,7 @@ impl ReadBack {
             );
             return false;
         }
-        let (prediction, processor) = self.costs.forecast_for(pages);
+        let (prediction, processor) = self.costs.forecast_for(pages, coverage, None);
         if processor {
             let chose = prediction.said();
             self.handed.traced.push(format!(
@@ -343,8 +343,13 @@ impl ReadBack {
                 let pages = std::slice::from_ref(&placed);
                 match outcome {
                     Ok(raster) => {
-                        self.costs
-                            .measure(pages, Lane::Device { scene_kept: false }, took);
+                        self.costs.measure(
+                            pages,
+                            Lane::Device { scene_kept: false },
+                            took,
+                            flight.coverage,
+                            None,
+                        );
                         self.handed
                             .traced
                             .push(phases_of(flight.request.page, &phases));
@@ -446,8 +451,13 @@ impl PageLane for ReadBack {
             return;
         };
         self.priced.remove(at);
-        self.costs
-            .measure(std::slice::from_ref(&placed), Lane::Processor, cost);
+        self.costs.measure(
+            std::slice::from_ref(&placed),
+            Lane::Processor,
+            cost,
+            raster_gpu::Coverage::Cpu,
+            None,
+        );
     }
 
     fn interval(&self) -> Option<Duration> {
@@ -468,13 +478,6 @@ impl Prediction {
     /// whether this window measured it.
     #[must_use]
     pub fn said(&self) -> String {
-        let whence = |measured: bool| {
-            if measured {
-                "as this window measured it"
-            } else {
-                "before this window had measured it"
-            }
-        };
         let scene = if self.scene_kept {
             "drawing the scene it holds"
         } else {
@@ -485,9 +488,9 @@ impl Prediction {
              graphics device ({scene}, {})",
             self.commands,
             self.processor.as_secs_f64(),
-            whence(self.processor_measured),
+            self.processor_basis.said(),
             self.device.as_secs_f64(),
-            whence(self.device_measured),
+            self.device_basis.said(),
         )
     }
 }

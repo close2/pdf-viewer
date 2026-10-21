@@ -268,10 +268,10 @@ fn a_scene_built_ahead_after_a_processor_frame_is_kept_by_the_device_s_next_fram
     asked.cheaper = Some(Prediction {
         commands,
         device: Duration::from_secs(2),
-        device_measured: false,
+        device_basis: EstimateBasis::Seed,
         scene_kept: false,
         processor: Duration::from_secs(1),
-        processor_measured: false,
+        processor_basis: EstimateBasis::Seed,
     });
     asked.build_ahead = Some(Duration::ZERO);
     link.jobs.send(asked).expect("the thread is running");

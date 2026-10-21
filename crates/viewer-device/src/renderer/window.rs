@@ -582,13 +582,24 @@ impl Window {
         if !done.abandoned {
             if let Some(took) = done.device_drew {
                 let scene_kept = done.cost.scene_kept;
-                self.costs
-                    .measure(&done.pages, Lane::Device { scene_kept }, took);
+                self.costs.measure(
+                    &done.pages,
+                    Lane::Device { scene_kept },
+                    took,
+                    done.coverage,
+                    Some(done.extent),
+                );
             }
             if let Some(took) = done.processor_drew
                 && done.refused.is_none()
             {
-                self.costs.measure(&done.pages, Lane::Processor, took);
+                self.costs.measure(
+                    &done.pages,
+                    Lane::Processor,
+                    took,
+                    done.coverage,
+                    Some(done.extent),
+                );
             }
         }
         // A frame the processor drew that priced nothing is still the processor's frame of these
@@ -656,7 +667,8 @@ impl Window {
                 of,
             });
         let (predicted, cheaper) = if known_refusal.is_none() && !pages.is_empty() {
-            let (prediction, processor) = self.costs.forecast_for(&pages);
+            let (prediction, processor) =
+                self.costs.forecast_for(&pages, coverage, Some(self.size));
             (Some(prediction), processor.then_some(prediction))
         } else {
             (None, None)
@@ -672,7 +684,8 @@ impl Window {
         // The device's scene of these pages, built while the processor's frame is on the window and
         // nobody waits, where the device would draw the next frame of them from it (ADR 1898).
         let build_ahead = if known_refusal.is_none() && (cheaper.is_some() || ahead.is_some()) {
-            self.costs.build_ahead_for(&pages)
+            self.costs
+                .build_ahead_for(&pages, coverage, Some(self.size))
         } else {
             None
         };

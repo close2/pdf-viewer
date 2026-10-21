@@ -5,6 +5,10 @@ use std::time::Duration;
 
 use render_raster::QuorraRasterError;
 
+mod sample;
+pub use sample::EstimateBasis;
+use sample::{Sample, View};
+
 /// What the window predicted a frame would cost on each lane, where it predicted the processor
 /// the cheaper (ADR 1831).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,15 +19,15 @@ pub struct Prediction {
     /// What the device was predicted to take, and whether from this window's own measurement of
     /// these pages or from a seed (`Costs::DEVICE_SEED`, `Costs::DEVICE_KEPT_SEED`).
     pub device: Duration,
-    /// Whether [`Self::device`] is this window's own measurement rather than a seed.
-    pub device_measured: bool,
+    /// Whether the device price is a compatible measurement or a seed, and why.
+    pub device_basis: EstimateBasis,
     /// Whether the device's figure is for a frame that draws the scene the device already holds of
     /// these pages (ADR 1877) rather than one that builds it (`Costs::holds`, ADR 1886).
     pub scene_kept: bool,
     /// What the processor was predicted to take, likewise.
     pub processor: Duration,
-    /// Whether [`Self::processor`] is this window's own measurement rather than a seed.
-    pub processor_measured: bool,
+    /// Whether the processor price is a compatible measurement or a seed, and why.
+    pub processor_basis: EstimateBasis,
 }
 
 /// What each lane cost per command the last time it drew a frame of these pages (ADR 1831).
@@ -35,7 +39,9 @@ pub struct Prediction {
 /// grants; on a page of large fills it is the pixels instead. So the count of commands is the one
 /// figure both lanes scale with that a frame states before it is drawn, and what each lane charges
 /// for one of *this page's* commands is read off the last frame of the page that lane drew. Until a
-/// lane has drawn the page, its price is a seed measured on this machine (the constants say where).
+/// lane has drawn a compatible view, its price is a seed measured on this machine (the constants
+/// say where). A prior sample at another zoom, pan, extent or coverage is retained but cannot
+/// price the current view (ADR 2196). A fixed seed may remain fixed throughout a gesture.
 ///
 /// **When it is asked at all.** A frame the device is predicted to draw inside
 /// `viewer_host::drawing::WARN` stays on the device whatever the processor's prediction: that is a
@@ -63,17 +69,18 @@ pub(super) struct Costs {
     holds: Option<Vec<crate::stale::Picture>>,
 }
 
-/// One arrangement's last measured price per command on each lane, in nanoseconds.
+/// One arrangement's last measured price per command on each lane, in nanoseconds, with each sample
+/// scoped to its own view; these samples never reset the arrangement's trial state.
 #[derive(Debug)]
 struct Measured {
     pictures: Vec<crate::stale::Picture>,
     /// A device frame that built its scene.
-    device_built: Option<f64>,
+    device_built: Option<Sample>,
     /// A device frame that drew the scene an earlier frame built.
-    device_kept: Option<f64>,
-    processor: Option<f64>,
+    device_kept: Option<Sample>,
+    processor: Option<Sample>,
     /// Whether the device has been asked these pages at all — it drew them, or refused them at
-    /// some magnification — which is what [`Costs::forecast`]'s one ask of an unmeasured device
+    /// some magnification — which is what [`Costs::forecast_at`]'s one ask of an unmeasured device
     /// waits for.
     device_asked: bool,
     /// Whether the processor has drawn these pages, a frame finished from the page drawn while it
@@ -128,12 +135,22 @@ impl Costs {
 
     /// What `pages` are predicted to cost on each lane, and whether that gives them to the
     /// processor.
-    pub(super) fn forecast_for(&self, pages: &[crate::stale::Placed]) -> (Prediction, bool) {
+    pub(super) fn forecast_for(
+        &self,
+        pages: &[crate::stale::Placed],
+        coverage: raster_gpu::Coverage,
+        extent: Option<(u32, u32)>,
+    ) -> (Prediction, bool) {
         let commands: usize = pages
             .iter()
             .map(|placed| placed.list.commands().len())
             .sum();
-        self.forecast(&Self::key(pages), commands)
+        self.forecast_at(
+            &Self::key(pages),
+            commands,
+            &View::of(pages, extent),
+            coverage,
+        )
     }
 
     /// [`Self::forecast_for`]'s prediction where it gives the processor the pages; `None` where the
@@ -145,25 +162,47 @@ impl Costs {
     }
 
     /// [`Self::forecast_for`] over the pictures and the count it reads.
+    #[cfg(test)]
     fn forecast(&self, pictures: &[crate::stale::Picture], commands: usize) -> (Prediction, bool) {
+        self.forecast_at(
+            pictures,
+            commands,
+            &View::default(),
+            raster_gpu::Coverage::Cpu,
+        )
+    }
+
+    fn forecast_at(
+        &self,
+        pictures: &[crate::stale::Picture],
+        commands: usize,
+        view: &View,
+        coverage: raster_gpu::Coverage,
+    ) -> (Prediction, bool) {
         let held = self.held.iter().find(|held| held.pictures == *pictures);
         let scene_kept = self.holds.as_deref() == Some(pictures);
         let (device, device_seed) = if scene_kept {
             (
-                held.and_then(|held| held.device_kept),
+                held.and_then(|held| held.device_kept.as_ref()),
                 Self::DEVICE_KEPT_SEED,
             )
         } else {
-            (held.and_then(|held| held.device_built), Self::DEVICE_SEED)
+            (
+                held.and_then(|held| held.device_built.as_ref()),
+                Self::DEVICE_SEED,
+            )
         };
-        let processor = held.and_then(|held| held.processor);
+        let processor = held.and_then(|held| held.processor.as_ref());
+        let (device, device_basis) = Sample::price(device, view, coverage, commands, device_seed);
+        let (processor, processor_basis) =
+            Sample::price(processor, view, coverage, commands, Self::PROCESSOR_SEED);
         let prediction = Prediction {
             commands,
-            device: Self::cost(device.unwrap_or(device_seed), commands),
-            device_measured: device.is_some(),
+            device: Self::cost(device, commands),
+            device_basis,
             scene_kept,
-            processor: Self::cost(processor.unwrap_or(Self::PROCESSOR_SEED), commands),
-            processor_measured: processor.is_some(),
+            processor: Self::cost(processor, commands),
+            processor_basis,
         };
         // **The device is asked these pages once before the processor keeps them.** The
         // processor's price is replaced by what it measured the moment it draws a frame, and the
@@ -188,7 +227,7 @@ impl Costs {
 
     /// What building the device's scene of `pages` is predicted to cost, where it is worth building
     /// while nobody waits — `None` where the device holds it already, or where a frame of these
-    /// pages drawn from it would still go to the processor by [`Self::forecast`]'s rule (ADR 1898).
+    /// pages drawn from it would still go to the processor by [`Self::forecast_at`]'s rule (ADR 1898).
     ///
     /// **The build is what a built frame costs over a kept one**: the scene is walked once and the
     /// encode and the draw are every view's, so the difference between the device's two prices is
@@ -196,29 +235,67 @@ impl Costs {
     /// before the build begins, the sharp pass's rent-or-buy bound (ADR 1289): the device's build
     /// cannot be taken back, so a notch arriving during it waits at most as long as the person had
     /// already been still.
-    pub(super) fn build_ahead_for(&self, pages: &[crate::stale::Placed]) -> Option<Duration> {
+    pub(super) fn build_ahead_for(
+        &self,
+        pages: &[crate::stale::Placed],
+        coverage: raster_gpu::Coverage,
+        extent: Option<(u32, u32)>,
+    ) -> Option<Duration> {
         let commands: usize = pages
             .iter()
             .map(|placed| placed.list.commands().len())
             .sum();
-        self.build_ahead(&Self::key(pages), commands)
+        self.build_ahead_at(
+            &Self::key(pages),
+            commands,
+            &View::of(pages, extent),
+            coverage,
+        )
     }
 
     /// [`Self::build_ahead_for`] over the pictures and the count it reads.
+    #[cfg(test)]
     fn build_ahead(&self, pictures: &[crate::stale::Picture], commands: usize) -> Option<Duration> {
+        self.build_ahead_at(
+            pictures,
+            commands,
+            &View::default(),
+            raster_gpu::Coverage::Cpu,
+        )
+    }
+
+    fn build_ahead_at(
+        &self,
+        pictures: &[crate::stale::Picture],
+        commands: usize,
+        view: &View,
+        coverage: raster_gpu::Coverage,
+    ) -> Option<Duration> {
         if self.holds.as_deref() == Some(pictures) {
             return None;
         }
         let held = self.held.iter().find(|held| held.pictures == *pictures);
-        let built = held
-            .and_then(|held| held.device_built)
-            .unwrap_or(Self::DEVICE_SEED);
-        let kept = held
-            .and_then(|held| held.device_kept)
-            .unwrap_or(Self::DEVICE_KEPT_SEED);
-        let processor = held
-            .and_then(|held| held.processor)
-            .unwrap_or(Self::PROCESSOR_SEED);
+        let (built, _) = Sample::price(
+            held.and_then(|held| held.device_built.as_ref()),
+            view,
+            coverage,
+            commands,
+            Self::DEVICE_SEED,
+        );
+        let (kept, _) = Sample::price(
+            held.and_then(|held| held.device_kept.as_ref()),
+            view,
+            coverage,
+            commands,
+            Self::DEVICE_KEPT_SEED,
+        );
+        let (processor, _) = Sample::price(
+            held.and_then(|held| held.processor.as_ref()),
+            view,
+            coverage,
+            commands,
+            Self::PROCESSOR_SEED,
+        );
         let kept_frame = Self::cost(kept, commands);
         let processor_keeps = kept_frame >= viewer_host::drawing::WARN
             && Self::cost(processor, commands) < kept_frame;
@@ -235,16 +312,27 @@ impl Costs {
         Duration::try_from_secs_f64(total).unwrap_or(Duration::MAX)
     }
 
-    /// Keeps what `lane` took to draw `pages`, newest first.
-    pub(super) fn measure(&mut self, pages: &[crate::stale::Placed], lane: Lane, took: Duration) {
-        let commands: usize = pages
-            .iter()
-            .map(|placed| placed.list.commands().len())
-            .sum();
-        self.measured(Self::key(pages), commands, lane, took);
+    /// Keeps a completed frame's view and price; no sample is inferred for the other lane.
+    pub(super) fn measure(
+        &mut self,
+        pages: &[crate::stale::Placed],
+        lane: Lane,
+        took: Duration,
+        coverage: raster_gpu::Coverage,
+        extent: Option<(u32, u32)>,
+    ) {
+        let commands = pages.iter().map(|page| page.list.commands().len()).sum();
+        self.record(
+            Self::key(pages),
+            View::of(pages, extent),
+            commands,
+            lane,
+            took,
+            coverage,
+        );
     }
 
-    /// [`Self::measure`] over the pictures and the count it reads.
+    #[cfg(test)]
     fn measured(
         &mut self,
         pictures: Vec<crate::stale::Picture>,
@@ -252,26 +340,48 @@ impl Costs {
         lane: Lane,
         took: Duration,
     ) {
+        self.record(
+            pictures,
+            View::default(),
+            commands,
+            lane,
+            took,
+            raster_gpu::Coverage::Cpu,
+        );
+    }
+
+    fn record(
+        &mut self,
+        pictures: Vec<crate::stale::Picture>,
+        view: View,
+        commands: usize,
+        lane: Lane,
+        took: Duration,
+        coverage: raster_gpu::Coverage,
+    ) {
         if commands == 0 {
             return;
         }
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a count of commands priced for a prediction, far inside f64's exact range"
-        )]
-        let each = took.as_secs_f64() * 1e9 / commands as f64;
+        let device = matches!(lane, Lane::Device { .. }).then_some(coverage);
+        let sample = Sample::new(view, device, commands, took);
         let mut measured = self.taken(pictures);
         match lane {
             Lane::Device { scene_kept: true } => {
-                measured.device_kept = Some(each);
+                if let Some(sample) = sample {
+                    measured.device_kept = Some(sample);
+                }
                 measured.device_asked = true;
             }
             Lane::Device { scene_kept: false } => {
-                measured.device_built = Some(each);
+                if let Some(sample) = sample {
+                    measured.device_built = Some(sample);
+                }
                 measured.device_asked = true;
             }
             Lane::Processor => {
-                measured.processor = Some(each);
+                if let Some(sample) = sample {
+                    measured.processor = Some(sample);
+                }
                 measured.processor_drew = true;
             }
         }
@@ -294,7 +404,7 @@ impl Costs {
     }
 
     /// Keeps that the device refused `pages`, which prices nothing but is the device's answer for
-    /// [`Self::forecast`]'s one ask.
+    /// [`Self::forecast_at`]'s one ask.
     pub(super) fn refused(&mut self, pages: &[crate::stale::Placed]) {
         self.refused_pictures(Self::key(pages));
     }
@@ -561,7 +671,7 @@ mod tests {
 
     /// A page of `page`'s number in document 1, placed at `magnification` and shifted right by
     /// `pan` device pixels — the two things a view change does to one page.
-    fn placed(page: usize, magnification: f32, pan: f32) -> Vec<crate::stale::Placed> {
+    pub(super) fn placed(page: usize, magnification: f32, pan: f32) -> Vec<crate::stale::Placed> {
         vec![crate::stale::Placed {
             of: crate::stale::Picture::new(viewer_core::DocumentId(1), page, 0),
             list: Arc::new(DisplayList::new(pdf_render::Size::new(595.0, 842.0))),
@@ -630,7 +740,10 @@ mod tests {
         let pictures = [crate::stale::Picture::new(viewer_core::DocumentId(1), 0, 0)];
         let (prediction, processor) = Costs::default().forecast(&pictures, 4_408_405);
         assert!(!processor, "0.82 s on the device is inside WARN");
-        assert!(!prediction.device_measured && !prediction.processor_measured);
+        assert!(
+            prediction.device_basis != EstimateBasis::Measured
+                && prediction.processor_basis != EstimateBasis::Measured
+        );
         assert!(!prediction.scene_kept);
         assert_eq!(prediction.device.as_millis(), 824);
         assert_eq!(prediction.processor.as_millis(), 529);
@@ -685,7 +798,10 @@ mod tests {
         );
         costs.measured(page(2), HEAVY, Lane::Processor, Duration::from_secs(2));
         let chose = costs.predict(&page(2), HEAVY).expect("2 s against 8 s");
-        assert!(chose.device_measured && chose.processor_measured);
+        assert!(
+            chose.device_basis == EstimateBasis::Measured
+                && chose.processor_basis == EstimateBasis::Measured
+        );
         assert_eq!(costs.held.len(), 2, "one entry an arrangement");
     }
 
@@ -720,7 +836,10 @@ mod tests {
         let chose = costs
             .predict(&pictures, HEAVY)
             .expect("measured, 0.9 s against 1.5 s");
-        assert!(chose.device_measured && chose.processor_measured);
+        assert!(
+            chose.device_basis == EstimateBasis::Measured
+                && chose.processor_basis == EstimateBasis::Measured
+        );
 
         let refusing = vec![crate::stale::Picture::new(viewer_core::DocumentId(1), 1, 0)];
         costs.measured(
@@ -733,7 +852,10 @@ mod tests {
         let chose = costs
             .predict(&refusing, HEAVY)
             .expect("a refusal is the device's answer; the seed decides again");
-        assert!(!chose.device_measured && chose.processor_measured);
+        assert!(
+            chose.device_basis != EstimateBasis::Measured
+                && chose.processor_basis == EstimateBasis::Measured
+        );
     }
 
     /// A frame the processor drew that priced nothing — one finished from the page drawn while it
@@ -775,7 +897,7 @@ mod tests {
         assert!(!chose.scene_kept);
         costs.scene_of(Some(&at_fit(0)));
         let (kept, processor) = costs.forecast(&pictures(0), commands);
-        assert!(kept.scene_kept && !kept.device_measured);
+        assert!(kept.scene_kept && kept.device_basis != EstimateBasis::Measured);
         assert!(
             !processor,
             "a held scene at the kept seed stays on the device"
@@ -787,7 +909,7 @@ mod tests {
             Duration::from_millis(180),
         );
         let (kept, processor) = costs.forecast(&pictures(0), commands);
-        assert!(kept.scene_kept && kept.device_measured && !processor);
+        assert!(kept.scene_kept && kept.device_basis == EstimateBasis::Measured && !processor);
         assert!((kept.device.as_secs_f64() - 0.18).abs() < 1e-6);
         // Another page's frame on the device replaces the scene, and the build prices again.
         costs.scene_of(Some(&at_fit(1)));
@@ -1008,3 +1130,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "lanes/view_tests.rs"]
+mod view_tests;
