@@ -37,6 +37,7 @@ mod glyph_class;
 mod glyph_names;
 mod loading;
 mod metrics;
+pub mod modified_name;
 pub mod name_keyed;
 pub mod pairs;
 pub mod panose;

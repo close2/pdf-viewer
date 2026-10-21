@@ -818,6 +818,12 @@ pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>
     checksummed(out)
 }
 
+/// Replaces a name table and repairs both table and whole-font checksums.
+pub(crate) fn with_name_table(data: &[u8], names: Vec<u8>) -> Option<Vec<u8>> {
+    let tables = sfnt_tables(data)?;
+    checksummed(rewritten_sfnt(data, &tables, &[(b"name", names)])?)
+}
+
 /// The font with every table's checksum and its own `checkSumAdjustment` recomputed.
 ///
 /// ISO/IEC 14496-22 states both: a directory record's `checkSum` is the sum of the table's

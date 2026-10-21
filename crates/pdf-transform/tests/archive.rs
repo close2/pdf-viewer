@@ -14397,3 +14397,6 @@ fn composite_fonts_sharing_a_descriptor_refuse_incompatible_programs() {
         );
     }
 }
+
+#[path = "archive/font_notices.rs"]
+mod font_notices;

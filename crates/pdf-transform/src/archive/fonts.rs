@@ -67,6 +67,7 @@
 
 mod composite;
 mod described;
+mod notices;
 
 pub use described::Described;
 
@@ -320,6 +321,8 @@ impl Substitutes {
 /// them apart without the rewriter having to write the stream twice.
 #[derive(Debug, Default)]
 pub(super) struct Metrics {
+    /// Notice streams allocated for rewritten programs.
+    pub(super) written: BTreeMap<ObjectId, Object>,
     /// The replacement stream for each font program object.
     pub(super) at: BTreeMap<ObjectId, Object>,
     /// The programs whose `/Widths`, `/W` or `/DW` disagreement was answered.
@@ -408,6 +411,7 @@ pub(super) fn restate_metrics(
     document: &Document,
     survey: &Survey,
     wants: Directions,
+    spare: &mut Spare,
 ) -> Result<Metrics, Because> {
     let mut metrics = Metrics::default();
     for used in survey.fonts() {
@@ -461,15 +465,15 @@ pub(super) fn restate_metrics(
                 pdf_font::restate::with_vertical_advances(&restated, embedded.format, &heights)
                     .map_err(|_| Because::NotBuiltYet(VERTICAL_NOT_RESTATABLE))?;
         }
+        restated = renamed_modified(&restated, embedded.format)?;
         proves(&restated, embedded.format, &widths, &heights)?;
         let Object::Stream(stream) = document.get(embedded.at) else {
             return Err(Because::NotBuiltYet(PROGRAM_NOT_DECODED));
         };
-        metrics.at.insert(
-            embedded.at,
-            program_stream(Some(&stream.dict), &restated, embedded.length1)
-                .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?,
-        );
+        let mut stream = program_stream(Some(&stream.dict), &restated, embedded.length1)
+            .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
+        notices::attach(document, &bytes, &mut stream, spare, &mut metrics.written)?;
+        metrics.at.insert(embedded.at, stream);
         if !widths.is_empty() {
             metrics.horizontal.insert(embedded.at);
         }
@@ -689,8 +693,9 @@ pub(super) fn embed_faces(
         let program = if route == MetricRoute::FaceMetrics {
             face.program().to_vec()
         } else {
-            pdf_font::restate::with_widths(face.program(), face.format(), &widths)
-                .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?
+            let modified = pdf_font::restate::with_widths(face.program(), face.format(), &widths)
+                .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?;
+            renamed_modified(&modified, face.format())?
         };
         // **The invariant the whole supply rests on, proved rather than trusted.** Section 4.9
         // ranks restating the program above restating `/Widths` because `/Widths` is what
@@ -704,12 +709,19 @@ pub(super) fn embed_faces(
         let at = spare
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
-        let stream = program_stream(
+        let mut stream = program_stream(
             subtype_dictionary(row).as_ref(),
             &program,
             row.key == "FontFile2",
         )
         .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
+        notices::attach(
+            document,
+            face.program(),
+            &mut stream,
+            spare,
+            &mut substitutes.written,
+        )?;
         substitutes.written.insert(at, stream);
         let own = embed_at_descriptor(
             document,
@@ -1157,6 +1169,16 @@ fn program_stream(from: Option<&Dictionary>, program: &[u8], length1: bool) -> O
         data: data.into(),
         decryption_failed: false,
     })))
+}
+
+/// Owner A550: a metric-modified Liberation face cannot retain its reserved identity.
+fn renamed_modified(program: &[u8], format: Format) -> Result<Vec<u8>, Because> {
+    if format != Format::Sfnt {
+        return Ok(program.to_vec());
+    }
+    pdf_font::modified_name::liberation(program).ok_or(Because::NotBuiltYet(
+        "a modified font's name table cannot be read or rewritten safely to remove Liberation's reserved font name, so the program is not written",
+    ))
 }
 
 /// A composite font's one descendant `CIDFont`, which §9.7.6.2 makes the array's only entry.

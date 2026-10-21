@@ -444,12 +444,19 @@ fn shared_program(
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
-    let stream = program_stream(
+    let mut stream = program_stream(
         subtype_dictionary(row).as_ref(),
         face.program,
         row.key == "FontFile2",
     )
     .ok_or(Because::NotBuiltYet(super::PROGRAM_NOT_ENCODED))?;
+    super::notices::attach(
+        document,
+        face.program,
+        &mut stream,
+        spare,
+        &mut substitutes.written,
+    )?;
     substitutes.written.insert(at, stream);
     substitutes.programs.insert(face.describe(), at);
     Ok(at)

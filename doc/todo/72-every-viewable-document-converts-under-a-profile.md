@@ -235,3 +235,10 @@ all effective advances and does not replace dictionary widths with a font progra
 not invented into conformance. Fonts sharing a descriptor now retain their own proved
 programs through separate descriptor copies rather than overwriting each other's metrics
 (ADR 2179).
+
+Owner answer A550 is implemented by ADRs 2194–2195: the archive font emitters attach
+`LICENSE_FOXIT` as exact default-language XMP UsageTerms on bundled Foxit program
+streams. Modified Liberation programs replace reserved active identities with
+QuorraText while preserving legal records and all glyph tables. Unmodified copies
+remain unchanged. Existing different usage terms or unreadable name storage refuse
+rather than discarding information.

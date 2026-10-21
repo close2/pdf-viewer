@@ -3,6 +3,10 @@
 Source: session 1655, ADRs 2146 and 2147, on the brief's ask to refuse where a licence does not
 admit embedding and to say so.
 
+Owner answer A550 accepts both recommendations below. ADRs 2194–2195 implement the
+font-stream notice and modified-program identity rename; validation is in session 1680.
+The following records the question at the time it was asked.
+
 ## Why it needs the owner
 
 `quorra-transform archive` embeds a face this program ships into a font the file names and does

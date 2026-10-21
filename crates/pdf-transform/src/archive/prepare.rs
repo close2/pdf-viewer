@@ -1694,6 +1694,11 @@ impl Prepared {
                 out.insert(*id, object.clone());
             }
         }
+        if let Ok(metrics) = &self.metrics {
+            for (id, object) in &metrics.written {
+                out.insert(*id, object.clone());
+            }
+        }
         if let Ok(states) = &self.owed.appearance_states {
             for (id, object) in &states.written {
                 out.insert(*id, object.clone());
@@ -4855,7 +4860,7 @@ fn prepare_fonts(
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {
-        (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics),
+        (true, Some(survey)) => fonts::restate_metrics(document, survey, wants_metrics, spare),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     let recorded = substitutes

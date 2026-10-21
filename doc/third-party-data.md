@@ -27,6 +27,11 @@ recalled:
 | Liberation Sans | `LICENSE_LIBERATION` | **SIL OFL 1.1** (reserved font name: ship and use freely, do not modify and keep the name) |
 | poppler's `cidToUnicode`, `nameToUnicode`, `unicodeMap` | `poppler-data`'s `COPYING` | **GPL-2 or GPL-3** — Glyph & Cog's, *not* Adobe's |
 
+Archive output follows owner answer A550 (ADRs 2194–2195): newly embedded or
+rewritten bundled Foxit font programs carry the complete notice in XMP UsageTerms. Modified
+Liberation programs rename their active reserved identities to QuorraText;
+unmodified programs and copyright/license records are preserved.
+
 `BSD-3-Clause` costs three obligations: reproduce the notice and disclaimer "in the documentation
 and/or other materials provided with the distribution", keep them in source, never use Adobe's or
 Google's name to endorse this. **The surface for that is `/NOTICE`** — at the repository root,

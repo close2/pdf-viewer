@@ -124,6 +124,10 @@ pub(super) fn embed(
         bytes = pdf_font::restate::with_widths(&bytes, format, &widths)
             .map_err(|_| Because::NotBuiltYet(super::FACE_NOT_RESTATABLE))?;
     }
+    if bytes.as_slice() != program.as_ref() {
+        // Removing cmap is also a Modified Version, even when no advance needed restating.
+        bytes = super::renamed_modified(&bytes, format)?;
+    }
     // The same proof the simple route takes, and for the same reason: §9.2.4 makes the
     // dictionary's numbers what positions every glyph, so a program whose advances do not read
     // back as the file's numbers would move the page's text without saying so.
@@ -132,12 +136,19 @@ pub(super) fn embed(
     let at = spare
         .take(document)
         .ok_or(Because::NotBuiltYet(super::NO_SPARE_OBJECT))?;
-    let stream = program_stream(
+    let mut stream = program_stream(
         subtype_dictionary(row).as_ref(),
         &bytes,
         row.key == "FontFile2",
     )
     .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
+    super::notices::attach(
+        document,
+        program,
+        &mut stream,
+        spare,
+        &mut substitutes.written,
+    )?;
     substitutes.written.insert(at, stream);
     let embedding = Embedding { key: row.key, at };
     if let Some(previous) = substitutes.at.get(&descriptor)
