@@ -889,6 +889,11 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    in `doc/md/`, and find its enclosing `##` heading. Rounds have cited a real sentence under the
    wrong clause, named a file that does not exist, and attributed their own lint errors to a
    sibling; the merge is where that is caught.
+   **Commit regularly at completed integration points** (owner, 2026-10-21), preferably when
+   incorporating a subagent's reviewed work. Stage the explicit completed scope; keep unfinished
+   sibling edits out of the checkpoint. Record the checks already passed and any gates still
+   pending, and keep the batch baseline commit fixed when measuring later changes. Checkpoints
+   stay on the batch branch; the final gates below still precede the fast-forward to `main`.
 4. **When all are in**: `cargo fmt --all` (now safe — nobody is editing), tier 1 in full, then
    `tools/batch.sh gates` for tiers 2 and 3, `t2-launch_path` with its clocks among them (one line
    per gate in the log with its `wall` and its `wait` on the lock, a failure's tail beside it, the
