@@ -22,10 +22,14 @@ shared-file exposure, not regression causation. Transient compile failures durin
 are distinguished from failures in frozen exports. No general framework or mass rewrite proposed.
 
 **Parallel work.** Independent owners implement in parallel; cross-cutting edits get one writer.
-Frozen exports identify what was measured. Separate topic commits/worktrees are recommended for
-future review and bisection, without changing this batch's prescribed commit procedure.
+Frozen exports identify what was measured. The owner requested regular integration commits;
+three checkpoints now preserve reviewed work, and the canonical batch procedure requires them.
 
-**Gates.** Read-only git churn census exit 0. Production tests are attributed to their implementing
-rounds, not claimed for this review. The batch conformance walk reached the record/frontier checks
-with no failure there; its sole failure was a sibling's teaching path, since corrected.
-Focused record/teaching checks exit 0 (6 passed); integration retains full workspace and corpus gates.
+**Gates.** Read-only git churn census exit 0. Final batch integration: 39/39 gates passed,
+2795 s gate wall time; merge-readiness check exit 0. Workspace nextest: 7517 passed, 53 skipped.
+Formatting, warnings-denied clippy, conformance, stable/nightly fuzz checks and all-workspace
+rustdoc passed. Six final corpus arms passed (968 pages each at 1x; 965 each at 4x), with no
+baseline error increase; all digests/errors/exclusions match the pre-deferral candidate.
+Quiet paired measurements accepted resident-line selection; readback caching was rejected and
+record-replay reuse deferred because their benefit did not justify added state. GTK/Qt's explicit
+judged rerun held all 14 figures within bands. Production evidence belongs to implementing rounds.

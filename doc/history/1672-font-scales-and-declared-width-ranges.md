@@ -18,7 +18,7 @@ pass (absent-matrix default), exit 100; the fixes pass all five. Frozen font-onl
 exit 0: 968 pages each at 1x, 965 each at 4x; 3276s hold, peak 3.85GiB. Baseline and
 candidate worker hashes agree. Full current-tree conformance exits 0 via integration's
 archive check (136s). Integrated CPU golden update passes both tests (75s hold, 1.62GiB);
-text extraction and fixed-document gates remain owed.
+Final text extraction passes four tests (43s hold); fixed documents passes one (17s hold).
 
 **Pixels.** At 1x CPU/GPU digests do not move; issue4801's mean error improves .0794 to
 .0793. Compute's issue4801 digest moves with mean error .0084 unchanged. At 4x CPU/GPU
