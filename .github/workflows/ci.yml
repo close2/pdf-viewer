@@ -306,8 +306,8 @@ jobs:
   # for is the *other* half of that decision: that the code behind the `cfg` still compiles
   # and its platform-independent tests still pass, on a runner that is actually that platform.
   #
-  # `--all-targets` is deliberately not used on Windows: `criterion` pulls `alloca`, whose
-  # build script needs a C toolchain, and a benchmark is not what is being shipped.
+  # The portable source check selects its packages explicitly, including their test targets;
+  # native executable builds and runtime tests below remain separate obligations.
   platforms:
     strategy:
       fail-fast: false
@@ -315,8 +315,10 @@ jobs:
         include:
           - os: macos-latest
             name: macOS
+            target: aarch64-apple-darwin
           - os: windows-latest
             name: Windows
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     name: build (${{ matrix.name }})
     timeout-minutes: 45  # see `check` above
@@ -326,7 +328,12 @@ jobs:
           submodules: true
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+
+      - name: Check portable packages and their test targets
+        run: bash tools/platform-check.sh ${{ matrix.target }}
 
       - name: Build both executables
         run: cargo build --bin quorra --bin pdf-sandbox-worker

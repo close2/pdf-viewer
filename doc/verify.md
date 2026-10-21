@@ -56,35 +56,23 @@ RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets -- --force-warn c
   # have, and a number nobody can act on is worse than no number. ADR 1024. Minutes; renders
   # nothing.
 cargo deny check                           # from the workspace root: fuzz/ is its own workspace
-# The two platforms without a confinement, checked the way CI checks them. **`RUSTFLAGS` is not
-# optional**: the workspace's lints are `warn` so that a local build stays usable and CI turns them
-# into errors, so a cross-target check without it is a different build from the one that gates a
-# push. Three dead constants off Linux got through exactly that gap (ADR 0194).
-RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
-RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
-RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui --all-targets
+# The same portable package and test-target selection runs here and in CI. The wrapper denies
+# warnings even when Cargo's encoded flags override RUSTFLAGS. It includes transforms, retrieval,
+# the viewer ABI and, on macOS, the descriptor-based file-system core and ABI (ADR 2204).
+# Cross-checking requires the target Rust standard library and a C compiler with the target SDK
+# headers for TLS dependencies. LLVM alone supplies no Windows/macOS SDK; use the native CI job
+# when that SDK is unavailable locally. The wrapper does not omit those dependencies.
+tools/platform-check.sh x86_64-pc-windows-msvc
+tools/platform-check.sh aarch64-apple-darwin
+  # --packages <target> prints the selected packages without compiling. The conformance audit
+  # compares them with Cargo's binary ownership and the snapshot matrix, calibrating omissions.
+  # Native CI builds/tests still establish linking and runtime properties that cross-checks cannot.
 tools/dotnet-check.sh
   # Compiles the Windows host's C# against its actual Windows App SDK references on Linux too.
   # Finds the SDK through DOTNET_ROOT, /home/AI/dotnet-check/dotnet, or PATH. Only XAML-generated
   # fields and initialization are substituted; XAML compilation and packaging remain Windows CI's.
   # The windows_csharp conformance test runs it when an SDK is present and reports its absence.
 
-RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ui --all-targets
-  # **This is the line that stands in for CI's `platforms` job**, and it is worth knowing what it
-  # reaches: `-p viewer-ui` drags `viewer-accessibility` in, whose `Bridge::new` takes a waker that
-  # only the Linux build has an adapter to give — one unused parameter off Linux failed both
-  # platform jobs while every local gate was silent (ADR 0450); the Windows line alone catches that
-  # shape, and two say which platform. `--all-targets` rather than `--bins`, because
-  # `DEFAULT_BACKEND` is a `#[cfg(windows)]` constant and the test that states it is DX12 lives in
-  # the binary's own `mod tests`. `--workspace --all-targets` does *not* cross-compile here:
-  # `criterion` pulls `alloca`, whose build script needs a C toolchain for the target, and this
-  # machine has neither MSVC nor macOS's; `-p viewer-ui` has no `criterion` in its dev tree. The CI
-  # runners do, which is why the `platforms` job builds the binaries and these lines check what a
-  # benchmark does not reach.
-RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ffi --all-targets
-RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ffi --all-targets
-  # **The C ABI cross-compiles and the two toolkit hosts do not**: a C ABI over a pure-Rust core
-  # binds no platform, and that is most of the point of having one (ADR 0247).
   # **The two native hosts are deliberately in none of these**, and asking for either says why:
   # `glib-sys`'s build script needs a cross-compiling `pkg-config` wrapper, and `viewer-qt`'s
   # `cc-rs` wants `lib.exe`. Both targets would also need the toolkit's own development files,
