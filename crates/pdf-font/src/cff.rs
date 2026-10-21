@@ -33,8 +33,11 @@ use std::collections::BTreeMap;
 
 use skrifa::GlyphId;
 use skrifa::outline::OutlinePen;
+use skrifa::raw::FontRead;
 use skrifa::raw::ps::cff::CffFontRef;
 use skrifa::raw::ps::cff::charset::CharsetKind;
+use skrifa::raw::ps::cff::dict;
+use skrifa::raw::tables::cff::Cff;
 
 use crate::name_keyed::NameKeyed;
 
@@ -167,19 +170,31 @@ impl CodeToGlyph {
 ///
 /// See [`CffError`].
 pub fn units_per_em(data: &[u8]) -> Result<f32, CffError> {
-    let font = open(data)?;
-    let upem = font.upem();
-    if upem <= 0 {
-        return Err(CffError::Malformed {
-            detail: format!("units per em is {upem}"),
-        });
+    open(data)?;
+    let cff = Cff::read(data.into()).map_err(|error| malformed(&error.into()))?;
+    let top = cff.top_dicts().get(0).map_err(|error| malformed(&error))?;
+    let mut upem = 1000.0;
+    for entry in dict::entries(top, None) {
+        if let dict::Entry::FontMatrix(matrix) = entry.map_err(|error| malformed(&error))? {
+            // Technical Note 5176, Table 9: FontMatrix maps glyph space to text space.
+            // The outline reader normalizes its Y scale and rounds the reciprocal to an
+            // integer UPEM. Read the original matrix so the caller's normalization keeps
+            // the fractional scale for both outlines and charstring advances (ADR 2180).
+            let elements = matrix.matrix.elements();
+            let factor = if elements[3].to_bits() == 0 {
+                elements[1].to_f64().abs()
+            } else {
+                elements[3].to_f64().abs()
+            };
+            if factor == 0.0 || matrix.scale <= 0 {
+                return Err(CffError::Malformed {
+                    detail: "FontMatrix has no positive normalization scale".to_owned(),
+                });
+            }
+            upem = f64::from(matrix.scale) / factor;
+        }
     }
-    // A units-per-em beyond f32's exact integer range is not a font scale.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "checked non-zero and, in any real font, far below f32's exact integer limit"
-    )]
-    Ok(upem as f32)
+    Ok(crate::metrics::narrow(upem))
 }
 
 /// Draws one glyph from a bare CFF font program.
@@ -285,6 +300,10 @@ fn malformed(error: &skrifa::raw::ps::error::Error) -> CffError {
         detail: format!("{error:?}"),
     }
 }
+
+#[cfg(test)]
+#[path = "cff_scale_tests.rs"]
+mod scale_tests;
 
 /// A CID-keyed program some of whose Font DICTs could not be read, with those replaced.
 ///

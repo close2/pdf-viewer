@@ -47,7 +47,9 @@
 //! `pdf-transform` makes for a pipe with `Refusal::Unanswered` and the one [`crate::unanswerable`]
 //! makes for a face with no dialogue at all.
 
-use crate::policy::{EmbeddedDocuments, OPENING_EMBEDDED, RUNNING_SCRIPTS, Scripts, Submissions};
+use crate::policy::{
+    EmbeddedDocuments, LaunchedDocuments, OPENING_EMBEDDED, RUNNING_SCRIPTS, Scripts, Submissions,
+};
 use pdf_model::restriction::{Level, Operation};
 use viewer_core::{
     Command, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
@@ -136,10 +138,10 @@ pub const INERT: &str = "no verb in this window yet";
 /// What a window says when a document asks for §12.2's `/HideMenubar` and this menu stays.
 ///
 /// **A documented choice, and `CLAUDE.md` principle 3 is what decides it.** Table 147's entry is
-/// "[a] flag specifying whether to hide the interactive PDF processor's menu bar when the document
+/// "\[a] flag specifying whether to hide the interactive PDF processor's menu bar when the document
 /// is active", and this program's only menu is the one holding the reader's levels — so obeying
 /// the flag over *this* menu would let a file take away the control over what that file is allowed
-/// to do. "[A] restriction a reader cannot switch off is a restriction imposed on the reader by
+/// to do. "\[A] restriction a reader cannot switch off is a restriction imposed on the reader by
 /// somebody else's file, and this program is the reader's." The flag is not ignored in silence,
 /// which is trap 5: it is answered with this sentence (ADR 1145).
 pub const NOT_THE_DOCUMENTS_TO_HIDE: &str = "this document asks to hide the menu bar (§12.2's /HideMenubar); the only menu here is this \
@@ -175,14 +177,17 @@ pub enum Act {
     OpeningEmbedded,
     /// A document's scripts — `crate::policy::RUNNING_SCRIPTS` (RFC 0008 section 6.3).
     RunningScripts,
+    /// §12.6.4.6's non-PDF document handed to this machine's handler.
+    LaunchedDocuments,
 }
 
 impl Act {
-    /// All three, in the order the menu offers them.
-    pub const ALL: [Self; 3] = [
+    /// Every act, in the order the menu offers them.
+    pub const ALL: [Self; 4] = [
         Self::Submitting,
         Self::OpeningEmbedded,
         Self::RunningScripts,
+        Self::LaunchedDocuments,
     ];
 
     /// The act's name, which heads its levels and begins the sentence about each.
@@ -192,6 +197,7 @@ impl Act {
             Self::Submitting => SUBMITTING,
             Self::OpeningEmbedded => OPENING_EMBEDDED,
             Self::RunningScripts => RUNNING_SCRIPTS,
+            Self::LaunchedDocuments => "opening a launched document in another program",
         }
     }
 
@@ -203,6 +209,9 @@ impl Act {
                 "ISO 32000-2 §12.7.6.2's submit-form action, and Table Annex O.4's fdf from a server"
             }
             Self::OpeningEmbedded => "ISO 32000-2 §O.2.1's ef parameter",
+            Self::LaunchedDocuments => {
+                "ISO 32000-2 §12.6.4.6's launch action; programs are always refused"
+            }
             Self::RunningScripts => {
                 "ISO 32000-2 §12.6.4.17's ECMAScript, run confined (RFC 0008 section 6.3)"
             }
@@ -212,8 +221,8 @@ impl Act {
 
 /// A level of one act under [`MACHINE`].
 ///
-/// Two enumerations rather than one, because the words differ where the acts do — a form is
-/// *sent*, a file is *opened* — and a level of one is never a level of the other.
+/// Separate policy enumerations preserve each act's words — a form is *sent*, a file is
+/// *opened*, a script is turned *on* — and a level of one is never a level of another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActLevel {
     /// A level of [`Act::Submitting`].
@@ -222,6 +231,8 @@ pub enum ActLevel {
     EmbeddedDocuments(EmbeddedDocuments),
     /// A level of [`Act::RunningScripts`].
     Scripts(Scripts),
+    /// A level of [`Act::LaunchedDocuments`].
+    LaunchedDocuments(LaunchedDocuments),
 }
 
 impl ActLevel {
@@ -232,6 +243,7 @@ impl ActLevel {
             Self::Submissions(_) => Act::Submitting,
             Self::EmbeddedDocuments(_) => Act::OpeningEmbedded,
             Self::Scripts(_) => Act::RunningScripts,
+            Self::LaunchedDocuments(_) => Act::LaunchedDocuments,
         }
     }
 
@@ -242,6 +254,7 @@ impl ActLevel {
             Self::Submissions(level) => level.as_str(),
             Self::EmbeddedDocuments(level) => level.as_str(),
             Self::Scripts(level) => level.as_str(),
+            Self::LaunchedDocuments(level) => level.as_str(),
         }
     }
 }
@@ -426,14 +439,16 @@ pub fn declined(operation: Operation) -> String {
 /// What the viewer must be told when a person picks a level of an act under [`MACHINE`], or
 /// `None` where the level is the host's alone.
 ///
-/// Two of the three acts are the host's own — a form sent, an embedded file opened — and their
-/// levels are read where the host does the act (ADRs 1291, 1331). The third is not: a script runs
-/// inside the view state the viewer holds, so the level reaches it as a runner, and a window sends
-/// what this answers right after [`Restrictions::set`] (ADR 1616).
+/// Sending a form, opening an embedded file and handing a launched document to a handler are
+/// the host's own acts: their levels are read where the host does them (ADRs 1291, 1331, 2185).
+/// A script runs inside the view state the viewer holds, so its level reaches it as a runner,
+/// and a window sends what this answers right after [`Restrictions::set`] (ADR 1616).
 #[must_use]
 pub fn told(level: ActLevel) -> Option<Command> {
     match level {
-        ActLevel::Submissions(_) | ActLevel::EmbeddedDocuments(_) => None,
+        ActLevel::Submissions(_)
+        | ActLevel::EmbeddedDocuments(_)
+        | ActLevel::LaunchedDocuments(_) => None,
         ActLevel::Scripts(level) => Some(Command::Scripts(crate::policy::scripting(level))),
     }
 }
@@ -489,6 +504,8 @@ pub struct Restrictions {
     /// Whether a document's scripts run — global, and `off` until a person picks another (ADR
     /// 1616).
     scripts: Scripts,
+    /// What a launch action may hand to another program.
+    launched: LaunchedDocuments,
 }
 
 impl Restrictions {
@@ -508,6 +525,7 @@ impl Restrictions {
             submissions: Submissions::Ask,
             embedded: EmbeddedDocuments::Ask,
             scripts: Scripts::Off,
+            launched: LaunchedDocuments::Ask,
         }
     }
 
@@ -530,6 +548,12 @@ impl Restrictions {
         self.scripts
     }
 
+    /// The level a launch action is asked at, shared with the menu that changes it.
+    #[must_use]
+    pub const fn launched_documents(self) -> LaunchedDocuments {
+        self.launched
+    }
+
     /// Sets one act's level, which is what a [`Row::ActLevel`] comes to. What the viewer is told
     /// of it, where it is told anything, is [`told`]'s.
     pub const fn set(&mut self, level: ActLevel) {
@@ -537,6 +561,7 @@ impl Restrictions {
             ActLevel::Submissions(level) => self.submissions = level,
             ActLevel::EmbeddedDocuments(level) => self.embedded = level,
             ActLevel::Scripts(level) => self.scripts = level,
+            ActLevel::LaunchedDocuments(level) => self.launched = level,
         }
     }
 
@@ -547,11 +572,13 @@ impl Restrictions {
             Act::Submitting => Submissions::ALL.map(ActLevel::Submissions),
             Act::OpeningEmbedded => EmbeddedDocuments::ALL.map(ActLevel::EmbeddedDocuments),
             Act::RunningScripts => Scripts::ALL.map(ActLevel::Scripts),
+            Act::LaunchedDocuments => LaunchedDocuments::ALL.map(ActLevel::LaunchedDocuments),
         };
         let stands = match act {
             Act::Submitting => ActLevel::Submissions(self.submissions),
             Act::OpeningEmbedded => ActLevel::EmbeddedDocuments(self.embedded),
             Act::RunningScripts => ActLevel::Scripts(self.scripts),
+            Act::LaunchedDocuments => ActLevel::LaunchedDocuments(self.launched),
         };
         levels
             .into_iter()
@@ -561,6 +588,17 @@ impl Restrictions {
                 level,
             })
             .collect()
+    }
+
+    /// One machine act's heading and levels, for a host that offers only that act.
+    #[must_use]
+    pub fn act_rows(self, act: Act) -> Vec<Row> {
+        let mut rows = vec![Row::Act {
+            label: act.label(),
+            note: act.note(),
+        }];
+        rows.extend(self.act_entries(act).into_iter().map(Row::ActLevel));
+        rows
     }
 
     /// The window's levels, which is what a host sends before it opens a document.
@@ -798,6 +836,30 @@ mod tests {
     /// A bar built from [`Scope::ALL`] has two headings for three groups, and a window nesting the
     /// rows under it shows no menu for the third — the submission's levels. This holds the headings
     /// to the rows they head (ADR 1303).
+    #[test]
+    fn launch_menu_and_dispatch_reader_share_every_level() {
+        use super::{Act, ActLevel, LaunchedDocuments};
+
+        let mut restrictions = Restrictions::new(RestrictionPolicy::default());
+        assert_eq!(
+            restrictions.launched_documents(),
+            LaunchedDocuments::default()
+        );
+        for level in LaunchedDocuments::ALL {
+            restrictions.set(ActLevel::LaunchedDocuments(level));
+            assert_eq!(restrictions.launched_documents(), level);
+            let entries = restrictions.act_entries(Act::LaunchedDocuments);
+            assert_eq!(entries.len(), 4);
+            assert_eq!(entries.iter().filter(|entry| entry.chosen).count(), 1);
+            assert!(
+                entries
+                    .iter()
+                    .any(|entry| entry.chosen && entry.level == ActLevel::LaunchedDocuments(level))
+            );
+            assert_eq!(restrictions.act_rows(Act::LaunchedDocuments).len(), 5);
+        }
+    }
+
     #[test]
     fn every_group_the_rows_open_has_a_heading() {
         let restrictions = Restrictions::new(RestrictionPolicy::default());

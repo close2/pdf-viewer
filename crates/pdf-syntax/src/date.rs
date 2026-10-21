@@ -1,8 +1,8 @@
 //! ISO 32000-2 §7.9.4's date string type.
 //!
-//! A date is not a PDF object type of its own — §7.9.4's NOTE 1 says so: "[a] date string can be
+//! A date is not a PDF object type of its own — §7.9.4's NOTE 1 says so: "\[a] date string can be
 //! any valid PDF string object … The description above relates to the text string value after
-//! appropriate processing." So a date is a *text string* (§7.9.2.2, [`crate::text_string`]) whose
+//! appropriate processing." So a date is a *text string* (§7.9.2.2, [`crate::text_string()`]) whose
 //! characters happen to spell one, which is why this module sits beside that one rather than
 //! anywhere near a clock.
 //!
@@ -33,7 +33,7 @@
 //! > relationship of the specified time to UT shall be considered to be GMT. Regardless of
 //! > whether the time zone is specified, the rest of the date shall be specified in local time.
 //!
-//! An absent offset is therefore **not** unknown: the clause says to treat it as GMT. [`Self::
+//! An absent offset is therefore **not** unknown: the clause says to treat it as GMT. [`Date::
 //! offset`] still records that the file said nothing, because a viewer showing a date should be
 //! able to say "as written" rather than inventing a zone the producer did not claim — but
 //! [`Date::instant`], which is what an ordering is built on, takes the clause's answer.
@@ -48,13 +48,13 @@
 //! reads the annotations back; ADR 0252 is the argument, and `doc/todo/48` carries the other
 //! passages it finds (ADR 0253).
 //!
-//! Issue #251, on page 133, `/State` `Completed` — Table 174's "[t]he change has been completed":
+//! Issue #251, on page 133, `/State` `Completed` — Table 174's "\[t]he change has been completed":
 //!
 //! - "If no UT information is specified, the relationship of the specified time to UT shall be
 //!   considered to be GMT" is struck, and the caret beside it reads "the missing timezone offset
 //!   shall be assumed to be the same as Greenwich Mean Time's timezone offset (+0'00)". **Nothing
 //!   here changes**: both sentences make an absent offset zero, which is what [`Date::instant`]
-//!   does, and the replacement says it in the units [`Self::offset`] is stored in.
+//!   does, and the replacement says it in the units [`Date::offset`] is stored in.
 //! - "Regardless of whether the time zone is specified, the rest of the date shall be specified in
 //!   local time." is struck **with no replacement**. That sentence is quoted below on [`Date`]
 //!   itself, so what it was carrying has to be re-derived rather than assumed: the grammar does
@@ -198,7 +198,7 @@ impl Date {
 
     /// Minutes since 1970-01-01T00:00 UT, which is what two dates are compared by.
     ///
-    /// The clause's own answer for a date that states no zone: "[i]f no UT information is
+    /// The clause's own answer for a date that states no zone: "\[i]f no UT information is
     /// specified, the relationship of the specified time to UT shall be considered to be GMT."
     /// Errata Collection 3 replaces that sentence with one saying the same thing in `/Offset`'s
     /// own units, and this module's header carries both — the quotation stays because it is what

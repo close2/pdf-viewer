@@ -105,6 +105,7 @@ mod instance;
 mod kept_lines;
 mod layer;
 mod line;
+mod line_blocks;
 mod lines_ahead;
 mod meet;
 mod opacity;
@@ -211,6 +212,10 @@ struct Encoder<'a> {
     before: kept_lines::Before<'a>,
     /// Line instances taken in `previous`'s runs (`Counters::lines_kept`).
     lines_kept: u32,
+    /// Resident instances excluded from draw ranges by conservative block bounds.
+    line_instances_omitted: u32,
+    /// Optional bounds tables declined by the frame budget.
+    line_bounds_refused: u32,
     /// The walk's viewport-free half, recorded as it goes (`replay.rs`, ADR 0087):
     /// `Some` while every structure met so far can be replayed per record, `None` the
     /// moment one cannot. Attempted only under [`Coverage::Compute`].
@@ -765,6 +770,8 @@ fn encoder_for<'a>(
         kept_build: kept_lines::KeptBuilder::default(),
         before,
         lines_kept: 0,
+        line_instances_omitted: 0,
+        line_bounds_refused: 0,
         replay,
         current_command: 0,
         command_records_start: 0,

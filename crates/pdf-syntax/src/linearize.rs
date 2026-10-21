@@ -2,9 +2,9 @@
 //!
 //! # What this is
 //!
-//! [`crate::serialize`] writes a finished [`Assembly`] in the assembly's own order. This module
+//! [`crate::serialize()`] writes a finished [`Assembly`] in the assembly's own order. This module
 //! writes the same assembly in the order Annex F prescribes, with the two additions §F.1 names —
-//! "[r]ules for the ordering of objects in the PDF file" and "hint tables, that enable efficient
+//! "\[r]ules for the ordering of objects in the PDF file" and "hint tables, that enable efficient
 //! navigation within the document". It is structure and nothing else: every object's value is the
 //! one the assembly holds, a stream's data is the assembly's bytes, and the only dictionaries this
 //! module changes are page objects, which §F.3.7 and §F.3.10 require to state their inheritable
@@ -13,7 +13,7 @@
 //!
 //! # The file, part by part
 //!
-//! §F.3.1 divides a linearised file into eleven parts "[f]or pedagogical reasons", and
+//! §F.3.1 divides a linearised file into eleven parts "\[f]or pedagogical reasons", and
 //! [`serialize_linearized`] writes them in this order:
 //!
 //! | part | what | F.x |
@@ -35,7 +35,7 @@
 //! shall have the hint stream length added to it". Every position a hint table states is in part 6
 //! or later, so with part 4 between the hint stream and the first of them, no stated position is
 //! ever *equal* to the hint stream's offset, which is the one case that sentence does not decide.
-//! Part 10, the overflow hint stream, is not written: §F.3.6 makes it optional ("[t]he overflow hint
+//! Part 10, the overflow hint stream, is not written: §F.3.6 makes it optional ("\[t]he overflow hint
 //! stream, part 10, is optional") and every table fits in the primary one.
 //!
 //! # Object streams, and the cross-reference streams they need
@@ -160,7 +160,7 @@ const INHERITABLE: [&str; 4] = ["Resources", "MediaBox", "CropBox", "Rotate"];
 /// that has not read the stream can state truthfully: a denominator of 1, a numerator of 0 for an
 /// object the page reaches through its `/Resources` or `/Contents` (it is referenced from the
 /// content stream, somewhere in its only portion), and a numerator of `d + 1` for one it reaches
-/// only through annotations and other entries — "[a] value of d + 1 or greater shall indicate that
+/// only through annotations and other entries — "\[a] value of d + 1 or greater shall indicate that
 /// the shared object is needed after those objects". ADR 1293.
 const DENOMINATOR: u64 = 1;
 
@@ -361,7 +361,7 @@ enum Via {
     /// A font descriptor's `/FontFile` or `/FontFile2`, where the descriptor's Nonsymbolic flag
     /// is set: §F.3.7 (g)'s substitutable font program, which a reader may draw without.
     FontFile,
-    /// An annotation's `/AP`: §F.3.7 (a)'s "[i]nformation required to draw the annotation may be
+    /// An annotation's `/AP`: §F.3.7 (a)'s "\[i]nformation required to draw the annotation may be
     /// deferred until later since annotations are always drawn on top of (hence after) the
     /// contents."
     Appearance,
@@ -517,7 +517,7 @@ fn collect(
 
 /// [`collect`] over a dictionary's values.
 ///
-/// A stream's `/Length` is not followed, for the reason [`crate::serialize`] writes it: the
+/// A stream's `/Length` is not followed, for the reason [`crate::serialize()`] writes it: the
 /// writer re-derives it as a direct integer from the bytes, so the output refers to nothing
 /// through it.
 fn collect_dict(
@@ -809,7 +809,7 @@ pub fn serialize_linearized<W: Write>(
 /// [`serialize_linearized`], with §7.6.4's standard security handler over the output.
 ///
 /// The handler is [`crate::serialize::serialize_encrypted`]'s, `/V` 5 and `/R` 6, and §F.3.5
-/// places its dictionary: part 4 holds "[t]he Encrypt entry in the first-page trailer dictionary.
+/// places its dictionary: part 4 holds "\[t]he Encrypt entry in the first-page trailer dictionary.
 /// All values in the encryption dictionary shall also be located here" — every value of this
 /// writer's dictionary is direct, so the one object is all of it.
 ///
@@ -1034,7 +1034,7 @@ fn push_down(objects: &mut [Object], pages: &[usize]) {
 /// contains article beads )" while §12.4.3 says the page "shall contain a B entry" — so a file
 /// that carried its producer's dictionaries unchanged could satisfy §12.4.3 and Table 163 and
 /// still not (b). Both are **derived from §12.4.3's own chain**, which is the definition of which
-/// beads belong to which thread: "[t]he thread dictionary's F entry shall refer to the first bead
+/// beads belong to which thread: "\[t]he thread dictionary's F entry shall refer to the first bead
 /// in the thread; the beads shall be chained together sequentially in a doubly linked list
 /// through their N (next) and V (previous) entries". Table 31's NOTE 2 says the same of `/B`:
 /// "The information in this entry can be created or recreated from the information obtained from
@@ -2129,9 +2129,9 @@ struct Packer<'a> {
 impl Packer<'_> {
     /// Whether §7.5.7 and §F.3.1 let an object be stored in an object stream.
     ///
-    /// §7.5.7's list — "[s]tream objects", generation numbers other than zero (none here), "[a]
+    /// §7.5.7's list — "\[s]tream objects", generation numbers other than zero (none here), "\[a]
     /// document's encryption dictionary" (never an assembly object), the value of an object
-    /// stream's `/Length` (stated directly) — and its rule on values, "[a]n object in an object
+    /// stream's `/Length` (stated directly) — and its rule on values, "\[a]n object in an object
     /// stream shall not consist solely of an object reference"; then §F.3.1's three, of which the
     /// catalog and the pages are assembly objects.
     fn packable(&self, index: usize) -> bool {
@@ -2622,7 +2622,7 @@ fn lay_out(
 /// Table 16's required entries and nothing else: `/Extends` is optional, and a chain across
 /// carriers would be a reference from one part of the file into another that no walk of §F.3.7
 /// should have to follow. Its members are *not* encrypted one by one — §7.6.2's third exception
-/// is "[a]ny strings that are inside streams such as content streams and compressed object
+/// is "\[a]ny strings that are inside streams such as content streams and compressed object
 /// streams, which themselves are encrypted" — so encrypting the carrier is the whole of it.
 fn carrier(
     members: &[usize],

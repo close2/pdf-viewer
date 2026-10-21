@@ -50,6 +50,7 @@ impl Interpreter<'_> {
         // And the page's §14.11.5 intent, for the same reason `Interpreter::conversion_under`
         // gives: Table 87's `/ColorSpace` is parsed in `crate::image`, after this point.
         Conversion::new(self.compositing.clone(), state.rendering_under(intent))
+            .under_black_generation(state.black_generation.clone())
             .under_output_intent(self.output_intent.as_ref())
             .within_cmyk_group(self.cmyk_group.as_ref())
             .beside(self.spots_beside.clone())
@@ -365,10 +366,20 @@ impl Interpreter<'_> {
             &mut self.image_masks,
         ) {
             Ok(crate::image::Parts {
+                black_generation_bypassed,
                 picture,
                 shortfall,
                 contradiction,
             }) => {
+                self.black_generation_painted |= black_generation_bypassed;
+                if matches!(
+                    self.document.get_key(&stream.dict, "ImageMask"),
+                    Object::Boolean(true)
+                ) {
+                    self.black_generation_painted |= self
+                        .conversion(state)
+                        .bypasses_black_generation(&state.fill_space);
+                }
                 // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
                 // there, so an image whose dictionary says something else is *drawn* rather than
                 // refused — and said out loud all the same, because the picture on the page is

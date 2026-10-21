@@ -1391,11 +1391,13 @@ impl Interpreter<'_> {
         if !self.readings.carried_by_join(readings) {
             return Some("a piece changed §11.6.4.3's record of the page's alpha readings");
         }
-        if self.blending_changed || self.black_generation_stated || self.nested_space_departed {
+        if self.blending_changed || self.black_generation_painted || self.nested_space_departed {
             return Some("a piece changed the page's compositing record");
         }
-        if self.presses.named() > 0 {
-            return Some("a piece named a press, whose table is filled in reading order");
+        match self.presses.named() {
+            Err(_) => return Some("a piece's press table was poisoned; its count is unknown"),
+            Ok(0) => {}
+            Ok(_) => return Some("a piece named a press, whose table is filled in reading order"),
         }
         if self.list_budget.reached() {
             return Some("a piece reached its share of the list's bound");

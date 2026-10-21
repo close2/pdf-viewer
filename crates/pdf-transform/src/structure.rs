@@ -38,7 +38,7 @@
 //!
 //! - **`/RoleMap` — the first source's mapping wins, and the collision is warned about by name.**
 //!   §14.7.3 makes the value "a single name identifying the target structure element type", so
-//!   two cannot be written; but its NOTE 1 says what the value *is*: "[t]he equivalence need not
+//!   two cannot be written; but its NOTE 1 says what the value *is*: "\[t]he equivalence need not
 //!   be exact; the role map merely indicates an approximate analogy between types, allowing PDF
 //!   processors to share nonstandard structure elements in a reasonable way." An approximation is
 //!   not an assertion two documents can contradict each other about, and a type left mapped to
@@ -48,8 +48,8 @@
 //!   rewritten.** An attribute class is not an approximation: §14.7.6.2 makes the attributes
 //!   "attached to the given structure element", so an element given another source's `/Pa5` would
 //!   be laid out by properties it never had. The rename is safe because the clause closes the set
-//!   of things that name a class — "[s]tructure elements shall refer to the class by name", and
-//!   "[t]he C entry in a structure element dictionary … shall contain a class name or an array of
+//!   of things that name a class — "\[s]tructure elements shall refer to the class by name", and
+//!   "\[t]he C entry in a structure element dictionary … shall contain a class name or an array of
 //!   class names" — which is ADR 0821 section 3's rule for `/Dests`: chase the references where the
 //!   standard says what states them.
 //! - **`/IDTree` — refused by name.** Table 355 makes an element's `/ID` "unique among all
@@ -69,7 +69,7 @@
 //! Table L.2's first row gives `StructTreeRoot` one child type, `Document`, at an occurrence of
 //! `1`; the legend defines `1..n` and `0..1` beside it, so the bare `1` reads as exactly one. Two
 //! sources whose roots each hold a PDF 2.0 `Document` would therefore give the merged root two,
-//! and the annex binds them: "[e]lements in the standard structure namespace for PDF 2.0 shall
+//! and the annex binds them: "\[e]lements in the standard structure namespace for PDF 2.0 shall
 //! not have child or parent elements in the standard structure namespace for PDF 2.0 that are not
 //! explicitly listed in Table L.2". So where the root's top-level elements include PDF 2.0
 //! `Document`s from more than one source, they are written inside **one** `Document` of that
@@ -106,7 +106,7 @@ const MAX_DEPTH: usize = 256;
 
 /// Table 354's entries that are arrays and concatenate across sources.
 ///
-/// `/Namespaces` is "[a]n array of namespaces used within the document", `/PronunciationLexicon`
+/// `/Namespaces` is "\[a]n array of namespaces used within the document", `/PronunciationLexicon`
 /// "one or more indirect references to file specification dictionaries", `/AF` "one or more file
 /// specification dictionaries" — three lists, none of them a namespace two sources can collide
 /// in, so the union is the whole reconciliation.
@@ -160,7 +160,7 @@ pub(crate) trait Host {
 enum Child {
     /// Another structure element, named by its object in the source.
     Element(ObjectId),
-    /// §14.7.5.2's second form: "[a]n integer that specifies the marked-content identifier".
+    /// §14.7.5.2's second form: "\[a]n integer that specifies the marked-content identifier".
     ///
     /// Nothing in it refers to anything, so there is nothing to carry.
     Item(Object),
@@ -168,7 +168,7 @@ enum Child {
     /// source wrote it**, beside the output number of the page it was placed on.
     ///
     /// **Uncarried on purpose, and the ordering is the whole point.** [`Carry::plan`]'s own
-    /// promise is that "[e]very kept element is given its slot here, before any page is built,
+    /// promise is that "\[e]very kept element is given its slot here, before any page is built,
     /// so that a reference to one from anywhere in the closure maps to the rebuilt element
     /// rather than dragging the source's whole subtree in behind it" — and carrying a content
     /// item's values inside [`Carry::child`] would break it, because `child` runs while the
@@ -532,7 +532,7 @@ impl Carry {
     /// One element: kept where it reaches a carried page, dropped otherwise.
     ///
     /// Depth-first and bottom-up, because an element is kept for its descendants as much as for
-    /// its own content: §14.7.2 makes `/K` "[t]he children of this structure element", and an
+    /// its own content: §14.7.2 makes `/K` "\[t]he children of this structure element", and an
     /// ancestor of a kept child is what holds it in the hierarchy.
     ///
     /// # Errors
@@ -754,7 +754,7 @@ impl Carry {
 
     /// A reference to a PDF 2.0 namespace dictionary the output's root lists.
     ///
-    /// Table 355 makes an element's `/NS` "[a]n indirect reference to a namespace dictionary", and
+    /// Table 355 makes an element's `/NS` "\[a]n indirect reference to a namespace dictionary", and
     /// §14.8.6.2 that an element in an explicit namespace has "that namespace ... identified in
     /// the structure tree root dictionary's Namespaces array entry". A source that holds a PDF 2.0
     /// element in conformance with that already lists one, carried into the output's array by

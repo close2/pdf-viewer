@@ -18,7 +18,7 @@
 //! builds requests out of the document and reads results the caller recorded; it opens no path,
 //! reads no clock and starts no process. A pass with no recorded result for a request puts the
 //! request in [`crate::Report::requested`] and leaves the requirement refused with
-//! [`Because::AwaitingTool`] — which is not a failure, it is the first half of a two-pass
+//! [`super::Because::AwaitingTool`] — which is not a failure, it is the first half of a two-pass
 //! conversion the command-line program does in one command.
 //!
 //! # `derive` is impossible to get by accident
@@ -1023,7 +1023,7 @@ fn produced_what_it_promised(expects: &str, bytes: &[u8]) -> bool {
 /// - **`/Subtype`** becomes the media type the tool declared, which §7.11.4.1's Table 44 makes the entry's
 ///   value and which is now true of the bytes;
 /// - **`/Params` `/Size`** is restated where the specification stated one, because Table 45 makes it
-///   "[t]he size of the uncompressed embedded file, in bytes" and the file's size has changed;
+///   "\[t]he size of the uncompressed embedded file, in bytes" and the file's size has changed;
 /// - **`/Params` `/CheckSum`** is removed: Table 45 makes it a checksum of the *uncompressed*
 ///   bytes, and the bytes it was taken over are not in the file any more. Recomputing it would be
 ///   writing this converter's digest where the producer's stood.

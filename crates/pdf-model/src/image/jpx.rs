@@ -138,6 +138,7 @@ pub(super) fn decode_jpx(
     let carried = matte_alpha_on(painting.matte, (width, height), grid);
     let on_grid = (painting.matte.zip(carried.as_deref())).map(|(m, alpha)| m.carried(alpha));
     Ok(SamplesOnGrid {
+        black_generation_bypassed: painting.into.bypasses_black_generation(&space),
         rgba: jpx_samples_to_rgba(
             &raster,
             &space,
@@ -579,6 +580,7 @@ fn jpx_stencil(
     });
     let packed = pack_bits(&samples, raster.width, raster.height);
     Ok(SamplesOnGrid {
+        black_generation_bypassed: false,
         rgba: unpack(
             &packed,
             raster.width,
@@ -780,8 +782,9 @@ struct JpxColourChoice<'a> {
 /// profile — whose defining texts (IEC 61966-2-1 Amd. 1, PIMA 7666) this project does not hold;
 /// `tests/jpx_enumerated_spaces.rs` pins what the held texts do fix, that a colour of no chroma
 /// or of equal components is a neutral one. The others T.801 Table M.25 lists are not here: e-sRGB
-/// (20) and e-sYCC (24) are defined by PIMA 7667 and CIE Jab (19) by CIE Publication 131, none of
-/// them held, and §7.4.9's fallback is what a processor then does (ADR 1383).
+/// (20) and e-sYCC (24) await implementation from the held PIMA 7667 (A348); CIE Jab (19)
+/// depends on the unheld CIE Publication 131, whose purchase the owner declines. Each takes
+/// §7.4.9's fallback until implemented (ADRs 1383, 2187).
 const JPX_ENUMERATED_DRAWN: [u32; 5] = [12, 16, 17, 18, 21];
 
 /// Which of a `JPXDecode` image's colour specifications its samples are read through.

@@ -50,7 +50,7 @@
 //! against the display: its vertex sets, its branch for an output-capable CMYK source, its
 //! clamp, and its single scale and offset in PCSXYZ. The draft is held on this machine under a
 //! single-reader licence, so it is cited by section and paraphrased and never quoted
-//! (`doc/third-party-data.md`, ADR 0187). [`Profile::source_black_point`] is the entry point
+//! (`doc/third-party-data.md`, ADR 0187). `Profile::source_black_point` is the entry point
 //! and says what the procedure is, section by section.
 
 use std::sync::{Arc, OnceLock};
@@ -211,7 +211,7 @@ pub struct Profile {
     /// indicated in the ICC specification", and Table 68 prints it for the four data colour
     /// spaces Table 67 admits: the unit interval for `'GRAY'`, `'RGB '` and `'CMYK'`, and
     /// `L*: [0 100]`, `a*` and `b*: [-128 127]` for `'Lab '`. Table 65's `/Range` restates it
-    /// from the file — "[t]hese values shall match the information in the ICC profile" — and
+    /// from the file — "\[t]hese values shall match the information in the ICC profile" — and
     /// [`Profile::with_range`] is where a document's statement replaces this one.
     ///
     /// It is held on the profile rather than on `crate::colour::ColourSpace` because it is the
@@ -1240,11 +1240,11 @@ impl Profile {
     ///
     /// > These values shall match the information in the ICC profile.
     ///
-    /// So a document that states one is restating what [`Profile::range`] already holds, and
+    /// So a document that states one is restating what `Profile::range` already holds, and
     /// the two agree for every conformant file. Where they do not, the file's is taken: Table
     /// 65 makes `/Range` the statement "of the minimum and maximum valid values of the
     /// corresponding colour components", and §8.4.1 makes those bounds the ones the current
-    /// colour is held to — "[p]arameters that are numeric values, such as the current colour,
+    /// colour is held to — "\[p]arameters that are numeric values, such as the current colour,
     /// line width, and miter limit, shall be clipped into valid range, if necessary".
     ///
     /// `range` is Table 65's array read in pairs. One of the wrong length is not this clause's
@@ -1540,7 +1540,7 @@ impl Profile {
     /// [`Self::to_device`]'s second stage for such a profile: the curve inverted, with the
     /// clamp ISO 32000-2 §8.6.5.3 applies to a component "falling outside that range" — the
     /// only answer the two stages define for a colour the device cannot reach — and
-    /// [`Self::decoded`]'s map onto this component's own range. A channel the profile states
+    /// `Self::decoded`'s map onto this component's own range. A channel the profile states
     /// no curve for is zero, which is what zipping the curves with the outputs already gave
     /// it.
     #[must_use]

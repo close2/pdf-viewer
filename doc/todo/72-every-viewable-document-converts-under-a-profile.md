@@ -220,7 +220,18 @@ producers wrote — are swept at each part's lowest level by
 names as `FAILED` any document the verb errors or panics on. Its counts are `doc/history/1655`'s.
 Its largest refusal, a standard font stating no descriptor, is built (ADR 2146), and so is the
 Table 124 pairing a shipped face of the other kind met (ADR 2147). What `fonts/font-programs-embedded`
-still refuses there is led by two things. A standard font written inside its resource dictionary,
-mostly `doc/corpora`'s Isartor-style test files. And a standard font this machine draws from a face
-of its own (ADR 0270), which needs a decision on whether a page drawn from the machine's face may be
-archived with the shipped one.
+still refuses there includes eight documents whose shipped substitute has horizontal fitting
+that embedding would remove. This is a change to outlines, not hinting; Q566 asks about an
+explicit loss and neither profile assumes one (ADR 2179). The two Symbol refusals had a missing
+code-to-name table when TrueType became CFF; stating the source selections clears that font
+refusal, while their independent content-stream fences remain. The direct-resource and
+machine-face cases were addressed in ADR 2162; `machine-face` remains a named loss, accepted by
+`as-if-printed` and stopped by `as-shown`.
+
+Table 109's widths-array count is checked independently for simple fonts. A nonempty short
+array narrows LastChar; a long array loses only entries beyond it. This `Stated` rewrite keeps
+all effective advances and does not replace dictionary widths with a font program's metrics
+(ADR 2178). Empty arrays, missing arrays, malformed byte ranges and Type 3's separate rule are
+not invented into conformance. Fonts sharing a descriptor now retain their own proved
+programs through separate descriptor copies rather than overwriting each other's metrics
+(ADR 2179).

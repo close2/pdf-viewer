@@ -305,7 +305,7 @@ pub enum SandboxError {
         /// How it stopped, as far as the parent can tell.
         detail: String,
     },
-    /// The worker did not answer within its time: [`REQUEST_TIMEOUT`], the longer one a
+    /// The worker did not answer within its time: `REQUEST_TIMEOUT`, the longer one a
     /// worker for full-resolution decodes is given ([`Sandbox::whole`]), or the one a caller
     /// stated ([`Sandbox::with_timeout`]). The worker is killed, and the decode with it.
     #[error("the sandbox worker did not answer within the time it was given")]
@@ -431,7 +431,7 @@ impl Sandbox {
     /// this worker is a separate process started with `samples` as its one argument, and every
     /// bound is derived from it before a byte is read: an address-space ceiling of sixteen bytes
     /// a sample (the ordinary worker's own ratio, never below its gigabyte), an answer of two
-    /// bytes a sample, and thirty seconds for each [`decode::MAX_SAMPLES`] of them. The
+    /// bytes a sample, and thirty seconds for each `decode::MAX_SAMPLES` of them. The
     /// confinement is otherwise the ordinary decoder's, system-call list and all (ADR 1333).
     ///
     /// One sandbox per distinct budget, kept for the process: a verb states one budget for its
@@ -545,7 +545,7 @@ pub enum Decoded {
     Dct(Vec<u8>),
 }
 
-/// Encodes samples as baseline JPEG under the process's isolation policy — [`decode`]'s route,
+/// Encodes samples as baseline JPEG under the process's isolation policy — [`decode()`]'s route,
 /// for the one request that is not a decode (ADR 2138).
 ///
 /// For a caller that was asked for a JPEG, and only for one: the owner's condition on the

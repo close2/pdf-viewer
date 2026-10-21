@@ -201,6 +201,9 @@ fn sample_alpha(stencil: bool, soft_masked: bool) -> SampleAlpha {
 /// time for exactly that reason — a note made on the miss would be lost on the hit.
 #[derive(Debug, Clone)]
 pub struct Parts {
+    /// A `DeviceRGB` source bypassed a stated §11.7.5.3 pair. Kept with cached samples,
+    /// and reported by the caller only when this image paints.
+    pub black_generation_bypassed: bool,
     /// The picture, in one raster or two.
     pub picture: Picture,
     /// The filter's own sentence where it stopped on damaged data before the grid was full,

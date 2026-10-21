@@ -11,7 +11,7 @@
 //! reaches the application's `close()` — `release` reaches nobody, which is why it is only
 //! cleanup.
 //!
-//! This module is that sentence as types. [`Staged`] is a write in flight; [`Committed`] is what
+//! This module is that sentence as types. `Staged` is a write in flight; [`Committed`] is what
 //! a `flush` produced; [`Abandoned`] is what a `release` without a `flush` found, which is a
 //! write that never happened.
 //!
@@ -44,7 +44,7 @@
 //!
 //! A byte-for-byte prefix comparison, which is a comparison and not a parse, so it stays on the
 //! side of RFC 0003 section 6's line where the broker lives. Only then is the file replaced, and
-//! it is replaced by [`Backing::commit`], which POSIX's `rename` requires to be atomic — if the
+//! it is replaced by [`crate::generation::Backing::commit`], which POSIX's `rename` requires to be atomic — if the
 //! new name exists it is removed and the old is renamed to it, in one step no reader can fall
 //! inside.
 //!

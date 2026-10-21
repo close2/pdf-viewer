@@ -13,7 +13,7 @@
 //!
 //! # Why the search is on a thread of its own
 //!
-//! `CLAUDE.md`'s second principle: "[n]o system font enumeration … on the launch path". The search
+//! `CLAUDE.md`'s second principle: "\[n]o system font enumeration … on the launch path". The search
 //! reads font files until one covers the character, and the first time it runs it walks the whole
 //! catalogue — measured on this machine at a second with the fonts out of the page cache and a
 //! hundred milliseconds with them in (ADR 1406). A window that asked on its drawing thread held its

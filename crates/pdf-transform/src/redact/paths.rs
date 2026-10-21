@@ -41,7 +41,7 @@
 //! here as a fill. A straight segment's offsets, butt and projecting-square caps and miter and
 //! bevel joins come back in closed form; a round cap, a round join and the offset of a curved
 //! segment come back as cubics fitted to the arc within the tolerance
-//! [`crate::redact`]'s `ARC_TOLERANCE` states, because "[c]urved path segments shall be
+//! [`crate::redact`]'s `ARC_TOLERANCE` states, because "\[c]urved path segments shall be
 //! specified as cubic Bézier curves" (§8.5.2.2) and a circle is not one. Those cubics are then
 //! cut at their roots like any other curve, so the arc is split where it crosses the region's
 //! edge. ADRs 1236, 1324.

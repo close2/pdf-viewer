@@ -157,7 +157,7 @@ pub(crate) const KAPPA: f32 = 0.552_284_8;
 /// decides a line's thickness: `0 w 1 J` at a single point is a one-device-pixel dot.
 ///
 /// `to_device` maps the path's own space onto the device pixel grid, and is `Some` where the
-/// caller can carry a mark's coverage in the paint's alpha — see [`stated`]. Where it is,
+/// caller can carry a mark's coverage in the paint's alpha — see `stated`. Where it is,
 /// §10.7.4's substitution for a mark too small for the raster to hold is applied here, and
 /// [`DegenerateStroke::coverage`] is what the alpha is to be multiplied by; where it is not, the
 /// dots are the clause's own circles at the document's own width.

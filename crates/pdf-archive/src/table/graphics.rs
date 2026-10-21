@@ -3015,7 +3015,7 @@ fn no_reference_xobjects(exam: &Examination<'_>, findings: &mut Findings) {
 
 /// Every object holding a reference `XObject`, in object order.
 ///
-/// [`no_reference_xobjects`]'s population read as one, so that a converter answering the
+/// `no_reference_xobjects`'s population read as one, so that a converter answering the
 /// requirement acts on exactly what the requirement reported. §8.10.4.1 makes a reference `XObject`
 /// a form `XObject`, and §7.3.8.1 makes every stream an indirect object, so for a well-formed file
 /// each object named here *is* the form; one that is not a stream holds a form dictionary written

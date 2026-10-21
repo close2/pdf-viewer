@@ -8,7 +8,7 @@
 //! line is a slide show nobody would show anybody.
 //!
 //! **The standard states the window, and it states it outside §12.4.4.** §7.7.2's Table 29 gives
-//! `/PageMode` as "[a] name object specifying how the document shall be displayed when opened",
+//! `/PageMode` as "\[a] name object specifying how the document shall be displayed when opened",
 //! and one of its six names is
 //!
 //! > Full-screen mode, with no menu bar, window controls, or any other window visible
@@ -16,7 +16,7 @@
 //! — which is a description of chrome and therefore, by `doc/ui-boundary.md`'s rule 5, a host's
 //! to obey.
 //!
-//! §12.2's Table 147 states the same subject in the smaller. `/HideToolbar` is "[a] flag
+//! §12.2's Table 147 states the same subject in the smaller. `/HideToolbar` is "\[a] flag
 //! specifying whether to hide the interactive PDF processor's tool bars when the document is
 //! active", `/HideMenubar` says the same of its menu bar, and `/HideWindowUI` hides the window's
 //! own scroll bars and navigation controls,
@@ -76,9 +76,9 @@
 //!
 //! # The window's size and place
 //!
-//! Table 147 has two more entries about the window rather than about its chrome: `/FitWindow`, "[a]
+//! Table 147 has two more entries about the window rather than about its chrome: `/FitWindow`, "\[a]
 //! flag specifying whether to resize the document's window to fit the size of the first displayed
-//! page", and `/CenterWindow`, "[a] flag specifying whether to position the document's window in
+//! page", and `/CenterWindow`, "\[a] flag specifying whether to position the document's window in
 //! the centre of the screen". Neither can be obeyed when the document opens, because the size of
 //! the first displayed page is not known until it has been displayed: [`Presenting::place`] answers
 //! them at the frames of a document opened in front until its window fits the page, and [`fitted`] and [`centred`] are
@@ -237,7 +237,7 @@ impl Presenting {
 
     /// Table 147's `/FitWindow` and `/CenterWindow`, asked at a frame of page `page`: `Some` while
     /// they are owed, and `None` once [`Self::placed`] has been said, once a frame of another page
-    /// has been drawn, or once [`PLACING_FRAMES`] frames have been asked.
+    /// has been drawn, or once `PLACING_FRAMES` frames have been asked.
     ///
     /// At a frame rather than on opening, because "the size of the first displayed page" is the
     /// size a page is drawn at, which the window knows only once it has drawn it. A host fits the

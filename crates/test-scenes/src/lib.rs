@@ -209,9 +209,9 @@ pub fn transparency_group() -> DisplayList {
 
 /// A knockout group whose elements overlap, half of them transparent (§11.4.6).
 ///
-/// ISO 32000-2 §11.4.6: "[i]n a knockout group, each individual element shall be composited
+/// ISO 32000-2 §11.4.6: "\[i]n a knockout group, each individual element shall be composited
 /// with the group's initial backdrop rather than with the stack of preceding elements in the
-/// group", so "[a]t any given point, only the topmost object enclosing the point shall
+/// group", so "\[a]t any given point, only the topmost object enclosing the point shall
 /// contribute to the result colour and opacity of the group as a whole".
 ///
 /// # What this scene can fail at, and what it cannot
@@ -661,7 +661,7 @@ pub fn four_component_page() -> DisplayList {
 /// > In a knockout group, each individual element shall be composited with the group's
 /// > initial backdrop rather than with the stack of preceding elements in the group.
 ///
-/// and for a non-isolated group that backdrop is not transparency: "[a] nonisolated
+/// and for a non-isolated group that backdrop is not transparency: "\[a] nonisolated
 /// knockout group composites its topmost enclosing element with the group's backdrop." So a
 /// backend has to retain the backdrop beside the accumulation and composite each element
 /// against *it* — the construction ADR 0307 priced and ADR 0327 built — and every element
@@ -1330,7 +1330,7 @@ pub fn radial_cone() -> DisplayList {
 ///
 /// # Why this scene exists
 ///
-/// A patch's geometry is a *mapping* — "[c]oordinates are mapped from the unit square into a
+/// A patch's geometry is a *mapping* — "\[c]oordinates are mapped from the unit square into a
 /// four-sided patch whose sides are not necessarily linear" — and how closely a triangulation
 /// has to follow it is §10.7.2's question, answered "in device pixels". So the patch travels to
 /// the backend and the backend decides (ADR 1217), which makes this the scene that says the two

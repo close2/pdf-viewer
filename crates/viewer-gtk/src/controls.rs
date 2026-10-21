@@ -911,7 +911,7 @@ fn list_view_under(widget: &gtk4::Widget) -> Option<gtk4::ListView> {
 ///   `page-size` are nothing until the view is allocated, and the handler stands down for good
 ///   once it has acted, so a person who scrolls the list afterwards is not fought with. It also
 ///   stands down where `upper <= page-size`, which is the clause's own condition — the entry is
-///   stated "[f]or scrollable list boxes", and a list showing all of its options is not one;
+///   stated "\[f]or scrollable list boxes", and a list showing all of its options is not one;
 /// - **the row height is `upper / options`**, and that is exact rather than an estimate *here*:
 ///   every row of this control is built by one factory into one [`gtk4::Label`], so the rows are
 ///   uniform by construction. A list whose rows differed would need the position of the row

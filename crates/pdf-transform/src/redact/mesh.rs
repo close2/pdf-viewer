@@ -1,8 +1,8 @@
 //! A mesh shading's data under a redaction region, ISO 32000-2 §8.7.4.5.5 to §8.7.4.5.8 and
 //! §12.5.6.23 (ADR 1363).
 //!
-//! A mesh states its colours at places: "[t]he colour at each vertex of the triangles is
-//! specified" (§8.7.4.5.5), and a patch's "[c]olour values shall be given for the four corners of
+//! A mesh states its colours at places: "\[t]he colour at each vertex of the triangles is
+//! specified" (§8.7.4.5.5), and a patch's "\[c]olour values shall be given for the four corners of
 //! the patch" (§8.7.4.5.7). Those are data located in the plane, as an image's samples are, so a
 //! redaction destroys the ones in the region rather than clipping them away — "clipping or image
 //! masks shall not be used to hide that data" — and keeps the ones outside it, which are marks the
@@ -12,7 +12,7 @@
 //!
 //! A Gouraud triangle's colour is the linear interpolation of its three vertices' colours — "a
 //! technique known as Gouraud interpolation is used to colour the interiors", done on the
-//! parameter where a `/Function` is present ("[a]ll linear interpolation within the triangle mesh
+//! parameter where a `/Function` is present ("\[a]ll linear interpolation within the triangle mesh
 //! shall be done using the t values") — so it is an affine function over the triangle, and any
 //! piece of the triangle is the same function over a smaller triangle. Each triangle is therefore
 //! cut to the region's complement by the nine-cell construction a painted path is cut by
@@ -33,7 +33,7 @@
 //! which lies in its control points' convex hull, so nothing kept reaches the region. What is
 //! removed past the region's edge is at most one leaf wide: the sub-patch is the unit of removal
 //! here as a code is for text, and "within the region" is the same bounding-box intersection
-//! (ADR 1124). Type 6 is written back as type 7 — "[t]he Coons patch (Type 6) is actually a special
+//! (ADR 1124). Type 6 is written back as type 7 — "\[t]he Coons patch (Type 6) is actually a special
 //! case of the tensor-product patch (Type 7)" — because a sub-patch of a Coons patch is a tensor
 //! patch whose interior points the Coons formula need not give.
 //!
@@ -476,7 +476,7 @@ impl Reader<'_> {
             .collect()
     }
 
-    /// One triangle vertex and its flag, then the padding to a byte "[e]ach set of vertex data
+    /// One triangle vertex and its flag, then the padding to a byte "\[e]ach set of vertex data
     /// shall occupy a whole number of bytes".
     fn vertex(&mut self, flag_bits: u32) -> Option<(u64, Vertex)> {
         let flag = self.bits(flag_bits)? & 0b11;

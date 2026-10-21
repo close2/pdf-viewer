@@ -53,10 +53,18 @@ in runs. Last in the idle turn, after the sharp pass and the whole page drawn sm
 puts its own encode in the page's place; under the lane the step will take; declined once a scene
 where it would keep nothing or would pass the residency budget.
 
-**What it leaves**: the vertex stage draws the page's 4.4 million instances where the window shows
-a tenth, which drawing a run through the indices the view admits would take back (ADR 1980's
-`Window`, asked of the resident stream); and the record replay (ADR 0087) keeps no runs, which ADR
-2134 section 5 says is not owed until a page on that road is shown to walk lines.
+**Selection built, final clock gates pending** (ADR 2188): conservative 256-instance blocks omit
+3,218,004 and 3,624,276 of the witness's 4,398,932 resident lines at 3× and 3.6×, without reordering
+or re-uploading them. Three quiet cache-free pairs improve the content pass and retained whole frame;
+idle construction costs another 5.0–13.4 ms. Optional metadata refusal preserves whole-run drawing.
+
+**Record replay remains deferred** (ADR 2189). The census now establishes the population: 957 of
+968 first pages drew, 850 record-replayed, and 61 carried lines; eleven refusals remain uncensused.
+The tested prototype eliminated 983,040 uploaded line bytes per changed view on its largest witness,
+but did not consistently improve whole-frame latency, so its extra reuse was removed. The exact
+patch, tests, exports and all timing attempts are preserved at `/home/AI/r1676-deferred-replay/`.
+A future attempt must explain the measured variance and demonstrate worthwhile benefit; it no
+longer needs to rediscover whether this population exists.
 
 ## 4. §10.7.4's dot asked per view on the device
 
@@ -91,3 +99,17 @@ Fills under `Compute` coverage are resident already (records only); glyphs take 
 image's texture is resident per reduction level and a step writes only the texels it newly samples
 (ADR 1493); a ramp is made once. `Cpu` coverage is the still page's lane, and a zoom gesture in the
 window takes `Compute` (`viewer-ui`'s `lane_for`), so nothing above is owed to it.
+
+## 8. Investigate — GPU time estimate stays fixed while zooming
+
+Owner report, 2026-10-21: after zooming into documents, the displayed estimated GPU frame time
+stays at the same value while the CPU estimate adapts to the amount visible. Requested for a
+future round; stale GPU feedback is a hypothesis, not yet a diagnosed defect.
+
+Trace both estimates from completed frames to the displayed message: which cost is predicted,
+which samples update it, and which view/page/lane changes invalidate or rescale it. Distinguish a
+whole-page estimate from a visible-frame estimate and a retained sample from a hard-coded default.
+Exercise fit → deep zoom → pan → fit on one document, then change page/document and rendering lane;
+record both displayed estimates and the actual timed work with a quiet GPU. Add a stateful
+regression witness if the update path is stale. Do not force the number to vary if unchanged work
+legitimately predicts an unchanged cost; make the estimate's meaning clear instead.

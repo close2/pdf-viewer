@@ -74,7 +74,7 @@ impl Host {
 
     /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now.
     ///
-    /// An empty set is a field with nothing chosen, which the clause makes a real state — "[t]he
+    /// An empty set is a field with nothing chosen, which the clause makes a real state — "\[t]he
     /// default value of V is null , indicating that no item is currently selected" — and not a
     /// reason to send nothing.
     pub(crate) fn choose_control(&mut self, index: usize, chosen: &[u32]) {

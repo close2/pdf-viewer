@@ -50,7 +50,7 @@ pub const NORMATIVE_CLAUSES: [u16; 9] = [6, 7, 8, 9, 10, 11, 12, 13, 14];
 /// One entry, and it is clause 4. Its nineteen `shall`s bind how *this document* is written
 /// and read rather than what a processor does: §4.1's requires the standard's own prose to
 /// name a token character "by their INCITS 4-1986 (R2017) (ASCII 7-bit USA codes) character
-/// name written in upper case", and §4.2's eighteen are all of the form "[a]ny use of the term
+/// name written in upper case", and §4.2's eighteen are all of the form "\[a]ny use of the term
 /// X throughout this document shall be inferred as referring to" some other standard. The
 /// second eighteen do bind this program — they decide which edition of IEC 61966-2-1 `sRGB`
 /// means, which of ISO/IEC 10918 `JPEG` means, which Adobe character collection
@@ -82,7 +82,7 @@ pub const NORMATIVE_ANNEXES: [char; 8] = ['D', 'E', 'F', 'I', 'K', 'L', 'O', 'Q'
 /// project decided about. Three of these do print the word `shall` — Annex J twenty times,
 /// Annex N twice — and that is not a finding: ISO/IEC Directives Part 2 makes an informative
 /// annex a place for information, so a `shall` there restates a requirement clause 7 or
-/// clause 10 already states, which is exactly how J.3.1 writes it — "[c]lause 7.3.2, "Boolean
+/// clause 10 already states, which is exactly how J.3.1 writes it — "\[c]lause 7.3.2, "Boolean
 /// objects" clearly states that the keywords shall be true and false". The rows those
 /// sentences belong to are clause 7's and clause 10's.
 ///
@@ -891,7 +891,7 @@ pub enum Problem {
     /// A `departed` row names an ADR that has no file in `doc/adr/`.
     ///
     /// "Decided against with its cost recorded" is a claim about a document somebody can open,
-    /// and [`check_evidence`] asks only that the row name one. A number naming no file is the
+    /// and `check_evidence` asks only that the row name one. A number naming no file is the
     /// same failure one step later: the argument cannot be re-read, so the row settles on prose
     /// alone. ADR 1166.
     ArgumentMissing {

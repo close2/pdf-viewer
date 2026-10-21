@@ -94,7 +94,7 @@
 //! says to do with *two objects*, and there is one object here. What the clause leaves is the
 //! question of where the portions land, and [`device_rectangles`] answers only the half where that
 //! question has no compositing in it at all — **rectangles whose device *pixel* footprints are
-//! pairwise disjoint**, which is [`share_a_device_pixel`]. There no pixel receives two portions,
+//! pairwise disjoint**, which is [`DeviceRectangles::share_a_device_pixel`]. There no pixel receives two portions,
 //! so drawing them one at a time composites nothing with anything and each is measured by the
 //! closed form above. Where two portions do share a pixel, the caller keeps the scan converter it
 //! has: one supersampled fill accumulates the whole path in a single conversion, which honours

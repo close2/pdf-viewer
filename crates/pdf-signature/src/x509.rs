@@ -133,7 +133,7 @@ pub enum X509Error {
     /// The key is `id-dsa` and states no domain parameters, so there is nothing to verify with.
     ///
     /// RFC 3279 section 2.3.2 permits their absence and says where they come from instead — the
-    /// issuer's certificate, or "other means" — and ends with a `MUST`: "[i]f the
+    /// issuer's certificate, or "other means" — and ends with a `MUST`: "\[i]f the
     /// `subjectPublicKeyInfo` `AlgorithmIdentifier` field omits the parameters component, the CA signed
     /// the subject with a signature algorithm other than DSA, and the subject's DSA parameters are
     /// not available through other means, then clients MUST reject the certificate." This program

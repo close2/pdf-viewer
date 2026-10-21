@@ -26,7 +26,7 @@ impl ColourSpace {
     /// the calibration a document's device colours were prepared for. Where a device space is
     /// selected and the resources name no §8.6.5.6 default for it, the intent with the same
     /// number of components stands in for the space; where they name one, the default wins,
-    /// being the nearer statement and a `shall`. That ranking is [`Self::device_family`]'s,
+    /// being the nearer statement and a `shall`. That ranking is `Self::device_family`'s,
     /// and it is reached from every place a device space can be selected — the family name,
     /// the array form, a `Pattern`'s underlying space, an `Indexed` base, a `Separation` or
     /// `DeviceN` alternate — because a meaning is a property of the *space* and not of the
@@ -355,7 +355,7 @@ impl ColourSpace {
     /// Failing all three, the device space itself — where §8.6.4.4 states no conversion,
     /// §10.4.2.5 states one and §10.4.2.1 ranks it below §10.3's ICC route, so what happens
     /// then is this processor's own choice between two answers the standard has already
-    /// ordered, documented at [`CMYK_CORNERS`].
+    /// ordered, documented at [`super::device_cmyk::CMYK_CORNERS`].
     ///
     /// The families are ISO 32000-2's own names, so they are compared against literals — as
     /// bytes, which is §7.3.5's rule by the shorter route. A bare `/CalGray` or `/CalRGB` is

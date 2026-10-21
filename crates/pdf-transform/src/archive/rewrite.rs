@@ -213,7 +213,7 @@ pub enum Rewrite {
     ///
     /// ISO 19005-2 section 6.2.11.7.2's two rules — a `CMap` on every non-exempt font, and usable
     /// values in the ones a file already has — answered by §9.10.2's second method over the codes
-    /// the content streams actually showed. [`super::to_unicode`] is the derivation and the six
+    /// the content streams actually showed. `super::to_unicode` is the derivation and the six
     /// reasons it declines; **a code whose meaning is not derivable refuses the document** rather
     /// than being invented, which is `doc/pdf-a-conversion-limits.md` section 4.3's line.
     ToUnicode,
@@ -233,7 +233,7 @@ pub enum Rewrite {
     /// the empty packet, because nothing in the file says what the unreadable one meant and
     /// composing properties for an object's own packet would be this converter writing the
     /// producer's metadata. What the producer wrote is kept where the configuration asked for it
-    /// — [`super::preserve`]'s appended page — and lost where it did not.
+    /// — `super::preserve`'s appended page — and lost where it did not.
     FreshMetadataPacket,
     /// Every XMP packet loses the properties whose own predefined schema does not define them.
     ///
@@ -408,7 +408,7 @@ pub enum Rewrite {
     /// than a refusal: a PDF whose font is not embedded has no appearance of its own, so writing
     /// one down removes an indeterminacy instead of creating one. `doc/questions/A47` settled
     /// that, and made "where no shipped face covers a document's characters, refuse rather than
-    /// guess" its condition. [`super::fonts`] is where both halves are.
+    /// guess" its condition. `super::fonts` is where both halves are.
     ///
     /// **The descriptor's `/CharSet` and `/CIDSet` are removed with the same edit.** §9.8.1's
     /// Table 122 makes each a description of the *embedded* program, and this descriptor
@@ -430,6 +430,9 @@ pub enum Rewrite {
     /// outline changes: what is rewritten is `hmtx` for an sfnt and the leading width operand of
     /// a charstring for a CFF.
     RestateFontMetrics,
+    /// A simple font's widths array and character range are made the same length (Table 109).
+    /// Retained advances are unchanged; codes outside the range keep the missing-width default.
+    FontWidthArrayRestated,
     /// Every embedded font program whose stated advance *heights* disagree with the `/DW2` and
     /// `/W2` of the `CIDFont` dictionary that shows it vertically has the program's restated.
     ///
@@ -696,7 +699,7 @@ pub enum Rewrite {
     ///
     /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6 require §9.6.5.4's own route.
     /// The entry is the font dictionary's, so ADR 0816's fence over the program does not stand in
-    /// the way, and [`super::sites::standard_route_names`] proves the names first: every code
+    /// the way, and `super::sites::standard_route_names` proves the names first: every code
     /// shown has to reach the glyph it reached before, by the route (ADR 1942).
     StandardRouteNames,
     /// A Type 3 font's glyph named `.notdef` is given another name, in its encoding's
@@ -705,7 +708,7 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid a text-showing
     /// operator to reference `.notdef`. A Type 3 font's glyphs are the producer's own procedures
     /// keyed by name (ISO 32000-2 §9.6.4), so the same procedure under another name draws the same
-    /// marks; [`super::sites::type3_notdef_renames`] is the argument (ADR 1942).
+    /// marks; `super::sites::type3_notdef_renames` is the argument (ADR 1942).
     Type3NotdefRenamed,
     /// Every entry of the catalog's `OutputIntents` array names one destination profile object.
     ///
@@ -746,13 +749,13 @@ pub enum Rewrite {
     /// after the method's, in both parts, says a conforming processor shall use only the selected
     /// colour space and shall ignore all the other specifications.
     ///
-    /// [`super::jpeg2000`] is the whole reading: which box the two standards select, why a file
+    /// `super::jpeg2000` is the whole reading: which box the two standards select, why a file
     /// neither of them settles stays refused, why the loss is the §7.4.9 fallback chain rather
     /// than any pixel, and what shapes of JP2 structure this declines to shift bytes inside.
     Jpeg2000ColourSpecifications,
     /// Every signature the source carries loses its value; its field, widget and appearance stay.
     ///
-    /// `doc/pdf-a-conversion-limits.md` section 3.6, built as [`super::signatures`] reads it:
+    /// `doc/pdf-a-conversion-limits.md` section 3.6, built as `super::signatures` reads it:
     /// each signature field's `/V` goes (§12.7.5.5), the permissions dictionary's `DocMDP` and
     /// `UR3` entries go with the signatures they rested on (Table 263, §12.8.2.3), and the form's
     /// `AppendOnly` flag is cleared because the output holds no signature it could describe
@@ -770,7 +773,7 @@ pub enum Rewrite {
     /// ISO 19005-2 section 6.1.12 and ISO 19005-4 section 6.1.11. §12.8.6 makes each key the
     /// name of a permission handler and Table 263 names the two the standard defines; a key
     /// naming any other is one no conforming processor can consult, so nothing any reader did
-    /// ever turned on it. [`super::signatures::foreign_handlers`] is the reading.
+    /// ever turned on it. `super::signatures::foreign_handlers` is the reading.
     ForeignPermissionHandlers,
     /// Every embedded file the target refuses is replaced by what a declared tool derived from it.
     ///
@@ -783,7 +786,7 @@ pub enum Rewrite {
     /// document.** It is therefore not [`Decision::Mechanical`] and not [`Decision::Stated`]: it is
     /// [`Decision::Configured`], carried out only where the operator's configuration named the site
     /// *and* the tool, reported per document in the words *this is derived, not original*, and
-    /// recorded in the file's own `xmpMM:History`. [`super::remedies`] is the construction and the
+    /// recorded in the file's own `xmpMM:History`. `super::remedies` is the construction and the
     /// four dictionary edits it makes.
     ///
     /// [`Decision::Mechanical`]: super::Decision::Mechanical
@@ -811,7 +814,7 @@ pub enum Rewrite {
     /// content the document already holds is on the near side of the line, and the pages here
     /// carry nothing else. Two edits, and the second is `doc/adr/0954`'s cost rather than a
     /// conformance requirement — §12.4.2's labels stop describing a document whose page count
-    /// changed, so the appended pages get a range of their own ([`super::preserve`] says what it
+    /// changed, so the appended pages get a range of their own (`super::preserve` says what it
     /// states and why).
     PreservedAsPage,
     /// A forbidden annotation's normal appearance is put back where §12.5.5 had it, on the
@@ -827,7 +830,7 @@ pub enum Rewrite {
     ///
     /// ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1, whose prohibitions name action
     /// *types*, so what goes is the action and not the entry that reached it. §12.6.2's Table 196
-    /// gives the removed action a `/Next`, and [`super::actions`] promotes it into the place the
+    /// gives the removed action a `/Next`, and `super::actions` promotes it into the place the
     /// action held: the actions behind a forbidden one are failing nothing, and ADR 0947's second
     /// rule is that nothing changes which no failed requirement asked to change.
     ///
@@ -860,7 +863,7 @@ pub enum Rewrite {
     ///
     /// — so the byte written here is the one every conforming reader already supplies, and the
     /// operand's value is the same before and after. `doc/adr/1176` is the argument and
-    /// [`super::hexadecimal`] the reading; the sibling row about a byte that is not a digit stays
+    /// `super::hexadecimal` the reading; the sibling row about a byte that is not a digit stays
     /// refused, because §7.3.4.3 gives that byte no value to transcribe.
     HexadecimalDigitCompleted,
     /// Every `Separation` array naming one colourant states the one definition of it the
@@ -943,7 +946,7 @@ pub enum Rewrite {
     /// `/Title`, `dc:creator` for `/Author`, `dc:description` for `/Subject`, `pdf:Keywords`,
     /// `xmp:CreatorTool`, `pdf:Producer`, `xmp:CreateDate`, `xmp:ModifyDate` and `pdf:Trapped`.
     /// So every property written is the one the standard pairs with the key, and every value is
-    /// the producer's own; [`super::prepare::Information`] is the whole construction.
+    /// the producer's own; `super::prepare::Information` is the whole construction.
     ///
     /// **Nothing overwrites what the packet already says.** §14.3.4 permits the addition only
     /// into a silence — "a PDF processor may add the information to the other, as long as both
@@ -962,7 +965,7 @@ pub enum Rewrite {
     /// about: ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9 require an embedded file to
     /// conform to a part of ISO 19005, and Annex A lifts that for PDF/A-4f and Annex B for
     /// PDF/A-4e — so bytes that are not a PDF stay inside the archive at those two targets and
-    /// nowhere else. [`super::attach`] is the construction and `doc/adr/1270` the argument.
+    /// nowhere else. `super::attach` is the construction and `doc/adr/1270` the argument.
     ///
     /// **Not a mark and not a page.** What the document gains is three objects and two entries in
     /// its catalog; nothing on any page changes, and the bytes attached are the producer's,
@@ -1301,6 +1304,10 @@ impl Rewrite {
                  describes and the widths it was laid out by, as a TrueType dictionary where the \
                  face is one (doc/adr/2146)"
             }
+            Self::FontWidthArrayRestated => {
+                "a short Widths array narrows LastChar to its covered range, or a long array \
+                 loses its unused tail, preserving every advance the viewer uses"
+            }
             Self::RestateFontMetrics => {
                 "an embedded font program's stated advances are restated to the widths the font \
                  dictionary already states, which is the one of the two that does not move a mark"
@@ -1632,6 +1639,7 @@ impl Rewrite {
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
+            Self::FontWidthArrayRestated => "font-width-array-restated",
             Self::RestateVerticalFontMetrics => "restate-vertical-font-metrics",
             Self::RenderingIntent => "rendering-intent",
             Self::BlendModeNormal => "blend-mode-normal",
@@ -1808,6 +1816,7 @@ impl<'a> Rewriter<'a> {
             embedded_files: prepared.embedded_files.as_ref().ok(),
             substitutes: prepared.substitutes.as_ref().ok(),
             metrics: prepared.metrics.as_ref().ok(),
+            font_widths: prepared.owed.font_widths.as_ref().ok(),
             rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
             transfers: prepared.owed.transfers.as_ref().ok(),
             blend_modes: prepared.owed.blend_modes.as_ref().ok(),
@@ -2591,7 +2600,7 @@ enum Rewritten {
     Changed(Object),
 }
 
-/// Table 225's `AppendOnly` bit of `/SigFlags`: "[i]f set, the document contains signatures
+/// Table 225's `AppendOnly` bit of `/SigFlags`: "\[i]f set, the document contains signatures
 /// that may be invalidated if the PDF file is saved (written) in a way that alters its previous
 /// contents". The output contains none, so the bit comes off; bit 1, `SignaturesExist`, is a
 /// statement about the *fields*, which stay, and is left as the producer wrote it.
@@ -2679,6 +2688,8 @@ struct Rewriter<'a> {
     substitutes: Option<&'a Substitutes>,
     /// The font program stream to write in place of each one being restated.
     metrics: Option<&'a Metrics>,
+    /// The entries prepared for each font with a mismatched widths-array length.
+    font_widths: Option<&'a super::font_widths::WidthArrays>,
     /// The graphics states and images whose rendering intent is restated.
     rendering_intents: Option<&'a sites::Sites>,
     /// The graphics states whose `/TR` goes.
@@ -2890,35 +2901,7 @@ impl Rewriter<'_> {
                 .substitutes
                 .and_then(|substitutes| substitutes.at.get(&id))
         {
-            // §9.9's Table 124 admits at most one of the three keys:
-            //
-            // > At most, only one of the FontFile , FontFile2 , and FontFile3 entries shall be
-            // > present.
-            //
-            // This descriptor *states* none — the preparation's population is a descriptor whose
-            // every such key resolves to null — but it may well hold one of the keys with
-            // nothing behind it, which §7.3.7 makes the same thing and Table 124's sentence
-            // counts all the same. So the other two go before this one is written.
-            for key in ["FontFile", "FontFile2", "FontFile3"] {
-                if key != embedding.key {
-                    out.remove(key);
-                }
-            }
-            // **`/CharSet` and `/CIDSet` describe a program, and the program they describe was
-            // never in this file.** §9.8.1's Table 122 makes both optional and makes each a list
-            // of what the *embedded* program contains; ISO 19005-2 section 6.2.11.4.2 then
-            // requires the list to be complete. A producer who wrote one for a font they did not
-            // embed wrote a description of a font nobody had, so carrying it forward beside a
-            // face this converter chose would leave the file asserting something false about its
-            // own bytes — and would fail the very clause that checks the assertion, which is how
-            // the corpus found this. Removing a description of an absent program takes nothing
-            // from the document that a reader could have used.
-            out.remove("CharSet");
-            out.remove("CIDSet");
-            out.insert(
-                Name::new(embedding.key.as_bytes()),
-                Object::Reference(embedding.at),
-            );
+            embedding.write_into(&mut out);
             count(applied, Rewrite::SubstituteFontProgram);
             changed = true;
         }
@@ -2941,6 +2924,15 @@ impl Rewriter<'_> {
                 Object::Name(Name::new(media_type.as_bytes())),
             );
             count(applied, Rewrite::SuppliedMediaType);
+            changed = true;
+        }
+        if self.wants(Rewrite::FontWidthArrayRestated)
+            && let Some(entries) = self.font_widths.and_then(|widths| widths.at.get(&id))
+        {
+            for (key, value) in entries.iter() {
+                out.insert(key.clone(), value.clone());
+            }
+            count(applied, Rewrite::FontWidthArrayRestated);
             changed = true;
         }
         changed |= self.write_defaults(id, &mut out, applied);
@@ -3119,7 +3111,7 @@ impl Rewriter<'_> {
     /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added, and
     /// the information dictionary's entries are supplemented into it (`doc/adr/1269`). Any one
     /// alone is enough to make the packet the prepared one — which is what carries every edit the
-    /// others made, since [`super::prepare::Edited`] folds them in that order.
+    /// others made, since `super::prepare::Edited` folds them in that order.
     fn wants_metadata(&self) -> bool {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)
@@ -3204,7 +3196,7 @@ fn parms_at(document: &Document, dict: &Dictionary, index: usize) -> Option<Dict
 
 /// A stream's `/Filter` names as its own dictionary states them, one per stage.
 ///
-/// §7.4.1's Table 5 makes `/Filter` "[t]he name of a filter that shall be applied in processing
+/// §7.4.1's Table 5 makes `/Filter` "\[t]he name of a filter that shall be applied in processing
 /// the stream data found between the keywords stream and endstream , or an array of zero, one
 /// or several names". Anything else — an indirect entry, an array element that is not a name —
 /// answers `None`, and the stream is left as its producer wrote it.

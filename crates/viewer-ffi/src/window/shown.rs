@@ -64,6 +64,21 @@ impl Window {
         self.reads().find(&self.state.needle)
     }
 
+    /// Shows the page a thumbnail row names, by its zero-based index (§12.3.4).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused; [`Status::OutOfRange`] where its
+    /// page list contains no such index. A refused index leaves the current page unchanged.
+    pub fn go_to_page(&mut self, page: usize) -> Result<(), Status> {
+        if page >= self.reads().page_count()? {
+            return Err(Status::OutOfRange);
+        }
+        self.dispatch(Command::GoTo(viewer_core::PageTarget::Index(page)));
+        self.settle();
+        Ok(())
+    }
+
     /// Activates an object: an outline item's or a thread's row, or a push-button's widget, whose
     /// look the producer drew and whose click is the page's (ADR 1357).
     pub fn activate(&mut self, number: u32, generation: u16) {

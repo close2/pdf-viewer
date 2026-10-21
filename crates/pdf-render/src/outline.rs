@@ -109,7 +109,7 @@ pub fn stroked_bounds(path: &Path, stroke: &Stroke, to_device: Transform) -> Opt
 
 /// Where a join can put ink, given the two directions meeting at its vertex.
 ///
-/// ISO 32000-2 §8.4.3.4's miter join is where "[t]he outer edges of the strokes for the two
+/// ISO 32000-2 §8.4.3.4's miter join is where "\[t]he outer edges of the strokes for the two
 /// segments shall be extended until they meet at an angle, as in a picture frame", and §8.4.3.5
 /// bounds how far that can be:
 ///

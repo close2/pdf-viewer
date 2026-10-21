@@ -8,7 +8,7 @@
 //! name, the budget it exceeded if it exceeded one, and the lines it logged. Both are data and both
 //! have a byte encoding ([`wire`]), because RFC 0008 section 6.2 puts the engine in a confined
 //! process of its own and what crosses to it is bytes; nothing here holds a document or reads a
-//! file. A [`Realm`] is one document's engine context, which persists across every request so that
+//! file. A `Realm` is one document's engine context, which persists across every request so that
 //! what Table 32's name tree defines at the open is what a field's script calls later (ADR 1602).
 //!
 //! # The engine, and the `unsafe` this crate does not contain

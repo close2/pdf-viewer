@@ -16,7 +16,7 @@
 //! # A column is several page nodes, not one longer page
 //!
 //! Table 29's five continuous arrangements put several pages in one window, and each of them
-//! crosses as a page node of its own with a band of identifiers of its own ([`Band`]). Two
+//! crosses as a page node of its own with a band of identifiers of its own (`Band`). Two
 //! reasons, and neither is convenience. **§14.7's tree does not compose**: a page's elements are
 //! reached through §14.7.5.4's structural parent tree keyed by that page's own `/StructParents`,
 //! two pages that share an ancestor each answer with it, and §14.8.2.5 states an order *within* a
@@ -71,7 +71,7 @@
 //! | action | on | because |
 //! |---|---|---|
 //! | [`Action::ScrollIntoView`] | an element with a place | a scroll takes a rectangle, and an element with no place names none |
-//! | [`Action::Click`] | an element whose content is an annotation | §12.5.1: "[w]hen the user activates the annotation by clicking it, it exhibits its associated object" |
+//! | [`Action::Click`] | an element whose content is an annotation | §12.5.1: "\[w]hen the user activates the annotation by clicking it, it exhibits its associated object" |
 //! | [`Action::SetTextSelection`] | the page, where it has runs | the interface a caret moves through is on this node and nowhere else, for the reason above |
 //!
 //! **Two of the three would arrive whether or not they were declared**, which is why declaring
@@ -394,8 +394,8 @@ pub fn build(view: &DocumentView) -> TreeUpdate {
 
 /// What the page node is called.
 ///
-/// §12.4.2's label where the document states one, because "[e]ach page in a PDF document shall be
-/// identified by an integer page index … [i]t may also be identified by a page label" and a
+/// §12.4.2's label where the document states one, because "\[e]ach page in a PDF document shall be
+/// identified by an integer page index … \[i]t may also be identified by a page label" and a
 /// document that numbers its front matter in roman numerals has said its third page is called
 /// `iii`. The index is given beside it either way, because a person navigating needs to know how
 /// far through the document they are and a label does not say.
@@ -891,7 +891,7 @@ fn word_starts(characters: &[(&str, u8, [f32; 4])]) -> Vec<u8> {
 /// What a table cell's header cells are, in words a person is meant to hear.
 ///
 /// §14.8.4.8.3's whole purpose is what a reader does with the answer, and Table 384's `/Short`
-/// says so outright: "[w]hen accessed by means of a screen reader, for each table cell the
+/// says so outright: "\[w]hen accessed by means of a screen reader, for each table cell the
 /// applicable header cells are read to the user in order to allow that user to understand the
 /// content of the table cell." So the headers have to reach a person, and on this platform the
 /// **description** is the only channel that does — which is a choice about a platform rather than
@@ -973,7 +973,7 @@ fn unmapped(name: &str, reason: Nonstandard) -> String {
 /// An artifact has no name — §14.8.2.2.1 makes its text what is not the document's content, and
 /// [`crate::role`] withholds it on that strength — so a person moving through a page's structure
 /// meets this node as a container with nothing in it. §14.8.2.2.1 is also what says the kind
-/// matters: "[a] text-to-speech engine, for instance, may decide not to speak running heads or
+/// matters: "\[a] text-to-speech engine, for instance, may decide not to speak running heads or
 /// page numbers when the page is turned", and a running head, a footnote rule and a cut mark are
 /// three different things to decide about. This is the sentence that lets a person make that
 /// decision instead of a container telling them nothing.
@@ -982,7 +982,7 @@ fn unmapped(name: &str, reason: Nonstandard) -> String {
 /// a statement *about* the element rather than something its content says.
 ///
 /// The subtype is said as the document wrote it, because Table 385 leaves the entry open —
-/// "[a]dditional values may be specified for this entry, provided they comply with the naming
+/// "\[a]dditional values may be specified for this entry, provided they comply with the naming
 /// conventions described in Annex E" — so translating the seven the table lists and dropping the
 /// rest would lose exactly the names a producer went to the trouble of registering.
 ///

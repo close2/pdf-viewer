@@ -80,16 +80,16 @@ pub enum Damage {
     /// The encoded data ran out before the filter's end-of-data marker.
     ///
     /// Every filter that has one states it: §7.4.4.2's EOD code 257 for `LZWDecode`,
-    /// §7.4.5's "[a] length value of 128 shall denote EOD" for `RunLengthDecode`, and RFC
+    /// §7.4.5's "\[a] length value of 128 shall denote EOD" for `RunLengthDecode`, and RFC
     /// 1951's final block for `FlateDecode`. Reaching the end of the input without seeing it
     /// means the bytes stop short of what the stream says it is — which §7.3.8.2 makes a
     /// statement about the file, since `/Length` "indicates how many bytes of the PDF file are
-    /// used for the stream's data" and "[a]ll of these constraints shall be consistent".
+    /// used for the stream's data" and "\[a]ll of these constraints shall be consistent".
     ///
     /// **`FlateDecode` has one way of reaching the end of its input that is not this**, and it
     /// wore this value for as long as the value has existed: a producer that flushed and never
     /// finished wrote every byte of its data and no final block, so what is absent is the
-    /// declaration rather than the data. [`ended_on_a_block`] is what tells the two apart; ADR
+    /// declaration rather than the data. `ended_on_a_block` is what tells the two apart; ADR
     /// 0744 has the argument and the three corpus documents that carried the wrong report.
     Truncated,
     /// The encoded data is not what the filter's grammar admits, at a definite point in it.
@@ -117,7 +117,7 @@ pub enum Damage {
     /// unused glyph from a tail of noise. So the value carries the error indication to whoever
     /// consumes the bytes, and what decides whether they are usable is the grammar of the thing
     /// they are — a font program's table directory, an image's extent, a content stream's
-    /// operators — rather than a 32-bit sum over all of it. ADR 0836; [`only_the_check_value`]
+    /// operators — rather than a 32-bit sum over all of it. ADR 0836; `only_the_check_value`
     /// is what tells this from a deflate stream that really broke.
     CheckValue,
 }
@@ -1203,8 +1203,8 @@ impl Pumping {
 ///
 /// **The bytes are the same bytes**, and that is a property of how the two routes are built
 /// rather than a hope: each filter is one resumable decoder, and the whole-buffer entry point is
-/// a loop over the same decoder. `FlateDecode` shares [`turn`] between its two loops;
-/// `LZWDecode` shares [`Lzw`] itself.
+/// a loop over the same decoder. `FlateDecode` shares `turn` between its two loops;
+/// `LZWDecode` shares `Lzw` itself.
 #[derive(Debug)]
 pub struct Pump {
     /// The still-encoded bytes, held whole because they are already resident: the pump takes
@@ -1881,7 +1881,7 @@ fn end_of_block_extent(data: &[u8], end_of_lines: u32) -> EncodedExtent {
 impl Pump {
     /// A pump over `data`, decoding it as [`decode_reported`] would run the same chain.
     ///
-    /// `FlateDecode`'s white-space skip and zlib-then-raw fallback are [`flate`]'s, kept
+    /// `FlateDecode`'s white-space skip and zlib-then-raw fallback are `flate`'s, kept
     /// exactly: a stream missing its two-byte header is common in the wild, and a decoder that
     /// has produced nothing yet can be restarted under the other framing for nothing.
     #[must_use]
@@ -1927,7 +1927,7 @@ impl Pump {
     /// Writes the next bytes of the decoded stream into `out`.
     ///
     /// `out` must not be empty: a decoder given no room makes no progress, and for
-    /// `FlateDecode` no progress is how [`turn`] recognises a truncated input.
+    /// `FlateDecode` no progress is how `turn` recognises a truncated input.
     ///
     /// **One pass over the chain per call, front to back**, so that bytes a stage produces reach
     /// the stage after it within the same call rather than a call later. A pass that moves bytes
@@ -1936,13 +1936,13 @@ impl Pump {
     /// must keep asking through" — an inflate that takes input without emitting has always been
     /// able to answer that way.
     ///
-    /// **The one thing a chain has that a single stage did not is a rewind.** [`Inflate`] asks
+    /// **The one thing a chain has that a single stage did not is a rewind.** `Inflate` asks
     /// to re-read its input under raw framing when zlib's produced nothing, and for the first
     /// stage that is free because the whole encoded buffer is still there. For a later stage the
-    /// input is a [`LINK`]-byte link, so the driver holds its bytes back from compaction until
+    /// input is a `LINK`-byte link, so the driver holds its bytes back from compaction until
     /// the stage reading them has produced something — and where that cannot be done, because
     /// the stage consumed a whole link's worth without emitting a byte, it is told
-    /// ([`Engine::settle`]) that the offer is withdrawn rather than being allowed to ask for
+    /// (`Engine::settle`) that the offer is withdrawn rather than being allowed to ask for
     /// bytes that are gone. A zlib framing that is wrong fails at its two-byte header, so the
     /// withdrawal needs a stage that consumes eight kilobytes of a *valid* zlib stream while
     /// emitting nothing and then fails; that stream decodes to nothing under raw framing either.
@@ -2655,7 +2655,7 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
 /// rather than an omission.** One byte comes out for every two that go in, so this is a 2:1
 /// contraction and no file can inflate through it; the raw bytes are already bounded by
 /// `max_stream_len` where the parser reads them (`Parser::parse_stream_data`), which is what makes
-/// that bound "raw or decoded" rather than only the second. [`Document::pumping`] states the
+/// that bound "raw or decoded" rather than only the second. `Document::pumping` states the
 /// same ratio for the road not taken.
 fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
     let mut out = Vec::new();

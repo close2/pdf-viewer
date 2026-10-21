@@ -10,7 +10,7 @@ use crate::icc::Rendering;
 /// Which press a colour's four components belong to, for the things keyed on one.
 ///
 /// A press is recognised by the profile it was sampled from **and by the parameters it was
-/// sampled under**, never by where it is held: [`SAMPLED`] evicts, so the same profile can be
+/// sampled under**, never by where it is held: `SAMPLED` evicts, so the same profile can be
 /// sampled into two different [`Press`] values over a process's life and they are the same
 /// press. `crate::shading`'s cache is keyed on [`super::compositing::Compositing`], which carries this.
 ///
@@ -22,9 +22,9 @@ use crate::icc::Rendering;
 /// parameter unreadable (ADR 1054).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PressIdentity {
-    /// ADR 0263's assumed process inks — [`CMYK_CORNERS`] — which no document names.
+    /// ADR 0263's assumed process inks — `CMYK_CORNERS` — which no document names.
     ///
-    /// No rendering beside it: the grid is [`CMYK_CORNERS`], a compile-time constant with no
+    /// No rendering beside it: the grid is `CMYK_CORNERS`, a compile-time constant with no
     /// profile behind it, so there is no transform for an intent to select.
     Assumed,
     /// The profile of this [`crate::icc::Profile::identity`], sampled under this rendering.
@@ -67,7 +67,7 @@ const RENDERINGS_OF_ONE_PROFILE: usize = 7;
 /// apiece.
 ///
 /// **The number is the standard's floor with a profile's worth of room above it**, which is
-/// what trap 38 asks a bound to say by name. [`RENDERINGS_OF_ONE_PROFILE`] is what one profile
+/// what trap 38 asks a bound to say by name. `RENDERINGS_OF_ONE_PROFILE` is what one profile
 /// can be, so no conformant page naming one profile can meet this refusal; the second multiple
 /// is margin over everything measured. What was measured is
 /// `pdf-model --example press_depth`: over the 974-document corpus **no page names a press at
@@ -86,7 +86,7 @@ const RENDERINGS_OF_ONE_PROFILE: usize = 7;
 /// refused whatever else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s
 /// third-bound section the three roads.
 ///
-/// What is *not* per interpretation is the sampling, which is [`SAMPLED`]: a cache changes how
+/// What is *not* per interpretation is the sampling, which is `SAMPLED`: a cache changes how
 /// fast an answer is reached and never what it is, so it may be shared where a budget may not.
 pub const MAX_PRESSES: usize = RENDERINGS_OF_ONE_PROFILE * 2;
 
@@ -107,7 +107,7 @@ const MAX_CACHED_PRESSES: usize = 8;
 /// The presses this process has sampled, most recently used first.
 ///
 /// The lock is taken once per press an interpretation names — never per colour, which is what
-/// [`Compositing`] carrying the press itself buys — and it is **never** held across
+/// [`super::compositing::Compositing`] carrying the press itself buys — and it is **never** held across
 /// [`sample_press`], because a lock held across work rayon can steal hangs the process (ADR
 /// 0269).
 static SAMPLED: Mutex<Vec<Arc<Press>>> = Mutex::new(Vec::new());
@@ -121,16 +121,19 @@ static SAMPLED: Mutex<Vec<Arc<Press>>> = Mutex::new(Vec::new());
 /// speed rather than of correctness.
 static SAMPLINGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// How many times this process has built a press out of a profile. See [`SAMPLINGS`].
+/// How many times this process has built a press out of a profile. See `SAMPLINGS`.
 #[must_use]
 pub fn presses_sampled() -> usize {
     SAMPLINGS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// How many sampled presses this process still holds, at most [`MAX_CACHED_PRESSES`].
-#[must_use]
-pub fn presses_cached() -> usize {
-    SAMPLED.lock().map_or(0, |sampled| sampled.len())
+/// How many sampled presses this process still holds, at most `MAX_CACHED_PRESSES`.
+///
+/// # Errors
+///
+/// A panicking cache owner leaves the count unknown: [`NoPress::Poisoned`].
+pub fn presses_cached() -> Result<usize, NoPress> {
+    Ok(guard(&SAMPLED)?.len())
 }
 
 /// [`PressIdentity::Assumed`]'s press, built on first use like any other.
@@ -152,7 +155,7 @@ static DEVICE_INK: OnceLock<Arc<Press>> = OnceLock::new();
 /// and a weighted average of four complements is not four. This press carries the four as
 /// §11.4.7's pair of rasters instead, and it is chosen so that nothing but the blend changes:
 ///
-/// - **In**, a colour of another space goes through [`super::ink_search::rgb_to_cmyk`] — §10.4.2.4 with
+/// - **In**, a colour of another space goes through `super::ink_search::rgb_to_cmyk` — §10.4.2.4 with
 ///   `BG(k) = k` and `UCR(k) = k` — whose weighted ink `0.3 c + 0.59 m + 0.11 y + k` is
 ///   `1 − (0.3 R + 0.59 G + 0.11 B)`, because the black it adds is the black it removes from
 ///   weights summing to one. That is the grey the one-channel route paints the same colour in, so
@@ -170,7 +173,7 @@ pub fn device_ink_press() -> Arc<Press> {
     }))
 }
 
-/// The press this tree assumes when a document says nothing: [`CMYK_CORNERS`].
+/// The press this tree assumes when a document says nothing: `CMYK_CORNERS`.
 #[must_use]
 pub fn assumed_press() -> Arc<Press> {
     Arc::clone(ASSUMED.get_or_init(|| Arc::new(Press::assumed())))
@@ -181,9 +184,9 @@ pub fn assumed_press() -> Arc<Press> {
 /// §11.4.7 gives a page a blending colour space and §11.7.2 requires colours to be converted
 /// *into* it, so a press is two conversions that have to be inverses of each other — ADR 0263
 /// is where that became the rule, and this is that rule with the press no longer assumed.
-/// [`Press::space`] is the conversion out, sampled on a grid because that is what a backend
-/// can be handed; the conversion in is [`Press::profile`]'s own `B2A` where the profile
-/// carries one (ADR 0796), and otherwise [`Press::table`], searched against the same grid.
+/// `Press::space` is the conversion out, sampled on a grid because that is what a backend
+/// can be handed; the conversion in is `Press::profile`'s own `B2A` where the profile
+/// carries one (ADR 0796), and otherwise `Press::table`, searched against the same grid.
 #[derive(Debug)]
 pub struct Press {
     /// §11.4.7's conversion out of the space, as the grid a backend interpolates.
@@ -202,11 +205,11 @@ pub struct Press {
     pub(super) profile: Option<Box<crate::icc::Profile>>,
     /// The parameters the grid was sampled under, so the conversion *in* can mirror them.
     ///
-    /// §11.7.5.3's second bullet fixes them at the group's `Do`; [`xyz_to_ink`] asks this
+    /// §11.7.5.3's second bullet fixes them at the group's `Do`; [`super::ink_search::xyz_to_ink`] asks this
     /// rather than assuming compensation, because the two directions are inverses of each
     /// other and an inverse taken under other parameters is not one.
     pub(super) rendering: Rendering,
-    /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
+    /// [`super::ink_search::search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
     pub(super) table: OnceLock<Vec<[f32; 4]>>,
     /// §11.5.3's `Y` over the four components, built on first use. See [`Press::luminance`].
     luminance: OnceLock<Option<pdf_render::Luminance>>,
@@ -250,7 +253,7 @@ impl Press {
             identity: PressIdentity::Assumed,
             profile: None,
             // The assumed inks are interpolated between sixteen constants, so no transform of
-            // any profile is selected and this is what [`xyz_to_ink`]'s search reads.
+            // any profile is selected and this is what [`super::ink_search::xyz_to_ink`]'s search reads.
             rendering: Rendering::compensating(),
             table: OnceLock::new(),
             luminance: OnceLock::new(),
@@ -260,7 +263,7 @@ impl Press {
     /// Whether the conversion into this press is the profile's own `B2A` table.
     ///
     /// `false` for the assumed inks and for a profile without one, whose conversion in is a
-    /// right inverse of the conversion out ([`super::ink_search::rgb_to_ink`]).
+    /// right inverse of the conversion out (`super::ink_search::rgb_to_ink`).
     #[must_use]
     pub fn converts_in_by_profile(&self) -> bool {
         self.profile.is_some()
@@ -272,7 +275,7 @@ impl Press {
     /// at the end, and that happens in a backend where no colour space exists (see
     /// [`pdf_render::Color`]). So the table goes down with the display list, and this is the
     /// one place it is built: `a_backends_table_is_this_crates_own_conversion` checks that
-    /// interpolating the assumed press's is [`super::device_cmyk::cmyk`] to the last bit, which is what keeps the
+    /// interpolating the assumed press's is `super::device_cmyk::cmyk` to the last bit, which is what keeps the
     /// "one route from a colour to the screen" rule in this module's header true of it.
     #[must_use]
     pub fn blending_space(&self) -> pdf_render::BlendingSpace {
@@ -290,8 +293,8 @@ impl Press {
     /// > the luminosity. This produces a colorimetrically correct luminosity.
     ///
     /// That `Y` is one function of all four components at once, so it is sampled — **at the
-    /// very grid points [`sample_press`] already samples for the conversion out**, which is
-    /// what makes the fidelity argument the same one [`PRESS_SIDE`] carries rather than a new
+    /// very grid points `sample_press` already samples for the conversion out**, which is
+    /// what makes the fidelity argument the same one `PRESS_SIDE` carries rather than a new
     /// one: the two grids agree point for point on where they are evaluated, and a
     /// luminosity read between them departs by the profile's own curvature exactly as the
     /// device colour does. Interpolated over sixteen corners by `pdf_render::Luminance`.
@@ -300,13 +303,13 @@ impl Press {
     /// axis down: the clause asks for the colour's XYZ, and the compensation is a step
     /// toward a destination rather than part of it.
     ///
-    /// # What it costs, and why it is behind a lock rather than in [`sample_press`]
+    /// # What it costs, and why it is behind a lock rather than in `sample_press`
     ///
-    /// [`PRESS_SIDE`]⁴ profile evaluations — 83 521 of them — and 334 KB, which is a third of
+    /// `PRESS_SIDE`⁴ profile evaluations — 83 521 of them — and 334 KB, which is a third of
     /// the grid beside it. Almost every press a document names is a *page*'s or an output
-    /// intent's and never carries a mask, so paying this inside [`sample_press`] would put it
+    /// intent's and never carries a mask, so paying this inside `sample_press` would put it
     /// on the launch path of every four-component page for a number no such page reads. Built
-    /// on first use for the same reason [`Press::table`] is, and once per press rather than
+    /// on first use for the same reason `Press::table` is, and once per press rather than
     /// once per soft-mask dictionary — `6081357.pdf` states 912 masks on one page (ADR 0851).
     #[must_use]
     pub fn luminance(&self) -> Option<pdf_render::Luminance> {
@@ -483,9 +486,7 @@ impl NoPress {
     #[must_use]
     pub const fn why(self) -> &'static str {
         match self {
-            Self::Spent => {
-                "it is the ninth distinct press this page names and eight is the budget (§11.7.2)"
-            }
+            Self::Spent => "this page has spent its distinct-press budget (§11.7.2)",
             Self::Unsampled => {
                 "its profile is not four components a press's grid can be sampled from"
             }
@@ -510,9 +511,9 @@ fn guard<T>(lock: &Mutex<T>) -> Result<MutexGuard<'_, T>, NoPress> {
 /// §11.4.7 gives the page one press and §11.7.2 lets a transparency group inside it name
 /// another, so an interpretation can name several — and the same one twice, which must cost
 /// the budget once. Holding what was named answers both questions with one structure, and it
-/// is what makes the refusal a function of the file: the ninth *distinct* press of one page is
-/// refused on every run and on every machine, where until ADR 0417 the ninth press of the
-/// *process* was, and which page that fell on depended on the scheduler.
+/// makes the refusal a function of the file: a page naming more than [`MAX_PRESSES`] distinct
+/// presses is refused the next one on every run, independently of other pages and scheduling
+/// (ADR 0417).
 ///
 /// The lock is taken once per press a page names — a handful of times at most — and never
 /// while a colour is being converted, because [`super::compositing::Compositing`] carries the press itself rather
@@ -540,32 +541,38 @@ impl Presses {
     /// `None` where `space` is not one [`RgbRoute::of`] answers for. Keyed on
     /// [`ColourSpace::rgb_identity`], so that two dictionaries stating one `CalRGB`, or two
     /// streams carrying one profile, are one route.
-    #[must_use]
-    pub fn rgb_route(&self, space: &ColourSpace) -> Option<Arc<RgbRoute>> {
-        let identity = space.rgb_identity()?;
-        if let Some(found) = self
-            .routes
-            .lock()
-            .ok()?
+    ///
+    /// # Errors
+    ///
+    /// [`NoPress::Poisoned`] means a thread panicked holding the route table, rather than
+    /// that the colour space has no route. The caller must report its fallback.
+    pub fn rgb_route(&self, space: &ColourSpace) -> Result<Option<Arc<RgbRoute>>, NoPress> {
+        let Some(identity) = space.rgb_identity() else {
+            return Ok(None);
+        };
+        if let Some(found) = guard(&self.routes)?
             .iter()
             .find(|route| route.identity == identity)
         {
-            return Some(Arc::clone(found));
+            return Ok(Some(Arc::clone(found)));
         }
         // Built with no lock held, for the reason `press_for_profile` gives.
-        let built = Arc::new(RgbRoute::of(space)?);
-        let mut routes = self.routes.lock().ok()?;
+        let Some(route) = RgbRoute::of(space) else {
+            return Ok(None);
+        };
+        let built = Arc::new(route);
+        let mut routes = guard(&self.routes)?;
         if let Some(found) = routes
             .iter()
             .find(|route| route.identity == identity)
             .map(Arc::clone)
         {
-            return Some(found);
+            return Ok(Some(found));
         }
         if routes.len() < MAX_RGB_ROUTES {
             routes.push(Arc::clone(&built));
         }
-        Some(built)
+        Ok(Some(built))
     }
 
     /// The press this profile describes, under this interpretation's budget.
@@ -589,7 +596,7 @@ impl Presses {
                 return Ok(Arc::clone(found));
             }
             // Asked before the sampling rather than after it, so that a page naming a hundred
-            // presses pays for eight rather than for a hundred: the budget is a refusal and a
+            // presses pays only for the admitted presses: the budget is a refusal and a
             // refusal that costs the work it refused is not one.
             if named.len() >= MAX_PRESSES {
                 return Err(NoPress::Spent);
@@ -614,9 +621,12 @@ impl Presses {
     }
 
     /// How many distinct presses this interpretation has named, for a test that asks.
-    #[must_use]
-    pub fn named(&self) -> usize {
-        self.named.lock().map_or(0, |named| named.len())
+    ///
+    /// # Errors
+    ///
+    /// [`NoPress::Poisoned`] leaves the count unknown, never zero.
+    pub fn named(&self) -> Result<usize, NoPress> {
+        Ok(guard(&self.named)?.len())
     }
 }
 
@@ -735,6 +745,75 @@ mod tests {
         assert!(NoPress::Poisoned.why().contains("not of the file"));
     }
 
+    /// A poisoned count is unknown, not an empty interpretation.
+    #[test]
+    fn a_poisoned_named_counter_is_not_zero() {
+        let presses = Presses::default();
+        assert!(
+            std::thread::scope(|scope| scope
+                .spawn(|| {
+                    let _held = presses.named.lock();
+                    panic!("poison the count");
+                })
+                .join())
+            .is_err()
+        );
+        assert_eq!(presses.named(), Err(NoPress::Poisoned));
+    }
+
+    /// The same valid RGB space has a route before poisoning and an explicit fault after it.
+    #[test]
+    fn a_poisoned_rgb_route_is_not_an_absent_route() {
+        let presses = Presses::default();
+        let space = crate::colour::ColourSpace::CalRgb {
+            white: [0.9505, 1.0, 1.0890],
+            black: [0.0; 3],
+            gamma: [1.0; 3],
+            matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        };
+        assert!(presses.rgb_route(&space).expect("whole table").is_some());
+        assert!(
+            std::thread::scope(|scope| scope
+                .spawn(|| {
+                    let _held = presses.routes.lock();
+                    panic!("poison the route table");
+                })
+                .join())
+            .is_err()
+        );
+        assert_eq!(presses.rgb_route(&space).err(), Some(NoPress::Poisoned));
+    }
+
+    /// The process-wide cache is poisoned in a child process so neighbouring tests keep a
+    /// whole cache. This exercises the public counter, not a substitute lock.
+    #[test]
+    fn a_poisoned_process_cache_counter_is_not_zero() {
+        const CHILD: &str = "PDF_COLOUR_POISON_CACHE_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let status =
+                std::process::Command::new(std::env::current_exe().expect("test executable"))
+                    .args([
+                        "--exact",
+                        "colour::press::tests::a_poisoned_process_cache_counter_is_not_zero",
+                    ])
+                    .env(CHILD, "1")
+                    .status()
+                    .expect("child test starts");
+            assert!(status.success());
+            return;
+        }
+        assert!(super::presses_cached().is_ok());
+        assert!(
+            std::thread::spawn(|| {
+                let _held = super::SAMPLED.lock();
+                panic!("poison the process cache");
+            })
+            .join()
+            .is_err()
+        );
+        assert_eq!(super::presses_cached(), Err(NoPress::Poisoned));
+    }
+
     /// The unpoisoned table answers a press, so the test above is about the poison alone.
     #[test]
     fn the_same_profile_on_a_whole_table_is_a_press() {
@@ -746,6 +825,6 @@ mod tests {
                 .press_for_profile(&profile, Rendering::compensating())
                 .is_ok()
         );
-        assert_eq!(presses.named(), 1);
+        assert_eq!(presses.named(), Ok(1));
     }
 }

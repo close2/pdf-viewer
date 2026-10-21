@@ -1,14 +1,14 @@
 //! Table 74's `/TilingType`: the lattice a tiling pattern's cells are laid on.
 //!
 //! ISO 32000-2 §8.7.3.1 replicates a pattern cell "at fixed horizontal and vertical intervals",
-//! and Table 74's `/TilingType` is "[a] code that controls adjustments to the spacing of tiles
+//! and Table 74's `/TilingType` is "\[a] code that controls adjustments to the spacing of tiles
 //! relative to the device pixel grid". Three codes, and the difference between them is which of
 //! two quantities a processor is allowed to move — the cell, or the gaps between cells:
 //!
 //! - **1, constant spacing.** "Pattern cells shall be spaced consistently - that is, by a multiple
 //!   of a device pixel", achieved where it has to be by distorting the cell slightly — the clause
 //!   names small adjustments to `/XStep`, `/YStep` and the transformation matrix as the way — and
-//!   "[t]he amount of distortion shall not exceed 1 device pixel."
+//!   "\[t]he amount of distortion shall not exceed 1 device pixel."
 //! - **2, no distortion.** "The pattern cell shall not be distorted, but the spacing between
 //!   pattern cells may vary by as much as 1 device pixel, both horizontally and vertically, when
 //!   the pattern is painted."
@@ -26,7 +26,7 @@
 //! u = s · (a·XStep, b·XStep)        v = s · (c·YStep, d·YStep)
 //! ```
 //!
-//! in device pixels, where `s` is pixels per page unit. "[S]paced consistently … by a multiple of
+//! in device pixels, where `s` is pixels per page unit. "\[S]paced consistently … by a multiple of
 //! a device pixel" is then one sentence of arithmetic: round each component of `u` and of `v` to
 //! the nearest whole pixel. Every site is a whole number of `u` and `v` away from the key cell, so
 //! rounding those two makes every site land at a whole number of device pixels from it — which is
@@ -36,7 +36,7 @@
 //! What the rounding costs is a changed pattern matrix, which is the clause's own remedy: the
 //! adjusted matrix is the one that sends `(/XStep, 0)` and `(0, /YStep)` to the rounded vectors,
 //! with `/XStep`, `/YStep` and the matrix's translation left exactly as the file states them. The
-//! translation is untouched on purpose — §8.7.3.1 makes it the tiling's *phase* ("[t]he phase of
+//! translation is untouched on purpose — §8.7.3.1 makes it the tiling's *phase* ("\[t]he phase of
 //! the tiling can be controlled by the translation components of the Matrix entry"), and the
 //! clause asks for consistent spacing rather than for a particular place to start.
 //!
@@ -91,7 +91,7 @@ impl TilingType {
 
     /// Whether this code asks for the lattice to be snapped to the device pixel grid.
     ///
-    /// True for codes 1 and 3, which Table 74 describes with the same words — "[p]attern cells
+    /// True for codes 1 and 3, which Table 74 describes with the same words — "\[p]attern cells
     /// shall be spaced consistently as in tiling Type 1" — and false for code 2, whose cell
     /// "shall not be distorted".
     #[must_use]

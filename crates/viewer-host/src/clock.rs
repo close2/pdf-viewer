@@ -12,9 +12,9 @@
 //!
 //! > If no Dur entry is specified in the page object, the page shall not advance automatically.
 //!
-//! — and NOTE 1's other half, "[t]he user can advance the page manually before the specified time
+//! — and NOTE 1's other half, "\[t]he user can advance the page manually before the specified time
 //! has expired", which is a key press rather than a clock. Table 164 states the transition's
-//! duration as `/D`, "[t]he duration of the transition effect, in seconds. Default value: 1", and
+//! duration as `/D`, "\[t]he duration of the transition effect, in seconds. Default value: 1", and
 //! §12.4.4.1's own EXAMPLE fixes how the two compose:
 //!
 //! > The following example shows the presentation parameters for a page to be displayed for 5

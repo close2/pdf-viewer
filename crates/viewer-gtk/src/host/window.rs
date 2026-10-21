@@ -606,7 +606,7 @@ fn header(me: &Weak<RefCell<Host>>) -> (gtk4::HeaderBar, Vec<gtk4::Button>) {
 
 /// The interactive chrome, in the platform's own colour.
 ///
-/// `doc/ui-boundary.md`: "[e]mitting them as quads and points lets a native host draw selection in
+/// `doc/ui-boundary.md`: "\[e]mitting them as quads and points lets a native host draw selection in
 /// **macOS's selection colour, KDE's accent, the Windows highlight brush**". The colour here is
 /// [`gtk4::prelude::WidgetExt::color`] — the theme's own foreground at this widget, which follows
 /// a light or dark theme without this program knowing which is on. It is deliberately *not* the

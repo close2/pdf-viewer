@@ -38,6 +38,9 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer timer;
     private readonly PageControls controls;
     private readonly PageNotes notes;
+    private readonly WindowDialogs dialogs;
+    private readonly WindowPanels panels;
+    private readonly WindowPermissions permissions;
     private readonly List<string> beside = new();
     private readonly HashSet<uint> named = new();
     private QuorraWindow? window;
@@ -54,6 +57,9 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "quorra";
+        dialogs = new WindowDialogs(() => Area.XamlRoot, Commit, Say);
+        panels = new WindowPanels(Navigation, PanelChoice, PanelRows, () => window, Guard, Commit);
+        permissions = new WindowPermissions(PermissionsButton, () => window, Guard, Commit);
         controls = new PageControls(
             Area.ControlLayer,
             new Commits(
@@ -75,6 +81,7 @@ public sealed partial class MainWindow : Window
         });
         Area.Loaded += (_, _) =>
         {
+            dialogs.Start();
             Area.Focus(FocusState.Programmatic);
             // A move to a monitor of another scale changes the device pixels and not the size, and
             // a size change, which SizeChanged has already told the window, is not one.
@@ -89,6 +96,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             timer.Stop();
+            dialogs.Close();
             CompositionTarget.Rendered -= OnRendered;
             window?.Dispose();
             window = null;
@@ -218,40 +226,27 @@ public sealed partial class MainWindow : Window
                 placedAt = null;
                 Measured(open);
                 break;
+            case Native.QUORRA_OWED_PANELS:
+                panels.Changed();
+                break;
             case Native.QUORRA_OWED_POPUPS:
                 notes.Show(open.Popups(), scale);
                 break;
             case Native.QUORRA_OWED_CLIPBOARD:
                 Copy(owed.Text);
                 break;
-            // Four records wait for an answer this step has no dialogue to ask for. Each is
-            // declined in the library's own terms for declining, and the decline is said, so
-            // nothing waits on a card nobody sees (ADR 2137).
             case Native.QUORRA_OWED_PASSWORD:
-                Say($"{owed.Text}: this window has no password prompt yet, so the document stays closed");
-                open.Password(owed.Document, null);
-                break;
             case Native.QUORRA_OWED_QUESTION:
-                Say($"{owed.Text} (declined: this window has no dialogue for the question yet)");
-                open.Answer(false);
-                break;
             case Native.QUORRA_OWED_ARCHIVE:
-                Say($"{owed.Text} (closed with nothing chosen: this window has no chooser yet)");
-                open.Archive(-1, -1);
-                break;
             case Native.QUORRA_OWED_SCRIPT:
-                Say($"{owed.Text}: a script asked, and this window has no dialogue to answer it with");
-                open.AnswerScript(owed.Document, Native.QUORRA_SCRIPT_ANSWER_UNANSWERABLE);
-                break;
             case Native.QUORRA_OWED_PRINT:
-                Say($"{owed.Text} (this window has no printer yet, so the print is over)");
-                open.PrintFinished();
+                dialogs.Enqueue(owed);
                 break;
-            // No dialogue was opened for the script's question, so there is none to close.
             case Native.QUORRA_OWED_SCRIPT_WITHDRAWN:
+                dialogs.Withdraw(owed.Document);
                 break;
-            // The panels, the strip, the chrome, a placement and the system sound are the next
-            // steps' (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
+            // The strip, the chrome, a placement and the system sound are later steps
+            // (RFC 0010 step N3a). Each is named in the log the first time it is owed rather
             // than dropped.
             default:
                 if (named.Add(owed.Kind))
@@ -380,6 +375,12 @@ public sealed partial class MainWindow : Window
         {
             case Native.QUORRA_ACT_NOTHING:
                 return;
+            case Native.QUORRA_ACT_RESTRICTIONS:
+                permissions.Show();
+                break;
+            case Native.QUORRA_ACT_PANEL:
+                panels.Toggle();
+                break;
             case Native.QUORRA_ACT_NEXT_DOCUMENT:
                 (nuint count, nuint focused) = open.Strip;
                 if (count > 0)

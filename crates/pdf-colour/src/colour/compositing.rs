@@ -113,7 +113,7 @@ pub enum Compositing {
 /// What distinguishes one [`Compositing`] from another, for the caches keyed on one.
 ///
 /// Written out rather than derived because the press is behind an `Arc` and two `Arc`s of one
-/// profile are one press — [`SAMPLED`] evicts, so that case is reachable. Ordering and hashing
+/// profile are one press — `super::press::SAMPLED` evicts, so that case is reachable. Ordering and hashing
 /// both go through here, which is what keeps them agreeing with equality. A subtractive run's
 /// [`DeviceSpots`] is compared after the tuple, by its colourants, for the same reason.
 type CompositingKey = (
@@ -214,7 +214,7 @@ impl std::hash::Hash for Compositing {
 /// space's four components, or the fourth.
 ///
 /// §11.3.3's compositing formula is a vector function applied **per component** — §11.3.4:
-/// "[t]he i th component of the result colour 𝐶𝑟 shall be obtained by applying the
+/// "\[t]he i th component of the result colour 𝐶𝑟 shall be obtained by applying the
 /// compositing formula to the i th components of the constituent colours" — and §11.3.5.2's
 /// separable blend functions are per component too. So a rasteriser with three channels
 /// composites four components by drawing the page once per plane, and this says which plane it
@@ -235,7 +235,7 @@ impl std::hash::Hash for Compositing {
 /// ([`Self::Spot`], [`DeviceSpots`]): `pdf_model::colourants` counts the page's spot colourants,
 /// [`Self::COLOURANTS`] to a plane, and a run carrying them paints each on its own plane and
 /// §11.7.3's "additive value of 1.0" everywhere else. On every other run a spot colourant reverts
-/// to its alternate colour space as it is painted — §11.7.3's second bullet, "[t]he spot colour
+/// to its alternate colour space as it is painted — §11.7.3's second bullet, "\[t]he spot colour
 /// shall be converted to its alternate colour space" — and lands on the two process planes.
 /// ADRs 1281 and 1311.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

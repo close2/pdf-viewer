@@ -29,9 +29,9 @@
 //!   abort.
 //! - **A file on disk is read where its offsets point, and nowhere else** (ADR 0809).
 //!   [`FileBytes::on_disk`] opens the file and holds the handle; every reader in this crate then
-//!   asks for the bytes *from an offset* through [`FileBytes::parse_from`], which hands a parser
+//!   asks for the bytes *from an offset* through `FileBytes::parse_from`, which hands a parser
 //!   a window that grows until the parse depended on nothing at its end. `CLAUDE.md`'s startup
-//!   rule — "[o]pening a document reads the trailer and the objects page one needs — not the
+//!   rule — "\[o]pening a document reads the trailer and the objects page one needs — not the
 //!   whole file" — was true of the *parsing* and false of the *bytes* until this: a 6 GB document
 //!   (`batch5/poppler`'s `poppler-44085-1.xz-0.pdf`, 2000 pages, `doc/todo/03` section 41) cost
 //!   5.6 GiB of resident memory and half a second to over a second of reading before its trailer
@@ -66,7 +66,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// Clones are cheap and name the same bytes, which [`FileBytes::same`] tests; a cache that keys
 /// on a document holds a clone so that the identity it compares cannot be reused underneath it.
 ///
-/// A file on disk is read through [`Self::read`], [`Self::parse_from`] and [`Self::whole`];
+/// A file on disk is read through [`Self::read`], `Self::parse_from` and [`Self::whole`];
 /// there is no `Deref` to a slice, because a slice of the whole file is exactly the thing a
 /// reader of a large file must not need.
 #[derive(Clone)]
@@ -184,7 +184,7 @@ impl FileBytes {
     /// > When updating a PDF file incrementally, changes shall be appended to the end of the
     /// > file, leaving its original contents intact.
     ///
-    /// and each update ends where the clause says it ends — "[e]ach trailer shall be terminated
+    /// and each update ends where the clause says it ends — "\[e]ach trailer shall be terminated
     /// by its own end-of-file (%%EOF) marker". So an earlier revision of a document *is* a
     /// prefix of the file it now stands in. A caller with such an offset can open that revision
     /// as a second [`crate::Document`] over this same file and compare two states of it with

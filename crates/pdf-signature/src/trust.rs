@@ -1,7 +1,7 @@
 //! RFC 5280 section 6.1's certification path validation, with the anchors supplied from outside.
 //!
 //! ISO 32000-2 §12.8.1 divides a signature into three questions and this module is the third's
-//! machinery: "[t]he signer's certificate shall be determined and verified by the signature
+//! machinery: "\[t]he signer's certificate shall be determined and verified by the signature
 //! handler to match with any of the validation parameters and other conditions". [`crate::cms`]
 //! and [`crate::x509`] determine the certificate and [`crate::signature`] verifies the signature
 //! value under its key — questions 1 and 2. What is left is whether that certificate is anybody's,
@@ -374,7 +374,7 @@ pub enum Purpose {
     /// RFC 3161 section 2.3's `id-kp-timeStamping`, for a document timestamp's authority.
     ///
     /// The clause makes it mandatory and makes it critical: "The corresponding certificate MUST
-    /// contain only one instance of the extended key usage field extension as defined in [RFC2459]
+    /// contain only one instance of the extended key usage field extension as defined in \[RFC2459]
     /// Section 4.2.1.13 with KeyPurposeID having value: id-kp-timeStamping. This extension MUST be
     /// critical." So a conforming timestamp authority's certificate is refused by every validator
     /// that treats a critical `extKeyUsage` as unrecognised, which is what this variant exists to
@@ -863,7 +863,7 @@ fn prepare_for_next(
     Ok(())
 }
 
-/// RFC 5280 section 6.1.3 (a)(1): "[t]he signature on the certificate can be verified using" the
+/// RFC 5280 section 6.1.3 (a)(1): "\[t]he signature on the certificate can be verified using" the
 /// working public key algorithm, the working public key and its parameters — which travel together
 /// here as the [`PublicKey`] the certificate above this one carried.
 ///

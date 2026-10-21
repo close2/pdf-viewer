@@ -1993,6 +1993,7 @@ typedef struct quorra_settings quorra_settings;
 #define QUORRA_POLICY_SUBMISSIONS        3u  /* §12.7.6.2: a form or a fetched fdf sent */
 #define QUORRA_POLICY_SCRIPTS            4u  /* a document's scripts run */
 #define QUORRA_POLICY_SEPARATIONS        5u  /* §10.8.3's simulation: REFUSE is off, PROCEED on */
+#define QUORRA_POLICY_LAUNCHED_DOCUMENTS 6u  /* §12.6.4.6: a document handed to this machine's handler */
 /* Least permissive first, each policy's own four words in their order: refuse, ask, warn, open
  * for a link; refuse ... send for a submission; off, ask, warn, on for scripts, which are the
  * QUORRA_SCRIPTS_* numbers. */
@@ -2170,6 +2171,17 @@ int32_t quorra_window_attachments_read(const quorra_window *window, quorra_panel
 int32_t quorra_window_properties_read(const quorra_window *window, quorra_panel **panel);
 int32_t quorra_window_articles_read(const quorra_window *window, quorra_panel **panel);
 int32_t quorra_window_page_count(const quorra_window *window, size_t *pages);
+/* Shows the zero-based page a thumbnail row names; QUORRA_NO_ANSWER without a document,
+ * QUORRA_OUT_OF_RANGE past its page count. A refused index leaves the current page unchanged. */
+int32_t quorra_window_go_to_page(quorra_window *window, size_t page);
+/* The shared permissions menu, read only when opened. Depth 0: scope, 1: operation,
+ * 2: selectable level. Part 0 is the label, part 1 the explanation. Null count is zero.
+ * A heading cannot be chosen (WRONG_KIND); a missing row is OUT_OF_RANGE. */
+size_t quorra_window_restriction_count(const quorra_window *window);
+int32_t quorra_window_restriction_read(const quorra_window *window, size_t index, uint32_t part,
+                                      uint32_t *depth, bool *chosen, char *out, size_t cap,
+                                      size_t *needed);
+int32_t quorra_window_restriction_choose(quorra_window *window, size_t index);
 int32_t quorra_window_page_label(const quorra_window *window, size_t page, char *out, size_t cap,
                                  size_t *needed);
 int32_t quorra_window_thumbnail_read(const quorra_window *window, size_t page,

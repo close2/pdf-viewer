@@ -51,7 +51,7 @@
 //! difference whatever; one that cannot now falls back to a device space instead of to the
 //! producer's second choice. ISO/IEC 15444-1:2000 I.5.3 says as much about why a file states
 //! several in the first place — they are the producer's compatibility and optimisation options.
-//! That is a real loss, small and nameable, so it is [`Loss::Jpeg2000ColourFallback`] and a
+//! That is a real loss, small and nameable, so it is [`super::Loss::Jpeg2000ColourFallback`] and a
 //! caller authorises it.
 //!
 //! # The structures this declines to edit

@@ -2549,6 +2549,11 @@ fn a_cmyk_profile_answers_the_clause_and_no_default_is_written() {
 /// stating 667 asks for section 4.9's first metric route and one stating anything else asks for
 /// the second.
 fn a_font_stating(widths: &str, embedded: bool) -> Vec<u8> {
+    a_font_range_stating(widths, embedded, 65)
+}
+
+/// The same font with a range independent of its array's length, for Table 109's count.
+fn a_font_range_stating(widths: &str, embedded: bool, last: u8) -> Vec<u8> {
     let program = if embedded { "/FontFile2 8 0 R" } else { "" };
     Conforming {
         resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
@@ -2561,7 +2566,7 @@ fn a_font_stating(widths: &str, embedded: bool) -> Vec<u8> {
         objects: vec![
             format!(
                 "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 \
-                 /LastChar 65 /Widths [{widths}] /FontDescriptor 7 0 R \
+                 /LastChar {last} /Widths [{widths}] /FontDescriptor 7 0 R \
                  /Encoding /WinAnsiEncoding >>"
             ),
             format!(
@@ -2593,6 +2598,55 @@ fn stated_widths(bytes: &[u8]) -> Vec<f64> {
         .iter()
         .filter_map(|entry| held.resolve(entry).as_number())
         .collect()
+}
+
+/// Table 109's count changes no advance: a missing entry and a code outside the range both
+/// take `MissingWidth`, while entries past `LastChar` do not describe any code.
+#[test]
+fn mismatched_width_arrays_are_stated_without_moving_the_page() {
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        for (widths, last) in [("667", 66), ("667 600", 65)] {
+            let source = a_font_range_stating(widths, true, last);
+            let (report, output) = convert(&source, target, Authorisations::default());
+            assert!(matches!(
+                decision(&report, "fonts/widths-array-covers-character-range"),
+                Decision::Stated {
+                    rewrite: Rewrite::FontWidthArrayRestated,
+                    ..
+                }
+            ));
+            let output = written(&report, output);
+            assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+            assert_eq!(stated_widths(&output), vec![667.0]);
+            assert_eq!(drawn(&source), drawn(&output));
+            let before = Document::open(source).expect("source opens");
+            let after = Document::open(output).expect("output opens");
+            let load = |document: &Document| {
+                let object = document.get(ObjectId::new(6, 0));
+                pdf_font::LoadedFont::load(document, object.as_dict().expect("font"), "F1")
+                    .expect("embedded font loads")
+            };
+            let (before, after) = (load(&before), load(&after));
+            for code in 0..=u8::MAX {
+                let code = pdf_font::Code::single_byte(code);
+                assert_eq!(
+                    before.advance(code).to_bits(),
+                    after.advance(code).to_bits()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn an_empty_width_array_is_refused_instead_of_inventing_metrics() {
+    let source = a_font_range_stating("", true, 65);
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none());
+    assert!(matches!(
+        decision(&report, "fonts/widths-array-covers-character-range"),
+        Decision::Refused(_)
+    ));
 }
 
 #[test]
@@ -14233,4 +14287,113 @@ fn a_truetype_dictionary_given_a_cff_face_is_restated_as_the_type1_font_its_face
     );
     assert!(held.get_key(descriptor, "FontFile3").as_stream().is_some());
     assert_eq!(stated_widths(&output), stated_widths(&source));
+}
+
+/// ISO 19005-2 section 6.2.11.5's metric tolerance does not permit changing fitted outlines.
+#[test]
+fn a_shipped_face_fitted_horizontally_is_refused_for_that_reason() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>".to_owned(),
+        contents: Some((String::new(), b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (H) Tj ET".to_vec())),
+        objects: vec!["<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /FirstChar 72 /LastChar 72 /Widths [721.9] >>".to_owned()],
+        ..Conforming::part_two()
+    }.build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none());
+    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+        panic!("the fitted outlines need a separate loss or an exact program transformation");
+    };
+    assert!(
+        because.sentence().contains("horizontal fitting"),
+        "{because:?}"
+    );
+}
+
+/// §9.6.5.1 gives an absent Encoding the program's built-in table, which changes when a
+/// TrueType substitute becomes an embedded CFF. Annex D.5's names must be stated first.
+#[test]
+fn a_symbolic_truetype_font_embedded_as_cff_keeps_its_code_to_name_table() {
+    let source =
+        Conforming {
+            resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+                .to_owned(),
+            contents: Some((
+                String::new(),
+                b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (en) Tj ET".to_vec(),
+            )),
+            objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Symbol /FirstChar 101 /LastChar 110 \
+             /Widths [439 521 411 603 329 603 549 549 576 521] /FontDescriptor 7 0 R >>".to_owned(),
+            "<< /Type /FontDescriptor /FontName /Symbol /Flags 4 /FontBBox [-180 -293 1090 1010] \
+             /ItalicAngle 0 /Ascent 1010 /Descent -293 /CapHeight 662 /StemV 80 >>".to_owned(),
+        ],
+            ..Conforming::part_two()
+        }
+        .build();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = written(&report, output);
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let (document, dict) = described_font(&output);
+        assert_eq!(name_entry(&document, &dict, "Subtype"), "Type1");
+        let loaded = pdf_font::LoadedFont::load(&document, &dict, "F1").expect("embedded font");
+        for (code, name) in [(101, "epsilon"), (110, "nu")] {
+            let code = pdf_font::Code::single_byte(code);
+            assert_eq!(loaded.selected_glyph_name(code), Some(name));
+            assert!(loaded.glyph_index(code).is_some());
+            assert!(loaded.outline(code).is_some());
+        }
+        assert_eq!(stated_widths(&output), stated_widths(&source));
+    }
+}
+
+/// Each font's proved program must survive even when the producer shared its descriptor.
+#[test]
+fn fonts_sharing_a_descriptor_keep_their_own_prepared_programs() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /F2 8 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>".to_owned(),
+        contents: Some((String::new(), b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (I) Tj /F2 12 Tf ( ) Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Tahoma-Bold /Encoding /WinAnsiEncoding /FirstChar 73 /LastChar 73 /Widths [483] /FontDescriptor 7 0 R >>".to_owned(),
+            "<< /Type /FontDescriptor /FontName /Tahoma-Bold /Flags 32 /FontBBox [-100 -300 1100 1100] /ItalicAngle 0 /Ascent 1000 /Descent -300 /CapHeight 700 /StemV 80 >>".to_owned(),
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Tahoma-Bold /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 32 /Widths [293] /FontDescriptor 7 0 R >>".to_owned(),
+        ],
+        ..Conforming::part_two()
+    }.build();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert(&source, target, Authorisations::default());
+        let output = written(&report, output);
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert_eq!(stated_widths(&output), stated_widths(&source));
+    }
+}
+
+/// A shared `CIDFont` descriptor cannot receive two differently restated supplied programs.
+#[test]
+fn composite_fonts_sharing_a_descriptor_refuse_incompatible_programs() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R /F2 9 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>".to_owned(),
+        contents: Some((String::new(), b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0024> Tj /F2 12 Tf <0024> Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H /DescendantFonts [8 0 R] >>".to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>".to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R /DW 1000 /W [36 [500]] >>".to_owned(),
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H /DescendantFonts [10 0 R] >>".to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R /DW 1000 /W [36 [700]] >>".to_owned(),
+        ],
+        ..Conforming::part_two()
+    }.build();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let plan = a_supplied_font(target, "LiberationSans", LIBERATION_SANS);
+        let (report, output) = convert_with_plan(&source, &plan);
+        assert!(output.is_none());
+        let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+            panic!("incompatible shared programs must be refused before writing");
+        };
+        assert!(
+            because.sentence().contains("share a FontDescriptor"),
+            "{because:?}"
+        );
+    }
 }

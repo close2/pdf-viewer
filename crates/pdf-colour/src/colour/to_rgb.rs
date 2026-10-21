@@ -101,7 +101,7 @@ impl ColourSpace {
     /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
     /// > the luminosity. This produces a colorimetrically correct luminosity.
     ///
-    /// The `Y` of [`Self::cie_xyz_at`], clamped to the unit a mask value can hold — a
+    /// The `Y` of `Self::cie_xyz_at`, clamped to the unit a mask value can hold — a
     /// `CalGray` component decoded by its gamma times a white point whose `Y` §8.6.5.2 makes
     /// 1.0, a profile's `Y` at D50, which is also 1.0 at white.
     #[must_use]

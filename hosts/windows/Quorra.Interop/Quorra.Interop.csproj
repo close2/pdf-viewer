@@ -2,8 +2,8 @@
 
   <!--
     The C ABI of crates/viewer-ffi for a .NET host (RFC 0010 step N0, ADR 2054). It names no
-    Windows type, so it builds wherever a .NET SDK does. No gate of the tree builds it: the machine
-    the gates run on has no SDK, and `dotnet build` is CI's `interop` job (ADR 2073).
+    Windows type, so it builds wherever a .NET SDK does. tools/dotnet-check.sh builds it alongside
+    the window; CI's interop job also builds this project directly (ADR 2073).
     crates/viewer-ffi/tests/header_and_interop_agree.rs is what holds it to the header before then.
   -->
   <PropertyGroup>

@@ -141,7 +141,7 @@ impl Host {
         }
     }
 
-    /// [`Event::Beep`]: `QApplication::beep` flagged for C++, and the line that says which of the
+    /// [`viewer_core::Event::Beep`]: `QApplication::beep` flagged for C++, and the line that says which of the
     /// reference's five was asked for (ADR 1702).
     pub(super) fn beep(&mut self, document: DocumentId, sound: pdf_model::view::Sound) {
         self.update.beep = true;
@@ -149,7 +149,7 @@ impl Host {
         self.say(&viewer_host::script_timers::played(&name, sound, "Qt"));
     }
 
-    /// [`Event::ScriptQuestionWithdrawn`]: that document's question is taken, so the dialogue's
+    /// [`viewer_core::Event::ScriptQuestionWithdrawn`]: that document's question is taken, so the dialogue's
     /// next [`Self::poll_script_question`] sees it gone (ADR 1643).
     pub(super) fn withdraw_script_question(&mut self, document: DocumentId) {
         if self

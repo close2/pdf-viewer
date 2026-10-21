@@ -89,7 +89,7 @@ pub struct Table {
 /// Where the tree names an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    /// No Rust source under [`crate::roots::source_roots`] names it in either of [`FORMS`].
+    /// No Rust source under [`crate::roots::source_roots`] names it in either of `FORMS`.
     Nowhere,
     /// Named somewhere, but by no file the row's own `code` array lists.
     ///

@@ -284,7 +284,7 @@ fn listen(mut stderr: std::process::ChildStderr, said: &Arc<LastWords>) {
 /// attempted something no page and no generated file needs. A platform with no filter cannot
 /// produce that diagnosis and does not pretend to.
 ///
-/// **A number is not a diagnosis, which is why [`LastWords`] exists beside this.** The two ways a
+/// **A number is not a diagnosis, which is why `LastWords` exists beside this.** The two ways a
 /// confinement ends a worker that are not the filter both arrive here as numbers that name the
 /// mechanism rather than the cause: `SIGABRT` for an allocation `RLIMIT_AS` refused, and —
 /// before the worker's standard error became a pipe — `SIGXFSZ` for the worker's attempt to *say*

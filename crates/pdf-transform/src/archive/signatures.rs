@@ -23,13 +23,13 @@
 //!   appearance", so an appearance kept after its signature is gone asserts nothing false.
 //! - **The permissions dictionary's `DocMDP` and `UR3` entries.** Table 263 makes each one a
 //!   signature: `DocMDP` has a processor "enforce the permissions specified by the P entry … and
-//!   … also validate the corresponding signature", and `UR3`'s rights are granted "[i]f the
+//!   … also validate the corresponding signature", and `UR3`'s rights are granted "\[i]f the
 //!   signature is valid". Neither rests on anything once the signature is gone, and §12.8.2.3
 //!   says of the second outright that a processor which modifies the document beyond the rights
 //!   "should remove that signature prior to writing the newly modified PDF". The dictionary
 //!   itself stays, empty where nothing else was in it: Table 263 makes every entry optional and
 //!   an empty one states nothing.
-//! - **Table 225's `AppendOnly` bit** of the form's `/SigFlags`: "[i]f set, the document contains
+//! - **Table 225's `AppendOnly` bit** of the form's `/SigFlags`: "\[i]f set, the document contains
 //!   signatures that may be invalidated if the PDF file is saved … in a way that alters its
 //!   previous contents". The output contains none, so the flag is cleared; the
 //!   `SignaturesExist` bit beside it stays, because the *fields* do.
@@ -41,7 +41,7 @@
 //!
 //! # A signature is reported before it is removed, and against the source
 //!
-//! Section 3.6 asks that "[t]he report names each signature, its signer and whether it currently
+//! Section 3.6 asks that "\[t]he report names each signature, its signer and whether it currently
 //! validates". Each [`SourceSignature`] is that line: `/Name`, `/M`, and the answers to §12.8.1's
 //! first two questions — [`pdf_signature::signature::Signature::integrity`] and
 //! [`Signature::authenticity`] — computed over the *source's* bytes, which is the only file the
@@ -63,7 +63,7 @@
 //! # A key nobody defines is not a signature
 //!
 //! ISO 19005-2 section 6.1.12 and ISO 19005-4 section 6.1.11 allow a permissions dictionary no
-//! key but `UR3` and `DocMDP`. §12.8.6 says what any other key would be: "[e]ach entry in this
+//! key but `UR3` and `DocMDP`. §12.8.6 says what any other key would be: "\[e]ach entry in this
 //! dictionary … shall specify the name of a permission handler", and Table 263 lists "the
 //! currently defined entries", which are those two. A key naming a handler the standard does not
 //! define is one no conforming processor of either edition can consult, so nothing any reader of
@@ -159,7 +159,7 @@ pub struct SourceSignature {
     pub reached: Reached,
     /// What holds it: the field's fully qualified name (§12.7.4.2), or the permissions entry.
     pub at: String,
-    /// `/Name`, "[t]he name of the person or authority signing the document".
+    /// `/Name`, "\[t]he name of the person or authority signing the document".
     pub name: Option<String>,
     /// `/M`, the time of signing as the signer's clock wrote it.
     pub signed_at: Option<String>,

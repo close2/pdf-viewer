@@ -259,7 +259,7 @@ type Names = BTreeSet<Vec<u8>>;
 /// of the Type 3 font that states it, and **never** to a page that inherits it, which is A003's
 /// own sentence. A resources dictionary with no such owner exempts nothing here: an `/AcroForm`
 /// `/DR` has no associated content stream, so the clause's premise fails — and neither does one
-/// whose owner states no content at all, for the same reason and not a weaker one. [`owners`]
+/// whose owner states no content at all, for the same reason and not a weaker one. `owners`
 /// carries both cases and what each cost when it was got wrong.
 ///
 /// # Two approximations, and both run the same way

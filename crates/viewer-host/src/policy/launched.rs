@@ -1,8 +1,8 @@
 //! ISO 32000-2 §12.6.4.6's launched file that is not a PDF: a program, started never, or a
 //! document, handed to this machine's own handler at the level the reader set (ADR 2171).
 //!
-//! Table 207 makes `/F` "[t]he application that shall be launched or the document that shall be
-//! opened or printed", and §12.6.4.6 opens with the same two acts: "[a] launch action launches an
+//! Table 207 makes `/F` "\[t]he application that shall be launched or the document that shall be
+//! opened or printed", and §12.6.4.6 opens with the same two acts: "\[a] launch action launches an
 //! application or opens or prints a document". §7.5.2's header tells a PDF from everything else and
 //! `viewer_core` opens a PDF itself; **nothing in the standard tells an application from any other
 //! document**, so which of the two a file that is not a PDF is taken to be is this host's choice,
@@ -16,7 +16,7 @@
 //! - **A document** is every other file, and handing one to the desktop's handler is the act
 //!   `CLAUDE.md`'s clause-13 entry admits for a media file — "handed to this machine's own player"
 //!   at the reader's level — on the same footing, so it is [`LaunchedDocuments`]' four levels,
-//!   `refuse` by default.
+//!   `ask` by default now that every window has its menu (A562, ADR 2185).
 //!
 //! The classification errs one way only: a document taken for a program is refused with a sentence,
 //! and a program taken for a document would be started by a handler. So every test that can say
@@ -65,12 +65,11 @@ const EXECUTABLE_STARTS: [&[u8]; 7] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LaunchedDocuments {
     /// Hand nothing over, and say which file the document named.
-    ///
-    /// **The default**: a document is not a reader's to hand to another program until the reader
-    /// says it is, and the clause-13 media file it mirrors waits for the same word (ADR 2171).
-    #[default]
     Refuse,
     /// Put the file to the person first, and hand it over on a `yes`.
+    ///
+    /// The default after A562's menu is available in every window (ADR 2185).
+    #[default]
     Ask,
     /// Hand it over, and say afterwards that it was handed over without asking.
     Warn,
@@ -303,13 +302,13 @@ mod tests {
         }
     }
 
-    /// A document is the level's: refused by default, put to the person at `ask`, handed over and
+    /// A document is the level's: put to the person by default at `ask`, handed over and
     /// said at `warn` and `open` (ADR 2171).
     #[test]
     fn a_document_that_is_not_a_pdf_is_the_levels() {
         let path = written("letter.txt", b"Dear reader", 0o644);
         let at = |level| launched(&path, "letter.txt", b"Dear reader", level);
-        assert_eq!(LaunchedDocuments::default(), LaunchedDocuments::Refuse);
+        assert_eq!(LaunchedDocuments::default(), LaunchedDocuments::Ask);
         assert!(matches!(
             at(LaunchedDocuments::Refuse),
             Some(Launched::Refuse(said)) if said.contains("--launched-documents=refuse")

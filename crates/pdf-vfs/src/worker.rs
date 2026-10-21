@@ -3,7 +3,7 @@
 //! # The posture, stated where the code is
 //!
 //! RFC 0003 section 6's diagram puts two thin, privileged frontends over one core over one
-//! confined worker, and it says what each may hold: "[t]he frontends and the core never parse PDF
+//! confined worker, and it says what each may hold: "\[t]he frontends and the core never parse PDF
 //! bytes. They hold paths, verbs, caches and the wire protocol. The confined worker parses,
 //! renders, extracts". This module is the seam that makes that true of *this* crate: every
 //! question that requires looking at a PDF is a [`Query`], every answer is an [`Answer`], and
@@ -21,7 +21,7 @@
 //!
 //! # Why the readers are reached through `pdf-transform` and not directly
 //!
-//! RFC 0003 section 7: the core "[c]onsumes the transform layer (RFC 0002) for every write and
+//! RFC 0003 section 7: the core "\[c]onsumes the transform layer (RFC 0002) for every write and
 //! for page extraction; consumes the existing readers … through the confined worker". Six of the
 //! eight generators below are a [`pdf_transform::Plan`] and nothing else, so a page taken out of
 //! the mount is byte-for-byte a page taken out by `pdf-transform split`, and there is no second
@@ -483,7 +483,7 @@ impl Workers for InProcessWorkers {
 /// One document, answered in the calling process.
 ///
 /// **One [`Source`], held for the worker's whole life**, because `viewer_core::Secret` is not
-/// `Clone` on purpose — "[a] copy is a second buffer to clear and a second lifetime to reason
+/// `Clone` on purpose — "\[a] copy is a second buffer to clear and a second lifetime to reason
 /// about" — so §7.6.4.1's password is held once here and both the verbs and the readers reach the
 /// document through it (`pdf_transform::Source::document`).
 #[derive(Debug)]
@@ -1143,7 +1143,7 @@ const INFORMATION_NAMES: [(&str, &str); 9] = [
 /// **The file is the whole of Table 349 and nothing else.** A key the file omits is an entry the
 /// document shall no longer state, which is what makes `cat info.json > info.json` a no-op and
 /// therefore what makes the read and the write one thing rather than two. A key the dictionary
-/// holds that Table 349 does not define is untouched: §14.3.3 permits such a key —"[w]here a
+/// holds that Table 349 does not define is untouched: §14.3.3 permits such a key —"\[w]here a
 /// document information dictionary contains keys other than `CreationDate` and `ModDate` , the
 /// value associated with any such key shall be a text string" — and this file does not show it,
 /// so this file is not the place it would be deleted from.

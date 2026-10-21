@@ -12,7 +12,7 @@
 //! this writes is one every conforming reader already supplies, the operand's value does not
 //! change, and no operator is added, removed or respelled. `doc/pdf-a-conversion-limits.md`
 //! section 5.2 is where that line was already drawn — the owner's `A50` admits the `F`-to-`f`
-//! respelling because "[i]t changes a byte in a content stream and cannot change a mark" — and
+//! respelling because "\[i]t changes a byte in a content stream and cannot change a mark" — and
 //! `CLAUDE.md`'s fourth amendment makes mark *provenance* the test the fence applies. ADR 1176 is
 //! the argument, and ADR 0947 decision 3 is what it supersedes.
 //!

@@ -196,7 +196,7 @@ impl MarkBounds {
     }
 
     /// The device region command `index` can mark under `transform`, grown by [`MARGIN`] and by
-    /// whatever the move from [`Self::at`]'s translation can have rounded away.
+    /// whatever the move from `Self::at`'s translation can have rounded away.
     ///
     /// `None` where the command cannot be bounded, where `index` is not one of these bounds'
     /// commands, or where `transform` is of another magnification ([`Self::serves`]) — every one

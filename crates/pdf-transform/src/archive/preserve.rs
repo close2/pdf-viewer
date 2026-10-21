@@ -1053,7 +1053,7 @@ fn a_face_the_document_carries(document: &Document, text: &str) -> Option<Face> 
 ///
 /// Four are not, and each for a reason rather than for convenience. **A line feed and a carriage
 /// return are the break between two lines** and are set as one: §7.2.3's Table 1 makes both of
-/// them white-space characters and says what a pair of them is: "[t]he CARRIAGE RETURN (0Dh) and
+/// them white-space characters and says what a pair of them is: "\[t]he CARRIAGE RETURN (0Dh) and
 /// LINE FEED (0Ah) characters, also called newline characters, shall be treated as end-of-line
 /// (EOL) markers. The combination of a CARRIAGE RETURN followed immediately by a LINE FEED shall
 /// be treated as one EOL marker." So a packet a producer wrote with CRLF states one break rather
@@ -1447,7 +1447,7 @@ fn font_dictionary(
 /// §9.8.1's Table 122 descriptor, every number of it read off the program.
 ///
 /// **`/StemV` is stated as zero, and that is the standard's own word rather than a gap.** Table
-/// 122 defines the entry as "[t]he thickness measured horizontally, of the dominant vertical
+/// 122 defines the entry as "\[t]he thickness measured horizontally, of the dominant vertical
 /// stems of glyphs in the font", and then: "A value of 0 indicates an unknown stem thickness."
 /// This program has not measured the face's stems, so nought is what is true of its knowledge;
 /// any other number would be an invention. A face whose program states its stem — a Compact Font
@@ -1660,16 +1660,16 @@ struct SetLine<'a> {
 /// so the text is black without this program stating a colour the document did not choose.
 ///
 /// **One text object per line, and its position stated rather than stepped.** §9.4.2 makes `Td`
-/// "[m]ove to the start of the next line, offset from the start of the current line", so the
+/// "\[m]ove to the start of the next line, offset from the start of the current line", so the
 /// operand is relative *within* a text object and absolute after a `BT` — which resets the text
 /// matrix. A line of its own is what lets §14.7.5.2's sequence bracket exactly one line's
 /// operators on a tagged page, and it is written the same way on an untagged one so that the two
 /// are one layout rather than two.
 ///
-/// Where a line carries an identifier the sequence is written as the clause has it — "[t]he
+/// Where a line carries an identifier the sequence is written as the clause has it — "\[t]he
 /// operators shall be bracketed as a marked-content sequence between BDC and EMC operators", with
 /// a property list "containing an MCID entry" — and the tag is `P`, which §14.7.5.2 asks for:
-/// "[a]lthough the tag associated with a marked-content sequence is not directly related to the
+/// "\[a]lthough the tag associated with a marked-content sequence is not directly related to the
 /// document's logical structure, it should be the same as the structure type of the associated
 /// structure element." The list is written inline, which §14.6.2 admits because its one value is
 /// a direct object.
@@ -1832,7 +1832,7 @@ fn number(value: f32) -> String {
 /// its own box, and an inherited quarter turn would lay the text on its side.
 ///
 /// `key` is §14.7.5.4's `/StructParents`, where the document describes its content: Table 359
-/// makes it "[r]equired for all content streams containing marked-content sequences that are
+/// makes it "\[r]equired for all content streams containing marked-content sequences that are
 /// structural content items", which every page of a tagged document's preserved text is.
 fn page_dictionary(
     document: &Document,

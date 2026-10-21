@@ -6,8 +6,8 @@
     processor lane: each picture quorra_window hands over is copied into an Image, and the
     SwapChainPanel the device will draw into is N3c's.
 
-    It builds on Windows only, because the XAML compiler runs nowhere else, and CI's `window` job is
-    where it builds. No gate of the tree compiles it: the machine the gates run on has no .NET SDK.
+    The XAML compiler and packaging run in CI's Windows job. tools/dotnet-check.sh compiles the
+    C# against these SDK references on any machine with the SDK, with XAML-generated fields stubbed.
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>

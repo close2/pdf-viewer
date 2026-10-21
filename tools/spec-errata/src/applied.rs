@@ -63,7 +63,7 @@ use crate::{Error, Note, Quoted, Role};
 /// How many characters either side of a quotation are read for the marks of a correction.
 ///
 /// **Either side, and that is not symmetry for its own sake.** This project writes a correction
-/// both ways round: `standard.rs` says "[t]he clause used to say so in a `shall` and no longer
+/// both ways round: `standard.rs` says "\[t]he clause used to say so in a `shall` and no longer
 /// does" and then quotes the retired sentence, and `appearance.rs` sets the retired blockquote
 /// first and explains underneath that "the blockquote above is the old one". A window that
 /// looked only backwards would mark the first and miss the second, and the second is the shape a

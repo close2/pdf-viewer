@@ -7,7 +7,7 @@
 //! answer is this function. Two hosts have now built widgets from it and neither wanted it
 //! changed.
 //!
-//! `pdf_model::form`'s own module comment states the target: "[a] text field is a `QLineEdit`, an
+//! `pdf_model::form`'s own module comment states the target: "\[a] text field is a `QLineEdit`, an
 //! `NSTextField`, a `GtkEntry`; a choice field is a combo box against a list". Two of those three
 //! are now written down, against this one enum.
 //!
@@ -134,7 +134,7 @@ impl ControlKind {
     /// both directions: if the bit is set the box "shall include an editable text box as well as a
     /// drop-down list", and if it is clear it shall include only a drop-down list.
     ///
-    /// §12.7.5.4 says the same thing as a permission and names what the text box is *for*: "[t]he
+    /// §12.7.5.4 says the same thing as a permission and names what the text box is *for*: "\[t]he
     /// combo box may be accompanied by an editable text box in which the user can type a value
     /// other than the predefined choices, as directed by the value of the Edit bit in the Ff
     /// entry". So a value outside Table 234's `/Opt` is exactly what a set bit admits and a clear
@@ -466,7 +466,7 @@ pub fn toggling(
 
 /// §12.7.5.2.3's name for the state a button is *not* in.
 ///
-/// ISO 32000-2 §12.7.5.2.3: "[t]he appearance for the off state is optional but, if present, shall
+/// ISO 32000-2 §12.7.5.2.3: "\[t]he appearance for the off state is optional but, if present, shall
 /// be stored in the appearance dictionary under the name Off." §12.7.5.2.4 gives the same name as
 /// a radio button field's default value, which is this string read forwards.
 const OFF: &str = "Off";

@@ -390,11 +390,11 @@ impl RgbRoute {
     /// group's result into a parent compositing in this space — and it is carried as a cube
     /// for the same reason the conversion out is: the backend applies one lookup per pixel
     /// and never sees a colour space. What it is *not* is a grid over the whole conversion,
-    /// which is [`inward_cube`]'s subject and ADR 1267's.
+    /// which is `inward_cube`'s subject and ADR 1267's.
     ///
     /// `None` for a profile whose conversion in is a lookup table, which has no linear stage
     /// to separate, and for one whose matrix will not invert; the caller samples the whole
-    /// conversion for those, as [`profile_stages`] does for the conversion out.
+    /// conversion for those, as `profile_stages` does for the conversion out.
     #[must_use]
     pub fn into_cube(&self, rendering: Rendering) -> Option<pdf_render::ColourCube> {
         match &self.inward {
@@ -463,7 +463,7 @@ impl RgbRoute {
     /// — and that result is not a `DeviceRGB` graphics object, so §11.7.2's rule that such an
     /// object "shall be the CIE-based space of the nearest such ancestor" for compositing
     /// purposes does not reach it. It goes in as [`RgbRoute::components_of`] sends every other
-    /// colour: through its XYZ (§10.3.1), which for sRGB is [`srgb_to_xyz_d50`].
+    /// colour: through its XYZ (§10.3.1), which for sRGB is `srgb_to_xyz_d50`.
     #[must_use]
     pub fn components_of_srgb(&self, colour: Color, rendering: Rendering) -> [f32; 3] {
         self.components_with_xyz(srgb_to_xyz_d50(colour), rendering)
@@ -512,16 +512,16 @@ impl RgbRoute {
     /// For `CalRGB` the clause's EXAMPLE 1 writes the formula out: the `Y` entries of the
     /// `Matrix` weighting each gamma-decoded component, "using components of the Gamma and
     /// Matrix entries of the colour space dictionary" — the space's own XYZ, with no
-    /// adaptation, which is why this reads the matrix rather than [`ColourSpace::cie_xyz_at`].
+    /// adaptation, which is why this reads the matrix rather than `ColourSpace::cie_xyz_at`.
     /// A matrix profile's `Y` is the same shape, its tone curves weighted by the middle row
     /// of its matrix.
     ///
     /// **A table profile's `Y` is not a sum of three functions, and is sampled instead**
     /// (ADR 0851). Its conversion to the connection space is a lookup table, so no
     /// decomposition exists to write down — but the clause asks for one number of three
-    /// components, and EXAMPLE 1's "[a]n analogous computation applies to other CIE-based
+    /// components, and EXAMPLE 1's "\[a]n analogous computation applies to other CIE-based
     /// colour spaces" is that number rather than a licence to leave the branch. So it is
-    /// sampled at [`RGB_TABLE_SIDE`] points an axis, exactly as [`profile_stages`] samples
+    /// sampled at `RGB_TABLE_SIDE` points an axis, exactly as `profile_stages` samples
     /// the same profile's conversion *out*, and interpolated trilinearly by
     /// `pdf_render::Luminance`. **Without §8.6.5.9's black point compensation**, as the two
     /// separable shapes are: the clause asks for "the CIE 1931 XYZ" of the colour, and the

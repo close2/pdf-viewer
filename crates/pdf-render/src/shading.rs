@@ -206,7 +206,7 @@ impl Shading {
     ///
     /// The program goes, and it has to: a device evaluating it produces the colour and
     /// nothing else, so §11.6.4.4's constant alpha has nowhere to be applied on that path.
-    /// The producer carries it ([`DeferredColours::faded`]) and the producer is what draws.
+    /// The producer carries it (`DeferredColours::faded`) and the producer is what draws.
     #[must_use]
     pub fn with_alpha(&self, alpha: f32) -> Self {
         self.with_colours(
@@ -744,7 +744,7 @@ pub enum ShadingKind {
         /// The triangles, each carrying a colour or a parametric value per corner.
         ///
         /// Empty exactly where `patches` is `Some`: a mesh is drawn from one or the other, so
-        /// that §8.7.4.5.7's "[i]f one patch overlaps another, the patch that appears later in
+        /// that §8.7.4.5.7's "\[i]f one patch overlaps another, the patch that appears later in
         /// the data stream shall paint over the earlier one" is the order of one sequence
         /// rather than an interleaving two producers would have to agree on.
         triangles: Arc<[Triangle]>,
@@ -1464,7 +1464,7 @@ impl MeshRaster {
 /// why `radial_gradients.pdf` pages 4 and 5 draw a crescent under `tiny_skia::RadialGradient`
 /// where four other renderers draw a filled disc with a cone on it.
 ///
-/// NOTE 1's two limits need no separate handling. "[T]he family of blend circles continues as
+/// NOTE 1's two limits need no separate handling. "\[T]he family of blend circles continues as
 /// far as that value of s for which the radius of the blend circle r(s) = 0" is
 /// `r(s) >= 0` below, and "as far as that s value for which r(s) is large enough to encompass
 /// the shading's entire bounding box" is a statement about *where painting stops being
@@ -2027,7 +2027,7 @@ pub struct SurfacePatch {
 /// What a [`SurfacePatch`]'s four corners carry, which is what is interpolated across it.
 ///
 /// [`Corners`] one dimension up: §8.7.4.5.7 makes a patch's interior a bilinear interpolation
-/// of these four — "[c]olours are specified for each corner of the unit square, and bilinear
+/// of these four — "\[c]olours are specified for each corner of the unit square, and bilinear
 /// interpolation is used to fill in colours over the entire unit square" — and §8.7.4.5.5's
 /// choice of *what* is interpolated is the same choice a triangle's corners make.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2048,7 +2048,7 @@ pub enum PatchCorners {
 /// flatness as 1.0. Half of that, for a reason of this rasteriser's own rather than the file's:
 /// [`Triangle::paint`] decides a pixel by its *centre*, so a boundary displaced by less than
 /// half a pixel cannot carry the surface past the nearest sample, and §10.7.2's NOTE 1 says
-/// which direction is the safe one to err in ("[s]maller values yield greater precision at the
+/// which direction is the safe one to err in ("\[s]maller values yield greater precision at the
 /// cost of more computation"). The file's own `/FL` is not read here: §10.7.2 permits that
 /// outright — "PDF processors may choose to ignore any flatness tolerance specified within a
 /// PDF file" — and this tree flattens every ordinary curve at `render_cpu::area`'s own constant
@@ -2060,7 +2060,7 @@ const SILHOUETTE: f32 = 0.5;
 /// 64 is 8192 triangles for one patch, which is [`MAX_PATCH_TRIANGLES`]'s whole budget shared
 /// between 32 of them. A patch needing more than this has a boundary curving by some four
 /// thousand device pixels between its control points, which is a patch drawn far larger than
-/// any screen. §10.7.3 licenses a bound of this kind — "[e]ach output device may have internal
+/// any screen. §10.7.3 licenses a bound of this kind — "\[e]ach output device may have internal
 /// limits on the maximum and minimum tolerances attainable".
 const MAX_PATCH_STEPS: u32 = 64;
 
@@ -2070,7 +2070,7 @@ const MAX_PATCH_STEPS: u32 = 64;
 /// under the same sentence of §10.7.3. It is shared *equally* rather than spent in order, so a
 /// mesh past the bound is drawn coarsely everywhere instead of finely at the front and dropped
 /// at the back: a patch mesh past this bound has every patch it states, which is what
-/// §8.7.4.5.7's "[i]f one patch overlaps another, the patch that appears later in the data
+/// §8.7.4.5.7's "\[i]f one patch overlaps another, the patch that appears later in the data
 /// stream shall paint over the earlier one" needs.
 pub const MAX_PATCH_TRIANGLES: usize = 1 << 18;
 
@@ -2103,7 +2103,7 @@ impl SurfacePatch {
     /// - **The silhouette.** A cubic Bézier's distance from its own chord is at most three
     ///   quarters of the larger of its two second differences, and subdividing it into `n`
     ///   uniform pieces divides that by `n²`; so `n` is the square root of the bound over
-    ///   [`SILHOUETTE`]. An isoparametric curve of the surface is the Bernstein blend of the
+    ///   `SILHOUETTE`. An isoparametric curve of the surface is the Bernstein blend of the
     ///   net's rows (or columns), and Bernstein weights are non-negative and sum to one, so the
     ///   largest second difference over the four of them bounds every curve in that direction.
     /// - **The colour.** §8.7.4.5.7 fills a patch's interior by bilinear interpolation, and a
@@ -2301,11 +2301,11 @@ pub struct PatchMesh {
     /// in, because §8.7.4.5.7 makes that the precedence between two that overlap.
     pub patches: Arc<[SurfacePatch]>,
     /// ISO 32000-2 §10.7.3's smoothness tolerance under the graphics state the shading was read
-    /// in: "[t]he allowable error (or tolerance) shall be expressed as a fraction of the range
+    /// in: "\[t]he allowable error (or tolerance) shall be expressed as a fraction of the range
     /// of the colour component, from 0.0 to 1.0."
     ///
     /// The value this tree actually answers to rather than the file's `/SM`, which is the same
-    /// clause's other sentence — "[e]ach output device may have internal limits on the maximum
+    /// clause's other sentence — "\[e]ach output device may have internal limits on the maximum
     /// and minimum tolerances attainable" — applied once, where the ramp's own sampling is
     /// decided, so that a mesh and a ramp under one graphics state answer to one number.
     pub smoothness: f32,

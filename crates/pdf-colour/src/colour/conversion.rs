@@ -56,7 +56,7 @@ pub struct Conversion {
     /// reads.
     ///
     /// A profile rather than a [`ColourSpace`] because Table 401 makes an intent's
-    /// `/DestOutputProfile` "[a]n ICC profile stream" and nothing else, and because the
+    /// `/DestOutputProfile` "\[a]n ICC profile stream" and nothing else, and because the
     /// caches keyed on a conversion — `shading::Cache`, `image::RasterCache` — need an
     /// identity to compare, which [`crate::icc::Profile::identity`] is.
     output_intent: Option<Arc<crate::icc::Profile>>,
@@ -68,7 +68,7 @@ pub struct Conversion {
     /// §10.4.2.4's black generation and undercolour removal, where the graphics state states a
     /// function.
     ///
-    /// Here for the same reason the black point is: §11.7.5.3 lists the four together — "[t]he
+    /// Here for the same reason the black point is: §11.7.5.3 lists the four together — "\[t]he
     /// rendering intent, black-generation, undercolour-removal and black point compensation
     /// parameters control certain colour conversions" — and says they "may need to be applied
     /// earlier than the actual rendering of colour onto the page", which is exactly why an
@@ -298,6 +298,20 @@ impl Conversion {
         self.black_generation.as_deref()
     }
 
+    /// Whether painting `space` bypasses a stated §11.7.5.3 black-generation pair.
+    ///
+    /// The first bullet applies only to `DeviceRGB` painted directly into `DeviceCMYK`.
+    /// An `ICCBased` group, including a remapped `DeviceCMYK`, is not that target. A
+    /// `DeviceCMYK` group characterised by its output intent instead converts through the
+    /// profile's B2A table, where the pair has no step to act on (ADR 2187).
+    #[must_use]
+    pub fn bypasses_black_generation(&self, space: &ColourSpace) -> bool {
+        self.black_generation.is_some()
+            && matches!(space, ColourSpace::Rgb)
+            && self.cmyk_group().is_none()
+            && matches!(&self.into, Compositing::Subtractive(_, press, _) if press.converts_in_by_profile())
+    }
+
     /// The colour `values` become, through [`Compositing::paint_beside`].
     #[must_use]
     pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
@@ -347,7 +361,7 @@ impl std::hash::Hash for Conversion {
 /// clause puts it.
 ///
 /// **There are exactly two values and the blending space picks one**, because §11.6.6 makes
-/// the group's `/CS` "[t]he colour space into which colours shall be converted when painted
+/// the group's `/CS` "\[t]he colour space into which colours shall be converted when painted
 /// into the group":
 ///
 /// - A **`DeviceGray`** group converts a colour by §10.4.2.3 on the way in, and that

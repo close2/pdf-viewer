@@ -16,7 +16,7 @@
 //! — and that needs a decoder that can say *where* a row broke and resume after it. The shared
 //! decoder the tree used before answers only "it broke", which is why ADR 1349 moved §7.4.6 onto
 //! this crate. The concealment is built in rather than wrapped around, and it is the only error
-//! handling there is: the same clause says "[t]he filter shall not perform any error correction
+//! handling there is: the same clause says "\[t]he filter shall not perform any error correction
 //! or resynchronization, except as noted for the `DamagedRowsBeforeError` parameter", so every
 //! other kind of damage ends the decode where it is found, with the rows before it delivered.
 //!

@@ -155,6 +155,10 @@ struct Sample {
     /// The line instances the encode took in runs from the encode of the view before rather than
     /// walking them (ADR 2056).
     kept: u32,
+    /// Resident line instances this view does not submit.
+    omitted: u32,
+    /// Optional bounds tables refused by the frame budget.
+    bounds_refused: u32,
 }
 
 /// Milliseconds, which is the unit every frame line in this project is in.
@@ -203,6 +207,8 @@ impl Sample {
             split: cost.streams,
             lanes: counters.lanes,
             kept: counters.lines_kept,
+            omitted: counters.line_instances_omitted,
+            bounds_refused: counters.line_bounds_refused,
             phases: phases
                 .iter()
                 .map(|(name, spent)| ((*name).to_owned(), ms(*spent)))
@@ -474,8 +480,15 @@ fn main() {
         );
         let lanes = sample.lanes;
         println!(
-            "        lanes: line {} rectangle {} glyph {} path {} image {}; lines kept {}",
-            lanes.line, lanes.rectangle, lanes.glyph, lanes.path, lanes.image, sample.kept
+            "        lanes: line {} rectangle {} glyph {} path {} image {}; lines kept {}; omitted {}; bounds refused {}",
+            lanes.line,
+            lanes.rectangle,
+            lanes.glyph,
+            lanes.path,
+            lanes.image,
+            sample.kept,
+            sample.omitted,
+            sample.bounds_refused
         );
         for (phase, spent) in &sample.phases {
             println!("        {phase:<20}{spent:>9.3}");

@@ -10,7 +10,7 @@
 //!   script, or a reader whose level supplies no runner, never starts it (RFC 0008 section 6.6).
 //!   Every trigger has a deadline, and a worker that misses it, or dies, is killed, named by the
 //!   trigger it was running, and replaced at the next trigger (ADR 1609).
-//! - **The worker's half** ([`serve`], behind the `engine` feature) confines its own process with
+//! - **The worker's half** (`serve`, behind the `engine` feature) confines its own process with
 //!   `pdf_sandbox::lockdown::Profile::Script` before it reads a byte — one thread, no descriptor,
 //!   no executable memory, a ceiling in the tens of megabytes (ADR 1608) — says what the kernel
 //!   granted, and answers each run with `pdf_script::run` under `pdf_script::Budget::FIELD_EVENT`.

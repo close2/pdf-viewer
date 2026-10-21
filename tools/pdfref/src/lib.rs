@@ -324,7 +324,7 @@ impl Tolerance {
     /// *fourth* independent rasteriser sits from the three, which nobody has", and `pdfium` is
     /// still not packaged. **The question a verdict asks is answerable without one**, because it
     /// is not *how far do two implementations sit* but *how far may the excluded one of three sit
-    /// from the pair that agreed* — and [`crate::decide`] does not take an arbitrary pair, it
+    /// from the pair that agreed* — and `crate::decide` does not take an arbitrary pair, it
     /// takes the pairs that agree within the fixed bounds, which on a page carrying one is the
     /// **closest** pair in the room. The bound is therefore derived from a selected minimum, and
     /// the honest control is to run this judgement with a *reference* standing where our render
@@ -696,7 +696,7 @@ impl Triangulation {
     ///
     /// # Why it is here rather than in the gate
     ///
-    /// It runs [`decide`] — the same function that reached the live verdict — over the
+    /// It runs `decide` — the same function that reached the live verdict — over the
     /// comparisons this triangulation already holds. A counterfactual computed by a second
     /// implementation of the consensus rule would answer a question about that implementation;
     /// `oracle.rs` asserts on every page that `rejudged` with the page's own bounds reproduces

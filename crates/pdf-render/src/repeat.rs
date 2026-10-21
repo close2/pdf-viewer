@@ -270,7 +270,7 @@ pub fn without_subpaths(path: &Path, repeats: &Repeats) -> Option<Path> {
 /// 0459). [`DisplayList::add_clip`] hands back the identifier of an
 /// equal clip already in the table, so a second tiling whose cell states the same box as a first
 /// one's gets that first cell's identifier — which is *below* this mark although the cell built
-/// it. See [`Displaced::is_the_cells_own`] for what asks instead, and why a soft mask is not
+/// it. See `Displaced::is_the_cells_own` for what asks instead, and why a soft mask is not
 /// affected: [`DisplayList::add_soft_mask`] appends unconditionally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mark {
@@ -295,7 +295,7 @@ impl Mark {
 ///
 /// # Why a tiling draws its cell once
 ///
-/// ISO 32000-2 §8.7.3.1 defines a tiling pattern by one cell and a lattice: "[t]he pattern cell
+/// ISO 32000-2 §8.7.3.1 defines a tiling pattern by one cell and a lattice: "\[t]he pattern cell
 /// shall be replicated at fixed horizontal and vertical intervals to fill the area to be
 /// painted", and the cell's own appearance is "defined by a content stream containing the
 /// painting operators needed to paint **one** instance of the cell". So the cell is one figure
@@ -308,7 +308,7 @@ impl Mark {
 /// - **The only input that differs between two sites is the transform**, and it differs by a
 ///   translation in pattern space. The content stream, the resource dictionary, the optional
 ///   content state and §8.7.3.3's tint are the pattern's, not the site's.
-/// - **The cell's graphics state is initial at every site.** §11.6.7 requires it — "[t]he
+/// - **The cell's graphics state is initial at every site.** §11.6.7 requires it — "\[t]he
 ///   definition shall not inherit the current values of the graphics state parameters at the
 ///   time it is evaluated" — so no site can be reached with a state another site left behind.
 /// - **Every command carries its own absolute geometry** (see [`Command`]), so moving a

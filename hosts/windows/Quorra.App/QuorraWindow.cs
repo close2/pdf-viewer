@@ -15,7 +15,11 @@ namespace Quorra.App;
 /// <param name="Document">The document a PASSWORD, SCRIPT or SCRIPT_WITHDRAWN record is about.</param>
 /// <param name="Changed">A REPAINT record's QUORRA_REPAINT_* bits; zero for others.</param>
 /// <param name="Fresh">For a REPAINT record, whether each picture has pixels this window has not copied (ADR 2168).</param>
-internal readonly record struct Owed(uint Kind, string Text, ulong Document, uint Changed, IReadOnlyList<bool> Fresh);
+/// <param name="Script">The copied script question, for a SCRIPT record.</param>
+/// <param name="Archive">The archive chooser's starting selections and choices.</param>
+/// <param name="Print">The print preview's page count and quality restriction.</param>
+internal readonly record struct Owed(uint Kind, string Text, ulong Document, uint Changed, IReadOnlyList<bool> Fresh,
+    ScriptQuestion? Script, ArchiveChoice? Archive, PrintGrant? Print);
 
 /// <summary>One picture the page area shows, its pixels QUORRA_FORMAT_RGBA8 with straight alpha.</summary>
 /// <param name="Width">The raster's width in pixels.</param>
@@ -153,7 +157,7 @@ internal sealed unsafe class QuorraSettings : IDisposable
 }
 
 /// <summary>quorra_window: the loop the toolkit windows share, held for this one.</summary>
-internal sealed unsafe class QuorraWindow : IDisposable
+internal sealed unsafe partial class QuorraWindow : IDisposable
 {
     private nint handle;
 
@@ -309,7 +313,10 @@ internal sealed unsafe class QuorraWindow : IDisposable
                         fresh.Add(isFresh != 0);
                     }
                 }
-                records.Add(new Owed(kind, text, document, changed, fresh));
+                records.Add(new Owed(kind, text, document, changed, fresh,
+                    kind == Native.QUORRA_OWED_SCRIPT ? ReadScript(owed, at) : null,
+                    kind == Native.QUORRA_OWED_ARCHIVE ? ReadArchive(owed, at) : null,
+                    kind == Native.QUORRA_OWED_PRINT ? ReadPrint(owed, at) : null));
             }
             return records;
         }

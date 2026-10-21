@@ -71,6 +71,8 @@ pub(super) enum PatternPaint {
 /// the clause does not put there. See [`Interpreter::shading_paint`].
 #[derive(Debug)]
 pub(super) struct ShadingPattern {
+    /// The colours bypassed a stated pair; consumed only when this pattern paints.
+    black_generation_bypassed: bool,
     /// The colours and the geometry, as built under `built`.
     shading: Arc<Shading>,
     /// Table 77's `/BBox` where the pattern's shading states one, and the transform that
@@ -434,12 +436,12 @@ impl Interpreter<'_> {
             // the one place in the interpreter where the entry means anything at all.
             paints_background: fill,
         };
-        self.note_black_generation(&dict);
         let built = self.mark_colouring(&definition);
         match self.build_shading(&definition, &built) {
-            Ok(shading) => {
+            Ok((shading, black_generation_bypassed)) => {
                 self.note_unpainted_background(&label, &definition.object, shading.background);
                 Some(PatternPaint::Shading(Rc::new(ShadingPattern {
+                    black_generation_bypassed,
                     shading: Arc::new(shading),
                     // Stated "in the shading's target coordinate space", which for a pattern is
                     // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
@@ -480,6 +482,9 @@ impl Interpreter<'_> {
     /// applies them ([`Interpreter::mark_transfer`], ADR 1266).
     pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
+            self.black_generation_painted |= self
+                .conversion(state)
+                .bypasses_black_generation(&state.fill_space);
             return state.solid_fill();
         };
         let pattern = Rc::clone(pattern);
@@ -508,6 +513,9 @@ impl Interpreter<'_> {
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
     pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
+            self.black_generation_painted |= self
+                .conversion(state)
+                .bypasses_black_generation(&state.stroke_space);
             return state.solid_stroke();
         };
         let pattern = Rc::clone(pattern);

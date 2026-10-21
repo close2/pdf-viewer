@@ -1,7 +1,7 @@
 //! ISO 32000-2 §12.8's digital signatures: the dictionaries, and the cryptography that answers
 //! them.
 //!
-//! One clause, and everything it needs. §12.8.1 states the work in a sentence — "[t]he signer's
+//! One clause, and everything it needs. §12.8.1 states the work in a sentence — "\[t]he signer's
 //! certificate shall be determined and verified … The digest shall be recomputed and compared
 //! with the one stored in the document" — and that sentence is this crate's boundary: Table 255's
 //! dictionary and §12.8.1's `/ByteRange` on one side, and on the other the encodings and the

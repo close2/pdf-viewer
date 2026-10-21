@@ -60,7 +60,7 @@ impl Walk<'_> {
     /// samples are destroyed (§12.5.6.23), or refuses the page by name where it cannot be cleared
     /// without trace (trap 5, principle 1).
     ///
-    /// A codec-free image's samples come from [`Document::image_stream`] exactly as an image
+    /// A codec-free image's samples come from [`pdf_syntax::Document::image_stream`] exactly as an image
     /// `XObject`'s do, are zeroed by [`clear_region`] under this placement, re-encoded
     /// `FlateDecode`, and written back under a dictionary carrying every §8.9.7 key the source
     /// stated (its `/Width`, `/Height`, `/BitsPerComponent`, colour space, `/Decode`,
@@ -68,7 +68,7 @@ impl Walk<'_> {
     /// constant: §8.9.5.2 maps it through any `/Decode` to that array's `Dmin`, carrying none of
     /// the original sample (ADR 1126). An image behind one of the two codecs Table 92 lets an
     /// inline image name, `DCTDecode` and `CCITTFaxDecode`, is decoded and re-expressed as an
-    /// image `XObject` behind one is ([`inline_codec_raster`]).
+    /// image `XObject` behind one is ([`Self::inline_filter_output`]).
     fn spliced_inline_image(&self, stream: &Stream) -> Result<Vec<u8>, String> {
         let image = self.document.image_stream(stream).ok_or_else(|| {
             "§8.9.7: an inline image meeting the region did not decode to samples; the page is \

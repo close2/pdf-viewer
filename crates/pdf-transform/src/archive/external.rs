@@ -7,7 +7,7 @@
 //!
 //! # The two shapes a failure here has, and only one of them needs anything from outside
 //!
-//! §7.3.8.2's Table 5 makes `/F` "[t]he file containing the stream data" and says that where it
+//! §7.3.8.2's Table 5 makes `/F` "\[t]he file containing the stream data" and says that where it
 //! is present "the bytes between stream and endstream shall be ignored"; `/FFilter` and
 //! `/FDecodeParms` are the filter and the parameters applied to *that* file's data. So:
 //!

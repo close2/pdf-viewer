@@ -316,6 +316,68 @@ static int read_the_panels(quorra_window *window, struct seen *seen)
     return 1;
 }
 
+/* The menu's four launch levels round-trip through the same window state. */
+static int choose_permissions(quorra_window *window)
+{
+    size_t count = quorra_window_restriction_count(window), first = 0, restore = 0;
+    uint32_t depth = 0;
+    bool chosen = false;
+    char label[192];
+    size_t needed = 0;
+    for (size_t row = 0; row < count; row++) {
+        if (!check("restriction read", quorra_window_restriction_read(window, row, 0,
+                    &depth, &chosen, label, sizeof(label), &needed))) return 0;
+        if (strcmp(label, "opening a launched document in another program") == 0) first = row + 1;
+    }
+    if (first == 0 || first + 4 > count
+        || quorra_window_restriction_count(NULL) != 0
+        || quorra_window_restriction_choose(window, 0) != QUORRA_WRONG_KIND
+        || quorra_window_restriction_choose(window, count) != QUORRA_OUT_OF_RANGE
+        || quorra_window_restriction_choose(NULL, 0) != QUORRA_NULL_ARGUMENT) return 0;
+    for (size_t row = first; row < first + 4; row++) {
+        if (!check("restriction read", quorra_window_restriction_read(window, row, 0,
+                    &depth, &chosen, label, sizeof(label), &needed))) return 0;
+        if (chosen) restore = row;
+    }
+    for (size_t row = first; row < first + 4; row++) {
+        if (!check("restriction choose", quorra_window_restriction_choose(window, row))) return 0;
+        for (size_t other = first; other < first + 4; other++) {
+            if (!check("restriction tick", quorra_window_restriction_read(window, other, 0,
+                        &depth, &chosen, label, sizeof(label), &needed))
+                || depth != 2 || chosen != (row == other)) return 0;
+        }
+    }
+    if (restore == 0 || !check("restriction restore", quorra_window_restriction_choose(window, restore))) return 0;
+    printf("window permissions: all four launch levels selected and read back; initial level restored\n");
+    return 1;
+}
+
+/* A thumbnail row names a page directly. The invalid index must not move the page. */
+static int choose_a_page(quorra_window *window, struct seen *seen)
+{
+    size_t pages = 0;
+    quorra_frame frame = {0};
+    if (!check("quorra_window_page_count", quorra_window_page_count(window, &pages)) || pages < 2
+        || !check("quorra_window_go_to_page", quorra_window_go_to_page(window, pages - 1))
+        || !act_on_what_is_owed(window, seen) || !run_the_timer(window, seen)
+        || !check("quorra_window_frame", quorra_window_frame(window, 0, &frame, NULL, NULL))
+        || frame.page != pages - 1) {
+        return 0;
+    }
+    if (quorra_window_go_to_page(window, pages) != QUORRA_OUT_OF_RANGE
+        || quorra_window_go_to_page(NULL, 0) != QUORRA_NULL_ARGUMENT
+        || !check("quorra_window_frame", quorra_window_frame(window, 0, &frame, NULL, NULL))
+        || frame.page != pages - 1
+        || !check("quorra_window_go_to_page", quorra_window_go_to_page(window, 0))
+        || !act_on_what_is_owed(window, seen) || !run_the_timer(window, seen)
+        || !check("quorra_window_frame", quorra_window_frame(window, 0, &frame, NULL, NULL))
+        || frame.page != 0) {
+        return 0;
+    }
+    printf("window thumbnails: last page and first selected; invalid index kept the page\n");
+    return 1;
+}
+
 /* An outline row clicked: its object, activated, is §12.3.3's destination followed. */
 static int activate_a_row(quorra_window *window, size_t row, struct seen *seen)
 {
@@ -454,7 +516,7 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window title: %s\n", seen.title);
-    if (!read_the_panels(window, &seen)) {
+    if (!read_the_panels(window, &seen) || !choose_a_page(window, &seen) || !choose_permissions(window)) {
         quorra_window_free(window);
         return 0;
     }

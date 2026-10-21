@@ -183,6 +183,22 @@ mod tests {
         assert_eq!(by_number.settings(), by_word.settings());
     }
 
+    /// A562's launched-document policy has the same four levels by word and by number.
+    #[test]
+    fn launched_document_levels_cross_the_settings_boundary() {
+        for (level, word) in ["refuse", "ask", "warn", "open"].into_iter().enumerate() {
+            let mut by_number = Stated::default();
+            let mut by_word = Stated::default();
+            by_number
+                .set(6, u32::try_from(level).expect("four levels"))
+                .expect("a level");
+            by_word
+                .take(&format!("--launched-documents={word}"), None)
+                .expect("a word");
+            assert_eq!(by_number.settings(), by_word.settings(), "{word}");
+        }
+    }
+
     /// A word that is none of them is not taken, one that names no level is refused with its
     /// parser's sentence, and a number that names nothing changes nothing.
     #[test]
@@ -199,7 +215,7 @@ mod tests {
                 .refusal()
                 .is_some_and(|said| said.contains("--links=sometimes"))
         );
-        assert_eq!(stated.set(6, 0), Err(Status::WrongKind));
+        assert_eq!(stated.set(7, 0), Err(Status::WrongKind));
         assert_eq!(stated.set(0, 4), Err(Status::WrongKind));
         assert_eq!(
             stated.set(5, 1),

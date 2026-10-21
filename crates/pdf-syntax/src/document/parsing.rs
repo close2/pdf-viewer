@@ -59,7 +59,7 @@ impl Document {
     ///
     /// This is where the file's own statement is applied, one layer up, under the same guard the
     /// parser puts on a direct length: the stated end is taken only where `endstream` is actually
-    /// there, so a *wrong* `/Length` still loses to the search. §7.3.8.2's "[a]ll of these
+    /// there, so a *wrong* `/Length` still loses to the search. §7.3.8.2's "\[a]ll of these
     /// constraints shall be consistent" is what makes that check the right arbiter either way.
     ///
     /// **And it is the indirect half of the guard on the parser's padding recovery** (ADR

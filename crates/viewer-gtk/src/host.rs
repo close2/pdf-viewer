@@ -173,7 +173,7 @@ struct Chrome {
     matches: Vec<[f32; 8]>,
     /// Annex O's `highlight`: the rectangles the URI's fragment named, in the same pixels.
     ///
-    /// Table Annex O.4 leaves what one looks like to a processor — "[t]he nature of the
+    /// Table Annex O.4 leaves what one looks like to a processor — "\[t]he nature of the
     /// highlighting is implementation-dependent" — and this platform's honest answer is the same
     /// one it gives a match: the theme's own colour at an alpha of its own, because GTK exposes no
     /// second colour to ask for.
@@ -255,7 +255,7 @@ struct Ui {
     split: gtk4::Paned,
     /// The page's own half of that splitter, held across the times it is not in it.
     ///
-    /// Table 158's `/Direction` `N` takes it out — "[t]he entire window region shall be dedicated
+    /// Table 158's `/Direction` `N` takes it out — "\[t]he entire window region shall be dedicated
     /// to the file navigation view" — the same way full screen takes the notebook out, and for
     /// the same reason: a `GtkPaned` keeps a position that was set (ADR 1252).
     page_area: gtk4::Overlay,
@@ -331,7 +331,7 @@ pub struct Host {
     /// answers `Some`, and it answers `None` the moment the thread is idle.
     drawing_armed: Option<glib::SourceId>,
     /// The dialogue a script's question stands on, while it is up: which document asked, the
-    /// window, and whether it has been answered — what [`Event::ScriptQuestionWithdrawn`] takes
+    /// window, and whether it has been answered — what [`viewer_core::Event::ScriptQuestionWithdrawn`] takes
     /// down, marked answered first so that closing it does not answer the script twice (ADR 1643).
     script_dialogue: Option<(DocumentId, gtk4::Window, Rc<Cell<bool>>)>,
     /// The widgets.

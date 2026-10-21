@@ -1325,6 +1325,19 @@ ISO 19005-2 6.2.11.4.2 · PDF/A-2b, 2u, 2a · **built in session 957** (`Mechani
   may prefer the entry present for its own indexing. Neither costs anything.
 - **Departure** — **A**, confirmed, and pointless given two lossless remedies.
 
+#### `fonts/widths-array-covers-character-range`
+ISO 19005-2 6.2.11.2, ISO 19005-4 6.2.10.2 · all six · **built** (ADR 2178)
+
+- **Mitigation** — a nonempty short `/Widths` array narrows `/LastChar` to the codes it
+  covers; a long array loses the entries past `/LastChar`. Table 109 gives codes outside
+  that range `/MissingWidth`, exactly as this reader lays them out. Retained advances
+  are unchanged. This is a `Stated` interpretation, recorded in the report and provenance.
+- **By target** — the same construction under both parts.
+- **From a configuration** — none: no loss is offered in exchange for an invalid count.
+- **Remaining refusal** — an empty array may have caused this reader to use substitute
+  metrics; inventing widths would require proving those advances separately. Missing
+  arrays and invalid byte-code ranges are not claimed checked by this requirement.
+
 #### `fonts/vertical-metrics-agree-with-the-program`
 ISO 19005-4 6.2.10.5 · PDF/A-4, 4f, 4e · **built in session 976** (`Mechanical`) · corrected in
 sessions 962, 966 and 976

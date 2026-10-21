@@ -20,7 +20,7 @@ use super::{
 impl Walk<'_> {
     /// Plans clearing an image `XObject` that meets the region (§12.5.6.23), or refuses by name.
     ///
-    /// The clearing itself is deferred to [`cleared_image_samples`], because a page may draw one
+    /// The clearing itself is deferred to [`super::cleared_image_samples`], because a page may draw one
     /// image twice and the destroyed samples are the union across its placements. What this does
     /// is prove the image *can* be cleared without trace — its layout is known, and if it is
     /// behind a codec that codec is one this build runs as a filter and whose output a
@@ -385,10 +385,10 @@ impl Walk<'_> {
     /// (§8.9.5.1 Table 87) and, for a `DCTDecode` frame, what §7.4.8 puts in the encoded data;
     /// where the two part, the samples written back would not be the image the dictionary
     /// describes. The components have to be the colour space's, which is what interprets them,
-    /// and an image mask's samples one bit: Table 87 says "[i]f ImageMask is true , the value of
+    /// and an image mask's samples one bit: Table 87 says "\[i]f ImageMask is true , the value of
     /// BitsPerComponent , if present, shall be 1". The depth is the filter's, which Table 87 makes
     /// the dictionary's to be "consistent with", so the written dictionary states it
-    /// ([`Described::Filtered`]).
+    /// ([`super::Described::Filtered`]).
     #[expect(
         clippy::doc_markdown,
         reason = "the comment quotes Table 87 and §7.4.9 verbatim, and a quotation is not marked up"
@@ -540,8 +540,8 @@ impl Walk<'_> {
     /// §12.5.6.23 destroys "that portion of the image data" and says nothing of the rest, which
     /// is therefore to be carried as the file had it. The decoder delivers the codestream's
     /// components as integers at a precision Table 87 leaves to the processor —
-    /// "[t]he bit depth is determined by the PDF processor in the process of decoding the JPEG
-    /// 2000 image" — each component at its own depth where §7.4.9's "[t]he colour components in
+    /// "\[t]he bit depth is determined by the PDF processor in the process of decoding the JPEG
+    /// 2000 image" — each component at its own depth where §7.4.9's "\[t]he colour components in
     /// an image may have different numbers of bits per sample" applies, and in the colour space
     /// §7.4.9's precedence names. Table 87 has one depth for an image — "the number of bits shall
     /// be the same for all colour components" — so the integers are written back under
@@ -654,10 +654,10 @@ impl Walk<'_> {
     /// (ADRs 1248, 1333, 1371):
     ///
     /// - **Table 87's `/SMaskInData` is one of the three codes it defines.** Codes 1 and 2 say
-    ///   the codestream carries an opacity channel from which "[a] PDF processor shall create a
+    ///   the codestream carries an opacity channel from which "\[a] PDF processor shall create a
     ///   soft-mask image", and [`Walk::plan_jpx_clear`] writes that image (ADR 1277).
     /// - **Every component fits a sample Table 87 can state.** §7.4.9 lets a component be "between
-    ///   1 to 38 inclusive" bits; Table 87 lets an image's samples be at most sixteen — "[t]he
+    ///   1 to 38 inclusive" bits; Table 87 lets an image's samples be at most sixteen — "\[t]he
     ///   value shall be 1 , 2 , 4 , 8 , or (from PDF 1.5) 16" — so a deeper component's integers
     ///   have no field in any image this removal can write, and carrying them coarser would
     ///   change content the annotation did not identify.
@@ -768,7 +768,7 @@ impl Walk<'_> {
     /// Whether an object is safe to overwrite in place: referenced exactly once in the
     /// document, and reached by a resource path this page does not share, so its marks are the
     /// redacted page's alone, so the removal may replace it. An object this cannot prove is the
-    /// page's is copied for the page instead ([`private_copies`], ADR 1196).
+    /// page's is copied for the page instead (ADR 1196).
     fn exclusively_owned(&self, image_id: ObjectId) -> bool {
         if self.counts.get(&image_id.number).copied() != Some(1) {
             return false;

@@ -39,7 +39,7 @@
 //!
 //! ISO/TS 32002 section 5.1.3 requires the `namedCurve` form and settles the encoding in the same
 //! breath: "The implicitCurve and specifiedCurve options shall not be used", with the note that
-//! "[t]his restriction implies that ECDSA signature values are required to be represented using the
+//! "\[t]his restriction implies that ECDSA signature values are required to be represented using the
 //! DER-encoded ECDSA-Sig-Value type in IETF RFC 5753:2010, section 7.2."
 //!
 //! So `SEQUENCE { r INTEGER, s INTEGER }` is the encoding this module reads, and it is read with
@@ -206,7 +206,7 @@ impl Curve {
 /// ISO/TS 32002 Table 3 pairs each curve with SHA-2 and SHA-3 digests, and RFC 5758 section 3.2
 /// and RFC 9688 are the documents that assign an identifier to each pairing. **Recognising one is
 /// not choosing a digest with it**: which function was used is `SignerInfo`'s own
-/// `digestAlgorithm`, which ISO/TS 32002 section 5.1.4 requires to be the same: "[i]f the
+/// `digestAlgorithm`, which ISO/TS 32002 section 5.1.4 requires to be the same: "\[i]f the
 /// signedAttrs field is present in the SignerInfo field for the signer, then the same message
 /// digest algorithm shall be used to compute both the digest of the SignedData encapContentInfo
 /// eContent and the digest of the DER-encoded signedAttrs passed to the signature algorithm." So a

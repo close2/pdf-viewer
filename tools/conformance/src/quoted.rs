@@ -59,7 +59,7 @@
 //! # The noise, classified rather than filtered
 //!
 //! - **A note narrates its own corrections**, and the superseded figure stays in the sentence
-//!   that supersedes it: *"[u]ntil ADR NNNN this page's line read mean 27.02 …"*. That figure is
+//!   that supersedes it: *"\[u]ntil ADR NNNN this page's line read mean 27.02 …"*. That figure is
 //!   contradicted by construction and the prose is correct. It is the
 //!   largest single source of hits on rungs 2 and 3.
 //! - **Another instrument's table.** A ladder at eight times the resolution, a mean per column,

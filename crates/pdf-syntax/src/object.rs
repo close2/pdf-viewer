@@ -96,7 +96,7 @@ impl Name {
     ///
     /// So a byte goes out as itself exactly when it is regular by §7.2.3, lies inside that range,
     /// and is not the number sign; the eight delimiters, the six white-space bytes, `#` and every
-    /// byte above 126 go out as `#xx`. Whitespace is not a choice at all — "[w]hitespace used as
+    /// byte above 126 go out as `#xx`. Whitespace is not a choice at all — "\[w]hitespace used as
     /// part of a name shall always be coded using the 2-digit hexadecimal notation" — and it falls
     /// out of the same test rather than being a second rule.
     ///

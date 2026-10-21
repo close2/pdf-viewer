@@ -6,7 +6,7 @@
 //! argument for each shape sits on the type rather than in an ADR, because **a C entry point cannot
 //! change shape once a caller exists** and the reason has to be readable where the accessor is.
 //!
-//! Everything here is **owned**, for [`crate::panels`]'s reason restated once: an
+//! Everything here is **owned**, for `crate::panels`'s reason restated once: an
 //! [`viewer_core::Answer`] may borrow the viewer, a C caller holding that borrow while it calls
 //! back in is an aliasing hazard nothing on this side would notice, and the allocation is a
 //! panel's rather than a pointer's.
@@ -20,7 +20,7 @@
 //! - a **list of lists**, read with two indices — [`Matches`], where each occurrence of a search
 //!   term is several quadrilaterals, and [`Structure`], where each page on the screen has its own
 //!   tree;
-//! - a **tree flattened depth first with a depth on each row**, which is what [`crate::panels`]
+//! - a **tree flattened depth first with a depth on each row**, which is what `crate::panels`
 //!   already does for §12.3.3 and what [`Collection`]'s folders take;
 //! - a **buffer the caller copies out of**, for the one answer that is pixels — [`Miniature`].
 //!
@@ -341,7 +341,7 @@ impl Popups {
             .unwrap_or_default())
     }
 
-    /// Table 166's `/C`, "[t]he title bar of the annotation's popup window", as `DeviceRGB`.
+    /// Table 166's `/C`, "\[t]he title bar of the annotation's popup window", as `DeviceRGB`.
     ///
     /// # Errors
     ///
@@ -711,13 +711,13 @@ impl Structure {
 
 /// §12.3.5's portable collection: Table 153's columns, its folders, and where to open.
 ///
-/// **The clause is a `shall` on a viewer** — "[i]f this dictionary is present in a PDF document,
+/// **The clause is a `shall` on a viewer** — "\[i]f this dictionary is present in a PDF document,
 /// the interactive PDF processor shall present the document as a portable collection" — so what a
 /// caller needs is everything required to *arrange* the files it already reads with
 /// `quorra_attachments_read`, and nothing that is merely decoration.
 ///
 /// Three things cross and the third is the one a caller could not compute. The **columns** are
-/// Table 155's fields in `/O` order, which the table calls "[t]he relative order of the field name
+/// Table 155's fields in `/O` order, which the table calls "\[t]he relative order of the field name
 /// in the user interface"; the **folders** are §12.3.5.2's tree, flattened depth first with a depth
 /// on each row exactly as §12.3.3's outline is; and `folder_of` is §12.3.5.2's own grammar for an
 /// `/EmbeddedFiles` key, which says which folder a file is in. Without the last one a caller holds
@@ -781,7 +781,7 @@ struct Column {
     key: String,
     /// `/O`, where the file states one.
     order: Option<i64>,
-    /// `/V`, "[t]he initial visibility of the field".
+    /// `/V`, "\[t]he initial visibility of the field".
     visible: bool,
     /// `/E`, whether a processor "should provide support for editing the field value".
     editable: bool,

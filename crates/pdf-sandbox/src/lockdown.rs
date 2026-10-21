@@ -1,6 +1,6 @@
 //! Confining the calling process, irreversibly — and saying so where a platform cannot.
 //!
-//! The mechanism is Linux's and lives in [`crate::lockdown_linux`]: resource limits, a
+//! The mechanism is Linux's and lives in `crate::lockdown_linux`: resource limits, a
 //! Landlock domain that permits nothing, and a seccomp-BPF allow-list. This module is the
 //! front door: the vocabulary for *what was achieved*, and [`apply`], which on a platform
 //! with none of those three installs nothing and returns a [`Confinement`] that says so.
@@ -229,7 +229,7 @@ pub const ENFORCED_BY_THIS_BUILD: bool = cfg!(target_os = "linux");
 /// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A
 /// caller that gets an error must not continue with the work it intended to confine. On a
 /// platform with no confinement to install this cannot fail, and answers
-/// [`Confinement::NONE`].
+/// `Confinement::NONE`.
 ///
 /// `#[must_use]` because off Linux the error type has no reachable variants, so the compiler
 /// would let a caller drop the whole answer — including the part that says what was *not*
@@ -242,7 +242,7 @@ pub fn apply() -> Result<Confinement, LockdownError> {
 /// Whether this process has installed its system-call filter.
 ///
 /// Set once, by the confinement, and never cleared — the filter cannot be removed either. Read
-/// by [`crate::decode`], whose in-process deadline starts a thread: a confined process must not
+/// by [`crate::decode()`], whose in-process deadline starts a thread: a confined process must not
 /// take that path, because the filter kills it (ADR 1447).
 pub(crate) static CONFINED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -262,7 +262,7 @@ pub fn is_confined() -> bool {
 ///
 /// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A caller
 /// that gets an error must not continue with the work it intended to confine. On a platform with
-/// no confinement to install this cannot fail, and answers [`Confinement::NONE`].
+/// no confinement to install this cannot fail, and answers `Confinement::NONE`.
 ///
 /// `#[must_use]` for [`apply`]'s reason: off Linux the error type has no reachable variants, so
 /// the compiler would let a caller drop the part of the answer that says what was *not* enforced.

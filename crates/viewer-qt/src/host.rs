@@ -516,7 +516,7 @@ impl NativeWindow for Host {
         self.update.title = true;
     }
 
-    /// Nothing to push: the C++ side reads the bar from [`Host::loading_permille`] whenever it
+    /// Nothing to push: the C++ side reads the bar from `Host::loading_permille` whenever it
     /// reads the status line, and a draw that has ended has no share to show (ADR 1825).
     fn show_the_drawing(&mut self) {}
 
@@ -530,7 +530,7 @@ impl NativeWindow for Host {
     /// extents are known (ADR 1429).
     fn asked_to_centre(&mut self) {}
 
-    /// The window's chrome and panel are the C++ side's, read from [`Host::chrome`] on the flag,
+    /// The window's chrome and panel are the C++ side's, read from `Host::chrome` on the flag,
     /// and full screen is said here, where `viewer-gtk` says it as it shows the mode.
     fn show_the_page_mode(&mut self, _mode: pdf_model::viewer_preferences::PageMode) {
         if self.state.presenting.full_screen() {
@@ -551,7 +551,7 @@ impl NativeWindow for Host {
         Self::show_the_opening(self);
     }
 
-    /// The bar is the C++ side's, drawn from [`Host::loading_permille`], which has nothing to show
+    /// The bar is the C++ side's, drawn from `Host::loading_permille`, which has nothing to show
     /// once the document is joined; what is this side's is whether it was ever said.
     fn take_down_the_bar(&mut self) -> bool {
         self.bar_said
@@ -567,7 +567,7 @@ impl NativeWindow for Host {
         self.update.clipboard = true;
     }
 
-    /// Nothing to arm: the timer [`Host::drawing_wait`] sets looks for a server's answer and a
+    /// Nothing to arm: the timer `Host::drawing_wait` sets looks for a server's answer and a
     /// conversion's report whenever one is out (ADRs 1291, 1954).
     fn look_for_answers(&mut self) {}
 

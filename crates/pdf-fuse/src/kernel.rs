@@ -160,7 +160,7 @@ const NEW: Generation = Generation(0);
 
 /// The name a kernel sent, as text, or `None` for bytes that are not UTF-8.
 ///
-/// Every name in this tree is ASCII by construction — RFC 0003 section 4: "[a]ll names are ASCII,
+/// Every name in this tree is ASCII by construction — RFC 0003 section 4: "\[a]ll names are ASCII,
 /// generated, and stable within a generation of the document" — so a name that is not is a name
 /// the tree cannot hold, and `ENOENT` is the honest answer rather than a lossy conversion that
 /// would match the wrong file.

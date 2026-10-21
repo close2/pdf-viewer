@@ -10,7 +10,7 @@ use crate::icc::Rendering;
 impl ColourSpace {
     /// Converts a colour in this space to the four components of `DeviceCMYK`.
     ///
-    /// §11.7.2 is what asks for this: "[i]f the colour space of a graphics object within the
+    /// §11.7.2 is what asks for this: "\[i]f the colour space of a graphics object within the
     /// group is not equivalent to the group's blending colour space, then it shall be
     /// converted to the group's colour space, and all blending and compositing computations
     /// shall be done in that space".
@@ -27,8 +27,8 @@ impl ColourSpace {
     ///
     /// So the conversion into a group's space is the *same* conversion as the one onto the
     /// device, with a different target — which puts it on §10.3's branch, where §10.4.2.1
-    /// ranks it and where ADRs 0009 and 0042 put this tree's conversion out. [`rgb_to_ink`]
-    /// is that conversion: the right inverse of [`super::device_cmyk::cmyk`], so an opaque mark painted into a
+    /// ranks it and where ADRs 0009 and 0042 put this tree's conversion out. `rgb_to_ink`
+    /// is that conversion: the right inverse of `super::device_cmyk::cmyk`, so an opaque mark painted into a
     /// page composited in ink comes back the colour the file states. ADR 0263.
     ///
     /// §11.7.5.3's other two bullets are §10.4.2's branch and are not in force here — they say
@@ -62,11 +62,11 @@ impl ColourSpace {
     /// CIE" information, which that clause requires of a blending-space profile precisely
     /// because "the group colour space shall be used as both the destination for objects being
     /// painted within the group and the source for the group's results" — and a colour reaches
-    /// it as an XYZ: a CIE-based colour's own ([`Self::cie_xyz_at`], §10.3.1's conversion
+    /// it as an XYZ: a CIE-based colour's own (`Self::cie_xyz_at`, §10.3.1's conversion
     /// between two CIE-based spaces with no screen in the way) and a device colour's through
-    /// the sRGB this processor takes device colours to be (§10.3.2, [`super::cie::srgb_to_xyz_d50`]).
+    /// the sRGB this processor takes device colours to be (§10.3.2, `super::cie::srgb_to_xyz_d50`).
     /// **Every other press** — the assumed inks, and a profile without the table — takes this
-    /// crate's one route to RGB and then [`rgb_to_ink`], so a `Lab` or a *different*
+    /// crate's one route to RGB and then `rgb_to_ink`, so a `Lab` or a *different*
     /// `ICCBased` colour reaches ink through sRGB: colorimetric where sRGB holds it, and
     /// clipped where it does not, which is the same gamut question one space earlier.
     #[must_use]
@@ -86,9 +86,9 @@ impl ColourSpace {
     ///
     /// §10.4.2.4 is the only algorithm in the standard that invokes those two functions, and its
     /// title is the conversion this sentence is about. What a stated function replaces is a step
-    /// the route above already performs: [`rgb_to_ink`]'s search chooses a black amount and
+    /// the route above already performs: `rgb_to_ink`'s search chooses a black amount and
     /// solves the other three for the colour, which is a black generation and an undercolour
-    /// removal, and §10.4.2.4 requires every device to have a pair — "[e]ach device shall be
+    /// removal, and §10.4.2.4 requires every device to have a pair — "\[e]ach device shall be
     /// configured with default values that are appropriate for that device". So the file's pair
     /// substitutes for this device's, over the colours the sentence names and no others.
     ///

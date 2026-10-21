@@ -405,7 +405,7 @@ impl PackedRows {
     ///
     /// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or
     /// resynchronization" beyond what `/DamagedRowsBeforeError` asks for, whose Table 11 row
-    /// reads "[t]he number of damaged rows of data that shall be tolerated before an error
+    /// reads "\[t]he number of damaged rows of data that shall be tolerated before an error
     /// occurs" — so at the first damaged row past that number (the first of all, at its default
     /// of zero) the filter's decode *ends*, and where it ends is a scan line the encoded data
     /// reached. What the rows it did not reach show is stated nowhere: [`Self::pad_to_height`]
@@ -936,7 +936,7 @@ fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, St
 
 /// The decoded components interleaved, at the precision the codestream states.
 ///
-/// ISO 32000-2 Table 87 leaves a JPEG 2000 image's bit depth to the processor — "[t]he bit
+/// ISO 32000-2 Table 87 leaves a JPEG 2000 image's bit depth to the processor — "\[t]he bit
 /// depth is determined by the PDF processor in the process of decoding the JPEG 2000 image" —
 /// and this one determines the codestream's own wherever the components agree on it and it
 /// fits sixteen bits. §8.9.6.4's colour-key ranges are integers in that domain and §8.9.5.2's
@@ -983,7 +983,7 @@ struct Integers {
 /// The decoded channels interleaved as each one's **own** integers, for a writer that carries
 /// them ([`crate::Request::JpxWhole`], ADR 1371).
 ///
-/// §7.4.9: "[t]he colour components in an image may have different numbers of bits per sample,
+/// §7.4.9: "\[t]he colour components in an image may have different numbers of bits per sample,
 /// however bits per sample shall be between 1 to 38 inclusive". [`jpx_samples`]'s eight-bit
 /// stretch is a drawing's answer to the first half — each channel scaled to one domain — and a
 /// writer cannot take it, because a stretched integer is not the one the codestream states.

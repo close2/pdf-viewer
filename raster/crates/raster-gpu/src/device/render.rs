@@ -612,6 +612,8 @@ impl Device {
             commands_culled: encoded.commands_culled,
             layers_culled: encoded.layers_culled,
             lines_kept: encoded.lines_kept,
+            line_instances_omitted: encoded.line_instances_omitted,
+            line_bounds_refused: encoded.line_bounds_refused,
             bytes_uploaded: upload_bytes.total(),
             uploads: upload_bytes,
             layer_textures,

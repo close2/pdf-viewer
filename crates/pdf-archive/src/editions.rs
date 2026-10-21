@@ -16,7 +16,7 @@
 //!
 //! This module is that sweep made a table and a test. [`SHIFTS`] records every cited number whose
 //! counterpart in ISO 32000-1:2008 is not the same number under the same title, and
-//! [`tests::every_citation_resolves_in_the_edition_a_part_two_file_adheres_to`] holds it against
+//! `tests::every_citation_resolves_in_the_edition_a_part_two_file_adheres_to` holds it against
 //! **every** `§` in this crate's sources, both ways: a citation not in the table has to resolve in
 //! the 2008 edition to a heading of the same title, and an entry in the table has to still be
 //! needed. So the sentence *every citation in this crate resolves in the edition it names* is a

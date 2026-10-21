@@ -58,6 +58,9 @@ pub fn standing(settings: crate::Settings) -> crate::Restrictions {
         ))
         .with(crate::ActLevel::Submissions(settings.submissions))
         .with(crate::ActLevel::Scripts(settings.scripts))
+        .with(crate::ActLevel::LaunchedDocuments(
+            settings.launched_documents,
+        ))
 }
 
 /// What an open sends, in the order it sends it: every policy before the document.
@@ -336,9 +339,6 @@ pub struct WindowState {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     pub remote_documents: crate::RemoteDocuments,
-    /// §12.6.4.6: what this window does with a launched document that is not a PDF, per
-    /// `--launched-documents=` — a fourth subject, handing a file to another program (ADR 2171).
-    pub launched_documents: crate::LaunchedDocuments,
 }
 
 impl WindowState {
@@ -394,7 +394,6 @@ impl WindowState {
             separations: settings.separations,
             links: settings.links,
             remote_documents: settings.remote_documents,
-            launched_documents: settings.launched_documents,
         }
     }
 

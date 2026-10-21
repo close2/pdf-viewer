@@ -86,7 +86,7 @@ impl Document {
     /// §7.4's chain over one stream dictionary, each filter beside its own `/DecodeParms`.
     ///
     /// **Half of what identifies a decode**, the other half being the bytes — see
-    /// [`DecodedEntry::chain`] — so it is built in one place and the memo's key and the work
+    /// [`super::cache::DecodedEntry::chain`] — so it is built in one place and the memo's key and the work
     /// the memo remembers come from the same call. The parameters are read here rather than
     /// inside [`Self::chain_over`]'s loop for that reason: an entry has to be keyed on all of
     /// what produced it, and `decode_parms` was already called once per filter either way.
@@ -98,7 +98,7 @@ impl Document {
             .collect()
     }
 
-    /// Runs one filter chain over one buffer, through [`DecodedStreams`].
+    /// Runs one filter chain over one buffer, through [`super::cache::DecodedStreams`].
     ///
     /// **The one place a chain is run, so that the two callers cannot memoise it differently.**
     /// [`Self::decoded_under`] asks for a stream's whole `/Filter`; [`Self::image_stream`] asks
@@ -106,10 +106,10 @@ impl Document {
     /// same bytes and was the one filter chain in this crate with no memo at all (ADR 0585).
     ///
     /// The chain is passed by value because the memo keeps it: it is half of what identifies a
-    /// decode, and [`DecodedEntry::chain`] compares it on every hit.
+    /// decode, and [`super::cache::DecodedEntry::chain`] compares it on every hit.
     ///
     /// **One entry per allocation, and a second chain over the same buffer replaces the first.**
-    /// That is [`DecodedStreams::held`]'s key rather than a decision made here, and no shipped
+    /// That is [`super::cache::DecodedStreams::held`]'s key rather than a decision made here, and no shipped
     /// path asks both of one stream: an image `XObject`'s bytes reach this by the image route
     /// and a font program's, an `ICCBased` profile's and a content stream's by the other.
     /// `pdf_model::thumbnail::significant` builds the one second `Stream` over another's `data`
@@ -161,7 +161,7 @@ impl Document {
     /// What this document's decoded-stream cache is holding, and how it has been used.
     ///
     /// An instrument rather than something a reader draws with; `viewer-core/examples/find_cost`
-    /// prints it after a sweep. See [`super::cache::DecodedStreams`] for what the numbers mean.
+    /// prints it after a sweep. See `super::cache::DecodedStreams` for what the numbers mean.
     #[must_use]
     pub fn decoded_streams(&self) -> DecodedStreamCache {
         read(&self.decoded).report()
@@ -190,7 +190,7 @@ impl Document {
     /// > PDF file are used for the stream's data.
     ///
     /// — because a truncation leaves `/Length` stating a number the bytes do not support, and
-    /// "[a]ll of these constraints shall be consistent" is then false. Only a stated zero that the
+    /// "\[a]ll of these constraints shall be consistent" is then false. Only a stated zero that the
     /// bytes agree with is silence the producer asked for. Two documents of the 5944 `SafeDocs`
     /// members on disk do this and two more are truncations; ADR 0266 names all four.
     ///

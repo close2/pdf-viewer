@@ -8,6 +8,8 @@ rustdoc's own log, which `cargo test -p conformance` runs on planted cases, and 
 given `--keep-going`, without which the first failing crate hides every later crate's errors), and
 for `viewer-core` and `render-raster` (session 1669: the instrument's pass and eight by hand; a
 name in a crate that depends on the one documented is a code span, as a private item's is).
+The whole workspace is now held (session 1677, ADR 2190: 44 packages under native default
+features; Cargo membership replaces the manual list).
 Context: ADRs 1023, 1273, 1912, 1914. No clause is read anew and no ledger row changes status.
 
 ## 1. What it was

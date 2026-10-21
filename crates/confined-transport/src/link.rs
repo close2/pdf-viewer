@@ -199,7 +199,7 @@ impl Source for Link {
 /// are *inside* an answer when a font is wanted, so a second `stdout().lock()` from the rasterising
 /// thread would wait for a lock the answering thread does not release until the answer is written.
 /// The request is therefore written with `write` on the descriptor itself, which takes no lock of
-/// the standard library's, and serialised by [`ASKING`] instead — a request is a whole exchange
+/// the standard library's, and serialised by `resources::ASKING` instead — a request is a whole exchange
 /// and two of them may not interleave on one socket.
 #[cfg(unix)]
 mod resources {

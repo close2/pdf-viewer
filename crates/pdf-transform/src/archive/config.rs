@@ -129,10 +129,10 @@ impl Kind {
     /// Whether a remedy of this kind reaches a real conversion at the sites that admit it.
     ///
     /// `stop` is a no-op, `discard` is an authorised loss, `derive` runs a declared tool over one
-    /// of [`DERIVABLE`]'s two sites, `supply` writes the operator's own fact at [`SUPPLIABLE`]'s
+    /// of `DERIVABLE`'s two sites, `supply` writes the operator's own fact at `SUPPLIABLE`'s
     /// sites, and `preserve` moves content the target will not admit — onto pages appended to the
-    /// document ([`PRESERVABLE_BY_PAGE`], under `doc/adr/1014`'s amendment) or into an attachment
-    /// the target does admit ([`DERIVABLE`], through the same derivation `derive` uses).
+    /// document (`PRESERVABLE_BY_PAGE`, under `doc/adr/1014`'s amendment) or into an attachment
+    /// the target does admit (`DERIVABLE`, through the same derivation `derive` uses).
     ///
     /// *Which sites* admit each is the question [`Configuration::unbuilt`] answers; this is only
     /// the kind.
@@ -753,7 +753,7 @@ pub enum Unmapped {
     /// section 6.6.2.3.2's container describes a schema a *packet uses*, and a `/Info` key is in
     /// no schema: putting one into the packet needs a namespace URI, which is the property's
     /// identity rather than a label for it and which no file states. `doc/adr/1269` is the
-    /// reading and [`UNMAPPED_NEEDS_A_NAMESPACE`] is the sentence an operator is given.
+    /// reading and `UNMAPPED_NEEDS_A_NAMESPACE` is the sentence an operator is given.
     ExtensionSchema,
     /// The key's value leaves the document, and the report names it.
     Discard,
@@ -795,7 +795,7 @@ pub(super) const UNMAPPED_NEEDS_A_NAMESPACE: &str = "ISO 19005-2 section 6.6.2.3
 /// `doc/adr/1014`: a page composed solely of content the document already holds is on the near
 /// side of `CLAUDE.md`'s authoring exclusion, and what such a page owes — the report's sentence,
 /// the page labels, the structure entries, the `xmpMM:History` record — is inside the same
-/// permission. [`super::preserve`] is where each is discharged or refused by name.
+/// permission. `super::preserve` is where each is discharged or refused by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preservation {
     /// The requirement identifier it answers.
@@ -804,15 +804,15 @@ pub struct Preservation {
     ///
     /// `false` for the `preserve`s whose mechanism is neither a page nor an attachment: ISO
     /// 19005-2 section 6.6.2.3.2's container keeps the properties *where they are*, by describing
-    /// the schema they use, and [`PRESERVABLE_IN_PLACE`]'s sites keep the object on its page.
-    /// [`super::preserve`] never hears about such a row.
+    /// the schema they use, and `PRESERVABLE_IN_PLACE`'s sites keep the object on its page.
+    /// `super::preserve` never hears about such a row.
     pub by_page: bool,
     /// Whether the content is kept as a file embedded in the document.
     ///
     /// `doc/rfc/0007` section 4.6.1's other mechanism, and the one the six targets differ about:
     /// PDF/A-4f and PDF/A-4e hold a file that is not itself a conforming PDF and the other four
-    /// do not, so [`check_rows`] refuses the answer at those four rather than quietly giving a
-    /// page. [`super::attach`] is the construction.
+    /// do not, so `check_rows` refuses the answer at those four rather than quietly giving a
+    /// page. `super::attach` is the construction.
     pub by_attachment: bool,
     /// `undeterminable = "discard"` at the extension schema site.
     ///
@@ -1420,7 +1420,7 @@ impl Configuration {
 
     /// Every `derive` remedy this conversion carries out.
     ///
-    /// A row naming a site outside [`DERIVABLE`] is not one: its requirement stays refused with the
+    /// A row naming a site outside `DERIVABLE` is not one: its requirement stays refused with the
     /// sentence it already carries, and [`Self::unbuilt`] names it so the operator sees their
     /// intent was read rather than ignored.
     #[must_use]
@@ -1434,7 +1434,7 @@ impl Configuration {
 
     /// Every `preserve` remedy this conversion carries out by fetching what a stream points at.
     ///
-    /// A row naming a site outside [`FETCHABLE`] is not one, and neither is one naming no tool:
+    /// A row naming a site outside `FETCHABLE` is not one, and neither is one naming no tool:
     /// its requirement stays refused with the sentence it already carries, and [`Self::unbuilt`]
     /// names it so the operator sees their intent was read rather than ignored.
     #[must_use]
@@ -1521,7 +1521,7 @@ impl Configuration {
 
     /// Every `preserve` remedy this conversion carries out by appending pages.
     ///
-    /// A row naming a site outside [`PRESERVABLE_BY_PAGE`], or one whose mechanism is
+    /// A row naming a site outside `PRESERVABLE_BY_PAGE`, or one whose mechanism is
     /// [`Placement::Attach`], is not one: the first stays refused with the sentence it carries and
     /// [`Self::unbuilt`] names it, and the second is carried out as a [`Derivation`] instead —
     /// which is `doc/rfc/0007` section 4.6's table read as the two mechanisms it is rather than as
@@ -2716,7 +2716,7 @@ pub struct Site {
     pub takes_a_fetched_file: bool,
     /// What a `preserve` keeping the object where it is does at this site, where one is built.
     ///
-    /// [`in_place_preservation`]'s sentence, carried so the listing names it (`doc/adr/1285`).
+    /// `in_place_preservation`'s sentence, carried so the listing names it (`doc/adr/1285`).
     pub preserves_in_place: Option<&'static str>,
     /// What this site's built answer waits on, where the decision table does not settle it.
     ///
@@ -2762,7 +2762,7 @@ pub const UNTRUSTED_INPUT_WARNING: &str =
 /// A refusal site is a requirement the converter answers with a refusal or an authorised loss —
 /// the ones a configuration has anything to say about. A requirement the writer meets by
 /// construction, or that is already answered without a choice, is not a site: there is no refusal
-/// to configure. The list is generated from [`super::census`], so it is exactly the table the
+/// to configure. The list is generated from [`super::census()`], so it is exactly the table the
 /// converter decides from.
 #[must_use]
 pub fn sites(target: Target) -> Vec<Site> {

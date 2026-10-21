@@ -8,7 +8,7 @@
 //! over it — a KIO worker so Dolphin browses into a PDF as it browses into a tar, and a FUSE
 //! filesystem so every program on the machine sees the same tree — and **neither is in this
 //! crate**. RFC 0003 section 7 puts the layout, the cache, the generation rules and the broker
-//! side of the worker protocol here, and says why: "[t]he faces contain *no* layout knowledge —
+//! side of the worker protocol here, and says why: "\[t]he faces contain *no* layout knowledge —
 //! adding `fonts/` one day is a core change that both faces grow simultaneously".
 //!
 //! # The five pieces, and where each lives
@@ -681,7 +681,7 @@ enum Standing {
 ///
 /// Per generation and not per mount, because a worker is made per generation and a question
 /// about a document that has been replaced is a new question rather than a repeat
-/// ([`Counted`], RFC 0003 section 5.4).
+/// (`Counted`, RFC 0003 section 5.4).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Questions {
     /// Questions put to the worker, of every shape.
@@ -1295,7 +1295,7 @@ impl Vfs {
 
     /// What a path is, and — for a file — how big.
     ///
-    /// **A file is generated here.** RFC 0003 section 5.5: "[r]ule: no virtual file is stat'd
+    /// **A file is generated here.** RFC 0003 section 5.5: "\[r]ule: no virtual file is stat'd
     /// before it is generated. `stat` on `pages/0007.pdf` generates (or finds cached) the bytes
     /// and reports the true size." The cache is what stops a `cp` paying for it twice.
     ///
@@ -1948,7 +1948,7 @@ impl Vfs {
     /// Renaming within the tree.
     ///
     /// **Refused outright and not merely unbuilt**, which is RFC 0003 section 5.3's first
-    /// refusal: "[r]ename semantics under position-names are ambiguous (is `mv 0007 0002` 'before
+    /// refusal: "\[r]ename semantics under position-names are ambiguous (is `mv 0007 0002` 'before
     /// old 0002' or 'become new 0002'?), and a file manager's drag-reorder emits rename storms
     /// this tree cannot make atomic."
     ///

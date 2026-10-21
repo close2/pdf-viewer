@@ -89,24 +89,62 @@ pub(crate) fn stated_widths(document: &Document, dict: &Dictionary) -> BTreeMap<
         .get_key(dict, "FirstChar")
         .as_integer()
         .unwrap_or(0);
+    let last = document.get_key(dict, "LastChar").as_integer();
     let mut widths = BTreeMap::new();
     let array = document.get_key(dict, "Widths");
     let Some(items) = array.as_array() else {
         return widths;
     };
     for (offset, item) in items.iter().enumerate() {
-        let Some(width) = document.resolve(item).as_number() else {
-            continue;
-        };
         let Ok(offset) = i64::try_from(offset) else {
             continue;
         };
-        let Ok(code) = u32::try_from(first.saturating_add(offset)) else {
+        let code = first.saturating_add(offset);
+        // Table 109 sends codes outside the declared range to MissingWidth, even when a
+        // malformed array has trailing entries. An absent LastChar retains the recovery
+        // for a dictionary that never stated a range endpoint.
+        if last.is_some_and(|last| code > last) {
+            break;
+        }
+        let Some(width) = document.resolve(item).as_number() else {
+            continue;
+        };
+        let Ok(code) = u32::try_from(code) else {
             continue;
         };
         widths.insert(code, narrow(width));
     }
     widths
+}
+
+#[cfg(test)]
+mod declared_range_tests {
+    use super::stated_widths;
+    use crate::fixture::font_dictionary;
+    use crate::{Code, LoadedFont};
+
+    #[test]
+    fn trailing_array_entries_do_not_extend_last_char() {
+        // Table 109 sends a code beyond LastChar to Table 120's MissingWidth, not to a
+        // trailing entry a malformed Widths array happens to hold.
+        let (document, dict) = font_dictionary(
+            "/BaseFont /Times-Roman /FirstChar 65 /LastChar 65 /Widths [722 999] \
+             /FontDescriptor << /MissingWidth 250 >>",
+        );
+        let widths = stated_widths(&document, &dict);
+        assert_eq!(widths.len(), 1);
+        assert_eq!(widths.get(&65), Some(&722.0));
+        let font = LoadedFont::load(&document, &dict, "F1").expect("the fixture loads");
+        assert!((font.advance(Code::single_byte(66)) - 0.250).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_short_array_has_no_invented_widths_and_a_reversed_range_has_none() {
+        let (document, dict) = font_dictionary("/FirstChar 65 /LastChar 66 /Widths [722]");
+        assert_eq!(stated_widths(&document, &dict).len(), 1);
+        let (document, dict) = font_dictionary("/FirstChar 66 /LastChar 65 /Widths [722]");
+        assert!(stated_widths(&document, &dict).is_empty());
+    }
 }
 
 /// Builds a simple font's advance table, in thousandths of an em.

@@ -3,7 +3,7 @@
 //! # The shape it exists for
 //!
 //! `ledger.toml`'s own header defines `partial` as "some [normative requirements] are
-//! [executed]; the note says which are not". A clause entry the standard offers with *may* or
+//! \[executed]; the note says which are not". A clause entry the standard offers with *may* or
 //! *can* is not a normative requirement on a reader, so a row `partial` for one says a
 //! requirement is unexecuted where the standard states none. Four instances stood in one band of
 //! five rows — §12.11.5's `/RH`, §14.9.2's and
@@ -23,7 +23,7 @@
 //! permitted*. That reads the row's own prose, and `doc/ledger-and-claims.md`'s standing rule is
 //! that **a row's note is not evidence**. So this sweep reads the note only for its *quotations*,
 //! locates each one in `doc/md/`, and takes the modal verb from **the standard's own sentence**
-//! holding it ([`prose::Conversion::sentence_holding`]). What a row is ranked by is the strongest
+//! holding it ([`crate::prose::Conversion::sentence_holding`]). What a row is ranked by is the strongest
 //! modal any of its quotations turns out to sit under:
 //!
 //! | the strongest verb over the row's quotations | what it says about the status |

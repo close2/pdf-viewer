@@ -1,6 +1,6 @@
 //! The generation cache: content addressed by (generation key, path), bounded in bytes.
 //!
-//! RFC 0003 section 5.5 asks for exactly this — "[c]ache: content-addressed by (generation key,
+//! RFC 0003 section 5.5 asks for exactly this — "\[c]ache: content-addressed by (generation key,
 //! path), bounded (memory plus optional disk bound, both explicit budgets in principle-3 style),
 //! shared between the two faces through the core" — and section 5.5's *other* rule is what makes
 //! the cache load-bearing rather than an optimisation:
@@ -28,8 +28,8 @@
 //! The budget above is on *content*, and content is not the only thing a generation costs. Two
 //! notes are therefore kept past eviction, each derived from a run that actually happened:
 //!
-//! - **a length** ([`Held::sizes`]), so that a second `stat` is free (ADR 0865); and
-//! - **a directory's own names** ([`Held::inventories`]), so that a path under `images/NNNN/` can
+//! - **a length** (`Held::sizes`), so that a second `stat` is free (ADR 0865); and
+//! - **a directory's own names** (`Held::inventories`), so that a path under `images/NNNN/` can
 //!   be validated, listed and `stat`ed without re-running the extraction that named it (ADR
 //!   0886).
 //!
@@ -226,7 +226,7 @@ impl Cache {
 
     /// How long the output at this path turned out to be, where it has ever been generated.
     ///
-    /// [`Held::sizes`] says why this outlives the bytes. A `None` means the path has not been
+    /// `Held::sizes` says why this outlives the bytes. A `None` means the path has not been
     /// generated in this generation at all, which is the only case that has to do the work.
     #[must_use]
     pub fn size_of(&self, generation: Generation, path: &str) -> Option<u64> {
@@ -241,7 +241,7 @@ impl Cache {
 
     /// The names this directory's generator produced, where it has been run in this generation.
     ///
-    /// [`Held::inventories`] says why a name outlives the bytes it names, and why only a
+    /// `Held::inventories` says why a name outlives the bytes it names, and why only a
     /// directory whose listing costs a generation has one.
     #[must_use]
     pub fn inventory(&self, generation: Generation, path: &str) -> Option<Arc<[String]>> {
@@ -297,7 +297,7 @@ impl Cache {
 
     /// How many entries this cache has stopped holding within a generation.
     ///
-    /// [`Held::forgotten`] says what the number is for: it is the ceiling on how many times a
+    /// `Held::forgotten` says what the number is for: it is the ceiling on how many times a
     /// generator can honestly be run twice for the same subject.
     #[must_use]
     pub fn forgotten(&self) -> u64 {

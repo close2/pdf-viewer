@@ -574,7 +574,7 @@ static PERMITTED_IN_PART_FOUR: &[&str] = &[
 /// project does not hold", and cited `Part::Two`'s note for it — a note that has said the opposite
 /// since the owner obtained ISO 32000-1:2008 on 2026-09-07** (`doc/questions/A49`; the text is
 /// `doc/PDF32000_2008.pdf` and `doc/md/ISO_32000-1_2008.md`). So the derivation is no longer the
-/// only route to the set, and [`the_part_two_subtypes_are_the_ones_iso_32000_1_defines`] now holds
+/// only route to the set, and `the_part_two_subtypes_are_the_ones_iso_32000_1_defines` now holds
 /// it to the table itself, spelled out from that edition's 12.5.6.1. It agrees, which is worth
 /// having recorded: a subtraction that has been checked against the document it stands in for is a
 /// different claim from one that has not. ADR 0964.
@@ -805,7 +805,7 @@ pub fn annotations_the_flags_forbid(document: &Document, target: Target) -> Vec<
 
 /// One annotation whose appearance dictionary states more than the normal appearance.
 ///
-/// The population [`appearance_dictionary_holds_only_normal`] reports, read as a population for
+/// The population `appearance_dictionary_holds_only_normal` reports, read as a population for
 /// [`ForbiddenSubtype`]'s reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtraAppearances {

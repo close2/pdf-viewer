@@ -137,7 +137,7 @@ pub enum MaterialRefusal {
     ///
     /// Table 261 says each stream holds "a DER-encoded Certificate Revocation List (CRL)" or "a
     /// DER-encoded Online Certificate Status Protocol (OCSP) response", and RFC 6960 section 4.2.1
-    /// says "[t]he value for response SHALL be the DER encoding of BasicOCSPResponse". What the
+    /// says "\[t]he value for response SHALL be the DER encoding of BasicOCSPResponse". What the
     /// signature covers is an extent, and an extent found by scanning for an end-of-contents
     /// marker is not one its issuer pinned — the argument [`crate::trust`] already makes for a
     /// certificate.
@@ -420,7 +420,7 @@ pub struct RevokedCertificate<'a> {
     /// A different fact from [`Self::revoked_at`] and the clause says so: this is "the date on
     /// which it is known or suspected that the private key was compromised or that the certificate
     /// otherwise became invalid", while the revocation date "is the date at which the CA processed
-    /// the revocation" — and "[t]his date may be earlier than the revocation date in the CRL
+    /// the revocation" — and "\[t]his date may be earlier than the revocation date in the CRL
     /// entry". Which matters wherever something is asked about an instant in the past.
     pub invalid_from: Option<Instant>,
     /// The `reasonCode` CRL entry extension, where the entry states one.
@@ -610,7 +610,7 @@ impl<'a> CertificateList<'a> {
 /// RFC 6960 section 4.2.1's `BasicOCSPResponse`, read for what a status decision needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BasicResponse<'a> {
-    /// `tbsResponseData`'s own encoding, which is what the signature covers: "[t]he value for
+    /// `tbsResponseData`'s own encoding, which is what the signature covers: "\[t]he value for
     /// signature SHALL be computed on the hash of the DER encoding of ResponseData."
     #[expect(
         clippy::doc_markdown,
@@ -1097,7 +1097,7 @@ fn bit_string_octets<'a>(bits: &Value<'a>) -> Option<&'a [u8]> {
 /// RFC 6960 section 4.2.2.2: "OCSP signing delegation SHALL be designated by the inclusion of
 /// id-kp-OCSPSigning in an extended key usage certificate extension included in the OCSP response
 /// signer's certificate." `anyExtendedKeyUsage` is accepted with it, on RFC 5280 section 4.2.1.12's
-/// own terms — the identifier exists so that "a CA … [may] indicate that the certificate may be
+/// own terms — the identifier exists so that "a CA … \[may] indicate that the certificate may be
 /// used for all key purposes".
 fn asserts_ocsp_signing(encoded: &[u8]) -> bool {
     x509::indicates_purpose(encoded, OCSP_SIGNING)
@@ -1176,16 +1176,16 @@ impl<'a> Material<'a> {
 ///
 /// And then the type:
 ///
-/// > RevocationInfoArchival::= SEQUENCE { crl [0] EXPLICIT SEQUENCE of CRLs, OPTIONAL ocsp [1]
-/// > EXPLICIT SEQUENCE of OCSPResponse, OPTIONAL otherRevInfo [2] EXPLICIT SEQUENCE of
+/// > RevocationInfoArchival::= SEQUENCE { crl \[0] EXPLICIT SEQUENCE of CRLs, OPTIONAL ocsp \[1]
+/// > EXPLICIT SEQUENCE of OCSPResponse, OPTIONAL otherRevInfo \[2] EXPLICIT SEQUENCE of
 /// > OtherRevInfo, OPTIONAL }
 ///
 /// So this is not a structure whose shape had to be guessed at, which is why it is read here and
 /// why the ledger row that said "reading them would be inventing a validator" no longer holds.
-/// `otherRevInfo` is skipped and the clause says why nothing is lost by it: "[t]he format is not
+/// `otherRevInfo` is skipped and the clause says why nothing is lost by it: "\[t]he format is not
 /// prescribed by this specification, other than that it be encoded as an OCTET STRING."
 ///
-/// The clause also bounds where it applies: "[f]or signatures with a SubFilter value other than
+/// The clause also bounds where it applies: "\[f]or signatures with a SubFilter value other than
 /// ETSI.CAdES.detached, the following rules apply." That is a rule about which signatures a
 /// producer writes it on, and this reads what the file states either way — a signature stating
 /// that subfilter and carrying the attribute anyway is a file to report rather than material to
@@ -1282,7 +1282,7 @@ pub const MAX_ARCHIVED: usize = 256;
 /// One certificate on a path, with everything about its issuer that a status decision needs.
 ///
 /// Assembled by [`crate::trust`] as it walks a path it has already validated, which is what makes
-/// RFC 5280 section 6.3.3 (f) cheap here: "[o]btain and validate the certification path for the
+/// RFC 5280 section 6.3.3 (f) cheap here: "\[o]btain and validate the certification path for the
 /// issuer of the complete CRL. The trust anchor for the certification path MUST be the same as the
 /// trust anchor used to validate the target certificate." Under the assumed distribution point the
 /// module comment quotes, the CRL issuer *is* the certificate issuer, whose path is the tail of

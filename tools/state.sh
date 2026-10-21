@@ -331,22 +331,21 @@ section_conformance() {
         cargo test -p conformance -- --nocapture
 }
 
-# The documentation build, warnings denied, of the crates held at zero: every item, private ones
+# The documentation build, warnings denied, of the whole workspace: every item, private ones
 # included, as `--document-private-items` builds it — so a link to an item that moved or is compiled
 # only for tests, a bracketed letter rustdoc reads as a link, an ambiguous name and a public page
-# linking a private item fail here rather than on a reader's page (ADR 1938). The list below is the
-# whole ratchet: a crate joins it the round its own build reaches zero, and leaves it never. A large
-# walk, because it checks every dependency of the crates listed and documents them in parallel: the
-# heavy-walk log's lines for it (`grep 'cargo doc --keep-going' /home/AI/heavy-walk.log`) peak past
-# half the small lane's 6 GiB, and past the whole of it once a sibling's edit makes it rebuild.
+# linking a private item fail here rather than on a reader's page (ADR 1938). Cargo's workspace
+# membership is the population, so a new member cannot be skipped.
+# A large walk, because an edit rebuilds dependencies as well as documenting the workspace. Two
+# Cargo jobs keep that rebuilding graph within the large lane; four crossed its 12 GiB ceiling
+# (ADR 2190). A warm documentation build alone does not measure that rebuilding cost.
 # `--keep-going`, because without it the first crate that fails ends the build and the crates after
 # it report nothing: one failing crate would hide the next one's errors (ADR 1938).
 section_docs() {
-    run "rustdoc with warnings denied, over the crates held at zero (ADR 1938)" \
+    run "rustdoc with warnings denied, over the whole workspace (ADRs 1938, 2190)" \
         '^(error|warning)|Generated|Finished' \
-        walk large -- env RUSTDOCFLAGS="-D warnings" cargo doc --keep-going --no-deps \
-        --document-private-items -p render-cpu -p raster-gpu -p viewer-ui -p viewer-device \
-        -p pdf-font -p viewer-confined -p pdf-model -p viewer-core -p render-raster
+        walk large -- env RUSTDOCFLAGS="-D warnings" cargo doc -j 2 --keep-going --no-deps \
+        --document-private-items --workspace
 }
 
 section_tests() {
@@ -782,7 +781,7 @@ section_archive() {
         '^== PDF_A|^  clause |^  all |not here|^bounded:' \
         walk small -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
     run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
-        '^archive |^    answering nothing|not here|^bounded:' \
+        '^(archive |profile |pdf.js profile |corpora profile |    )|not here|^bounded:' \
         walk small -- cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
     run "the survey's resource selections held to the interpreter's (A61, ADR 1055)" \
         '^cross-check: |not here|^bounded:' \

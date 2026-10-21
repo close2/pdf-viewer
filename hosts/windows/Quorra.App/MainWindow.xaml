@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The window: the page area, and the status line under it that every window of this tree has
-     (RFC 0010 step N3a, ADR 2136). The controls over the page, the panels and the cards are the
-     steps after this one. -->
+<!-- The panel navigation, page area and status line. The page area delegates its controls
+     and popup notes to their native helpers; panels are read only while the pane is open. -->
 <Window
     x:Class="Quorra.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,9 +8,20 @@
     xmlns:local="using:Quorra.App">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <Button x:Name="PermissionsButton" Grid.Row="0" Content="Permissions" Margin="8,4" />
+        <NavigationView x:Name="Navigation" Grid.Row="1" IsPaneOpen="False"
+            PaneDisplayMode="Left" IsSettingsVisible="False" IsBackButtonVisible="Collapsed"
+            OpenPaneLength="280">
+            <NavigationView.PaneCustomContent>
+                <StackPanel>
+                    <ComboBox x:Name="PanelChoice" Margin="8" HorizontalAlignment="Stretch" />
+                    <ListView x:Name="PanelRows" IsItemClickEnabled="True" SelectionMode="None" />
+                </StackPanel>
+            </NavigationView.PaneCustomContent>
         <local:PageArea
             x:Name="Area"
             Grid.Row="0"
@@ -22,9 +32,10 @@
             PointerMoved="OnPagePointerMoved"
             PointerReleased="OnPagePointerReleased"
             PointerWheelChanged="OnPageWheel" />
+        </NavigationView>
         <TextBlock
             x:Name="StatusLine"
-            Grid.Row="1"
+            Grid.Row="2"
             Margin="8,4"
             TextTrimming="CharacterEllipsis"
             IsTextSelectionEnabled="True" />

@@ -2,7 +2,7 @@
 //!
 //! # The population nothing read
 //!
-//! `CLAUDE.md` principle 5 binds quotation marks rather than doc comments — "[a]nything less
+//! `CLAUDE.md` principle 5 binds quotation marks rather than doc comments — "\[a]nything less
 //! than verbatim is prose *without* quotation marks" — and the gate reads one population:
 //! rustdoc blockquotes under `crates/`, `tools/` and `fuzz/`. `doc/todo/48` names the rest, and
 //! the largest of them is this one: every quotation of the standard in `doc/*.md`, in
@@ -430,7 +430,7 @@ impl Conversion {
     /// the standard's words; it cannot say what governs them, because a note quotes the middle of
     /// a sentence as often as the whole of one — "may be used for encodings where the language is
     /// not implied" carries no verb of its own and the sentence it sits in carries *may*. So the
-    /// span is widened, in the *spaced* text through [`Self::origin`], to the sentence boundary
+    /// span is widened, in the *spaced* text through `Self::origin`, to the sentence boundary
     /// either side of the match.
     ///
     /// Only the **first** segment of an elided quotation is located, which is enough: the

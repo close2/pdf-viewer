@@ -82,7 +82,7 @@ impl BlackGeneration {
     /// > If both BG and BG2 are present in the same graphics state parameter dictionary, BG2
     /// > shall take precedence.
     ///
-    /// and, of the other pair, "[i]f both UCR and UCR2 are present in the same graphics state
+    /// and, of the other pair, "\[i]f both UCR and UCR2 are present in the same graphics state
     /// parameter dictionary, UCR2 shall take precedence". So `/BG2` is read first and a `/BG`
     /// beside it is not read at all — including where the `/BG2` is a value this reader rejects,
     /// because precedence decides which entry is *in force* rather than which one parses.
@@ -155,14 +155,14 @@ impl BlackGeneration {
     /// `cyan = min(1, max(0, c − UCR(k)))` with magenta and yellow alongside, and
     /// `black = min(1, max(0, BG(k)))`.
     ///
-    /// The operand is the clause's: "[t]he input of both the black-generation and
+    /// The operand is the clause's: "\[t]he input of both the black-generation and
     /// undercolour-removal functions shall be k , the minimum of the intermediate c , m , and y
     /// values that have been computed by subtracting the original red , green , and blue
     /// components from 1.0."
     ///
     /// The outer clamps are the clause's too, and they are on the *results* rather than on what a
     /// function returned — Table 57 gives `/UCR` the range `[-1.0 1.0]` precisely so that it may
-    /// "even [return] a negative amount, thereby adding to the total amount of colourant":
+    /// "even \[return] a negative amount, thereby adding to the total amount of colourant":
     ///
     /// > The final component values that result after applying black generation and undercolour
     /// > removal should be in the range 0.0 to 1.0. If a value falls outside this range, the

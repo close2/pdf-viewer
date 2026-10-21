@@ -15,7 +15,7 @@
 //! > is nominally white (in a colour space chosen by the PDF processor), although varying
 //! > according to the actual properties of the medium.
 //!
-//! Table 141 names that colour and says whose it is: 𝑊 is the "[i]nitial colour of the page
+//! Table 141 names that colour and says whose it is: 𝑊 is the "\[i]nitial colour of the page
 //! (nominally white but may vary depending on the properties of the medium or the needs of the
 //! application)". **A property of the page**, and the clause's own sentence about an
 //! interactive processor stays inside that boundary — "some interactive PDF processors may
@@ -58,7 +58,7 @@
 //! # The same boundary keeps the page's own ink in, and that is the clause rather than a choice
 //!
 //! §14.11.2.1 quoted above is a `shall` about *the contents of the page*, and the sentence after
-//! it says the box means nothing else: "[u]nlike the other boxes, the crop box has no defined
+//! it says the box means nothing else: "\[u]nlike the other boxes, the crop box has no defined
 //! meaning in terms of physical page geometry or intended use; it merely imposes clipping on the
 //! page contents." `pdf_model::interpret` deliberately keeps the marks a content stream made
 //! outside that box — a display list is what the file says — so something has to put the clip

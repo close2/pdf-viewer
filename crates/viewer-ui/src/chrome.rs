@@ -4257,7 +4257,7 @@ impl RestrictionsCard {
         let line = size * 1.5;
         let card_wide = RESTRICTION_WIDTH * scale;
         // As many rows as the window has room for, and the keyboard's row kept inside them: a
-        // menu of 62 entries is taller than most windows and the alternative to scrolling it is
+        // whole menu is taller than most windows and the alternative to scrolling it is
         // a menu whose last operations cannot be reached.
         let room = ((tall - pad * 4.0 - line * 2.0) / line).floor().max(1.0);
         #[expect(
@@ -4805,6 +4805,9 @@ mod tests {
                 viewer_host::EmbeddedDocuments::ALL.map(viewer_host::ActLevel::EmbeddedDocuments),
             )
             .chain(viewer_host::Scripts::ALL.map(viewer_host::ActLevel::Scripts))
+            .chain(
+                viewer_host::LaunchedDocuments::ALL.map(viewer_host::ActLevel::LaunchedDocuments),
+            )
             .collect();
         assert_eq!(acts, expected);
         assert!(

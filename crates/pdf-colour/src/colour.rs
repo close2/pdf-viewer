@@ -26,7 +26,7 @@
 //! # One route from XYZ to the screen
 //!
 //! Everything CIE-based — `Lab`, `CalGray`, `CalRGB` and every ICC profile — arrives at
-//! [`xyz_d50_to_srgb`], and nothing else turns an XYZ into a pixel. The same rule as
+//! `xyz_d50_to_srgb`, and nothing else turns an XYZ into a pixel. The same rule as
 //! `to_rgb`, one level down: three separate `DeviceCMYK` conversions once disagreed in this
 //! tree without anything looking wrong, and an XYZ matrix copied into a second place would
 //! fail the same way and be just as invisible.
@@ -211,7 +211,7 @@ pub enum ColourSpace {
         /// The parsed profile.
         ///
         /// Shared rather than owned, because a space is *cloned* wherever it is selected —
-        /// [`Self::device_family`] answers with a copy of the output intent for every `k`
+        /// `Self::device_family` answers with a copy of the output intent for every `k`
         /// and every `cs` naming a device family, and the interpreter keeps a copy in the
         /// graphics state — and a parsed press profile is hundreds of kilobytes of lookup
         /// table. Measured by ADR 1008 on 4000 `k` operators under `issue20513.pdf`'s
@@ -269,13 +269,13 @@ pub enum Tints {
     /// components.
     ///
     /// One entry per component of the process `/ColorSpace`, in Table 71's own order —
-    /// "[a]n array of component names that correspond, in order, to the components of the
+    /// "\[a]n array of component names that correspond, in order, to the components of the
     /// process colour space specified in ColorSpace" — saying which tint supplies it, or
     /// `None` where the `names` array omits that colourant. An omitted one is `0.0`, which
     /// is a value §8.6.4.4 defines rather than one chosen here: "0.0 shall denote the
-    /// complete absence of a process colourant". [`ColourSpace::nchannel_process`] admits an
+    /// complete absence of a process colourant". `ColourSpace::nchannel_process` admits an
     /// omission only where the process space is the `DeviceCMYK` that sentence is about, and
-    /// which §8.6.6.5 gives the permission to: "[f]or a CMYK colour space, a subset of the
+    /// which §8.6.6.5 gives the permission to: "\[f]or a CMYK colour space, a subset of the
     /// components may be present, and they may appear in any order in the names array."
     #[expect(
         clippy::doc_markdown,

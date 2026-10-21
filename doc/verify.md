@@ -63,6 +63,12 @@ cargo deny check                           # from the workspace root: fuzz/ is i
 RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
 RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p pdf-sandbox -p pdf-render -p viewer-confined --all-targets
 RUSTFLAGS="-D warnings" cargo check --target x86_64-pc-windows-msvc -p viewer-ui --all-targets
+tools/dotnet-check.sh
+  # Compiles the Windows host's C# against its actual Windows App SDK references on Linux too.
+  # Finds the SDK through DOTNET_ROOT, /home/AI/dotnet-check/dotnet, or PATH. Only XAML-generated
+  # fields and initialization are substituted; XAML compilation and packaging remain Windows CI's.
+  # The windows_csharp conformance test runs it when an SDK is present and reports its absence.
+
 RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ui --all-targets
   # **This is the line that stands in for CI's `platforms` job**, and it is worth knowing what it
   # reaches: `-p viewer-ui` drags `viewer-accessibility` in, whose `Bridge::new` takes a waker that
@@ -677,6 +683,8 @@ tools/drive-windows.sh [--out DIR] [--window NAME]... [--step FUNCTION]... [--bi
   # and by Control and the wheel; find, next and Shift+Enter's previous; §12.5.6.14's popup opened
   # and closed; §12.5.6.5's link; §12.5.6.10's highlight over everything selected and §7.5.6's save
   # read back; §12.3.4's pages panel clicked; the restriction levels (`r`) and print (Shift+P);
+  # `--step launch_menu` changes launched documents from refuse to ask in each of the four
+  # windows, then verifies that the next launch asks and obeys a no (ADR 2185);
   # §7.6.4.1's password; a form whose page states `/Tabs /C` with `/Annots` reversed, so column, row
   # and array order all differ — three values typed by Tab, §12.7.5.2.3's check box, §12.7.5.4's
   # choice and §12.7.5.2.2's push button, the save's `/V` and `/AS` read back and the file reopened;

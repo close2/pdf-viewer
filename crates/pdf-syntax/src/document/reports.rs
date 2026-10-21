@@ -113,7 +113,7 @@ impl Document {
     /// failing to describe an object the file states twice (§7.5.4's entry and §7.3.10's
     /// header): a number filed at an offset where a *different* object's header stands, and a
     /// number the table's own subsection header declared while the entry itself was never read
-    /// — see [`Document::load_by_header`] for why the header wins in each. It is here so that
+    /// — see `Document::load_by_header` for why the header wins in each. It is here so that
     /// the repair is answerable rather than silent: a caller that wants to tell a person their
     /// file is damaged can, and `pdf_syntax` still does not decide whether that is worth saying.
     ///
@@ -171,7 +171,7 @@ impl Document {
     /// from the file itself, which is the overwhelming majority: this is a statement about the
     /// *recovery*, not about the file's use of object streams. Where it is not empty, the fields
     /// that are not `objects` are what keep a partial recovery from reading like a whole one —
-    /// see [`Self::recover_compressed_objects`].
+    /// see `Self::recover_compressed_objects`.
     ///
     /// Unlike [`Self::objects_lost_to_damage`] this is complete the moment the document opens,
     /// because the recovery is the one place in this reader that expands an object stream nothing
@@ -223,7 +223,7 @@ impl Document {
     /// Every object number this file states a damaged dictionary for, scanned once and
     /// remembered.
     ///
-    /// **Why this is a scan of its own and not [`Self::object_headers`].** That scan keeps an
+    /// **Why this is a scan of its own and not `Self::object_headers`.** That scan keeps an
     /// offset only where `Parser::parse_indirect_object` succeeded, so an object whose
     /// dictionary stops part-way is in neither the table it builds nor the table
     /// `xref::rebuild` builds from it — a rebuilt file's damaged page object is not merely

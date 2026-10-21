@@ -148,7 +148,7 @@ impl Rect {
     /// The rectangle both cover, or `None` where they do not meet.
     ///
     /// A rectangle that merely *touches* another along an edge or at a corner is an
-    /// intersection rather than nothing, because §7.9.5's own NOTE is that "[r]ectangles can
+    /// intersection rather than nothing, because §7.9.5's own NOTE is that "\[r]ectangles can
     /// have a width of zero or height of zero" — a degenerate result is still a place, and
     /// discarding it would answer "nowhere" for content that lies exactly on a boundary.
     #[must_use]
@@ -285,7 +285,7 @@ impl Transform {
     /// What it is asked for is whether an axis-aligned shape stays axis-aligned — which is what
     /// [`crate::collapsed`] needs before it can snap a mark to a device pixel, what
     /// [`crate::sub_pixel`] needs before it can stretch one into a pixel line, and what
-    /// [`Self::bounds`] relies on to map a hull instead of walking it. The two shapes are the two
+    /// [`Path::bounds`] relies on to map a hull instead of walking it. The two shapes are the two
     /// ways a 2×2 matrix can have a zero in each row and column.
     ///
     /// An off-diagonal that is *exactly* zero is the property being asked about: a small one
@@ -398,7 +398,7 @@ pub enum PathCommand {
 #[derive(Debug, Default)]
 pub struct Path {
     commands: Vec<PathCommand>,
-    /// The untransformed hull of [`Self::bounds`], built on first use.
+    /// The untransformed hull of [`Path::bounds`], built on first use.
     ///
     /// A glyph outline is shared through an `Arc` and asked for its bounds once per strip the
     /// rasteriser cuts the page into, and walking forty control points each time was **17.6%
@@ -721,7 +721,7 @@ impl Path {
         path
     }
 
-    /// [`Self::bounds`] without the cache: every control point, transformed and met.
+    /// [`Path::bounds`] without the cache: every control point, transformed and met.
     fn walked(&self, transform: Transform) -> Option<Rect> {
         let mut bounds: Option<Rect> = None;
         let mut extend = |point: Point| {

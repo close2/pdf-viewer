@@ -38,7 +38,7 @@
 //!   the tree was indirect, the name dictionary's where that was, and the catalog otherwise.
 //!
 //! **The whole tree is rewritten as one node rather than one leaf edited in place, and that is
-//! a choice with a cost.** §7.9.6 permits it — "[i]f the root node has a Names entry, it shall
+//! a choice with a cost.** §7.9.6 permits it — "\[i]f the root node has a Names entry, it shall
 //! be the only node in the tree" — and it makes the update the same three objects whatever
 //! shape the producer chose; the cost is a document with thousands of embedded files paying
 //! for all of them in one array, which no document in the corpus has. The values are kept as
@@ -477,7 +477,7 @@ fn attach(
 /// streams its `/EF` names. **Alone** is the condition: §7.11.4.1 gives an embedded file more
 /// than one home, and a stream that an `/AF` entry or a page's annotation still reaches is not
 /// deleted by the tree letting go of it, so it is left in use and the report says so. What is
-/// freed stays in the file byte for byte — §7.5.6: "[d]eleted objects shall be left unchanged
+/// freed stays in the file byte for byte — §7.5.6: "\[d]eleted objects shall be left unchanged
 /// in the PDF file, but shall be marked as deleted by means of their cross-reference entries" —
 /// and `pdf_syntax::write::incremental_update_freeing` says which of §7.5.4's two mechanisms an
 /// update can use and why.

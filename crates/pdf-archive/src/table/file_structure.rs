@@ -902,7 +902,7 @@ fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
 ///
 /// Public because a converter's answer to the requirement has to act at exactly the keys the
 /// requirement is failed on, and a second list there would be a second reading of one sentence.
-/// [`no_external_stream_data`] is where the fourth name comes from.
+/// `no_external_stream_data` is where the fourth name comes from.
 pub const EXTERNAL_DATA_KEYS: [&str; 4] = ["F", "FFilter", "FDecodeParms", "FDecodeParams"];
 
 /// ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1.

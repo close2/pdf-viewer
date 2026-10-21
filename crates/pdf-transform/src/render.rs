@@ -8,7 +8,7 @@
 //!
 //! # The scale
 //!
-//! ISO 32000-2 §8.3.2.3: "[t]he default for the size of the unit in default user space (1 / 72
+//! ISO 32000-2 §8.3.2.3: "\[t]he default for the size of the unit in default user space (1 / 72
 //! inch) is approximately the same as a point" — so a page of *w* × *h* user-space units at
 //! *d* dots per inch is *w* · *d* / 72 pixels wide. That mapping is the one every raster gate
 //! already performs; how a fractional extent becomes a whole number of pixels is
@@ -47,9 +47,9 @@
 //! # Which box, and whether the annotations
 //!
 //! ISO 32000-2 §7.7.3.3 gives a page five rectangles and the defaults that chain them: the
-//! crop box's "[d]efault value: the value of `MediaBox`", and for the bleed, trim and art boxes
-//! "[d]efault value: the value of `CropBox`". §14.11.2.1 adds the one rule that binds a processor
-//! on all four — "[i]f the bounds of the crop, trim, bleed or art box extends outside of the
+//! crop box's "\[d]efault value: the value of `MediaBox`", and for the bleed, trim and art boxes
+//! "\[d]efault value: the value of `CropBox`". §14.11.2.1 adds the one rule that binds a processor
+//! on all four — "\[i]f the bounds of the crop, trim, bleed or art box extends outside of the
 //! bounds of the media box, a processor shall treat the box as its intersection with the media
 //! box" — and `pdf_model::Page` has applied both by the time a page is handed over, so
 //! [`RenderPlan::page_box`] chooses among rectangles already defaulted and intersected.
@@ -77,7 +77,7 @@
 //! cannot carry optional content, which is the condition that clause attaches its `Export` event
 //! to and Table 100's own example of such a format — so this verb states `Purpose::Export` and
 //! the page is drawn with whatever the document recommends for a picture of itself, which may
-//! not be what a reader sees. [`exporting`] is where that is said and why; no corpus page moves
+//! not be what a reader sees. `exporting` is where that is said and why; no corpus page moves
 //! for it. ADR 1173, ADR 1174.
 //!
 //! # What is a warning and what is a refusal
@@ -281,7 +281,7 @@ pub enum ImageFormat {
     /// interpreter's own conversion, which §10.4.2.1 ranks above this clause's family for an
     /// ICC-enabled processor. So a grey file is the grey of the picture as this tree draws it,
     /// and a `DeviceGray` source comes through unchanged, because the clause's other direction
-    /// — "[a] gray level shall be equivalent to an RGB value with all three components the
+    /// — "\[a] gray level shall be equivalent to an RGB value with all three components the
     /// same" — makes the round trip the identity (the three weights sum to 1.0). There is no
     /// second route that reads a grey image's samples directly: one conversion (trap 6), and
     /// a `/Decode` array, a soft mask or a colour key applied on the way to RGB stays applied.

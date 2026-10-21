@@ -51,7 +51,7 @@ pub const MAX_SCRIPT_BYTES: usize = 1 << 20;
 ///
 /// One script at [`MAX_SCRIPT_BYTES`] and the event's strings beside it: a field's value, the
 /// change a keystroke makes and the field's name, each a line of text. Three mebibytes is the
-/// script and two more for those, and it is what [`crate::worker`] refuses past without reading
+/// script and two more for those, and it is what `crate::worker` refuses past without reading
 /// it into memory (ADR 1609).
 pub const MAX_RUN_BYTES: usize = 3 << 20;
 

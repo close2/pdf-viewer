@@ -29,7 +29,7 @@
 //! set by antialiasing which, on text, rises above the signal.
 //! [`Comparison::structural_similarity`] measures whether the two images have the same
 //! structure instead, which is nearly unaffected by how heavily an edge is antialiased and
-//! collapses when something is the wrong shape or in the wrong place. See [`ssim`].
+//! collapses when something is the wrong shape or in the wrong place. See `ssim`.
 
 #![forbid(unsafe_code)]
 

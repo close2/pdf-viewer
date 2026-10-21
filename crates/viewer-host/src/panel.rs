@@ -60,7 +60,7 @@ pub enum RowAction {
         group: ObjectId,
         /// Whether it is on now.
         on: bool,
-        /// Table 99's `/Locked`: "[t]he state of a locked group cannot be changed through the
+        /// Table 99's `/Locked`: "\[t]he state of a locked group cannot be changed through the
         /// user interface of an interactive PDF processor." A locked row's switch is built
         /// insensitive, which is the platform's own way of saying the same thing.
         locked: bool,
@@ -87,7 +87,7 @@ pub struct PanelRow {
     pub detail: Option<String>,
     /// Whether the document asked for this row to start expanded.
     ///
-    /// §12.3.3 gives an outline item's `/Count` a sign for it — "[i]f the outline item is open,
+    /// §12.3.3 gives an outline item's `/Count` a sign for it — "\[i]f the outline item is open,
     /// Count is the sum of the number of visible descendent outline items" — so a tree that
     /// opened everything, or nothing, would be discarding a statement the file made.
     pub expanded: bool,
@@ -107,7 +107,7 @@ pub struct PanelRow {
     /// Whether this row is the one the *document* asked to be presented first.
     ///
     /// §12.3.5.1's `/D` is the only thing in this file that sets it: Table 153's entry
-    /// "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the document that
+    /// "identif\[ies] an entry in the `EmbeddedFiles` name tree, determining the document that
     /// shall be initially presented in the user interface", and a panel over a page obeys that
     /// by setting one row apart rather than by opening a second window. **The clause states no
     /// appearance for it**, so which mark each toolkit makes is that toolkit's — a bold label
@@ -136,7 +136,7 @@ pub struct PanelRow {
 
 /// One of Table 154's schema fields, as it stands against one file.
 ///
-/// Table 155's `/N` is "[t]he textual field name that shall be presented to the user by the
+/// Table 155's `/N` is "\[t]he textual field name that shall be presented to the user by the
 /// interactive PDF processor", so the heading is the document's own word and never this
 /// program's.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,7 +167,7 @@ pub enum Mode {
     /// within the collection. The selected attachment should be previewed alongside the index."
     ///
     /// One run rather than a tree, because a strip is one run — and it indexes the folders as
-    /// well, which the clause states outright: "[t]hese thumbnails provide an index into the
+    /// well, which the clause states outright: "\[t]hese thumbnails provide an index into the
     /// files and folders present within the collection."
     FilmStrip,
     /// §12.3.6's `FreeForm`: "thumbnails for each item in the collection contents are displayed
@@ -476,14 +476,14 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 /// **Every embedded file is on the screen, and the clause says so twice.** A file cannot fall out
 /// of this panel by being filed oddly:
 ///
-/// - a document that states no `/Folders` gets a flat list of all of them — "[i]f no folder
+/// - a document that states no `/Folders` gets a flat list of all of them — "\[i]f no folder
 ///   structure is specified, interactive PDF processors should show all files in the collection in
 ///   a flat list";
 /// - and a key naming a folder identifier the tree does not state is drawn at the root, because
-///   "[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
+///   "\[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
 ///   members of the folder structure by an interactive PDF processor". The key conforms to the
 ///   naming rules, so the clause's own "shall be treated as associated with the root folder" does
-///   not reach it; what it contradicts is "[t]he value shall correspond to a folder ID", which is
+///   not reach it; what it contradicts is "\[t]he value shall correspond to a folder ID", which is
 ///   a requirement on the *producer*. The clause states no remedy, and the root is the one place
 ///   in the structure that admits a file no folder claims — so this is a documented choice for a
 ///   malformed file, made to keep the `shall` above rather than to invent an arrangement.
@@ -493,7 +493,7 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 ///
 /// # The columns
 ///
-/// Table 155's `/O` is "[t]he relative order of the field name in the user interface", and `/V`
+/// Table 155's `/O` is "\[t]he relative order of the field name in the user interface", and `/V`
 /// its "initial visibility" — so the hidden fields are dropped and the rest sort by `/O`, with a
 /// field stating none after those that do, by key, which is the only order left when the file
 /// states nothing. They become the row's one detail line, which is what a two-line tree row has
@@ -626,7 +626,7 @@ impl Shape<'_> {
     /// Whether this row carries the schema's fields.
     ///
     /// Table 153's two views put them on every row. §12.3.6's `FilmStrip` puts them beside the one
-    /// attachment it previews — "[t]he selected attachment should be previewed alongside the
+    /// attachment it previews — "\[t]he selected attachment should be previewed alongside the
     /// index" — and `Linear` likewise; `FreeForm` states nothing but thumbnails and a selection,
     /// so its items carry their names and no fields.
     const fn shows_fields(&self, previewed: bool) -> bool {
@@ -754,7 +754,7 @@ pub fn in_sort_order<'a>(order: &[String], attachments: &'a [Attachment]) -> Vec
 
 /// What a panel says about §12.3.5.2's restricted names, or nothing where the document breaks none.
 ///
-/// §12.3.5.2 bounds a collection's names and then hands the reader a choice: "[a]n interactive
+/// §12.3.5.2 bounds a collection's names and then hands the reader a choice: "\[a]n interactive
 /// PDF processor may choose to support invalid names or not. If not, an appropriate error message
 /// shall be provided." **This program supports them** — ADR 1050 — so the clause asks it for no
 /// message at all, and this sentence is the project's own rule rather than the standard's: a name
@@ -831,10 +831,10 @@ pub const TILE_FIELDS: usize = 2;
 ///
 /// Two clauses meet here, and both are addressed to a processor rather than to a producer:
 ///
-/// - §12.3.5.1 makes Table 153's `/View` the initial presentation — "[w]hen an interactive PDF
+/// - §12.3.5.1 makes Table 153's `/View` the initial presentation — "\[w]hen an interactive PDF
 ///   processor first opens a PDF document containing a collection, it shall display the contents
 ///   according to the View key of the collection dictionary";
-/// - §12.3.6 says that "[w]hen a navigator dictionary is present, a PDF processor should use the
+/// - §12.3.6 says that "\[w]hen a navigator dictionary is present, a PDF processor should use the
 ///   value of the Layout entry to present the collection to the user", and that where several are
 ///   named a processor "should present the first one it is capable of displaying in the order
 ///   present in the array".
@@ -843,7 +843,7 @@ pub const TILE_FIELDS: usize = 2;
 /// makes `/Navigator` the presentation when `/View` is `C`. [`pdf_model::collection::Navigator`]
 /// answers the selection from [`DRAWN_LAYOUTS`], which is now every name Table 160 defines — so
 /// `None` from it means the file names *only* layouts the table does not define, which §12.3.6
-/// permits ("[t]his mechanism is inherently extensible and allows inclusion of custom named
+/// permits ("\[t]his mechanism is inherently extensible and allows inclusion of custom named
 /// layouts") while requiring a producer to name one of the seven as well.
 ///
 /// **This sentence is the project's and not the standard's**, on ADR 0711's reason for the rest of
@@ -883,7 +883,7 @@ pub fn unsupported_presentation(collection: &Collection) -> Option<String> {
 /// Two entries, and neither carries a `shall` at a processor:
 ///
 /// - Table 157's `/Colors` is "a suggested set of colours for use by a collection layout", whose
-///   only sentence about using them is a NOTE — "[i]t is recommended that a layout use the colours
+///   only sentence about using them is a NOTE — "\[i]t is recommended that a layout use the colours
 ///   provided" — and a NOTE states no requirement;
 /// - Table 158's `/Direction` `H` and `V` and its `/Position` describe "the orientation of the
 ///   splitter bar" of an initial view in which "the available display area **may** be divided by a
@@ -936,7 +936,7 @@ pub fn unused_furniture(collection: &Collection) -> Option<String> {
 /// area at all. A window with no splitter widget can still obey it, which is why it is answered
 /// here rather than departed with the rest of the entry (ADR 1252).
 ///
-/// **Not while Table 153's `/View` is `H`.** That value says "[t]he collection view shall be
+/// **Not while Table 153's `/View` is `H`.** That value says "\[t]he collection view shall be
 /// initially hidden", and a view that is hidden cannot be the one the window is dedicated to; the
 /// two entries would otherwise ask for opposite things at once.
 #[must_use]
@@ -1057,7 +1057,7 @@ fn files_where(
 /// §12.3.6's `Linear` metadata, which is the schema's fields *and* the file specification's.
 ///
 /// The clause asks for both by name — "the metadata for the file attachment, including the name,
-/// description and other collection schema entries", and "[a]n interactive PDF … should use the
+/// description and other collection schema entries", and "\[a]n interactive PDF … should use the
 /// file schema and file specification dictionary to provide information about the attachment" —
 /// so a schema that names none of Table 155's file-related subtypes would otherwise leave the
 /// layout's one attachment without the two entries the clause names first.
@@ -1181,7 +1181,7 @@ fn mark_first(rows: &mut [PanelRow], wanted: Option<&str>, done: &mut bool) {
 /// The schema's columns for one file, in the order [`collection_rows`] put them.
 ///
 /// Table 47's `/P` prefix is concatenated with the *value* and not with the name, which is what
-/// the table says it is for: "[a] prefix string that shall be concatenated with the text string
+/// the table says it is for: "\[a] prefix string that shall be concatenated with the text string
 /// presented to the user".
 /// **One cell per column, whether or not this file has a value for it.** A column format wants
 /// the same headings in the same places on every row, and a field a file says nothing about is a
@@ -1214,7 +1214,7 @@ fn joined(cells: &[Cell]) -> Option<String> {
 /// Which of Table 153's two drawable presentations this collection asks for.
 ///
 /// §12.3.5.1's `shall` is that a processor "shall display the contents according to the View key
-/// of the collection dictionary", and §12.3.6 puts a navigator in front of it — "[w]hen a
+/// of the collection dictionary", and §12.3.6 puts a navigator in front of it — "\[w]hen a
 /// navigator dictionary is present, a PDF processor should use the value of the Layout entry to
 /// present the collection to the user". So the navigator is asked first, exactly as
 /// [`unsupported_presentation`] asks it, and `/View` decides where it selects nothing this
@@ -1288,7 +1288,7 @@ fn column_value(field: &Field, attachment: &Attachment) -> Option<String> {
 
 /// §12.4.3's article threads, as rows.
 ///
-/// The clause states the structure and leaves the way in to a viewer — "[i]nteractive PDF
+/// The clause states the structure and leaves the way in to a viewer — "\[i]nteractive PDF
 /// processors **may** provide navigation facilities to allow the user to follow a thread from one
 /// bead to the next" — so what a panel owes is the list and a way to start following it.
 ///
@@ -1457,8 +1457,8 @@ pub fn stamp(parsed: Option<pdf_syntax::Date>, written: Option<&String>) -> Opti
 pub struct PageEntry {
     /// §12.4.2's label for the page, or `Page N` where the document states none.
     ///
-    /// The fallback is a *choice* and the clause is why it cannot be dropped: "[e]ach page in a
-    /// PDF document shall be identified by an integer page index … [i]t may also be identified by
+    /// The fallback is a *choice* and the clause is why it cannot be dropped: "\[e]ach page in a
+    /// PDF document shall be identified by an integer page index … \[i]t may also be identified by
     /// a page label", so a page with no label still has to be named, and the index plus one is
     /// what a person counts pages by.
     pub label: String,

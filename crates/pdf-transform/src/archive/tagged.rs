@@ -29,8 +29,8 @@
 //! # The shape of the hierarchy, and why it is that shape
 //!
 //! One `Part` per preserved object, holding one `P` per line the producer wrote. Table 365 makes
-//! `Part` a grouping element that "[e]ncloses a grouping of structure elements without
-//! consideration for their hierarchy", which is what a run of lines is; Table 366 makes `P` "[a]
+//! `Part` a grouping element that "\[e]ncloses a grouping of structure elements without
+//! consideration for their hierarchy", which is what a run of lines is; Table 366 makes `P` "\[a]
 //! low-level division of content" that "may enclose any low-level division of content", which is
 //! what one of those lines is. A line the measure broke into two is **one** `P` with two
 //! marked-content references, because the producer wrote one line: §14.7.5.2's Table 357 gives a
@@ -38,7 +38,7 @@
 //! they fall on two pages.
 //!
 //! The grouping element is a child of the structure tree root rather than of anything the producer
-//! wrote. Table 354 admits that in as many words — `/K` is "[t]he immediate child or children of
+//! wrote. Table 354 admits that in as many words — `/K` is "\[t]he immediate child or children of
 //! the structure tree root", "either a dictionary representing a single structure element or an
 //! array of such dictionaries" — and it is the smallest edit there is: one entry of one dictionary
 //! the producer wrote, and not one of the producer's own elements touched.
@@ -72,7 +72,7 @@ pub(super) const CLAIMS_TAGGED_WITH_NO_TREE: &str = "this document's catalog cla
 
 /// Why a structure tree stated inline in the catalog stops the remedy.
 ///
-/// Table 355 makes a structure element's `/P` "[r]equired; shall be an indirect reference", and
+/// Table 355 makes a structure element's `/P` "\[r]equired; shall be an indirect reference", and
 /// the grouping element this writes has the structure tree root as its parent. A root the catalog
 /// states as a direct dictionary is not an object there is a reference to.
 pub(super) const TREE_ROOT_NOT_REFERENCED: &str = "this document's catalog states its \
@@ -236,7 +236,7 @@ impl Planned {
 
     /// The `/StructParents` an appended page states, taken from the keys not yet in use.
     ///
-    /// §14.7.5.4 makes the entry "[t]he integer key of this object's entry in the structural
+    /// §14.7.5.4 makes the entry "\[t]he integer key of this object's entry in the structural
     /// parent tree", and every appended page holds marked-content sequences, so every one needs
     /// its own.
     pub(super) fn key_for_a_page(&mut self, page: ObjectId) -> i64 {

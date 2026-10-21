@@ -37,7 +37,7 @@
 //!
 //! # `/TR2`, which the same subclause admits only as `Default`
 //!
-//! §8.4.5's Table 57 makes `TR2` "[s]ame as TR except that the value may also be the name
+//! §8.4.5's Table 57 makes `TR2` "\[s]ame as TR except that the value may also be the name
 //! Default , denoting the transfer function that was in effect at the start of the page", and has
 //! it "take precedence" over a `TR` beside it. So a `TR2` other than `Default` is written
 //! `Default` under the same two answers: the name `Identity` is the initial function on this
@@ -48,7 +48,7 @@
 //!
 //! ISO 19005-2 and ISO 19005-4 section 6.2.5 admit the entry only where ISO 32000-2 requires it,
 //! and §10.6.5.6 requires it only of a type 5 halftone's component for a nonprimary or nonstandard
-//! colourant. §10.5's second bullet is drawn here as its first is — "[a] transfer function
+//! colourant. §10.5's second bullet is drawn here as its first is — "\[a] transfer function
 //! specified in a halftone dictionary shall override the corresponding one specified by the current
 //! transfer function parameter in the graphics state" — so the same two answers apply, with one
 //! difference in the first (`doc/adr/2007`):

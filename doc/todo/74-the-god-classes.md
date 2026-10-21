@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 12 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160, 2176); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 13 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160, 2176, 2192); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -158,7 +158,15 @@ eleven modules each hold an `impl Walk` for one concern: `pages`, `operators` (t
 and `marked_content`. About 1 500 lines of tests and 1 000 of `Survey` and its types remain in the
 root, a different split.
 
-## 13. Files with no large block
+## 13. Built — `Session` (`crates/viewer-ffi/src/session.rs`, with `session/`), ADR 2192
+
+The highest ranked block outside the active interpreter work: 1 291 lines and 97 methods.
+The root keeps the state, `new`, `reads`, the one command router `handle`, the free helpers and
+the tests. Nine modules hold the wrappers by concern: `documents`, `navigation`, `frames`,
+`printing`, `editing`, `policy`, `scripts`, `reports` and `archiving`. No visibility widened;
+all method signatures and bodies retain their tokens, including literal contents.
+
+## 14. Files with no large block
 
 `viewer-ffi/src/abi.rs` (7 147 lines: the exported surface, one group per object kind),
 `viewer-confined/src/protocol.rs` (7 820, about 2 890 of them tests, and the two longest functions
@@ -168,7 +176,7 @@ arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
 
-## 14. Functions
+## 15. Functions
 
 `content/run.rs::run_from` (one match over the operator set; split by operator family into
 functions the match calls, keeping its `#[expect]` reasoning true), `linearize.rs::place` and

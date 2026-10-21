@@ -34,8 +34,8 @@
 //!
 //! That is what this is: a computation whose intermediate results exceed a limit, and an
 //! error. §C.3 puts memory limits in the same class and declines to characterise them
-//! ("[m]emory limits cannot be characterised as precisely as architectural limits"), and
-//! §C.2's NOTE adds that "[m]emory limits are often exceeded before architectural limits are
+//! ("\[m]emory limits cannot be characterised as precisely as architectural limits"), and
+//! §C.2's NOTE adds that "\[m]emory limits are often exceeded before architectural limits are
 //! reached" — so the standard neither states a number here nor expects one to be stated. The
 //! number is therefore this project's, sized by measurement and documented as a choice, which
 //! is `CLAUDE.md` principle 5's rule for a place the specification defines nothing.

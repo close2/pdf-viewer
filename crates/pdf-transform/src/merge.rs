@@ -43,7 +43,7 @@
 //! `/ListMode`, `/Intent`, `/Name` and `/Creator` are single-valued and the first source that
 //! states one wins, with a warning where a later source states a different value.
 //!
-//! **Two groups may share a `/Name` and that is not a collision.** Table 96 makes `/Name` "[t]he
+//! **Two groups may share a `/Name` and that is not a collision.** Table 96 makes `/Name` "\[t]he
 //! name of the optional content group, suitable for presentation in an interactive PDF
 //! processor's user interface" — a label, not an identifier: §8.11.3.2 makes content name its
 //! groups through the resource dictionary's `/Properties`, by object. So nothing is renamed, and
@@ -71,7 +71,7 @@
 //! invisible on the page. It is not taken silently, and no flag asks for it yet.
 //!
 //! The rest of Table 224 reconciles entry by entry. `/NeedAppearances` is the union, because the
-//! table makes it a claim about the whole document — "[a] PDF writer shall include this key,
+//! table makes it a claim about the whole document — "\[a] PDF writer shall include this key,
 //! with a value of true, if it has not provided appearance streams for all visible widget
 //! annotations present in the document" — and a merged document has not provided them if any
 //! source had not. `/SigFlags` is a bitwise union for the same reason: Table 225's bit 1 says
@@ -83,7 +83,7 @@
 //! every appearance stream the sources hold crosses byte for byte. `/DA` and `/Q` are
 //! "document-wide default value"s and take the first source that states one. `/XFA` is dropped
 //! and warned: `CLAUDE.md` excludes Annex K, and §K.1 makes the `AcroForm` the consistent copy —
-//! "[t]he other entries in the interactive form dictionary shall be consistent with the
+//! "\[t]he other entries in the interactive form dictionary shall be consistent with the
 //! information in the XFA resource" — so a document without the packet is the document the
 //! packet described.
 //!
@@ -118,7 +118,7 @@
 //! (`/EmbeddedFiles`, `/JavaScript`, `/AP`, `/Pages`, `/Templates`, `/Renditions`,
 //! `/AlternatePresentations`) is its own namespace. Web capture's `/IDS` and `/URLS` are not
 //! carried at all, and `is_web_capture` says why. The merged tree is one root
-//! node holding one `/Names` array, sorted by key bytes, which is what the clause's "[s]horter
+//! node holding one `/Names` array, sorted by key bytes, which is what the clause's "\[s]horter
 //! keys shall appear before longer ones beginning with the same byte sequence" describes and
 //! what `Ord` on a byte string already does.
 //!
@@ -202,7 +202,7 @@
 //!
 //! ## What the merged catalog does not carry
 //!
-//! [`NOT_CARRIED`], every one named in a warning where a source states it, on `split`'s
+//! `NOT_CARRIED`, every one named in a warning where a source states it, on `split`'s
 //! argument: a construct nobody thought about is a construct nobody is told about.
 //!
 //! **`/Info` is deliberately in that list.** §14.3.3's entries are claims about *the document* —
@@ -968,7 +968,7 @@ pub(crate) fn write(
     })
 }
 
-/// What [`write`] produced, for the verb that asked for it to account for.
+/// What [`write()`] produced, for the verb that asked for it to account for.
 pub(crate) struct Assembled {
     /// The name the sink was opened with.
     pub(crate) name: String,
@@ -1173,7 +1173,7 @@ fn assemble<'a>(
 /// deprecates the rest in the dictionary, and in an earlier file the dictionary states every
 /// entry and the packet states each one's Table 349 counterpart beside it (ADR 1473). Both
 /// sources then say the same thing, which §14.3.4's first rule requires of the dates in a new
-/// document: "[w]hen writing the time and date of creation for the first time, typically when a
+/// document: "\[w]hen writing the time and date of creation for the first time, typically when a
 /// new document is created, a PDF processor shall ensure that the data in the document
 /// information dictionary and the document level metadata stream -if both are written -are fully
 /// equivalent".
@@ -1236,7 +1236,7 @@ fn output_version(documents: &[Document]) -> Version {
 /// The output's one page-tree node: §7.7.3.2's `/Kids` in output order, and its `/Count`.
 ///
 /// One node rather than a copy of the sources' shapes, because §7.7.3.2 makes the tree's shape
-/// the producer's business — "[t]he simplest structure can consist of a single page tree node
+/// the producer's business — "\[t]he simplest structure can consist of a single page tree node
 /// that references all of the document's page objects directly" — and a merge's page order is
 /// its own rather than any source's.
 fn page_tree(pages: &[PlacedPage]) -> Object {
@@ -1895,7 +1895,7 @@ struct FieldEntry {
 
 /// How deep §12.7.4.1's field hierarchy is walked.
 ///
-/// The clause says "[a]n interactive PDF processor shall not limit the range of inheritance for
+/// The clause says "\[a]n interactive PDF processor shall not limit the range of inheritance for
 /// field dictionaries", which is a statement about *inheritance* rather than a licence to walk a
 /// cycle; the visited set is what stops one and this is the belt beside it. The number is
 /// `pdf-model`'s `MAX_FIELD_ANCESTRY`, eight times the deepest chain on this disk (ADR 1198), and
@@ -2165,7 +2165,7 @@ pub(crate) fn printable(key: &[u8]) -> String {
 struct Layers {
     /// Whether any source states `/OCProperties` at all.
     any: bool,
-    /// Table 98's `/OCGs`: "[e]very optional content group shall be included in this array."
+    /// Table 98's `/OCGs`: "\[e]very optional content group shall be included in this array."
     groups: Vec<Object>,
     /// The merged `/D`'s `/OFF`, which under a `/BaseState` of `ON` states every exception.
     off: Vec<Object>,
@@ -2729,8 +2729,8 @@ fn merge_default_resources(
 /// §7.9.6's name trees, merged: the `/Names` dictionary and §12.3.2.4's catalog `/Dests`.
 ///
 /// One root node holding one `/Names` array per category, sorted by key bytes — which is the
-/// clause's own order, "[s]horter keys shall appear before longer ones beginning with the same
-/// byte sequence" being what `Ord` on a byte string already does — and legal because "[i]f the
+/// clause's own order, "\[s]horter keys shall appear before longer ones beginning with the same
+/// byte sequence" being what `Ord` on a byte string already does — and legal because "\[i]f the
 /// root node has a Names entry, it shall be the only node in the tree".
 fn merge_name_trees(
     merge: &mut Merge<'_>,
@@ -2834,8 +2834,8 @@ fn merge_name_trees(
 
 /// Whether a §7.7.4 name tree is one of the two §14.10.3.1 hangs web capture's content database on.
 ///
-/// §14.10.1 records the database in two structures, "[t]he Web Capture information dictionary"
-/// and "[t]he Web Capture content database", and the first is the catalog's `/SpiderInfo`, which
+/// §14.10.1 records the database in two structures, "\[t]he Web Capture information dictionary"
+/// and "\[t]he Web Capture content database", and the first is the catalog's `/SpiderInfo`, which
 /// `NOT_CARRIED` leaves behind — so carrying these trees would write half of a structure the
 /// clause states whole. The family is "deprecated with PDF 2.0", and §3.15 makes that "a part of
 /// ISO 32000 that should not be written into a PDF 2.0 document". So neither tree crosses a

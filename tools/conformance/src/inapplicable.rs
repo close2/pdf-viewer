@@ -91,7 +91,7 @@ pub const SHORTEST: usize = 3;
 /// How a term was written in the row that states it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
-    /// A `/Key` of some table, searched for in [`KEY_FORMS`].
+    /// A `/Key` of some table, searched for in `KEY_FORMS`.
     Key,
     /// A capitalised identifier, searched for as a whole word.
     Identifier,
@@ -344,7 +344,7 @@ fn named_by(text: &str, kind: Kind, sources: &[(String, &String)]) -> (usize, Ve
     (reach, witnesses)
 }
 
-/// Whether one text names a term: a key in either of [`KEY_FORMS`], an identifier as a whole
+/// Whether one text names a term: a key in either of `KEY_FORMS`, an identifier as a whole
 /// word.
 ///
 /// Case-sensitive, because these are the standard's identifiers rather than English: `DPart` is

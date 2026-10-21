@@ -42,7 +42,7 @@ pub(crate) const LINE_INSTANCE_STRIDE: u64 = 60;
 
 /// [`LINE_INSTANCE_STRIDE`] as the length of the array one instance is written from, held to it
 /// at compile time.
-const LINE_INSTANCE_BYTES: usize = 60;
+pub(super) const LINE_INSTANCE_BYTES: usize = 60;
 const _: () = assert!(LINE_INSTANCE_BYTES as u64 == LINE_INSTANCE_STRIDE);
 
 /// The bytes of a line instance that its clip does not decide: everything before the rectangle

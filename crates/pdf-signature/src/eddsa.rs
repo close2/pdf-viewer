@@ -23,7 +23,7 @@
 //!
 //! ISO/TS 32002 Table 4's "SHA512" is therefore not a parameter of this verification. It is what RFC 5652's
 //! `digestAlgorithm` must state — the digest of the content, which question 1's `message-digest`
-//! attribute carries — and ISO/TS 32002 section 5.1.4 is what ties the two together: "[i]f the
+//! attribute carries — and ISO/TS 32002 section 5.1.4 is what ties the two together: "\[i]f the
 //! signedAttrs field is present in the SignerInfo field for the signer, then the same message
 //! digest algorithm shall be used to compute both the digest of the SignedData encapContentInfo
 //! eContent and the digest of the DER-encoded signedAttrs passed to the signature algorithm."

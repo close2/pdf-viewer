@@ -13,7 +13,7 @@
 //! latest. [`Document::version`] has that sentence and what follows from it for a reader.
 //!
 //! **Why a reader wants it at all**: Annex I is normative, and it asks for a warning rather than
-//! a behaviour — "[i]f a PDF processor opens a PDF file with a version number newer than the
+//! a behaviour — "\[i]f a PDF processor opens a PDF file with a version number newer than the
 //! version that it supports … it should warn the user that it is unlikely to be able to read the
 //! document successfully". `xref::read` searches for `%PDF-` to fix the byte offsets and reads
 //! no digits, so the number is read here (ADR 0206).
@@ -40,14 +40,14 @@ pub struct Version {
 impl Version {
     /// The version of ISO 32000 this implementation is written against.
     ///
-    /// §7.5.2's own sentence about what a 2.0 file says: "[a] PDF processor that writes a file
+    /// §7.5.2's own sentence about what a 2.0 file says: "\[a] PDF processor that writes a file
     /// that conforms to this document shall identify the version … as 2.0". A reader supports
     /// what it was written against, and this constant is what Annex I compares a file with.
     pub const SUPPORTED: Self = Self { major: 2, minor: 0 };
 
     /// Reads `n.m` from the bytes immediately after a `%PDF-` or `%FDF-` marker.
     ///
-    /// §7.5.2: "[t]he file header shall consist of '%PDF1. n ' or '%PDF2. n ' followed by a
+    /// §7.5.2: "\[t]he file header shall consist of '%PDF1. n ' or '%PDF2. n ' followed by a
     /// single EOL marker, where ' n ' is a single digit number between 0 (30h) and 9 (39h)" —
     /// so exactly one digit either side of the point, and anything else is not a version this
     /// can name. Being liberal here would invent a number the file does not state.

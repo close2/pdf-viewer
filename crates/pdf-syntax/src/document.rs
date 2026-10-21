@@ -47,7 +47,7 @@ pub use reports::{CompressedRecovery, ObjectsLost};
 /// `1 0 obj 2 0 R endobj` pointing back at itself is a cycle, and a chain of a thousand
 /// references is hostile rather than merely unusual.
 ///
-/// `pub(crate)` for one reader outside this module: [`crate::serialize`] asks whether a file it
+/// `pub(crate)` for one reader outside this module: [`crate::serialize()`] asks whether a file it
 /// is about to write reaches §7.5.5's catalog, and the only answer that means anything is the
 /// one *this* reader would give — so the two follow chains the same distance or the writer is
 /// checking a different question from the one it is protecting.
@@ -85,7 +85,7 @@ const ENDSTREAM_WINDOW: usize = 32;
 
 /// How many decoded bytes of object stream a *rebuild* spends recovering §7.5.7's objects.
 ///
-/// [`Document::recover_compressed_objects`] decodes every object stream a header scan found, far
+/// `Document::recover_compressed_objects` decodes every object stream a header scan found, far
 /// enough to read its header, which is work an attacker chooses: a file may carry any number of
 /// them, each claiming to inflate to [`Limits::max_stream_len`]. The count of streams is not the
 /// axis to bound — a kilobyte of headers can name thousands — so what is bounded is the decoded
@@ -436,7 +436,7 @@ struct Pumpable {
 
 /// Which decode a [`crate::filter::Pump`] is running: the bytes, and §7.4's chain over them.
 ///
-/// The pair [`DecodedStreams`] keys an entry by, handed out so that a reader which exhausts a
+/// The pair `DecodedStreams` keys an entry by, handed out so that a reader which exhausts a
 /// bound can name the decode it exhausted — [`Document::window_found_nothing`] is the one
 /// consumer. Opaque on purpose: a caller has no reason to read a chain apart, and the type
 /// exists so that the fact travelling back cannot be about some *other* stream.

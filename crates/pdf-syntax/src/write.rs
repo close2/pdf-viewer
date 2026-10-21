@@ -2,10 +2,10 @@
 //!
 //! # What this is for, and what it is not
 //!
-//! `CLAUDE.md` excludes *authoring content from nothing* — "[n]o clause whose subject is
+//! `CLAUDE.md` excludes *authoring content from nothing* — "\[n]o clause whose subject is
 //! deciding what marks a page should contain falls on this project" — and it permits two kinds
 //! of writing, not one. This is the first: §7.5.6's incremental update, which appends what a
-//! person did to the file they did it to. [`crate::serialize`] is the second, which derives a
+//! person did to the file they did it to. [`crate::serialize()`] is the second, which derives a
 //! new file from documents that already exist.
 //!
 //! What §7.5.6 states, and what this half writes:
@@ -19,7 +19,7 @@
 //! here decides how a document should be laid out, only how to say "this object now reads like
 //! this".
 //!
-//! **The exclusion does not cover object-stream packing**: [`crate::serialize`], in this crate,
+//! **The exclusion does not cover object-stream packing**: [`crate::serialize()`], in this crate,
 //! generates ISO 32000-2 §7.5.7's object streams, and `CLAUDE.md`'s exclusion was redrawn on
 //! 2026-09-03 (RFC 0002 section 11.1, ADR 0816). ADR 0989.
 //!
@@ -166,12 +166,12 @@ impl std::fmt::Write for HexSink<'_> {
 /// > A PDF writer shall not use the PostScript language syntax for numbers with non-decimal
 /// > radices (such as 16#FFFE) or in exponential format (such as 6.02E23).
 ///
-/// which rules out `{:e}`; and "[w]herever a real number is expected, an integer may be used
+/// which rules out `{:e}`; and "\[w]herever a real number is expected, an integer may be used
 /// instead", which is why an integral value is written without a fractional part — that is what
 /// every producer does and what the type in a dictionary usually is.
 ///
 /// **The fractional case does not write six decimal places, because six is not enough.** Annex C's
-/// Table C.1 says that "[m]odern computers often represent and process real numbers using IEEE
+/// Table C.1 says that "\[m]odern computers often represent and process real numbers using IEEE
 /// Standard for Floating-Point Arithmetic (IEEE 754) single or double precision", and this reader
 /// parses one into an `f64`; rounding it to six places on the way out changes the number. A form
 /// field's `/Rect` survives the rounding, but a serializer rewrites every dictionary of every
@@ -247,7 +247,7 @@ pub fn incremental_update(
 
 /// [`incremental_update`], with objects the update deletes marked free.
 ///
-/// §7.5.6 is a `shall` about what happens to a deleted object — "[d]eleted objects shall be left
+/// §7.5.6 is a `shall` about what happens to a deleted object — "\[d]eleted objects shall be left
 /// unchanged in the PDF file, but shall be marked as deleted by means of their cross-reference
 /// entries" — and §7.5.4 gives a cross-reference section two ways to hold a free entry. The
 /// first is the linked list headed by object 0, which a deletion "shall be added to" with its
@@ -278,7 +278,7 @@ pub fn incremental_update_freeing(
 /// [`incremental_update_freeing`], with entries the update's own trailer states.
 ///
 /// The one thing an update cannot express without this: a trailer entry the document did not
-/// have. [`carry_forward`] repeats `/Encrypt` and `/Info` where the file already states them,
+/// have. `carry_forward` repeats `/Encrypt` and `/Info` where the file already states them,
 /// because §7.5.5 makes them properties of the file and a reader stops at the newest section —
 /// but a document that states **no** `/Info` and is being given one has nowhere to say so, and
 /// §7.5.5's Table 15 makes that entry the trailer's:

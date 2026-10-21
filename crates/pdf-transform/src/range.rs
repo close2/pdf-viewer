@@ -170,7 +170,7 @@ impl Selection {
     /// per comma-separated group, so the grammar's own commas are the piece boundaries and a
     /// verb that only ever saw the flattened list could not find them.
     ///
-    /// An exclusion is not a group. `x` "remove[s] these pages from the running selection", so
+    /// An exclusion is not a group. `x` "remove\[s] these pages from the running selection", so
     /// it is applied to every group selected so far and contributes none of its own — which
     /// keeps `1-10,x5` one piece of nine pages rather than a piece and an absence.
     ///

@@ -179,11 +179,11 @@ impl Host {
 
 /// §12.2's Table 147, as the settings a `GtkPrintOperation` opens its dialogue on.
 ///
-/// **Defaults and not instructions**, which is what each of those entries states: "[t]he page
+/// **Defaults and not instructions**, which is what each of those entries states: "\[t]he page
 /// scaling option that shall be selected when a print dialogue is displayed for this document",
-/// "[t]he paper handling option that shall be used when printing the PDF file from the print
-/// dialogue", "[t]he page numbers used to initialise the print dialogue box when the PDF file is
-/// printed", "[t]he number of copies that shall be printed when the print dialog is opened for
+/// "\[t]he paper handling option that shall be used when printing the PDF file from the print
+/// dialogue", "\[t]he page numbers used to initialise the print dialogue box when the PDF file is
+/// printed", "\[t]he number of copies that shall be printed when the print dialog is opened for
 /// this PDF file". A person changes any of them in the dialogue this seeds, and Table 148's
 /// `/Enforce` is said in the status bar rather than obeyed, because a document telling a reader
 /// what they may not change is a restriction and `CLAUDE.md` makes those the reader's.

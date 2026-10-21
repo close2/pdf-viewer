@@ -134,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        349,
+        353,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -817,6 +817,7 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("SUBMISSIONS", PolicyKind::Submissions),
         ("SCRIPTS", PolicyKind::Scripts),
         ("SEPARATIONS", PolicyKind::Separations),
+        ("LAUNCHED_DOCUMENTS", PolicyKind::LaunchedDocuments),
     ] {
         expected.insert(format!("QUORRA_POLICY_{name}"), policy as i64);
     }

@@ -15,7 +15,7 @@
 //! this module is its sections 8.1 and 9.1 with Appendix B.2.1's MGF1, and the one thing they
 //! share is the thing the RFC itself shares between them — section 5.2.2's `RSAVP1` primitive,
 //! `m = s^e mod n`, which section 8.1.2 step 2.b and section 8.2.2 step 2.b both invoke by name
-//! ([`crate::pkcs1::rsavp1`]).
+//! (`crate::pkcs1::rsavp1`).
 //!
 //! # What makes PSS different to verify
 //!
@@ -32,7 +32,7 @@
 //! # Where the parameters come from
 //!
 //! Everything the scheme is parameterised by arrives in the file, inside the `signatureAlgorithm`
-//! `AlgorithmIdentifier`. RFC 8017 Appendix A.2.3: "[t]he parameters field associated with this
+//! `AlgorithmIdentifier`. RFC 8017 Appendix A.2.3: "\[t]he parameters field associated with this
 //! OID in a value of type `AlgorithmIdentifier` SHALL have a value of type `RSASSA-PSS-params`":
 //!
 //! ```text
@@ -53,7 +53,7 @@
 //! which represents the trailer field with hexadecimal value 0xbc". ADR 0322 has the decision.
 //!
 //! There is no arithmetic of this module's own: the modular exponentiation is
-//! [`crate::bigint`]'s — `crypto-bigint` behind this crate's budgets since ADR 0331 — and ADR
+//! `crate::bigint`'s — `crypto-bigint` behind this crate's budgets since ADR 0331 — and ADR
 //! 0229's argument still holds: a signature verification has no secret in it, so nothing here
 //! runs in constant time and nothing needs to.
 
@@ -117,7 +117,7 @@ pub enum ParameterProblem<'a> {
     /// `maskGenAlgorithm` is not `id-mgf1`, which is the whole of `PKCS1MGFAlgorithms`:
     /// Appendix A.2.1 says the set "for this version SHALL consist of id-mgf1".
     MaskGenerationNotMgf1(&'a [u8]),
-    /// `trailerField` is not 1 — Appendix A.2.3: "[i]t SHALL be 1 for this version of the
+    /// `trailerField` is not 1 — Appendix A.2.3: "\[i]t SHALL be 1 for this version of the
     /// document".
     TrailerFieldNotOne,
 }
@@ -392,7 +392,7 @@ fn emsa_pss_verify(
 }
 
 /// RFC 8017 Appendix B.2.1's MGF1: `T = T || Hash(mgfSeed || C)` for a four-octet counter `C`
-/// from zero, "[o]utput the leading maskLen octets of T".
+/// from zero, "\[o]utput the leading maskLen octets of T".
 ///
 /// Step 1's `maskLen > 2^32 hLen` refusal is unreachable: the one caller asks for at most an
 /// encoded message's width, and [`crate::bigint::MAX_BITS`] caps that at a kilobyte.

@@ -11,7 +11,7 @@ use crate::object::Dictionary;
 /// What running a chain over one buffer produced, which is bytes or a refusal.
 ///
 /// **A refusal is an outcome and not an absence**, which is the whole of ADR 0437: reaching
-/// [`FilterRefusal::TooLarge`] costs up to [`Limits::max_stream_len`] of inflation, so a stream
+/// [`FilterRefusal::TooLarge`] costs up to [`crate::parser::Limits::max_stream_len`] of inflation, so a stream
 /// one page refuses is a stream every page re-inflates unless the answer is kept. The two arms
 /// are one memo rather than two maps because they are one question — what does this chain make
 /// of these bytes — and because eviction, the byte budget and the liveness invariant are then
@@ -31,14 +31,14 @@ pub(super) enum Outcome {
     },
     /// A filter refused, and the bound it refused under.
     Refused {
-        /// What [`Document::decoded_under`] would have returned.
+        /// What [`super::Document::decoded_under`] would have returned.
         why: StreamRefusal,
-        /// The [`Limits::max_stream_len`] in force when it did.
+        /// The [`crate::parser::Limits::max_stream_len`] in force when it did.
         ///
         /// **A refusal is only an answer under a bound at least as tight as the one that
-        /// produced it**, and this is the field that says so. [`Document::decoded_under`] is
+        /// produced it**, and this is the field that says so. [`super::Document::decoded_under`] is
         /// asked under two different bounds — the document's, and
-        /// [`Document::nested_content_source`]'s smaller allowance — and
+        /// [`super::Document::nested_content_source`]'s smaller allowance — and
         /// [`FilterRefusal::TooLarge`] means "longer than *this* limit", which says nothing
         /// about a larger one. Serving such an entry to a caller under the document's own bound
         /// would refuse a stream this reader can decode, on the strength of a routing decision
@@ -59,7 +59,7 @@ pub(super) struct DecodedEntry {
     /// allocation cannot be freed while the entry that names it exists, so no two live entries
     /// can share a key and nothing allocated after an entry can collide with it. `doc/todo/41`
     /// records the census where exactly this went wrong: below 4 KB its counts were worthless
-    /// "[because] an address freed with one document is handed to the next".
+    /// "\[because] an address freed with one document is handed to the next".
     encoded: Arc<[u8]>,
     /// §7.4's filter chain, with its parameters, as it was when these bytes were produced.
     ///
@@ -104,7 +104,7 @@ impl DecodedEntry {
 ///
 /// A resource is decoded once per *use*, not once per document: a font program referenced by
 /// eight hundred pages is inflated eight hundred times, and one sweep of ISO 32000-2 spends
-/// 24.6% of its wall clock in [`Document::decoded_stream_data`] of which 23.4% is decoding
+/// 24.6% of its wall clock in [`super::Document::decoded_stream_data`] of which 23.4% is decoding
 /// something it had already decoded — 830 MB of re-inflation against 46 MB of first decodes.
 /// `doc/todo/41` priced this at 0.7% over the pdf.js corpus and was right about that
 /// population: a corpus interpreted one page per document has nothing to repeat. What repeats
@@ -112,7 +112,7 @@ impl DecodedEntry {
 ///
 /// # The lock, and why a hit takes the exclusive one
 ///
-/// [`Document::get`] is asked 829 times a page and this is asked 12; a hit updates the
+/// [`super::Document::get`] is asked 829 times a page and this is asked 12; a hit updates the
 /// recency stamp, so it takes the write lock, which adds 12 586 exclusive acquisitions to a
 /// sweep that already takes 61 836 for the object cache (ADR 0260's first table). Keeping
 /// recency in an atomic so that a hit could share the read lock would buy a parallel sweep
@@ -148,7 +148,7 @@ impl DecodedStreams {
     ///
     /// The budget is a parameter so that eviction can be exercised on a budget of a few bytes,
     /// and so that a measurement can build the same tree with the cache off; every document
-    /// opens with [`DECODED_BUDGET`].
+    /// opens with [`super::DECODED_BUDGET`].
     pub(super) fn with_budget(budget: usize) -> Self {
         Self {
             held: HashMap::new(),
@@ -163,7 +163,7 @@ impl DecodedStreams {
 
     /// What this chain made of these bytes before, marking it most recently used.
     ///
-    /// `bound` is the [`Limits::max_stream_len`] the asking caller will decode under, and it is
+    /// `bound` is the [`crate::parser::Limits::max_stream_len`] the asking caller will decode under, and it is
     /// read only by [`Outcome::Refused`] — see that variant's `under` field for why a refusal
     /// under a tighter bound is not an answer under a looser one.
     pub(super) fn get(
@@ -247,7 +247,7 @@ impl DecodedStreams {
     /// [`Self::keep`]'s own condition, asked before the decode rather than after it: the entry
     /// is charged for every part of itself ([`DecodedEntry::charge`]), so a decode longer than
     /// this is one the cache declines however empty it is.
-    /// [`Document::nested_content_source`] is what asks, and it is the whole of that routing
+    /// [`super::Document::nested_content_source`] is what asks, and it is the whole of that routing
     /// rule — which is why the two are one function rather than two comparisons that can drift.
     pub(super) fn allowance(&self, encoded: &Arc<[u8]>) -> usize {
         self.budget

@@ -4679,6 +4679,11 @@ fn two_way_press_fixture(content: &str) -> Vec<u8> {
 /// catalog's §14.11.5 output intent, so the press is the output device's rather than the group's
 /// own `ICCBased` space.
 fn two_way_intent_fixture(content: &str) -> Vec<u8> {
+    two_way_intent_resources(content, "", "")
+}
+
+/// The profiled `DeviceCMYK` page with resources for each kind of elementary paint.
+fn two_way_intent_resources(content: &str, resources: &str, objects: &str) -> Vec<u8> {
     let mut hex = String::new();
     for byte in two_way_cmyk_profile() {
         let _ = write!(hex, "{byte:02X}");
@@ -4692,11 +4697,11 @@ fn two_way_intent_fixture(content: &str) -> Vec<u8> {
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Group << /S /Transparency /CS /DeviceCMYK >> \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
-         /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> >> \
+         /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> {resources} >> \
          /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
-         endobj\n",
+         endobj\n{objects}",
         content.len() + 1,
         hex.len() + 1
     );
@@ -5944,5 +5949,111 @@ fn a_groups_opacity_does_not_become_its_shape_inside_a_knockout_group() {
         }
         // Outside the blue square the red is the only element and stays whole.
         assert_eq!(pixel(&drawn, 20, 80), [255, 0, 0, 255], "{inner}");
+    }
+}
+
+/// §11.7.5.3's first bullet governs a paint with `DeviceRGB` while the pair is current,
+/// rather than a parameter or colour selected anywhere in the content stream.
+#[test]
+fn black_generation_report_requires_a_device_rgb_paint_under_the_current_pair() {
+    for content in [
+        "/GB gs",
+        "/GB gs 1 0 0 rg",
+        "/GB gs 1 0 0 rg 0 0 100 100 re n",
+        "/GB gs 0.5 g 0 0 100 100 re f",
+        "/GB gs 0 1 1 0 k 0 0 100 100 re f",
+        "q /GB gs Q 1 0 0 rg 0 0 100 100 re f",
+        "1 0 0 rg 0 0 100 100 re f /GB gs",
+    ] {
+        let page = interpret(two_way_intent_fixture(content));
+        assert!(
+            !page
+                .unsupported
+                .iter()
+                .any(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. })),
+            "no governed paint in {content}: {:?}",
+            page.unsupported
+        );
+    }
+    for content in [
+        "/GB gs 1 0 0 rg 0 0 100 100 re f",
+        "/GB gs 1 0 0 RG 0 0 100 100 re S",
+        "1 0 0 rg /GB gs 0 0 100 100 re f",
+        "q /GB gs 1 0 0 rg 0 0 100 100 re f Q",
+        "/GB gs q 0.5 g 0 0 100 100 re f Q 1 0 0 rg 0 0 100 100 re f",
+    ] {
+        let page = interpret(two_way_intent_fixture(content));
+        assert!(
+            page.unsupported
+                .iter()
+                .any(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. })),
+            "a governed paint in {content}: {:?}",
+            page.unsupported
+        );
+    }
+}
+
+/// Images and shadings cache converted colours. Their diagnostic must survive a cache hit,
+/// while selecting a shading pattern without painting it must remain silent (§11.7.5.3).
+#[test]
+fn black_generation_report_follows_image_and_shading_paints_through_their_caches() {
+    const SHADING: &str = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+        /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 1 0] /N 1 >> \
+        /Extend [true true] >>";
+    let resources = format!(
+        "/XObject << /Im 6 0 R >> /Shading << /Sh {SHADING} >> \
+        /Pattern << /P << /Type /Pattern /PatternType 2 /Shading {SHADING} \
+        /ExtGState << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> >>"
+    );
+    let objects = "6 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 \
+        /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 8 >>\n\
+        stream\nff0000>\nendstream\nendobj\n";
+    for (content, reported) in [
+        ("/GB gs /Im Do /Im Do", true),
+        ("/GB gs /Sh sh /Sh sh", true),
+        ("/Pattern cs /P scn", false),
+        ("/Pattern cs /P scn 0 0 100 100 re f 0 0 100 100 re f", true),
+        ("q /GB gs Q /Im Do", false),
+        ("q /GB gs Q /Sh sh", false),
+    ] {
+        let page = interpret(two_way_intent_resources(content, &resources, objects));
+        let count = page
+            .unsupported
+            .iter()
+            .filter(|item| matches!(item, pdf_model::Unsupported::BlackGeneration { .. }))
+            .count();
+        assert_eq!(
+            count,
+            usize::from(reported),
+            "{content}: {:?}",
+            page.unsupported
+        );
+    }
+}
+
+/// §11.7.5.3 carries the current pair to an image's samples just as to a solid colour.
+/// For RGB (0.2, 0.4, 0.6), k=0.4; BG(k)=1-k and UCR(k)=k/2 give
+/// CMYK (0.6, 0.4, 0.2, 0.6). The sample bytes are exactly those RGB fractions.
+#[test]
+fn an_images_rgb_samples_use_the_black_generation_pair_at_its_do() {
+    let content = "/GB gs q 50 0 0 100 0 0 cm \
+        BI /W 1 /H 1 /BPC 8 /CS /RGB /F /AHx ID 336699> EI Q \
+        /GS gs 0 0 0 0 k 60 0 40 100 re f";
+    let drawn = interpret(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "/Group << /S /Transparency >>",
+        "",
+        "",
+        content,
+    ));
+    let space = pdf_model::colour::device_cmyk_blending_space();
+    let expected = space.convert(0.6, 0.4, 0.2, 0.6);
+    let actual = pixel(&drawn, 25, 50);
+    for (axis, value) in expected.into_iter().enumerate() {
+        let wanted = (value * 255.0 + 0.5) as i32;
+        assert!(
+            (i32::from(actual[axis]) - wanted).abs() <= 2,
+            "image channel {axis}: {actual:?}, expected {expected:?}"
+        );
     }
 }

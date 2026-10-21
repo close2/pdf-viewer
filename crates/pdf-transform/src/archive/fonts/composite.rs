@@ -139,9 +139,14 @@ pub(super) fn embed(
     )
     .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
     substitutes.written.insert(at, stream);
-    substitutes
-        .at
-        .insert(descriptor, Embedding { key: row.key, at });
+    let embedding = Embedding { key: row.key, at };
+    if let Some(previous) = substitutes.at.get(&descriptor)
+        && (previous.key != embedding.key
+            || substitutes.written.get(&previous.at) != substitutes.written.get(&at))
+    {
+        return Err(Because::NotBuiltYet(SHARED_DESCRIPTOR_PROGRAMS_DIFFER));
+    }
+    substitutes.at.insert(descriptor, embedding);
     if let Some(descendant_at) = identity_map {
         substitutes.identity_cid_to_gid.insert(descendant_at);
     }
@@ -316,3 +321,8 @@ const CMAP_NOT_REMOVED: &str = "ISO 32000-2 §9.9.1 requires that a TrueType pro
      under a CIDFont dictionary carry no cmap table, since the mapping from character codes to \
      glyph descriptions is provided separately, and the table directory of the program named with \
      --font could not be written again without it";
+
+/// A local metric proof cannot authorise replacing another font's proved program.
+const SHARED_DESCRIPTOR_PROGRAMS_DIFFER: &str = "two composite fonts share a FontDescriptor but \
+    require different prepared programs; attaching the later program would discard the earlier \
+    font's proved metrics. Separate descendant descriptors are not built yet, so neither is written";

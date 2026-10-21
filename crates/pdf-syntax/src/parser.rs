@@ -178,7 +178,7 @@ impl<'a> Parser<'a> {
     ///
     /// [`crate::Lexer::examined`]'s count, plus the look-aheads a stream's delimiting makes:
     /// a stated `/Length` checked for the `endstream` after it, or the search for one. What it
-    /// is for is [`crate::FileBytes::parse_from`], which reads a file on disk a window at a
+    /// is for is `crate::FileBytes::parse_from`, which reads a file on disk a window at a
     /// time and takes a parse only where this is short of the window's end.
     #[must_use]
     pub fn examined(&self) -> usize {

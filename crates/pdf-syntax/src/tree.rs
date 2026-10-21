@@ -35,7 +35,7 @@
 //! > encoding of the keys may be used as long as it is self-consistent; keys shall be compared
 //! > for equality on a simple byte-by-byte basis.
 //!
-//! That is `<[u8] as Ord>` exactly, which is what [`TreeKey::compare`] has always used. The
+//! That is `<[u8] as Ord>` exactly, which is what `TreeKey::compare` has always used. The
 //! erratum withdraws a word that *named* an order and leaves the words that *define* one, so
 //! the code is unchanged and its reason is now the clause's rather than the word's.
 //!
@@ -252,13 +252,13 @@ pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> V
 /// Every key-value pair in a *name* tree, in the order the tree holds them.
 ///
 /// The same walk as [`number_pairs`] over §7.9.6's `/Names` array rather than §7.9.7's `/Nums`,
-/// because the two clauses define one structure twice — "[a] name tree serves a similar purpose
+/// because the two clauses define one structure twice — "\[a] name tree serves a similar purpose
 /// to a dictionary … but by different means", and §7.9.7 opens by saying a number tree "shall
 /// serve a similar purpose to a name tree … except that its keys shall be integers".
 ///
 /// A whole-tree walk rather than a lookup for the reason §7.11.4's attachments need: a caller
 /// listing a document's embedded files has no key to look up. Keys come back as the bytes the
-/// file wrote, because §7.9.6 settles them as bytes rather than as text — "[a]ny encoding of the
+/// file wrote, because §7.9.6 settles them as bytes rather than as text — "\[a]ny encoding of the
 /// keys may be used as long as it is self-consistent" — and what they *mean* is §7.9.2's
 /// question.
 ///

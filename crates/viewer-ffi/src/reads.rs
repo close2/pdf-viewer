@@ -64,7 +64,7 @@ impl<'a> Reads<'a> {
     /// Annex O's highlighted rectangles on the page being shown.
     ///
     /// Table Annex O.4's `highlight`, which a URI's fragment states and this program cannot draw
-    /// for a caller: "[t]he nature of the highlighting is implementation-dependent", so the shapes
+    /// for a caller: "\[t]he nature of the highlighting is implementation-dependent", so the shapes
     /// cross and the colour is the caller's. Empty where the fragment named none, which is why
     /// this cannot fail for an open document.
     ///
@@ -80,8 +80,8 @@ impl<'a> Reads<'a> {
 
     /// Which annotation holds §12.5.1's focus, and where it is on the screen.
     ///
-    /// Named for the *annotation* rather than for the query, because [`Self::focus`] is already
-    /// [`Command::Focus`] — a document being made the one commands apply to, which is a different
+    /// Named for the *annotation* rather than for the query, because [`crate::Session::focus`] is already
+    /// [`viewer_core::Command::Focus`] — a document being made the one commands apply to, which is a different
     /// thing entirely and was here first.
     ///
     /// # Errors
@@ -133,7 +133,7 @@ impl<'a> Reads<'a> {
 
     /// Every occurrence of a string on the page being shown, as shapes to draw over it.
     ///
-    /// **This page, and [`Self::find_start`] is the document.** The two are one search asked
+    /// **This page, and [`crate::Session::find_start`] is the document.** The two are one search asked
     /// twice: this answers from a readback that already exists, in microseconds, so a find bar may
     /// ask it on every repaint; the other interprets pages nobody is looking at and takes one step
     /// at a time. A caller that had only the second could run a search and not draw a match, which

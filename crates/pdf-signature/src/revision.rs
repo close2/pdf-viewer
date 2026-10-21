@@ -23,10 +23,10 @@
 //! > parameters.
 //!
 //! and §7.5.6 says where that portion stops: "changes shall be appended to the end of the file,
-//! leaving its original contents intact", with "[e]ach trailer shall be terminated by its own
+//! leaving its original contents intact", with "\[e]ach trailer shall be terminated by its own
 //! end-of-file (%%EOF) marker". So the signed version of the document is a **prefix** of the
 //! file the current version stands in, and reading it needs no edit of anything — only a second
-//! [`Document`] opened over [`FileBytes::prefix`]. `CLAUDE.md`'s immutable `Document` is
+//! [`Document`] opened over [`pdf_syntax::FileBytes::prefix`]. `CLAUDE.md`'s immutable `Document` is
 //! therefore not an obstacle here but the thing that makes the comparison exact: both states are
 //! functions of the same bytes.
 //!
@@ -104,11 +104,11 @@ pub struct Comparison {
     /// The objects Table 256's `/Data` may name to scope the analysis to every field there is.
     ///
     /// Three of them, and the first is the one a real producer writes. Table 15's `/Root` is
-    /// "[t]he catalog dictionary for the PDF file", so a `/Data` naming it puts the whole document
+    /// "\[t]he catalog dictionary for the PDF file", so a `/Data` naming it puts the whole document
     /// under the analysis and therefore every field in it — which is what
     /// `xfa_filled_imm1344e.pdf`'s `FieldMDP` states, the corpus's only one. Table 29's
-    /// `/AcroForm` — the catalog's entry for "[t]he document's interactive form" — and Table 224's
-    /// `/Fields`, "[a]n array of references to the document's root fields (those with no ancestors
+    /// `/AcroForm` — the catalog's entry for "\[t]he document's interactive form" — and Table 224's
+    /// `/Fields`, "\[a]n array of references to the document's root fields (those with no ancestors
     /// in the field hierarchy)", are the two narrower objects that reach the same population.
     form: BTreeSet<u32>,
     /// What each changed object was seen to *do*, in Table 258's vocabulary.
@@ -174,7 +174,7 @@ pub enum NotComparable {
     },
 }
 
-/// Object numbers, named up to [`MAX_NAMED`] of them and counted in full.
+/// Object numbers, named up to `MAX_NAMED` of them and counted in full.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Objects {
     named: Vec<u32>,
@@ -188,7 +188,7 @@ impl Objects {
         self.count
     }
 
-    /// The first [`MAX_NAMED`] of them, ascending.
+    /// The first `MAX_NAMED` of them, ascending.
     #[must_use]
     pub fn named(&self) -> &[u32] {
         &self.named
@@ -241,7 +241,7 @@ pub struct Changes {
     pub redefined: Objects,
     /// Object numbers the signed revision defined and the current file does not.
     ///
-    /// §7.5.6's deletion: "[d]eleted objects shall be left unchanged in the PDF file, but shall
+    /// §7.5.6's deletion: "\[d]eleted objects shall be left unchanged in the PDF file, but shall
     /// be marked as deleted by means of their cross-reference entries."
     pub removed: Objects,
     /// Object numbers neither state could be placed in, so nothing is claimed about them.
@@ -250,14 +250,14 @@ pub struct Changes {
     /// containing stream the table does not place, or an offset outside the revision that
     /// declared it. §7.5.7 forbids the nesting that would otherwise need a walk: an object stream
     /// "is a stream object in which a sequence of indirect objects may be stored", and the first
-    /// entry of that clause's list of what "shall not be stored in an object stream" is "[s]tream
+    /// entry of that clause's list of what "shall not be stored in an object stream" is "\[s]tream
     /// objects". So one level of resolution is the whole of it, and anything deeper is counted
     /// here rather than followed.
     pub unplaceable: Objects,
     /// Whether the trailer's `/Root` names a different object than it did.
     ///
     /// The one entry of the trailer this compares, because it is the one whose change moves the
-    /// whole document: Table 15 makes `/Root` "[t]he catalog dictionary for the PDF file". The
+    /// whole document: Table 15 makes `/Root` "\[t]he catalog dictionary for the PDF file". The
     /// rest of the trailer is §7.5.6's required restatement of the previous one, so comparing it
     /// wholesale would report a conforming update as a change.
     pub catalog_moved: bool,
@@ -308,7 +308,7 @@ pub enum Kind {
     /// Table 257's "filling in forms". Decided by *which keys differ*, not by the object's type:
     /// a widget annotation is an annotation whatever else it is, and level 2 permits filling it
     /// in while forbidding annotating it, so the two have to be told apart by what the update
-    /// actually wrote. [`FILLING_WRITES`] is that set and says where each key comes from.
+    /// actually wrote. `FILLING_WRITES` is that set and says where each key comes from.
     FieldFilledIn,
     /// A signature applied — Table 257's "signing".
     ///
@@ -331,7 +331,7 @@ pub enum Kind {
     ///
     /// So the operation takes a page the *signed* revision already held out of reach of the page
     /// tree and puts a regular page into it — and the added page's content is that template's,
-    /// because it **is** the named page. [`instantiated`] is that test, over the content the two
+    /// because it **is** the named page. `instantiated` is that test, over the content the two
     /// pages carry rather than over the reference by which either names it: §12.7.7 states the
     /// identity of the page and says nothing about whether an implementation shares the content
     /// stream or copies it, so a reader that insisted on a shared object would be ranking a
@@ -358,11 +358,11 @@ pub enum Kind {
     /// §12.8.4's validation material, or §12.8.5's document timestamp.
     ///
     /// What Table 257 carves out of the question entirely, *when a whole update holds nothing
-    /// else*: "[c]hanges to a PDF that are incremental updates which include only the data
+    /// else*: "\[c]hanges to a PDF that are incremental updates which include only the data
     /// necessary to add DSS's … and/or document timestamps … to the document shall not be
     /// considered as changes to the document as defined in the choices below." The carve-out is
     /// therefore a judgement about a revision and not about an object, which is what
-    /// [`Disposition`] carries.
+    /// `Disposition` carries.
     ValidationMaterial,
     /// Table 15's `/Root` names a different object than the signed revision's trailer did.
     CatalogReplaced,
@@ -391,7 +391,7 @@ const FIELD_DEFINING: [&str; 7] = ["FT", "T", "Ff", "Kids", "Parent", "DV", "AA"
 
 /// How far a `/Parent` chain is followed looking for Table 226's inheritable `/FT`.
 ///
-/// §12.7.4.1 states no bound — "[a]n interactive PDF processor shall not limit the range of
+/// §12.7.4.1 states no bound — "\[a]n interactive PDF processor shall not limit the range of
 /// inheritance for field dictionaries" — so this is a guard against a cycle rather than a
 /// reading of the clause, and a chain longer than this yields no field type rather than a wrong
 /// one, which sends the object to [`Kind::Unclassified`].
@@ -421,7 +421,7 @@ const MAX_NAME_TREE_DEPTH: usize = 64;
 
 /// How many objects of one interactive form are recorded for §12.8.2.4's transform to select on.
 ///
-/// §12.7.3 states no bound — "[a] PDF document may contain any number of fields appearing on any
+/// §12.7.3 states no bound — "\[a] PDF document may contain any number of fields appearing on any
 /// combination of pages" — so the population comes out of the file (trap 38). A form larger than
 /// this leaves its remaining objects unrecorded, which makes a changed one of them
 /// [`Included::Excluded`] from the analysis rather than silently covered.
@@ -430,7 +430,7 @@ const MAX_FORM_FIELDS: usize = 8192;
 /// How deep §12.7.4.1's `/Kids` hierarchy is walked building those names.
 ///
 /// The mirror of [`MAX_FIELD_ANCESTRY`], which climbs the same chain from the other end, and for
-/// the same reason: "[a]n interactive PDF processor shall not limit the range of inheritance for
+/// the same reason: "\[a]n interactive PDF processor shall not limit the range of inheritance for
 /// field dictionaries", so this is a guard against a cycle and a field deeper than it is named by
 /// nothing rather than named wrongly.
 const MAX_FORM_DEPTH: usize = 32;
@@ -480,7 +480,7 @@ pub struct Ranked {
 /// Table 257's ranking of one comparison's changes against one level.
 ///
 /// Every changed object lands in exactly one of the four buckets, and the counts are exact —
-/// the naming is bounded by [`MAX_NAMED`] per bucket the way [`Objects`] is everywhere else.
+/// the naming is bounded by `MAX_NAMED` per bucket the way [`Objects`] is everywhere else.
 /// **Nothing is dropped**: an object this reader could not place appears in
 /// [`Ranking::unrankable`] rather than being left out of the arithmetic.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -495,7 +495,7 @@ pub struct Ranking {
     pub not_permitted: Objects,
     /// Objects that were not ranked, and are therefore not permitted by default either.
     pub unrankable: Objects,
-    /// The first [`MAX_NAMED`] objects in full, ascending — for a person to read.
+    /// The first `MAX_NAMED` objects in full, ascending — for a person to read.
     pub detail: Vec<Ranked>,
 }
 
@@ -562,7 +562,7 @@ pub enum Judgement {
     },
     /// At least one change is one this level does not permit.
     ///
-    /// "[O]ther changes shall invalidate the signature" for levels 2 and 3; for level 1, "any
+    /// "\[O]ther changes shall invalidate the signature" for levels 2 and 3; for level 1, "any
     /// change to the document shall invalidate the signature".
     NotPermitted {
         /// The level the change was ranked against.
@@ -616,7 +616,7 @@ pub enum Included {
     /// that recipient's signature".
     Covered,
     /// The object belongs to a form field the selection does not name, so the transform permits
-    /// the change: `/Include` names "[o]nly those form fields specified in Fields".
+    /// the change: `/Include` names "\[o]nly those form fields specified in Fields".
     Outside,
     /// `/Data` does not scope the analysis to this object, so this transform says nothing about
     /// it — §12.8.2.1's "excluded in revision comparison", and the word is the clause's.
@@ -647,7 +647,7 @@ pub struct ScopedTo {
 /// §12.8.2.4's transform applied to one comparison's changes, object by object.
 ///
 /// The four buckets are [`Included`]'s four answers, counted exactly and named up to
-/// [`MAX_NAMED`] apiece, the way [`Ranking`] holds Table 257's.
+/// `MAX_NAMED` apiece, the way [`Ranking`] holds Table 257's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldRanking {
     /// Objects belonging to a field the transform covers.
@@ -658,7 +658,7 @@ pub struct FieldRanking {
     pub excluded: Objects,
     /// Objects in the form whose field this reader could not name.
     pub undecided: Objects,
-    /// The first [`MAX_NAMED`] in full, ascending — for a person to read.
+    /// The first `MAX_NAMED` in full, ascending — for a person to read.
     pub detail: Vec<ScopedTo>,
 }
 
@@ -818,7 +818,7 @@ pub struct Exercised {
 ///
 /// [`Ranking`]'s shape exactly, because it answers the same shape of question about the same
 /// objects: every changed object lands in one bucket, the counts are exact, the naming is bounded
-/// by [`MAX_NAMED`], and an object this reader could not rank is in [`Self::unrecognised`] rather
+/// by `MAX_NAMED`, and an object this reader could not rank is in [`Self::unrecognised`] rather
 /// than absent from the arithmetic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RightsRanking {
@@ -830,7 +830,7 @@ pub struct RightsRanking {
     pub not_granted: Objects,
     /// Objects whose operation this reader cannot name.
     pub unrecognised: Objects,
-    /// The first [`MAX_NAMED`] objects in full, ascending — for a person to read.
+    /// The first `MAX_NAMED` objects in full, ascending — for a person to read.
     pub detail: Vec<Exercised>,
 }
 
@@ -996,7 +996,7 @@ impl Comparison {
     /// How many cross-reference sections the file states at or after [`Self::end`].
     ///
     /// §7.5.6 gives every incremental update one, so this is the number of revisions appended
-    /// after signing. Table 257 needs it before any object is ranked: an update that "include[s]
+    /// after signing. Table 257 needs it before any object is ranked: an update that "include\[s]
     /// only the data necessary to add DSS's … and/or document timestamps … shall not be
     /// considered as changes to the document", which is a question asked of a whole update.
     #[must_use]
@@ -1056,7 +1056,7 @@ impl Comparison {
         self.rank(level).judgement()
     }
 
-    /// What each changed object is, counted by [`Kind`] and named up to [`MAX_NAMED`] apiece.
+    /// What each changed object is, counted by [`Kind`] and named up to `MAX_NAMED` apiece.
     ///
     /// The population [`Self::rank`] ranks, before any level is applied — which is what a report
     /// says to a person who wants to know what an update *did* rather than whether one `/P` value
@@ -1149,7 +1149,7 @@ impl Comparison {
     /// §12.8.2.4's transform applied to these changes: which of them it includes, and which
     /// covered field moved.
     ///
-    /// This is §12.8.2.1's sentence executed rather than quoted — "[t]ransform methods, along with
+    /// This is §12.8.2.1's sentence executed rather than quoted — "\[t]ransform methods, along with
     /// transform parameters, shall determine which objects are included and excluded in revision
     /// comparison" — and it is the one transform whose parameters name a subject the file chooses.
     /// §12.8.2.4's Table 259 says which fields:
@@ -1527,7 +1527,7 @@ fn extend_instantiations(
 /// > "Document timestamp (DTS) dictionary" to the document shall not be considered as changes to
 /// > the document as defined in the choices below.
 ///
-/// "[O]nly" is the whole of the test, so an update carrying anything besides validation material
+/// "\[O]nly" is the whole of the test, so an update carrying anything besides validation material
 /// and its own cross-reference stream fails it — and failing it is not the same as being
 /// forbidden, which is why such an update becomes [`Disposition::Mixed`] rather than a verdict.
 fn dispositions(
@@ -1795,7 +1795,7 @@ fn field_subjects(document: &Document, into: &mut BTreeMap<u32, Subject>) {
 /// One level of [`field_subjects`]'s walk.
 ///
 /// §12.7.4.2 decides the two cases that are not a simple append. A field with no parent takes its
-/// own partial name — "[f]or a field with no parent, the partial and fully qualified names are the
+/// own partial name — "\[f]or a field with no parent, the partial and fully qualified names are the
 /// same" — and one with no `/T` at all is not a field but its parent's widget:
 ///
 /// > A field dictionary that does not have a partial field name ( T entry) of its own shall not be
@@ -2009,7 +2009,7 @@ fn page_content(document: &Document, page: &Dictionary) -> Option<Vec<u8>> {
 /// Three tests, and each is a sentence rather than a heuristic. Table 31 says what a regular page
 /// in the tree is — `/Type` "shall be Page for a page object", `/Parent` "( Required; shall be an
 /// indirect reference ) The page tree node that is the immediate parent of this page object" — and
-/// §12.7.7 says a template is precisely the page that has neither: "[s]uch invisible pages shall
+/// §12.7.7 says a template is precisely the page that has neither: "\[s]uch invisible pages shall
 /// have an object type of Template rather than Page and shall have no Parent or B entry". So the
 /// object added has to be the *regular* page the operation produces. The third test is the
 /// content, which is what identifies *which* page it is.
@@ -2028,8 +2028,8 @@ fn instantiated(current: &Document, page: &Dictionary, templates: &[Vec<u8>]) ->
 
 /// Whether a page tree node changed only by receiving pages this update instantiated.
 ///
-/// Table 30's two entries are the whole of what receiving a page writes: `/Kids`, "[a]n array of
-/// indirect references to the immediate children of this node", and `/Count`, "[t]he number of
+/// Table 30's two entries are the whole of what receiving a page writes: `/Kids`, "\[a]n array of
+/// indirect references to the immediate children of this node", and `/Count`, "\[t]he number of
 /// leaf nodes (page objects) that are descendants of this node within the page tree". A node that
 /// moved anything else, lost a kid, or gained one that is not an instantiated page is not part of
 /// this operation and stays [`Kind::Unclassified`] — which is a refusal, not a permission.
@@ -2067,7 +2067,7 @@ fn extended_by_instantiation(
 
 /// The objects Table 31's `/Contents` names, where it names any.
 ///
-/// Table 31 allows the entry both shapes — "[t]he value shall be either a single stream or an
+/// Table 31 allows the entry both shapes — "\[t]he value shall be either a single stream or an
 /// array of streams" — and either may be written indirectly, so an indirect entry contributes its
 /// own number *and*, where it resolves to an array, the numbers of the streams in it.
 fn content_streams(document: &Document, page: &Dictionary) -> Vec<u32> {
@@ -2265,7 +2265,7 @@ fn dictionary_of(object: &Object) -> Option<Dictionary> {
 /// whatever its objects are; an object no table places has not been shown to have changed, so it
 /// is refused rather than ranked; an update whose carve-out could not be decided takes its whole
 /// contents with it. Only then does the level's own vocabulary apply — and **level 1 needs none
-/// of it**, because "[n]o changes to the document shall be permitted" ranks an unclassified
+/// of it**, because "\[n]o changes to the document shall be permitted" ranks an unclassified
 /// change as surely as a classified one.
 fn verdict(level: Modification, kind: Kind, disposition: Disposition) -> Verdict {
     if disposition == Disposition::Disregarded {

@@ -14,11 +14,11 @@
 //! suite is that "every content stream in their output is a producer's, carried byte for byte or
 //! **recompressed without reinterpretation**". A re-distiller's content streams are its own. So
 //! nothing here decodes a page, and the one thing that decodes a *stream* — the recompressor in
-//! [`pdf_syntax::serialize`] — puts the identical bytes back under a different §7.4 filter.
+//! [`pdf_syntax::serialize()`] — puts the identical bytes back under a different §7.4 filter.
 //!
 //! # The four lossless passes, and what each is derived from
 //!
-//! 1. **Reachability.** §7.5.5's Table 15 makes `/Root` "[t]he catalog dictionary for the PDF
+//! 1. **Reachability.** §7.5.5's Table 15 makes `/Root` "\[t]he catalog dictionary for the PDF
 //!    file" and §7.7.2's Table 29 makes the catalog "the root of a document's object hierarchy".
 //!    An object no path from that root reaches is an object no reader of the output can ask for,
 //!    so it is not written. This is the pass ADR 0818 named and declined to invent inside
@@ -41,12 +41,12 @@
 //! answer rather than a policy:
 //!
 //! - **A reference to an object the document does not hold is not followed**, and the object is
-//!   not written. "[A]n indirect reference to an undefined object shall not be considered an
+//!   not written. "\[A]n indirect reference to an undefined object shall not be considered an
 //!   error by a PDF processor; it shall be treated as a reference to the null object", so the
 //!   output states `null` where the source stated a reference, and the two say the same thing to
 //!   every reader. A source object whose *value* is `null` is the same case and gets the same
 //!   answer, because §7.3.10 gives a reader no way to tell the two apart.
-//! - **A stream's `/Length` is not followed either.** §7.3.8.2 makes it "[t]he number of bytes
+//! - **A stream's `/Length` is not followed either.** §7.3.8.2 makes it "\[t]he number of bytes
 //!   from the beginning of the line following the keyword stream", which is a statement about
 //!   the file being written; the serializer re-derives it as a direct integer, so a source that
 //!   stated it indirectly leaves an object the output refers to from nowhere. Not following it
@@ -560,7 +560,7 @@ pub(crate) fn refuse_a_document_only_recovery_reads(
 /// why optimising an optimised file changes nothing.
 ///
 /// With `prune` false the closure is still walked, and every object number the trailer's
-/// `/Size` declares is copied besides. Table 15 makes `/Size` "[t]he total number of entries in
+/// `/Size` declares is copied besides. Table 15 makes `/Size` "\[t]he total number of entries in
 /// the PDF file's cross-reference table", and §7.5.4 numbers those entries 0 to `/Size` − 1
 /// with 0 the free head, so 1 to `/Size` − 1 is every number the file states anything about.
 pub(crate) fn copy_closure(
@@ -710,7 +710,7 @@ fn reach(
 
 /// How many objects the source's trailer declares, less §7.5.4's free head.
 ///
-/// Table 15's `/Size` is "[t]he total number of entries in the PDF file's cross-reference
+/// Table 15's `/Size` is "\[t]he total number of entries in the PDF file's cross-reference
 /// table", and entry 0 "shall always be free", so the count of objects a reader could ask for
 /// is one less. A document whose `/Size` is absent or nonsense counts as none rather than as a
 /// guess.

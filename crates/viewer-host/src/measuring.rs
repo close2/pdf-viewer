@@ -159,7 +159,7 @@ const DEPARTURE_SAID: f64 = 0.000_000_5;
 /// A latitude and a longitude as this program writes them (ADR 1593): decimal degrees to six
 /// places, with the hemisphere's letter rather than a sign.
 ///
-/// Table 269 leaves the form to the processor — "[f]ormatting the displayed representation of
+/// Table 269 leaves the form to the processor — "\[f]ormatting the displayed representation of
 /// these values is controlled by the interactive PDF processor" — and the clause's own example of
 /// a display system is the one "corresponding to values reported by a GPS device", which reports
 /// decimal degrees. Six places is a tenth of a metre on the ground, finer than any map's

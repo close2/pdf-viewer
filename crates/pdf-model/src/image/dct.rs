@@ -116,7 +116,12 @@ pub(super) fn samples_of_frame(
             }
         }
     }
+    let black_generation_bypassed = !painting.is_mask
+        && painting.into.black_generation().is_some()
+        && super::space::colour_space(at.document, at.dict, at.resources, painting.into)?
+            .bypasses_black_generation(painting.into);
     Ok(SamplesOnGrid {
+        black_generation_bypassed,
         rgba,
         grid,
         opacity_included: false,

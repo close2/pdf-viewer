@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use pdf_syntax::Document;
 
-fn main() {
+fn main() -> Result<(), String> {
     for path in std::env::args().skip(1) {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
@@ -32,7 +32,7 @@ fn main() {
         let Some(page) = pages.get(0) else {
             continue;
         };
-        let before = pdf_model::colour::presses_cached();
+        let before = pdf_model::colour::presses_cached().map_err(|error| error.why().to_owned())?;
         let cold = Instant::now();
         let first = pdf_model::interpret(&document, &page);
         let cold = cold.elapsed();
@@ -45,7 +45,7 @@ fn main() {
         println!(
             "{path}: presses {before} -> {}, cold {:.1} ms, warm {:.1} ms, warm again {:.1} ms, \
              commands {} then {}",
-            pdf_model::colour::presses_cached(),
+            pdf_model::colour::presses_cached().map_err(|error| error.why().to_owned())?,
             cold.as_secs_f64() * 1000.0,
             warm.as_secs_f64() * 1000.0,
             third.as_secs_f64() * 1000.0,
@@ -53,4 +53,5 @@ fn main() {
             second.display_list.commands().len(),
         );
     }
+    Ok(())
 }

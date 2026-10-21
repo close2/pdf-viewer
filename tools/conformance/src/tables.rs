@@ -63,7 +63,7 @@
 //! - **A round's own record.** `doc/todo/01` and the ADRs quote every number they retired.
 //! - **A denial whose negation is about something else.** "Table 31 makes a page stating no
 //!   `/Contents` an empty page" denies the *page* an entry rather than the table. Half of the
-//!   shape is now a question the program *can* ask — [`denies`] requires the negation to be the
+//!   shape is now a question the program *can* ask — `denies` requires the negation to be the
 //!   word immediately before the key, so a negation with a noun of its own ("no such ordering
 //!   for `/InkList`") is no longer read as one — and the half that is left is the one where the
 //!   negation is adjacent and the noun it belongs to is the sentence's subject.

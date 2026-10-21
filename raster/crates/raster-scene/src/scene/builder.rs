@@ -249,7 +249,7 @@ impl SceneBuilder {
     /// # Errors
     ///
     /// Refuses an invalid alpha
-    /// ([`SceneError::InvalidGroupAlpha`](crate::error::SceneError::InvalidGroupAlpha)),
+    /// ([`SceneError::InvalidGroupAlpha`]),
     /// an unknown clip, nesting beyond the bound, a
     /// non-isolated group in a position §11.4.4's arithmetic cannot survive
     /// ([`SceneError::NonIsolatedGroupUnsupported`]), an ordinary composite of a group
@@ -289,7 +289,7 @@ impl SceneBuilder {
     /// # Errors
     ///
     /// Refuses non-finite transforms, an alpha outside `0..=1`
-    /// ([`SceneError::InvalidImageAlpha`](crate::error::SceneError::InvalidImageAlpha) —
+    /// ([`SceneError::InvalidImageAlpha`] —
     /// §11.6.4.4's constant opacity, in §11.3.7.2's range), and clip or mask identifiers
     /// this scene never allocated.
     #[expect(clippy::too_many_arguments)] // the brief's section 2.3 signature, mask last (note 8)

@@ -613,7 +613,7 @@ impl Events {
     ///
     /// **A name rather than a number this ABI invented**, unlike every other enumeration here, and
     /// the reason is in the entry: `/S` *is* a name in the file, and Table 164's thirteenth case is
-    /// `pdf_model::navigation::Style::Unrecognised` — "[a] name Table 164 does not define, kept as
+    /// `pdf_model::navigation::Style::Unrecognised` — "\[a] name Table 164 does not define, kept as
     /// the file wrote it". A number would have had to lose that one, and losing it is exactly what
     /// ADR 0230 refuses: a caller that cannot animate an unknown style falls back to the table's
     /// own default and can say which style it could not play.

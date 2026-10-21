@@ -243,7 +243,7 @@ impl Rewriter<'_> {
     }
 
     /// ISO 19005-2 section 6.2.11.6 and ISO 19005-4 section 6.2.10.6's two font-dictionary rows,
-    /// written at the fonts [`super::super::sites`] proved the change safe for.
+    /// written at the fonts [`mod@super::super::sites`] proved the change safe for.
     ///
     /// **Nothing is decided here.** Which fonts are symbolic is the validator's reading of the
     /// descriptor's flags, and whether the new value leaves every code on the glyph it already
@@ -581,7 +581,7 @@ impl Rewriter<'_> {
     /// ISO 19005-2 section 6.7.4 at a dictionary: the catalog's `/Lang`, a structure element's,
     /// or a property list's — the object's own or one it files under `/Properties`.
     ///
-    /// Counted from the preparation by [`count_what_has_no_place`], since one object may hold a
+    /// Counted from the preparation by [`super::count_what_has_no_place`], since one object may hold a
     /// restated entry of each class and a stream may hold several (`doc/adr/2066`).
     pub(super) fn restate_languages(&self, id: ObjectId, out: &mut Dictionary) -> bool {
         let Some(restated) = self.languages else {

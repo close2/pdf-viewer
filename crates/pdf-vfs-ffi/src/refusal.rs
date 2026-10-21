@@ -26,7 +26,7 @@ use pdf_vfs::{Errno, VfsError};
 /// Every `errno` kind [`pdf_vfs::Errno`] has, in the order that enumeration declares them.
 ///
 /// The population a C caller may meet. Held as an array rather than derived, because there is no
-/// way to iterate a Rust enumeration — and [`tag`] below is what makes the array complete rather
+/// way to iterate a Rust enumeration — and `tag` below is what makes the array complete rather
 /// than merely long: a kind added to the core fails `tag`'s exhaustive `match` at compile time,
 /// and then fails the test that every tag from zero to [`KIND_COUNT`] appears here.
 pub const KINDS: [Errno; 13] = [

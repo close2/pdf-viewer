@@ -20,7 +20,7 @@
 //! > the encoded data.
 //!
 //! So the output is sequential baseline, and the two settings that decide it are stated here
-//! rather than inherited from a preset: progression is off — "[t]here is no benefit to using
+//! rather than inherited from a preset: progression is off — "\[t]here is no benefit to using
 //! progressive JPEG for stream data that is embedded in a PDF file" (§7.4.8 NOTE 4) — and the
 //! quantisation tables are held to eight bits, because ISO/IEC 10918-1's baseline process admits
 //! no sixteen-bit table and the encoder would otherwise write one at a low quality. What remains

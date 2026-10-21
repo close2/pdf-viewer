@@ -339,7 +339,7 @@ pub fn label(path: &std::path::Path) -> String {
 /// What a tab says: ISO 32000-2 §14.3.3's `/Title`, where the document states one, and otherwise
 /// the file's name.
 ///
-/// Table 349's row is "[t]he document's title", a text string, and the clause states what makes a
+/// Table 349's row is "\[t]he document's title", a text string, and the clause states what makes a
 /// value one:
 ///
 /// > Where a document information dictionary contains keys other than CreationDate and ModDate ,
@@ -371,11 +371,11 @@ pub fn titled(information: &pdf_model::metadata::Information, path: &std::path::
 /// What a window's title bar calls a document whose §12.2 `/DisplayDocTitle` is true, or `None`
 /// where the document states no title and the file's name stands.
 ///
-/// Table 147: "[a] flag specifying whether the window's title bar should display the document
+/// Table 147: "\[a] flag specifying whether the window's title bar should display the document
 /// title taken from the dc:title element of the XMP metadata stream". So `dc:title` is asked
 /// first, through `pdf_model::xmp`. §14.3.3's `/Info /Title` is the fallback rather than the
 /// substitution — used where the document states no metadata stream, where the stream states no
-/// `dc:title`, or where the stream could not be read — because Table 349's NOTE 1 is that "[t]he
+/// `dc:title`, or where the stream could not be read — because Table 349's NOTE 1 is that "\[t]he
 /// dc:title entry in the document's metadata stream can be used to represent the document's
 /// title", which makes the two the same title in two places (ADR 0186). An empty title names
 /// nothing and is no answer.

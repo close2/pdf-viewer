@@ -84,7 +84,7 @@ pub enum Error {
 /// The distinction earns its place because the two are counted differently. A group's members
 /// are one erratum stated in several marks — a strikeout and the caret that replaces it — and a
 /// *reply* is somebody talking about an erratum rather than stating one. §12.5.6.4's states are
-/// replies: "[t]he state is not specified in the annotation itself but in a separate text
+/// replies: "\[t]he state is not specified in the annotation itself but in a separate text
 /// annotation that refers to the original annotation by means of its IRT ("in reply to") entry",
 /// which is what the 1 876 `Text` annotations in ISO 32000-2 mostly are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +134,7 @@ pub struct Note {
     pub page: usize,
     /// The section §12.3.3's outline puts that page in — a clause heading in these documents.
     pub section: Option<String>,
-    /// Table 172's `/Subj`, "[t]ext representing a short description of the subject being
+    /// Table 172's `/Subj`, "\[t]ext representing a short description of the subject being
     /// addressed by the annotation" — `Issue #404` and the like in the sponsored copies.
     pub subject: Option<String>,
     /// Table 172's `/T`, the popup window's title bar, which these files use for the author.
@@ -168,23 +168,23 @@ pub struct Note {
     /// Table 174's states, as the replies to this annotation assert them, each with its model.
     ///
     /// **The difference between a proposed change and an agreed one**, and the instrument is
-    /// worthless without it: §12.5.6.3 puts the state in a *separate* annotation — "[t]he state
+    /// worthless without it: §12.5.6.3 puts the state in a *separate* annotation — "\[t]he state
     /// is not specified in the annotation itself but in a separate text annotation that refers to
     /// the original annotation by means of its IRT ("in reply to") entry" — so an erratum read on
     /// its own says nothing about whether anybody accepted it. Table 174's Review model spells
-    /// the answers out: `Accepted` is "[t]he user agrees with the change", `Rejected` is "[t]he
-    /// user disagrees with the change", `Cancelled` is "[t]he change has been cancelled" and
-    /// `Completed` is "[t]he change has been completed".
+    /// the answers out: `Accepted` is "\[t]he user agrees with the change", `Rejected` is "\[t]he
+    /// user disagrees with the change", `Cancelled` is "\[t]he change has been cancelled" and
+    /// `Completed` is "\[t]he change has been completed".
     ///
     /// **The model is carried beside the state, because Table 174 states two of them and only one
     /// of them is a verdict.** `Marked`'s two values say whether a reviewer ticked the note off;
     /// `Review`'s five say what they decided. An erratum reported as "Accepted, Unmarked" carries
     /// the *Marked* model's default as its second word rather than a second opinion (ADR 0253) — so
     /// each entry is
-    /// `StateModel/State`, which Table 175 makes always available: `/StateModel` is "[r]equired
+    /// `StateModel/State`, which Table 175 makes always available: `/StateModel` is "\[r]equired
     /// if State is present".
     ///
-    /// Empty where nothing replied, which Table 174 makes mean `None` — "[t]he user has indicated
+    /// Empty where nothing replied, which Table 174 makes mean `None` — "\[t]he user has indicated
     /// nothing about the change (the default)" — and not `Accepted`.
     pub states: BTreeSet<String>,
 }
@@ -192,7 +192,7 @@ pub struct Note {
 impl Note {
     /// Whether this note retires text: a strikeout that covers words.
     ///
-    /// §12.5.6.10 gives `StrikeOut` no meaning beyond the mark — "[t]ext markup annotations shall
+    /// §12.5.6.10 gives `StrikeOut` no meaning beyond the mark — "\[t]ext markup annotations shall
     /// appear as highlights, underlines, strikeouts … in the text of a document" — so what makes
     /// this an erratum rather than a reader's scribble is the document it is in and the
     /// `Issue #NNN` in its `/Subj`. Both are the caller's to judge; this is only the shape.
@@ -357,12 +357,12 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
 /// swept one of the others found a stale quotation in it. `tools/conformance` verifies every
 /// [`Self::Blockquote`] against `doc/md/` and reads none of the rest: ADR 0249 measured the
 /// ledger's at 977 spans and decided against a gate; the third is a pair of quotation marks
-/// inside ordinary rustdoc prose, which `CLAUDE.md`'s "[q]uotation marks mean verbatim" binds
+/// inside ordinary rustdoc prose, which `CLAUDE.md`'s "\[q]uotation marks mean verbatim" binds
 /// exactly as hard and which the blockquote scanner walks straight past (ADR 0254); and the
 /// fourth is a quotation inside an ordinary `//` comment in a function body.
 ///
 /// The fourth is in the population because `CLAUDE.md` asks for the clause "in its doc comment,
-/// its module comment, **or the comment above the block**", and states "[q]uotation marks mean
+/// its module comment, **or the comment above the block**", and states "\[q]uotation marks mean
 /// verbatim" of quotations rather than of doc comments (ADR 0255).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quoted {
@@ -517,7 +517,7 @@ fn overlaps(quotation: &str, passage: &str) -> bool {
 ///
 /// Both spellings this tree writes: the character `…` and three full stops. A segment shorter
 /// than [`MIN_WORDS`] is dropped rather than compared, for the reason [`overlaps`] drops one —
-/// "[t]hese fonts" and "otherwise" say nothing about which sentence they came from.
+/// "\[t]hese fonts" and "otherwise" say nothing about which sentence they came from.
 fn elided(quotation: &str) -> Vec<String> {
     let replaced = quotation.replace("...", "…");
     if !replaced.contains('…') {
@@ -533,7 +533,7 @@ fn elided(quotation: &str) -> Vec<String> {
 
 /// The quoted spans of a piece of prose, in the order they appear.
 ///
-/// `CLAUDE.md` makes a pair of quotation marks a claim to be verbatim — "[a]nything less than
+/// `CLAUDE.md` makes a pair of quotation marks a claim to be verbatim — "\[a]nything less than
 /// verbatim is prose *without* quotation marks" — so a `"` … `"` **or a `'` … `'`** in a ledger
 /// note or a doc comment is a quotation whether or not any gate reads it.
 ///
@@ -552,7 +552,7 @@ pub fn quoted_spans(text: &str) -> Vec<String> {
 /// Every quotation under `roots` — blockquote or prose — that overlaps text one of `notes`
 /// struck out.
 ///
-/// The comparison is [`squeezed`]'s, which is [`conformance::quote::normalise`] with the
+/// The comparison is `squeezed`'s, which is [`conformance::quote::normalise`] with the
 /// spaces taken out, so a quotation that passes the gate and lands here is quoting retired
 /// text by the gate's own standard of what quoting is.
 ///
@@ -776,7 +776,7 @@ pub fn document_landings(notes: &[Note], directory: &Path) -> Result<Vec<Landing
 /// **One shape of false positive is known and cannot be removed from here**: where the standard
 /// prints a
 /// sentence *twice* and the erratum deletes one copy, the surviving copy is the standard's
-/// current text and this reports it as retired. §7.5.4's "[e]ach cross-reference subsection
+/// current text and this reports it as retired. §7.5.4's "\[e]ach cross-reference subsection
 /// shall contain entries for a contiguous range of object numbers" is the witness — the
 /// conversion carries it twice on one line, and Issue #113 strikes one of the two. Nothing in
 /// an annotation says which copy it covers, so the reader settles it and the tool cannot.
@@ -1055,7 +1055,7 @@ pub fn markdown(notes: &[Note]) -> String {
 
 /// Table 174's states one page's replies assert, keyed by the annotation each one names.
 ///
-/// §12.5.6.4 requires both to be on the same page — Table 172's `/IRT` says "[b]oth annotations
+/// §12.5.6.4 requires both to be on the same page — Table 172's `/IRT` says "\[b]oth annotations
 /// shall be on the same page of the document" — so one page's `/Annots` is the whole population
 /// and this needs no index over the file.
 fn states_on_this_page(

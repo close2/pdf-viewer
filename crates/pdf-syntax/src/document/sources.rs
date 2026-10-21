@@ -13,7 +13,7 @@ impl Document {
     ///
     /// [`Self::decoded_stream_data_reported`] answers "what does this stream decode to", which
     /// is a question with an allocation the size of the answer in it. This one answers "how
-    /// shall I read it", and for the chains a window can pump — [`Self::pumping`] says which and
+    /// shall I read it", and for the chains a window can pump — `Self::pumping` says which and
     /// why — the answer is a [`crate::filter::Pump`] that never holds more than the reader's
     /// window. ADR 0365, and `doc/todo/14` for the road.
     ///
@@ -65,7 +65,7 @@ impl Document {
     /// thousand — and is now read *once* for the whole tiling, its sites being copies of its
     /// marks (ADR 0430).
     ///
-    /// **So the memo decides, and it is not a new number.** [`super::cache::DecodedStreams::put`] already
+    /// **So the memo decides, and it is not a new number.** `super::cache::DecodedStreams::put` already
     /// declines any decode it cannot hold beside its encoded bytes, and that condition is
     /// exactly the one wanted here:
     ///
@@ -90,7 +90,7 @@ impl Document {
         };
         // The memo answers two questions here and is asked once, because both are about the same
         // entry and taking the lock twice for them would be two acquisitions where the exclusive
-        // one is already the expensive part (see [`DecodedStreams`]).
+        // one is already the expensive part (see [`super::cache::DecodedStreams`]).
         //
         // The first: a window over these bytes has already reached this document's own bound and
         // found not one instruction inside it, so a second window would spend the same inflation
@@ -147,12 +147,12 @@ impl Document {
     /// is what makes it sound. A window delivers everything up to the bound and then says it
     /// stopped, so a stream that drew marks on its first read owes those marks to its second;
     /// only a run that produced no operation at all can be replaced by a refusal without the
-    /// page depending on the memo — which is the rule [`super::cache::Outcome::Decoded`]'s `damage` field
+    /// page depending on the memo — which is the rule `super::cache::Outcome::Decoded`'s `damage` field
     /// already states for the other half of this cache. `pdf_model::content`'s interpreter is
     /// what can see both halves, and it is the caller.
     ///
     /// A decode whose encoded bytes do not fit [`super::DECODED_BUDGET`] is still not remembered, since
-    /// [`super::cache::DecodedStreams::keep`] declines what it cannot hold beside its key — ADR 0586 argued
+    /// `super::cache::DecodedStreams::keep` declines what it cannot hold beside its key — ADR 0586 argued
     /// that refusal and it is unchanged.
     pub fn window_found_nothing(&self, decoding: &Decoding, under: usize) {
         // The chain's last stage is the one whose output outgrew the bound, which is the same
@@ -222,7 +222,7 @@ impl Document {
     ///
     /// **The chain comes back beside the route, and both are the same two reads.** Deciding
     /// whether a stream pumps means reading `/Filter` and every `/DecodeParms`, which is also
-    /// exactly what identifies the decode to [`DecodedStreams`] — so a caller that needs both
+    /// exactly what identifies the decode to [`super::cache::DecodedStreams`] — so a caller that needs both
     /// gets both here rather than resolving those indirect references a second time.
     pub(super) fn pumping(&self, stream: &Stream) -> Option<Pumpable> {
         if self.states_no_data(stream) {

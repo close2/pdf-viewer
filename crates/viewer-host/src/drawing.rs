@@ -622,7 +622,7 @@ impl<R: DrawRequest> Drawing<R> {
     }
 
     /// [`Self::ask`], for a request of which the window shows only `seen`, the rows of its target
-    /// that lie inside the viewport ([`seen_rows`]): those rows are drawn first as a band of their
+    /// that lie inside the viewport (`seen_rows`): those rows are drawn first as a band of their
     /// own and shown the moment they are drawn, and the rest of the page after, into the one page
     /// raster the viewer is answered with (ADR 1868).
     ///

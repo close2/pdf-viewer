@@ -2,7 +2,7 @@
 //!
 //! # The clause, and its closed form
 //!
-//! §8.4.3.4 says what a mitre join *is* — "[t]he outer edges of the strokes for the two segments
+//! §8.4.3.4 says what a mitre join *is* — "\[t]he outer edges of the strokes for the two segments
 //! shall be extended until they meet at an angle, as in a picture frame" — and §8.4.3.5 says how
 //! long that is allowed to be:
 //!
@@ -18,9 +18,9 @@
 //! miterLength / lineWidth = 1 / sin(φ / 2)
 //! ```
 //!
-//! and the clause's own EXAMPLE is what checks a reading of it — "[a] miter limit of 1.414
-//! converts miters to bevels for [φ] less than 90 degrees, a limit of 2.0 converts them for [φ]
-//! less than 60 degrees, and a limit of 10.0 converts them for [φ] less than approximately 11.5
+//! and the clause's own EXAMPLE is what checks a reading of it — "\[a] miter limit of 1.414
+//! converts miters to bevels for \[φ] less than 90 degrees, a limit of 2.0 converts them for \[φ]
+//! less than 60 degrees, and a limit of 10.0 converts them for \[φ] less than approximately 11.5
 //! degrees" — since `1/sin(45°) = 1.41421`, `1/sin(30°) = 2` and `1/sin(5.75°) = 9.98`.
 //!
 //! Two consequences, and neither is a matter of taste. **A limit is a maximum rather than a
@@ -82,7 +82,7 @@
 //! - **A join that doubles back exactly.** `sin(φ/2)` is zero, the ratio is unbounded, and every
 //!   finite limit is therefore exceeded — the clause's own answer is a bevel.
 //! - **A vertex whose two segments are collinear and continue in the same direction.** §8.4.3.4:
-//!   "[j]oin styles shall be significant only at points where consecutive segments of a path
+//!   "\[j]oin styles shall be significant only at points where consecutive segments of a path
 //!   connect at an angle", and the triangle there has no area anyway.
 
 use crate::geom::{Path, PathCommand, Point};

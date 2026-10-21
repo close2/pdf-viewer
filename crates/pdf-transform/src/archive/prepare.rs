@@ -382,7 +382,7 @@ const NOT_ASKED_FOR: &str = "no requirement this document failed asked for this 
 
 /// Why neither construction could be prepared for a document with no readable catalog.
 ///
-/// Unreachable through [`run`], which refuses such a document before stage 1; it exists so that
+/// Unreachable through [`super::run`], which refuses such a document before stage 1; it exists so that
 /// the reason a requirement is refused with is never a reason that is not the actual one.
 pub(super) const NO_CATALOG: &str = "this document has no readable catalog, so there is nowhere \
      to state an output intent or a metadata stream";
@@ -441,7 +441,7 @@ const fn identification_uri(target: Target) -> &'static str {
 pub enum ProfileSource {
     /// One of the two profiles this program ships — `doc/questions/A18`'s default.
     ///
-    /// Which of them is [`shipped_for`]'s decision, and the report says which by printing the
+    /// Which of them is `shipped_for`'s decision, and the report says which by printing the
     /// profile's own `desc` tag and colour space beside this word rather than by having two.
     Shipped,
     /// One the caller supplied.
@@ -599,7 +599,7 @@ pub(super) struct Appearances {
     /// *conforming file* holds, and section 6.3.1 forbids some subtypes outright — so an
     /// annotation the removal takes out of its page's `/Annots` is one the output does not hold
     /// and the appearance requirement has no place on. Counting them is what lets
-    /// [`super::decision::answer_of`] tell a document whose every failing place goes with the
+    /// `super::decision::answer_of` tell a document whose every failing place goes with the
     /// removal from one that failed nowhere this preparation could see.
     pub(super) removed: usize,
 }
@@ -643,7 +643,7 @@ pub(super) struct Metadata {
 /// Both depend on the *document* rather than on the requirement alone — whether a profile can be
 /// shared with one the file already holds, whether the packet a producer wrote can be edited in
 /// place — and **a decision that cannot be carried out is a refusal rather than a plan**, which
-/// is the rule [`version_for`] already answers to. So both are settled here, in stage 2, and the
+/// is the rule [`super::version_for`] already answers to. So both are settled here, in stage 2, and the
 /// reason each failed is the reason the requirements it would have answered are refused with.
 ///
 /// Nothing is prepared that no failed requirement asked for: a document that already conforms
@@ -836,7 +836,7 @@ pub(super) struct Prepared {
     /// Whether the operator asked for those appearances at all (`construct`).
     ///
     /// Carried beside the construction rather than read from the plan again, because it is what
-    /// [`super::decision::answer_of`] routes on: with the appearances built the flag's removal
+    /// `super::decision::answer_of` routes on: with the appearances built the flag's removal
     /// loses nothing, and without them it loses a field its producer gave no stream.
     pub(super) constructs_field_appearances: bool,
     /// The pages a `preserve` remedy appends, or why none can be.
@@ -1570,6 +1570,7 @@ impl Prepared {
                     alternates.unlicensed_by(self.intent.as_ref().ok().map(|intent| intent.family))
                 }
             },
+            Rewrite::FontWidthArrayRestated => self.owed.font_widths.as_ref().err().copied(),
             Rewrite::IccComponentCountRestated => {
                 self.owed.component_counts.as_ref().err().copied()
             }
@@ -1645,7 +1646,7 @@ impl Prepared {
         }
     }
 
-    /// The objects the conversion adds, in the source's numbering, for [`enter`] to find.
+    /// The objects the conversion adds, in the source's numbering, for `super::rewrite::enter` to find.
     pub(super) fn added(&self) -> BTreeMap<ObjectId, Object> {
         let mut out = BTreeMap::new();
         if let Ok(intent) = &self.intent
@@ -1730,6 +1731,8 @@ impl Prepared {
 /// **nothing is prepared that no failed requirement asked for** — so a conforming document has
 /// its fonts, its annotations and its optional content left unread.
 pub(super) struct Owed {
+    /// The simple fonts whose widths-array length is restated, or why none are.
+    pub(super) font_widths: Result<super::font_widths::WidthArrays, Because>,
     /// The graphics states and images whose rendering intent is restated, or why none are.
     pub(super) rendering_intents: Result<Sites, Because>,
     /// The dictionaries whose `/BM` array is restated as `Normal`, or why none are.
@@ -1809,6 +1812,9 @@ impl Owed {
             transfers,
         } = already;
         Self {
+            font_widths: asked(wanted(Rewrite::FontWidthArrayRestated), || {
+                super::font_widths::restated(document, input)
+            }),
             rendering_intents: asked(wanted(Rewrite::RenderingIntent), || {
                 sites::rendering_intents(input)
             }),
@@ -2408,9 +2414,9 @@ fn held_destination_profile(document: &Document, catalog: &Dictionary) -> Option
 
 /// The ICC profile stream an output intent names.
 ///
-/// §14.11.5's Table 401 makes `DestOutputProfile` "[a]n ICC profile stream defining the
+/// §14.11.5's Table 401 makes `DestOutputProfile` "\[a]n ICC profile stream defining the
 /// transformation from the PDF document's source colours to output device colourants" and says
-/// that "[t]he format of the profile stream is the same as that used in specifying an `ICCBased`
+/// that "\[t]he format of the profile stream is the same as that used in specifying an `ICCBased`
 /// colour space", which is §8.6.5.5's — hence the `/N`.
 pub(super) fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
     let components = match family {
@@ -2445,10 +2451,10 @@ pub(super) fn profile_stream(bytes: &[u8], family: DeviceFamily) -> Object {
 ///
 /// §14.11.5's Table 400 and Table 401 decide every entry, and one of them is a choice this file
 /// records rather than derives. `OutputConditionIdentifier` is required and the table says that
-/// "[i]f the intended production condition is not a recognised standard, the value of this entry
+/// "\[i]f the intended production condition is not a recognised standard, the value of this entry
 /// may be `Custom` or an application-specific, machine-readable name" — so `Custom` is the
 /// standard's own word for exactly this case, and no convention is being copied from anywhere.
-/// The same sentence then says that "[t]he `DestOutputProfile` entry defines the ICC profile, and
+/// The same sentence then says that "\[t]he `DestOutputProfile` entry defines the ICC profile, and
 /// the `Info` entry shall be used for further human-readable identification", which is why `Info`
 /// carries the profile's own `desc` tag: it is read out of the profile rather than written about
 /// it. `S` is `GTS_PDFA1`, which both parts' section 6.2.3 requires of a PDF/A output intent.
@@ -2749,7 +2755,7 @@ fn prepare_field_appearances(
 
 /// A constructed appearance with every stream held inside its dictionary given a number of its own.
 ///
-/// §7.3.8.1: "[a]ll streams shall be indirect objects". A value set in a face from this machine
+/// §7.3.8.1: "\[a]ll streams shall be indirect objects". A value set in a face from this machine
 /// comes with its font's program, `/CIDToGIDMap` and `/ToUnicode` as streams held directly in the
 /// font's dictionaries (ADR 1425); each is written here under a spare number and the reference
 /// takes its place. The appearance itself keeps the number its caller took for it.
@@ -3714,9 +3720,9 @@ fn cut_the_undeterminable(
 /// The three requirements a fresh packet answers.
 ///
 /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1. The data-model row is part 2's
-/// alone; a stream failing it under a part 4 target is never in [`PacketFault::requirement`]'s
-/// answer for that target because the requirement does not bind there, and
-/// [`prepare_fresh_packets`] asks only about the sites this document actually failed.
+/// alone; its identifier from [`pdf_archive::PacketFault::requirement`] is absent from a part 4
+/// target's failed requirements because the rule does not bind there, and
+/// [`prepare_fresh_packets`] tests that set before replacing a packet for this fault.
 const PACKET_REQUIREMENTS: [&str; 3] = [
     "metadata/xmp-packets-well-formed",
     "metadata/xmp-packets-state-one-rdf-element",
@@ -5261,7 +5267,7 @@ fn prepare_metadata(
 /// What §14.3.3's document information dictionary becomes, and what the packet gains from it.
 ///
 /// ISO 19005-4 section 6.1.3 admits `/Info` only beside a `/PieceInfo`, and then holding only a
-/// `/ModDate`. §14.3.3 says where the rest goes — the dictionary is deprecated "[f]or any other
+/// `/ModDate`. §14.3.3 says where the rest goes — the dictionary is deprecated "\[f]or any other
 /// document level metadata" and Table 349's NOTEs name the XMP property each key pairs with — so
 /// the two rows are answered by moving the values and dropping the dictionary. `doc/adr/1269`.
 pub(super) struct Information {

@@ -254,7 +254,7 @@ pub enum Mark {
 ///
 /// The noise shape this rule cannot reason its way out of is the standard's own vocabulary:
 /// §9.4.3 names two text-showing operators `'` and `"`, so a note listing them opens a span on
-/// an operator. [`closing_single`] is what bounds the damage that does.
+/// an operator. `closing_single` is what bounds the damage that does.
 ///
 /// A mark that never closes is dropped rather than run to the end of the text: nothing closed
 /// it, so there is no span. Both curly shapes are the same marks — these documents are typed

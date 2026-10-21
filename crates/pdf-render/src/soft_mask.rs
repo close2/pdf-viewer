@@ -158,7 +158,7 @@ impl Transfer {
 ///   `Y` is the same shape, its tone curves weighted by the middle row of its matrix.
 /// - **A sampled grid over three components.** A profile whose conversion is a lookup table
 ///   has no such decomposition: its `Y` is one function of all three components at once, and
-///   EXAMPLE 1's "[a]n analogous computation applies to other CIE-based colour spaces" is that
+///   EXAMPLE 1's "\[a]n analogous computation applies to other CIE-based colour spaces" is that
 ///   function rather than a licence to drop it. So it is sampled over `side³` points and
 ///   interpolated trilinearly, which is exactly how the same profile's conversion *out* is
 ///   carried ([`crate::ColourCube`]) and to the same fidelity — a property of the profile's

@@ -1,6 +1,6 @@
 //! RFC 3161's time-stamp token, and ISO 32000-2 §12.8.5's chain of them over a document.
 //!
-//! §12.8.5.2 says what a document timestamp's `/Contents` holds — "[t]he timestamp token shall be
+//! §12.8.5.2 says what a document timestamp's `/Contents` holds — "\[t]he timestamp token shall be
 //! an Internet RFC 3161 TimeStampToken, as updated by Internet RFC 5816 , obtained from a trusted
 //! timestamp authority" — and RFC 3161 section 2.4.2 says what that is: `TimeStampToken ::=
 //! ContentInfo`, a CMS `SignedData` whose encapsulated content is a `TSTInfo`. So a document
@@ -81,7 +81,7 @@ pub const MAX_SERIAL_OCTETS: usize = 21;
 
 /// How many document timestamps one document's chain is walked.
 ///
-/// Neither §12.8.5 nor §12.8.5.3 states a ceiling — "[t]he process may be repeated several times
+/// Neither §12.8.5 nor §12.8.5.3 states a ceiling — "\[t]he process may be repeated several times
 /// as long as there is a need to reverify the signatures included in the document" — so this is a
 /// bound on work over a stranger's file and not a reading of the standard. It sits well under the
 /// bound `crate::signature::signatures` already puts on the walk that finds them.
@@ -104,7 +104,7 @@ pub enum TokenRefusal {
     ContentTypeIsNotTstInfo,
     /// The content departs from one of ITU-T X.690's distinguished encoding rules.
     ///
-    /// RFC 3161 section 2.4.2 requires DER of this one structure by name — "[t]he eContent SHALL be
+    /// RFC 3161 section 2.4.2 requires DER of this one structure by name — "\[t]he eContent SHALL be
     /// the DER-encoded value of TSTInfo" — so an extent found by scanning for an end-of-contents
     /// marker is not the extent the authority signed, and neither is one whose octets a conforming
     /// authority would not have written. Deliberately narrower than [`crate::der`]'s tolerance,
@@ -129,7 +129,7 @@ pub enum TokenRefusal {
     GenTimeUnreadable,
     /// `accuracy` states a `millis` or `micros` outside the range RFC 3161 section 2.4.2 admits.
     ///
-    /// The bounds are the grammar's own: "millis [0] INTEGER (1..999) OPTIONAL, micros [1]
+    /// The bounds are the grammar's own: "millis \[0] INTEGER (1..999) OPTIONAL, micros \[1]
     /// INTEGER (1..999) OPTIONAL".
     #[error("the TSTInfo states an accuracy outside RFC 3161's range")]
     AccuracyOutOfRange,
@@ -190,13 +190,13 @@ pub struct TstInfo<'a> {
     pub imprint_digest: Digest,
     /// `messageImprint`'s `hashedMessage OCTET STRING`.
     ///
-    /// Table 255 says what a document timestamp's is: "[t]he value of the messageImprint field
+    /// Table 255 says what a document timestamp's is: "\[t]he value of the messageImprint field
     /// within the `TimeStampToken` shall be a hash of the bytes of the document indicated by the
     /// `ByteRange`".
     pub imprint: &'a [u8],
     /// `serialNumber INTEGER`, as the octets the file wrote.
     ///
-    /// Not decoded to a number: "[i]t MUST be unique for each TimeStampToken issued by a given TSA
+    /// Not decoded to a number: "\[i]t MUST be unique for each TimeStampToken issued by a given TSA
     /// (i.e., the TSA name and serial number identify a unique TimeStampToken)", which makes it an
     /// identifier, and up to 160 bits of one is wider than any integer this crate carries.
     pub serial_number: &'a [u8],
@@ -398,7 +398,7 @@ pub fn signature_timestamp(
 
 /// §12.8.3.4.8's instant: what this program established about a signature timestamp's own token.
 ///
-/// The clause's first sentence is what asks for this — "[w]hen a timestamp token is already present
+/// The clause's first sentence is what asks for this — "\[w]hen a timestamp token is already present
 /// in the CAdES signature as a signature timestamp attribute (it is an unsigned attribute), the
 /// signer's signature shall be verified at the UTC time in the past indicated in that token" — and
 /// the phrase that had held it back is *indicated in that token*: an instant a token merely states
@@ -547,7 +547,7 @@ fn small_integer(contents: &[u8]) -> Option<i64> {
 ///
 /// The clause spells the form out — "The syntax is: YYYYMMDDhhmmss\[.s...\]Z" — and
 /// [`crate::x509::read_time`] reads RFC 5280's form, which forbids the fraction; this strips one
-/// where the RFC's own restrictions admit it — "[t]he decimal point element, if present, MUST be
+/// where the RFC's own restrictions admit it — "\[t]he decimal point element, if present, MUST be
 /// the point option \".\". The fractional-seconds elements, if present, MUST omit all trailing
 /// 0's" — and hands the whole seconds to the same arithmetic. Anything else is `None`.
 fn generalized_time(value: &der::Value<'_>) -> Option<Instant> {
@@ -577,7 +577,7 @@ fn generalized_time(value: &der::Value<'_>) -> Option<Instant> {
 /// What a token *says*, owned, whether or not anything established it.
 ///
 /// Reported as a claim and never as a fact: §12.8.5.1 makes the whole point of a timestamp the
-/// instant — "[a] document timestamp dictionary establishes the exact contents of the complete PDF
+/// instant — "\[a] document timestamp dictionary establishes the exact contents of the complete PDF
 /// file at the time indicated in the timestamp token" — and *establishes* is what [`Time`] answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Claim {
@@ -1064,7 +1064,7 @@ fn covers_to(signature: &Signature) -> u64 {
 
 /// Where each of §12.8.4's material streams begins in the file, by object number.
 ///
-/// Certificates are not here and that is deliberate: §12.8.5.3's requirement names "[t]he
+/// Certificates are not here and that is deliberate: §12.8.5.3's requirement names "\[t]he
 /// certificates, CRLs or OCSP responses used to demonstrate that the certificates … was not
 /// revoked", and this walk takes all three of Table 261's arrays for exactly that reason.
 fn material_extents(document: &Document, refused: &mut Vec<ChainRefusal>) -> BTreeMap<u32, u64> {

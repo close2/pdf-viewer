@@ -507,7 +507,7 @@ impl ScriptWorker {
     ///
     /// What a host polls after every command, to put the question to the person on its own
     /// thread; [`Self::answer`] is how the answer comes back. Triggers still queued behind an
-    /// answered question run here first, for at most [`DRAIN_TIME`].
+    /// answered question run here first, for at most `DRAIN_TIME`.
     pub fn take_question(&self) -> Option<Question> {
         let mut state = self.state();
         self.expire(&mut state);

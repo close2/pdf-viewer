@@ -67,7 +67,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProgramStep {
     /// An integer literal. §7.10.5.2 hands the operand *syntax* to PDF rather than to
-    /// PostScript — "[t]he operand syntax for Type 4 functions shall follow PDF conventions
+    /// PostScript — "\[t]he operand syntax for Type 4 functions shall follow PDF conventions
     /// rather than PostScript language conventions" — and §7.3.2's integer is digits with an
     /// optional sign, so `63` is an integer because the file said so (ADR 0371).
     PushInt(i32),

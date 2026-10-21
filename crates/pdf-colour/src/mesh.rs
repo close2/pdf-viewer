@@ -20,15 +20,15 @@
 //! the clause's own answer. A CIE-based, `Separation` or `DeviceN` space is not: "all gradient
 //! fill calculations shall be performed in that space", and conversion "shall occur only after
 //! all interpolation calculations have been performed". A display list carries device colours,
-//! so a vertex in one of those spaces keeps its [`Components`] here and its triangle is
+//! so a vertex in one of those spaces keeps its `Components` here and its triangle is
 //! subdivided until linear interpolation between the converted corners stays within §10.7.3's
 //! tolerance of the conversion of the interpolated components — which is that clause's own
 //! licence, "PDF processors may actually compute colour values only for some subset of the
-//! points in the target area", taken at the tolerance it names. [`Corner::emit`] is the seam.
+//! points in the target area", taken at the tolerance it names. `Corner::emit` is the seam.
 //!
 //! # Which of the two a mesh carries is a `shall` about an order
 //!
-//! §8.7.4.5.5: "[a]ll linear interpolation within the triangle mesh shall be done using the t
+//! §8.7.4.5.5: "\[a]ll linear interpolation within the triangle mesh shall be done using the t
 //! values. After interpolation, the results shall be passed to the function(s) specified in
 //! the Function entry to determine the colour at each point." Evaluating the function at each
 //! vertex and interpolating the colours it returns is the same picture only where the function
@@ -108,7 +108,7 @@ const REFINED_TRIANGLES: usize = MAX_TRIANGLES / 2;
 ///
 /// A mesh stream is compressed, so a few kilobytes can describe an unbounded number of
 /// patches. This is the decompression-bomb bound for shadings, and ISO 32000-2 §10.7.3 is
-/// where a bound of this kind is licensed — "[e]ach output device may have internal limits" —
+/// where a bound of this kind is licensed — "\[e]ach output device may have internal limits" —
 /// the same sentence [`crate::shading`]'s `MAX_FUNCTION_CELLS` rests on.
 ///
 /// **It is counted in this program's triangles rather than in the document's patches**, which
@@ -130,7 +130,7 @@ pub const MAX_TRIANGLES: usize = 1 << 18;
 /// the device transform, after this bound has been applied. Sixteen thousand
 /// patches is some three megabytes of control nets and corner colours, and fifty times the
 /// largest mesh any corpus on this disk paints with (`examples/mesh_triangle_census`). §10.7.3
-/// licenses it, as it licenses [`MAX_TRIANGLES`] — "[e]ach output device may have internal
+/// licenses it, as it licenses [`MAX_TRIANGLES`] — "\[e]ach output device may have internal
 /// limits". ADR 1217.
 pub const MAX_PATCHES: usize = 1 << 14;
 
@@ -857,7 +857,7 @@ impl MeshReader<'_> {
     ///
     /// The question is asked at the three edge midpoints and the centroid: the clause's colour
     /// there is the conversion of the interpolated components, the rasteriser's is the same mix
-    /// of the converted corners, and §10.7.3 says how the two are compared — "[t]he error shall
+    /// of the converted corners, and §10.7.3 says how the two are compared — "\[t]he error shall
     /// be measured for each colour component, and the maximum independent error shall be used."
     /// Four points see a conversion that curves across the triangle; what they cannot see is
     /// one that steps between them, which the clause's NOTE 1 already concedes of a sampled
@@ -991,7 +991,7 @@ impl MeshReader<'_> {
 
     /// Where a decoded parametric value sits in the range `/Decode` gives it.
     ///
-    /// Table 81 makes that range the function's input interval — "[e]ach input value shall be
+    /// Table 81 makes that range the function's input interval — "\[e]ach input value shall be
     /// forced into the range interval specified for the corresponding colour component in the
     /// shading dictionary's Decode array" — and [`Self::ramp`] samples the function across it,
     /// so a corner carries its position in the range rather than the value itself. A range of
@@ -1165,7 +1165,7 @@ impl MeshReader<'_> {
     /// Types 6 and 7: Bézier patches, evaluated into triangles.
     ///
     /// Each patch's triangles are appended in the order the stream states its patches, which
-    /// is what ISO 32000-2 §8.7.4.5.7's other overlap rule asks for — "[i]f one patch overlaps
+    /// is what ISO 32000-2 §8.7.4.5.7's other overlap rule asks for — "\[i]f one patch overlaps
     /// another, the patch that appears later in the data stream shall paint over the earlier
     /// one" — given that a mesh is painted triangle by triangle in this order.
     /// [`tessellate`] owns the rule for an overlap *within* one patch.

@@ -1,8 +1,8 @@
 //! The generation key, and the backing file it is asked of.
 //!
-//! RFC 0003 section 5.4 states the rule this module exists for: "[t]he backing file is the single
+//! RFC 0003 section 5.4 states the rule this module exists for: "\[t]he backing file is the single
 //! source of truth, and it can change three ways: our own committed write, another program's
-//! incremental update, or a full rewrite", so "[e]very operation validates the key before
+//! incremental update, or a full rewrite", so "\[e]very operation validates the key before
 //! answering; a changed key rebuilds the virtual tree". That is a **correctness** requirement
 //! rather than a nicety — a generation served after the document changed is a wrong answer, and
 //! it is wrong silently, which is the worst shape a wrong answer takes.
@@ -69,7 +69,7 @@ pub struct Generation {
 /// the file — a FUSE daemon with a path, or a broker holding a descriptor it will pass on with
 /// `SCM_RIGHTS` (ADR 0812, `pdf_syntax::FileBytes::from_handle`). And a test that must change
 /// the document under the mount needs a backing it can change, which is what
-/// [`crate::testing::MemoryBacking`] is.
+/// [`crate::MemoryBacking`] is.
 pub trait Backing: Send + Sync + std::fmt::Debug {
     /// The document's generation key, as it is right now.
     ///

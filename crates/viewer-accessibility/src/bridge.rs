@@ -116,7 +116,7 @@ pub struct Bridge {
     asked: mpsc::Receiver<Asked>,
     /// Whether an assistive technology has ever asked this program for its tree.
     ///
-    /// Set on the adapter's own thread, in [`ActivationHandler::request_initial_tree`], which is
+    /// Set on the adapter's own thread, in [`accesskit::ActivationHandler::request_initial_tree`], which is
     /// the one moment a client's arrival is visible to this crate — `accesskit_unix` publishes
     /// nothing and asks for nothing until `org.a11y.Status.IsEnabled` says one is there, and it
     /// exposes no state of its own. [`Self::attended`] is what a host reads it back through, and

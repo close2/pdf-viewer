@@ -655,7 +655,7 @@ pub struct ContentLiterals {
 
 /// One content-stream keyword that ISO 32000's operator summary does not list.
 ///
-/// See [`keyword`] for what "does not list" is decided against, and why the walk filters here
+/// See `keyword` for what "does not list" is decided against, and why the walk filters here
 /// rather than reporting every operator it read.
 #[derive(Debug, Clone)]
 pub struct UnlistedOperator {
@@ -701,7 +701,7 @@ pub struct SelectedFont {
     /// string holding it was drawn. [`Replacement`] is that, kept beside the string rather than
     /// in a second map, so the bytes are stored once.
     pub shown: BTreeMap<Vec<u8>, Replacement>,
-    /// Whether [`Self::shown`] is all of what was drawn, or a prefix cut off by [`SHOWN_BUDGET`].
+    /// Whether [`Self::shown`] is all of what was drawn, or a prefix cut off by `SHOWN_BUDGET`.
     ///
     /// A rule that asks whether *any* shown code is faulty may read a prefix; a rule that asks
     /// whether *every* shown code is sound may not. This is the flag that tells the second kind
@@ -734,7 +734,7 @@ pub struct Replacement {
     /// The page travels with the identifier because §14.7.5.4 makes the identifier an index
     /// into *a page's* parent tree entry, and one font is shown on many pages.
     pub identifiers: Vec<(usize, i64)>,
-    /// Whether an identifier was dropped for [`MAX_IDENTIFIERS`], so the list above is a prefix.
+    /// Whether an identifier was dropped for `MAX_IDENTIFIERS`, so the list above is a prefix.
     pub elided: bool,
 }
 
@@ -924,8 +924,8 @@ impl Survey {
 
     /// Whether one of the marks [`Self::icc_overprint_mode_sources`] is about was painted inside a
     /// page or group blending in four components, where ISO 32000-2 §8.6.5.7's implicit
-    /// conversion is what a processor compositing in that press may do — and "[w]hen this type of
-    /// implicit conversion is done", that clause says, "[t]he non-zero overprint mode (see 8.6.7,
+    /// conversion is what a processor compositing in that press may do — and "\[w]hen this type of
+    /// implicit conversion is done", that clause says, "\[t]he non-zero overprint mode (see 8.6.7,
     /// "Overprint control") shall determine the interpretation of colour component values in the
     /// space".
     #[must_use]
@@ -981,7 +981,7 @@ impl Survey {
     /// `XObject`s. So the figure this keeps is the one the limit is about, and the paragraph above
     /// is why it would have been kept that way regardless.
     ///
-    /// Capped at [`MAX_NESTING`], which is an order of magnitude above the limit any rule reads
+    /// Capped at `MAX_NESTING`, which is an order of magnitude above the limit any rule reads
     /// it against.
     #[must_use]
     pub const fn deepest_graphics_state_nesting(&self) -> Option<Extreme<usize>> {
@@ -1007,7 +1007,7 @@ impl Survey {
     /// content stream spells that name; the walk now builds the dictionary anyway, for
     /// §14.7.5.4's `/MCID`, so the entry is read rather than inferred.
     ///
-    /// Bounded by [`ACTUAL_TEXT_BUDGET`], and an entry that did not fit is absent rather than
+    /// Bounded by `ACTUAL_TEXT_BUDGET`, and an entry that did not fit is absent rather than
     /// short. A caller that needs to know whether the document states one *at all* asks
     /// [`Self::names_actual_text`], which no bound can make wrong.
     #[must_use]

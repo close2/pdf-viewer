@@ -36,7 +36,7 @@
 //!
 //! > Pressing an arrow key.
 //!
-//! — and then again in the requirement itself: "[i]f the user requests to navigate forward (such as
+//! — and then again in the requirement itself: "\[i]f the user requests to navigate forward (such as
 //! an arrow key press) and there is a current navigation node". Both sentences are inside the
 //! presentation subclause, which is why [`Mode`] exists below rather than being folded away.
 //!

@@ -582,7 +582,7 @@ pub enum Refusal {
     ///
     /// The same shape as [`Refusal::Selection`] and the same status: the request is well formed
     /// and the document is readable, but it does not hold what the plan asked for. §12.3.3 makes
-    /// an outline optional — "[a] PDF document **may** contain a document outline" — so most
+    /// an outline optional — "\[a] PDF document **may** contain a document outline" — so most
     /// documents land here, and a verb that answered by writing one piece would have cut nowhere
     /// while saying it cut at the bookmarks.
     #[error(
@@ -1444,7 +1444,7 @@ pub fn apply_protected(
 /// The same function; the borrow is the whole difference. A caller that keeps one [`Source`] for
 /// a document's whole life and is handed a second one per operation cannot build a `&[Source]`
 /// out of the two without copying the first — and a [`Source`] carries §7.6.4.1's password,
-/// which `viewer_core::Secret` deliberately makes not `Clone` ("[a] copy is a second buffer to
+/// which `viewer_core::Secret` deliberately makes not `Clone` ("\[a] copy is a second buffer to
 /// clear and a second lifetime to reason about"). RFC 0003's core is exactly that caller: its
 /// worker holds the mounted document and is handed the document being inserted.
 ///

@@ -23,11 +23,11 @@ use pdf_syntax::{Dictionary, Document, Object};
 /// **Why a screen has one at all**: the standard never uses the phrase "marking device" —
 /// §8.3.2.2's term is a "raster output device *such as a display or a printer*" — and §10.1's list
 /// of rendering steps makes halftoning conditional on the device and the transfer function not.
-/// §10.6.1 says it for the case of a screen outright: "[h]alftoning is not required for such
+/// §10.6.1 says it for the case of a screen outright: "\[h]alftoning is not required for such
 /// devices; **after gamma correction by the transfer functions**, the colour components shall be
 /// transmitted directly to the device."
 ///
-/// One function or four. The clause: "[i]f only a single function is specified, it shall apply to
+/// One function or four. The clause: "\[i]f only a single function is specified, it shall apply to
 /// all components. An RGB device shall use the first three" — and this device is RGB, so the
 /// fourth is read and never asked.
 ///
@@ -57,7 +57,7 @@ pub struct Transfer {
 impl Transfer {
     /// Table 57's two entries, read from an `/ExtGState`, with `/TR2` in preference to `/TR`.
     ///
-    /// Table 57 makes that precedence explicit — "[i]f both TR and TR2 are present in the same
+    /// Table 57 makes that precedence explicit — "\[i]f both TR and TR2 are present in the same
     /// graphics state parameter dictionary, TR2 shall take precedence" — and both take a
     /// function, an array of four, or a name.
     ///

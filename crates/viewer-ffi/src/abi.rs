@@ -2317,8 +2317,8 @@ pub unsafe extern "C" fn quorra_selection_quads(
 
 /// ISO 32000-2 Annex O's highlighted rectangles on the page being shown, or nothing.
 ///
-/// Table Annex O.4's `highlight` parameter of the fragment the document was opened with — "[o]pen
-/// the document with the specified rectangle highlighted … [t]he nature of the highlighting is
+/// Table Annex O.4's `highlight` parameter of the fragment the document was opened with — "\[o]pen
+/// the document with the specified rectangle highlighted … \[t]he nature of the highlighting is
 /// implementation-dependent", which is why this hands over shapes and not a picture. A caller that
 /// passed no fragment, or one naming no rectangle for this page, gets an empty list. Release it
 /// with [`quorra_quads_free`].
@@ -3035,7 +3035,7 @@ pub unsafe extern "C" fn quorra_set_field_text(
 /// **The variant ADR 0248 changed, arriving in C as its own symbol.** Table 233 bit 22 lets a list
 /// box hold several items at once and one string could not say which; `options` is an array of
 /// `count` indices, and an empty one selects nothing — which §12.7.5.4 makes the same state as a
-/// clear: "[t]he default value of V is null, indicating that no item is currently selected."
+/// clear: "\[t]he default value of V is null, indicating that no item is currently selected."
 ///
 /// An index past the end of `/Opt` names nothing and is dropped, and more than one index on a field
 /// whose `MultiSelect` flag is clear is cut to the first, both by `viewer-core`.
@@ -3466,7 +3466,7 @@ pub unsafe extern "C" fn quorra_detach(
 
 /// The answer to a `QUORRA_EVENT_ASKING`: whether the edit the document restricts goes ahead.
 ///
-/// `document` is the one the event named ([`quorra_events_document`]). `true` performs the held
+/// `document` is the one the event named ([`quorra_event_document`]). `true` performs the held
 /// edit exactly as `QUORRA_RESTRICT_OFF` would have; `false` forgets it and says nothing. An answer
 /// to a document with nothing outstanding does nothing.
 ///
@@ -3527,7 +3527,7 @@ pub unsafe extern "C" fn quorra_supply(
 /// §8.11.4.3's `/Order`, depth first, as an owning handle.
 ///
 /// Release it with [`quorra_panel_free`]. Table 99's `/Locked` comes back on
-/// [`quorra_panel_action`]: "[t]he state of a locked group cannot be changed through the user
+/// [`quorra_panel_action`]: "\[t]he state of a locked group cannot be changed through the user
 /// interface of an interactive PDF processor", so a caller builds that row's switch insensitive
 /// rather than sending [`quorra_set_group`] for it.
 ///
@@ -3750,7 +3750,7 @@ pub unsafe extern "C" fn quorra_set_group(
 /// §12.4.4.1: time has passed, in milliseconds.
 ///
 /// **This library has no clock**, so a presentation that advances by itself can only know a second
-/// went by by being told. A page stating no `/Dur` swallows every tick — "[i]f no Dur entry is
+/// went by by being told. A page stating no `/Dur` swallows every tick — "\[i]f no Dur entry is
 /// specified in the page object, the page shall not advance automatically."
 ///
 /// # Safety
@@ -3827,7 +3827,7 @@ pub unsafe extern "C" fn quorra_layout(
 /// restrictions — §7.6.4.2's Table 22, §12.8.2.2's `/DocMDP` — are the *reader's* to set, and a
 /// state machine over the file cannot know how much of somebody else's file a person's own program
 /// should obey. **`QUORRA_RESTRICT_OFF` is the default, for every operation**, because the
-/// sentence before the one above is "[t]hey are low priority" and the one after it is "this
+/// sentence before the one above is "\[t]hey are low priority" and the one after it is "this
 /// program is the reader's" (ADR 1144); what is refused arrives as a
 /// `QUORRA_EVENT_REFUSED`, which is deliberately not a `QUORRA_EVENT_REPORTED`: one says what the
 /// *document* could not do and the other what the reader's own policy did.
@@ -3937,7 +3937,7 @@ pub unsafe extern "C" fn quorra_restrict_document_operation(
 ///
 /// **The one way text leaves the document.** `quorra_selection_text` is a readback, and a drag
 /// asks for one sixty times a second in order to draw a highlight; bit 5 restricts taking text
-/// *out of* the document — "[c]opy or otherwise extract text and graphics from the document" — and
+/// *out of* the document — "\[c]opy or otherwise extract text and graphics from the document" — and
 /// only a caller owning a clipboard can say that this is what is happening. So this is the
 /// gesture, the reader's policy is consulted exactly where every other operation's is, and the
 /// text arrives as a `QUORRA_EVENT_COPIED`, which `quorra_selection_copy_text` then also reads
@@ -4369,9 +4369,9 @@ pub unsafe extern "C" fn quorra_audience(
 /// §10.8.3's separation simulation: which of two pictures of the same document this reader wants.
 ///
 /// **A preference and not a restriction level.** §10.8.3 conditions itself on something no file
-/// states — "[i]f it is important for the colours of the display for a PDF, on a device that
+/// states — "\[i]f it is important for the colours of the display for a PDF, on a device that
 /// normally would not be used to produce separations, to more closely match those produced when
-/// using separations" — and §10.8.1 says whose choice that is: "[w]hether separations are produced
+/// using separations" — and §10.8.1 says whose choice that is: "\[w]hether separations are produced
 /// is up to the processing software." So it is one value a caller supplies, with two states and
 /// nothing to ask anybody.
 ///
@@ -4415,7 +4415,7 @@ pub unsafe extern "C" fn quorra_separations(
 ///
 /// The name is the caller's, exactly as [`quorra_open`]'s is, and a caller learns which of the two
 /// happened from the document on the `QUORRA_EVENT_OPENED` that comes back
-/// ([`quorra_events_opened`]). Offering a name already open would make the action *replace* that
+/// ([`quorra_event_opened`]). Offering a name already open would make the action *replace* that
 /// document, which is [`quorra_open`]'s own rule; offer one nothing is open under.
 ///
 /// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an
@@ -5882,7 +5882,7 @@ pub unsafe extern "C" fn quorra_preference_ranges(
     }
 }
 
-/// One sub-range: "[t]he first and last pages in a sub-range", one-based as the entry states them.
+/// One sub-range: "\[t]he first and last pages in a sub-range", one-based as the entry states them.
 ///
 /// # Safety
 ///
@@ -6479,7 +6479,7 @@ pub unsafe extern "C" fn quorra_popup_text(
     }
 }
 
-/// Table 166's `/C`, "[t]he title bar of the annotation's popup window", as three `DeviceRGB`
+/// Table 166's `/C`, "\[t]he title bar of the annotation's popup window", as three `DeviceRGB`
 /// components.
 ///
 /// `QUORRA_NO_ANSWER` where the annotation states no colour, which is a different thing from black.
@@ -7150,7 +7150,7 @@ pub unsafe extern "C" fn quorra_structure_node(
 /// `QUORRA_ELEMENT_LANGUAGE`.
 ///
 /// The role is §14.7.4's `/S` **after §14.7.3's role map**, which is the file's own statement
-/// about its own names and a `shall`: "[a] structure type shall always be mapped to its
+/// about its own names and a `shall`: "\[a] structure type shall always be mapped to its
 /// corresponding name in the role map, if there is one, even if the original name is one of the
 /// standard types." Mapping it onto a *platform's* vocabulary is the caller's, and is a different
 /// mapping.
@@ -7404,7 +7404,7 @@ pub unsafe extern "C" fn quorra_structure_character(
 
 /// §12.3.5's portable collection, as a handle the caller frees.
 ///
-/// The clause is a `shall` on a viewer — "[i]f this dictionary is present in a PDF document, the
+/// The clause is a `shall` on a viewer — "\[i]f this dictionary is present in a PDF document, the
 /// interactive PDF processor shall present the document as a portable collection" — so what
 /// crosses is everything needed to *arrange* the files `quorra_attachments_read` already lists:
 /// Table 153's `/View`, §12.3.5.1's resolved initial document, Table 155's columns in `/O` order,
@@ -7547,7 +7547,7 @@ pub unsafe extern "C" fn quorra_collection_columns(
 
 /// One column's subtype, where its value lives, Table 155's `/O`, `/V` and `/E`.
 ///
-/// The columns are already in `/O` order — "[t]he relative order of the field name in the user
+/// The columns are already in `/O` order — "\[t]he relative order of the field name in the user
 /// interface" — with a field stating none after every field that states one, which is the only
 /// order left when the file says nothing. `in_the_item` is the clause's own division stated rather
 /// than left to be derived: the first three subtypes "identify the types of fields in the
@@ -7783,7 +7783,7 @@ pub unsafe extern "C" fn quorra_collection_layouts(
 
 /// One of them: `QUORRA_NAVIGATOR_*`, and the name the file wrote for a custom one.
 ///
-/// **The list rather than a selection, and that is §12.3.6 rather than a preference**: "[w]hen
+/// **The list rather than a selection, and that is §12.3.6 rather than a preference**: "\[w]hen
 /// multiple names are provided, an interactive PDF processor should present the first one it is
 /// capable of displaying in the order present in the array." Which layouts a caller of this
 /// library can draw is a fact about that caller, so the choice is the caller's and this is what it
@@ -9558,6 +9558,23 @@ pub unsafe extern "C" fn quorra_window_controls_measured(
     Status::Ok.code()
 }
 
+/// Shows the page a thumbnail row names (§12.3.4), by its zero-based index.
+/// `QUORRA_NO_ANSWER` where no document is focused, `QUORRA_OUT_OF_RANGE` past its page list.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_go_to_page(window: *mut Window, page: usize) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.go_to_page(page) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
 /// Activates an object: an outline item's or a thread's row, or a push-button's widget.
 ///
 /// # Safety
@@ -9772,5 +9789,77 @@ pub unsafe extern "C" fn quorra_tab_label(
     match label {
         Some(label) => copy_out(label, out, cap, needed),
         None => Status::OutOfRange.code(),
+    }
+}
+
+/// The number of rows in the window's shared permissions menu; zero for null.
+///
+/// # Safety
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_restriction_count(window: *const Window) -> usize {
+    window
+        .as_ref()
+        .map_or(0, |window| window.restriction_rows().len())
+}
+
+/// Reads a permissions menu row: part 0 is its label, part 1 its explanatory note.
+/// Depth 0 is a scope, 1 an operation, 2 a selectable level. Only levels can be checked.
+///
+/// # Safety
+/// See the module documentation. `depth` and `chosen` are writable; `out` follows the text idiom.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_restriction_read(
+    window: *const Window,
+    index: usize,
+    part: u32,
+    depth: *mut u32,
+    chosen: *mut bool,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let (Some(window), Some(depth), Some(chosen)) =
+        (window.as_ref(), depth.as_mut(), chosen.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Some(row) = window.restriction_rows().get(index).copied() else {
+        return Status::OutOfRange.code();
+    };
+    let (nesting, checked, label, note) =
+        match row {
+            viewer_host::Row::Scope { label, note, .. }
+            | viewer_host::Row::Machine { label, note } => (0, false, label, note),
+            viewer_host::Row::Operation { label, note, .. }
+            | viewer_host::Row::Act { label, note } => (1, false, label, note),
+            viewer_host::Row::Level(entry) => (2, entry.chosen, entry.label, ""),
+            viewer_host::Row::ActLevel(entry) => (2, entry.chosen, entry.label, ""),
+        };
+    let text = match part {
+        0 => label,
+        1 => note,
+        _ => return Status::WrongKind.code(),
+    };
+    *depth = nesting;
+    *chosen = checked;
+    copy_out(text, out, cap, needed)
+}
+
+/// Chooses a permissions menu level by its row index; a heading is `QUORRA_WRONG_KIND`.
+///
+/// # Safety
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_restriction_choose(
+    window: *mut Window,
+    index: usize,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match window.choose_restriction(index) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
     }
 }

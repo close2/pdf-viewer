@@ -75,7 +75,7 @@
 //!
 //! Embedding is the exception, because its clause defines its own population: a font is used
 //! when a content stream references one of its glyphs, and one shown only in rendering mode 3
-//! is exempt. That answer cannot be read off a dictionary, so [`selected_fonts`] walks the
+//! is exempt. That answer cannot be read off a dictionary, so [`crate::survey::Survey`] walks the
 //! content streams for it.
 //!
 //! # The rule every predicate in this file keeps
@@ -153,10 +153,16 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
             "judging a font program against its own format specification is a validator of \
              sfnt, CFF and Type 1 that nothing in this tree is; `pdf-font` reads those formats \
              to draw from them and reports what it could not use, not whether the program is \
-             well-formed. The dictionary half is checkable and owed: Table 109's /Widths holds \
-             LastChar - FirstChar + 1 numbers, which a file can break and this row does not yet \
-             ask (doc/adr/2163)",
+             well-formed. The dictionary's widths-array length is checked separately by \
+             fonts/widths-array-covers-character-range (doc/adr/2178)",
         ),
+    },
+    Requirement {
+        id: "fonts/widths-array-covers-character-range",
+        asks: "A simple font's stated Widths array shall have LastChar - FirstChar + 1 entries.",
+        clauses: Clauses::both("6.2.11.2", "6.2.10.2"),
+        applies: Applies::Always,
+        check: Check::Implemented(widths_array_covers_character_range),
     },
     Requirement {
         id: "fonts/cid-system-info-agrees-with-the-cmap",
@@ -396,6 +402,41 @@ fn for_each_font(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Dictio
             visit(*id, dict);
         }
     }
+}
+
+/// The count Table 109 states, also inherited by TrueType fonts through §9.6.3.
+///
+/// Only a stated array and a readable byte-code range are judged. Missing entries and invalid
+/// ranges remain part of the general dictionary-conformance gap; a Type 3 font has Table 110's
+/// distinct width interpretation and is not judged here. No glyph needs to be rendered.
+fn widths_array_covers_character_range(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    for_each_font(exam, |id, font| {
+        if !matches!(
+            subtype(document, font).as_deref(),
+            Some("Type1" | "MMType1" | "TrueType")
+        ) {
+            return;
+        }
+        let (Some(first), Some(last), Object::Array(widths)) = (
+            document.get_key(font, "FirstChar").as_integer(),
+            document.get_key(font, "LastChar").as_integer(),
+            document.get_key(font, "Widths"),
+        ) else {
+            return;
+        };
+        if !(0..=255).contains(&first) || !(first..=255).contains(&last) {
+            return;
+        }
+        let Ok(wanted) = usize::try_from(last.saturating_sub(first).saturating_add(1)) else {
+            return;
+        };
+        if widths.len() != wanted {
+            findings.record(Where::object(id).named("Widths"), format!(
+                "the Widths array has {} entries for character codes {first} through {last}, which require {wanted}", widths.len()
+            ));
+        }
+    });
 }
 
 /// A name as a string a report can print.
@@ -705,7 +746,7 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
 /// Whether a `CMap` name is one ISO 19005's section on `CMaps` lets a file use without embedding.
 ///
 /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3 name the base standard's
-/// list of predefined `CMaps`, which is the list [`cmap_embedded_or_predefined`] reads, and the
+/// list of predefined `CMaps`, which is the list `cmap_embedded_or_predefined` reads, and the
 /// same sentence limits what any `CMap` may build on to that list. A converter embedding one has
 /// to ask both questions of the same list, which is why it is exported rather than copied.
 #[must_use]
@@ -715,7 +756,7 @@ pub fn cmap_is_predefined(name: &str) -> bool {
 
 /// Every composite font whose `/Encoding` names a `CMap` the file neither embeds nor may name.
 ///
-/// [`cmap_embedded_or_predefined`]'s population read as a list, font object and `CMap` name, so a
+/// `cmap_embedded_or_predefined`'s population read as a list, font object and `CMap` name, so a
 /// converter answering the requirement acts on exactly what it reported.
 #[must_use]
 pub fn fonts_naming_an_undefined_cmap(
@@ -1588,12 +1629,11 @@ fn type3_glyph_procedures_state_their_width(exam: &Examination<'_>, findings: &m
 ///   Type 1 program's `hsbw`, a repaired CFF — and naming the file for it would report our gap
 ///   as the producer's fault.
 ///
-/// **And one misreading, named.** A Compact Font Format program's `FontMatrix` need not be the
-/// reciprocal of a whole number, and `pdf_font::cff::units_per_em` reads it as one, so such a
-/// program's advance is read off by the rounding. `wp315.pdf`'s `dcbx100120` states `0.00049`: a
-/// 649-unit glyph is 0.31801 text-space units, which `/Widths`' 317 misses by more than the
-/// thousandth, and this rule reads it at a whole number of units per em and passes it
-/// (`doc/adr/2163`).
+/// A Compact Font Format program's `FontMatrix` need not be the reciprocal of a whole number.
+/// `pdf_font::cff::units_per_em` preserves that fractional scale (ADR 2180): `wp315.pdf`'s
+/// `dcbx100120` states `0.00049`, so its 649-unit glyph is 0.31801 text-space units. The
+/// dictionary's 317 misses that by more than the thousandth; rounding the reciprocal to a whole
+/// number previously hid this failure (`doc/adr/2163`).
 fn widths_agree_with_the_program(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for used in exam.survey().fonts() {
@@ -2623,7 +2663,7 @@ mod tests {
         non_symbolic_truetype_differences_are_listed_names,
         non_symbolic_truetype_uses_a_standard_encoding, private_use_codes,
         symbolic_truetype_states_no_encoding, to_unicode_present, to_unicode_values_are_usable,
-        type3_glyph_procedures_state_their_width,
+        type3_glyph_procedures_state_their_width, widths_array_covers_character_range,
     };
 
     /// Wraps numbered objects in a header, a cross-reference table and a trailer.
@@ -2675,6 +2715,23 @@ mod tests {
             .iter()
             .map(|finding| finding.what.clone())
             .collect()
+    }
+
+    /// Table 109 counts the array even for a font used only in rendering mode 3.
+    #[test]
+    fn a_simple_fonts_widths_array_covers_exactly_its_character_range() {
+        for (widths, expected) in [("", 1), ("500", 1), ("500 600", 0), ("500 600 700", 1)] {
+            let source = page_with(
+                "BT /F1 12 Tf 3 Tr (AB) Tj ET",
+                &format!(
+                    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 66 /Widths [{widths}] >>\nendobj\n"
+                ),
+            );
+            assert_eq!(
+                findings(&source, widths_array_covers_character_range).len(),
+                expected
+            );
+        }
     }
 
     #[test]

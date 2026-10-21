@@ -7,7 +7,7 @@ use std::sync::Arc;
 use pdf_render::Command;
 use pdf_syntax::{Dictionary, Document, Object};
 
-use crate::colour::{ColourSpace, Compositing, Presses};
+use crate::colour::{ColourSpace, Compositing, NoPress, Presses};
 use crate::icc::Rendering;
 use crate::page::Page;
 
@@ -187,14 +187,17 @@ fn own_space_compositing(
     entry: &Object,
     resources: &Dictionary,
     presses: &Presses,
-) -> Option<Compositing> {
-    match ColourSpace::parse(document, entry, resources)? {
-        ColourSpace::Gray => Some(Compositing::Grey),
-        ColourSpace::Rgb => None,
-        space => crate::colour::GreyRoute::of(&space)
-            .map(Arc::new)
-            .map(Compositing::Calibrated)
-            .or_else(|| presses.rgb_route(&space).map(Compositing::Additive)),
+) -> Result<Option<Compositing>, NoPress> {
+    let Some(space) = ColourSpace::parse(document, entry, resources) else {
+        return Ok(None);
+    };
+    match space {
+        ColourSpace::Gray => Ok(Some(Compositing::Grey)),
+        ColourSpace::Rgb => Ok(None),
+        space => match crate::colour::GreyRoute::of(&space) {
+            Some(route) => Ok(Some(Compositing::Calibrated(Arc::new(route)))),
+            None => Ok(presses.rgb_route(&space)?.map(Compositing::Additive)),
+        },
     }
 }
 
@@ -210,15 +213,17 @@ pub(in crate::content) fn page_own_space(
     document: &Document,
     page: &Page,
     presses: &Presses,
-) -> Option<Compositing> {
+) -> Result<Option<Compositing>, NoPress> {
     let attributes = document.get_key(&page.dict, "Group");
-    let attributes = attributes.as_dict()?;
+    let Some(attributes) = attributes.as_dict() else {
+        return Ok(None);
+    };
     if document
         .get_key(attributes, "S")
         .as_name()
         .is_none_or(|name| name.as_bytes() != b"Transparency")
     {
-        return None;
+        return Ok(None);
     }
     let entry = document.get_key(attributes, "CS");
     own_space_compositing(document, &entry, &page.resources, presses)
@@ -363,14 +368,25 @@ impl Interpreter<'_> {
     /// be asked under is [`Interpreter::group_compositing`]'s question. A grey group inside a
     /// grey page is not this function's: it inherits, and [`group_blending`] says so.
     fn group_own_space(
-        &self,
+        &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
     ) -> Option<Compositing> {
         if !group.isolated || self.uncoloured {
             return None;
         }
-        own_space_compositing(self.document, &group.colour_space, resources, self.presses)
+        match own_space_compositing(self.document, &group.colour_space, resources, self.presses) {
+            Ok(space) => space,
+            Err(error) => {
+                self.note(Unsupported::TransparencyGroup {
+                    detail: format!(
+                        "{}; the group uses its parent's compositing route",
+                        error.why()
+                    ),
+                });
+                None
+            }
+        }
     }
 
     /// What an isolated group's own `/CS` asks its elements to composite in, where this run
@@ -593,38 +609,29 @@ impl Interpreter<'_> {
     /// The third bullet is neither: it conditions on "the native colour space of the output
     /// device" being `DeviceCMYK`, and this device's is sRGB (ADR 0009).
     ///
-    /// Raised once per interpretation, the statement being monotone for the page: the parameters
-    /// apply wherever a conversion happens rather than only where a `gs` set them.
+    /// Raised once per interpretation from actual paints. Selecting a colour or a function
+    /// does not paint; q/Q and a later /Default can retire the pair before any conversion.
+    /// ISO 32000-2 §11.7.5.3, first black-generation bullet:
+    ///
+    /// > When painting an elementary object with a DeviceRGB colour directly into a transparency
+    /// > group whose colour space is DeviceCMYK , the functions used shall be the current
+    /// > black-generation and undercolour-removal functions in effect in the graphics state at the
+    /// > time of the painting operation.
     #[expect(
         clippy::doc_markdown,
         reason = "the paragraph quotes §11.7.5.3 verbatim, and a quotation is not marked up"
     )]
     pub(in crate::content) fn note_black_generation_departure(&mut self) {
-        if !self.black_generation_stated {
-            return;
-        }
-        if !matches!(
-            &self.compositing,
-            Compositing::Subtractive(_, press, _) if press.converts_in_by_profile()
-        ) {
-            return;
-        }
-        // The functions "shall be applied only during conversion from DeviceRGB to DeviceCMYK
-        // colour spaces", and a page group whose colour space is `ICCBased` — stated so, or a
-        // `DeviceCMYK` that Table 145's `/DefaultCMYK` remaps — is not `DeviceCMYK`: its `B2A`
-        // route is the clause carried out, and only a `DeviceCMYK` group that §14.11.5's output
-        // intent characterises departs (trap 11, ADR 2170).
-        if self.cmyk_group.is_some() {
+        if !self.black_generation_painted {
             return;
         }
         self.note(Unsupported::BlackGeneration {
-            detail: "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
-                     function of its own, and this page's DeviceCMYK group composites in a press \
+            detail: "a DeviceRGB object is painted while Table 57's /BG, /BG2, /UCR or /UCR2 is a \
+                     function of its own, into a DeviceCMYK group composited in a press \
                      sampled from its output intent's profile (§14.11.5), whose B2A table is the \
                      conversion in (§8.6.5.5), so the stated pair reaches no step of it \
-                     (§11.7.5.3). A DeviceRGB colour \
-                     painted into a DeviceCMYK group, and a group painted into a DeviceCMYK \
-                     parent, are separated with the stated functions and are not affected"
+                     (§11.7.5.3). Conversion into an unprofiled DeviceCMYK group and conversion \
+                     of a DeviceRGB group into a DeviceCMYK parent use the stated pair"
                 .to_owned(),
         });
     }

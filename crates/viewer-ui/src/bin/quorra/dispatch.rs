@@ -1019,7 +1019,12 @@ impl App {
     /// does with it — a program started never, a document handed over or not (ADR 2171). The bytes
     /// still go to the core, whose sentence says the link opened nothing in this reader.
     fn launched_elsewhere(&mut self, name: &str, path: &Path, read: &[u8]) {
-        match viewer_host::policy::launched(path, name, read, self.launched_documents) {
+        match viewer_host::policy::launched(
+            path,
+            name,
+            read,
+            self.restrictions.launched_documents(),
+        ) {
             None => {}
             Some(viewer_host::Launched::Program(said) | viewer_host::Launched::Refuse(said)) => {
                 println!("note: {said}");

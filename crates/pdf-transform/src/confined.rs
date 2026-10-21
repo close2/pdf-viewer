@@ -522,10 +522,12 @@ impl World for Forwarded {
 
     fn document(&mut self, path: &Path) -> std::io::Result<pdf_syntax::FileBytes> {
         let may = u8::from(self.descriptors < DOCUMENT_DESCRIPTORS);
-        let (answered, payload, mut descriptors) =
+        let (answered, payload, descriptors) =
             self.ask(ask::DOCUMENT, &Encoder::default().byte(may).path(path).0)?;
         match answered {
+            #[cfg(unix)]
             answer::DESCRIPTOR => {
+                let mut descriptors = descriptors;
                 let length = Decoder(&payload).number().ok_or_else(unexpected)?;
                 if descriptors.is_empty() {
                     return Err(std::io::Error::other(
@@ -536,6 +538,14 @@ impl World for Forwarded {
                 forget(descriptors);
                 self.descriptors = self.descriptors.saturating_add(1);
                 pdf_syntax::FileBytes::from_handle(std::fs::File::from(descriptor), length)
+            }
+            #[cfg(not(unix))]
+            answer::DESCRIPTOR => {
+                forget(descriptors);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "document descriptors cannot be received on this platform",
+                ))
             }
             answer::BYTES => {
                 forget(descriptors);
@@ -1075,6 +1085,11 @@ impl Broker<'_> {
             Ok(bytes) => bytes,
             Err(error) => return self.error(&error),
         };
+        // Descriptor passing is Unix-only. The Windows CLI announces its in-process route;
+        // a broker on a platform without descriptors can answer only with bytes.
+        #[cfg(not(unix))]
+        let _ = may;
+        #[cfg(unix)]
         if may && let Some(descriptor) = bytes.descriptor() {
             let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
             self.host.send(

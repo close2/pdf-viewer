@@ -322,7 +322,8 @@ fn main() {
     let standing = viewer_host::Restrictions::new(restrictions)
         .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents))
         .with(viewer_host::ActLevel::Submissions(submissions))
-        .with(viewer_host::ActLevel::Scripts(reader.scripts));
+        .with(viewer_host::ActLevel::Scripts(reader.scripts))
+        .with(viewer_host::ActLevel::LaunchedDocuments(launched_documents));
     let archive = reader.archive.clone();
     let policies = Policies {
         restrictions,
@@ -469,7 +470,6 @@ fn main() {
         restrictions: standing,
         links,
         remote_documents,
-        launched_documents,
         submitter: viewer_host::submit::Submitter::new(),
         archive,
         archive_card: viewer_ui::chrome::ArchiveCard::default(),

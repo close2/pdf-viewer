@@ -109,7 +109,7 @@ impl Document {
 
     /// Decrypts every string and stream inside one indirect object.
     ///
-    /// Recursion is bounded by the parser: an object graph deeper than [`Limits::max_depth`]
+    /// Recursion is bounded by the parser: an object graph deeper than [`crate::parser::Limits::max_depth`]
     /// never reaches here, because it was refused at parse time.
     fn decrypt_value(&self, encryption: &Encryption, id: ObjectId, object: Object) -> Object {
         match object {
@@ -312,14 +312,14 @@ impl Document {
 ///
 /// **`/Type` is not the only thing that identifies one, and reading it as though it were cost
 /// `issue17069.pdf` its signature value for as long as this predicate existed.** Table 255
-/// makes the entry "(Optional if Sig; Required if `DocTimeStamp`)" and states "[t]he default
+/// makes the entry "(Optional if Sig; Required if `DocTimeStamp`)" and states "\[t]he default
 /// value is: Sig ." — so a dictionary that omits it *is* a signature dictionary, and that
 /// document is one: encrypted, with a `/ByteRange`, a `/Contents` and no `/Type` at all. The
 /// exception did not apply, the 33 680-byte signature value went through the cipher, and what
 /// came back was empty.
 ///
 /// What identifies one with no `/Type` is what Table 255 requires of every signature carrying
-/// a byte range digest: `/ByteRange`, "[a]n array of pairs of integers", and `/Contents`, the
+/// a byte range digest: `/ByteRange`, "\[a]n array of pairs of integers", and `/Contents`, the
 /// signature value. Nothing else in ISO 32000-2 has a `/ByteRange`.
 pub(crate) fn is_signature_dictionary(dict: &Dictionary) -> bool {
     match dict

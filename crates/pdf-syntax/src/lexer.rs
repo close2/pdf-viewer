@@ -157,13 +157,13 @@ pub struct HexadecimalStrings {
 /// A number ISO 32000-2 §7.3.3 does not spell, read anyway, and what reading it left out.
 ///
 /// The clause writes both numeric forms as decimal digits with an optional sign and an
-/// optional PERIOD, and [`Lexer::read_number`] reads a run that departs from that — `1.2.3`,
+/// optional PERIOD, and `Lexer::read_number` reads a run that departs from that — `1.2.3`,
 /// `1-2`, `12pt` — as the number the clause's own grammar spells off its front, because a
 /// content stream still has to draw. What that costs is recorded here rather than lost: the
 /// run as the file wrote it, and the tail the value does not account for. **The tail is never
 /// empty**: a run the grammar reads whole is a number the clause spells and leaves no salvage,
 /// and a run the grammar reads nothing of — `--5`, `.-1` — is no salvage either but the
-/// keyword it lexically is, which is where [`salvage_number`] says why.
+/// keyword it lexically is, which is where `salvage_number` says why.
 ///
 /// **The lexer records the tail and does not judge it**, because judging it takes a vocabulary
 /// this crate does not have. §7.2.3 makes the whole run one token and §7.3.3 makes it no
@@ -280,7 +280,7 @@ impl<'a> Lexer<'a> {
     /// token's *end* is decided by the byte after it — `123` followed by the input's end is a
     /// shorter number than `123` followed by `4` — and `<<`, `>>` and a CR LF pair are read one
     /// byte past the cursor. A parser reading a *window* of a longer file hands this number
-    /// back to [`crate::FileBytes::parse_from`], which grows the window until nothing at its
+    /// back to `crate::FileBytes::parse_from`, which grows the window until nothing at its
     /// end was examined; a parser over a whole file has no use for it. ADR 0809.
     #[must_use]
     pub fn examined(&self) -> usize {
@@ -340,13 +340,13 @@ impl<'a> Lexer<'a> {
     /// parser sees `Keyword` and decides. That keeps recovery policy in one place instead
     /// of spread between lexer and parser.
     ///
-    /// **Two kinds of token are read in this body and every other in [`Self::next_token_at`]**,
+    /// **Two kinds of token are read in this body and every other in `Self::next_token_at`**,
     /// and the split is a measurement, not a second grammar. A number §7.3.3's fixed format
     /// reads whole and a keyword are what a content stream is made of — 76.9 million of the
     /// 78.2 million tokens on the owner's `demo_heavy_engineering_A1.pdf` — and each is the
-    /// first thing [`Self::next_token_at`]'s own match would have done with its first byte:
-    /// a byte that may begin a number goes to the same [`Self::fixed_format_token`] that
-    /// [`Self::read_number`] asks first, and a regular byte that cannot begin one is that
+    /// first thing `Self::next_token_at`'s own match would have done with its first byte:
+    /// a byte that may begin a number goes to the same `Self::fixed_format_token` that
+    /// `Self::read_number` asks first, and a regular byte that cannot begin one is that
     /// match's last arm. Anything else, and a number the fixed format declines, takes the
     /// match unchanged. What the split buys is a body of 730 bytes where the whole match, with
     /// its strings and names, was 4 095, on the path almost every token takes. On the witness it
@@ -552,7 +552,7 @@ impl<'a> Lexer<'a> {
     /// **That sentence is the one this function did not implement**, and it is a `shall` about
     /// the *bytes* a string object holds rather than about how they are displayed: a literal
     /// string is one of the two forms every byte string may be written in — Errata Collection 3
-    /// Issue #276 inserts "[u]nless otherwise stated in this document, a byte string may be
+    /// Issue #276 inserts "\[u]nless otherwise stated in this document, a byte string may be
     /// either a literal string (see 7.3.4.2, "Literal strings") or a hexadecimal string (see
     /// 7.3.4.3, "Hexadecimal strings")" into §7.9.2.4 — so a CARRIAGE RETURN kept as itself is
     /// a `/U`, a `/Perms` or an `/ID` one byte different from what the file states, and inside a

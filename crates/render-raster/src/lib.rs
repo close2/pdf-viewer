@@ -789,6 +789,9 @@ pub(crate) fn premultiply(data: &mut [u8]) {
 }
 
 /// Converts premultiplied RGBA to straight alpha, in place.
+///
+/// §11.3.3's result colour is unassociated with alpha. The eight-bit boundary uses nearest
+/// rounding, as raster's readback does (ADR 2183), so cropping cannot change surviving colours.
 pub(crate) fn demultiply(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         let alpha = pixel[3];
@@ -796,7 +799,9 @@ pub(crate) fn demultiply(data: &mut [u8]) {
             continue;
         }
         for channel in &mut pixel[..3] {
-            let scaled = u16::from(*channel).saturating_mul(255);
+            let scaled = u16::from(*channel)
+                .saturating_mul(255)
+                .saturating_add(u16::from(alpha) / 2);
             let value = scaled
                 .checked_div(u16::from(alpha))
                 .unwrap_or(u16::from(u8::MAX));

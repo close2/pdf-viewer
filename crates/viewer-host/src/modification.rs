@@ -1,6 +1,6 @@
 //! The clock `viewer_core` does not have, for ISO 32000-2 Table 166's `/M`.
 //!
-//! Table 166's entry is "[t]he date and time when the annotation was most recently modified", and
+//! Table 166's entry is "\[t]he date and time when the annotation was most recently modified", and
 //! `CLAUDE.md`'s rule 3 gives the renderer no clock: a date invented there would be a claim about
 //! a machine nothing in that crate can see. This module is the party with the clock, exactly as
 //! [`crate::policy`] is the party with the filesystem, and [`now`] is what a host hands to

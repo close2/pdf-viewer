@@ -36,6 +36,7 @@
 
 mod owed;
 mod repainted;
+mod restrictions;
 mod shown;
 mod wheel;
 

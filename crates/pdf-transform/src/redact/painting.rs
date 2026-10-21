@@ -137,7 +137,7 @@ impl Walk<'_> {
     /// `B` and its three relatives a fill *and* a stroke, and the two are different regions in
     /// different colours: the fill is the path's interior with §8.5.3.1's implicit close, the
     /// stroke is the outline §8.5.3.2 marks along it. So the replacement is the cut fill painted
-    /// first and the cut outline second, which is the clause's own order — "[f]ill and then
+    /// first and the cut outline second, which is the clause's own order — "\[f]ill and then
     /// stroke the path". ADR 1236.
     pub(super) fn paint_path(
         &mut self,
@@ -319,7 +319,7 @@ impl Walk<'_> {
     /// A zero-width stroke cut as the path it is drawn along, and restroked at the same width
     /// (ADR 1363).
     ///
-    /// §8.4.3.2 states the width in the device's terms — "[a] line width of 0 shall denote the
+    /// §8.4.3.2 states the width in the device's terms — "\[a] line width of 0 shall denote the
     /// thinnest line that can be rendered at device resolution: 1 device pixel wide" — so the
     /// marks are the path at whatever resolution draws it, and no outline in user space states
     /// them. The path is therefore cut as a line ([`paths::subtract_along`]): the stretches inside

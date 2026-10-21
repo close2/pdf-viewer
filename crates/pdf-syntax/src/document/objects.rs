@@ -119,7 +119,7 @@ impl Document {
     /// Resolves an object if it is a reference, following chains.
     ///
     /// A reference to a reference is unusual but legal. The chain is bounded by
-    /// [`MAX_REFERENCE_DEPTH`], and a cycle resolves to null rather than looping.
+    /// `MAX_REFERENCE_DEPTH`, and a cycle resolves to null rather than looping.
     #[must_use]
     pub fn resolve(&self, object: &Object) -> Object {
         let mut current = object.clone();

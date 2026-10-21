@@ -16,22 +16,22 @@ impl ColourSpace {
     /// `None` — meaning the space reverts through its tint transform like any other `DeviceN`
     /// — wherever the clause leaves anything to decide. Each condition is one sentence of it:
     ///
-    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "[a] value of
+    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "\[a] value of
     ///   DeviceN for the Subtype entry, or no value, shall mean that only the previous
     ///   features shall be supported" — the previous features being the tint transform.
     /// - **A `/Process` dictionary with both of Table 71's required entries**, its
     ///   `/ColorSpace` a space this tree reads and its `/Components` naming exactly that
-    ///   space's components. Table 71 requires the correspondence — "[a]n array of component
+    ///   space's components. Table 71 requires the correspondence — "\[a]n array of component
     ///   names that correspond, in order, to the components of the process colour space
     ///   specified in ColorSpace" — so a count that disagrees is a dictionary this reader
     ///   cannot index by, whatever else it says.
     /// - **Every name in the space's `names` array is one of `/Components`**, which is the
-    ///   clause's own test for a spot colourant: "[a]ny component not specified in the process
+    ///   clause's own test for a spot colourant: "\[a]ny component not specified in the process
     ///   dictionary shall be considered to be a spot colourant." A spot colourant would need
     ///   its own `/Colorants` `Separation` *and* a rule for combining the result with the
     ///   process components, and the clause states no such rule — see [`Tints`].
     /// - **Every component of `/ColorSpace` is supplied by a name, unless the process space is
-    ///   a CMYK one.** §8.6.6.5 gives the permission to that one family — "[f]or a CMYK
+    ///   a CMYK one.** §8.6.6.5 gives the permission to that one family — "\[f]or a CMYK
     ///   colour space, a subset of the components may be present, and they may appear in any
     ///   order in the names array" — and §8.6.4.4 supplies the value a subtractive component
     ///   of zero has: "0.0 shall denote the complete absence of a process colourant". For any
@@ -42,7 +42,7 @@ impl ColourSpace {
     ///   may name that profile outright.
     ///
     /// **The reserved four are not read here**, and that is a case declined rather than one
-    /// missed. §8.6.6.5 says "[t]he reserved names Cyan , Magenta , Yellow , and Black shall
+    /// missed. §8.6.6.5 says "\[t]he reserved names Cyan , Magenta , Yellow , and Black shall
     /// always be considered to be process colours … they need not have entries in the process
     /// dictionary", so a CMYK `NChannel` space may name a component the `/Components` array
     /// omits; such a space keeps its tint transform, which is conforming, rather than gaining
@@ -263,7 +263,7 @@ impl ColourSpace {
     /// > only the ones not present on the output device shall use the alternate colour space
     /// > of that component.
     ///
-    /// On a display no component is present — §8.6.6.4 states that outright, "[f]or an
+    /// On a display no component is present — §8.6.6.4 states that outright, "\[f]or an
     /// additive device such as a computer display, a Separation colour space never applies a
     /// process colourant directly; it always reverts to the alternate colour space" — so every
     /// component takes its own alternate, and what this answers is which space that is for
@@ -275,21 +275,21 @@ impl ColourSpace {
     ///
     /// The conditions, each a sentence of the standard:
     ///
-    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "[a] value of
+    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "\[a] value of
     ///   DeviceN for the Subtype entry, or no value, shall mean that only the previous
     ///   features shall be supported" — the previous features being the tint transform. The
     ///   sentence quoted above is stated for `NChannel` spaces and no other.
     /// - **A process dictionary, where there is one, is consistent and subtractive.** §10.8.1
-    ///   makes separations a subtractive device's output — "[i]f those are subtractive
+    ///   makes separations a subtractive device's output — "\[i]f those are subtractive
     ///   colourants … then the output for the device may take a form called separations" — and
     ///   §10.8.3 step a)'s simulated device "supports subtractive process colourants". A
     ///   process space whose zero is black is not a separation, and §8.6.6.5 says such spaces
-    ///   exist here: "[f]or NChannel colour spaces, values for additive process colours (such
+    ///   exist here: "\[f]or NChannel colour spaces, values for additive process colours (such
     ///   as RGB) shall be specified in their natural form, where 1.0 shall represent maximum
     ///   intensity of colour."
-    /// - **Every component that is not a process one has a `/Colorants` entry.** "[A]ny
+    /// - **Every component that is not a process one has a `/Colorants` entry.** "\[A]ny
     ///   component not specified in the process dictionary shall be considered to be a spot
-    ///   colourant", and Table 70 makes the dictionary "[r]equired if Subtype is NChannel and
+    ///   colourant", and Table 70 makes the dictionary "\[r]equired if Subtype is NChannel and
     ///   the colour space includes spot colourants", each value "an array defining a
     ///   Separation colour space for that colourant". `/None` is the exception: it names no
     ///   colourant and "shall never be painted on the page".
@@ -474,7 +474,7 @@ impl ColourSpace {
     /// ISO 32000-2 §10.8.3 step b) for one separation painted in this space at `values`: its flat
     /// XYZ divided by the matte's white, the factor it enters step c)'s multiply as.
     ///
-    /// The separation's XYZ is [`Self::flat_xyz`]'s — the space's own where it states one and
+    /// The separation's XYZ is `Self::flat_xyz`'s — the space's own where it states one and
     /// this processor's CIE definition of a device space where it does not (§10.3.2, ADR 0009) —
     /// taken under `rendering`, and the white is D50's, the one every XYZ in this crate is
     /// relative to. `simulated_xyz` states why the product is taken in that unit.

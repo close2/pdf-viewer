@@ -36,7 +36,7 @@ use pdf_syntax::Document;
 /// population small enough to walk whole.
 const DEFAULT_PAGES: usize = 10;
 
-fn main() {
+fn main() -> Result<(), String> {
     let mut paths: Vec<String> = Vec::new();
     let mut pages_per_document = DEFAULT_PAGES;
     let mut arguments = std::env::args().skip(1);
@@ -76,7 +76,12 @@ fn main() {
             };
             let interpretation = pdf_model::interpret(&document, &page);
             interpreted = interpreted.saturating_add(1);
-            let named = interpretation.presses_named;
+            let named = interpretation.presses_named.map_err(|error| {
+                format!(
+                    "press census cannot count {name} page {index}: {}",
+                    error.why()
+                )
+            })?;
             let counter = distribution.entry(named).or_default();
             *counter = counter.saturating_add(1);
             // Within one of the bound is the population worth naming: a page there is one
@@ -100,4 +105,5 @@ fn main() {
     for (named, name, page) in deepest.iter().rev() {
         println!("  within one of the bound: {name} page {page} names {named}");
     }
+    Ok(())
 }

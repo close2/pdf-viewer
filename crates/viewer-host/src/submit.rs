@@ -17,7 +17,7 @@
 //! Its only word on one is a NOTE — "Presumably, the URL is the address of a Web server that will
 //! process them and send back a response" — and a NOTE states no requirement. The one `shall`
 //! about a response is §12.7.8's, one clause over, on the format the server may answer in: Table
-//! 246's `/Status` is "[a] status string that shall be displayed indicating the result of an
+//! 246's `/Status` is "\[a] status string that shall be displayed indicating the result of an
 //! action, typically a submit-form action", and §12.7.8.1 says FDF "can be used when submitting
 //! form data to a server, receiving the response, and incorporating it into the interactive form".
 //! So an FDF answer is imported through the §12.7.8 reader the import-data action already uses,

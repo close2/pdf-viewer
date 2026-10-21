@@ -675,7 +675,7 @@ fn bit_string_departure(contents: &[u8]) -> Option<NotCanonical> {
 ///
 /// Where the contents are more than one octet, the first octet and bit 8 of the second may be
 /// neither all ones nor all zero — which is the clause's way of saying a redundant leading `00` or
-/// `FF` is not written, and its NOTE says as much: "[t]hese rules ensure that an integer value is
+/// `FF` is not written, and its NOTE says as much: "\[t]hese rules ensure that an integer value is
 /// always encoded in the smallest possible number of octets". Clause 8.3.1 requires at least one
 /// octet, so an empty `INTEGER` is a departure too.
 fn integer_departure(contents: &[u8]) -> Option<NotCanonical> {

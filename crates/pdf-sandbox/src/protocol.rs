@@ -242,7 +242,7 @@ pub struct CcittParameters {
     /// How many rows to decode: the bound, not the image.
     ///
     /// `/Rows` where Table 11 lets it bind — which is only where `/EndOfBlock` is false, since
-    /// that entry "[overrides] the Rows parameter" otherwise. Where it does not bind, the
+    /// that entry "\[overrides] the Rows parameter" otherwise. Where it does not bind, the
     /// caller substitutes the image's height, because Table 11 says a zero or absent `/Rows`
     /// means "the image's height is not predetermined" and §8.9.5.1's `/Height` is the only
     /// other statement of it. `pdf_model::ccitt_rows` is that derivation; this field is never
@@ -444,7 +444,7 @@ pub struct Raster {
     ///
     /// Eight for every decoder here but one. ISO 32000-2 §7.4.9 leaves a JPEG 2000 image's
     /// depth to the processor — Table 87 says `/BitsPerComponent` "shall be ignored if
-    /// present" and that "[t]he bit depth is determined by the PDF processor in the process of
+    /// present" and that "\[t]he bit depth is determined by the PDF processor in the process of
     /// decoding the JPEG 2000 image" — and what this processor determines is the codestream's
     /// own, because §8.9.6.4's ranges are integers in *that* domain and a narrowing here
     /// cannot be undone above. So a codestream of more than eight bits a component arrives at
@@ -454,7 +454,7 @@ pub struct Raster {
     /// Each channel's own depth, opacity last, where the channels' integers are not all at
     /// [`Self::precision`]; empty where they are.
     ///
-    /// §7.4.9: "[t]he colour components in an image may have different numbers of bits per
+    /// §7.4.9: "\[t]he colour components in an image may have different numbers of bits per
     /// sample". A writer that must carry every integer as the codestream states it
     /// ([`crate::Request::JpxWhole`]) is answered with each channel's own integers, and then
     /// channel `i` holds values of `depths[i]` bits in the field [`Self::precision`] sizes, which

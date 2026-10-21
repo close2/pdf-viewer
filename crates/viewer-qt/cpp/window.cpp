@@ -2921,11 +2921,7 @@ void MainWindow::rebuildControls()
             }
             // Bit 19: "the combo box shall include an editable text box as well as a drop-down
             // list; if clear, it shall include only a drop-down list". One property here because
-            // Qt has one widget for both halves. (This comment said GTK4 could not obey it and
-            // that `viewer-gtk` carries the flag and reports it — true of the *widget* and never
-            // true of the toolkit: that host composes an entry with a drop-down list since the
-            // seven-hundred-and-seventeenth session. A claim about what another host cannot do
-            // decays exactly like any other.)
+            // Qt has one widget for both halves.
             combo->setEditable(control.editable);
             // The text box commits as a line edit's does — Enter, and the keyboard leaving it —
             // because what is typed there is characters held until the commit, and the field's
@@ -2967,10 +2963,8 @@ void MainWindow::rebuildControls()
                 list->addItem(text(option));
             }
             // Table 233 bit 22: "(PDF 1.4) If set, more than one of the field's option items may
-            // be selected simultaneously; if clear, at most one item shall be selected." This host
-            // asked for SingleSelection either way until the four-hundred-and-twelfth session,
-            // because `Edit::SetField` carried one value; the vocabulary carries a set now, so the
-            // flag decides the selection mode and the clause is obeyed rather than reported
+            // be selected simultaneously; if clear, at most one item shall be selected." The
+            // edit vocabulary carries a set of values, so this flag decides the selection mode
             // (ADR 0248).
             list->setSelectionMode(control.multi ? QAbstractItemView::ExtendedSelection
                                                  : QAbstractItemView::SingleSelection);

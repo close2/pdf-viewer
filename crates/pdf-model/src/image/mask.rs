@@ -482,6 +482,7 @@ pub(crate) fn decode_reporting_frame(
         picture,
         shortfall,
         contradiction,
+        ..
     } = decode_parts(document, stream, resources, fill, into, &mut masks)?;
     let (image, _) = flattened(picture);
     Ok((Flattened { image, shortfall }, contradiction))
@@ -510,6 +511,7 @@ pub(crate) fn decode_stencil_reporting_frame(
         picture,
         shortfall,
         contradiction,
+        ..
     } = decode_parts(
         document,
         stream,

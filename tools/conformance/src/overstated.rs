@@ -40,7 +40,7 @@
 //!
 //! # Stance is a property of a clause rather than of a sentence
 //!
-//! [`crate::unread::sentences`] splits on a full stop, for a reason its own doc gives, and this
+//! `crate::unread::sentences` splits on a full stop, for a reason its own doc gives, and this
 //! sweep cannot use it. §14.12.4's row is the witness: "Table 409's `/Start` and `/DParts` are
 //! read; Table 408 is not, and `partial` is for that half" holds both stances inside one full
 //! stop, and read whole it asserts Table 408 is read — the exact opposite of what it says. So
@@ -85,7 +85,7 @@
 //! - **An assertion that excepts one of its own terms**, which is not printed at all, because the
 //!   part's own words settle it: §7.3.8 says "Table 5's entries are read where they are used —
 //!   `/Length` … by the parser, `/DL` nowhere", and the ellipsis the verb supplies is a denial.
-//!   [`excepted`] takes the term out of the assertion, so §7.3.8.2 saying `/DL` is unread agrees
+//!   `excepted` takes the term out of the assertion, so §7.3.8.2 saying `/DL` is unread agrees
 //!   with its parent instead of contradicting it (ADR 1048).
 //! - **A correction narrating its own retired wording**, marked [`Finding::history`] on
 //!   [`crate::capabilities::HISTORY`], which is the oldest false positive in `doc/todo/01` and
@@ -256,7 +256,7 @@ impl Report {
 
 /// A note's parts, split where a full stop, a semicolon or a colon ends one.
 ///
-/// Not [`crate::unread::sentences`], and the module doc says why: §14.12.4 holds both stances
+/// Not `crate::unread::sentences`, and the module doc says why: §14.12.4 holds both stances
 /// inside one full stop. The same "followed by white space or the end" rule keeps `§12.5.6.4`
 /// and `1.7` whole.
 #[must_use]

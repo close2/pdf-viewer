@@ -501,7 +501,7 @@ event (ADR 1144).
    reads `QUORRA_EVENT_COPIED` with `quorra_event_copied`
    (`crates/viewer-ffi/src/events.rs::copied`, which calls `copied`), and its own program owns the
    clipboard — the .NET interop declares it in `hosts/windows/Quorra.Interop/Native.Commands.cs`.
-   `quorra_selection_copy_text` (`crates/viewer-ffi/src/session.rs::copy_text`) reads the same
+   `quorra_selection_copy_text` (`crates/viewer-ffi/src/session/editing.rs::copy_text`) reads the same
    string back in C's two-call idiom: the session keeps what the last granted `Command::Copy`
    released and answers nothing before one, after a refusal or while a question is unanswered
    (ADR 2087). The confined window has no copy gesture.
@@ -517,7 +517,7 @@ flowchart TD
     QUO["quorra: arboard, on first use<br/>viewer-ui/src/clipboard.rs"]
     GTK["GTK: gdk::Clipboard<br/>viewer-gtk/src/host.rs::to_clipboard"]
     QT["Qt: QClipboard<br/>viewer-qt/src/host.rs, viewer-qt/cpp/window.cpp"]
-    FFI["a C or .NET host: QUORRA_EVENT_COPIED, and its readback<br/>viewer-ffi/src/events.rs::copied, session.rs::copy_text<br/>ADR 2087"]
+    FFI["a C or .NET host: QUORRA_EVENT_COPIED, and its readback<br/>crates/viewer-ffi/src/events.rs::copied, crates/viewer-ffi/src/session/editing.rs::copy_text<br/>ADR 2087"]
 
     KEY --> CMD
     CMD --> TAKE
@@ -536,7 +536,7 @@ flowchart TD
 `crates/viewer-core/src/event.rs`, `crates/viewer-core/src/command.rs`,
 `crates/viewer-ui/src/bin/quorra/typing.rs`, `crates/viewer-ui/src/clipboard.rs`,
 `crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`, `crates/viewer-qt/cpp/window.cpp`,
-`crates/viewer-ffi/src/events.rs`, `crates/viewer-ffi/src/session.rs`, ADR 0519, ADR 1144,
+`crates/viewer-ffi/src/events.rs`, `crates/viewer-ffi/src/session/editing.rs`, ADR 0519, ADR 1144,
 ADR 1971 and ADR 2087. Redraw it when the copy stops being a command, when the order is chosen anywhere but
 `copying.rs`, when a host gains or loses a clipboard — the confined window, or the .NET host of RFC
 0010 — or when the soft hyphen's division stops being undone at the copy.

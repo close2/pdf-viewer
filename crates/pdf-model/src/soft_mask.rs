@@ -203,6 +203,17 @@ fn backdrop_half(
     }
 }
 
+/// Keep a failed cache access for the mask's report while choosing its fallback.
+fn retain_refusal<T>(
+    result: Result<Option<T>, NoPress>,
+    refused: &mut Option<NoPress>,
+) -> Option<T> {
+    result.unwrap_or_else(|error| {
+        *refused = Some(error);
+        None
+    })
+}
+
 fn luminosity(
     document: &Document,
     mask: &Dictionary,
@@ -246,9 +257,9 @@ fn luminosity(
     // `RgbRoute::luminance` states: three curves summed for a `CalRGB` or a matrix
     // profile, a sampled grid for a table profile. Asked of the interpretation's
     // cache rather than built here, for the reason [`entry`] gives.
+    let mut refused = None;
     let additive = match (&space, scale, &route) {
-        (Some(space), None, None) => presses
-            .rgb_route(space)
+        (Some(space), None, None) => retain_refusal(presses.rgb_route(space), &mut refused)
             .and_then(|route| route.luminance().map(|luminance| (route, luminance))),
         _ => None,
     };
@@ -259,7 +270,6 @@ fn luminosity(
     // `None` where the interpretation may name no further press (§11.7.2's budget) or
     // the press is not a profile's, both of which `luminosity_departure` then names; a
     // poisoned table of presses is kept to be said as itself (ADR 2170).
-    let mut refused = None;
     let ink = match (&space, scale, &route, &additive) {
         (Some(ColourSpace::Icc { profile }), None, None, None) if profile.channels() == 4 => {
             // §11.7.5.3's second bullet names the parameters at a group's `Do`, and a
@@ -268,13 +278,13 @@ fn luminosity(
             // is sampled under Table 51's initial intent with compensation, which is
             // what `Rendering::compensating()` is, and what the rest of this function
             // already passes for the same reason.
-            match presses.press_for_profile(profile, Rendering::compensating()) {
-                Ok(press) => press.luminance().map(|luminance| (press, luminance)),
-                Err(no_press) => {
-                    refused = Some(no_press);
-                    None
-                }
-            }
+            retain_refusal(
+                presses
+                    .press_for_profile(profile, Rendering::compensating())
+                    .map(Some),
+                &mut refused,
+            )
+            .and_then(|press| press.luminance().map(|luminance| (press, luminance)))
         }
         _ => blended_ink,
     };
@@ -596,7 +606,7 @@ fn mask_departures(
 ) -> Vec<String> {
     if refused == Some(NoPress::Poisoned) {
         return vec![format!(
-            "a soft mask's group states a four-component ICCBased /CS and {}, so its luminosity \
+            "a soft mask's group states a CIE-based /CS and {}, so its luminosity \
              is taken as §11.5.3's device branch on device RGB",
             NoPress::Poisoned.why()
         )];

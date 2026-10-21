@@ -51,7 +51,7 @@ const RETURNED: u8 = 2;
 /// The path for a caller that bounds time itself. A fuzzer, whose own per-input timeout is the
 /// bound, and which [`decode_here_within`] would serve badly: it abandons a slow input at its
 /// deadline and, once [`MAX_ABANDONED`] run on, refuses every input after them. And a process
-/// behind its own system-call filter, which [`crate::decode`] sends here: starting a thread asks
+/// behind its own system-call filter, which [`crate::decode()`] sends here: starting a thread asks
 /// for `prctl`, which the filter kills for, and such a process is bounded from outside by whoever
 /// can kill it (ADR 1447). It is the same function the worker calls, so what it decodes is what
 /// the worker would.
@@ -65,7 +65,7 @@ pub fn decode_here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
 
 /// Decodes in this process, waiting at most `timeout` for the answer.
 ///
-/// What [`crate::decode`] does under [`crate::Isolation::InProcess`], with the worker's own
+/// What [`crate::decode()`] does under [`crate::Isolation::InProcess`], with the worker's own
 /// `REQUEST_TIMEOUT`; named so that a caller can state a shorter one. The request is copied into
 /// the form the worker reads from its pipe, because the thread that decodes it may outlive the
 /// borrow the caller holds.

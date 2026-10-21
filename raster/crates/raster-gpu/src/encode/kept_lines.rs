@@ -6,14 +6,17 @@
 //! admits nothing of. A walk culls such a line, as it always has, so that a page's first frame in a
 //! window sends what the window shows; **a walk that culled none wrote the page's whole stream**, and
 //! what a walk at another view would do with each of those lines is known before it starts: the
-//! same bytes at the same place in the stream, the same batch, the same lane count — and one thing
-//! of the view's own, the box it grows its plan by. So an encode records its lines as runs —
+//! same bytes at the same place in the stream and the same lane count. The view selects admitted
+//! blocks of that stream and decides the box it grows its plan by. An encode records its lines as runs —
 //! consecutive commands of the page, consecutive instances of the stream, one clip chain, one soft
 //! mask ([`KeptRun`]) — and the encode of the next view of the same scene takes each run in one step
 //! where the walk would take its lines one by one, re-walking every other command as the walk always
 //! has (`encode.rs`'s `encode_kept`). A line the new view admits nothing of stays in the kept stream
 //! and draws nothing, which a fresh walk would have culled: the pixels are the fresh walk's, and the
-//! line lane's count and `commands_culled` are the first walk's.
+//! line lane's count and `commands_culled` are the first walk's. Conservative bounds over 256-instance
+//! blocks exclude ranges that cannot reach the viewport before drawing; `line_instances_omitted`
+//! counts that exclusion separately. Blocks are shared with the stream and charged before building.
+//! If their optional allocation does not fit, `line_bounds_refused` reports whole-run drawing.
 //!
 //! **A walk that culled a line keeps nothing**, and the next view is walked whole, culling again: a
 //! window opened on a page of lines pays what it shows and no more. The page whose first frame
@@ -40,12 +43,15 @@
 //! walk's. Where the page's medium covers the target, which is every view past the fit, no line is
 //! asked at all.
 
+use std::sync::Arc;
+
 use raster_scene::{ClipId, Command, MaskId, Rect};
 
 use super::Encoder;
 use super::device_space::unviewed;
 use super::instance::BatchKind;
 use super::line::{LineMark, device_ink};
+use super::line_blocks::{BLOCK, LineBlocks};
 use crate::compose::Region;
 use crate::error::RenderError;
 
@@ -127,12 +133,18 @@ impl KeptRun {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct KeptLines {
     runs: Vec<KeptRun>,
+    /// Optional conservative bounds shared with the resident stream.
+    pub(super) blocks: Option<Arc<LineBlocks>>,
+    /// The frame budget admitted the stream but declined its optional bounds.
+    pub(super) blocks_refused: bool,
 }
 
 impl KeptLines {
-    /// Heap bytes the runs hold, for the retained encode's count.
+    /// Heap bytes the runs and bounds hold, for the retained encode's count.
     pub(crate) fn bytes(&self) -> u64 {
-        (self.runs.capacity() as u64).saturating_mul(size_of::<KeptRun>() as u64)
+        (self.runs.capacity() as u64)
+            .saturating_mul(size_of::<KeptRun>() as u64)
+            .saturating_add(self.blocks.as_ref().map_or(0, |blocks| blocks.bytes()))
     }
 }
 
@@ -173,7 +185,11 @@ impl KeptBuilder {
         if let Some(open) = self.open.take() {
             self.ended.push(open);
         }
-        Some(KeptLines { runs: self.ended })
+        Some(KeptLines {
+            runs: self.ended,
+            blocks: None,
+            blocks_refused: false,
+        })
     }
 }
 
@@ -245,11 +261,12 @@ impl<'a> Encoder<'a> {
         commands: &'a [Command],
         kept: &KeptLines,
     ) -> Result<(), RenderError> {
+        self.line_bounds_refused = u32::from(kept.blocks_refused);
         let mut runs = kept.runs.iter().peekable();
         let mut at = 0;
         while at < commands.len() && !self.before.diverged() {
             if let Some(run) = runs.next_if(|run| run.command == at) {
-                self.place_kept_run(run, commands)?;
+                self.place_kept_run(run, commands, kept.blocks.as_deref())?;
                 at = run.end();
                 continue;
             }
@@ -268,7 +285,12 @@ impl<'a> Encoder<'a> {
 
     /// One kept run in its place in the walk: every step [`Encoder::encode_line`] takes for each of
     /// its lines in the frame's order, taken once where its answer is the run's.
-    fn place_kept_run(&mut self, run: &KeptRun, commands: &[Command]) -> Result<(), RenderError> {
+    fn place_kept_run(
+        &mut self,
+        run: &KeptRun,
+        commands: &[Command],
+        blocks: Option<&LineBlocks>,
+    ) -> Result<(), RenderError> {
         self.begin_command_records(run.command);
         self.record_slow();
         let mask_index = match run.mask {
@@ -295,10 +317,41 @@ impl<'a> Encoder<'a> {
         let count = run.count();
         self.lanes.line = self.lanes.line.saturating_add(count);
         self.lines_kept = self.lines_kept.saturating_add(count);
-        let style = self.style;
-        self.note_run(BatchKind::Line, (run.instance, count), style, mask_index);
+        self.note_kept_blocks(run.instance, count, blocks, mask_index);
         self.mark_kept_ink(run, commands, admit);
         Ok(())
+    }
+
+    /// Emit admitted contiguous blocks in their original stream order.
+    fn note_kept_blocks(
+        &mut self,
+        first: u32,
+        count: u32,
+        blocks: Option<&LineBlocks>,
+        mask: Option<u32>,
+    ) {
+        let style = self.style;
+        let Some(blocks) = blocks else {
+            self.note_run(BatchKind::Line, (first, count), style, mask);
+            return;
+        };
+        let view = super::LineView::of(self.viewport);
+        let end = first.saturating_add(count);
+        let mut at = first;
+        while at < end {
+            let next = at
+                .saturating_div(BLOCK)
+                .saturating_add(1)
+                .saturating_mul(BLOCK)
+                .min(end);
+            let count = next.saturating_sub(at);
+            if blocks.admitted(at, view) {
+                self.note_run(BatchKind::Line, (at, count), style, mask);
+            } else {
+                self.line_instances_omitted = self.line_instances_omitted.saturating_add(count);
+            }
+            at = next;
+        }
     }
 
     /// Grow the page's plan by each line of `run`'s ink at this view inside `admit`, as

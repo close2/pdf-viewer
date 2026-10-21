@@ -279,7 +279,7 @@ pub struct PlannedStroke<'a> {
     /// How it is stroked.
     pub stroke: &'a Stroke,
     /// How it is painted: a backend that states a mark's coverage in closed form asks it, as
-    /// [`crate::thin_segment`] does (ADR 1847).
+    /// [`crate::thin_segment()`] does (ADR 1847).
     pub paint: &'a Paint,
     /// How it combines with the backdrop, asked for the same reason as [`Self::paint`].
     pub blend: BlendMode,
@@ -638,7 +638,7 @@ const PIECE_ROWS_BUDGET: usize = 64 << 20;
 ///   another number and move a cut by a row;
 /// - **the forbidden rows** are the union of the runs'. A row is only ever *set*, so the union is
 ///   the serial answer whatever the order; a run that cannot see the rows an earlier run forbade
-///   walks some paths [`settled`] would have skipped, which is arithmetic and never a mark;
+///   walks some paths `settled` would have skipped, which is arithmetic and never a mark;
 /// - **the rows between fills** — the forbidden rows and those the fills a backend draws a row at a
 ///   time would have forbidden — are a union too. The freed rows alone are not: a fill the serial
 ///   walk skips inside rows already forbidden marks its rows free in a run that has not seen them
@@ -1224,7 +1224,7 @@ fn row_edge(row: u32) -> f32 {
 }
 
 /// The rows at which to cut, balanced by cost as [`strip_boundaries`] is but choosing only
-/// among rows [`curved_rows`] permits.
+/// among rows [`unsplittable_rows`] permits.
 ///
 /// Returns at most `strips + 1` boundaries and possibly fewer: where no legal row separates two
 /// cuts the strip is not made, because an illegal cut is not a slower answer but a different

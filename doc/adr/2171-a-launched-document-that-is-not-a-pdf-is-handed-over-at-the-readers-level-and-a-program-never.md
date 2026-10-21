@@ -5,6 +5,9 @@ classification put to the owner in `doc/questions/Q562`. Clauses: ISO 32000-2 §
 §7.5.2. Context: ADRs 1155, 1227, 1358, 1368, 2154; `CLAUDE.md`'s clause-13 entry and
 `doc/questions/A254`; principle 3's *A document's restrictions are the reader's to set*.
 
+ADR 2185 implements A562's menus and changes the default to ask, superseding the initial
+default and missing-menu debt below. The classification decision remains in force.
+
 ## 1. The reading
 
 §12.6.4.6: "[a] launch action launches an application or opens or prints a document", and Table 207's

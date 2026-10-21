@@ -25,12 +25,19 @@ reading in one line per row, and the note is where it is argued. The membership 
 
 - **§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4** — headings whose status their leaves
   derive (ADR 1599); each moves when the last row below it that owes does.
-- **§7.4.9** — e-sRGB, e-sYCC, CIE Jab and non-D50 CIE Lab take the device fallback because their
-  defining texts are not held; moves on a text the owner buys, or a document `jpx_colour_census`
-  finds stating one where it decides. The irreversible path's one-level differences are not debt.
+- **§7.4.9** — e-sRGB and e-sYCC await extraction and implementation from held PIMA 7667
+  (A348); CIE Jab stays on the device fallback because CIE 131 is unheld and the owner declines
+  to buy it. CIE Lab's named illuminants are implemented. The irreversible path's one-level
+  differences are not debt. ADR 2187 records the remaining build and its required fixtures.
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
+- **§11.7.5.3** — a solid RGB colour selected before a changed BG/UCR pair retains its old
+  converted colour. Recompute from original components at paint; test both operator orders
+  and q/Q. ADR 2187 preserves the pixel witness and separates the deliberate profile bypass.
+- **§12.2** — the WinUI host consumes neither chrome nor placement records yet. Connect
+  Table 147's entries and test each on Windows; the deliberate menu/placement departures
+  in the other hosts remain.
 - **§12.8.3.4.4** — no signature in reach states a policy whose constraints could be enforced;
   moves when one does and its named specification is held. The network is not what is missing
   (ADR 1291).

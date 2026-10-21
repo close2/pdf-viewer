@@ -16,7 +16,7 @@ use crate::xref::Location;
 /// > the byte offset in the decoded stream of that object, relative to the first object stored in
 /// > the object stream, the offset for which is the value of the stream's First entry.
 ///
-/// Bounded by `count`, which is Table 16's `/N`, and **not** by `/First`: that entry is "[t]he
+/// Bounded by `count`, which is Table 16's `/N`, and **not** by `/First`: that entry is "\[t]he
 /// byte offset in the decoded stream of the first compressed object", so a producer that leaves
 /// white-space between the last pair and the first object gives a prefix whose tail is the
 /// object's own bytes, and reading on takes integers out of them. Stops early where the decoded

@@ -19,7 +19,7 @@
 //! is the one thing in this repository that is supposed to be independent of us.
 //!
 //! So the key is not a list of variables somebody remembered to include. It is built from
-//! **the command line the harness is about to run**, taken from [`Reference::build_command`]
+//! **the command line the harness is about to run**, taken from `Reference::build_command`
 //! itself, with the two paths that vary by page replaced by placeholders — plus the
 //! renderer's version string and the document's SHA-256. Adding `-cropbox` to an invocation
 //! changes the key because the flag is *in* the key; there is no separate list to forget to
@@ -42,7 +42,7 @@
 //! otherwise its slowest core spent four fifths of it waiting to kill processes it had
 //! already killed yesterday.
 //!
-//! So a timeout *is* remembered, and for a week — [`TIMEOUT_MEMORY`]. That is a deliberate
+//! So a timeout *is* remembered, and for a week — `TIMEOUT_MEMORY`. That is a deliberate
 //! trade with three parts written down:
 //!
 //! - **The gate is already non-deterministic about this.** A renderer that needs 29 seconds
@@ -169,7 +169,7 @@ pub struct Cache {
 ///
 /// `repeated <= unstored`, and it is sound by construction rather than by measurement: between
 /// two runs for one key the first run's outcome must have been unreadable from the cache, and
-/// every way of that happening — nothing storable, [`write_entry`] storing nothing — increments
+/// every way of that happening — nothing storable, `write_entry` storing nothing — increments
 /// [`Self::unstored`]. So the ceiling can only be too generous, and a repeat above it is a
 /// renderer spawned to answer a question that was already answered. There is no clock in either
 /// side, so a neighbouring round's load cannot move it (ADR 0894).

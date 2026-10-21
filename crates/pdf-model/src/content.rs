@@ -214,7 +214,7 @@ struct GraphicsState {
     /// page", which is this device's own conversion (ADR 1207).
     ///
     /// Saved and restored by `q`/`Q` like every other parameter here, which is why it is a field
-    /// of this state rather than of the interpreter: `Interpreter::black_generation_stated` is
+    /// of this state rather than of the interpreter: `Interpreter::black_generation_painted` is
     /// monotone for the page because it feeds a *report*, and a parameter is not.
     black_generation: Option<Arc<BlackGeneration>>,
     /// The rendering intent parameter, set by `ri` and by `/RI` (§8.6.5.8).
@@ -782,7 +782,8 @@ fn interpreted(
     // And §11.3.4's three-component CIE-based case takes the same branch since ADR 0797: a
     // `CalRGB` or `ICCBased` 'RGB ' page group composites the space's three components and
     // the cube they leave by rides on the display list beside the curve.
-    if let Some(own_space) = transparency::page_own_space(document, page, &presses) {
+    let own_space = transparency::page_own_space(document, page, &presses);
+    if let Ok(Some(own_space)) = &own_space {
         let (mut grey, drawable, checkpoint) = interpret_into(
             document,
             page,
@@ -800,7 +801,7 @@ fn interpreted(
             // the process separation in that space, and the spot planes beside it (ADR 1329).
             if state.separation_simulation() {
                 let separated = separate_drawn(
-                    document, page, state, &own_space, &presses, fonts, references, ledger,
+                    document, page, state, own_space, &presses, fonts, references, ledger,
                 );
                 draw_separated(&mut grey, separated);
             }
@@ -825,6 +826,16 @@ fn interpreted(
         ledger,
         crate::colour::DeviceSpots::default(),
     );
+    if let Err(error) = own_space {
+        interpretation
+            .unsupported
+            .push(Unsupported::TransparencyGroup {
+                detail: format!(
+                    "{}; the page uses the device's compositing route",
+                    error.why()
+                ),
+            });
+    }
     // §10.8.3's separations of a page drawn on the device's components: on the simulated
     // device's own press where the page states no space of its own, and beside the device's
     // three components where it states one; asked only where a reader asked for the simulation
@@ -1532,7 +1543,7 @@ impl<'a> Interpreter<'a> {
             compositing,
             blending: page_blending_space(document, page),
             blending_changed: false,
-            black_generation_stated: false,
+            black_generation_painted: false,
             // Nothing encloses the page's own content stream, so §11.7.5.2's fifth and sixth
             // conditions hold vacuously until a `Do` or a pattern fill narrows them.
             opaque_ancestry: true,
@@ -1653,7 +1664,7 @@ impl<'a> Interpreter<'a> {
             readings,
             compositing,
             blending_changed,
-            black_generation_stated,
+            black_generation_painted,
             opaque_ancestry,
             transfers,
             transfer_maps,
@@ -1707,7 +1718,7 @@ impl<'a> Interpreter<'a> {
             readings: *readings,
             compositing: compositing.clone(),
             blending_changed: *blending_changed,
-            black_generation_stated: *black_generation_stated,
+            black_generation_painted: *black_generation_painted,
             opaque_ancestry: *opaque_ancestry,
             transfers: transfers.clone(),
             transfer_maps: transfer_maps.clone(),
@@ -1758,7 +1769,7 @@ impl<'a> Interpreter<'a> {
             readings,
             compositing,
             blending_changed,
-            black_generation_stated,
+            black_generation_painted,
             opaque_ancestry,
             transfers,
             transfer_maps,
@@ -1801,7 +1812,7 @@ impl<'a> Interpreter<'a> {
         self.readings = readings;
         self.compositing = compositing;
         self.blending_changed = blending_changed;
-        self.black_generation_stated = black_generation_stated;
+        self.black_generation_painted = black_generation_painted;
         self.opaque_ancestry = opaque_ancestry;
         self.transfers = transfers;
         self.transfer_maps = transfer_maps;
@@ -1916,8 +1927,8 @@ struct Checkpoint {
     compositing: Compositing,
     /// See [`Interpreter::blending_changed`].
     blending_changed: bool,
-    /// See [`Interpreter::black_generation_stated`].
-    black_generation_stated: bool,
+    /// See [`Interpreter::black_generation_painted`].
+    black_generation_painted: bool,
     /// See [`Interpreter::opaque_ancestry`].
     opaque_ancestry: bool,
     /// See [`Interpreter::transfers`].
@@ -2213,8 +2224,8 @@ fn complete(
         interpreter.note(Unsupported::Font { detail });
     }
 
-    // §11.7.5.3's black generation, said once for the whole interpretation: the statement is
-    // monotone for the page and the conversion it would act on is this run's. ADR 1069.
+    // §11.7.5.3's black generation, said once for paints which actually bypassed the pair.
+    // The flag records the source, target and current functions at the paint (ADR 2187).
     interpreter.note_black_generation_departure();
 
     // Whether the page may keep the run it was drawn in. A four-component pair answers to
@@ -3056,15 +3067,10 @@ struct Interpreter<'a> {
     /// [`Interpreter::build_soft_mask`] scopes this flag the way it already scoped
     /// [`Interpreter::blending`]. ADR 0276.
     blending_changed: bool,
-    /// Whether any `/ExtGState` or pattern on this page states Table 57's black generation or
-    /// undercolour removal as a *function* of its own.
-    ///
-    /// §11.7.5.3 puts those inside §10.4.2.4's conversion into a `DeviceCMYK` group, which is on
-    /// the branch §10.4.2.1 ranks below the one this tree converts on — so what the statement
-    /// decides is a departure named once per interpretation rather than a colour (ADR 1069,
-    /// [`Interpreter::note_black_generation_departure`]). Monotone for the page, because the
-    /// parameters apply wherever a conversion happens and not only where a `gs` set them.
-    black_generation_stated: bool,
+    /// Whether an actual `DeviceRGB` paint bypassed a stated pair in a profiled `DeviceCMYK`
+    /// target (§11.7.5.3, ADR 2187). Set at painting, not colour or parameter selection;
+    /// monotone within the current content scope so checkpoints retain the report.
+    black_generation_painted: bool,
     /// Whether §11.7.5.2's opacity conditions held wherever the content being run was invoked.
     ///
     /// The clause's fifth and sixth conditions are about *ancestry* rather than about the mark:

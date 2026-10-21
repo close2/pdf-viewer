@@ -37,13 +37,13 @@
 //! It repairs two things silently-but-counted, because both are §7.3's own answer rather than a
 //! tolerance:
 //!
-//! - **A reference to an object the assembly does not hold becomes `null`.** §7.3.10: "[a]n
+//! - **A reference to an object the assembly does not hold becomes `null`.** §7.3.10: "\[a]n
 //!   indirect reference to an undefined object shall not be considered an error by a PDF
 //!   processor; it shall be treated as a reference to the null object." A transform that copies
 //!   a page's closure and stops at the pieces' edges *makes* such references, deliberately, and
 //!   [`Written::dangling`] counts every one so the caller can name them.
 //! - **A stream's `/Length` is re-derived from the bytes written.** §7.3.8.2 makes `/Length`
-//!   "[t]he number of bytes from the beginning of the line following the keyword stream to the
+//!   "\[t]he number of bytes from the beginning of the line following the keyword stream to the
 //!   last byte, just before the keyword endstream", which is a statement about the output rather
 //!   than about the source; a source whose `/Length` lied would otherwise have its lie copied
 //!   into a file this program wrote. [`Written::relengthed`] counts the disagreements.
@@ -153,12 +153,12 @@ pub enum ObjectStreams {
     Disable,
     /// Every object §7.5.7 permits is packed into a `FlateDecode`-encoded object stream.
     ///
-    /// The clause's own prohibitions decide which objects those are; [`packable`] is the list,
+    /// The clause's own prohibitions decide which objects those are; `packable` is the list,
     /// sentence by sentence.
     Generate {
         /// The most objects one object stream holds.
         ///
-        /// NOTE 4 requires a limit and gives the reason rather than a number: "[t]o avoid a
+        /// NOTE 4 requires a limit and gives the reason rather than a number: "\[t]o avoid a
         /// degradation of performance, such as would occur when downloading and decompressing a
         /// large object stream to access a single compressed object, the number of objects in
         /// an individual object stream needs to be limited." So the number is this writer's
@@ -307,7 +307,7 @@ pub enum AssemblyError {
     /// More objects than a cross-reference section can number.
     ///
     /// §7.5.4's entry states the object number implicitly, by position under a subsection
-    /// header of two integers, and Table 15's `/Size` is "[t]he total number of entries in the
+    /// header of two integers, and Table 15's `/Size` is "\[t]he total number of entries in the
     /// PDF file's cross-reference table"; the number itself is bounded here by `u32`, which is
     /// what [`ObjectId`] holds.
     #[error("an assembly cannot hold more than {} objects", u32::MAX)]
@@ -320,17 +320,17 @@ pub enum AssemblyError {
 pub enum SerializeError {
     /// No object was named as the output's catalog.
     ///
-    /// §7.5.5's Table 15 makes `/Root` required — "[t]he catalog dictionary for the PDF file"
+    /// §7.5.5's Table 15 makes `/Root` required — "\[t]he catalog dictionary for the PDF file"
     /// — and a trailer without it is the one thing `Document::open` refuses outright, so
     /// writing such a file would be writing a file this program cannot read.
     #[error("this assembly names no /Root, which §7.5.5 requires of a trailer")]
     NoRoot,
     /// The object named as the output's catalog is not one.
     ///
-    /// §7.5.5's Table 15 gives `/Root` the type **dictionary** as well as requiring it — "[t]he
+    /// §7.5.5's Table 15 gives `/Root` the type **dictionary** as well as requiring it — "\[t]he
     /// catalog dictionary for the PDF file" — so a trailer naming an object the output writes as
     /// `null`, as a number, or as an array states a catalog the file does not hold. §7.3.10
-    /// makes the other road to the same place: "[a]n indirect reference to an undefined object
+    /// makes the other road to the same place: "\[a]n indirect reference to an undefined object
     /// shall not be considered an error by a PDF processor; it shall be treated as a reference
     /// to the null object", so a `/Root` naming a number no slot carries reaches null too, and
     /// both are this one refusal.
@@ -433,7 +433,7 @@ pub(crate) enum Slot {
 pub struct Access {
     /// Bit 3: print the document.
     pub print: bool,
-    /// Bit 4: "[m]odify the contents of the document by operations other than those controlled
+    /// Bit 4: "\[m]odify the contents of the document by operations other than those controlled
     /// by bits 6, 9, and 11."
     pub modify: bool,
     /// Bit 5: copy or otherwise extract text and graphics.
@@ -471,7 +471,7 @@ impl Access {
 
     /// Table 22's flag word, for Table 21's `/P`.
     ///
-    /// The NOTE under Table 21 describes the result: "[s]ince all the reserved high-order flag
+    /// The NOTE under Table 21 describes the result: "\[s]ince all the reserved high-order flag
     /// bits in the encryption dictionary's P value are required to be 1, the integer value P is
     /// always specified as a negative integer."
     #[must_use]
@@ -647,7 +647,7 @@ impl<'a> Assembly<'a> {
 
     /// Reserves a slot that **stands in for** a source object, and answers its number.
     ///
-    /// The third of RFC 0002 section 10's three inputs — "(&[&Document], object-selection,
+    /// The third of RFC 0002 section 10's three inputs — "(&\[&Document], object-selection,
     /// replacements)" — and what a transform needs whenever an object crosses *changed*: a page
     /// whose `/Parent` must name the new tree, a node whose `/Kids` are a subset. Every
     /// reference to the source object, from anywhere in the assembly, maps to this slot, so the
@@ -1329,10 +1329,10 @@ impl<'e> Protected<'e> {
 /// generated, every object this writer wrote was at a byte offset and a `Vec<u64>` said so.
 #[derive(Debug, Clone, Copy)]
 enum Entry {
-    /// Type 1: "[t]he byte offset of the object, starting from the beginning of the PDF file."
+    /// Type 1: "\[t]he byte offset of the object, starting from the beginning of the PDF file."
     InFile(u64),
-    /// Type 2: "[t]he object number of the object stream in which this object is stored" and
-    /// "[t]he index of this object within the object stream".
+    /// Type 2: "\[t]he object number of the object stream in which this object is stored" and
+    /// "\[t]he index of this object within the object stream".
     InStream {
         /// The object stream's own number.
         stream: u32,
@@ -1344,7 +1344,7 @@ enum Entry {
 /// One object stream being filled.
 ///
 /// Held whole because §7.5.7's header states every member's offset before the first member is
-/// written — "[t]he value of the First entry in the stream dictionary shall be the byte offset
+/// written — "\[t]he value of the First entry in the stream dictionary shall be the byte offset
 /// in the decoded stream of the first object" — so the payload's length has to be known before
 /// the payload can be written. [`ObjectStreams::Generate`]'s two ceilings are what bound it.
 #[derive(Debug, Default)]
@@ -1387,7 +1387,7 @@ impl Group {
 /// constructs survived into the output. [`Form::Stream`] raises it to 1.5 where it is lower,
 /// because §7.5.8.1 introduces the construct at that version and a file whose header disowned
 /// its own cross-reference section would be one no §7.5.8.4 reader could recover. §7.5.7's
-/// NOTE 3 asks for the same floor from the other side — "[u]se of compressed objects requires a
+/// NOTE 3 asks for the same floor from the other side — "\[u]se of compressed objects requires a
 /// PDF 1.5 PDF reader" — and gets it for free, because generating object streams forces the
 /// form.
 ///
@@ -1584,7 +1584,7 @@ pub(crate) fn catalog_of(assembly: &Assembly<'_>) -> Result<ObjectId, SerializeE
 /// The version §7.5.2's header states: the caller's, raised by the constructs this file uses.
 ///
 /// §7.5.8.1 introduces the cross-reference stream at 1.5 and §7.5.7's NOTE 3 says the same of
-/// compressed objects — "[u]se of compressed objects requires a PDF 1.5 PDF reader" — while
+/// compressed objects — "\[u]se of compressed objects requires a PDF 1.5 PDF reader" — while
 /// Table 20 marks `/V` 5 and Table 21 `/R` 6 as PDF 2.0. A file whose header disowned its own
 /// cross-reference section or its own encryption dictionary would be one no reader could be
 /// expected to recover.
@@ -1602,7 +1602,7 @@ pub(crate) fn header_version(version: Version, form: Form, encrypted: bool) -> V
 
 /// §7.5.2's two lines.
 ///
-/// "The PDF file begins with the 5 characters '%PDF-'"; and "[i]f a PDF file contains binary
+/// "The PDF file begins with the 5 characters '%PDF-'"; and "\[i]f a PDF file contains binary
 /// data, as most do, the header line shall be immediately followed by a comment line containing
 /// at least four binary characters — that is, characters whose codes are 128 or greater." Every
 /// output of this serializer carries stream data, so the second line is written unconditionally
@@ -1626,7 +1626,7 @@ pub(crate) fn header(version: Version) -> Vec<u8> {
 /// Writes the `/Encrypt` dictionary as the file's last indirect object, and answers its number.
 ///
 /// §7.6.2: "Any strings in an Encrypt dictionary" are exempt from encryption, and Table 20 says
-/// the same of every value in it — "[t]he values of the keys defined in [Table 20] shall not be
+/// the same of every value in it — "\[t]he values of the keys defined in [Table 20] shall not be
 /// encrypted". So this is the one object [`write_file`] writes without asking the handler, and
 /// it is written *after* every object that did ask, because until then the handler is borrowed.
 ///
@@ -1652,7 +1652,7 @@ fn write_encrypt_dictionary<W: Write>(
 
 /// Whether §7.5.7 permits this object to be stored in an object stream.
 ///
-/// The clause's own list, sentence by sentence — "[t]he following objects shall not be stored
+/// The clause's own list, sentence by sentence — "\[t]he following objects shall not be stored
 /// in an object stream" — with the two that this writer satisfies by construction named rather
 /// than omitted, because a rule met by accident is a rule waiting to be broken:
 ///
@@ -1660,7 +1660,7 @@ fn write_encrypt_dictionary<W: Write>(
 ///   stream can always be reached by a scan: the carriers are themselves streams, so they are
 ///   never inside one another.
 /// - **"Objects with a generation number other than zero"** — [`Assembly::push`] gives every
-///   output object generation 0, which is also what "[t]he generation number of an object
+///   output object generation 0, which is also what "\[t]he generation number of an object
 ///   stream and of any compressed object shall be zero" requires of the carrier.
 /// - **"A document's encryption dictionary"** — [`serialize`] emits no `/Encrypt` at all, so
 ///   the output has none. Errata Collection 3's Issue #439 appends the document catalog of an
@@ -1676,7 +1676,7 @@ fn write_encrypt_dictionary<W: Write>(
 ///   writes.
 ///
 /// And one sentence from further down the clause, which is a rule about the *value* rather
-/// than about the object: "[a]n object in an object stream shall not consist solely of an
+/// than about the object: "\[a]n object in an object stream shall not consist solely of an
 /// object reference."
 fn packable(value: &Object) -> bool {
     !matches!(value, Object::Stream(_) | Object::Reference(_))
@@ -1877,7 +1877,7 @@ pub(crate) fn carrier_level(streams: Streams) -> u32 {
 /// An **image codec stops the walk instead of refusing it**, and the tail from there on is kept
 /// in `/Filter`: `[/ASCII85Decode /DCTDecode]` becomes `[/FlateDecode /DCTDecode]` with the
 /// producer's JPEG bytes untouched inside. That is `Document::image_stream`'s reading of the
-/// same chains from the other side — "[o]nly the last entry can be a codec" — used here to
+/// same chains from the other side — "\[o]nly the last entry can be a codec" — used here to
 /// decide where this function must stop rather than what an image is.
 ///
 /// The decode is run here rather than through [`Document::decoded_stream_data`] for one
@@ -2020,7 +2020,7 @@ fn holds_reference(value: &Object, depth: usize) -> bool {
 
 /// A stream's `/Filter` names as the output's own dictionary states them, one per stage.
 ///
-/// Table 5 makes `/Filter` "[t]he name of a filter that shall be applied in processing the
+/// Table 5 makes `/Filter` "\[t]he name of a filter that shall be applied in processing the
 /// stream data" or "an array of zero, one or several names", and this reads exactly those two
 /// shapes: `None` for anything else — an indirect entry, or an array element that is not a name
 /// — which [`recompressed`] turns into a carried stream rather than a guess about a chain it
@@ -2242,7 +2242,7 @@ pub(crate) fn row(kind: u8, second: u32, third: u16, out: &mut Vec<u8>) {
 /// `/Size` and `/Root` are required; `/Prev` is not written because there is nothing before
 /// this section; `/Info` is written where the caller carried one; and `/Encrypt` is written
 /// exactly where [`serialize_encrypted`] wrote the dictionary it names, which §7.6.2 makes the
-/// entry that decides whether the file is encrypted at all — "[t]he absence of this entry from
+/// entry that decides whether the file is encrypted at all — "\[t]he absence of this entry from
 /// the trailer dictionary means that a PDF processor shall consider the document to be not
 /// encrypted."
 ///

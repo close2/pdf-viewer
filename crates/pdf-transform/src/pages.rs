@@ -12,8 +12,8 @@
 //! `merge` exists to do and a second implementation of it here would be two answers to one
 //! question.
 //!
-//! The engine underneath is one, and that is the point: [`merge::write`] takes a list of
-//! [`Placement`]s and writes a document, and the two verbs differ only in how they build the
+//! The engine underneath is one, and that is the point: `merge::write` takes a list of
+//! `Placement`s and writes a document, and the two verbs differ only in how they build the
 //! list. Every document-level reconciliation ADR 0821 derived — §8.11's optional content,
 //! §12.7's form, §7.9.6's name trees, §12.3.3's outline, §12.4.2's labels, §14.11.5's output
 //! intents, §12.8.1's signatures — therefore applies to a page *leaving* exactly as it applies
@@ -84,7 +84,7 @@
 //!
 //! A deleted page is a page the output does not hold, and every reference to it becomes
 //! §7.3.10's null, counted and warned — `merge`'s construction, on the clause's own words
-//! ("[a]n indirect reference to an undefined object shall not be considered an error by a PDF
+//! ("\[a]n indirect reference to an undefined object shall not be considered an error by a PDF
 //! processor; it shall be treated as a reference to the null object"). §12.3.2.2 is what makes
 //! that the right answer rather than a lost link: "in each case, page is an indirect reference
 //! to a page object", so a destination *is* a reference and a reference to a page that is not
@@ -119,9 +119,9 @@
 //! > parent of this page object
 //!
 //! One `/Parent`, so one place in the tree: a page that appears twice in the output is **two
-//! page objects**, and [`Duplicates::Copy`] is that. Everything below the page — its content
+//! page objects**, and `Duplicates::Copy` is that. Everything below the page — its content
 //! stream, its resources, its fonts — is shared by reference, because nothing in a page's
-//! closure points back at the page. Its annotations do: Table 172's `/P` is "[a]n indirect
+//! closure points back at the page. Its annotations do: Table 172's `/P` is "\[a]n indirect
 //! reference to the page object with which this annotation is associated", one page, so a
 //! duplicated page gets its own annotation objects, and an annotation naming another —
 //! §12.5.6.14's `/Popup`, §12.5.6.10's `/IRT` — names the copy beside it rather than the
@@ -138,7 +138,7 @@
 //!
 //! # §14.7's structure tree
 //!
-//! **Carried** (ADR 0834), by the one reading in [`crate::structure`] that
+//! **Carried** (ADR 0834), by the one reading in `crate::structure` that
 //! `split`, `merge` and this verb share. §14.7.1 is why it has to be both halves or neither:
 //!
 //! > A PDF document's logical structure shall be stored separately from its visible content,

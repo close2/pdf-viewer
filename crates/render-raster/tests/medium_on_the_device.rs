@@ -45,7 +45,7 @@ fn demultiply(data: &mut [u8]) {
             continue;
         }
         for channel in &mut pixel[..3] {
-            *channel = u8::try_from((u16::from(*channel) * 255 / alpha).min(255))
+            *channel = u8::try_from(((u16::from(*channel) * 255 + alpha / 2) / alpha).min(255))
                 .expect("clamped to a byte");
         }
     }

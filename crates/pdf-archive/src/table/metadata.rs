@@ -1224,7 +1224,7 @@ impl Shape {
     /// Whether a stated value has this shape.
     ///
     /// A language alternative and an alternative array are the same `rdf:Alt` to a reader; what
-    /// separates them is the requirement on the items, which [`language_alternative`] checks.
+    /// separates them is the requirement on the items, which [`judge_against_schema`] checks.
     fn accepts(self, stated: &Detail) -> bool {
         matches!(
             (self, stated),
@@ -1265,7 +1265,7 @@ impl Shape {
 ///
 /// - **`Rational` admits any string.** It is listed beside `Text`, `URI` and the rest rather than
 ///   beside `Integer` and `Real`, so a validator may not hold `exif:XResolution` to a quotient —
-///   [`Lexical::accepts`] returns true for it, and the variant stays because the table's business
+///   [`Lexical::refused`] returns no complaint for it, and the variant stays because the table's business
 ///   is to record what the schema defines.
 /// - **`Date` is ISO 8601**, and [`crate::iso_8601`] is that standard's grammar for a date and
 ///   a date with a time of day, read from the working draft this project holds (ISO/WD 8601-1,
@@ -1911,7 +1911,7 @@ fn properties_use_known_schemas(exam: &Examination<'_>, findings: &mut Findings)
 ///
 /// **The reading as a list rather than as a verdict**, because a converter has to act on it and
 /// `doc/pdf-a-conversion-limits.md` section 3.9's only open route is removing the property. The
-/// requirement's own row is [`properties_use_known_schemas`] and the judgement is one function
+/// requirement's own row is `properties_use_known_schemas` and the judgement is one function
 /// for both, so a converter cannot cut a property this crate would have passed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MisusedProperty {
@@ -1929,7 +1929,7 @@ pub struct MisusedProperty {
 /// One extension schema a packet uses and describes nowhere, with what the packet itself states
 /// about it.
 ///
-/// **The population [`extension_schemas_embedded`] reports over, as the material a container
+/// **The population `extension_schemas_embedded` reports over, as the material a container
 /// would be written from.** Everything here comes out of the packet: the namespace URI the
 /// property named, the prefix the packet spelled it with, and each property's local name and the
 /// XMP value type its own serialisation shows. What a container also needs and this does not
@@ -1983,7 +1983,7 @@ fn serialised_value_type(value: &Detail) -> Option<&'static str> {
 ///
 /// `described` is the catalog's own packet where the caller holds one, because ISO 19005-2
 /// section 6.6.2.3.2 admits a description in the stream the property is in *or* in the catalog's,
-/// which is the same two places [`extension_schemas_embedded`] looks. A packet that does not parse
+/// which is the same two places `extension_schemas_embedded` looks. A packet that does not parse
 /// yields nothing, as [`properties_outside_their_schema`] does.
 #[must_use]
 pub fn undescribed_schemas(packet: &[u8], described: Option<&[u8]>) -> Vec<UndescribedSchema> {
@@ -2066,7 +2066,7 @@ impl PacketFault {
 
 /// Every metadata stream a document's cross-reference sections name, in object-number order.
 ///
-/// The population every row of this module walks ([`for_each_metadata_stream`]), answered for a
+/// The population every row of this module walks (`for_each_metadata_stream`), answered for a
 /// document alone so that a converter reaching for it does not need an [`Examination`]. Both
 /// parts exempt an indirect object no cross-reference section names (ISO 19005-2 section 6.1.4,
 /// ISO 19005-4 section 6.1.4), which is why the walk is the table's rather than a traversal's.
@@ -2120,7 +2120,7 @@ pub fn packet_faults(packet: &[u8]) -> Vec<PacketFault> {
 
 /// Every property one XMP packet states that its own predefined schema does not define.
 ///
-/// The population [`properties_use_known_schemas`] reports over, answered for one packet's bytes
+/// The population `properties_use_known_schemas` reports over, answered for one packet's bytes
 /// so that a caller holding a metadata stream can ask without a document. A packet that does not
 /// parse yields nothing: that is `metadata/xmp-packets-well-formed`'s finding rather than this
 /// subclause's, and a caller told nothing here is a caller whose file fails elsewhere.
@@ -2151,7 +2151,7 @@ pub fn properties_outside_their_schema(packet: &[u8]) -> Vec<MisusedProperty> {
 /// with the property spelled as a finding spells it.
 ///
 /// The population `examples/dates.rs` counts — which of the forms ISO/WD 8601-1 defines the
-/// producers of the corpora actually write, and which values [`Lexical::Date`] refuses — answered
+/// producers of the corpora actually write, and which values `Lexical::Date` refuses — answered
 /// for one packet's bytes so that the census needs no document. A packet that does not parse
 /// yields nothing, as [`properties_outside_their_schema`] does.
 #[must_use]
@@ -2505,7 +2505,7 @@ pub struct ContainerField {
 
 /// Every field of one packet's extension schema containers the four tables reject.
 ///
-/// The population [`extension_schema_container_fields`] reports over, answered for one packet's
+/// The population `extension_schema_container_fields` reports over, answered for one packet's
 /// bytes so that a caller holding a metadata stream can ask without a document.
 /// [`properties_outside_their_schema`]'s construction, for its reason, and with its behaviour on a
 /// packet that does not parse: nothing, because that is a different requirement's finding.
@@ -2851,7 +2851,7 @@ fn describes(kind: &CustomType) -> String {
 
 /// The namespace and required prefix of each of section 6.6.2.3.3's four value types.
 ///
-/// The tables' own, stated once: [`SCHEMA_TYPE`] and the three beside it are what a finding is
+/// The tables' own, stated once: `SCHEMA_TYPE` and the three beside it are what a finding is
 /// written from, and this is the same four pairs in the shape a writer that respells a packet
 /// takes them in.
 pub const REQUIRED_PREFIXES: [(&str, &str); 4] = [
@@ -3141,9 +3141,9 @@ fn identification_amendment_form(exam: &Examination<'_>, findings: &mut Findings
 /// The names of the amendment and corrigendum identifiers where the packet states them and their
 /// value is not the number and the year separated by a colon, each under the namespace spelling
 /// the packet actually used — which is what a writer cutting them by span needs, since a packet
-/// may spell the identification namespace either of the two ways [`IDENTIFICATION_URIS`] admits.
+/// may spell the identification namespace either of the two ways `IDENTIFICATION_URIS` admits.
 ///
-/// [`identification_amendment_form`] is the requirement's own row and [`numbered_and_dated`] is
+/// `identification_amendment_form` is the requirement's own row and `numbered_and_dated` is
 /// the judgement both use, so a converter cannot cut an identifier this crate would have passed.
 /// A packet that does not parse yields nothing, as [`properties_outside_their_schema`] does.
 #[must_use]

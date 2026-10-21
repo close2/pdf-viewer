@@ -34,7 +34,7 @@
 //! From each emitted page, every indirect reference is followed and the object it names is
 //! copied, transitively. It stops at exactly one thing: **an object that is a page or a
 //! page-tree node**. A reference to a page *of this piece* becomes that page's new number; a
-//! reference to any other page becomes `null`, which is §7.3.10's own answer — "[a]n indirect
+//! reference to any other page becomes `null`, which is §7.3.10's own answer — "\[a]n indirect
 //! reference to an undefined object … shall be treated as a reference to the null object" — and
 //! is counted and warned about, because RFC 0002 section 6.1 requires that destinations pointing out of
 //! the piece are "dropped with a warning (exit 3), not silently".
@@ -47,14 +47,14 @@
 //! The catalog is synthesised. It carries `/Pages`, and the entries whose absence would change
 //! what the pages *look like*: `/Version`, `/Lang`, `/ViewerPreferences`, `/PageLayout`,
 //! `/PageMode`, §8.11's `/OCProperties`, §12.7.3's `/AcroForm`, §14.11.5's
-//! `/OutputIntents` and — through [`crate::structure`] (ADR 0834) — §14.7's
+//! `/OutputIntents` and — through `crate::structure` (ADR 0834) — §14.7's
 //! `/StructTreeRoot` and `/MarkInfo`.
 //!
 //! It also carries RFC 0002 section 6.1's three document-level constructs (ADR 0862), and
-//! [`carry_navigation`] holds the derivation of each: §12.3.3's outline pruned to the items that
+//! `carry_navigation` holds the derivation of each: §12.3.3's outline pruned to the items that
 //! reach the piece, §12.4.2's labels recomputed one entry per page, and §12.3.2.4's named
 //! destinations subsetted to the ones that resolve inside it. Everything else the source catalog
-//! states — `/Metadata`, `/Threads`, `/Collection` and the rest of [`NOT_CARRIED`] — is **not
+//! states — `/Metadata`, `/Threads`, `/Collection` and the rest of `NOT_CARRIED` — is **not
 //! carried, and every one of them is named in a warning**, because a construct nobody thought
 //! about would otherwise be a construct nobody is told about.
 //!
@@ -119,7 +119,7 @@ pub enum Pieces {
     /// One file per §12.3.3 outline item at this depth or shallower — RFC 0002 section 6.1's
     /// `--at-bookmarks[=depth]`, with 1 naming the top-level items.
     ///
-    /// [`bookmark_cuts`] states where a piece begins and [`cut`] states what runs to the next
+    /// `bookmark_cuts` states where a piece begins and `cut` states what runs to the next
     /// one.
     AtBookmarks(usize),
 }
@@ -150,7 +150,7 @@ const MAX_ANCESTORS: usize = 64;
 /// The four entries Table 31 marks "( Required; inheritable )" or "( Optional; inheritable )".
 ///
 /// Written out rather than derived, because the table is the only place the standard says which
-/// entries are inheritable and §7.7.3.3 makes that list closed: "[a]ttributes that are not
+/// entries are inheritable and §7.7.3.3 makes that list closed: "\[a]ttributes that are not
 /// explicitly identified in the table as inheritable shall not be inherited."
 const INHERITABLE: [&str; 4] = ["Resources", "MediaBox", "CropBox", "Rotate"];
 
@@ -1038,18 +1038,18 @@ fn build_catalog(
 /// **§12.3.3's outline: permitted.** "A PDF document may contain a document outline", so a piece
 /// without one conforms and nothing requires a derivative to keep its source's. What binds is
 /// the *shape*, once there is one: Table 150 makes `/First` and `/Last` "( Required if there are
-/// any open or closed outline entries )", Table 151 makes `/Parent` required with "[t]he parent
+/// any open or closed outline entries )", Table 151 makes `/Parent` required with "\[t]he parent
 /// of a top-level item … the outline dictionary itself", `/Prev` and `/Next` required at every
 /// position but the ends of a level, and `/Count` required of an item "if the item has any
 /// descendants". So the piece keeps the subset of the hierarchy that reaches its pages and
 /// rebuilds all five, and [`visible_descendants`] runs §12.3.3's own counting algorithm over the
 /// subset rather than carrying a number that counted something else.
 ///
-/// **§12.4.2's labels: permitted, and the source's own are forbidden.** "[A] document may
+/// **§12.4.2's labels: permitted, and the source's own are forbidden.** "\[A] document may
 /// optionally define page labels" — permitted. But a label is a *position*. The clause makes a
 /// page index "the page's relative position within the document", makes the `/PageLabels` number
 /// tree's keys "the page index of the first page in a labelling range", and states outright that
-/// "[t]he tree shall include a value for page index 0". A piece is a document and its indices run
+/// "\[t]he tree shall include a value for page index 0". A piece is a document and its indices run
 /// from 0, so a piece that begins at the source's page 13 and carried the source's tree would
 /// state a tree whose lowest key is 12 and which therefore breaks that `shall`. The labels are
 /// recomputed instead, one entry per page, each stating the label that page carried in the
@@ -1169,7 +1169,7 @@ struct CarriedNames {
 ///   closure walk has already copied what it names, and is dropped when it has not — a tree
 ///   listing objects the piece does not hold would be an index of nothing.
 ///
-/// No key can collide, because a piece has one source; §7.9.6's "[t]he keys contained within the
+/// No key can collide, because a piece has one source; §7.9.6's "\[t]he keys contained within the
 /// various nodes' Names entries shall not overlap" is `merge`'s problem and not this one.
 fn carry_name_trees(piece: &mut Piece<'_>, job: &Job<'_>, held: &BTreeSet<usize>) -> CarriedNames {
     let document = job.document;
@@ -1331,7 +1331,7 @@ fn flatten<'k>(kept: &'k [Kept], out: &mut Vec<&'k Kept>) {
 /// > steps 2 and 3.
 ///
 /// The answer is the number of descendants that would be visible with this item open, which
-/// Table 151 makes `/Count` where the item is open and `-/Count` where it is closed: "[i]f the
+/// Table 151 makes `/Count` where the item is open and `-/Count` where it is closed: "\[i]f the
 /// outline item is closed, Count is negative and its absolute value is the number of descendants
 /// that would be visible if the outline item were opened."
 fn visible_descendants(item: &Kept) -> i64 {

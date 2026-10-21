@@ -44,7 +44,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pdf_archive::{Flavour, Level, Target, Verdict};
-use pdf_syntax::{Document, Limits};
+use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::archive::{
     ArchivePlan, Authorisations, Decision, Described, ExternalData, FormAnswers, Loss,
     PLACEMENT_ON_PAGE, Preservation,
@@ -199,7 +199,21 @@ fn every_stated_width(document: &Document) -> Vec<String> {
         for key in ["Widths", "W", "DW", "DW2", "W2", "MissingWidth"] {
             let value = document.get_key(dict, key);
             if !value.is_null() {
-                stated.push(format!("{key}={:?}", document.resolve(&value)));
+                let mut value = document.resolve(&value);
+                // Table 109 assigns no code to entries past LastChar. The length remedy can
+                // remove that ignored tail; every width that positions a glyph still binds.
+                if key == "Widths"
+                    && let Object::Array(items) = &mut value
+                    && let (Some(first), Some(last)) = (
+                        document.get_key(dict, "FirstChar").as_integer(),
+                        document.get_key(dict, "LastChar").as_integer(),
+                    )
+                    && let Some(count) = last.checked_sub(first).and_then(|n| n.checked_add(1))
+                    && let Ok(count) = usize::try_from(count)
+                {
+                    items.truncate(count);
+                }
+                stated.push(format!("{key}={value:?}"));
             }
         }
     }
@@ -1081,3 +1095,5 @@ fn a_supplied_separation_winner_answers_the_documents_that_disagree() {
         }
     }
 }
+
+// Temporary diagnostic for this round, removed before gates.

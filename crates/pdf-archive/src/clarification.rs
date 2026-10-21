@@ -54,7 +54,7 @@
 //! each *widen* a rule — A002 by binding a part whose own text does not state the sentence, A028
 //! by taking away a licence the base standard's own reading of §8.6.5.6 would give.
 //!
-//! **A third shape arrived with A010, and it is the reason [`CLARIFICATIONS`] is not the whole
+//! **A third shape arrived with A010, and it is the reason `CLARIFICATIONS` is not the whole
 //! record.** That item changes no row's reading at all: it narrows the *population* every row of
 //! the part reaches, by carving a range of clauses out of an exemption section 6.2.2 states. A
 //! table keyed by requirement identifier has no key for it, so it is recorded in this module's
@@ -75,7 +75,7 @@
 //! rather than against its predecessor**, because a list checked against a copy of itself
 //! inherits every item the copy omitted or misread (ADR 0931).
 //!
-//! **Taken, and a check changed**; each is carried in [`CLARIFICATIONS`] below:
+//! **Taken, and a check changed**; each is carried in `CLARIFICATIONS` below:
 //!
 //! - **A002**, ISO 19005-2 section 6.2.2 — the explicitly associated resources dictionary shall
 //!   define every named resource its content stream references. Part 2's text requires the
@@ -102,7 +102,7 @@
 //!   `pdfaType:field`; a validator treats each absence as an empty array.
 //!
 //! **Taken as confirmation**: the row already read the sentence this way, and the record is
-//! carried in [`CLARIFICATIONS`] so that a verdict says which reading it applied.
+//! carried in `CLARIFICATIONS` so that a verdict says which reading it applied.
 //!
 //! - **A003** — an explicitly associated resources dictionary is the `Resources` entry of a page,
 //!   a tiling pattern, a form `XObject` including an annotation appearance, or a Type 3 font
@@ -155,7 +155,7 @@
 //!   `fonts/cmap-uses-only-predefined-cmaps`.
 //!
 //! **Taken, and not row-shaped** — the first item of this note whose subject is not one
-//! requirement, which is why it is here rather than in [`CLARIFICATIONS`]:
+//! requirement, which is why it is here rather than in `CLARIFICATIONS`:
 //!
 //! - **A010** — an unreferenced named resource is exempt from the part *except* its
 //!   file-structure and implementation-limit subclauses, sections 6.1.2 to 6.1.13, and shall
@@ -174,7 +174,7 @@
 //!   had to. With the carve-outs in place the corpus moves not at all — the same measurement
 //!   from the other side, and `CLAUDE.md`'s two denominators again.
 //!
-//!   **Why it has no [`CLARIFICATIONS`] entry.** That table is keyed by requirement identifier
+//!   **Why it has no `CLARIFICATIONS` entry.** That table is keyed by requirement identifier
 //!   because every item before this one resolves a reading of one rule, and a judgement prints
 //!   the resolution beside the row it bears on. A010 bears on *every* row of the two parts at
 //!   once, by narrowing the population they are all about; there is no row it belongs to, and

@@ -23,7 +23,7 @@
 //! entry changes nothing any reader computes and the removal is mechanical. Where the two differ
 //! — a box too *small* to meet the limit, or an over-sized one a narrower crop box stands behind
 //! — a reader would clip, trim or place the page's content differently afterwards, and the
-//! removal costs [`Loss::PageBoundary`], which the caller authorises. `doc/adr/1210` is the
+//! removal costs [`super::Loss::PageBoundary`], which the caller authorises. `doc/adr/1210` is the
 //! argument; the predicate is [`removal`].
 //!
 //! # The media box keeps the catalogue's original *none*

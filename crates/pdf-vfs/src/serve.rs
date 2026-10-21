@@ -108,10 +108,10 @@ const COPIES_OF_AN_ANSWER: std::num::NonZeroU64 = match std::num::NonZeroU64::ne
 pub struct WorkerLimits {
     /// What confinement was reached, which is what the greeting carries to the broker.
     pub confinement: pdf_sandbox::lockdown::Confinement,
-    /// How many strips a page's raster is cut into, which is [`STRIPS`] on every machine.
+    /// How many strips a page's raster is cut into, which is `STRIPS` on every machine.
     pub strips: u32,
     /// How many threads this process's pool draws with: the machine's processors where the spawner
-    /// limited the allocator's arenas, and one where it did not ([`ARENA_LIMIT_VARIABLE`]).
+    /// limited the allocator's arenas, and one where it did not (`ARENA_LIMIT_VARIABLE`).
     pub threads: usize,
     /// The largest message this process will read or write, in bytes.
     ///
@@ -137,14 +137,14 @@ pub struct WorkerLimits {
 /// - `reserved` is what one rendered page may claim beside the message. `pdf_transform::Budget`'s
 ///   own `max_pixels` is the ceiling on a page, and RGBA is four bytes of it — the same
 ///   arithmetic `INTERPRETER_ADDRESS_SPACE_LIMIT` was itself derived from. The default budget's
-///   2²⁸ pixels is a gibibyte. `threads` × [`RASTERISING_STACK`] is added to it, because the pool
+///   2²⁸ pixels is a gibibyte. `threads` × `RASTERISING_STACK` is added to it, because the pool
 ///   is built after `already` was read and its stacks are therefore not in that figure.
 ///
 /// **What this bounds is the answer as much as the question**, which is the direction that
 /// matters here: a mount will be asked for a 300 dpi render of a large page, and the frame that
 /// carries it back is the largest thing on this wire. A worker whose answer is past the budget
 /// refuses it *by name* rather than writing a frame the broker will not hold — see
-/// [`unaffordable`].
+/// `unaffordable`.
 #[must_use]
 pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64, threads: usize) -> u64 {
     let stacks = u64::try_from(threads.saturating_mul(RASTERISING_STACK)).unwrap_or(u64::MAX);
@@ -167,8 +167,8 @@ pub fn message_budget(ceiling: u64, already: u64, max_pixels: u64, threads: usiz
 /// 2. **How many processors this machine has is asked now**, because
 ///    `std::thread::available_parallelism` reads `/proc/self/cgroup` on Linux, so a confined
 ///    process asking it is *killed* rather than told no. The answer sets the pool's width where
-///    the spawner limited the allocator's arenas ([`ARENA_LIMIT_VARIABLE`]) and nothing else: a
-///    page's strips are [`STRIPS`], stated, so the processors a worker was given reach no byte
+///    the spawner limited the allocator's arenas (`ARENA_LIMIT_VARIABLE`) and nothing else: a
+///    page's strips are `STRIPS`, stated, so the processors a worker was given reach no byte
 ///    it draws (ADRs 1774, 1804).
 /// 3. **How much address space this process already occupies is read**, because
 ///    `/proc/self/status` is a file, and after step 4 there are none.

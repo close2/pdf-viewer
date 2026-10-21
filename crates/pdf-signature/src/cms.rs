@@ -49,7 +49,7 @@ pub(crate) const MAX_ATTRIBUTES: usize = 64;
 
 /// How many certificates are kept out of a `SignedData`.
 ///
-/// §12.8.3.3.1 requires one — "[a]t minimum the CMS object shall include the signer's X.509
+/// §12.8.3.3.1 requires one — "\[a]t minimum the CMS object shall include the signer's X.509
 /// signing certificate" — and permits a whole chain beside it. This bounds the one `Vec` a file's
 /// contents size in this module; a signature carrying more has a certificate past the bound
 /// ignored, which makes the signer *unmatched* rather than wrongly matched.
@@ -91,7 +91,7 @@ pub const ID_COUNTERSIGNATURE: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x0
 /// §12.8.3.4.3 (f) names this attribute and says where it is defined: "signing-certificate or
 /// signing-certificate-v2: shall be used as a signed attribute … The details of the signing
 /// certificate attribute are defined in Internet RFC 5035 ." That RFC's section 5.4 is what makes
-/// the two spellings one requirement: "[t]he only substantial difference between the two
+/// the two spellings one requirement: "\[t]he only substantial difference between the two
 /// attributes is that SigningCertificateV2 allows for hash algorithm agility, while
 /// SigningCertificate forces the use of the SHA-1 hash algorithm."
 pub const ID_AA_SIGNING_CERTIFICATE: &[u8] = &[
@@ -324,7 +324,7 @@ pub enum Digest {
     ///
     /// **The published ISO/TS 32001:2022 pinned it**: section 5.1.4 said the algorithm "identified
     /// by the id-shake256 object identifier (OID) in section 2.3 of RFC 8419 shall be used", and
-    /// its NOTE said what that bought — "[t]he requirement to use the id-shake256 OID fixes the
+    /// its NOTE said what that bought — "\[t]he requirement to use the id-shake256 OID fixes the
     /// SHAKE256 output length for the digest at 512 bits and serves to prohibit variable length
     /// SHAKE256 algorithm usage and prohibit use of SHAKE256 algorithms with OIDs other than
     /// id-shake256."
@@ -387,7 +387,7 @@ impl Digest {
 
     /// The algorithm a PDF *name* names, which is how a dictionary spells one rather than an OID.
     ///
-    /// Table 256's `/DigestMethod` is the entry that states one - "[a] name identifying the
+    /// Table 256's `/DigestMethod` is the entry that states one - "\[a] name identifying the
     /// algorithm that shall be used when computing the digest if not specified in the
     /// certificate" - and the table prints its own value list: "Valid values are MD5, SHA1
     /// SHA256, SHA384, SHA512 and RIPEMD160". Six, and this function recognises exactly those
@@ -698,13 +698,13 @@ pub struct SignedData<'a> {
     ///
     /// Absent for a detached signature, which is what `adbe.pkcs7.detached` and
     /// `ETSI.CAdES.detached` are named for. Present for `adbe.pkcs7.sha1`, where §12.8.3.3.1 says
-    /// what it holds — "[t]he SHA-1 digest of the document's byte range shall be encapsulated in
+    /// what it holds — "\[t]he SHA-1 digest of the document's byte range shall be encapsulated in
     /// the CMS `SignedData` field with `ContentInfo` of type Data" — and for a document timestamp,
     /// where it is RFC 3161's `TSTInfo`.
     pub encapsulated: Option<&'a [u8]>,
     /// The entries of the `certificates [0] IMPLICIT` member, unparsed.
     ///
-    /// §12.8.3.3.1: "[a]t minimum the CMS object shall include the signer's X.509 signing
+    /// §12.8.3.3.1: "\[a]t minimum the CMS object shall include the signer's X.509 signing
     /// certificate. This certificate shall be used to verify the signature value in Contents ."
     /// So an empty list is a file failing that requirement, and [`crate::x509::read`] is what
     /// turns one of these into a key (ADR 0229).
@@ -732,9 +732,9 @@ pub struct SignedData<'a> {
     pub signature: &'a [u8],
     /// The contents of the first signer's `signedAttrs [0] IMPLICIT`, where it states one.
     ///
-    /// The *contents*, because RFC 5652 section 5.4 does not sign the bytes as they appear: "[a]
+    /// The *contents*, because RFC 5652 section 5.4 does not sign the bytes as they appear: "\[a]
     /// separate encoding of the signedAttrs field is performed for message digest calculation.
-    /// The IMPLICIT [0] tag in the signedAttrs is not used for the DER encoding, rather an
+    /// The IMPLICIT \[0] tag in the signedAttrs is not used for the DER encoding, rather an
     /// EXPLICIT SET OF tag is used." [`SignedData::signed_attributes_encoding`] is that
     /// re-encoding.
     pub signed_attributes: Option<&'a [u8]>,
@@ -753,14 +753,14 @@ pub struct SignedData<'a> {
     /// §12.8.3.4.5 (a) requires a verifier to act on. The *value* is kept rather than only the
     /// identifier because the hash inside it is what that step compares against; [`crate::ess`]
     /// reads it. `None` where the signer states no such attribute, and `None` for one stated as an
-    /// *unsigned* attribute, which RFC 5035 section 5.4.2 forbids outright: "[i]f present, the
+    /// *unsigned* attribute, which RFC 5035 section 5.4.2 forbids outright: "\[i]f present, the
     /// SigningCertificate attribute MUST be a signed attribute; it MUST NOT be an unsigned
     /// attribute."
     pub signing_certificate: Option<Value<'a>>,
     /// The same for `signing-certificate-v2` — RFC 5035 section 5.4.1's `SigningCertificateV2`.
     ///
     /// Two fields rather than one because RFC 5035 section 5.4 says what to do when a file states
-    /// both: "[i]f both attributes exist in a single message, they are independently evaluated."
+    /// both: "\[i]f both attributes exist in a single message, they are independently evaluated."
     pub signing_certificate_v2: Option<Value<'a>>,
     /// The first signer's `signature-time-stamp` unsigned attribute, as its single
     /// `AttributeValue`.
@@ -789,7 +789,7 @@ pub struct SignedData<'a> {
     /// alone and stay because most callers want nothing else; this is the same walk recorded in
     /// full, and [`Self::attribute`] is how a rule about one attribute finds it.
     pub attributes: Vec<Attribute<'a>>,
-    /// Whether either list stopped at [`MAX_ATTRIBUTES`] rather than at the file's end.
+    /// Whether either list stopped at `MAX_ATTRIBUTES` rather than at the file's end.
     pub attributes_truncated: bool,
 }
 
@@ -833,9 +833,9 @@ impl<'a> SignedData<'a> {
 
     /// The bytes RFC 5652 section 5.4 says a signature over signed attributes is computed over.
     ///
-    /// That clause requires "[t]he IMPLICIT [0] tag in the signedAttrs" not to be used for the DER
+    /// That clause requires "\[t]he IMPLICIT \[0] tag in the signedAttrs" not to be used for the DER
     /// encoding, "rather an EXPLICIT SET OF tag is used" — and it says which bytes go into the
-    /// digest: "the DER encoding of the EXPLICIT SET OF tag, rather than of the IMPLICIT [0] tag,
+    /// digest: "the DER encoding of the EXPLICIT SET OF tag, rather than of the IMPLICIT \[0] tag,
     /// MUST be included in the message digest calculation along with the length and content octets
     /// of the `SignedAttributes` value."
     ///
@@ -878,7 +878,7 @@ impl<'a> SignedData<'a> {
 
     /// The digest RFC 3161's `TSTInfo` commits to, where this is a timestamp token.
     ///
-    /// Table 255 states what a document timestamp's value is: "[t]he value of the messageImprint
+    /// Table 255 states what a document timestamp's value is: "\[t]he value of the messageImprint
     /// field within the `TimeStampToken` shall be a hash of the bytes of the document indicated by
     /// the `ByteRange`". `TSTInfo ::= SEQUENCE { version, policy, messageImprint, … }` and
     /// `MessageImprint ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier, hashedMessage OCTET

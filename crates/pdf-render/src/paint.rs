@@ -246,7 +246,7 @@ impl Stroke {
     ///
     /// # A negative width is not a width, and the clause that says so is one subclause up
     ///
-    /// §8.4.3.2 gives the parameter its range — "[i]t shall be a nonnegative number expressed
+    /// §8.4.3.2 gives the parameter its range — "\[i]t shall be a nonnegative number expressed
     /// in user space units" — and §8.4.1 states what a processor does with a value outside a
     /// range, naming this parameter as it does:
     ///
@@ -688,7 +688,7 @@ pub enum SampleAlpha {
     /// §8.9.5 Table 87 lists what a stencil may not carry — `/BitsPerComponent` other than 1,
     /// `/ColorSpace`, and `/Mask`, whose own row says it twice ("If `ImageMask` is true, this
     /// entry shall not be present") — and `/SMask`'s row says nothing of the kind. §8.9.6.2
-    /// lists the three ways "[a]n image mask differs from an ordinary image" and they are
+    /// lists the three ways "\[a]n image mask differs from an ordinary image" and they are
     /// those same three. And §8.9.6.1, the paragraph before it, adds the soft mask to the
     /// list of masking effects an image dictionary may carry without excluding a stencil:
     /// "a fourth type of masking effect, soft masking, is available through the SMask entry".
@@ -1148,7 +1148,7 @@ pub struct Grid {
 impl Grid {
     /// The grid a raster placed by `placement` is wanted at.
     ///
-    /// `placement` maps the unit square onto the device, so [`crate::geom::length`] of each of
+    /// `placement` maps the unit square onto the device, so `crate::geom::length` of each of
     /// its columns is the device length of that edge — the same quantity
     /// [`Image::is_smoothed`] and [`Image::area_averaged`] measure, by the same function and
     /// for the reason that function gives.

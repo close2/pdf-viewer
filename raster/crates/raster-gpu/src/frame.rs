@@ -510,10 +510,16 @@ pub struct Counters {
     /// overstate it.
     pub layers_culled: u32,
     /// Line instances this frame's encode took in runs from the encode of the same scene at the
-    /// view before, rather than walking their lines (viewer ADR 2056): the instances, their
-    /// batches and their lane count are that encode's, and only each line's box at this view was
-    /// asked, until the page's plan held the whole target. Zero for a frame walked whole.
+    /// view before, rather than walking their lines (viewer ADR 2056). The stream and lane count
+    /// remain that encode's; conservative block bounds may omit draw ranges at this view.
+    /// Plan bounds are grown until they hold the target. Zero for a frame walked whole.
     pub lines_kept: u32,
+    /// Resident line instances omitted from this view's draw ranges because their conservative
+    /// block bounds miss the viewport. They remain in the resident stream and in `lines_kept`.
+    pub line_instances_omitted: u32,
+    /// Optional line-bound tables declined by the frame budget. Such an encode draws the
+    /// original complete runs; this also stays set on later frames that reuse those runs.
+    pub line_bounds_refused: u32,
     /// Bytes scheduled for CPU→GPU transfer this frame.
     pub bytes_uploaded: u64,
     /// [`bytes_uploaded`](Counters::bytes_uploaded) divided by the stream it went to.

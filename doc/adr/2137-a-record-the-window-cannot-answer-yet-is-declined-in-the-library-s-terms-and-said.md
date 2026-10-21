@@ -1,6 +1,6 @@
 # 2137 — A record the window cannot answer yet is declined in the library's terms, and said
 
-Session 1650, RFC 0010 step N3a. Status: **accepted**, in `hosts/windows/Quorra.App/MainWindow.xaml.cs`;
+Session 1650, RFC 0010 step N3a. Status: **superseded by ADR 2185** for all five cards; originally in `hosts/windows/Quorra.App/MainWindow.xaml.cs`;
 compiled by CI only (ADR 2136). Context: ADRs 2088, 2121, `CLAUDE.md` principle 1, trap 5.
 
 ## Decision

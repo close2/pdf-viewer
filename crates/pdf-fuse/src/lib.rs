@@ -14,10 +14,10 @@
 //! # The three things a FUSE face has to decide
 //!
 //! **An inode here is a name, not a page**, and that is forced rather than chosen. RFC 0003
-//! section 5.2 makes an ordinal a position — "[o]rdinal names are **positions, not identities** —
+//! section 5.2 makes an ordinal a position — "\[o]rdinal names are **positions, not identities** —
 //! the rule that makes insertion and deletion coherent: after any write, the next listing
 //! renumbers" — so there is no page-shaped thing for an inode to be the identity *of*.
-//! `pages/0004.pdf` names the fourth page of whatever the document now is. [`Inodes`] therefore
+//! `pages/0004.pdf` names the fourth page of whatever the document now is. `Inodes` therefore
 //! maps path to inode, one inode per path for the life of the mount, and the attribute and entry
 //! timeouts are **zero**: the kernel is told to ask again every time, because the answer can have
 //! changed for a reason no `stat` of ours would show.
@@ -600,7 +600,7 @@ impl Face {
     ///
     /// # Errors
     ///
-    /// Always, and the sentence says why: "[r]ename semantics under position-names are ambiguous
+    /// Always, and the sentence says why: "\[r]ename semantics under position-names are ambiguous
     /// … Reorder belongs to the transform CLI".
     pub fn rename(&self, parent: u64, name: &str, new_parent: u64, new_name: &str) -> Errno {
         let (Ok(from), Ok(to)) = (self.path_of(parent), self.path_of(new_parent)) else {

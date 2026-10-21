@@ -32,7 +32,7 @@ pub enum GreyIdentity {
 /// Two hundred and fifty-six, so that every component an eight-bit channel can hold lands
 /// on a sample exactly and only a component recovered from under a partial alpha is
 /// interpolated. A one-dimensional table this size costs three kilobytes, which is why it
-/// needs no registry where a press needs [`Presses`].
+/// needs no registry where a press needs [`super::press::Presses`].
 const GREY_CURVE_SAMPLES: usize = 256;
 
 /// The way into a `CalGray` or `ICCBased` 'GRAY' blending colour space, and the way out

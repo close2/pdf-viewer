@@ -19,7 +19,7 @@
 //! # Why anything is owed here at all, when this tree anti-aliases
 //!
 //! Anti-aliasing is a departure from the clause read literally, licensed by §10.7.1's NOTE that
-//! "[t]he specifics of the scan conversion algorithm are not defined as part of PDF", and it
+//! "\[t]he specifics of the scan conversion algorithm are not defined as part of PDF", and it
 //! replaces the clause's "paint the pixel" with **coverage proportional to area**. That
 //! replacement is what has to hold: a shape occupying a twentieth of a pixel is drawn at a
 //! twentieth of the ink, which is neither the clause's answer nor nothing. Coverage that rounds
@@ -123,7 +123,7 @@
 //!
 //! # And "one device pixel wide" is a family of widths rather than one, once the axes disagree
 //!
-//! §8.4.3.2 says so in as many words — "[i]f the CTM specifies scaling by different factors in the
+//! §8.4.3.2 says so in as many words — "\[i]f the CTM specifies scaling by different factors in the
 //! horizontal and vertical dimensions, the thickness of stroked lines in device space shall vary
 //! according to their orientation" — and the substitution above is built on a *width*, which
 //! cannot vary. A band swept along `u` has device thickness `w · |u| · |det T| / |T u|`, so under
@@ -183,7 +183,7 @@
 //! a *square* — was gone at 0.05, which is twenty times thicker and is a width the corpus states.
 //!
 //! §10.7.4 decides what an answer of zero means, and it is the sentence this whole module opens
-//! with: "[t]his ensures that no shape ever disappears". [`expressible_coverage`] is that sentence
+//! with: "\[t]his ensures that no shape ever disappears". [`expressible_coverage`] is that sentence
 //! as arithmetic — a coverage that is positive and under one level is stated at one level — and it
 //! is the only place the raster's depth is named, so that neither backend decides it alone.
 //!
@@ -217,12 +217,12 @@
 //! one pixel, which is exactly what an eight-bit raster cannot hold anyway.
 //!
 //! **It costs ink, deliberately, and the clause asks for that direction rather than the other**:
-//! the same paragraph says "[t]he area covered by painted pixels shall always be at least as large
+//! the same paragraph says "\[t]he area covered by painted pixels shall always be at least as large
 //! as the area of the original shape", so a mark this floor raises is a mark drawn heavier than
 //! its geometry, which is the side of the sentence a `shall` is on. What it does *not* do is what
 //! §10.7.5 would: the mark stays where the document put it and keeps the width the substitution
 //! gave it, and only the last level of its alpha moves. §10.7.5's promotion of a sub-half-pixel
-//! stroke to a single-pixel line is a different rule with a different trigger — "[i]f stroke
+//! stroke to a single-pixel line is a different rule with a different trigger — "\[i]f stroke
 //! adjustment is enabled" — and Table 51 gives that parameter an initial value of `false`.
 
 use crate::collapsed::{Extent, subpath_extents};
@@ -352,7 +352,7 @@ const ONE_LEVEL: f32 = 1.0 / 255.0;
 /// no shape, and [`crate::collapsed`] rather than this answers a subpath that has none.
 ///
 /// The mark is drawn heavier than its geometry wherever this bites, which is the direction the
-/// same paragraph asks for — "[t]he area covered by painted pixels shall always be at least as
+/// same paragraph asks for — "\[t]he area covered by painted pixels shall always be at least as
 /// large as the area of the original shape" — and it is the only thing that moves: the mark keeps
 /// its place and the width the substitution gave it, so this is not §10.7.5's promotion, which
 /// needs a stroke adjustment parameter Table 51 initialises to `false`.

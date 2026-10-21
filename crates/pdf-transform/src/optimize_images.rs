@@ -15,7 +15,7 @@
 //! # What may be re-encoded, and why each refusal is the clause's
 //!
 //! §7.4.8's JPEG is "a stream of image samples, each consisting of one, three, or four colour
-//! components" where "[e]ach component value shall occupy a byte", so the samples are taken
+//! components" where "\[e]ach component value shall occupy a byte", so the samples are taken
 //! exactly as §8.9.5 states them and nothing is converted on the way:
 //!
 //! - **eight bits a component**, Table 87's `/BitsPerComponent` 8, because a JPEG component is a

@@ -14,7 +14,7 @@ impl Host {
     /// **Built here rather than in `build_window`**, which is `CLAUDE.md` section 2's rule and
     /// also the only way the ticks can be right: the levels change while the window is up, and a
     /// model built once would show the policy the program launched with. What it costs is one
-    /// walk over 62 entries when a person opens a menu, which is on no path a page takes.
+    /// walk over the current entries when a person opens a menu, which is on no path a page takes.
     fn fill_the_restrictions_menu(&mut self) {
         let (model, actions) = restrictions_menu(&self.me, self.state.restrictions);
         self.ui
@@ -161,6 +161,7 @@ fn act_menu(
         viewer_host::Act::Submitting => "sending",
         viewer_host::Act::OpeningEmbedded => "embedded",
         viewer_host::Act::RunningScripts => "scripts",
+        viewer_host::Act::LaunchedDocuments => "launched",
     };
     let action =
         gio::SimpleAction::new_stateful(name, Some(glib::VariantTy::STRING), &chosen.to_variant());

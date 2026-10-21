@@ -81,7 +81,7 @@ pub struct Window<'a> {
     /// it. The clause permits it and a good third of the corpus's popups are like that
     /// (`pdf-model`'s `popup` module records the census).
     pub text: &'a str,
-    /// The title bar's colour, from Table 166's `/C` — "[t]he title bar of the annotation's popup
+    /// The title bar's colour, from Table 166's `/C` — "\[t]he title bar of the annotation's popup
     /// window".
     ///
     /// `None` where the file states none *and* for the empty array the table gives the meaning
@@ -101,7 +101,7 @@ pub struct Window<'a> {
     /// `pdf_model::popup::Comment::depth` is how far each is indented.
     pub replies: &'a [pdf_model::popup::Comment],
     /// Table 172's `/RC` with its formatting, which a host draws in place of [`Self::text`] where
-    /// it is `Some` — "[a] rich text string … that shall be displayed in the popup window when the
+    /// it is `Some` — "\[a] rich text string … that shall be displayed in the popup window when the
     /// annotation is opened". The runs say what each character is set in; [`size`], [`rise`],
     /// [`family`] and [`not_drawn`] are the readings of them the three windows share (ADR 1642).
     pub rich: Option<&'a pdf_model::popup::RichNote>,
@@ -187,7 +187,7 @@ pub fn thread(window: &Window<'_>) -> String {
 /// enforced the writer's rule would show a producer's break as no break at all. **A carriage
 /// return followed immediately by a line feed is one break**, and that is this program's choice
 /// rather than a sentence: §3.23 defines an end-of-line marker as a "one or two character
-/// sequence", and §7.2.3 states that "[t]he combination of a CARRIAGE RETURN followed immediately
+/// sequence", and §7.2.3 states that "\[t]he combination of a CARRIAGE RETURN followed immediately
 /// by a LINE FEED shall be treated as one EOL marker" — both about the file's syntax rather than
 /// about a text string's display, and both the evidence the choice rests on (ADR 1798). Splitting
 /// on each byte would put an empty paragraph between every two a Windows-written note has.

@@ -91,7 +91,7 @@
 //! ([`pdf_font::composite_cmap`]) and the function it decodes with. A Type 3 glyph is a content
 //! stream that may mark past its advance, so its code is tested against the box its description
 //! declares — `d1`'s, or the font's `/FontBBox` for a `d0` glyph, or where that box is all zero
-//! the box its own marks fill when the description is run ([`type3`], ADR 1363) — carried to the
+//! the box its own marks fill when the description is run (`type3`, ADR 1363) — carried to the
 //! page by `/FontMatrix` and §9.4.4's text rendering matrix. The glyph description itself is the
 //! font's and stays; only the code that invoked it goes, and its advance is restored like any
 //! other — in writing mode 1 by §9.4.4's `ty`, from the descendant's `/W2` and `/DW2`.
@@ -99,7 +99,7 @@
 //! # `sh`, soft-mask groups and a stroke's own state (ADRs 1351, 1352)
 //!
 //! `sh` paints the clip, so where it meets the region the clip is cut: the shading is painted
-//! through the clip intersected with the region's complement ([`shading`]). A soft mask's group
+//! through the clip intersected with the region's complement (`shading`). A soft mask's group
 //! is content that marks the page as shape or opacity, so it is entered at the `gs` that
 //! establishes it and cut like any other stream. A stroke's surviving outline is filled in the
 //! stroke's own colour, alpha and overprint — stated by a graphics state dictionary the stream's
@@ -109,11 +109,11 @@
 //!
 //! A shading's data located in the region alone — a mesh's vertices and corners, a radial
 //! shading's inner circles, a function-based shading's samples — are destroyed where they are
-//! stated, and the shading is written afresh for the page ([`located`], [`mesh`]); an axial
+//! stated, and the shading is written afresh for the page (`located`, `mesh`); an axial
 //! shading's values lie on lines that leave any region, so it is cut by its clip alone. A stroke
 //! of width 0 is cut along its path rather than as an outline, since §8.4.3.2 states its width in
 //! device pixels. A form drawn more than once that the region meets differently is given a copy
-//! per edit it is asked for, each named where it is drawn ([`forms`]).
+//! per edit it is asked for, each named where it is drawn (`forms`).
 //!
 //! # What is refused, never cut wrong (trap 5)
 //!
@@ -140,10 +140,10 @@
 //!   reference no resource name in force reaches;
 //! - a **painted path** whose marks the cut cannot take exactly: one whose path object another
 //!   operator interrupted, and one whose surviving coordinates are too large for
-//!   [`paths::Cut::margin_holds`] to prove the cut edge cannot round into the region;
+//!   `paths::Cut::margin_holds` to prove the cut edge cannot round into the region;
 //! - a **form `XObject`** (§8.10) whose content does not decode, one that draws itself, one the
 //!   page's resources name directly rather than by reference, so no object can be replaced, and
-//!   a page asking for more copies of its forms than [`forms::MAX_COPIES`].
+//!   a page asking for more copies of its forms than `forms::MAX_COPIES`.
 //!
 //! An encrypted document is refused outright where no protection is stated for the output,
 //! because the redaction would otherwise be written in the clear (ADR 1162).
@@ -156,7 +156,7 @@
 //! coordinates that described the removed marks are gone from the file — a clip would have left
 //! them, which is the failure the clause names for an image when it forbids a mask. A path wholly
 //! inside the region loses its painting operator with its geometry; one clear of the region keeps
-//! its own bytes. [`paths`] is the construction, its exactness argument, and the margin that makes
+//! its own bytes. `paths` is the construction, its exactness argument, and the margin that makes
 //! the rounding at the cut edge a proof rather than a hope. ADR 1195.
 //!
 //! # Entering a form (§8.10)
@@ -187,12 +187,12 @@
 //! # Where each concern lives (ADR 2032)
 //!
 //! This file keeps the state the walk carries (`Walk` and the types it holds), the entry points
-//! ([`run`] and the operator dispatch) and the page-level planning and writing. One module per
-//! concern holds an `impl Walk` for it: [`text`] (codes and the showing operators), [`painting`]
-//! (path construction and the cut), [`frames`] (`Do`, forms and the frame a stream runs in),
-//! [`images`] (the plans that clear an image's samples), [`inline`] (the inline image splice),
-//! [`graphics_state`] (`gs` and soft masks) and [`regions`] (the region in the stream's space);
-//! [`forms`], [`located`], [`mesh`], [`paths`], [`shading`] and [`type3`] are the constructions
+//! (`run` and the operator dispatch) and the page-level planning and writing. One module per
+//! concern holds an `impl Walk` for it: `text` (codes and the showing operators), `painting`
+//! (path construction and the cut), `frames` (`Do`, forms and the frame a stream runs in),
+//! `images` (the plans that clear an image's samples), `inline` (the inline image splice),
+//! `graphics_state` (`gs` and soft masks) and `regions` (the region in the stream's space);
+//! `forms`, `located`, `mesh`, `paths`, `shading` and `type3` are the constructions
 //! those concerns call.
 
 mod forms;
@@ -696,7 +696,7 @@ type FormOutcomes = Vec<(ObjectId, Option<Vec<u8>>)>;
 struct ImageClear {
     /// The image `XObject` to overwrite.
     image_id: ObjectId,
-    /// The placement: the unit square [0,1]² of image space maps through this into the display
+    /// The placement: the unit square \[0,1]² of image space maps through this into the display
     /// list's coordinates, where the region boxes are.
     ctm: Transform,
     /// The display-space region boxes a sample centre is tested against.
@@ -896,7 +896,7 @@ impl CompositeCodes {
 /// What the walk needs of a Type 3 font to say where one of its glyphs marks the page.
 ///
 /// §9.6.4 states two boxes, and between them every glyph has one: Table 111's `d1` operands are
-/// the glyph's bounding box, of which it says "[t]he declared bounding box shall be correct - in
+/// the glyph's bounding box, of which it says "\[t]he declared bounding box shall be correct - in
 /// other words, sufficiently large to enclose the entire glyph", and Table 110's `/FontBBox` is "the smallest rectangle
 /// enclosing all marks that would result if all of the glyphs of the font were placed with their
 /// origins coincident". A `d0` glyph declares no box of its own, so the font's is the one that
@@ -1488,7 +1488,7 @@ fn is_path_operator(keyword: &[u8]) -> bool {
 /// How far, in the display list's units, the outline a stroke is cut as may depart from the arc
 /// §8.4.3.3's round cap, §8.4.3.4's round join or the offset of a §8.5.2.2 curve describes.
 ///
-/// A path can state no circle — "[c]urved path segments shall be specified as cubic Bézier
+/// A path can state no circle — "\[c]urved path segments shall be specified as cubic Bézier
 /// curves" — so the outline written back for a round cap is cubics fitted to it, and this is the
 /// fitting's bound. A hundredth of [`paths::REGION_PAD`]: at a magnification where the widening
 /// the cut already takes past the quad covers one device pixel, the approximation covers a
@@ -1560,7 +1560,7 @@ fn split_open(path: &kurbo::BezPath) -> Vec<paths::SubPath> {
 ///
 /// **A path that is also §8.5.4's clipping boundary is not one of them, since ADR 1248.** The
 /// boundary is not a mark and a cut does not have to move it: the clause separates the two acts
-/// in time — "[a]lthough the clipping path operator appears before the painting operator, it
+/// in time — "\[a]lthough the clipping path operator appears before the painting operator, it
 /// shall not alter the clipping path at the point where it appears … After the path has been
 /// painted, the clipping path in the graphics state shall be set to the intersection of the
 /// current clipping path and the newly constructed path" — so the marks are painted under the

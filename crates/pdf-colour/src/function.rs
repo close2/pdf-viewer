@@ -35,9 +35,9 @@ const MAX_VALUES: usize = 64;
 
 /// How many functions one call into the parser may build, and therefore §7.10.4's largest k.
 ///
-/// §7.10.4's Table 41 makes `/Functions` "[a]n array of k , 1-input functions that shall make
+/// §7.10.4's Table 41 makes `/Functions` "\[a]n array of k , 1-input functions that shall make
 /// up the stitching function" and bounds k **nowhere**: the only value it singles out is the
-/// small one, "[t]he value of k may be 1". A 256-stop gradient is written as k = 255, and
+/// small one, "\[t]he value of k may be 1". A 256-stop gradient is written as k = 255, and
 /// `2750009.pdf` in the `SafeDocs` sample is exactly that — four shadings, 255 subfunctions
 /// apiece, refused whole because [`MAX_VALUES`] was being read as a bound on k when its own
 /// documentation says it bounds a component count. §7.10.4 settles that from the other side
@@ -443,10 +443,10 @@ impl Function {
     ///
     /// **The whole point of the conditions is that both readings answer the same question.**
     /// A device handed this list evaluates it at a point and clips the result to the `Range`
-    /// the caller states beside it; [`Self::eval_into`] does two more things first, and each
+    /// the caller states beside it; `Self::eval_into` does two more things first, and each
     /// is a condition here rather than something the device is trusted to reproduce:
     ///
-    /// - **§7.10.1 clips the inputs to the `/Domain`** — "[i]nput values passed to the
+    /// - **§7.10.1 clips the inputs to the `/Domain`** — "\[i]nput values passed to the
     ///   function shall be clipped to the domain" — and a device evaluating a §8.7.4.5.2 type
     ///   1 shading is handed the *shading's* domain rectangle, which §8.7.4.5.2 makes a
     ///   *region* rather than a clamp. Where this function's own `/Domain` contains that
@@ -1179,9 +1179,9 @@ fn narrow(value: f64) -> f32 {
 /// §7.10.5.1's subset admits no value meaning *error*, so an operand of a type Annex B's line
 /// does not admit cannot be refused the way PostScript refuses it. **The policy, stated once and
 /// applied everywhere:** such an operand is *converted* by the reading that loses least — a
-/// boolean is the 1 or 0 it stands for where a number is wanted ([`Value::number`]), a number is
-/// false exactly when it is zero where a boolean is wanted ([`Value::truth`]), and a real is
-/// truncated where an integer is wanted ([`Value::integer`]). The one operator this does not
+/// boolean is the 1 or 0 it stands for where a number is wanted (`Value::number`), a number is
+/// false exactly when it is zero where a boolean is wanted (`Value::truth`), and a real is
+/// truncated where an integer is wanted (`Value::integer`). The one operator this does not
 /// touch is `eq`/`ne`, because there is nothing to convert: `any 1 any 2` admits both types
 /// already, and the operator's own answer across them is that they are never equal.
 ///
@@ -1199,7 +1199,7 @@ fn narrow(value: f64) -> f32 {
 /// `num 1 num 2` by §B.3 *and* by §7.10.5.2's normative deferral, so a boolean under one of them
 /// has no reading that loses least — it has no reading. A program in which one provably reaches
 /// such an operand is refused at parse time and its caller reports it;
-/// [`ordering_reaches_a_boolean`] is the whole argument, and ADR 0412 the decision. The conversion
+/// `ordering_reaches_a_boolean` is the whole argument, and ADR 0412 the decision. The conversion
 /// above still answers where that walk could not decide, because an evaluator cannot raise
 /// §7.10.5's error at a device pixel.
 ///
@@ -1404,7 +1404,7 @@ pub enum Operator {
 ///   operators because PostScript source has no other way to write a boolean down; a compiled
 ///   list does, so they lower to [`ProgramStep::PushBool`] and the device's vocabulary is one
 ///   variant shorter for it.
-/// - **A jump target narrows to a `u32`.** The compiler's bound is [`MAX_INSTRUCTIONS`], well
+/// - **A jump target narrows to a `u32`.** The compiler's bound is `MAX_INSTRUCTIONS`, well
 ///   inside it, so the conversion cannot fail on anything this crate produced — and it is
 ///   written fallibly anyway rather than asserted in a comment, because the day it can fail is
 ///   the day a bound moved and nobody looked here.
@@ -1860,7 +1860,7 @@ impl Slot {
 /// - a join is a join of two arms, so every slot below it becomes [`Slot::Unknown`] rather than
 ///   being merged, which is what [`fold_constants`] does with the same reasoning;
 /// - `add`, `sub`, `mul`, `abs`, `ceiling`, `floor`, `neg`, `round` and `truncate` answer a real
-///   when an operand is one and otherwise an integer *or* a real, since [`arithmetic2`]'s
+///   when an operand is one and otherwise an integer *or* a real, since `arithmetic2`'s
 ///   `checked_` arm falls back to a real on overflow — so the type is `Unknown` there;
 /// - a count `copy`, `index` or `roll` takes that is not a known value abandons the program,
 ///   because the depth below it is no longer modelled.
@@ -1995,7 +1995,7 @@ fn apply_sorts(operator: Operator, stack: &mut Vec<Slot>) {
     fn sorted(sort: Sort) -> Slot {
         Slot::Sorted(sort)
     }
-    /// [`arithmetic1`]'s and [`arithmetic2`]'s result type, which only a real operand settles.
+    /// [`arithmetic1`]'s and `arithmetic2`'s result type, which only a real operand settles.
     ///
     /// With no real among the operands the answer is an integer *unless* the `checked_` arm
     /// overflows, and whether it does is a fact about the values.
@@ -2869,7 +2869,7 @@ fn apply_operator(operator: Operator, stack: &mut Vec<Value>) {
 /// **So it is a value, and this round decided which one.** `unwrap_or(0.0)` answered a number
 /// with no type, which the seven operators that can tell an integer from a boolean would each
 /// have read differently the moment the stack gained types. The integer is chosen over the real
-/// because §7.3.3 makes an integer usable "[w]herever a real number is expected" while the
+/// because §7.3.3 makes an integer usable "\[w]herever a real number is expected" while the
 /// reverse is an error, so it is the one of the two that is an operand everywhere; and over the
 /// boolean because a `false` here would silently satisfy `if` and `not` — the two operators that
 /// decide what the *rest* of the program does — where an integer only feeds the arithmetic.

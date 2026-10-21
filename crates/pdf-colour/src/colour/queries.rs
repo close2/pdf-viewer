@@ -40,10 +40,10 @@ impl ColourSpace {
     /// `ICCBased` space's are the profile's, which §8.6.5.5's prose under Table 67 and its
     /// Table 68 state and Table 65's `/Range` restates — the unit interval for the three
     /// device data colour spaces and something else for `'Lab '`. Table 88 names the same
-    /// thing from the other side, as an image's default `/Decode`: "[s]ame as the value of
+    /// thing from the other side, as an image's default `/Decode`: "\[s]ame as the value of
     /// Range in the ICC profile of the image's colour space".
     ///
-    /// Two callers, both about a *range* rather than a value: [`Self::parse_indexed`] scales
+    /// Two callers, both about a *range* rather than a value: `Self::parse_indexed` scales
     /// a colour table's bytes onto the base space's components, and `pdf_model::image` clamps
     /// what a `/Decode` array produces.
     #[must_use]
@@ -77,7 +77,7 @@ impl ColourSpace {
     /// to `self` — [`Self::initial_colour`], except where a device family was selected and a
     /// default or an output intent stands in for it.
     ///
-    /// §8.6.8 states the initial colour per family — "[i]n a DeviceCMYK colour space, the
+    /// §8.6.8 states the initial colour per family — "\[i]n a DeviceCMYK colour space, the
     /// initial colour shall be [0.0 0.0 0.0 1.0]" — and §8.6.5.6 says what becomes of a device
     /// family's colour values when a default replaces the space:
     ///
@@ -90,7 +90,7 @@ impl ColourSpace {
     /// colour would be — no ink, which is the paper. §14.11.5's output intent does not replace
     /// the space at all: it describes the device the document's `DeviceCMYK` was prepared for,
     /// and the family's initial colour is the one that description is asked about. The same
-    /// clause's "[i]f a colour value lies outside the range of the default colour space, it
+    /// clause's "\[i]f a colour value lies outside the range of the default colour space, it
     /// shall be adjusted to the nearest valid value" holds the values to the space that
     /// receives them. A substitute whose component count differs from the family's is not one
     /// §8.6.5.6 admits, and keeps its own initial colour. ADR 1755.
@@ -371,7 +371,7 @@ impl ColourSpace {
 
     /// The `Indexed` table entry `values` selects, in the base space's components.
     ///
-    /// Shared by [`Self::to_rgb_at`] and [`Self::ink_at`] so that an index is rounded and
+    /// Shared by `Self::to_rgb_at` and `Self::ink_at` so that an index is rounded and
     /// clamped once: two readings of §8.6.6.3's table would be two chances to round it
     /// differently. Any other space's values are its own components already, and come back as
     /// they went in — which is what lets [`crate::mesh`] call this for every vertex it reads.

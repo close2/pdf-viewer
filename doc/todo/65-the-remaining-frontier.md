@@ -38,13 +38,15 @@ an exclusion, a deprecation, or a case the standard leaves undefined.
 
 `CLAUDE.md` principle 3 gives a document's restrictions four levels (`off`/`on`/ask/warn) whose
 interface is in scope to build; the same surface covers printing and a collection's alternate
-presentations. No row is here: what the bucket held was a gap in the surface rather than in the
-reading, each row's core already in place and waiting only on the operation it drives, and each row
-left as its surface was built. **What builds a row that arrives here:** the host work of
-`doc/todo/30`–`38` and RFC 0004's print path. Table 147's print half is no longer among them: it is
-read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` over the
-reader's own menu and for `/CenterWindow` in the one window whose toolkit cannot place it
-(ADRs 1203, 1204, 1227, 1145, 1429).
+presentations. **What builds a row here:** the host work of `doc/todo/30`–`38` and RFC 0004's
+print path. A new host reopens the entries it has not yet connected, even when the shared core
+already reads them.
+
+- §12.2 — WinUI still reports `OWED_CHROME` and `OWED_PLACE` without applying Table 147's
+  toolbar, menu, window furniture, fitting and centring entries. Its title record works.
+  Implement the two records and drive each entry on Windows; keep ADR 1145's reason for
+  preserving the reader's restriction controls. The deliberate GTK/Qt menu and GTK placement
+  departures remain (ADRs 1145, 1429); the row is `partial` because the new host's work is owed.
 
 - **Beside this bucket and not in it** — §13.2.4.2 is `implemented`: its clip is judged by §13.2.2,
   Table 286's /TF asked at the reader's restriction level for `Operation::HandOverMedia`, and the data
@@ -78,10 +80,10 @@ permanent) or an owner decision to acquire a specification.
   ISO/IEC 15444-2 (`doc/questions/A169`, ADR 1383). CMYK, sRGB, its grey, sYCC, ROMM-RGB and CIE Lab
   under every illuminant its `IL` field names — the white point §8.6.5.4's EXAMPLE, T.4 or the CIE's
   free data states, and a colour temperature's Planckian radiator (ADRs 1712, 1713) — are drawn as
-  defined; e-sRGB and e-sYCC (PIMA 7667) and CIE Jab (CIE Publication 131) take §7.4.9's device
-  fallback, because their texts are not held (read on 2026-10-08, the row's note says where): PIMA
-  7667 is sold by IS&T, and CIE 131 is listed by the CIE as superseded by CIE 159, itself withdrawn
-  in 2022 for CIE 248; whether to buy them is `doc/questions/Q348`. Checking the restriction on a file is not a reader's job and is not counted as debt
+  defined. e-sRGB and e-sYCC await extraction and implementation from the held PIMA 7667,
+  bought under A348; this part is buildable. CIE Jab alone depends on unheld CIE Publication
+  131, whose purchase the owner declines. ADR 2187 separates the two obligations.
+  Checking the restriction on a file is not a reader's job and is not counted as debt
   (ADR 1184); `pdf-archive` checks all of M.9.2 for ISO 19005 (ADRs 1383, 1399). The thirteen
   corpus codestreams a level off the reference software on the irreversible path are not debt:
   ISO/IEC 15444-1 leaves that path's reconstruction and precision to the decoder (ADR 1574).
@@ -257,9 +259,14 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 
-§7.4.9 is not here: its buildable case, a CIE Lab image under an illuminant other than D50, is drawn
-under that illuminant's white point (ADR 1713), and the row stays in bucket 2 for e-sRGB, e-sYCC and
-CIE Jab, whose texts are not held.
+- §11.7.5.3 — solid RGB colours selected before a changed BG/UCR pair reuse stale converted
+  colour. Carry the components or conversion dependency to paint and test both orders and q/Q
+  against ADR 2187's arithmetic pixel witness. The output-intent profile bypass remains a
+  separate deliberate departure; the image path now receives the current pair.
+
+§7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
+with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;
+CIE Lab's named illuminants already have their white points (ADRs 1712, 1713).
 
 §13.2.2 and §14.9.2.4 were here, and are `implemented`: `pdf_model::media` judges a rendition's
 viability by the clause's rules for the one player this program has — the hand-off, told nothing but
@@ -296,7 +303,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§7.4, §7.6, §7.6.5, §12.8, §12.8.3, §12.8.3.4.
+§7.4, §7.6, §7.6.5, §11.7, §11.7.5, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

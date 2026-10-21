@@ -19,16 +19,16 @@
 //! **`id-RSASSA-PSS` is not this construction and is deliberately not treated as it.** It shares
 //! RFC 8017's `pkcs-1` arc and states a different padding, so a reader that matched the arc would
 //! verify the wrong thing. It is [`crate::pss`] (ADR 0322); the one thing the two schemes share is
-//! [`rsavp1`], because RFC 8017 itself invokes that primitive by name from both.
+//! `rsavp1`, because RFC 8017 itself invokes that primitive by name from both.
 //!
 //! # What is verified, and by which construction
 //!
 //! Internet RFC 8017 section 8.2.2 verifies a PKCS #1 v1.5 signature by *re-encoding* rather than by
 //! taking the recovered block apart:
 //!
-//! - `m = s^e mod n`, the signature raised to the public exponent — [`modpow`];
+//! - `m = s^e mod n`, the signature raised to the public exponent — `modpow`;
 //! - the expected block `EM = 0x00 || 0x01 || PS || 0x00 || T` built from the digest
-//!   the verifier computed itself — [`encode`];
+//!   the verifier computed itself — `encode`;
 //! - the two compared as byte strings.
 //!
 //! **Encode-and-compare rather than parse-and-check, and that is a decision rather than a
@@ -45,7 +45,7 @@
 //! declined the `rsa` crate because a whole-scheme dependency parses keys and signatures with a
 //! strict DER stack this corpus contradicts, and that reasoning stands (ADR 0331 re-measured it).
 //! The *arithmetic* under it is `RustCrypto`'s `crypto-bigint`, by the project owner's decision:
-//! [`crate::bigint`] is the seam, and ADR 0331 has the argument. ADR 0229's observation survives
+//! `crate::bigint` is the seam, and ADR 0331 has the argument. ADR 0229's observation survives
 //! the port — **there is no secret** in a verification, every number came out of the file, and
 //! nothing here needs constant time.
 //!
@@ -73,7 +73,7 @@ pub const MAX_MODULUS_BITS: usize = crate::bigint::MAX_BITS;
 
 /// The largest public exponent this module will raise a signature to, in bits.
 ///
-/// [`modpow`] costs one modular squaring per bit of the exponent, so this is a *time* budget on
+/// `modpow` costs one modular squaring per bit of the exponent, so this is a *time* budget on
 /// arithmetic whose inputs come out of the file. The exponents real keys use are 3 and 65537, and
 /// this leaves room for eight times as many bits as the larger of them needs while keeping the
 /// worst case at 512 modular multiplications.
@@ -95,14 +95,14 @@ pub enum Pkcs1Error {
     /// The modulus is zero, one, or even.
     ///
     /// RFC 8017 section 3.1 makes an RSA modulus "a product of u distinct odd primes", so an even
-    /// one is not an RSA modulus at all — and the Montgomery reduction [`modpow`] uses exists only
+    /// one is not an RSA modulus at all — and the Montgomery reduction `modpow` uses exists only
     /// for an odd one, which is why this is refused rather than worked around.
     #[error("the signer's RSA modulus is not an odd number greater than one")]
     ModulusNotOdd,
     /// The public exponent is zero.
     #[error("the signer's RSA public exponent is zero")]
     ExponentZero,
-    /// RFC 8017 section 8.2.2 step 1, whose words are "[i]f the length of the signature S is not
+    /// RFC 8017 section 8.2.2 step 1, whose words are "\[i]f the length of the signature S is not
     /// k octets, output \"invalid signature\" and stop".
     #[error("the signature is not as long as the modulus it was made with")]
     SignatureLength,
@@ -110,7 +110,7 @@ pub enum Pkcs1Error {
     #[error("the signature is not less than the modulus, so it is not an RSA signature value")]
     SignatureNotReduced,
     /// The modulus is too short to hold the padded block RFC 8017 section 9.2 requires: step 3 is
-    /// "[i]f emLen < tLen + 11, output \"intended encoded message length too short\" and stop".
+    /// "\[i]f emLen < tLen + 11, output \"intended encoded message length too short\" and stop".
     #[error("the modulus is too short to carry a PKCS #1 v1.5 block for this digest")]
     ModulusTooShortForDigest,
 }
@@ -205,7 +205,7 @@ pub(crate) fn rsavp1(key: PublicKey<'_>, signature: &[u8]) -> Result<(Integer, u
 ///
 /// Step 5 gives the block as `EM = 0x00 || 0x01 || PS || 0x00 || T`, where `T` is the DER encoding of `DigestInfo ::= SEQUENCE { digestAlgorithm
 /// AlgorithmIdentifier, digest OCTET STRING }` and `PS` is `0xFF` repeated to fill the block —
-/// "[t]he length of PS will be at least 8 octets" (step 4). The algorithm identifier's parameters
+/// "\[t]he length of PS will be at least 8 octets" (step 4). The algorithm identifier's parameters
 /// are written as an explicit `NULL` rather than omitted because RFC 8017 Appendix A.2.4 requires
 /// it: "the parameters field associated with this OID in a value of type `AlgorithmIdentifier` SHALL
 /// have a value of type NULL".

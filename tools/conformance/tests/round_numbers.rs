@@ -1,4 +1,4 @@
-//! No comment in the tree's Rust and C sources, and no line of `doc/running-the-viewer.md`, names a
+//! No comment in the tree's Rust, C and C++ sources, and no line of `doc/running-the-viewer.md`, names a
 //! round by its number.
 //!
 //! Not a conformance question; it lives here for `state_sections.rs`'s reason — this is the crate
@@ -34,6 +34,8 @@
 //! throughout, so every character of it is read; it is the document a person opens to run the
 //! programs, and a sentence there that dates a feature by its round is the history the rule keeps
 //! out of what a reader meets first.
+//! C++ implementation files (`.cpp`) use the same non-nesting comments; their raw strings
+//! are skipped through the matching delimiter, including embedded quotes and comment markers.
 //!
 //! # The held list
 //!
@@ -55,11 +57,11 @@ use std::path::{Path, PathBuf};
 /// The files whose sites are their owners' to rewrite, with the count of comment lines each holds.
 const HELD: [(&str, usize); 0] = [];
 
-/// The directories whose Rust and C sources the rule reaches.
+/// The directories whose Rust, C and C++ sources the rule reaches.
 const ROOTS: [&str; 4] = ["crates", "tools", "raster", "fuzz"];
 
 /// The extensions of the sources the walk reads, each lexed as the language it names.
-const EXTENSIONS: [&str; 3] = ["rs", "c", "h"];
+const EXTENSIONS: [&str; 4] = ["rs", "c", "h", "cpp"];
 
 /// The documents read as prose, every character of them, relative to the repository root.
 const PROSE: [&str; 1] = ["doc/running-the-viewer.md"];
@@ -104,7 +106,7 @@ fn is_identifier(character: char) -> bool {
     character.is_alphanumeric() || character == '_'
 }
 
-/// The language a source is lexed as, which decides the two places Rust and C read differently.
+/// The language a source is lexed as, which decides the two places Rust, C and C++ read differently.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Dialect {
     /// Rust: block comments nest, and a raw string is a literal.
@@ -112,6 +114,8 @@ enum Dialect {
     /// C: a block comment ends at its first `*/`, there is no raw string, and a block comment's
     /// continuation line opens with a ` * ` that is not part of its text.
     C,
+    /// C++: C comments, with raw string literals skipped as one token.
+    Cpp,
 }
 
 /// Where the lexer is: in code, in a comment, or inside a literal it skips.
@@ -154,6 +158,34 @@ fn raw_opening(chars: &[char], at: usize) -> Option<usize> {
         .take_while(|character| **character == '#')
         .count();
     (chars.get(at.saturating_add(1).saturating_add(hashes)) == Some(&'"')).then_some(hashes)
+}
+
+/// C++ raw strings end at `)` followed by their delimiter and a quote; quotes and comment
+/// markers inside them are data. Keep the skipped newlines in the caller's source coordinates.
+fn cpp_raw_span(chars: &[char], at: usize) -> Option<(usize, usize)> {
+    let start = at.checked_add(2)?;
+    let rest = chars.get(start..)?;
+    let delimiter_len = rest.iter().position(|&character| character == '(')?;
+    let delimiter = rest.get(..delimiter_len)?;
+    if delimiter_len > 16
+        || delimiter
+            .iter()
+            .any(|&character| character.is_whitespace() || matches!(character, ')' | '\\'))
+    {
+        return None;
+    }
+    let body = start.checked_add(delimiter_len)?.checked_add(1)?;
+    let ending: Vec<char> = std::iter::once(')')
+        .chain(delimiter.iter().copied())
+        .chain(std::iter::once('"'))
+        .collect();
+    let offset = chars
+        .get(body..)?
+        .windows(ending.len())
+        .position(|window| window == ending)?;
+    let end = body.checked_add(offset)?.checked_add(ending.len())?;
+    let newlines = chars.get(at..end)?.iter().filter(|&&c| c == '\n').count();
+    Some((end.checked_sub(at)?, newlines))
 }
 
 /// The index just past a character literal opening at `at`, or just past the quote where it opens a
@@ -219,6 +251,12 @@ fn comment_text(source: &str, dialect: Dialect) -> Vec<Option<(char, usize)>> {
                 }
                 ('"', _) => state = State::Text,
                 ('\'', _) => step = past_quote(&chars, at).saturating_sub(at),
+                ('R', Some('"')) if dialect == Dialect::Cpp => {
+                    if let Some((length, newlines)) = cpp_raw_span(&chars, at) {
+                        line = line.saturating_add(newlines);
+                        step = length;
+                    }
+                }
                 ('r', _) if dialect == Dialect::Rust => {
                     if let Some(hashes) = raw_opening(&chars, at) {
                         state = State::Raw(hashes);
@@ -247,7 +285,7 @@ fn comment_text(source: &str, dialect: Dialect) -> Vec<Option<(char, usize)>> {
                     };
                     step = 2;
                 }
-                ('\n', _) if dialect == Dialect::C => step = decoration(&chars, at),
+                ('\n', _) if dialect != Dialect::Rust => step = decoration(&chars, at),
                 ('\n', _) => {}
                 _ => keep(&mut found, character, line),
             },
@@ -319,6 +357,7 @@ fn sites(path: &Path, source: &str) -> Vec<usize> {
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("rs") => round_numbers(source),
         Some("c" | "h") => round_numbers_in(&comment_text(source, Dialect::C)),
+        Some("cpp") => round_numbers_in(&comment_text(source, Dialect::Cpp)),
         _ => round_numbers_in(&prose_text(source)),
     }
 }
@@ -417,6 +456,19 @@ int r = 1; const char *raw = r"round 916";
 }
 
 #[test]
+fn cpp_comments_are_read_but_raw_strings_are_not() {
+    let planted = r#"// round 911 in a comment
+const char* raw = R"tag(" // round 912 is data
+/* round 913 is data too */ )tag";
+/* round
+ * 914 in a decorated comment */
+const char* empty = u8R"(" // round 915 is data)";
+// round 916 after both raw strings
+"#;
+    assert_eq!(sites(Path::new("planted.cpp"), planted), [1, 4, 7]);
+}
+
+#[test]
 fn a_document_is_read_as_prose() {
     let planted = concat!(
         "**Since round 384** it does this.\n",
@@ -472,7 +524,7 @@ fn no_comment_names_a_round_by_number() {
         counted.push((relative, lines.len()));
     }
     println!(
-        "{} source(s) read, Rust and C under {ROOTS:?} and {PROSE:?} as prose; {total} line(s) \
+        "{} source(s) read, Rust, C and C++ under {ROOTS:?} and {PROSE:?} as prose; {total} line(s) \
          name a round by number, {} of them in {} held file(s)",
         sources.len(),
         total.saturating_sub(owed.len()),
@@ -483,11 +535,17 @@ fn no_comment_names_a_round_by_number() {
         "{} source(s) read: the population is not the tree",
         sources.len()
     );
+    assert!(
+        sources
+            .iter()
+            .any(|path| path.extension().is_some_and(|extension| extension == "cpp")),
+        "no C++ implementation read: the population must include the Qt host"
+    );
     let c_sources = sources
         .iter()
         .filter(|path| {
             path.extension()
-                .is_some_and(|extension| extension == "c" || extension == "h")
+                .is_some_and(|extension| extension == "c" || extension == "h" || extension == "cpp")
         })
         .count();
     assert!(

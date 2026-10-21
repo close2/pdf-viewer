@@ -123,6 +123,7 @@ pub(super) fn decode_parts_in(
         (&entry, one_grid, eager_mask),
     );
     let SamplesOnGrid {
+        black_generation_bypassed,
         rgba,
         grid: (raster_width, raster_height),
         opacity_included: opacity_came_with_the_samples,
@@ -173,6 +174,7 @@ pub(super) fn decode_parts_in(
         Picture::Complete(image) => image,
         Picture::Masked { .. } => {
             return Ok(Parts {
+                black_generation_bypassed,
                 picture,
                 shortfall,
                 contradiction,
@@ -196,6 +198,7 @@ pub(super) fn decode_parts_in(
         _ => Picture::Complete(image),
     };
     Ok(Parts {
+        black_generation_bypassed,
         picture,
         shortfall,
         contradiction,
@@ -412,6 +415,8 @@ fn soft_masked(
 
 /// One decode route's answer: samples, the grid they are on, and whether opacity came along.
 pub(super) struct SamplesOnGrid {
+    /// The source's conversion bypassed a stated pair; see [`Parts::black_generation_bypassed`].
+    pub(super) black_generation_bypassed: bool,
     /// Straight-alpha RGBA8, row by row on [`Self::grid`].
     pub(super) rgba: Vec<u8>,
     /// The grid the samples are actually on, which is the dictionary's except where a
@@ -478,6 +483,7 @@ fn samples_of(
         Some(b"JBIG2Decode") => {
             let (rgba, shortfall) = decode_jbig2(at, source, (width, height), painting)?;
             Ok(SamplesOnGrid {
+                black_generation_bypassed: false,
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
@@ -490,6 +496,7 @@ fn samples_of(
         Some(b"CCITTFaxDecode" | b"CCF") => {
             let (rgba, shortfall) = decode_ccitt(at, source, (width, height), painting)?;
             Ok(SamplesOnGrid {
+                black_generation_bypassed: false,
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
@@ -546,6 +553,7 @@ fn samples_of(
                 },
             )?;
             Ok(SamplesOnGrid {
+                black_generation_bypassed: space.bypasses_black_generation(painting.into),
                 rgba,
                 grid: (width, height),
                 opacity_included: false,

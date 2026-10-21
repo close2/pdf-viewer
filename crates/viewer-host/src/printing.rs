@@ -158,7 +158,7 @@ pub enum Scaling {
 /// How many pages go on one sheet — RFC 0004 §6's 1, 2 and 4.
 ///
 /// **The grid is a convention and no clause states one.** §12.5.6.22 says only what happens to a
-/// watermark "[w]hen n -up printing is selected", leaving what n-up *is* to the processor; this
+/// watermark "\[w]hen n -up printing is selected", leaving what n-up *is* to the processor; this
 /// splits the sheet's longer axis for two and both axes for four, which keeps each cell's
 /// proportions as near the sheet's as the count allows. Written down as a choice (ADR 1204).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -359,7 +359,7 @@ fn as_f32(value: usize) -> f32 {
 
 /// The job of a window that is showing what would print without having a printer.
 ///
-/// Table 193's other branch, stated rather than guessed: "[i]f the dimensions of the target media
+/// Table 193's other branch, stated rather than guessed: "\[i]f the dimensions of the target media
 /// are not known at the time of drawing, drawing shall be done relative to the dimensions
 /// specified by the page's MediaBox entry". A sheet size invented here would put a fixed print
 /// watermark somewhere no printer chose.

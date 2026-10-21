@@ -1,6 +1,6 @@
 //! Reading a fax-coded stream a bit at a time, most significant bit of each byte first.
 //!
-//! ISO 32000-2 §7.4.6: "CCITT encoding is bit-oriented, not byte-oriented", and "[e]ncoded data
+//! ISO 32000-2 §7.4.6: "CCITT encoding is bit-oriented, not byte-oriented", and "\[e]ncoded data
 //! shall ordinarily be treated as a continuous, unbroken bit stream". So the reader's position
 //! is a bit offset, and a byte boundary matters only where `/EncodedByteAlign` or the end of the
 //! data makes it.

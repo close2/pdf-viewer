@@ -1198,9 +1198,9 @@ impl TextKind {
 pub enum MeasurePart {
     /// The whole measurement, worded as a window says it.
     Sentence = 0,
-    /// Table 265's `/Name`, "[a] descriptive text string or title of the viewport".
+    /// Table 265's `/Name`, "\[a] descriptive text string or title of the viewport".
     Viewport = 1,
-    /// Table 267's `/R`, "[a] text string expressing the scale ratio of the drawing".
+    /// Table 267's `/R`, "\[a] text string expressing the scale ratio of the drawing".
     Ratio = 2,
     /// The path's length, formatted through Table 267's `/D`.
     Length = 3,
@@ -1310,7 +1310,7 @@ impl PageModeKind {
     }
 }
 
-/// Table 147's `/Direction`: "[t]he predominant reading order for text".
+/// Table 147's `/Direction`: "\[t]he predominant reading order for text".
 ///
 /// Two values and no count, for [`OrderKind`]'s reason: the entry states exactly two names and a
 /// third would be a different clause.
@@ -1339,7 +1339,7 @@ pub enum BoundaryKind {
     Art = 4,
 }
 
-/// Table 147's `/PrintScaling`: "[t]he page scaling option that shall be selected".
+/// Table 147's `/PrintScaling`: "\[t]he page scaling option that shall be selected".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum PrintScalingKind {
@@ -1349,7 +1349,7 @@ pub enum PrintScalingKind {
     NoScaling = 1,
 }
 
-/// Table 147's `/Duplex`: "[t]he paper handling option that shall be used when printing".
+/// Table 147's `/Duplex`: "\[t]he paper handling option that shall be used when printing".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum DuplexKind {
@@ -1408,7 +1408,7 @@ pub enum PreferenceKey {
     PrintScaling = 12,
     /// `/Duplex`, a `QUORRA_DUPLEX_…`. Optional: no default is stated.
     Duplex = 13,
-    /// `/PickTrayByPDFSize`, a boolean. Optional: "the value shall be … [dependent] on the
+    /// `/PickTrayByPDFSize`, a boolean. Optional: "the value shall be … \[dependent] on the
     /// interactive PDF processor" where the document states none.
     PickTrayByPdfSize = 14,
     /// `/NumCopies`, a count. Optional, and the entry's own note makes an absent value the
@@ -1592,7 +1592,7 @@ impl ShortfallKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum NoteKind {
-    /// §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar".
+    /// §12.5.6.2's `/T`: "\[t]he text label that shall be displayed in the title bar".
     Title = 0,
     /// Table 166's `/Contents`: the text in the window.
     Contents = 1,
@@ -1691,7 +1691,7 @@ pub enum CollectionViewKind {
     Tile = 1,
     /// `H` — "initially hidden", which §7.6.7's unencrypted wrapper requires.
     Hidden = 2,
-    /// `C` — present with `/Navigator`'s layout. "[V]alid only when Navigator is present".
+    /// `C` — present with `/Navigator`'s layout. "\[V]alid only when Navigator is present".
     Navigator = 3,
 }
 
@@ -1702,16 +1702,16 @@ pub enum CollectionViewKind {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum InitialKind {
-    /// "[I]f the D entry is missing or is not a valid byte string, the initial document shall be
+    /// "\[I]f the D entry is missing or is not a valid byte string, the initial document shall be
     /// the one that contains the collection dictionary."
     #[default]
     Container = 0,
     /// The named embedded file. `quorra_collection_initial` answers the `/EmbeddedFiles` key beside
     /// it, which is what `quorra_extract` takes.
     Embedded = 1,
-    /// "[T]he first item from the list of files": `/D` named something the tree does not have.
+    /// "\[T]he first item from the list of files": `/D` named something the tree does not have.
     FirstFile = 2,
-    /// "[A]n empty preview window": the tree is empty.
+    /// "\[A]n empty preview window": the tree is empty.
     Empty = 3,
 }
 
@@ -1720,7 +1720,7 @@ pub enum InitialKind {
 /// Table 160's named layouts: how §12.3.6's navigator presents a collection.
 ///
 /// **Handed over as the document's whole list rather than as one selection**, and that is the
-/// clause rather than a preference: "[w]hen multiple names are provided, an interactive PDF
+/// clause rather than a preference: "\[w]hen multiple names are provided, an interactive PDF
 /// processor should present the first one it is capable of displaying in the order present in the
 /// array." What a caller of this library is capable of displaying is the caller's own fact, so the
 /// choice is the caller's to make and the list is what it needs to make it — which is the one
@@ -1729,7 +1729,7 @@ pub enum InitialKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum NavigatorKind {
-    /// `D`, "[c]orresponding to the value of D in the View key" — the details view.
+    /// `D`, "\[c]orresponding to the value of D in the View key" — the details view.
     Details = 0,
     /// `T`, likewise — tile mode.
     Tile = 1,
@@ -1812,7 +1812,7 @@ pub enum ColumnKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum ColumnTextKind {
-    /// Table 155's `/N`, "[t]he textual field name that shall be presented to the user".
+    /// Table 155's `/N`, "\[t]he textual field name that shall be presented to the user".
     Name = 0,
     /// The `/Schema` key this column is under, which is what §7.11.6's collection item addresses
     /// its values by.
@@ -1841,7 +1841,7 @@ impl ColumnTextKind {
 pub enum FolderTextKind {
     /// `/Name`, the folder's name.
     Name = 0,
-    /// `/Desc`, "[a] text description associated with this folder".
+    /// `/Desc`, "\[a] text description associated with this folder".
     Description = 1,
 }
 
@@ -2305,7 +2305,7 @@ impl ScriptAnswerKind {
 }
 
 /// Which of the reader's decisions `quorra_settings_set` sets: `viewer_host::policy::Policy`'s
-/// six, the acts a document asks of this machine (RFC 0010 section 5, ADR 2120).
+/// acts a document asks of this machine (RFC 0010 section 5, ADR 2120).
 ///
 /// The restrictions are not among them: they cross as `QUORRA_RESTRICTED_*` and
 /// `QUORRA_RESTRICT_*`, which `quorra_settings_restrict` takes as `quorra_restrict_operation` does.
@@ -2324,6 +2324,8 @@ pub enum PolicyKind {
     Scripts = 4,
     /// §10.8.3's separation simulation: `QUORRA_LEVEL_REFUSE` for off, `QUORRA_LEVEL_PROCEED` for on.
     Separations = 5,
+    /// §12.6.4.6's non-PDF document handed to the machine's handler.
+    LaunchedDocuments = 6,
 }
 
 impl PolicyKind {
@@ -2337,6 +2339,7 @@ impl PolicyKind {
             3 => Self::Submissions,
             4 => Self::Scripts,
             5 => Self::Separations,
+            6 => Self::LaunchedDocuments,
             _ => return None,
         })
     }
@@ -2352,6 +2355,7 @@ impl PolicyKind {
             Self::Submissions => Policy::Submissions,
             Self::Scripts => Policy::Scripts,
             Self::Separations => Policy::Separations,
+            Self::LaunchedDocuments => Policy::LaunchedDocuments,
         }
     }
 }

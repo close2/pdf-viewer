@@ -352,6 +352,38 @@ pub(super) struct Embedding {
     pub(super) at: ObjectId,
 }
 
+impl Embedding {
+    /// Writes the one program entry, removing descriptions of the formerly absent program.
+    pub(super) fn write_into(self, out: &mut Dictionary) {
+        // §9.9's Table 124 admits at most one of the three keys:
+        //
+        // > At most, only one of the FontFile , FontFile2 , and FontFile3 entries shall be
+        // > present.
+        //
+        // This descriptor *states* none — the preparation's population is a descriptor whose
+        // every such key resolves to null — but it may well hold one of the keys with
+        // nothing behind it, which §7.3.7 makes the same thing and Table 124's sentence
+        // counts all the same. So the other two go before this one is written.
+        for key in ["FontFile", "FontFile2", "FontFile3"] {
+            if key != self.key {
+                out.remove(key);
+            }
+        }
+        // **`/CharSet` and `/CIDSet` describe a program, and the program they describe was
+        // never in this file.** §9.8.1's Table 122 makes both optional and makes each a list
+        // of what the *embedded* program contains; ISO 19005-2 section 6.2.11.4.2 then
+        // requires the list to be complete. A producer who wrote one for a font they did not
+        // embed wrote a description of a font nobody had, so carrying it forward beside a
+        // face this converter chose would leave the file asserting something false about its
+        // own bytes — and would fail the very clause that checks the assertion, which is how
+        // the corpus found this. Removing a description of an absent program takes nothing
+        // from the document that a reader could have used.
+        out.remove("CharSet");
+        out.remove("CIDSet");
+        out.insert(Name::new(self.key.as_bytes()), Object::Reference(self.at));
+    }
+}
+
 /// Where one font's program is, and what reads it.
 struct Embedded {
     /// The stream object the key names.
@@ -584,6 +616,10 @@ fn disagrees(stated: f32, program: f32) -> bool {
 /// - **A code the face has no glyph for**, which is `doc/questions/A47`'s "refuse rather than
 ///   guess" and is what keeps both parts' `.notdef` clause satisfied without anything being
 ///   invented.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered preparation: select, prove, allocate, attach and report each font"
+)]
 pub(super) fn embed_faces(
     document: &Document,
     survey: &Survey,
@@ -675,9 +711,17 @@ pub(super) fn embed_faces(
         )
         .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
         substitutes.written.insert(at, stream);
-        substitutes
-            .at
-            .insert(descriptor, Embedding { key: row.key, at });
+        let own = embed_at_descriptor(
+            document,
+            descriptor,
+            Embedding { key: row.key, at },
+            spare,
+            &mut substitutes,
+        )?;
+        let mut entries = restated
+            .as_ref()
+            .map_or_else(Dictionary::new, |restatement| restatement.entries.clone());
+        entries.insert(Name::new(&b"FontDescriptor"[..]), Object::Reference(own));
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
             requested,
@@ -693,7 +737,9 @@ pub(super) fn embed_faces(
             if restatement.drawn == described::Drawn::FromAMachineFace {
                 substitutes.over_machine_faces.push(used.name.clone());
             }
-            gains(document, used, restatement.entries, spare, &mut substitutes)?;
+        }
+        if !entries.is_empty() {
+            gains(document, used, entries, spare, &mut substitutes)?;
         }
     }
     if substitutes.at.is_empty()
@@ -703,6 +749,27 @@ pub(super) fn embed_faces(
         return Err(Because::NotBuiltYet(NO_FONT_TO_EMBED));
     }
     Ok(substitutes)
+}
+
+/// Gives each simple font its own descriptor: even unused aliases must keep their old value.
+fn embed_at_descriptor(
+    document: &Document,
+    descriptor: ObjectId,
+    embedding: Embedding,
+    spare: &mut Spare,
+    substitutes: &mut Substitutes,
+) -> Result<ObjectId, Because> {
+    let mut own = document
+        .get(descriptor)
+        .as_dict()
+        .cloned()
+        .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
+    embedding.write_into(&mut own);
+    let at = spare
+        .take(document)
+        .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+    substitutes.written.insert(at, Object::Dictionary(own));
+    Ok(at)
 }
 
 /// Records the entries a font dictionary gains, wherever the dictionary is written.

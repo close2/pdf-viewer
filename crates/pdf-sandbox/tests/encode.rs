@@ -117,7 +117,15 @@ fn the_largest_grid_the_budget_admits_encodes_under_the_workers_ceiling() {
         panic!("an encode is answered with a JPEG");
     };
     assert_eq!(frame(&jpeg).map(|frame| frame.1), Some(4729));
-    assert!(sandbox.confinement().unwrap().is_enforced());
+    let confinement = sandbox.confinement().unwrap();
+    if cfg!(target_os = "linux") {
+        assert!(confinement.is_enforced(), "{confinement:?}");
+    } else {
+        // macOS and Windows still exercise the encoding budget, but this build installs
+        // neither Linux's system-call filter nor its address-space ceiling there.
+        assert!(!confinement.is_enforced(), "{confinement:?}");
+        assert_eq!(confinement.address_space_limit, 0);
+    }
 
     let past = sandbox
         .decode(&Request::Dct {

@@ -138,7 +138,7 @@ type SpaceKey = (ObjectId, Option<u128>, Option<u128>, Separations, usize);
 /// That subdictionary is the whole of what a build reads of the resources, and the build is
 /// *handed* a dictionary holding it alone, so the claim is structural rather than a reading of
 /// `colour.rs` — the shape `pdf_model`'s `image::RasterCache` gives its decodes. It joins the key
-/// as an index into [`Self::colour_spaces`], which holds each distinct entry once: an entry is
+/// as an index into `Self::colour_spaces`, which holds each distinct entry once: an entry is
 /// compared by value, and two equal entries name the same objects of one immutable document, so
 /// equality is the claim that the lookups agree (ADR 1765).
 #[derive(Debug, Default)]
@@ -305,6 +305,8 @@ impl Parsed {
 /// anonymous fields in a map value is a type nobody can read at the call site.
 #[derive(Debug, Clone)]
 struct Built {
+    /// The source colour's §11.7.5.3 conversion bypassed a stated pair; reported at paint.
+    black_generation_bypassed: bool,
     /// The geometry and the colours.
     kind: Arc<ShadingKind>,
     /// The shading's own matrix: `/Matrix` for a type 1 and the identity for every other type.
@@ -337,6 +339,9 @@ struct Built {
 /// bound in this family stop a mesh in silence.
 #[derive(Debug, Clone)]
 pub struct Shaded {
+    /// A `DeviceRGB` source converted through an output intent instead of a stated
+    /// §11.7.5.3 pair. The caller reports this only when the shading paints.
+    pub black_generation_bypassed: bool,
     /// The shading to paint.
     pub shading: Shading,
     /// The bound that stopped this shading's mesh stream part-way, by name, so the geometry is
@@ -387,6 +392,7 @@ impl Cache {
                     .get(&(id, resolution, colouring.into.clone(), colour_spaces))
         {
             return Ok(Shaded {
+                black_generation_bypassed: built.black_generation_bypassed,
                 shading: Shading {
                     kind: Arc::clone(&built.kind),
                     transform: built.own.then(transform),
@@ -413,6 +419,7 @@ impl Cache {
             );
         }
         Ok(Shaded {
+            black_generation_bypassed: built.black_generation_bypassed,
             shading: Shading {
                 kind: built.kind,
                 transform: built.own.then(transform),
@@ -527,6 +534,7 @@ pub fn build(
         &mut Parsed::default(),
     )?;
     Ok(Shaded {
+        black_generation_bypassed: built.black_generation_bypassed,
         shading: Shading {
             kind: built.kind,
             transform: built.own.then(transform),
@@ -618,6 +626,7 @@ fn kind_of(
     };
 
     Ok(Built {
+        black_generation_bypassed: colouring.into.bypasses_black_generation(&space),
         kind: Arc::new(kind),
         own,
         background: background_of(document, &dict, &space, colouring),
@@ -665,7 +674,7 @@ pub fn bbox_of(document: &Document, object: &Object) -> Option<[f32; 4]> {
 ///
 /// **The count rather than the colour**, because the count is what says whether the entry is
 /// usable at all: Table 77 requires "an array of colour components appropriate to the colour
-/// space", and [`background_of`] answers `None` both for a shading that states no background
+/// space", and `background_of` answers `None` both for a shading that states no background
 /// and for one whose array the space cannot read. The interpreter tells those two apart with
 /// this, and reports the second (trap 5) rather than guessing at a colour the file did not give.
 #[must_use]
@@ -1030,7 +1039,7 @@ fn function_based(
 /// The bounds handed over are each intersected with `[0, 1]`, which is not a narrowing: the
 /// producer clips to `/Range` (§7.10.1) and then [`ColourSpace::to_rgb`] clamps each component
 /// to the unit interval, and clamping into `[lo, hi]` and then into `[0, 1]` is clamping into
-/// the intersection. §8.7.4.5.2's Table 78 explicitly allows a wider declared range — "[i]f the
+/// the intersection. §8.7.4.5.2's Table 78 explicitly allows a wider declared range — "\[i]f the
 /// value returned by the function for a given colour component is out of range, it shall be
 /// adjusted to the nearest valid value" — so a document that declares one keeps drawing, on
 /// either path, with the same arithmetic.

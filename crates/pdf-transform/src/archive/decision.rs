@@ -125,7 +125,7 @@ pub enum Loss {
     /// signature field loses its `/V` and keeps its widget and appearance (§12.7.5.5), the
     /// permissions dictionary loses the `DocMDP` and `UR3` entries that rested on the signature
     /// (Table 263, §12.8.2.3), and the form's `AppendOnly` flag is cleared (Table 225).
-    /// [`super::signatures`] has the sentence deciding each.
+    /// `super::signatures` has the sentence deciding each.
     ///
     /// What is lost is exactly what a signature told a reader: who signed, when, and that the
     /// bytes had not changed since. **All three are written into the report before they go**,
@@ -272,7 +272,7 @@ pub enum Loss {
     /// ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1: a form whose appearances a reader
     /// was asked to build, left as the producer wrote it with the request removed.
     ///
-    /// §12.7.3's Table 224 makes `/NeedAppearances` "[a] flag specifying whether to construct
+    /// §12.7.3's Table 224 makes `/NeedAppearances` "\[a] flag specifying whether to construct
     /// appearance streams and appearance dictionaries for all widget annotations in the
     /// document", and both parts forbid the file to ask. Two answers follow and the operator
     /// chooses between them: the appearances are constructed first, which loses nothing and is
@@ -887,7 +887,7 @@ pub enum Decision {
     ///   not bind at all because it binds *this program's* guessing.
     ///
     /// Either way the file afterwards says something neither the producer nor the standard said,
-    /// and [`Self::warns`] is the sentence a person is owed about it.
+    /// and `warns` is the sentence a person is owed about it.
     Configured {
         /// Which of `doc/rfc/0007` section 2's kinds.
         kind: super::RemedyKind,
@@ -1114,7 +1114,7 @@ const APPEARANCE_REINTERPRETS: &str = "an appearance stream this program constru
 /// What clearing `/NeedAppearances` asserts, which is `doc/questions/A21`'s condition again.
 ///
 /// `doc/adr/0927`: the sentence travels with the decision. §12.7.3's Table 224 makes the flag
-/// "[a] flag specifying whether to construct appearance streams and appearance dictionaries for
+/// "\[a] flag specifying whether to construct appearance streams and appearance dictionaries for
 /// all widget annotations in the document", and its writer obligation makes an absent one a claim
 /// that streams have been provided for every visible widget. So what changes is the same thing
 /// `APPEARANCE_REINTERPRETS` names, at the widgets: the construction stops being every reader's
@@ -1623,6 +1623,16 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // states and the ones the program states agree. Section 4.9 sets out three ways to reach
     // that and ranks them; this is the second, and the third — restating `/Widths` — is the one
     // it calls **never**, because `/Widths` is what positions the glyphs.
+    Remedy {
+        requirement: "fonts/widths-array-covers-character-range",
+        answer: Answer::Stated(
+            None,
+            Rewrite::FontWidthArrayRestated,
+            "the short Widths array narrows LastChar to the codes it covers, or entries past \
+             LastChar are removed from a long array. Codes outside the retained range use \
+             MissingWidth, as this viewer already laid them out; the page's marks do not move",
+        ),
+    },
     Remedy {
         requirement: "fonts/widths-agree-with-the-program",
         answer: Answer::Mechanical(Rewrite::RestateFontMetrics),
@@ -2220,7 +2230,7 @@ pub(super) const REMEDIES: &[Remedy] = &[
     },
 ];
 
-/// What a [`REMEDIES`] row's own answer does not settle by itself.
+/// What a `REMEDIES` row's own answer does not settle by itself.
 ///
 /// `doc/adr/1209`. Most rows are decided by the table: a `Mechanical` row is mechanical for every
 /// document that fails the requirement, and a `Loses` row always costs the same thing. Two rows
@@ -2672,8 +2682,8 @@ pub fn answered() -> Vec<&'static str> {
 ///
 /// Public for the same test and for the same reason as [`answered`]: a typo in one of these keys
 /// does not fail to compile, it quietly demotes a refusal that had an argument behind it to
-/// [`NOT_BUILT_YET`]'s "a later slice owes this" — which is the one sentence every row of
-/// [`REFUSED_BY_NAME`] exists to avoid saying.
+/// `NOT_BUILT_YET`'s "a later slice owes this" — which is the one sentence every row of
+/// `REFUSED_BY_NAME` exists to avoid saying.
 #[must_use]
 pub fn refused_by_name() -> Vec<&'static str> {
     REFUSED_BY_NAME.iter().map(|(id, _)| *id).collect()

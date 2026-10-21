@@ -208,6 +208,15 @@ pub(super) fn restated_kind(
         && let Some(restated) = truetype_encoding(document, &used.dict, &source)
     {
         entries.insert(Name::new(&b"Encoding"[..]), Object::Dictionary(restated));
+    } else if other == "Type1" && document.get_key(&used.dict, "Encoding").is_null() {
+        // With no Encoding, §9.6.5.1 uses the embedded program's built-in table. The source
+        // TrueType substitute may instead use Annex D's symbolic names, so carrying the
+        // absence across would select different glyphs. State the source's names first;
+        // the unchanged outline proof still decides whether they reach the same shapes.
+        entries.insert(
+            Name::new(&b"Encoding"[..]),
+            Object::Dictionary(restated_encoding(&source, None)),
+        );
     }
     Ok(Some(Restatement {
         row,
@@ -670,14 +679,7 @@ fn proved(
         Drawn::FromTheShippedFace => source.stretch(),
         Drawn::FromAMachineFace => 1.0,
     };
-    if converted.is_substituted() || converted.stretch().to_bits() != stretch.to_bits() {
-        return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
-    }
-    for code in (0..=u8::MAX).map(Code::single_byte) {
-        if converted.advance(code).to_bits() != source.advance(code).to_bits() {
-            return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
-        }
-    }
+    same_metrics(source, &converted, stretch)?;
     for text in used.shown.keys() {
         for code in source.decode(text) {
             let same = match drawn {
@@ -697,6 +699,22 @@ fn proved(
             if !same {
                 return Err(Because::NotBuiltYet(DRAWN_DIFFERENTLY));
             }
+        }
+    }
+    Ok(())
+}
+
+/// Holds every code's advance and the fitted outline scale to the selected source.
+fn same_metrics(source: &LoadedFont, converted: &LoadedFont, stretch: f32) -> Result<(), Because> {
+    if converted.is_substituted() {
+        return Err(Because::NotBuiltYet(NOT_PROVED));
+    }
+    if converted.stretch().to_bits() != stretch.to_bits() {
+        return Err(Because::NotBuiltYet(FITTED_DIFFERENTLY));
+    }
+    for code in (0..=u8::MAX).map(Code::single_byte) {
+        if converted.advance(code).to_bits() != source.advance(code).to_bits() {
+            return Err(Because::NotBuiltYet(ADVANCES_DIFFER));
         }
     }
     Ok(())
@@ -757,7 +775,7 @@ fn resolved(document: &Document, value: &Object, depth: u8) -> Object {
 ///   statements: a Compact Font Format Top DICT's `FontBBox`, `ItalicAngle` and `isFixedPitch`, an
 ///   sfnt's `head` bounding box and `post` table.
 /// - `/Ascent`, `/Descent` and `/CapHeight` are measured, because Table 120 defines them as
-///   measurements — "[t]he maximum height above the baseline reached by glyphs in this font. The
+///   measurements — "\[t]he maximum height above the baseline reached by glyphs in this font. The
 ///   height of glyphs for accented characters shall be excluded", "the maximum depth below the
 ///   baseline", "the vertical coordinate of the top of flat capital letters" — and a Compact Font
 ///   Format program states none of them. Over a Latin face the glyphs are those whose names the
@@ -765,7 +783,7 @@ fn resolved(document: &Document, value: &Object, depth: u8) -> Object {
 ///   every unaccented one of the standard Latin set's letters, digits and punctuation; over the two
 ///   symbolic faces, every glyph but `.notdef`; and the capital is `H`.
 /// - `/StemV` is the Compact Font Format Private DICT's `StdVW`, the program's own statement of
-///   its dominant vertical stem, and 0 for an sfnt, which states none — Table 120's own "[a] value
+///   its dominant vertical stem, and 0 for an sfnt, which states none — Table 120's own "\[a] value
 ///   of 0 indicates an unknown stem thickness".
 struct Measured {
     bbox: [f32; 4],
@@ -1061,13 +1079,21 @@ const PROGRAM_NOT_MEASURED: &str = "the face this program ships for this standar
      120 requires of the descriptor this conversion would write";
 
 /// Why a converted font that could not be read back is not written.
-const NOT_PROVED: &str = "the font this conversion would write for a standard font that stated \
-     no FontDescriptor could not be read back by this program's own font reader, so whether it \
-     draws the page this reader shows is not known, and it is not written";
+const NOT_PROVED: &str = "the font this conversion would write could not be read back as an \
+     embedded font by this program's own font reader, so whether it draws the page this reader \
+     shows is not known, and it is not written";
 
-/// Why a converted font that draws differently is not written.
-const DRAWN_DIFFERENTLY: &str = "the font this conversion would write for a standard font that \
-     stated no FontDescriptor, read back by this program's own font reader, draws a glyph the \
-     page shows with another outline or lays a code out at another advance than the source font \
-     does — the embedded face's own encoding or glyph route selects a different glyph from the \
-     one this reader draws — so it is not written: the conversion would change the page";
+/// Why a converted font whose glyph or outline proof failed is not written.
+const DRAWN_DIFFERENTLY: &str = "the embedded font read back by this program does not retain \
+     the selected glyph or outline for a code the page shows, so it is not written: the \
+     conversion would change the page";
+
+/// A shipped substitute's fitting is part of the outlines the viewer draws.
+const FITTED_DIFFERENTLY: &str = "embedding the shipped face would remove the source font's \
+     horizontal fitting and change its drawn outlines even when character advances stay the \
+     same; no authorised loss covers that change (doc/questions/Q566), so the font is not written";
+
+/// Width preservation is checked separately from the painted outlines.
+const ADVANCES_DIFFER: &str = "the embedded font read back by this program advances at least one \
+     character code differently from the source font, so it is not written: the conversion would \
+     change text positioning";

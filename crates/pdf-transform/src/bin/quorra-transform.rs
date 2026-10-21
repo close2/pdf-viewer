@@ -36,7 +36,7 @@
 //! 0 clean, 2 the file defeated us, 3 written with warnings, 4 refused by name, 1 a usage error.
 //!
 //! **This program is the first consumer of `pdf_transform`'s seam and nothing more**: it turns
-//! argv into a [`Plan`], opens paths into [`Source`]s and [`Sinks`], and prints what
+//! argv into a [`pdf_transform::Plan`], opens paths into [`pdf_transform::Source`]s and [`pdf_transform::Sinks`], and prints what
 //! [`pdf_transform::apply`] reports. Everything a document means is decided below it.
 //!
 //! **Passwords never appear on the command line.** An argv password is visible in `/proc` and in
@@ -1737,10 +1737,10 @@ fn input_spec(spec: &str) -> (PathBuf, Option<Selection>) {
     (PathBuf::from(spec), None)
 }
 
-/// The files the plan reads, opened into [`Source`]s.
+/// The files the plan reads, opened into [`pdf_transform::Source`]s.
 ///
 /// **One `--password-fd` opens one document**, which is `viewer_core::Secret`'s own rule: it is
-/// deliberately not `Clone`, because "[a] copy is a second buffer to clear and a second lifetime
+/// deliberately not `Clone`, because "\[a] copy is a second buffer to clear and a second lifetime
 /// to reason about". So a merge of more than one input with a password is a usage error rather
 /// than a password quietly used for a file it was not typed for; a per-input fd is what would
 /// lift it and nobody has asked for one.

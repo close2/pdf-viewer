@@ -361,7 +361,7 @@ impl Retrieval {
     /// # What is left out, and by whose rule
     ///
     /// A marked-content sequence the tree does not reach is not here, which is
-    /// §14.8.2.5.1 NOTE 3's own position — "[a]rtifacts not contained within an Artifact
+    /// §14.8.2.5.1 NOTE 3's own position — "\[a]rtifacts not contained within an Artifact
     /// structure element are not considered part of the logical content order" — and is why a
     /// running head, a folio and a licence stamp do not appear in the answer without anything
     /// having filtered them.
@@ -733,7 +733,7 @@ fn edges(assembled: &str, starts: &[usize], section: &Section) -> (Option<usize>
 ///
 /// **Both of §14.8.2.2.2's sentences arrive here and neither is distinguished**, which is the
 /// point of taking [`pdf_model::content::ArtifactSpan`] rather than a tag: the clause's two
-/// explicit methods say *this is an artifact*, and its other sentence — "[a]ny content that is
+/// explicit methods say *this is an artifact*, and its other sentence — "\[a]ny content that is
 /// not included in the structure tree is an artifact", tagged or not — says the same thing of
 /// what no structure element reaches.
 /// A caller asking for a clause's text wants both gone. `interpret` produces the second only for

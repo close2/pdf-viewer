@@ -265,7 +265,8 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   2153). A repaint says what changed and the window copies only the pictures it calls fresh; Table
   231 bit 25's combs, the measured fit `w` sends, §12.5.6.14's popups and §12.9's traced path are
   drawn (ADRs 2168, 2169). Its controls still lack bit 21's chooser (N4) and a popup's retyping; the
-  panels and the cards are the next steps.
+  panels and the cards are written (ADR 2185), compiled by the portable C# check; Windows layout
+  and interaction validation, and N4's printer selection and spooling, remain owed.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the

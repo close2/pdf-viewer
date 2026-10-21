@@ -98,7 +98,7 @@ impl Findings {
     /// The same, for a requirement section 6.2.2's exemption narrows.
     ///
     /// **A narrowing of the population, not a filter over the findings**, and the difference is
-    /// [`Self::truncated`]: a report keeps the first [`MAX_KEPT`] places and counts the rest, so
+    /// [`Self::truncated`]: a report keeps the first `MAX_KEPT` places and counts the rest, so
     /// a filter applied afterwards could only ever see a prefix and would have to guess about
     /// everything past it. An exempt object dropped here is never *seen*, which is what the
     /// clause says — the resource is not used for rendering, so the requirement has nothing to

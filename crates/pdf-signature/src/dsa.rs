@@ -12,7 +12,7 @@
 //! **That "No" is load-bearing and is why this module is only ever reached through CMS.** Table
 //! 260 forbids DSA for §12.8.3.2's `adbe.x509.rsa_sha1`, so a `/Cert` holding a DSA key is a file
 //! departing from the table rather than a case to handle — [`crate::signature::Signature`] reports
-//! such a key by its object identifier and verifies nothing. §12.8.3.2's own sentence that "[t]he
+//! such a key by its object identifier and verifies nothing. §12.8.3.2's own sentence that "\[t]he
 //! PKCS #1 standard supports several public-key cryptographic algorithms and digest methods,
 //! including RSA encryption, DSA signatures" is about what the *standard* supports, and Table 260
 //! is what says which of them this `/SubFilter` may carry.
@@ -134,7 +134,7 @@ pub enum DsaError {
     /// `p` is zero, one, or even.
     ///
     /// FIPS 186-4 section 4.1 makes `p` "a prime modulus", so an even one is not a DSA modulus at
-    /// all — and the Montgomery reduction [`crate::bigint`] uses exists only for an odd one.
+    /// all — and the Montgomery reduction `crate::bigint` uses exists only for an odd one.
     #[error("the signer's DSA modulus p is not an odd number greater than one")]
     ModulusNotOdd,
     /// `q` is zero, one, or even, for the same two reasons.

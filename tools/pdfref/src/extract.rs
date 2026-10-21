@@ -560,7 +560,7 @@ fn read_timeout(entry: &Path, extractor: Extractor) -> Option<Result<String, Ext
 /// Every write goes to a temporary name and is renamed into place, and errors are ignored
 /// throughout: a cache that cannot write is a cache that is slow, not a gate that is wrong.
 ///
-/// Answers **whether anything was stored**, on [`crate::cache::write_entry`]'s rule and for its
+/// Answers **whether anything was stored**, on `crate::cache::write_entry`'s rule and for its
 /// reason: every early return here is an extractor that will be run again for this page, and
 /// [`crate::cache::Runs::unstored`] is what counts them.
 fn write_entry(entry: &Path, produced: &Result<String, ExtractionError>) -> bool {

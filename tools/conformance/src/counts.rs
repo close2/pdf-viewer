@@ -26,7 +26,7 @@
 //!   table only where the sentence attributes it; here a cardinal is a claim about a family only
 //!   where it **governs one of the ledger's own words for its rows** ([`NOUNS`]) within [`REACH`]
 //!   words. "Three of the clause's properties", "two entries that would add to a document" and
-//!   "[f]our of them are stream filters" are the noise every hand-run printed, and all three are
+//!   "\[f]our of them are stream filters" are the noise every hand-run printed, and all three are
 //!   counts of something that is not a family. And the container is the clause the sentence
 //!   **names**, exactly as a table is: that is how §12.6.3's count of §12.6.4's family — invisible
 //!   to every hand-run, found by the blame band — becomes a
@@ -56,7 +56,7 @@
 //!
 //! Two claims in one place, about one family, with the same noun and different numbers, are wrong
 //! whatever the ledger holds — and this is the only check here whose evidence is entirely inside the
-//! prose. §11.7 said "[t]wo of its five subclauses are satisfied" and, four sentences later, "four
+//! prose. §11.7 said "\[t]wo of its five subclauses are satisfied" and, four sentences later, "four
 //! of its five subclauses are satisfied"; §14.11 counted its seven subclauses
 //! twice. Both are the sixth failure shape — a document corrected by appending, read from the
 //! correction backwards — and a reader who starts at the correction never sees the first half.

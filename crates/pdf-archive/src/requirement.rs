@@ -132,8 +132,8 @@ pub enum Check {
     Implemented(fn(&crate::Examination<'_>, &mut Findings)),
     /// The requirement binds a **conforming processor**, not a conforming file.
     ///
-    /// ISO 19005 states both kinds in the same clauses: "[t]he Encrypt key shall not be present
-    /// in the trailer dictionary" is about a document, and "[c]onforming readers shall ignore
+    /// ISO 19005 states both kinds in the same clauses: "\[t]he Encrypt key shall not be present
+    /// in the trailer dictionary" is about a document, and "\[c]onforming readers shall ignore
     /// the BG, BG2, UCR and UCR2 functions" is about a program. **No document can fail the
     /// second kind**, so reporting it beside a file's failures — "your processor must ignore
     /// `/Dur`" — tells a reader nothing about the file in front of them.

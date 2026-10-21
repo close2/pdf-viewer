@@ -362,13 +362,20 @@ fn survey_documents(documents: &[PathBuf]) {
 /// a run that sampled many more presses than it cached is a run that paid for the sampling
 /// more than once.
 fn report_press_cache() {
+    let cached = match pdf_model::colour::presses_cached() {
+        Ok(count) => count,
+        Err(error) => {
+            println!("  press cache: count unavailable because {}", error.why());
+            return;
+        }
+    };
     println!(
         "  press cache: {} presses sampled, {} still held (§11.7.2). It decides no verdict — \
          since ADR 0417 the budget is per interpretation, so every count above is the \
          documents' own and two runs agree; `pdf-model --example press_census` reads the \
          population, and samplings above what is held is the cache paying twice",
         pdf_model::colour::presses_sampled(),
-        pdf_model::colour::presses_cached(),
+        cached,
     );
 }
 

@@ -30,7 +30,7 @@ pub struct Cost {
     /// Heap bytes the scene retains while held — the brief's question 11.5, per scene.
     pub retained_bytes: usize,
     /// How many **distinct** [`FunctionId`]s the scene's
-    /// [`Paint::Function`](crate::paint::Paint::Function)s reference.
+    /// [`Paint::Function`]s reference.
     ///
     /// Distinct, not referencing: CLAUDE.md's rule is to instrument the count of distinct
     /// keys rather than the hit rate, and this is exactly the number a device pays for —

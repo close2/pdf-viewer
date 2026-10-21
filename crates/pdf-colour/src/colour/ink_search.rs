@@ -10,12 +10,12 @@ use super::press::{Press, PressIdentity};
 /// ISO 32000-2 §10.4.2.4's conversion from `DeviceRGB` to `DeviceCMYK`.
 ///
 /// The clause's own two steps, with the nominal black-generation and undercolour-removal
-/// functions — `BG(k) = k` and `UCR(k) = k` — which is what [`ColourSpace::to_cmyk`]'s doc
+/// functions — `BG(k) = k` and `UCR(k) = k` — which is what [`super::ColourSpace::to_cmyk`]'s doc
 /// comment records as this device's defaults. The formula, set out here rather than quoted
 /// because the standard prints it in mathematical italics no transcription survives:
 /// `c = 1 − red`, `m = 1 − green`, `y = 1 − blue`, `k = min(c, m, y)`, and then
 /// `cyan = min(1, max(0, c − UCR(k)))` with magenta, yellow and `black = min(1, max(0, BG(k)))`
-/// alongside. The clamps are the clause's: "[i]f a value falls outside this range, the nearest
+/// alongside. The clamps are the clause's: "\[i]f a value falls outside this range, the nearest
 /// valid value shall be substituted automatically without error indication."
 ///
 /// With the nominal functions the result is a *right inverse* of §10.4.2.5's classic
@@ -87,9 +87,9 @@ const INK_TABLE_SIDE: usize = 17;
 /// where the step is against the edge of the unit cube and has to be taken in pieces.
 const INK_POLISH: usize = 6;
 
-/// [`search_ink`] over a grid of sRGB, built once and only where a page asks for it.
+/// `search_ink` over a grid of sRGB, built once and only where a page asks for it.
 ///
-/// The map is a pure function of [`CMYK_CORNERS`], which is a compile-time constant, so this
+/// The map is a pure function of `super::device_cmyk::CMYK_CORNERS`, which is a compile-time constant, so this
 /// could in principle be generated data. It is a `OnceLock` instead because it is wanted by
 /// **0.6% of the pdf.js corpus and 3.5% of the documents `SafeDocs` samples from the web** — the
 /// pages §11.4.7 composites in ink — and `CLAUDE.md`'s launch rule is that anything not needed
@@ -159,15 +159,15 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 ///
 /// # Why this is not §10.4.2.4
 ///
-/// §10.4.2.1 states two branches and ranks them, and [`CMYK_CORNERS`] puts this tree's
+/// §10.4.2.1 states two branches and ranks them, and [`super::device_cmyk::CMYK_CORNERS`] puts this tree's
 /// conversion *out* of `DeviceCMYK` on the higher one. §11.7.5.3 says the conversion *into* a
 /// group's colour space is the same conversion as the one onto the device with a different
 /// target, so it belongs on the same branch — and composing one branch with the other is not
-/// the identity. Taken through §10.4.2.4 and back through [`cmyk`], `1 0 0 rg` comes back
+/// the identity. Taken through §10.4.2.4 and back through [`super::device_cmyk::cmyk`], `1 0 0 rg` comes back
 /// `#ED1C24` and `0 g` comes back `#231F20`: two marks moved by a conversion the clause asked
 /// for only so that they could be composited, on pages where nothing composites them.
 ///
-/// So this is a **right inverse of [`cmyk`]**, which is what §10.3's branch means here — the
+/// So this is a **right inverse of [`super::device_cmyk::cmyk`]**, which is what §10.3's branch means here — the
 /// ink cube stands in for a press's profile (ADRs 0009, 0042), and converting into the space
 /// it defines is asking which ink that press would lay down to make this colour. [`search_ink`]
 /// is that question answered from nothing; this is it answered from [`Press::table`] and landed
@@ -180,7 +180,7 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 /// colour's D50 XYZ — for a device colour, the sRGB this processor takes device colours to be
 /// (§10.3.2, ADR 0009), inverted by [`srgb_to_xyz_d50`] — through the profile's own "from
 /// CIE" table. That is §10.3's branch as the standard states it rather than as this tree
-/// stood in for it, and [`press_for_profile`] says why the search is the fallback and not the
+/// stood in for it, and [`super::press::press_for_profile`] says why the search is the fallback and not the
 /// rule.
 pub(super) fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
     if press.identity == PressIdentity::DeviceInk {
@@ -200,7 +200,7 @@ pub(super) fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
 /// another profile's colour — because §10.3.1 makes the conversion between two CIE-based
 /// spaces the ICC specification's, from connection space to connection space, and sRGB's
 /// gamut has no business standing between them. Black point compensation is undone by the
-/// profile's own reading of it: [`sample_press`] takes the conversion out under
+/// profile's own reading of it: `super::press::sample_press` takes the conversion out under
 /// [`Press::rendering`], so the conversion in is asked under the same black point, and the two
 /// stay inverses whichever way it is set.
 pub(super) fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
@@ -281,13 +281,13 @@ fn ink_lookup(press: &Press, target: [f32; 3]) -> [f32; 4] {
 /// 1. **[`rgb_to_cmyk`] gives the nominal separation**, whose `k` is §10.4.2.4's own: "the
 ///    minimum of the intermediate c , m , and y values that have been computed by subtracting
 ///    the original red , green , and blue components from 1.0".
-/// 2. **The three chromatic inks are solved** so that [`cmyk`] reproduces the colour at that
+/// 2. **The three chromatic inks are solved** so that [`super::device_cmyk::cmyk`] reproduces the colour at that
 ///    black. This is undercolour removal computed rather than stated — §10.4.2.4 asks a `UCR`
 ///    function for "the amount to subtract from each of the intermediate c , m , and y values",
 ///    and at a known press the amount is not a guess.
 /// 3. **Where no such three exist, another black generation is tried**, down [`INK_LADDER`]
 ///    from all the black there is to none, and the first that reproduces the colour is the
-///    most black that does. The clause leaves this to the device — "[t]he correct choice of
+///    most black that does. The clause leaves this to the device — "\[t]he correct choice of
 ///    black-generation and undercolour-removal functions depends on the characteristics of the
 ///    output device. Each device shall be configured with default values that are appropriate
 ///    for that device" — and names the freedom exactly: a black-generation function "may
@@ -521,7 +521,7 @@ fn gaps(value: [f32; 3], target: [f32; 3]) -> (f32, f32) {
 ///
 /// At a side of two the cell is the whole axis and the fraction is the value itself, which is
 /// what makes every evaluator below reduce *exactly* to the arithmetic they had when
-/// [`CMYK_CORNERS`] was the only press.
+/// [`super::device_cmyk::CMYK_CORNERS`] was the only press.
 fn press_cell(side: usize, value: f32) -> (usize, f32) {
     let last = side.saturating_sub(1);
     #[expect(
@@ -654,7 +654,7 @@ fn scale_jacobian<const N: usize>(jacobian: &mut [[f32; 3]; N], side: usize) {
 /// A multilinear map's value at `inks`, and optionally its Jacobian as `N` columns.
 ///
 /// `corners` holds the map's `2^N` values, indexed by the bits of the ink axes with the first
-/// axis least significant — the shape [`cmyk`] already uses. `jacobian[i]` is the derivative
+/// axis least significant — the shape [`super::device_cmyk::cmyk`] already uses. `jacobian[i]` is the derivative
 /// of the sRGB triple with respect to the `i`th ink, which is the same sum with that axis's
 /// weights replaced by ±1.
 ///

@@ -90,7 +90,7 @@ use pdf_syntax::{Dictionary, Document, FileBytes, Object, ObjectId};
 
 /// Most signatures read from one document.
 ///
-/// §12.8.1 permits "[o]ne or more approval signatures" and any number of timestamps, so the
+/// §12.8.1 permits "\[o]ne or more approval signatures" and any number of timestamps, so the
 /// bound is on a file built to make a reader work rather than on any real workflow.
 const MAX_SIGNATURES: usize = 1024;
 
@@ -107,7 +107,7 @@ const SIGNED_WINDOW: usize = 64 * 1024;
 /// Most `(offset, length)` pairs a `/ByteRange` may state before it stops describing a file.
 ///
 /// §12.8.1 describes two — everything before the signature value and everything after it — and
-/// says "[m]ultiple discontiguous byte ranges shall be used to describe a digest that does not
+/// says "\[m]ultiple discontiguous byte ranges shall be used to describe a digest that does not
 /// include the signature value" without bounding them. A file stating more than this is refused
 /// whole rather than read to the bound, so a truncated range never reaches the arithmetic:
 /// [`Signature::coverage`] answers [`Coverage::Malformed`] and a person is told.
@@ -134,7 +134,7 @@ pub struct Signature {
     /// Table 255 makes the entry optional for a signature and required for a timestamp, and
     /// gives the default as `Sig` — so a dictionary stating nothing is a signature.
     pub timestamp: bool,
-    /// `/Filter`, "[t]he name of the preferred signature handler to use when validating this
+    /// `/Filter`, "\[t]he name of the preferred signature handler to use when validating this
     /// signature".
     pub handler: Option<String>,
     /// `/SubFilter`, the encoding of the signature value — `adbe.pkcs7.detached`,
@@ -147,7 +147,7 @@ pub struct Signature {
     pub sub_filter: Option<String>,
     /// `/ByteRange`, "an array of pairs of integers (starting byte offset, length in bytes)".
     pub byte_range: Vec<(u64, u64)>,
-    /// `/Contents`, "[t]he signature value" — the bytes as the file wrote them.
+    /// `/Contents`, "\[t]he signature value" — the bytes as the file wrote them.
     ///
     /// §7.6.2's fourth exception keeps these out of the encryption, so they are the producer's
     /// own octets even in an encrypted document; `pdf_syntax::Document` already honours that.
@@ -156,19 +156,19 @@ pub struct Signature {
     /// Whether the dictionary states a `/Cert`.
     ///
     /// Table 255 makes it "(Required when `SubFilter` is adbe.x509.rsa\_sha1)" and §12.8.3.4.2
-    /// makes it forbidden for a `PAdES` signature — "[t]he signature dictionary shall not contain a
+    /// makes it forbidden for a `PAdES` signature — "\[t]he signature dictionary shall not contain a
     /// Cert entry" — so its *presence* is a fact in its own right, separate from what it holds:
     /// a `/Cert` stating an empty array breaks §12.8.3.4.2 and yields no certificate.
     pub certificate_chain: bool,
     /// `/Cert`'s certificates, in the order the entry states them.
     ///
-    /// Table 255: "[a]n array of byte strings that shall represent the X.509 certificate chain
+    /// Table 255: "\[a]n array of byte strings that shall represent the X.509 certificate chain
     /// used when signing and verifying signatures that use public-key cryptography, or a byte
     /// string if the chain has only one entry." The first is the signer's — the table says so:
-    /// "[t]he signing certificate shall appear first in the array". This is the only place a
+    /// "\[t]he signing certificate shall appear first in the array". This is the only place a
     /// §12.8.3.2 signature's key can come from, because a PKCS #1 value carries no certificate.
     pub chain: Vec<Vec<u8>>,
-    /// `/Name`, "[t]he name of the person or authority signing the document".
+    /// `/Name`, "\[t]he name of the person or authority signing the document".
     pub name: Option<String>,
     /// `/M`, the time of signing, as the §7.9.4 date string the file wrote.
     ///
@@ -223,12 +223,12 @@ pub struct Signature {
     /// other side.
     ///
     /// Sorted, so that a report naming them reads the same twice, and bounded by
-    /// [`MAX_INDIRECT_VALUES`] because the count would otherwise come out of the file.
+    /// `MAX_INDIRECT_VALUES` because the count would otherwise come out of the file.
     pub indirect_values: Vec<String>,
     /// What each of `/Reference`'s signature reference dictionaries states as its
     /// `/DigestMethod`, in the order the array states them.
     ///
-    /// Table 256: "[a] name identifying the algorithm that shall be used when computing the
+    /// Table 256: "\[a] name identifying the algorithm that shall be used when computing the
     /// digest if not specified in the certificate." So the entry parameterises §12.8.2's
     /// modification analysis rather than the byte range digest [`Self::integrity`] takes - which
     /// is why reading it changes no answer this program gives today and is still worth doing:
@@ -454,7 +454,7 @@ pub enum Signed {
     /// The encapsulated content, where the signer states no signed attributes and the CMS object
     /// carries one.
     ///
-    /// For `adbe.pkcs7.sha1` that content *is* the document's digest — §12.8.3.3.1: "[t]he SHA-1
+    /// For `adbe.pkcs7.sha1` that content *is* the document's digest — §12.8.3.3.1: "\[t]he SHA-1
     /// digest of the document's byte range shall be encapsulated in the CMS `SignedData` field" —
     /// so the same pairing applies as above.
     EncapsulatedContent,
@@ -631,11 +631,11 @@ pub enum Authenticity {
     RangeNotReadable,
     /// The signer signed a statement naming the certificate it used, and it is not this one.
     ///
-    /// §12.8.3.4.5 (a): "[a] signature handler shall compare the hash value of the signer's
+    /// §12.8.3.4.5 (a): "\[a] signature handler shall compare the hash value of the signer's
     /// certificate, with the hash value given in the signing-certificate attribute or the
     /// signing-certificate-v2 attribute. If the hashes do not match, then the signature is
     /// considered invalid." RFC 5035 section 5.4.1 puts the same rule on any CMS object carrying
-    /// the attribute — "[i]f the hash of the certificate does not match the certificate used to
+    /// the attribute — "\[i]f the hash of the certificate does not match the certificate used to
     /// verify the signature, the signature MUST be considered invalid" — which is why this is
     /// reached for every CMS `/SubFilter` and not only `ETSI.CAdES.detached`.
     ///
@@ -662,7 +662,7 @@ pub enum Authenticity {
     },
     /// The signer's signed attributes are not DER encoded, so what they signed is not in the file.
     ///
-    /// §12.8.3.3 requires that "[t]he CMS object shall conform to Internet RFC 5652", and RFC 5652
+    /// §12.8.3.3 requires that "\[t]he CMS object shall conform to Internet RFC 5652", and RFC 5652
     /// section 5.3 places one encoding requirement inside a structure it otherwise writes in BER:
     /// "SignedAttributes MUST be DER encoded, even if the rest of the structure is BER encoded."
     /// Section 5.4 is what makes that a verifier's problem rather than a producer's tidiness -
@@ -675,7 +675,7 @@ pub enum Authenticity {
     /// verify* - where the truth is that this program could not construct what the signature was
     /// made over. [`crate::der::is_canonical`] is the question, and it is asked of the
     /// set's *contents*: the `signedAttrs [0] IMPLICIT` header's own length octets are the one
-    /// thing section 5.4 replaces - "[t]he IMPLICIT [0] tag in the signedAttrs is not used for the
+    /// thing section 5.4 replaces - "\[t]he IMPLICIT \[0] tag in the signedAttrs is not used for the
     /// DER encoding, rather an EXPLICIT SET OF tag is used" - so a producer that wrote the wrapper
     /// in the indefinite form has departed from section 5.3 without changing a byte any verifier
     /// digests, and this program can still complete the check.
@@ -792,7 +792,7 @@ pub enum PadesDeparture {
     /// The `shall` is ISO 32000-2's own and needs nothing else; what comes from elsewhere is the
     /// attribute's *number*, and [`cms::ID_AA_ETS_SIGNER_LOCATION`] says which document that is and
     /// what it costs. Only the signed attributes are searched, because RFC 5126 section 5.11.2
-    /// makes that the only place the attribute may be: "[t]he signer-location attribute shall be a
+    /// makes that the only place the attribute may be: "\[t]he signer-location attribute shall be a
     /// signed attribute."
     SignerLocationAndLocationEntry,
     /// §12.8.3.4.3 (i): "these attributes shall not be used: counter-signature, content-reference,
@@ -911,7 +911,7 @@ pub enum PadesDeparture {
     /// The table gives each of the two a presence of *0 or 1* and the service they provide — the
     /// protection of the signing certificate — a cardinality of *1*, so one of the two is what a
     /// signature of either profile carries. RFC 5035 section 5.4 does not forbid the pair and says
-    /// what to do with it — "[i]f both attributes exist in a single message, they are
+    /// what to do with it — "\[i]f both attributes exist in a single message, they are
     /// independently evaluated" — which is why this is a departure said out loud rather than a
     /// refusal, and why [`signing_certificate_bindings`] still evaluates both.
     BothSigningCertificateAttributes,
@@ -1177,7 +1177,7 @@ impl Signature {
     ///
     /// [`Excluded`] is where the argument for this check is; the mechanics are here. Table 255
     /// fixes how the signature value is written, and that is what makes the comparison exact
-    /// rather than a guess: "[w]hen `ByteRange` is present, the value shall be a hexadecimal
+    /// rather than a guess: "\[w]hen `ByteRange` is present, the value shall be a hexadecimal
     /// string (see 7.3.4.3, "Hexadecimal strings")". §7.3.4.3's own two rules are applied to the
     /// region — its whitespace "shall be ignored", and a missing final digit "shall be assumed to
     /// be 0" — and the octets it decodes to are compared with `/Contents` as the parser read it.
@@ -1191,7 +1191,7 @@ impl Signature {
     /// conformance question are not made into one. §7.3.4.3's whitespace is admitted anywhere in
     /// the region, because whitespace carries no object wherever it sits; anything else fails.
     ///
-    /// Streamed through [`SIGNED_WINDOW`], for the reason [`Self::each_signed_window`] gives: the
+    /// Streamed through `SIGNED_WINDOW`, for the reason `Self::each_signed_window` gives: the
     /// region's size comes out of the file, and a range written to be refused can name gigabytes
     /// of it.
     ///
@@ -1255,7 +1255,7 @@ impl Signature {
     /// > comment, possibly followed by an optional EOL marker, terminating the incremental update
     /// > that adds the digital signature dictionary to the document.
     ///
-    /// §7.5.5 is what makes the marker a dependable end — "[t]he last line of the file shall
+    /// §7.5.5 is what makes the marker a dependable end — "\[t]he last line of the file shall
     /// contain only the end-of-file marker, %%EOF" — and the optional EOL the sentence permits is
     /// §7.2.3's: a CARRIAGE RETURN, a LINE FEED, or the pair. [`Excluded`] says what the *hole* in
     /// a range may hold; this says where the range may stop, and the two together are the whole of
@@ -1358,7 +1358,7 @@ impl Signature {
     ///
     /// # Errors
     ///
-    /// [`RangeProblem`], as [`Self::each_signed_window`] refuses.
+    /// [`RangeProblem`], as `Self::each_signed_window` refuses.
     pub fn signed_digests(
         &self,
         file: &FileBytes,
@@ -1522,9 +1522,9 @@ impl Signature {
     /// the shape §12.8.3 gives each signature format rather than by trying them in turn:
     ///
     /// - a **document timestamp** (`ETSI.RFC3161`) commits to it in RFC 3161's `TSTInfo`, which
-    ///   Table 255 states outright: "[t]he value of the messageImprint field within the
+    ///   Table 255 states outright: "\[t]he value of the messageImprint field within the
     ///   `TimeStampToken` shall be a hash of the bytes of the document indicated by the `ByteRange`";
-    /// - **`adbe.pkcs7.sha1`** encapsulates it — §12.8.3.3.1: "[t]he SHA-1 digest of the
+    /// - **`adbe.pkcs7.sha1`** encapsulates it — §12.8.3.3.1: "\[t]he SHA-1 digest of the
     ///   document's byte range shall be encapsulated in the CMS `SignedData` field with `ContentInfo`
     ///   of type Data";
     /// - every other CMS format is **detached**, and the digest is the signer's `message-digest`
@@ -1735,7 +1735,7 @@ impl Signature {
     /// EN 319 122-2, whose Table 1 gives every attribute of both profiles a cardinality.
     ///
     /// Empty where the signature meets them all, and empty for a signature that is not one:
-    /// §12.8.3.4.1 scopes the whole subclause to "[t]he PDF signatures using the `SubFilter` value
+    /// §12.8.3.4.1 scopes the whole subclause to "\[t]he PDF signatures using the `SubFilter` value
     /// ETSI.CAdES.detached", so applying its rules to an `adbe.pkcs7.*` signature would be this
     /// program inventing a requirement.
     ///
@@ -2063,7 +2063,7 @@ fn policy_states_a_digest(value: &der::Value<'_>) -> bool {
 /// What one of §12.8.3.4.3 (f)'s attributes says about the certificate a signature verified under.
 ///
 /// §12.8.3.4.5 (a)'s first half, as an answer rather than as a boolean: the step is decisive in one
-/// direction — "[i]f the hashes do not match, then the signature is considered invalid" — and
+/// direction — "\[i]f the hashes do not match, then the signature is considered invalid" — and
 /// silent in the other, since a matching hash says the signer meant this certificate and says
 /// nothing about whether anyone should trust it. That is question 3, and this crate does not answer
 /// it.
@@ -2142,10 +2142,10 @@ impl SigningCertificateBinding {
 /// other `/SubFilter` ISO 32000-2 asks for no such attribute, so its absence is nothing at all.
 ///
 /// **One entry per attribute present, because RFC 5035 section 5.4 says they are two answers**:
-/// "[i]f both attributes exist in a single message, they are independently evaluated." A caller
+/// "\[i]f both attributes exist in a single message, they are independently evaluated." A caller
 /// that wants a verdict wants all of them to be [`SigningCertificateBinding::Matches`].
 ///
-/// Only *signed* attributes are read, which is RFC 5035 section 5.4.1's own rule: "[i]f present,
+/// Only *signed* attributes are read, which is RFC 5035 section 5.4.1's own rule: "\[i]f present,
 /// the SigningCertificateV2 attribute MUST be a signed attribute; it MUST NOT be an unsigned
 /// attribute." An unsigned one commits the signer to nothing and acting on it would let whoever
 /// appended it decide which certificate a signature is judged against.
@@ -2659,7 +2659,7 @@ pub struct Permissions {
 ///
 /// # What this is for, and it is not for enabling anything
 ///
-/// The clause's own framing is that the parameters "spec[ify] the additional rights that shall
+/// The clause's own framing is that the parameters "spec\[ify] the additional rights that shall
 /// be enabled if the signature is valid", which is a statement about a processor with features
 /// behind a gate. This one has none: every operation it can perform, it performs on every
 /// document. What it does have is the clause's other sentence, addressed to whoever writes:
@@ -2813,14 +2813,14 @@ pub enum Operation {
     AnnotationDeleted,
     /// `/Annots` `Modify`.
     AnnotationModified,
-    /// `/Form` `FillIn` — "[p]ermits the user to save a document on which form fill-in has been
+    /// `/Form` `FillIn` — "\[p]ermits the user to save a document on which form fill-in has been
     /// done".
     FormFilledIn,
-    /// `/Form` `Add` — "[p]ermits the user to add form fields to the document".
+    /// `/Form` `Add` — "\[p]ermits the user to add form fields to the document".
     FormFieldAdded,
-    /// `/Form` `Delete` — "[p]ermits the user to delete form fields to the document".
+    /// `/Form` `Delete` — "\[p]ermits the user to delete form fields to the document".
     FormFieldDeleted,
-    /// `/Form` `SpawnTemplate` — "[p]ermits new pages to be instantiated from named page
+    /// `/Form` `SpawnTemplate` — "\[p]ermits new pages to be instantiated from named page
     /// templates", which is §12.7.7's operation and Table 257's third.
     PageTemplateSpawned,
     /// `/Signature` `Modify` — "permits a user to apply a digital signature to an existing
@@ -3052,7 +3052,7 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
 ///
 /// **Neither table's action values are in `doc/md/`** — the conversion drops the list inside the
 /// `/Action` row's cell, exactly where `doc/HANDOVER.md` says to expect a loss: Table 236 is left
-/// with "[t]he value shall be one of the following:" and nothing following it, and Table 259 with
+/// with "\[t]he value shall be one of the following:" and nothing following it, and Table 259 with
 /// "Valid values shall be: All All form fields." and the other two gone. Both readings below are
 /// `pdftotext -layout` over `doc/ISO_32000-2_sponsored_EC3.pdf`, which is the check that file
 /// names.
@@ -3071,7 +3071,7 @@ pub enum FieldSelection {
 impl FieldSelection {
     /// Whether this selection names the field with this fully qualified name (§12.7.4.2).
     ///
-    /// Both tables printed only "[a]n array of text strings containing field names", and
+    /// Both tables printed only "\[a]n array of text strings containing field names", and
     /// §12.7.4.2's fully qualified name is the only name in the clause that identifies a field
     /// uniquely — a partial name repeats across the tree, and covering every `Total` in a document
     /// because one was named would refuse edits the file never asked to refuse.
@@ -3104,7 +3104,7 @@ impl FieldSelection {
 ///
 /// Table 259 says *which fields* — [`Self::selection`] — and Table 256 says *which object the
 /// analysis runs on*. They are one type because a transform that stated only one of them would be
-/// scoped by nothing: §12.8.2.1's sentence is that "[t]ransform methods, along with transform
+/// scoped by nothing: §12.8.2.1's sentence is that "\[t]ransform methods, along with transform
 /// parameters, shall determine which objects are included and excluded in revision comparison",
 /// and it takes both halves to determine anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3137,14 +3137,14 @@ pub struct FieldMdp {
 /// > contains the names of form fields whose values shall no longer be changed after this
 /// > signature has been signed.
 ///
-/// **"[A]fter this signature has been signed" is the condition, and it is the whole of why this
+/// **"\[A]fter this signature has been signed" is the condition, and it is the whole of why this
 /// is read off a `/V` rather than off a `/Lock`.** An unsigned signature field carrying a `/Lock`
 /// is an instruction to whatever will do the signing (§12.7.5.5's NOTE 1 — "information needed
 /// later when the actual signing takes place"), and locks nothing in the meantime.
 ///
 /// Table 236's `/P` is the same dictionary's other statement and is read by
 /// [`field_lock_permissions`], because it is about the *document* rather than about the fields
-/// this selection names — "[t]he access permissions granted for this document".
+/// this selection names — "\[t]he access permissions granted for this document".
 ///
 /// Empty for a document with no form, no signature, or none whose signature field states a
 /// `/Lock` — which is every one of the documents in the pdf.js corpus and the four under
@@ -3197,7 +3197,7 @@ pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
 /// > original part of the document, the number shall specify permissions less than or equal to the
 /// > permissions already in effect based on signatures earlier in the document.
 ///
-/// — with "[i]f the number specifies greater permissions than an MDP value already in effect, the
+/// — with "\[i]f the number specifies greater permissions than an MDP value already in effect, the
 /// new number is ignored" saying what happens when it does not. A sequence in which each term is
 /// taken only where it is no greater than what stands is a running minimum, and a running minimum
 /// over a set is that set's minimum whatever order it was read in — so the document's own order,
@@ -3313,7 +3313,7 @@ pub fn transform_methods(document: &Document) -> Vec<String> {
 /// update cannot quietly drop it.
 ///
 /// **§12.8.2.2.2's comparison is `pdf_signature::revision`'s**, which "`FieldMDP` signatures shall
-/// be validated in a similar manner to", and Table 256's `/Data` is what scopes it — "[a]n
+/// be validated in a similar manner to", and Table 256's `/Data` is what scopes it — "\[a]n
 /// indirect reference to the object in the document upon which the object modification analysis
 /// should be performed" — so it is carried beside the selection rather than dropped.
 /// [`crate::revision::Comparison::against_field_mdp`] is what performs the analysis it names.
@@ -3325,7 +3325,7 @@ pub fn transform_methods(document: &Document) -> Vec<String> {
 /// corpus's one certification signature turns out to need: `xfa_filled_imm1344e.pdf` states two
 /// signature reference dictionaries on one signature, a `DocMDP` and a `FieldMDP`, and this tree
 /// read only the first for its whole life. §12.8.2.1's plural is the clause behind that —
-/// "[t]ransform methods, along with transform parameters, shall determine which objects are
+/// "\[t]ransform methods, along with transform parameters, shall determine which objects are
 /// included and excluded in revision comparison".
 #[must_use]
 pub fn field_mdp(document: &Document) -> Vec<FieldMdp> {
@@ -3593,7 +3593,7 @@ fn modification(document: &Document, signature: &Dictionary) -> Option<Modificat
 /// What each of the signature's `/Reference` dictionaries states as its Table 256 `/DigestMethod`.
 ///
 /// **The whole array, in the file's order**, for [`field_mdp`]'s reason: §12.8.2.1 makes
-/// `/Reference` plural - "[t]ransform methods, along with transform parameters, shall determine
+/// `/Reference` plural - "\[t]ransform methods, along with transform parameters, shall determine
 /// which objects are included and excluded in revision comparison" - and the corpus's one
 /// certification signature states two of them, a `DocMDP` and a `FieldMDP`. Each may name its own
 /// digest, so one answer per dictionary is the only shape that does not lose which named what.
@@ -3854,7 +3854,7 @@ pub struct SecurityStore {
     pub ocsp_responses: Vec<Arc<[u8]>>,
     /// `/VRI`, one entry per signature somebody has already validated.
     ///
-    /// The clause is explicit that a VRI records only successes: "[a] signature VRI dictionary
+    /// The clause is explicit that a VRI records only successes: "\[a] signature VRI dictionary
     /// shall not be used to record the information used in an unsuccessful validation attempt."
     pub validation_information: Vec<Vri>,
     /// What this reader would not take, by name and by where it was.
@@ -3917,7 +3917,7 @@ pub struct Vri {
     pub revocation_lists: Vec<Arc<[u8]>>,
     /// `/OCSP`, the same for OCSP responses.
     pub ocsp_responses: Vec<Arc<[u8]>>,
-    /// `/TU`, "[t]he date/time at which this signature VRI dictionary was created", as the date
+    /// `/TU`, "\[t]he date/time at which this signature VRI dictionary was created", as the date
     /// string the file states.
     pub created: Option<String>,
     /// `/TS`, a timestamp token over the same moment, as its decoded stream.
@@ -3937,7 +3937,7 @@ impl SecurityStore {
     /// The revocation material this store holds, read as RFC 5280 and RFC 6960 structures.
     ///
     /// Everything in `/CRLs` and `/OCSPs`, and not a `/VRI`'s selection of them: Table 262 says a
-    /// VRI's arrays are a subset — "[e]ach stream shall reference a CRL that is an entry in the
+    /// VRI's arrays are a subset — "\[e]ach stream shall reference a CRL that is an entry in the
     /// CRLs array in the DSS dictionary" — and §12.8.4.3 says the selection exists "for
     /// optimisation or to remove ambiguity" rather than to narrow what is applicable. Applying the
     /// whole store can only widen what is covered, and every answer is still checked against the

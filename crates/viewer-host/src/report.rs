@@ -6,7 +6,7 @@
 //! version, Annex K's XFA form, §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML`. The core used to say them
 //! as part of opening the document and no longer does, because §12.8.1's byte range digest reads
 //! and hashes the signed part of the file and `CLAUDE.md` principle 2 keeps off a launch
-//! "[a]nything not needed to show page one".
+//! "\[a]nything not needed to show page one".
 //!
 //! **So the asking is a host's, and *when* is the only decision in it.** Once the reader has
 //! their page: every host here acknowledges the frame it has just presented, and that is the

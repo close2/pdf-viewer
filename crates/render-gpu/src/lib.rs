@@ -216,7 +216,7 @@ const MIN_BAND_HEIGHT: u32 = 32;
 /// is the only route vello 0.9 offers to the flag; a set flag means the target is halved into
 /// horizontal bands and each band rendered and copied into place. A band holds fewer paths, so it
 /// needs fewer tiles, and the halving repeats until the device draws it or a band would be
-/// shorter than [`MIN_BAND_HEIGHT`]. **This is vello's own remedy** — its issue 366 on robust
+/// shorter than `MIN_BAND_HEIGHT`. **This is vello's own remedy** — its issue 366 on robust
 /// dynamic memory proposes subdividing the viewport and resubmitting — implemented by the caller
 /// because vello 0.9 does not implement it and exposes no way to enlarge the buffers instead.
 ///
@@ -229,7 +229,7 @@ const MIN_BAND_HEIGHT: u32 = 32;
 /// # Errors
 ///
 /// [`GpuRasterError::Render`] if vello rejects the scene, [`GpuRasterError::SceneTooLarge`] if a
-/// band as short as [`MIN_BAND_HEIGHT`] still overflows, [`GpuRasterError::Readback`] if the
+/// band as short as `MIN_BAND_HEIGHT` still overflows, [`GpuRasterError::Readback`] if the
 /// device does not answer within the timeout.
 ///
 /// The cost of asking is one device synchronisation per render, because the flag lives in a

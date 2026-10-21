@@ -172,7 +172,7 @@ pub(crate) fn xyz_d50_to_srgb(xyz: [f32; 3]) -> Color {
 /// IEC 61966-2-1 prints. `a_folded_matrix_equals_adapting_then_converting` derives it.
 ///
 /// Unclamped on purpose: a colour outside sRGB's gamut lands outside the unit cube here, and
-/// [`RgbRoute`] carries this stage as the corners of a grid that interpolates the *map*, so
+/// [`super::rgb_route::RgbRoute`] carries this stage as the corners of a grid that interpolates the *map*, so
 /// the clamp belongs after the interpolation, where [`gamma`] applies it.
 #[expect(
     clippy::many_single_char_names,
@@ -304,7 +304,7 @@ pub(crate) fn srgb_to_xyz_d50(colour: Color) -> [f32; 3] {
 /// Converts *linear* sRGB to D50 XYZ: [`srgb_to_xyz_d50`] without its decoding.
 ///
 /// The matrix alone, so that a caller carrying the decoding on a curve of its own has the
-/// linear stage by itself — which is what [`inward_cube`] separates the conversion into a
+/// linear stage by itself — which is what [`super::rgb_route::inward_cube`] separates the conversion into a
 /// blending colour space at, and it is the inverse of [`xyz_d50_to_linear_srgb`]'s role in
 /// the conversion out. Unclamped, for the same reason that one is.
 pub(super) fn linear_srgb_to_xyz_d50(linear: [f32; 3]) -> [f32; 3] {

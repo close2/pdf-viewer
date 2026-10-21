@@ -181,7 +181,7 @@ impl DeviceSpots {
     /// three components rather than in a press: which of its three channels keep the backdrop.
     ///
     /// The same two bullets. The first is conditioned on "the current colour space and group
-    /// colour space [being] both DeviceCMYK", which such a group's never is, so a component is
+    /// colour space \[being] both DeviceCMYK", which such a group's never is, so a component is
     /// kept exactly where the mark specifies no process component at all — a `Separation` or
     /// `DeviceN` painting spot colourants alone, Table 146's "Separation or DeviceN" row under
     /// either overprint mode — and every channel is the mark's otherwise, because a process
@@ -306,7 +306,7 @@ impl DeviceSpots {
     /// asked for, and its spot colourants reach their planes as they would anywhere; an
     /// `NChannel` space paints Table 71's process components converted into the group's space;
     /// and every other colour is `into`'s own paint. No process name is available here —
-    /// "[i]f any other colour space has been specified for the group, the Separation or DeviceN
+    /// "\[i]f any other colour space has been specified for the group, the Separation or DeviceN
     /// colour space shall be converted to its alternate colour space" — so a space naming one
     /// reverts whole, as it does on the spot planes beside this one (ADR 1329).
     #[expect(
@@ -369,7 +369,7 @@ impl SpotSet {
     /// of the requested space. If so, the PDF processor shall ignore the alternateSpace and
     /// tintTransform parameters; subsequent painting operations within the space shall apply the
     /// designated colourant directly, according to the tint values supplied." §8.6.6.5 asks it of
-    /// every name, and "[r]eversion shall occur only if at least one colour component (other
+    /// every name, and "\[r]eversion shall occur only if at least one colour component (other
     /// than None ) is specified and is not available on the device".
     ///
     /// A spot colourant is available where it has a plane. A process name is available where the
@@ -573,8 +573,8 @@ enum Named<'s> {
 ///
 /// Both are relative to the matte's white — step b)'s "background matte of all white", which is
 /// the 1.0 of Table 136's multiply — so the first ends in `XYZ ÷ D50` and the second begins
-/// there. Each is this crate's one conversion between the device and XYZ — [`super::cie::srgb_to_xyz_d50`]
-/// and [`super::cie::xyz_d50_to_srgb`] — split where [`pdf_render::ColourCube`] carries a conversion: the
+/// there. Each is this crate's one conversion between the device and XYZ — `super::cie::srgb_to_xyz_d50`
+/// and `super::cie::xyz_d50_to_srgb` — split where [`pdf_render::ColourCube`] carries a conversion: the
 /// device's decoding on the input curves, the linear map in a grid of side two, which
 /// interpolates a linear map exactly, and the encoding on the output curve. The process
 /// separation goes through the device colour rather than straight from its four components

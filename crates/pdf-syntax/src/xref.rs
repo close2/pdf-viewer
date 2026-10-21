@@ -277,7 +277,7 @@ const MAX_XREF_SECTIONS: usize = 1024;
 /// How far into the file a header is looked for.
 ///
 /// §7.5.2 puts it on the first line; files served through mail gateways acquire junk in front of
-/// it, and NOTE 1 licenses that — "[t]his provision allows for arbitrary bytes preceding the
+/// it, and NOTE 1 licenses that — "\[t]his provision allows for arbitrary bytes preceding the
 /// %PDF- without impacting the viability of the PDF file and its byte offsets".
 pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 
@@ -846,7 +846,7 @@ const SUBSECTION_WITNESSES: usize = 4;
 ///
 /// `issue7229.pdf` is the witness and it shows why a per-object repair is not enough. Its
 /// first section declares `1 7` and then lists seven entries beginning with object 0's free
-/// entry — §7.5.4's "[t]he first entry in the table (object number 0) shall always be free
+/// entry — §7.5.4's "\[t]he first entry in the table (object number 0) shall always be free
 /// and shall have a generation number of 65,535" — so every entry is filed one number too
 /// high. Repairing only the in-use entries leaves that free entry standing as object 1, and
 /// object 1 is the page's image: the page then draws *nothing*, which is worse than the wrong
@@ -1071,7 +1071,7 @@ fn read_xref_stream(
 ///
 /// The other half of [`XrefTable::entries_lost`]: that count says *how many* numbers the file
 /// meant to describe and this reader read nothing about, and this says *which*. §7.5.8.2's
-/// `/Index` is what states them — "[a]n array containing a pair of integers for each subsection
+/// `/Index` is what states them — "\[a]n array containing a pair of integers for each subsection
 /// in this section" — so a number inside a declared subsection whose record the data does not
 /// carry has been mentioned by the file and not described by it, which is
 /// [`XrefTable::declared_and_unread`]'s subject.
@@ -1113,7 +1113,7 @@ fn subsections_from(index: &[i64], from_pair: usize, first: u32, reached: i64) -
 struct RecordLayout {
     /// The half-open byte range each field occupies, in Table 18's order.
     ///
-    /// `None` is Table 17's absent field — "[a] value of zero for an element in the W array
+    /// `None` is Table 17's absent field — "\[a] value of zero for an element in the W array
     /// indicates that the corresponding field shall not be present in the stream" — which takes
     /// its default and reads no bytes.
     fields: [Option<(usize, usize)>; 3],
@@ -1174,9 +1174,9 @@ fn big_endian(bytes: &[u8]) -> u64 {
 /// `None` is malformation — a record shorter than `/W` says it is, or a `/W` that leaves a
 /// located entry without the field that locates it — and is distinct from the record saying
 /// the number names nothing, which is `Entry::Deleted`. §7.5.8.2's Table 17 gives the
-/// defaults: "[a] value of zero for an element in the W array indicates that the corresponding
+/// defaults: "\[a] value of zero for an element in the W array indicates that the corresponding
 /// field shall not be present in the stream, and the default value shall be used, if there is
-/// one", and of the first field specifically, "[i]f the first element is zero, the type field
+/// one", and of the first field specifically, "\[i]f the first element is zero, the type field
 /// shall not be present, and shall default to Type 1".
 ///
 /// **"If there is one" is the condition, and the type 1 entry's byte offset has none.** Table 18 as
@@ -1189,7 +1189,7 @@ fn big_endian(bytes: &[u8]) -> u64 {
 ///
 /// **A type 2 entry's index is the one field read as zero without a sentence to stand on, and
 /// that is a choice with witnesses rather than a reading.** Table 18 states no default for
-/// "[t]he index of this object within the object stream" — it never did, and no erratum touches
+/// "\[t]he index of this object within the object stream" — it never did, and no erratum touches
 /// it — yet `/W [1 2 0]` is what dozens of `doc/pdf.js` documents write above type 2 entries
 /// (`grep -aoE '/W *\[[ 0-9]*\]'` over the corpus), and `issue3371.pdf` loses its first page and
 /// twenty-one documents their XMP packet under a reading that refuses them. Every object such a
@@ -1306,7 +1306,7 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
 /// file's cross-reference information being abandoned**, and the order matters more than the
 /// window: the alternative is [`rebuild`], which disregards what the file says about where its
 /// objects are and scans for them instead. §C.4 licenses that only for the case this is not —
-/// "[w]hen a PDF processor reads a PDF file with a damaged or missing cross-reference table, it
+/// "\[w]hen a PDF processor reads a PDF file with a damaged or missing cross-reference table, it
 /// may attempt to rebuild the table by scanning all the objects in the file". A trailer eight
 /// megabytes from the end is neither damaged nor missing; it is merely not last.
 ///

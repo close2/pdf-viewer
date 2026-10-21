@@ -6,14 +6,21 @@
 //! `--remedy-sites`, or a command line this program cannot read — has nothing to confine and runs
 //! here without a word, because what it prints is decided by the arguments alone.
 
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
 
-use pdf_transform::confined::{Fences, World};
+#[cfg(unix)]
+use pdf_transform::confined::Fences;
+use pdf_transform::confined::World;
+#[cfg(unix)]
 use pdf_transform::pattern::Pattern;
+#[cfg(unix)]
 use pdf_transform::profiles::Contribution;
 
 use super::here::Here;
-use super::{Arguments, Exit, configuration_text, input_spec, program};
+use super::{Arguments, program};
+#[cfg(unix)]
+use super::{Exit, configuration_text, input_spec};
 
 /// Runs the program in the process its arguments call for, and answers with its exit status.
 pub(super) fn route(given: Vec<String>) -> u8 {

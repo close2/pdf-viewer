@@ -42,7 +42,7 @@
 //! is named where the code is: the **Adobe Supplement to ISO 32000-1, `BaseVersion` 1.7,
 //! `ExtensionLevel` 3**, which is the "deprecated proprietary Adobe extension" Table 21 points
 //! at. Its Algorithm 3.2a is ISO 32000-2 §7.6.4.3.3's Algorithm 2.A with §7.6.4.3.4's
-//! iterated hash replaced by a single SHA-256; [`authenticate_aes256`] is that one
+//! iterated hash replaced by a single SHA-256; `authenticate_aes256` is that one
 //! substitution and nothing else. The data encryption is not the extension's at all —
 //! Table 20's `/V` 5 entry sends it to §7.6.3.3's Algorithm 1.A with a 256-bit key, which is
 //! what this module already ran for revision 6.
@@ -51,7 +51,7 @@
 //! reading of §7.6.4.3.3 produces — the three sections
 //! of `/O` and `/U`, both validations, both key unwraps, the `/Perms` block — and so does the
 //! one step ADR 0820 singled out as resting on a reading alone and as disagreeing with pdf.js
-//! and Apache `PDFBox`: the password preparation [`utf8_password`] does. It rests on the
+//! and Apache `PDFBox`: the password preparation `utf8_password` does. It rests on the
 //! extension's own sentence.
 //!
 //! ADR 0820 records which steps rest on a normative sentence and which on evidence.
@@ -66,7 +66,7 @@
 //! - **A revision 4 password containing a character `PDFDocEncoding` has no code for**, which
 //!   §7.6.4.3.2 step (a) requires the password to be converted to. That is the encoding's own
 //!   limit rather than this crate's: there are no bytes to hash. Every other character is
-//!   converted through the whole of Annex D Table D.3, which [`crate::text_string`] holds.
+//!   converted through the whole of Annex D Table D.3, which [`crate::text_string()`] holds.
 
 use std::collections::BTreeMap;
 
@@ -565,7 +565,7 @@ impl Encryption {
     /// [`Self::encrypt`] with §7.6.3.3's initialisation vector supplied rather than generated.
     ///
     /// The vector is an input of a whole-file write rather than something the write reaches for,
-    /// so that [`crate::serialize`]'s output is a function of its assembly, its options and one
+    /// so that [`crate::serialize()`]'s output is a function of its assembly, its options and one
     /// [`Entropy`]. `iv` is ignored for every method but AES: §7.6.3.1 gives RC4 none, and
     /// `Identity` passes the data through.
     pub(crate) fn encrypt_with_iv(
@@ -837,7 +837,7 @@ impl Aes256Hash {
 
 /// SHA-256 of a password, a salt and — for the owner branch — the 48-byte `/U` string.
 ///
-/// Algorithm 2.B's own first sentence is "[t]ake the SHA-256 hash of the original input to
+/// Algorithm 2.B's own first sentence is "\[t]ake the SHA-256 hash of the original input to
 /// the algorithm", so this is that hash standing alone as well as [`hash_2b`]'s first step.
 fn sha256_of(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
     let mut hash = sha2::Sha256::new();
@@ -910,7 +910,7 @@ fn authenticate_aes256(
 /// Unwraps `/OE` or `/UE` into the file encryption key — Algorithm 2.A steps (d) and (e).
 ///
 /// The length check is the clause's own arithmetic rather than a tolerance: both steps end
-/// "[t]he 32-byte result is the file encryption key", and §7.6.3.3's Algorithm 1.A takes a
+/// "\[t]he 32-byte result is the file encryption key", and §7.6.3.3's Algorithm 1.A takes a
 /// 256-bit key. A wrapped entry of any other length yields something that is not a key, and
 /// saying so here makes the file a wrong-password refusal instead of a stream that quietly
 /// declines to decrypt several layers further down (trap 5).
@@ -1322,7 +1322,7 @@ fn pad_password(password: &str) -> SyntaxResult<[u8; 32]> {
 /// > by first converting the string to PDFDocEncoding .
 ///
 /// The clause counts in *bytes* of `PDFDocEncoding`, so a password has to be converted before it
-/// can be padded, through the whole of Annex D Table D.3 that [`crate::text_string`] holds for
+/// can be padded, through the whole of Annex D Table D.3 that [`crate::text_string()`] holds for
 /// §7.9.2.2's text strings; the two conversions are one operation on strings of the same order
 /// of length, and there is one of them.
 ///
@@ -1484,7 +1484,7 @@ fn aes_cbc_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 
 /// [`aes_cbc_encrypt`] with §7.6.3.3's initialisation vector supplied rather than generated.
 ///
-/// A whole file written by [`crate::serialize`] takes every unpredictable byte from one
+/// A whole file written by [`crate::serialize()`] takes every unpredictable byte from one
 /// [`Entropy`], so that the write is a function of its inputs and a test can state the file it
 /// expects. §7.5.6's incremental update has no such seam and reaches the platform directly.
 fn aes_cbc_encrypt_with_iv(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Option<Vec<u8>> {
@@ -1643,7 +1643,7 @@ pub trait Entropy {
 /// The platform's own cryptographic source.
 ///
 /// What a host supplies when it has no reason to supply anything else; `getrandom` is the
-/// same call [`aes_cbc_encrypt`] makes for §7.5.6's incremental update.
+/// same call `aes_cbc_encrypt` makes for §7.5.6's incremental update.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemEntropy;
 

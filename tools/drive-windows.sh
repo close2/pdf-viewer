@@ -142,14 +142,14 @@ CONFINED_STEPS=(confined reader_words field_commit combo_commit scripts_levels s
     script_withdrawn script_goto script_timer script_timer_quiet script_beep script_triggers located
     located_displayed signature_policy loading_bar zoom_past_the_bound
     zoom_past_the_bound_uncrossable zoomed_window_processor rendition_click link_levels
-    launch_levels submission_levels bare_session_start archive_converted)
+    launch_levels launch_menu submission_levels bare_session_start archive_converted)
 WINDOW_STEPS=(drive accessibility reader_words field_commit combo_commit scripts_levels
     script_painted script_asks script_withdrawn script_goto script_timer script_timer_quiet
     script_beep script_triggers script_keys list_arrows combo_arrows popup_rich popup_face popup_rtl
     popup_spacing popup_scale popup_tall popup_list_rtl popup_tab popup_tab_rtl popup_leader
     note_window note_typed note_caret reply_threaded located located_displayed signature_policy
     loading_bar page_as_built zoom_stand_in retained_page zoomed_window zoom_past_the_bound
-    transition_frames rendition_click link_levels launch_levels submission_levels
+    transition_frames rendition_click link_levels launch_levels launch_menu submission_levels
     bare_session_start archive_converted)
 # Outside every list, run by `--step` alone: each opens `HEAVY_FILE`, a document the drive does not
 # write, and two of the three verdicts are times (ADRs 1815, 1825); each says itself in which
@@ -1103,7 +1103,7 @@ def find(node, depth):
     try:
         # Older AT-SPI says "push button" where this one says "button"; either names the one role.
         said = node.get_role_name()
-        if (role in (said, "button" if said == "push button" else said) and node.get_name() == name
+        if (role in ("*", said, "button" if said == "push button" else said) and node.get_name() == name
                 and node.get_state_set().contains(Atspi.StateType.SHOWING)):
             return node
         for index in range(node.get_child_count()):
@@ -4079,6 +4079,63 @@ launching(sys.argv[1] + "/drive-launch-text.pdf", "drive-launched.txt")
 launching(sys.argv[1] + "/drive-launch-program.pdf", "drive-launched.desktop")
 PY4
 }
+# A live menu choice must change the policy used by the next launch action, not only its tick.
+launch_menu() {
+    local step=95-launch-menu mark X Y WIDTH HEIGHT
+    launch_fixtures
+    launch "$FIXTURES/drive-launch-text.pdf" --remote-documents=open --launched-documents=refuse
+    mark=$(lines)
+    key r
+    if [ "$WINDOW" = quorra ]; then
+        # The last act is launched documents; stop at its last level, then back to ask.
+        xdotool key --clearmodifiers --delay 10 --repeat 100 Down
+        key Up Up Return
+    elif [ "$WINDOW" = quorra-confined ]; then
+        key Down Return
+    elif [ "$WINDOW" = quorra-gtk ]; then
+        # GTK's submenu widgets do not expose an AT-SPI action; use their keyboard path.
+        key Down Down Return
+        shot "$step-machine"
+        # Each GTK submenu initially focuses its back row, before the selectable entries.
+        key Down Down Down Down Return
+        shot "$step-operation"
+        key Down Down Return
+    else
+        local label machine="What a document may ask this machine to do"
+        local operation="opening a launched document in another program"
+        [ "$WINDOW" = quorra-gtk ] && machine="$machine — for every document in this window"
+        [ "$WINDOW" = quorra-qt ] && operation="$operation (ISO 32000-2 §12.6.4.6's launch action; programs are always refused)"
+        for label in "$machine" "$operation" ask; do
+            if ! wait_for 10 timeout 20 python3 "$OUT/press.py" "$APP" '*' "$label"; then
+                shot "$step-unreached"
+                verdict "$step" wrong "menu item could not be activated: $label"
+                kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+                return
+            fi
+        done
+    fi
+    shot "$step"
+    if ! wait_for 10 said_since "$mark" 'opening a launched document in another program is now ask'; then
+        verdict "$step" wrong "menu choice was not acknowledged: $LOG"
+    else
+        # AT-SPI activates Qt's action without closing its parent menus. Dismiss each before
+        # the page click; drawn cards need one Escape and a toolkit's nesting needs three.
+        if [ "$WINDOW" = quorra ] || [ "$WINDOW" = quorra-confined ]; then
+            key Escape
+        else
+            key Escape Escape Escape
+        fi
+        eval "$(xdotool getwindowgeometry --shell "$(main_window)" | grep -E '^(X|Y|WIDTH|HEIGHT)=')"
+        MARK=$(lines)
+        xdotool mousemove $((X + WIDTH / 2)) $((Y + HEIGHT / 2)) click 1
+        sleep 1.3
+        if link_answer "$step" no 'Launch: declined — you answered'; then
+            verdict "$step" works "menu changed refuse to ask; the next launch asked and obeyed no"
+        fi
+    fi
+    kill "$APP" 2>/dev/null; wait "$APP" 2>/dev/null; APP=""
+}
+
 launch_levels() {
     local handed="$OUT/handler/handed.log" step before said='^\(note: \)\?Launch: '
     local -x PATH="$OUT/handler:$PATH"
@@ -4092,7 +4149,8 @@ HANDLER
     handed_since() { [ "$(cat "$handed" 2>/dev/null | wc -l)" -gt "$1" ]; }
     step=94-launch-refuse
     before=$(cat "$handed" 2>/dev/null | wc -l)
-    if link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open; then
+    if link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open \
+            --launched-documents=refuse; then
         wait_for 10 said_since "$MARK" "${said}declined — drive-launched.txt is a document"
         if said_since "$MARK" "${said}declined — drive-launched.txt is a document" \
                 && ! handed_since "$before"; then
@@ -4104,8 +4162,8 @@ HANDLER
     for answer in yes no; do
         step=94-launch-ask-$answer
         before=$(cat "$handed" 2>/dev/null | wc -l)
-        link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open \
-            --launched-documents=ask || continue
+        # No launched-documents override: A562 makes the fully supported ask level the default.
+        link_clicked "$step" "$FIXTURES/drive-launch-text.pdf" --remote-documents=open || continue
         if [ "$answer" = yes ]; then
             link_answer "$step" yes "${said}drive-launched.txt was handed" || continue
             sleep 0.5

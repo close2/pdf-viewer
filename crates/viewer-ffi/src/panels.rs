@@ -147,7 +147,7 @@ struct PanelEntry {
     object: (u32, u16),
     /// Whether the group is on, for [`RowKind::Toggle`].
     on: bool,
-    /// Table 99's `/Locked`, for [`RowKind::Toggle`]: "[t]he state of a locked group cannot be
+    /// Table 99's `/Locked`, for [`RowKind::Toggle`]: "\[t]he state of a locked group cannot be
     /// changed through the user interface of an interactive PDF processor."
     locked: bool,
     /// The `/EmbeddedFiles` key `quorra_extract` takes, for [`RowKind::Extract`].

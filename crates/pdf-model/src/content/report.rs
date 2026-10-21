@@ -505,8 +505,9 @@ pub struct Interpretation {
     /// instrument that can say whether a population reaches it is one that asks a page rather
     /// than a process — `examples/press_depth` is that instrument, and ADR 1254 is what it
     /// measured. Zero for a page that composites on the device's own components, which is
-    /// almost every page.
-    pub presses_named: usize,
+    /// almost every page. A poisoned table answers [`crate::colour::NoPress::Poisoned`]
+    /// rather than a count the table cannot establish.
+    pub presses_named: Result<usize, crate::colour::NoPress>,
     /// ISO 32000-2 §10.8.3 step a)'s separations of this page, where a reader asked for the
     /// simulation and the page names a spot colourant — `None` on every other page, and on a
     /// page the model could not separate. Where it is `Some` the [`Self::display_list`] is the

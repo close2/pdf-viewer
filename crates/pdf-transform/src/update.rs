@@ -1048,7 +1048,7 @@ impl<'a> Carry<'a> {
 ///
 /// Where each entry goes is [`deprecated_in`]'s answer: in a PDF 2.0 file everything but the two
 /// dates goes into the packet alone and leaves the dictionary, and in an earlier one both state
-/// it. §14.3.4 is why a packet the document already holds is restated whatever the version: "[w]hen
+/// it. §14.3.4 is why a packet the document already holds is restated whatever the version: "\[w]hen
 /// writing the time and date of the most recent modification, typically when an existing document
 /// has been modified, a PDF processor shall ensure that the data in the document information
 /// dictionary and the document level metadata stream -if both are written -are fully equivalent",
@@ -1383,7 +1383,7 @@ pub(crate) const TABLE_349: &[(&str, &str, &str, &str, xmp::Form)] = &[
 ///
 /// and §3.15 defines the word as "a part of ISO 32000 that should not be written into a PDF 2.0
 /// document". So in a file that states 2.0 or later every entry but the two dates goes into
-/// §14.3.2's packet alone — the clause's own words, "[m]etadata streams are the preferred method
+/// §14.3.2's packet alone — the clause's own words, "\[m]etadata streams are the preferred method
 /// in PDF 2.0" — while a file of an earlier version, for which the dictionary is not deprecated,
 /// states both and keeps them the same (ADR 1473).
 pub(crate) fn deprecated_in(version: Option<Version>, key: &str) -> bool {

@@ -412,8 +412,8 @@ pub(super) fn filed_as(stem: &str, at: ObjectId, extension: &str) -> String {
 
 /// The XFA resource's bytes, as the interactive form dictionary states them.
 ///
-/// §12.7.3's Table 224 makes the entry "[a] stream or array containing an XFA resource", and
-/// Annex K says what the array is: "[a] packet is a pair of a string and stream. The string
+/// §12.7.3's Table 224 makes the entry "\[a] stream or array containing an XFA resource", and
+/// Annex K says what the array is: "\[a] packet is a pair of a string and stream. The string
 /// contains the name of the XML element and the stream contains the complete text of this XML
 /// element. Each packet represents a complete XML element, with the exception of the first and
 /// last packet, which specify begin and end tags for the xdp:xdp element". So the resource is the

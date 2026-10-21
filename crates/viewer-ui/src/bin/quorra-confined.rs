@@ -13,7 +13,7 @@
 //! decoder bounds-checked field by field, chosen per page by size (ADR 0607).
 //!
 //! Arrows, Page Up and Down or Space turn pages, Home and End jump, `+` and `-` zoom, the wheel
-//! scrolls, `q` quits, Tab walks a form's fields, `m` measures. **Escape is the abort**: it ends the worker with a kill it cannot decline
+//! scrolls, `q` quits, `r` opens the launched-document permissions menu, Tab walks a form's fields, `m` measures. **Escape is the abort**: it ends the worker with a kill it cannot decline
 //! (ADR 0241) and takes back this side's own drawing thread (ADR 0650) — the reader's answer to
 //! a document written to take for ever, and it does not block. The window title carries the page
 //! and §12.4.2's label; what a page could not draw is printed, as everywhere else in this tree.
@@ -94,6 +94,8 @@ mod asking;
 mod device;
 #[path = "quorra-confined/exchange.rs"]
 mod exchange;
+#[path = "quorra-confined/permissions.rs"]
+mod permissions;
 #[path = "quorra-confined/pricing.rs"]
 mod pricing;
 #[path = "quorra-confined/screen.rs"]
@@ -116,7 +118,7 @@ use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Viewing, Zoom};
 use viewer_host::drawing::Drawing;
 use viewer_host::trace::{Topic, Trace};
 use viewer_host::{Ask, Asking, Supplied};
-use viewer_ui::chrome::{Chrome, PasswordCard, QuestionCard};
+use viewer_ui::chrome::{Chrome, PasswordCard, QuestionCard, RestrictionsCard};
 use viewer_ui::software::SoftwareSurface;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
@@ -402,6 +404,7 @@ struct Host {
     ///
     /// While it is shown it has the keyboard and the pointer, as the password card does.
     question: QuestionCard,
+    permissions: RestrictionsCard,
     asked: Option<asking::Asked>,
     /// A file a document named, supplied to the worker and not yet answered for (`asking`).
     offered: Option<asking::Offered>,
@@ -523,6 +526,7 @@ impl Host {
             submitter: viewer_host::submit::Submitter::new(),
             launched_documents: viewer_host::LaunchedDocuments::default(),
             question: QuestionCard::default(),
+            permissions: RestrictionsCard::default(),
             asked: None,
             offered: None,
             prompting: None,
@@ -1439,9 +1443,13 @@ impl Host {
             reason = "a display's scale factor is a small ratio"
         )]
         let scale = window.scale_factor() as f32;
-        self.password
+        self.permissions
             .draw(chrome, extent.width, extent.height, scale)
             .into_iter()
+            .chain(
+                self.password
+                    .draw(chrome, extent.width, extent.height, scale),
+            )
             .chain(
                 self.question
                     .draw(chrome, extent.width, extent.height, scale),
@@ -1689,6 +1697,9 @@ impl Host {
     /// A pressed key: held while the worker is busy, unless it is one about the wait itself
     /// (ADR 1827), and otherwise what it means now.
     fn press(&mut self, key: &Key) {
+        if self.permissions_key(key) {
+            return;
+        }
         if self.must_hold() && !self.acts_at_once(key) {
             self.hold(Held::Key {
                 key: key.clone(),
@@ -1936,6 +1947,11 @@ impl ApplicationHandler for Host {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = (position.x as f32, position.y as f32);
             }
+            WindowEvent::MouseInput { state, .. } if self.permissions.shown => {
+                if state == ElementState::Pressed && !self.password.shown && !self.question.shown {
+                    self.permissions_pointer();
+                }
+            }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: winit::event::MouseButton::Left,
@@ -1963,6 +1979,7 @@ impl ApplicationHandler for Host {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
+            WindowEvent::MouseWheel { .. } if self.permissions.shown => {}
             WindowEvent::MouseWheel { delta, .. } => {
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (-x * WHEEL_NOTCH, -y * WHEEL_NOTCH),

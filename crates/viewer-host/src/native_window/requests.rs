@@ -496,7 +496,7 @@ fn launched_elsewhere<W: NativeWindow + ?Sized>(
     path: &Path,
     read: &[u8],
 ) {
-    let level = window.state().launched_documents;
+    let level = window.state().restrictions.launched_documents();
     match crate::policy::launched(path, name, read, level) {
         None => {}
         Some(crate::Launched::Program(said) | crate::Launched::Refuse(said)) => window.say(&said),

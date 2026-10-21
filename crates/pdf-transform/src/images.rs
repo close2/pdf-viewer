@@ -66,7 +66,7 @@
 //! ISO 32000-2 §8.9.6.1 names the ways an image is masked, and two of them are a second image:
 //! §8.9.6.3's explicit mask, "a separate image `XObject` which shall be used as an explicit mask
 //! specifying which areas of the image to paint and which to mask out", and §11.6.5.2's soft
-//! mask through `/SMask`. §8.9.6.3 says what the two images are to each other — "[t]he base
+//! mask through `/SMask`. §8.9.6.3 says what the two images are to each other — "\[t]he base
 //! image and the image mask need not have the same resolution (Width and Height values), but
 //! since all images shall be defined on the unit square in user space, their boundaries on the
 //! page will coincide" — so a mask is an image on its own grid, and the page's picture is the

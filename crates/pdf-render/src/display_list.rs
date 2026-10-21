@@ -55,7 +55,7 @@ impl ClipId {
 /// The same construction that draws §11.4.7's page group applies one scope down, in one of
 /// three shapes, and what each resolves *into* is what the parent composites in: the device's
 /// three components where the parent composites on the device, and otherwise the parent's own
-/// channels, with §11.6.6's conversion into the parent — "[i]f colour conversion needs to take
+/// channels, with §11.6.6's conversion into the parent — "\[i]f colour conversion needs to take
 /// place in order to composite the group into its parent" — composed onto the group's own
 /// conversion out by `pdf-model` before the list is built. A backend resolves one grid, curve
 /// or cube per group and never learns which of the two it was handed.
@@ -226,7 +226,7 @@ pub enum Command {
         clip: Option<ClipId>,
         /// Active soft mask, or `None` for none.
         ///
-        /// §11.6.4.3 makes an image's own mask supersede this one — "[e]ither form of mask
+        /// §11.6.4.3 makes an image's own mask supersede this one — "\[e]ither form of mask
         /// in the image dictionary shall override, for this image object only, the current
         /// soft mask in the graphics state" — so an image carrying an `/SMask` or a `/Mask`
         /// arrives here with `None` however the graphics state was left.
@@ -244,13 +244,13 @@ pub enum Command {
     /// > compositing operations.
     ///
     /// That is the whole of what this command asks a backend for: draw `commands` onto the
-    /// backdrop [`Self::isolated`] names, then paint the result once, under `alpha` and
+    /// backdrop `isolated` names, then paint the result once, under `alpha` and
     /// `blend`.
     ///
     /// # Why knockout is a flag
     ///
     /// The two models differ in the *elements'* compositing and no rewriting of the element
-    /// list can express it: see [`Self::knockout`].
+    /// list can express it: see `knockout`.
     Group {
         /// The group's elements, in painting order.
         ///
@@ -302,7 +302,7 @@ pub enum Command {
         /// quantity the removal divides out is multiplied straight back in when the group's
         /// result is composited with that same backdrop under §11.3.3. Writing `B` for the
         /// backdrop and `E(B)` for the elements composited onto it, both premultiplied, and
-        /// `w` for [`Self::alpha`] times [`Self::mask`] at the pixel, the two steps together
+        /// `w` for `alpha` times [`Self::mask`] at the pixel, the two steps together
         /// are
         ///
         /// ```text
@@ -332,8 +332,8 @@ pub enum Command {
         /// reports the groups it therefore cannot draw. A backend may rely on that and
         /// should refuse rather than approximate if handed anything else.
         ///
-        /// `false` **with [`Self::knockout`] set** is §11.4.6's non-isolated knockout
-        /// group, whose initial backdrop is the group's own — see [`Self::knockout`] for
+        /// `false` **with `knockout` set** is §11.4.6's non-isolated knockout
+        /// group, whose initial backdrop is the group's own — see `knockout` for
         /// what that asks of a backend and what `pdf-model` guarantees about its elements.
         isolated: bool,
         /// Whether the elements knock each other out (§11.4.6).
@@ -367,9 +367,9 @@ pub enum Command {
         ///
         /// # A non-isolated knockout group, where the two backdrops differ
         ///
-        /// With [`Self::isolated`] `false` beside this flag, the initial backdrop every
+        /// With `isolated` `false` beside this flag, the initial backdrop every
         /// element composites with is **the group's own backdrop** rather than
-        /// transparency — "[a] nonisolated knockout group composites its topmost enclosing
+        /// transparency — "\[a] nonisolated knockout group composites its topmost enclosing
         /// element with the group's backdrop" — and the staged reading above no longer
         /// holds, because an element's blend mode now has that backdrop to blend against.
         /// §11.4.6's two stages per element `i`, in premultiplied form with `B` the
@@ -432,7 +432,7 @@ pub enum Command {
         /// applies its recurrence to shape and to alpha alike, so the equality survives a
         /// knockout stage exactly as it survives §11.3.7.3's union.
         ///
-        /// It says nothing about [`Self::isolated`], deliberately. A non-isolated group's
+        /// It says nothing about `isolated`, deliberately. A non-isolated group's
         /// buffer starts as a copy of its backdrop, so the alpha in it is not the group's own
         /// shape whatever this flag says — a fact about the *buffer* rather than about the
         /// commands, and one every backend that reads this flag tests for itself.
@@ -442,7 +442,7 @@ pub enum Command {
         /// already composites in (§11.6.6, §11.7.2). See [`GroupBlending`].
         ///
         /// `pdf-model` emits `Some` only for an isolated group, because §11.6.6 gives a
-        /// `/CS` effect for isolated groups alone — "[f]or non-isolated groups, or if no
+        /// `/CS` effect for isolated groups alone — "\[f]or non-isolated groups, or if no
         /// group colour space is specified, the group colour space shall be inherited from
         /// the parent group or page". A backend that cannot composite the elements and
         /// resolve them must refuse the command: the colours the lists hold are ink
@@ -488,8 +488,8 @@ pub enum Command {
     /// P' = (1 − f) × P + S
     /// ```
     ///
-    /// which a backend draws as **Porter-Duff Destination-Out with [`Self::shape`], then
-    /// Plus with [`Self::object`]** — the first factor and the second term, in that order.
+    /// which a backend draws as **Porter-Duff Destination-Out with `shape`, then
+    /// Plus with `object`** — the first factor and the second term, in that order.
     /// Ordinary source-over would multiply the backdrop term by `(1 − f × opacity)` as
     /// well, which is right only where the object is opaque or its shape is 0 or 1.
     ///
@@ -685,7 +685,7 @@ impl Command {
     /// Returns the soft mask in effect for this command, if any.
     ///
     /// Per command rather than per run of commands because §11.6.4.3's NOTE 2 makes the
-    /// mask apply to one object at a time: "[i]f a soft mask is applied when painting two or
+    /// mask apply to one object at a time: "\[i]f a soft mask is applied when painting two or
     /// more overlapping objects, the effect of the mask multiplies with itself in the area
     /// of overlap". Applying it once to a run of objects would be a different picture, and
     /// the one the clause warns is *not* what a mask does.
@@ -1127,7 +1127,7 @@ impl DisplayList {
 
     /// States that this page composites in a four-component blending colour space.
     ///
-    /// ISO 32000-2 §11.4.7: "[a]ll page-level compositing shall be done in the default
+    /// ISO 32000-2 §11.4.7: "\[a]ll page-level compositing shall be done in the default
     /// blending colour space of the page". `black` is the same page drawn in the fourth
     /// component of that space, with identical geometry, shapes and opacities — see
     /// [`crate::blending`] for why two rasters answer four components, and
@@ -1767,7 +1767,7 @@ impl DisplayList {
     /// > intersection of the set of pixels defined by the clipping region with the set of pixels
     /// > for the region to be painted.
     ///
-    /// and §8.5.4 says the same of the shape — "[t]he effective shape is the intersection of the
+    /// and §8.5.4 says the same of the shape — "\[t]he effective shape is the intersection of the
     /// object's intrinsic shape with the clipping path". An intersection with a region that
     /// **contains** the mark is the mark, so a caller holding a mark inside this rectangle may
     /// draw it with no clip at all and have computed the intersection exactly — with no

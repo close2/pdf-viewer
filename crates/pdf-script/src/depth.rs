@@ -3,7 +3,7 @@
 //!
 //! Boa 0.22 parses and compiles by recursion and states no depth limit of its own, so a script
 //! deep enough overflows the thread it runs on — which in the confined worker is the process, and
-//! in [`crate::Engine`] the realm's thread. Brackets are the costly case and
+//! in `crate::Engine` the realm's thread. Brackets are the costly case and
 //! [`crate::Budget::nesting`] bounds them; this bounds everything else as well. Measured on Boa
 //! 0.22 in an optimised build, the largest construct that survives a thread of 2, 4 and 8 MiB
 //! (the stack per level is the difference between two sizes, divided by the levels it bought):

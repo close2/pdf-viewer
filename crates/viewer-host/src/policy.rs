@@ -1,6 +1,6 @@
 //! The decisions `doc/todo/30` says a host owns, and why they are a host's.
 //!
-//! `viewer_core`'s rule 2 is that the crate has no filesystem: "[a] document naming a file is a
+//! `viewer_core`'s rule 2 is that the crate has no filesystem: "\[a] document naming a file is a
 //! document asking this machine for something, and whether to give it is not a rendering
 //! decision." Every decision below is that rule reaching a person.
 //!
@@ -41,7 +41,7 @@
 //! HTTP client in the tree (ADR 1291).
 //!
 //! **And a sixth** — whether a link's URI is handed to whatever this machine opens one with.
-//! §12.6.4.8 says "[a] URI action causes a URI to be resolved", and the same division applies for
+//! §12.6.4.8 says "\[a] URI action causes a URI to be resolved", and the same division applies for
 //! the third time: what the URI *is* — Table 210's `/URI` against Table 211's `/Base`, then
 //! [`resolve_uri`] against the location of the document itself, which is a fact about this machine
 //! and so cannot be the core's — is answered before a host sees it, and [`may_open_uri`] is the one
@@ -312,7 +312,7 @@ pub enum ImportRefusal {
 ///   drive-relative one are all refused;
 /// - it is resolved against the directory the open document is in, and nowhere else.
 ///
-/// §7.11.2.2 is the construction the first rule admits and nothing wider: "[a] file specification
+/// §7.11.2.2 is the construction the first rule admits and nothing wider: "\[a] file specification
 /// that does not begin with a SOLIDUS shall be a relative file specification giving the location of
 /// the file relative to that of the PDF file containing it", and its EXAMPLE 1 is a relative
 /// specification into a subdirectory, `ArtFiles/Figure1.pdf`. The rule exists to keep a document to
@@ -609,7 +609,7 @@ pub fn supply_note(purpose: Purpose, refusal: &str) -> String {
 /// The schemes a submission may be sent to, whatever the level.
 ///
 /// **The narrowest list that still performs what the clause describes**, and [`LINK_SCHEMES`]'s
-/// shape for [`LINK_SCHEMES`]'s reason. Table 239's `/F` is "[a] URL file specification … giving
+/// shape for [`LINK_SCHEMES`]'s reason. Table 239's `/F` is "\[a] URL file specification … giving
 /// the uniform resource locator (URL) of the script at the Web server that will process the
 /// submission", and Table 240's own vocabulary is HTTP's — bit 4 chooses "an HTTP GET request"
 /// over "a POST request" — so a URL naming anything but a Web server is outside what the clause is
@@ -1246,7 +1246,7 @@ pub fn resolve_uri(document: Option<&Path>, uri: &str) -> String {
 
 /// The `file` URL of an absolute path, for [`resolve_uri`]'s base.
 ///
-/// RFC 8089 section 2: "[a] file URI takes the form of `file://<host>/<path>`", with an empty host
+/// RFC 8089 section 2: "\[a] file URI takes the form of `file://<host>/<path>`", with an empty host
 /// meaning this machine. Every byte outside RFC 3986's unreserved set is percent-encoded and the
 /// separator is not, which is the conservative encoding: encoding a character that need not be is
 /// harmless, and leaving one that must be would put a `?` or a `#` from a file name into the
@@ -1410,7 +1410,7 @@ pub fn handed_media(
 
 /// Whether §12.6.4.8's resolved URI may be **handed to whatever this machine opens one with**.
 ///
-/// §12.6.4.8 says "[a] URI action causes a URI to be resolved", of a string the clause introduces
+/// §12.6.4.8 says "\[a] URI action causes a URI to be resolved", of a string the clause introduces
 /// as one that "identifies (resolves to) a resource on the Internet" — so the verb is reaching
 /// that resource, and everything before it is a question about the document that
 /// `pdf_model::action` and [`resolve_uri`] have answered. Reaching it is a program this one would
@@ -1419,7 +1419,7 @@ pub fn handed_media(
 /// **A function rather than a refusal written at each call site**, for [`may_submit`]'s reason and
 /// ADR 1062's: the policy is asked once, in a place a host can supply, so a level a reader sets is
 /// a value here rather than four windows' worth of editing (ADR 1079). `CLAUDE.md` principle 3 is
-/// what makes that shape the requirement — "[a] refusal that cannot become an 'ask' is the thing
+/// what makes that shape the requirement — "\[a] refusal that cannot become an 'ask' is the thing
 /// to avoid" — and [`Links`] is the ask.
 ///
 /// **Two questions are answered before the level is consulted, and the order is the point.** A
@@ -1651,7 +1651,7 @@ pub fn uri_note(uri: &str, refused: Option<&str>) -> String {
 /// document. There is nothing here to ask a person about and nothing to warn them of, so two
 /// words are the whole vocabulary (ADR 1189 section 2 draws the same line about `/SA`).
 ///
-/// **Off unless a person says otherwise**, which is what §10.8.1 leaves it as — "[w]hether
+/// **Off unless a person says otherwise**, which is what §10.8.1 leaves it as — "\[w]hether
 /// separations are produced is up to the processing software" — and what §10.8.2 describes a
 /// screen doing: the alternate colour space and its tint transform, with the overprint controls
 /// ignored. ADR 1228.
@@ -1856,7 +1856,7 @@ pub enum Remote {
 /// Whether §12.6.4.3's named file may be **opened in this reader**, and from where.
 ///
 /// §12.6.4.3 describes an action that "jumps to a destination in another PDF file instead of the
-/// current file" and Table 203 makes `/F` "[t]he file in which the destination shall be located".
+/// current file" and Table 203 makes `/F` "\[t]he file in which the destination shall be located".
 /// Which files a document may name is a property of the *processor* and not of the format, which
 /// is the same sentence §12.7.6.4's import-data action is answered with — so the path is resolved
 /// by [`resolve_import`]'s two rules and by nothing looser, and the level decides the act that is
@@ -1873,7 +1873,7 @@ pub enum Remote {
 /// 203's does, and ADR 1227 divided the levels by what the act is: [`Links`] decides whether
 /// another program on this machine is started, and this one decides which PDFs beside the
 /// reader's own document this program parses. All three are that, so a reader who set one word
-/// has answered for all three; what differs is the sentence, which [`what_would_happen`] supplies
+/// has answered for all three; what differs is the sentence, which `what_would_happen` supplies
 /// because only two of the three replace the document on the screen.
 #[must_use]
 pub fn remote(
@@ -2103,7 +2103,7 @@ pub fn scripts(word: &str) -> Result<Scripts, String> {
 /// **The one place a level becomes a runner**, for [`may_submit`]'s reason: every window asks it
 /// here rather than building its own. At `on`, `warn` and an answered `ask` each document is handed
 /// a `pdf_script_worker::ScriptWorker`, which starts the worker program at the document's first
-/// trigger and never before (RFC 0008 section 6.6); at `warn` it is wrapped in [`Warning`]. At
+/// trigger and never before (RFC 0008 section 6.6); at `warn` it is wrapped in `Warning`. At
 /// `off` nothing is constructed at all.
 #[must_use]
 pub fn scripting(level: Scripts) -> viewer_core::Scripting {
@@ -2440,7 +2440,7 @@ pub enum Unpacking {
 /// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
 /// > contained within the EmbeddedFiles name tree identified by name .
 ///
-/// — and the caution second, about the same act: "[s]ecurity should be strongly considered when
+/// — and the caution second, about the same act: "\[s]ecurity should be strongly considered when
 /// opening an embedded file … a PDF processor may choose to prompt the user or even prevent
 /// opening of the file." [`EmbeddedDocuments`] is that choice given to the reader: *ask* is the
 /// prompt, *refuse* the prevention, and *warn* and *open* the `shall` carried out with and

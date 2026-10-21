@@ -2609,7 +2609,10 @@ static READINGS: &[Reading] = &[
                 says: "every font and font program in the file, whatever its rendering mode, \
                        conforms to the base standard's two font clauses and to the format \
                        specifications those clauses refer to",
-                carried: Carried::By(&["fonts/font-programs-conform-to-their-own-specifications"]),
+                carried: Carried::By(&[
+                    "fonts/font-programs-conform-to-their-own-specifications",
+                    "fonts/widths-array-covers-character-range",
+                ]),
             },
             Sentence {
                 says: "a multiple master font is a special case of a Type 1 font, and every \
@@ -4694,7 +4697,10 @@ static READINGS: &[Reading] = &[
                 says: "every font and font program in the file, whatever its rendering mode, \
                        conforms to the base standard's two font clauses and to the format \
                        specifications those clauses refer to",
-                carried: Carried::By(&["fonts/font-programs-conform-to-their-own-specifications"]),
+                carried: Carried::By(&[
+                    "fonts/font-programs-conform-to-their-own-specifications",
+                    "fonts/widths-array-covers-character-range",
+                ]),
             },
             Sentence {
                 says: "a multiple master font is a special case of a Type 1 font, and every \

@@ -1,16 +1,16 @@
 //! RFC 5035's signing-certificate attributes: the hash a signer signed over its own certificate.
 //!
 //! §12.8.3.4.3 (f) requires one of these on a `PAdES` signature and names the document that
-//! defines it — "[t]he details of the signing certificate attribute are defined in Internet RFC
+//! defines it — "\[t]he details of the signing certificate attribute are defined in Internet RFC
 //! 5035 ." §12.8.3.4.5 (a) is what a verifier does with it, and it is the first half of that
-//! step's first sentence: "[a] signature handler shall compare the hash value of the signer's
+//! step's first sentence: "\[a] signature handler shall compare the hash value of the signer's
 //! certificate, with the hash value given in the signing-certificate attribute or the
 //! signing-certificate-v2 attribute. If the hashes do not match, then the signature is considered
 //! invalid."
 //!
 //! # What the attribute is for, and why refusing to read one is not neutral
 //!
-//! RFC 5035 section 5.4 states the threat in one sentence: "[t]he signing certificate attribute is
+//! RFC 5035 section 5.4 states the threat in one sentence: "\[t]he signing certificate attribute is
 //! designed to prevent simple substitution and re-issue attacks, and to allow for a restricted set
 //! of certificates to be used in verifying a signature." A `SignedData` carries its own
 //! certificates, and a signature verifies under whichever of them the `SignerInfo` names — but the
@@ -26,16 +26,16 @@
 //!
 //! # The two spellings are one requirement
 //!
-//! RFC 5035 section 5.4: "[t]he only substantial difference between the two attributes is that
+//! RFC 5035 section 5.4: "\[t]he only substantial difference between the two attributes is that
 //! SigningCertificateV2 allows for hash algorithm agility, while SigningCertificate forces the use
-//! of the SHA-1 hash algorithm", and "[i]f both attributes exist in a single message, they are
+//! of the SHA-1 hash algorithm", and "\[i]f both attributes exist in a single message, they are
 //! independently evaluated." Both are read here, each by its own function, and the caller evaluates
 //! each that is present.
 //!
 //! # Only the first certificate identifier is read
 //!
 //! Both structures hold a `SEQUENCE OF` certificate identifiers, and RFC 5035 sections 5.4.1 and
-//! 5.4.2 say what the first one is: "[t]he first certificate identified in the sequence of
+//! 5.4.2 say what the first one is: "\[t]he first certificate identified in the sequence of
 //! certificate identifiers MUST be the certificate used to verify the signature." The ones after
 //! it "limit the set of certificates that are used during validation" — a statement about a
 //! certification path, which is §12.8.3.4.5 (b) and needs a trust store this program does not have.
@@ -55,7 +55,7 @@ pub enum EssError {
     Malformed,
     /// `certs` holds no identifier, so nothing names the certificate the signature was made with.
     ///
-    /// RFC 5035 sections 5.4.1 and 5.4.2 both require a first one — "[t]he first certificate
+    /// RFC 5035 sections 5.4.1 and 5.4.2 both require a first one — "\[t]he first certificate
     /// identified in the sequence of certificate identifiers MUST be the certificate used to
     /// verify the signature" — so an empty sequence has no answer in it rather than an empty one.
     #[error("the signing-certificate attribute names no certificate")]
@@ -78,7 +78,7 @@ pub enum EssError {
 ///
 /// Carried alongside every answer because the two are not interchangeable in what they prove: one
 /// is SHA-1 by construction and the other states its own algorithm, and RFC 5035 section 5.4 says
-/// why that matters — "[w]ith the recent advances in the ability to create hash collisions for
+/// why that matters — "\[w]ith the recent advances in the ability to create hash collisions for
 /// SHA-1, it is wise to move forward sooner rather than later."
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
@@ -103,7 +103,7 @@ impl Version {
 ///
 /// `issuerSerial` is deliberately absent. RFC 5035 section 5.4.1.1 makes it optional and explains
 /// what it is for — identifying certificates that are *not* the signer's, and that this program
-/// would need a path validator to use — while the hash is what the step compares: "[t]he use of the
+/// would need a path validator to use — while the hash is what the step compares: "\[t]he use of the
 /// hash is required by this structure since the detection of substituted certificates is based on
 /// the fact they would map to different hash values."
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

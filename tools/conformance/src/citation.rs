@@ -429,7 +429,7 @@ fn nearest_document(documents: Vec<String>) -> Option<String> {
 /// **The unit a name is read in is the paragraph, not the line** (ADR 1464). Prose is wrapped
 /// wherever the line runs out, so the standard a `§` belongs to can end the line above it — a
 /// question file wrote ISO 19005-2's name at the end of one line and its section sign at the start
-/// of the next, and read line by line that sign was a clause of ISO 32000-2. [`Paragraph`] says
+/// of the next, and read line by line that sign was a clause of ISO 32000-2. `Paragraph` says
 /// where a paragraph ends; every finding is still reported on the line its sign is on.
 #[must_use]
 pub fn scan_prose(text: &str) -> Scan {

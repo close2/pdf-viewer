@@ -44,7 +44,7 @@
 //!   the entries the annotation's own subtype clause states. `doc/questions/A21` allows it on
 //!   condition that every appearance written is reported, which [`Conversion::appearances`] is.
 //! - **Level U** (section 4.3): a `/ToUnicode` `CMap` derived from a font's own encoding, by
-//!   ISO 32000-2 §9.10.2's second method. [`to_unicode`].
+//!   ISO 32000-2 §9.10.2's second method. `to_unicode`.
 //! - **Level A** (section 5.1): `/MarkInfo` with `/Marked true`, where the file already carries
 //!   the structure tree that flag is a claim about. **The tree itself is never invented.**
 //! - **PDF/A-4f and PDF/A-4e** (ISO 19005-4 section 6.9, Annexes A.2 and B.4): an embedded file's
@@ -56,7 +56,7 @@
 //!   and an embedded program whose stated advances disagree with its own font dictionary has the
 //!   *program's* numbers restated. Never the dictionary's: §9.2.4 makes those what positions the
 //!   glyphs, so section 4.9 calls restating them never and `tests/archive_corpus.rs` checks over
-//!   the whole corpus that no width ever changed. [`fonts`] is both halves, and
+//!   the whole corpus that no width ever changed. `fonts` is both halves, and
 //!   `--no-substitute` is section 4.9's flag for the curator who would rather be told.
 //!
 //! **And the losses a caller authorises before the run** (section 3), because a batch tool has
@@ -64,12 +64,12 @@
 //! schema does not define the value it holds (section 3.9), `--authorise annotation-printing`
 //! gives an annotation stating no flags the `Print` bit ISO 19005 requires (section 3.7),
 //! `--authorise jpeg2000-colour-fallback` keeps only the colour space specification a JPEG 2000
-//! image uses, dropping the ones the part directs a processor to ignore ([`jpeg2000`]),
+//! image uses, dropping the ones the part directs a processor to ignore (`jpeg2000`),
 //! `--authorise forbidden-annotation` takes an annotation of a subtype ISO 19005 does not admit
 //! off the page it was on and everything it carried with it (section 3.2, `doc/adr/1099`), and
 //! `--authorise signature-assertion` lets a signed source be rewritten at all — every signature
 //! loses its value and keeps its field and appearance, and the report names each one, its
-//! signer, its time and what verifying it over the source found (section 3.6, [`signatures`]).
+//! signer, its time and what verifying it over the source found (section 3.6, `signatures`).
 //! Each names in the report exactly what it did — [`Conversion::removed`],
 //! [`Conversion::removed_annotations`], [`Conversion::signatures`] and the flag's own count —
 //! because a loss nobody can see afterwards is the failure section 3 exists against.
@@ -114,14 +114,14 @@
 //!
 //! | file | one responsibility |
 //! |---|---|
-//! | [`decision`] | the decision table and the five answers a failed requirement can get |
-//! | [`prepare`] | what a decision needs built from the document before it can be taken |
-//! | [`rewrite`] | the rewrites themselves, one object at a time, and the serializer walk |
-//! | [`to_unicode`] | the `/ToUnicode` `CMap` a font's own encoding derives, and what it cannot |
-//! | [`fonts`] | the face a font that embedded none is given, and the advances restated in it |
-//! | [`signatures`] | every signature the source carries, verified over the source and named before its value goes |
-//! | [`remedies`] | what the *operator's* configuration answered, carried out over one document |
-//! | [`report`] | what was decided and done, worded for a person and for `--json` |
+//! | `decision` | the decision table and the five answers a failed requirement can get |
+//! | `prepare` | what a decision needs built from the document before it can be taken |
+//! | `rewrite` | the rewrites themselves, one object at a time, and the serializer walk |
+//! | `to_unicode` | the `/ToUnicode` `CMap` a font's own encoding derives, and what it cannot |
+//! | `fonts` | the face a font that embedded none is given, and the advances restated in it |
+//! | `signatures` | every signature the source carries, verified over the source and named before its value goes |
+//! | `remedies` | what the *operator's* configuration answered, carried out over one document |
+//! | `report` | what was decided and done, worded for a person and for `--json` |
 //! | this file | the three stages in order, the plan they run from, and the output's version |
 //!
 //! # One cost, stated
@@ -145,6 +145,7 @@ mod destination;
 mod duplicate_profiles;
 mod extension_container;
 mod external;
+mod font_widths;
 mod fonts;
 mod halftones;
 mod hexadecimal;
@@ -349,7 +350,7 @@ pub struct ArchivePlan {
     /// **`doc/rfc/0007`'s `supply` in its oldest form** (`doc/adr/1200` section 4,
     /// `doc/adr/1209`). ISO 19005-2 section 6.2.11.4.1 admits only a program that may lawfully
     /// be embedded for unlimited universal rendering, and ISO 32000-2 §9.9.1 makes that a fact
-    /// about a licence rather than about the bytes: "[o]ne of the conditions may be that the
+    /// about a licence rather than about the bytes: "\[o]ne of the conditions may be that the
     /// font program cannot be embedded, in which case it should not be incorporated into a PDF
     /// file." Nothing in a document states it and nothing on a machine states it either, so it
     /// is the **operator's** to state — and naming a file is the statement, which is why the
@@ -1594,6 +1595,7 @@ fn hold_the_output_to_the_target(
         Refusal::Assembly(format!("the converted document does not re-open: {error}"))
     })?;
     let held = pdf_archive::check(&output, target);
+
     let met: BTreeSet<&'static str> = input
         .judgements
         .iter()

@@ -25,7 +25,7 @@ impl Host {
 
     /// ISO 32000-2 Annex O's `highlight`: the rectangles the URI's fragment named.
     ///
-    /// Table Annex O.4: "Open the document with the specified rectangle highlighted … [t]he nature
+    /// Table Annex O.4: "Open the document with the specified rectangle highlighted … \[t]he nature
     /// of the highlighting is implementation-dependent." So the shapes cross and the colour is
     /// Qt's, which is the whole argument for chrome crossing as geometry. Empty for every document
     /// opened without a fragment naming one.

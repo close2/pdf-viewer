@@ -584,7 +584,7 @@ impl Reference {
     /// itself rather than from a hand-maintained list of the things that affect it. The
     /// difference matters: a list has to be updated when `-cropbox` is added, and the
     /// consequence of forgetting is not a failure but a comparison against a render made
-    /// under the old flag. Deriving the key from [`Self::build_command`] makes that
+    /// under the old flag. Deriving the key from `Self::build_command` makes that
     /// impossible by construction — a flag that is not in the signature is a flag that is
     /// not passed to the renderer either.
     ///

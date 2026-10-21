@@ -162,7 +162,7 @@ impl Host {
     /// **The modal shape §7.6.4.1's password already had**, and deliberately the same one: both
     /// are this program holding something until a person says a word, and a reader who has met one
     /// of them has met the other. What is different is the answer — two buttons rather than a
-    /// text field — and what a dismissed window means, which is [`viewer_host::DO_NOT`] for the
+    /// text field — and what a dismissed window means, which is [`viewer_host::restriction::DO_NOT`] for the
     /// reason `viewer_host::restriction` records: going ahead on a question nobody answered would
     /// be the *off* level under another name.
     pub(super) fn put_a_question(

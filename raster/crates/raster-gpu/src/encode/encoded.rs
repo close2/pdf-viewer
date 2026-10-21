@@ -79,6 +79,10 @@ pub(crate) struct Encoded {
     pub layers_culled: u32,
     /// Line instances the walk took in runs from the encode of the view before (ADR 2056).
     pub lines_kept: u32,
+    /// Resident line instances excluded from this view's draw ranges.
+    pub line_instances_omitted: u32,
+    /// Optional bounds tables declined by the frame budget.
+    pub line_bounds_refused: u32,
     /// The GPU lane's triangles and tiles for this frame; empty under `Coverage::Cpu`
     /// and for every command that took the CPU lane anyway.
     pub winding: crate::winding::Sheet,
@@ -235,18 +239,7 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
     });
     // A walk that kept the encode before's runs wrote the stream that encode holds, for the same
     // commands (ADR 2056): it is shared, not copied.
-    let (line_instances, kept_lines) = match encoder.before {
-        super::kept_lines::Before::Kept(previous) => (
-            Arc::clone(&previous.line_instances),
-            previous.kept_lines.clone(),
-        ),
-        super::kept_lines::Before::Nothing
-        | super::kept_lines::Before::Whole
-        | super::kept_lines::Before::Diverged => (
-            Arc::new(encoder.line_instances),
-            encoder.kept_build.finish(),
-        ),
-    };
+    let (line_instances, kept_lines) = finish_lines(&mut encoder)?;
     Ok(Encoded {
         replay,
         rect_instances: encoder.rect_instances,
@@ -287,6 +280,8 @@ pub(super) fn finish(mut encoder: Encoder<'_>, commands: usize) -> Result<Encode
         ),
         commands_culled: encoder.culled,
         lines_kept: encoder.lines_kept,
+        line_instances_omitted: encoder.line_instances_omitted,
+        line_bounds_refused: encoder.line_bounds_refused,
         layers_culled: encoder.culled_layers,
         winding,
         compute,
@@ -315,4 +310,31 @@ fn distinct_clip_regions(clips: &ClipResolver) -> u32 {
         ]);
     }
     u32::try_from(distinct.len()).unwrap_or(u32::MAX)
+}
+
+/// Share a kept stream, or build its optional bounds after admitting their allocation.
+fn finish_lines(
+    encoder: &mut Encoder<'_>,
+) -> Result<(Arc<Vec<u8>>, Option<super::KeptLines>), RenderError> {
+    if let super::kept_lines::Before::Kept(previous) = encoder.before {
+        return Ok((
+            Arc::clone(&previous.line_instances),
+            previous.kept_lines.clone(),
+        ));
+    }
+    let mut kept = std::mem::take(&mut encoder.kept_build).finish();
+    if let Some(kept) = kept.as_mut().filter(|_| !encoder.line_instances.is_empty()) {
+        let bytes = super::line_blocks::LineBlocks::allocation_bytes(encoder.line_instances.len());
+        if encoder.spent.saturating_add(bytes) <= encoder.budget {
+            encoder.charge(bytes)?;
+            kept.blocks = Some(Arc::new(super::line_blocks::LineBlocks::of(
+                &encoder.line_instances,
+            )));
+        } else {
+            // Bounds are an optional economy: the original whole-run draw still fits.
+            kept.blocks_refused = true;
+            encoder.line_bounds_refused = 1;
+        }
+    }
+    Ok((Arc::new(std::mem::take(&mut encoder.line_instances)), kept))
 }

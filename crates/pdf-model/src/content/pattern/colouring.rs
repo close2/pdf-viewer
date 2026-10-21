@@ -120,7 +120,7 @@ impl Interpreter<'_> {
         &mut self,
         definition: &ShadingDefinition,
         colouring: &MarkColouring,
-    ) -> Result<Shading, crate::shading::ShadingError> {
+    ) -> Result<(Shading, bool), crate::shading::ShadingError> {
         let built = self.shadings.build(
             self.document,
             &definition.object,
@@ -145,12 +145,15 @@ impl Interpreter<'_> {
         }
         let shading = built.shading;
         if definition.paints_background {
-            return Ok(shading);
+            return Ok((shading, built.black_generation_bypassed));
         }
-        Ok(Shading {
-            background: None,
-            ..shading
-        })
+        Ok((
+            Shading {
+                background: None,
+                ..shading
+            },
+            built.black_generation_bypassed,
+        ))
     }
 
     /// The paint a shading pattern makes at the mark that is painting it.
@@ -183,11 +186,16 @@ impl Interpreter<'_> {
     pub(super) fn shading_paint(&mut self, pattern: &ShadingPattern, alpha: f32) -> Paint {
         let wanted = self.mark_colouring(&pattern.definition);
         if wanted.same_as(&pattern.built) {
+            self.black_generation_painted |= pattern.black_generation_bypassed;
             return Paint::Shading(shading_with_alpha(&pattern.shading, alpha));
         }
         match self.build_shading(&pattern.definition, &wanted) {
-            Ok(shading) => Paint::Shading(shading_with_alpha(&Arc::new(shading), alpha)),
+            Ok((shading, bypassed)) => {
+                self.black_generation_painted |= bypassed;
+                Paint::Shading(shading_with_alpha(&Arc::new(shading), alpha))
+            }
             Err(error) => {
+                self.black_generation_painted |= pattern.black_generation_bypassed;
                 self.note(Unsupported::Shading {
                     name: format!("a shading pattern's colours could not be rebuilt: {error}"),
                 });

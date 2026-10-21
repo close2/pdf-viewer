@@ -99,7 +99,7 @@ impl Rewriter<'_> {
 
     /// Files the attachments in the catalog: §7.7.4's name tree and §14.13.3's `/AF`.
     ///
-    /// Two entries, and each is the clause's own. §7.7.4's Table 32 makes `/EmbeddedFiles` "[a]
+    /// Two entries, and each is the clause's own. §7.7.4's Table 32 makes `/EmbeddedFiles` "\[a]
     /// name tree mapping name strings to file specifications for embedded file streams", which is
     /// the tree [`super::super::attach`] wrote; where the document states the name dictionary as an
     /// object of its own the entry goes there instead, and [`Self::rewrite_dictionary`] is where.
