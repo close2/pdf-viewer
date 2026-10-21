@@ -249,17 +249,25 @@ Ranked by ADR 0509's criterion; `tools/state.sh windows` prints the window rows 
   marks over the page, with their commits (ADRs 2088, 2104), opens under the levels a host states
   (`quorra_settings_*`, read as the four binaries read their words, ADR 2120), and puts the archive
   chooser, a script's dialogue and a print grant to its caller as records it answers (ADR 2121).
-  What it still owes is the reader's other words — anchors, target documents, the audience — for a
-  window, and an entry point for Ctrl and the wheel, which magnify in the other windows. N3a, the
-  WinUI 3 window the owner chose (`doc/questions/A501`), is `hosts/windows/Quorra.App/`: the page on
-  the processor lane, the title, the status line, the keys, the pointer and the wheel, built by CI's
-  `window` job and declining by name each record it has no dialogue for yet (ADRs 2136, 2137).
+  Control and the wheel cross as `quorra_window_zoom_wheel`, travel in a unit whose fraction of a
+  step the window carries (ADR 2152). The reader's other words — anchors, target documents, the
+  audience, the conversion — reach it on the same handle, read as the binaries read them through
+  `viewer_host::policy::Words`, and a file a directory holds that does not take is a `SAID` record
+  (ADR 2156); the print key's decision is `viewer_host::print_key`, every window's (ADR 2157). N3a, the WinUI 3 window the owner chose
+  (`doc/questions/A501`), is `hosts/windows/Quorra.App/`: the page on the processor lane, the marks
+  over it in Windows' colours, a control over each widget whose appearance it draws itself, the
+  title, the status line, the keys, the pointer, the wheel and Control with it, built by CI's
+  `window` job and declining by name each record it has no dialogue for yet (ADRs 2136, 2137,
+  2153). Its controls still lack Table 231 bit 25's cells, bit 21's chooser and the measured fit
+  `viewer-qt` reports; the panels, the popups and the cards are the next steps.
 - **A dmabuf texture in GTK and a `QRhiWidget` in Qt** — ADR 2049's step after the device path,
   which is built: the renderer is the library `crates/viewer-device/` (ADR 2052), and both toolkit
   windows draw on the device, page one by default, and read the frame back into the
   `MemoryTexture` and `QImage` they show (ADRs 2070, 2071). They wait for a profile showing the
   read-back and the copy hold the time: on the drive's small page they do not — the read back is 0.5
-  to 1.3 ms of a 4.4 to 10.2 ms page and the copy into the toolkit's image about 1 ms (ADR 2124).
+  to 1.3 ms of a 4.4 to 10.2 ms page and the copy into the toolkit's image about 1 ms (ADR 2124),
+  and the medium the processor used to put under the read-back page is the device's own pass now
+  (ADR 2150).
 - **A C caller cannot stop a draw it was handed.** `quorra_window`'s loop abandons one on
   `QUORRA_ACT_ABORT_DRAWING` as every window does, but a request a caller rasterises itself is
   moved to a thread of its own, as `quorra.h` says, and has no flag to raise: that entry point is a

@@ -1,7 +1,7 @@
 //! What a person does with the keyboard and the pointer: the shared key table's meanings, the
 //! wheel, the toolbar, a selection and its copy, and §12.9's measuring (filed here by ADR 1908).
 
-use viewer_core::{Answer, Command, PageTarget, PointerAction, Printing, Query, Zoom};
+use viewer_core::{Answer, Command, PageTarget, PointerAction, Query, Zoom};
 use viewer_host::arrangement::next_layout;
 use viewer_host::native_window::NativeWindow;
 use viewer_host::trace::Topic;
@@ -136,18 +136,17 @@ impl Host {
                 "this host cannot draw a §12.5.6.6 free text annotation yet — the drag mode and \
                  its editor are viewer-ui's alone (doc/todo/30)",
             ),
-            // §7.6.4.2's bit 3, asked as an operation, and then RFC 0004 §6's preview — which
-            // is what this host has and says so. The same key ends it, because a window that
-            // could enter print intent and not leave it would have taken §8.11.4.5's revert away
-            // from the person who asked for the operation (ADR 1180).
+            // §7.6.4.2's bit 3, and then RFC 0004 §6's preview — which is what this host has
+            // (ADRs 1180, 2157).
             viewer_host::WindowAct::Print => {
-                if self.printing {
-                    self.print_finish();
-                    self.say("the printed page is no longer what this window shows");
-                } else {
-                    self.dispatch(Command::Print(Printing::Start(
-                        viewer_host::printing::unknown_sheet(None),
-                    )));
+                match viewer_host::print_key(viewer_host::Printer::Preview {
+                    standing: self.printing,
+                }) {
+                    viewer_host::PrintKey::Ask(command) => self.dispatch(command),
+                    viewer_host::PrintKey::End(said) => {
+                        self.print_finish();
+                        self.say(said);
+                    }
                 }
             }
             viewer_host::WindowAct::Archive => self.ask_to_archive(),

@@ -46,8 +46,8 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Decision, ExternalData, FormAnswers, Loss, PLACEMENT_ON_PAGE,
-    Preservation,
+    ArchivePlan, Authorisations, Decision, Described, ExternalData, FormAnswers, Loss,
+    PLACEMENT_ON_PAGE, Preservation,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
@@ -205,6 +205,55 @@ fn every_stated_width(document: &Document) -> Vec<String> {
     }
     stated.sort_unstable();
     stated
+}
+
+/// Property 3 for one converted document: every width the source states is still stated, and
+/// the only additions are the `/Widths` of fonts the report says were given a descriptor.
+fn no_width_is_rewritten(
+    kept: &[u8],
+    output: Vec<u8>,
+    report: &pdf_transform::Report,
+    path: &Path,
+) {
+    let held = Document::open_with_limits(output, Limits::DEFAULT)
+        .expect("the converted document re-opens");
+    let source =
+        Document::open_with_limits(kept.to_vec(), Limits::DEFAULT).expect("the source re-opens");
+    let described = report.archive.as_ref().map_or(0, |conversion| {
+        conversion
+            .substituted
+            .iter()
+            .filter(|font| font.described.is_some_and(Described::wrote_widths))
+            .count()
+    });
+    let added = added_statements(&every_stated_width(&source), &every_stated_width(&held))
+        .unwrap_or_else(|| {
+            panic!(
+                "{}: a width the file states was rewritten, which moves the text",
+                path.display()
+            )
+        });
+    assert!(
+        added.iter().all(|it| it.starts_with("Widths=")) && added.len() <= described,
+        "{}: widths were added beyond the {described} described font(s): {added:?}",
+        path.display()
+    );
+}
+
+/// What `after` states beyond `before`, or `None` where `after` lost one of `before`'s statements.
+///
+/// Both lists are sorted, so this is one merge.
+fn added_statements(before: &[String], after: &[String]) -> Option<Vec<String>> {
+    let mut added = Vec::new();
+    let mut from = before.iter().peekable();
+    for statement in after {
+        if from.peek() == Some(&statement) {
+            from.next();
+        } else {
+            added.push(statement.clone());
+        }
+    }
+    from.next().is_none().then_some(added)
 }
 
 impl Tally {
@@ -372,16 +421,12 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 // that took it would move every line of every page it touched, and nothing in
                 // the report would say so. So it is checked where it can be checked absolutely:
                 // every width every font in the output states is the width the source stated.
-                let held = Document::open_with_limits(output, Limits::DEFAULT)
-                    .expect("the converted document re-opens");
-                let source =
-                    Document::open_with_limits(kept, Limits::DEFAULT).expect("the source re-opens");
-                assert_eq!(
-                    every_stated_width(&held),
-                    every_stated_width(&source),
-                    "{}: a width the file states was rewritten, which moves the text",
-                    path.display()
-                );
+                // The one addition is the `/Widths` a standard font stating none is given with its
+                // descriptor, which Table 109 obliges and which states the advances it was already
+                // laid out by — proved code by code before it is written (`doc/adr/2146`) — so it
+                // is counted against the fonts the report says were described, and nothing else
+                // may be added.
+                no_width_is_rewritten(&kept, output, &report, &path);
                 tally.converted = tally.converted.saturating_add(1);
             }
             (false, None) => {

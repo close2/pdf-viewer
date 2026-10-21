@@ -441,10 +441,20 @@ fn a_c_program_drives_a_window_one_call_per_thing_that_happened() {
     let script = artefacts.join("quorra_window_script_fixture.pdf");
     std::fs::write(&script, script_fixture())
         .expect("the fixture is written beside the test binary");
+    // The reader's directory: one file that is neither a certificate nor a PDF, so that both the
+    // anchors and the target documents refuse it by name (ADR 2156).
+    let directory = artefacts.join("quorra_window_reader_words");
+    std::fs::create_dir_all(&directory).expect("the directory is made beside the test binary");
+    std::fs::write(
+        directory.join("words.txt"),
+        b"neither a certificate nor a PDF\n",
+    )
+    .expect("the file is written");
     let ran = Command::new(&program)
         .arg(&document)
         .arg(&form)
         .arg(&script)
+        .arg(&directory)
         .env("PDF_SCRIPT_WORKER", artefacts.join("pdf-script-worker"))
         // Two seconds rather than the reader's wait, so the question left unanswered is withdrawn
         // inside the test (ADR 1643).
@@ -506,6 +516,15 @@ fn what_the_window_owed(said: &str) {
         // An outline row's click: `/Dest` names page 3, so the caption and the count follow.
         "window outline row \"Preface\" activated: PDF 2.0 Application Note 001: Usage of Black \
          Point Compensation — 2 — page 3 of 5",
+        // Control and the wheel about the viewport's middle: three events of two fifths of a line
+        // are one step, no event a step on its own, and the page is drawn a quarter larger; a
+        // touchpad's sixty pixels back, with the fifth of a line carried, are one step out and the
+        // page is drawn at the size it had (ADR 2152).
+        "page 3, 884x1250 shown 884x1250",
+        "window wheel: 1.2 lines in three events, 1 step(s); sixty pixels back, -1; unit 7: the \
+         message at that index is not of the kind this accessor reads; not a number: a number \
+         does not fit the type this boundary states for it",
+        "page 3, 708x1000 shown 708x1000",
         // A file chooser's answer opens in a tab of its own and takes the front; the first is
         // chosen and closed, and closing the other is the last, which the window leaves open for
         // its caller to close.
@@ -553,6 +572,19 @@ fn what_the_window_owed(said: &str) {
          that index is not of the kind this accessor reads, \"--links=sometimes: no such level. \
          One of refuse, ask, warn, open\"",
         "window under the stated levels: 0 question(s); ",
+        // The reader's other words, by word and by number, refused in the command line's
+        // sentences; the file in the directory said by name for the anchors and for the target
+        // documents, as the toolkit windows say it; the conversion stated is where the chooser
+        // starts; and the print key ends the print that stands (ADRs 2156, 2157).
+        "reader: --reader-name used 2, --accept-unknown-revocation used 1; --trust-anchors \
+         alone: the message at that index is not of the kind this accessor reads, \
+         \"--trust-anchors wants a directory of PEM or DER certificates\"; no such directory: \
+         the message at that index is not of the kind this accessor reads; word 6: the message at \
+         that index is not of the kind this accessor reads; target 99: the index names nothing",
+        "said: words.txt in the trust anchor directory is neither DER nor a PEM CERTIFICATE block",
+        "window under the reader's words: the chooser starts on 1 and 0",
+        "window print key again: \"the printed page is no longer what this window shows\"; then \
+         finished: there is nothing to answer with",
         // A script's `app.alert` at the scripts' PROCEED level: the record in Adobe's numbers —
         // the question icon 2, Yes and No 2, closed answering No 3 — answered once; the second,
         // left, withdrawn by its wait (ADRs 1628, 1643).

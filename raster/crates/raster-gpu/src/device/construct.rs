@@ -316,6 +316,7 @@ impl Device {
                 .min(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)),
             winding_texture: crate::winding::WindingTexture::default(),
             compute_pipelines: None,
+            onto_pipeline: None,
             segment_arena: crate::compute::SegmentArena::default(),
             warmed_layer: None,
             // Rounded to a square grid and bounded, here rather than at the call site:

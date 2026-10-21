@@ -4877,8 +4877,13 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
         .iter()
         .take(MOST_FONTS_NAMED)
         .map(|font| {
+            let described = font
+                .described
+                .map(|described| format!(" ({})", described.describe()))
+                .unwrap_or_default();
             format!(
-                "{} was not embedded and {} was embedded in its place, {}, taking the {} route",
+                "{} was not embedded and {} was embedded in its place, {}, taking the {} \
+                 route{described}",
                 font.requested,
                 font.face,
                 font.authority.describe(),

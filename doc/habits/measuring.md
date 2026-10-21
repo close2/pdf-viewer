@@ -1484,3 +1484,41 @@ link, arrived with five features that `color`, `peniko` and `winit` turn on — 
 at the merge (ADR 2138 §6). Feature unification reaches a binary through every package it links, not only
 its decoders: before a new package in a confined worker is called done, `cargo tree --workspace -e
 features,normal -i <package>` for each package it brings says what the shipping build will turn on.
+
+## 156. A departure is re-read in every walk with a bound and every writer the row names
+
+Round 1659 re-read the twenty `departed` rows and found its two defects not in the code each note argued
+for but in a second implementation beside it: the merge's field walk, which stopped at sixty-four links
+and left the fields past it out of the §12.7.4.2 check in silence, and a save that dropped an import's
+template pages without a word (ADR 2154). A departure's note defends one place; the row's `code` array
+names several, and a bound or a writer in any of them can cut short what the clause requires. Re-reading a
+departure means reading each bound's overflow and each writer's omission in every file the row names, not
+only the sentence the note defends.
+
+## 157. A cold-cache figure checks that the drop worked before it is judged
+
+`dd oflag=nocache` — `posix_fadvise(DONTNEED)` — exits 0 on a `tmpfs` file and on a file another process
+holds mapped, and nothing in a clock figure then says the "cold" open read warm pages; round 1661 gave
+the launch gate `fincore`'s count of what stayed resident after each drop and declines both cold figures
+when it is not zero, ahead of the machine guards (ADR 2158). A figure that claims a cold cache carries
+the evidence of the eviction with it, or it is the warm figure under another name.
+
+## 158. A drive's "before" binaries are the batch's own warm-up build of HEAD, copied before a sibling rebuilds
+
+Round 1660 needed HEAD's windows for its before-and-after drive and built them in an export, which waited
+3 375 s behind a sibling's gates on the lock's lane; the batch had built HEAD's release binaries at its
+open, into the shared target, before any round changed a line (ADRs 2156, 2157). A round that will drive
+"before" copies `quorra`, `quorra-gtk`, `quorra-qt` and the workers out of the batch target into its
+scratch in its first minutes, while they are still HEAD's — one copy, no build, no queue — and its
+"after" is the only export it owes.
+
+## 159. A lever on `rasterize` is measured in one hold with the launch and turn gates, from the start
+
+Round 1657 moved the read-back page's medium passes to the device and measured the toolkit launch gate
+before and after, as its brief named; the same hold showed `quorra`'s page turn through `launch_path`
+falling from 4.1 to 2.5 ms, below three bands' floors, because the page turn draws through the same call
+(ADR 2150). A change to `rasterize` or to anything under it reaches every window and every gate that
+times a frame, not only the one the brief names; the round's one `--clock` hold includes `t2-launch_path`
+and `t2-turn_path` with the toolkit gate from the start, so the bands that move are re-taken by the round
+rather than found by the merge.
+

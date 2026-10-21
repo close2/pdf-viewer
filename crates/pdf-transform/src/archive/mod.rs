@@ -193,7 +193,7 @@ pub use config::{
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
 };
-pub use fonts::{FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
+pub use fonts::{Described, FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
 pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use languages::RestatedLanguage;
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};

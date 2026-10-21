@@ -312,7 +312,7 @@ window sends a press and a release and no drag. No host computes a character.
    half of `ker`'s `r` is offset 11. Each end is a `Spot` — a page and an offset — so a drag down a
    column of pages selects the first page's tail, the pages between whole and the last page's head
    (ADR 0225 is a click as an offset and a drag as two).
-3. **Two spots become one range per page.** `crates/viewer-core/src/open.rs::spans` orders the ends
+3. **Two spots become one range per page.** `crates/viewer-core/src/open/interpretation.rs::spans` orders the ends
    and answers each page's part, which is the one place the text, the highlight, the logical order
    and §12.5.6.10's markup read a selection from, so the four cannot disagree. Here it is one range,
    4 to 11 of page 1.
@@ -345,7 +345,7 @@ flowchart TD
     POINTER["Command::Pointer<br/>viewer-core/src/viewer/pointer.rs::pointer<br/>clause 12.5.5, ADR 1370"]
     AT["point to offset: nearest glyph, near edge<br/>select.rs::position_at, position_in<br/>clause 9.4.4, Table 120, ADR 0118"]
     CHOSEN["Chosen: two Spots, page and offset<br/>viewer-core/src/open.rs<br/>ADR 0225"]
-    SPANS["one range per page<br/>open.rs::spans"]
+    SPANS["one range per page<br/>viewer-core/src/open/interpretation.rs::spans"]
     SEL["Query::Selection: text and merged runs<br/>viewer-core/src/viewer/geometry.rs::selected, select.rs::quads_for, joins"]
     DRAW["each host draws the runs in its colour<br/>quorra overlays.rs, viewer-gtk/src/host/window.rs, viewer-qt/src/host/input.rs"]
     CARET["one entry per code, a replacement once, grouped into lines<br/>select.rs::lines_for, continues<br/>viewer-core/src/viewer/geometry.rs::device_lines"]

@@ -2397,6 +2397,55 @@ impl LevelKind {
     }
 }
 
+/// Which of the reader's words with a value `quorra_settings_reader` states:
+/// `viewer_host::policy::ReaderWord`'s six (ADR 2156).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ReaderKind {
+    /// `--trust-anchors`: a directory of PEM or DER certificates, §12.8.1's third question.
+    TrustAnchors = 0,
+    /// `--reference-files`: a directory of PDF files, §8.10.4's target documents.
+    ReferenceFiles = 1,
+    /// `--reader-name`: one more of Table 100's `Ind`.
+    Name = 2,
+    /// `--reader-title`: one more of Table 100's `Ttl`.
+    Title = 3,
+    /// `--reader-organisation`: one more of Table 100's `Org`.
+    Organisation = 4,
+    /// `--interface-language`: §8.11.4.4's `Language` category, replacing one stated before.
+    Language = 5,
+}
+
+impl ReaderKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::TrustAnchors,
+            1 => Self::ReferenceFiles,
+            2 => Self::Name,
+            3 => Self::Title,
+            4 => Self::Organisation,
+            5 => Self::Language,
+            _ => return None,
+        })
+    }
+
+    /// What `viewer-host` calls it.
+    #[must_use]
+    pub const fn word(self) -> viewer_host::policy::ReaderWord {
+        use viewer_host::policy::ReaderWord;
+        match self {
+            Self::TrustAnchors => ReaderWord::TrustAnchors,
+            Self::ReferenceFiles => ReaderWord::ReferenceFiles,
+            Self::Name => ReaderWord::Name,
+            Self::Title => ReaderWord::Title,
+            Self::Organisation => ReaderWord::Organisation,
+            Self::Language => ReaderWord::Language,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

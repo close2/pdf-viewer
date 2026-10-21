@@ -203,6 +203,9 @@ pub struct Device {
     /// the lane and kept — never on the startup path (ADR 0080) — or the refusal that
     /// stopped them, kept as the render lane keeps one (ADR 1962).
     compute_pipelines: crate::compute::Kept,
+    /// `Target::ReadbackOnto`'s pass, compiled on the first frame that asks for a backdrop and
+    /// kept, or its refusal (`crate::readback::KeptOnto`).
+    onto_pipeline: crate::readback::KeptOnto,
     /// What retained encodes' instance streams hold between frames, against
     /// [`Limits::max_resident_bytes`] (viewer ADR 2030).
     residency: ResidencyBudget,
@@ -275,6 +278,16 @@ impl Device {
     #[must_use]
     pub fn limits(&self) -> Limits {
         self.limits
+    }
+
+    /// Whether a [`Target::ReadbackOnto`](crate::target::Target::ReadbackOnto) frame of this size
+    /// can be put onto its backdrop here: its copy is bound as storage, so it has to fit
+    /// [`Limits::max_frame_bytes`], the largest buffer this device binds. A caller asks before the
+    /// frame, and a frame asked for past it is refused as `FrameBudgetExceeded`.
+    #[must_use]
+    pub fn backdrop_fits(&self, width: u32, height: u32) -> bool {
+        crate::readback::copy_extent(width, height)
+            .is_some_and(|(_, size)| size <= self.limits.max_frame_bytes)
     }
 
     /// Device bytes retained encodes hold between frames now — their instance streams — against

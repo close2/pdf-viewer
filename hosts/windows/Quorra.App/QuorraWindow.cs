@@ -32,6 +32,49 @@ internal sealed record Picture(
     uint ShownHeight,
     byte[] Pixels);
 
+/// <summary>
+/// What a repaint draws over the pictures, each quadrilateral eight floats — x0, y0 to x3, y3 — in
+/// device pixels of the viewport with y downwards, as quorra_quads_get hands them over (ADR 2104).
+/// </summary>
+/// <param name="Selection">The selection, the find bar's current occurrence among it.</param>
+/// <param name="Matches">Every occurrence of the find bar's needle on the page shown.</param>
+/// <param name="Highlights">Annex O's highlighted rectangles.</param>
+/// <param name="Focus">§12.5.1's focused annotation, or null where nothing holds the focus.</param>
+internal sealed record Marks(
+    IReadOnlyList<float[]> Selection,
+    IReadOnlyList<float[]> Matches,
+    IReadOnlyList<float[]> Highlights,
+    float[]? Focus);
+
+/// <summary>One widget of a field on the page shown, which this window places a control over.</summary>
+/// <param name="Field">§12.7.4.2's qualified name, which every commit addresses.</param>
+/// <param name="Shown">§14.9.3's name for a user interface.</param>
+/// <param name="Kind">A QUORRA_CONTROL_*.</param>
+/// <param name="Flags">A word of QUORRA_FIELD_* bits.</param>
+/// <param name="Value">The field's text value, or null where it has none at all.</param>
+/// <param name="Displayed">The value through Table 199's /F, which a control without the keyboard shows.</param>
+/// <param name="MaxLength">Table 232's /MaxLen, zero where the field states none.</param>
+/// <param name="Options">Table 234's /Opt labels, in /Opt's own order.</param>
+/// <param name="Selected">Whether each option is chosen.</param>
+/// <param name="Number">The widget annotation's object number.</param>
+/// <param name="Generation">Its generation.</param>
+/// <param name="Quad">Where the widget is, as a mark's quadrilateral is.</param>
+/// <param name="On">Whether a check box's or radio button's widget is in its on state.</param>
+internal sealed record Placed(
+    string Field,
+    string Shown,
+    uint Kind,
+    uint Flags,
+    string? Value,
+    string? Displayed,
+    uint MaxLength,
+    IReadOnlyList<string> Options,
+    IReadOnlyList<bool> Selected,
+    uint Number,
+    ushort Generation,
+    float[] Quad,
+    bool On);
+
 /// <summary>The reader's levels a window opens under, read from command-line words (ADR 2120).</summary>
 internal sealed unsafe class QuorraSettings : IDisposable
 {
@@ -130,6 +173,20 @@ internal sealed unsafe class QuorraWindow : IDisposable
     /// <summary>The wheel, in device pixels; a positive <paramref name="dy"/> moves the content up.</summary>
     internal void Scroll(float dx, float dy) =>
         Library.Check("quorra_window_scroll", Native.quorra_window_scroll(handle, dx, dy));
+
+    /// <summary>
+    /// Control and the wheel: <paramref name="travel"/> turned away from the person, in the
+    /// QUORRA_WHEEL_* <paramref name="unit"/>, about the pointer in device pixels of the viewport;
+    /// the steps taken, positive in (ADR 2152).
+    /// </summary>
+    internal int ZoomWheel(float travel, uint unit, float x, float y)
+    {
+        int steps = 0;
+        Library.Check(
+            "quorra_window_zoom_wheel",
+            Native.quorra_window_zoom_wheel(handle, travel, unit, x, y, &steps));
+        return steps;
+    }
 
     /// <summary>The pointer in device pixels of the viewport; whether it is now over a link.</summary>
     internal bool Pointer(float x, float y, uint action)
@@ -261,6 +318,127 @@ internal sealed unsafe class QuorraWindow : IDisposable
         return pictures;
     }
 
+    /// <summary>The marks over the page shown, read through the handles the window hands over.</summary>
+    /// <remarks>QUORRA_NO_ANSWER, a window with no document in front yet, is no marks.</remarks>
+    internal Marks Marks()
+    {
+        nint selection = 0;
+        int selected = Native.quorra_window_selection_quads(handle, &selection);
+        nint highlight = 0;
+        int highlighted = Native.quorra_window_highlight_quads(handle, &highlight);
+        var corners = new float[8];
+        int focused;
+        fixed (float* quad = corners)
+        {
+            focused = Native.quorra_window_focused_annotation(handle, null, null, quad);
+        }
+        if (focused != Native.QUORRA_NO_ANSWER)
+        {
+            Library.Check("quorra_window_focused_annotation", focused);
+        }
+        return new Marks(
+            Shapes("quorra_window_selection_quads", selected, selection),
+            Occurrences(),
+            Shapes("quorra_window_highlight_quads", highlighted, highlight),
+            focused == Native.QUORRA_OK ? corners : null);
+    }
+
+    /// <summary>The fields with a widget on the page shown, one record for each widget.</summary>
+    /// <remarks>
+    /// A walk of §12.7.4.1's field tree, so it is read when the controls are built or moved and
+    /// after a commit, never on a pointer's move (quorra.h).
+    /// </remarks>
+    internal List<Placed> Controls()
+    {
+        nint taken = 0;
+        int status = Native.quorra_window_fields_read(handle, &taken);
+        var placed = new List<Placed>();
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return placed;
+        }
+        Library.Check("quorra_window_fields_read", status);
+        nint fields = taken;
+        try
+        {
+            nuint count = Native.quorra_fields_len(fields);
+            for (nuint index = 0; index < count; index++)
+            {
+                nuint field = index;
+                string name = Library.ReadText(
+                    "quorra_field_name",
+                    (into, cap, needed) => Native.quorra_field_name(fields, field, Native.QUORRA_TEXT_QUALIFIED, into, cap, needed));
+                string shown = Library.ReadText(
+                    "quorra_field_name",
+                    (into, cap, needed) => Native.quorra_field_name(fields, field, Native.QUORRA_TEXT_SHOWN, into, cap, needed));
+                uint kind = 0;
+                uint flags = 0;
+                Library.Check("quorra_field_control", Native.quorra_field_control(fields, field, &kind, &flags));
+                uint maxLength = 0;
+                uint cells = 0;
+                Library.Check("quorra_field_limits", Native.quorra_field_limits(fields, field, &maxLength, &cells));
+                string? value = Library.ReadTextOrNone(
+                    "quorra_field_value",
+                    (into, cap, needed) => Native.quorra_field_value(fields, field, into, cap, needed));
+                string? displayed = Library.ReadTextOrNone(
+                    "quorra_field_displayed",
+                    (into, cap, needed) => Native.quorra_field_displayed(fields, field, into, cap, needed));
+                (List<string> options, List<bool> chosen) = Options(fields, field);
+                nuint widgets = 0;
+                Library.Check("quorra_field_widget_count", Native.quorra_field_widget_count(fields, field, &widgets));
+                for (nuint widget = 0; widget < widgets; widget++)
+                {
+                    uint number = 0;
+                    ushort generation = 0;
+                    byte on = 0;
+                    var quad = new float[8];
+                    fixed (float* into = quad)
+                    {
+                        Library.Check(
+                            "quorra_field_widget",
+                            Native.quorra_field_widget(fields, field, widget, &number, &generation, into, &on));
+                    }
+                    placed.Add(new Placed(
+                        name, shown, kind, flags, value, displayed, maxLength, options, chosen,
+                        number, generation, quad, on != 0));
+                }
+            }
+            return placed;
+        }
+        finally
+        {
+            Native.quorra_fields_free(fields);
+        }
+    }
+
+    /// <summary>A placed control's text, as typed.</summary>
+    internal void SetFieldText(string field, string text) =>
+        Library.Check("quorra_window_set_field_text", Native.quorra_window_set_field_text(handle, field, text));
+
+    /// <summary>A placed control finished with: Enter in a single-line field, or the keyboard taken elsewhere.</summary>
+    internal void CommitField(string field) =>
+        Library.Check("quorra_window_commit_field", Native.quorra_window_commit_field(handle, field));
+
+    /// <summary>A check box's or radio button's widget clicked towards <paramref name="on"/>.</summary>
+    internal void ToggleField(uint number, ushort generation, bool on) =>
+        Library.Check("quorra_window_toggle_field", Native.quorra_window_toggle_field(handle, number, generation, on));
+
+    /// <summary>Which of a choice field's options are chosen, by their index in /Opt.</summary>
+    internal void SetFieldOptions(string field, IReadOnlyList<nuint> chosen)
+    {
+        var options = new nuint[chosen.Count];
+        for (int index = 0; index < options.Length; index++)
+        {
+            options[index] = chosen[index];
+        }
+        fixed (nuint* first = options)
+        {
+            Library.Check(
+                "quorra_window_set_field_options",
+                Native.quorra_window_set_field_options(handle, field, options.Length == 0 ? null : first, (nuint)options.Length));
+        }
+    }
+
     /// <summary>Releases the window and every document it holds.</summary>
     public void Dispose()
     {
@@ -269,6 +447,87 @@ internal sealed unsafe class QuorraWindow : IDisposable
             Native.quorra_window_free(handle);
             handle = 0;
         }
+    }
+
+    // A handle of quadrilaterals copied out and freed; QUORRA_NO_ANSWER is a window with no
+    // document in front yet, which has none.
+    private static List<float[]> Shapes(string entryPoint, int status, nint quads)
+    {
+        var shapes = new List<float[]>();
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return shapes;
+        }
+        Library.Check(entryPoint, status);
+        try
+        {
+            nuint count = Native.quorra_quads_len(quads);
+            for (nuint index = 0; index < count; index++)
+            {
+                var corners = new float[8];
+                fixed (float* into = corners)
+                {
+                    Library.Check("quorra_quads_get", Native.quorra_quads_get(quads, index, into));
+                }
+                shapes.Add(corners);
+            }
+            return shapes;
+        }
+        finally
+        {
+            Native.quorra_quads_free(quads);
+        }
+    }
+
+    // Every occurrence of the find bar's needle on the page shown, each occurrence's shapes in one list.
+    private List<float[]> Occurrences()
+    {
+        nint taken = 0;
+        int status = Native.quorra_window_find_matches(handle, &taken);
+        var shapes = new List<float[]>();
+        if (status == Native.QUORRA_NO_ANSWER)
+        {
+            return shapes;
+        }
+        Library.Check("quorra_window_find_matches", status);
+        nint matches = taken;
+        try
+        {
+            nuint count = Native.quorra_matches_len(matches);
+            for (nuint index = 0; index < count; index++)
+            {
+                nint quads = 0;
+                int found = Native.quorra_matches_quads(matches, index, &quads);
+                shapes.AddRange(Shapes("quorra_matches_quads", found, quads));
+            }
+            return shapes;
+        }
+        finally
+        {
+            Native.quorra_matches_free(matches);
+        }
+    }
+
+    // A choice field's /Opt labels and whether each is chosen; none for any other field.
+    private static (List<string> Labels, List<bool> Chosen) Options(nint fields, nuint field)
+    {
+        var labels = new List<string>();
+        var chosen = new List<bool>();
+        nuint count = 0;
+        Library.Check("quorra_field_option_count", Native.quorra_field_option_count(fields, field, &count));
+        for (nuint index = 0; index < count; index++)
+        {
+            nuint option = index;
+            labels.Add(Library.ReadText(
+                "quorra_field_option",
+                (into, cap, needed) => Native.quorra_field_option(fields, field, option, Native.QUORRA_TEXT_LABEL, into, cap, needed)));
+            byte selected = 0;
+            Library.Check(
+                "quorra_field_option_selected",
+                Native.quorra_field_option_selected(fields, field, option, &selected));
+            chosen.Add(selected != 0);
+        }
+        return (labels, chosen);
     }
 
     // The kinds quorra_owed_text answers; it refuses the others with QUORRA_WRONG_KIND (quorra.h).

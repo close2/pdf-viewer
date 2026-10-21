@@ -77,7 +77,7 @@ pub(crate) fn render_in_tiles(
                     .then(Transform::translate(-device(left), -device(top))),
             };
             let mut tile_cost = FrameCost::default();
-            let drawn = rasterizer.render_whole(list, tile, &mut tile_cost);
+            let drawn = rasterizer.render_whole(list, tile, &mut tile_cost, None);
             cost.add(tile_cost);
             copy_tile(&mut stitched, row_bytes, &drawn?, (left, top), width);
             left = left.saturating_add(width);

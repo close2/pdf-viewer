@@ -1393,7 +1393,7 @@ impl Conversion {
                 self.substituted.len()
             );
             for font in &self.substituted {
-                let _ = writeln!(
+                let _ = write!(
                     out,
                     "      {} (resource {}) is drawn from {} — {}",
                     font.requested,
@@ -1401,6 +1401,10 @@ impl Conversion {
                     font.face,
                     font.route.describe()
                 );
+                if let Some(described) = font.described {
+                    let _ = write!(out, "; {}", described.describe());
+                }
+                let _ = writeln!(out);
             }
         }
         if !self.restated.is_empty() {
@@ -1540,7 +1544,7 @@ fn predicate(departed: &Departed) -> String {
 
 /// One substituted font as JSON.
 fn substituted_to_json(font: &SubstitutedFont) -> Value {
-    Value::Object(vec![
+    let mut fields = vec![
         ("resource".to_owned(), Value::text(font.resource.clone())),
         ("requested".to_owned(), Value::text(font.requested.clone())),
         ("face".to_owned(), Value::text(font.face.clone())),
@@ -1549,7 +1553,11 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
             Value::text(font.authority.word()),
         ),
         ("metric_route".to_owned(), Value::text(font.route.word())),
-    ])
+    ];
+    if let Some(described) = font.described {
+        fields.push(("described".to_owned(), Value::text(described.word())));
+    }
+    Value::Object(fields)
 }
 
 /// One font whose program's advances were restated, as JSON.

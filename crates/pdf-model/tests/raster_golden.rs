@@ -624,91 +624,17 @@ const RARE: usize = 1_000;
 ///
 /// Held as ceilings rather than as digests: a page here that moves more fails, and a page that
 /// falls back inside both bounds is reported as able to leave. ADR 1758 has the measurement; the
-/// pages a stroke's cut first divided are ADR 1819's, and the one of them a rectangle's edge row
-/// held past the bound left it when a strip stated that row as the page does (ADR 2084).
-const PAST_THE_BOUND: [(&str, usize, u8, &str); 11] = [
-    (
-        "pdfjs_wikipedia.pdf p1",
-        566,
-        1,
-        "the heading rules and glyph tops, on sample rows — a mark its clip contains is drawn on \
-         the surface's own rows and carries the strip residual every unclipped mark carries \
-         (ADR 2106), where the page-space image centres alone had taken the page inside the bound \
-         (ADR 2100)",
-    ),
-    (
-        "blendmode.pdf p1",
-        83,
-        3,
-        "single pixels inside the photographs blended under eleven of the sixteen modes: one \
-         photograph's sample moved one level by the shifted origin, through the blend function's \
-         slope at that pixel, which reaches three under ColorDodge and Hue — \
-         `strip_parallelism.rs` holds the sample to its one level (ADR 1768)",
-    ),
-    (
-        "bug1743245.pdf p1",
-        417,
-        1,
-        "one horizontal rule of the grid, its edge row on a rounding step at the shifted origin of \
-         the strip below the cut its strokes now grant (ADR 1819)",
-    ),
-    (
-        "comments.pdf p1",
-        115,
-        2,
-        "single glyph pixels under the highlight annotations' Multiply composite, and one level \
-         on five pixels beside the cuts a glyph's fill now grants (ADR 1837)",
-    ),
-    (
-        "highlights.pdf p1",
-        115,
-        2,
-        "single glyph pixels under the highlight annotations' Multiply composite, and one level \
-         on pixels beside the cuts a glyph's fill now grants (ADR 1837)",
-    ),
-    (
-        "issue12810.pdf p1",
-        249,
-        2,
-        "the two levels where a diagonal stroke meets a vertical one: two marks' edges in a pixel",
-    ),
-    (
-        "issue1350.pdf p1",
-        1078,
-        1,
-        "five rows of the form's three boxes, each horizontal edge on a sample row",
-    ),
-    (
-        "issue7014.pdf p1",
-        329,
-        2,
-        "row 369, where the underline's bar ends and the highlight below it is clipped: two marks' \
-         edges in one pixel row; and one level on six pixels beside the cuts a glyph's fill now \
-         grants (ADR 1837)",
-    ),
-    (
-        "issue7020.pdf p1",
-        102,
-        1,
-        "the horizontal tops of the Kannada glyphs, on sample rows",
-    ),
-    (
-        "issue9418.pdf p1",
-        467,
-        2,
-        "single pixels on the edges of the four large glyphs, below the cuts the title block's \
-         round-capped curved frame now grants: a glyph whose contours overlap is several rounded \
-         results in a pixel, at a shifted origin (ADR 1847)",
-    ),
-    (
-        "prefilled_f1040.pdf p1",
-        1308,
-        1,
-        "the horizontal edges of the form's answer boxes and the flat tops of glyphs, on sample \
-         rows at the shifted origins of the strips its strokes now grant, the more of them since \
-         its curved strokes grant cuts too (ADRs 1819, 1847)",
-    ),
-];
+/// rest of the pages that passed them left when a strip measured every mark the page measures on
+/// the page's grid (ADRs 2133, 2148).
+const PAST_THE_BOUND: [(&str, usize, u8, &str); 1] = [(
+    "blendmode.pdf p1",
+    83,
+    3,
+    "single pixels inside the photographs blended under eleven of the sixteen modes: one \
+     photograph's sample moved one level by the shifted origin, through the blend function's \
+     slope at that pixel, which reaches three under ColorDodge and Hue — \
+     `strip_parallelism.rs` holds the sample to its one level (ADR 1768)",
+)];
 
 /// How far one first page moves when it is divided: the most pixels and the most levels over
 /// [`DIVISIONS`], and the division and first pixel of the worst, for the failure's sentence.

@@ -28,6 +28,8 @@
 
 use pdf_render::{Color, Point, Ramp, Shading, ShadingKind, Transform};
 
+use crate::surface::Placed;
+
 /// Builds a shader for a shading, or `None` for kinds the caller must draw itself.
 ///
 /// `page_to_path` maps page space into the space the path being drawn is stated in.
@@ -213,17 +215,21 @@ fn sampled_shader<'a>(
 )]
 pub(crate) fn fill_mesh(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    shape: &tiny_skia::Path,
+    path: &tiny_skia::Path,
     triangles: &[pdf_render::Triangle],
     patches: Option<&pdf_render::PatchMesh>,
     ramp: Option<&Ramp>,
     to_device: Transform,
     fill_rule: tiny_skia::FillRule,
-    shape_transform: tiny_skia::Transform,
+    shape: Placed,
     clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
+    // The raster is the surface's: `MeshRaster::build` paints from the target's origin, so on the
+    // page's grid a window's raster would be every pixel above and left of it as well. Its
+    // triangles are therefore mapped at the surface's magnitude, which the page's do not share;
+    // the shape's edge is the page's (ADR 2148 §3).
     let Some(raster) = pdf_render::MeshRaster::build(
         triangles,
         patches,
@@ -236,11 +242,10 @@ pub(crate) fn fill_mesh(
     };
     fill_with_raster(
         pixmap,
-        shape,
+        (path, shape),
         &raster.image,
         (raster.left, raster.top),
         fill_rule,
-        shape_transform,
         clip,
         blend,
         anti_alias,
@@ -267,34 +272,101 @@ pub(crate) fn fill_mesh(
 )]
 pub(crate) fn fill_with_background(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    shape: &tiny_skia::Path,
+    path: &tiny_skia::Path,
     shading: &Shading,
-    page_to_device: Transform,
+    page_to_device: Placed,
     fill_rule: tiny_skia::FillRule,
-    shape_transform: tiny_skia::Transform,
+    shape: Placed,
     clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
     let target = (pixmap.width(), pixmap.height());
-    let Some(within) = device_bounds(shape, shape_transform, target) else {
+    // A sampled shading's colours are a grid of cells `Shading::sampled_at` crops to the target
+    // it is handed, and on the page's grid that target would be every pixel above and left of the
+    // surface as well; it keeps the surface's grid. Every other kind is evaluated at the page's
+    // own pixel centres over the surface's part of the page (ADR 2148).
+    let grid = if matches!(shading.kind.as_ref(), ShadingKind::Sampled { .. }) {
+        OnSurface::of(page_to_device.at)
+    } else {
+        OnSurface::page(page_to_device)
+    };
+    let Some(within) = grid.bounds(path, shape, target) else {
         return;
     };
-    let Some(raster) = pdf_render::ShadingRaster::build(shading, page_to_device, within, target)
+    let Some(raster) = pdf_render::ShadingRaster::build(shading, grid.matrix, within, target)
     else {
         return;
     };
     fill_with_raster(
         pixmap,
-        shape,
+        (path, shape),
         &raster.image,
-        (raster.left, raster.top),
+        grid.onto_surface(raster.left, raster.top),
         fill_rule,
-        shape_transform,
         clip,
         blend,
         anti_alias,
     );
+}
+
+/// The grid a shading's raster is evaluated on, and where the surface lies on it.
+///
+/// The page's, with the surface's corner, wherever the raster can be bounded to the surface's part
+/// of the page: then a window's or a strip's pixel takes the value the page's takes, because each
+/// is evaluated at the same centre under the same matrix (ADR 2148). The surface's own, at a
+/// corner of nothing, where it cannot.
+#[derive(Debug, Clone, Copy)]
+struct OnSurface {
+    /// The shading's coordinates onto the grid.
+    matrix: Transform,
+    /// The surface's first column and row on that grid.
+    corner: (u32, u32),
+}
+
+impl OnSurface {
+    /// The surface's own grid, under `matrix`.
+    fn of(matrix: Transform) -> Self {
+        Self {
+            matrix,
+            corner: (0, 0),
+        }
+    }
+
+    /// The page's grid, as `placed` states it.
+    fn page(placed: Placed) -> Self {
+        Self {
+            matrix: placed.page,
+            corner: placed.corner,
+        }
+    }
+
+    /// The pixels of this grid the shape covers that lie on a surface `target` big, as
+    /// `(left, top, right, bottom)`.
+    fn bounds(
+        self,
+        path: &tiny_skia::Path,
+        shape: Placed,
+        target: (u32, u32),
+    ) -> Option<(u32, u32, u32, u32)> {
+        if self.corner == (0, 0) {
+            return device_bounds(path, crate::convert::transform(shape.at), target);
+        }
+        let (left, top) = self.corner;
+        let (right, bottom) = (left.checked_add(target.0)?, top.checked_add(target.1)?);
+        let (x0, y0, x1, y1) =
+            device_bounds(path, crate::convert::transform(shape.page), (right, bottom))?;
+        Some((x0.max(left), y0.max(top), x1, y1))
+    }
+
+    /// A raster's corner on this grid, on the surface.
+    fn onto_surface(self, left: i32, top: i32) -> (i32, i32) {
+        let corner = (
+            i32::try_from(self.corner.0).unwrap_or(i32::MAX),
+            i32::try_from(self.corner.1).unwrap_or(i32::MAX),
+        );
+        (left.saturating_sub(corner.0), top.saturating_sub(corner.1))
+    }
 }
 
 /// The device pixels a shape covers, clamped to the target.
@@ -367,29 +439,29 @@ pub(crate) fn is_a_cone(start: Point, start_radius: f32, end: Point, end_radius:
 )]
 pub(crate) fn fill_radial(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    shape: &tiny_skia::Path,
+    path: &tiny_skia::Path,
     radial: pdf_render::Radial<'_>,
-    to_device: Transform,
+    to_device: Placed,
     fill_rule: tiny_skia::FillRule,
-    shape_transform: tiny_skia::Transform,
+    shape: Placed,
     clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) -> bool {
-    let Some(within) = device_bounds(shape, shape_transform, (pixmap.width(), pixmap.height()))
-    else {
+    // Evaluated at the page's own pixel centres over the surface's part of the page (ADR 2148).
+    let grid = OnSurface::page(to_device);
+    let Some(within) = grid.bounds(path, shape, (pixmap.width(), pixmap.height())) else {
         return false;
     };
-    let Some(raster) = pdf_render::RadialRaster::build(radial, to_device, within) else {
+    let Some(raster) = pdf_render::RadialRaster::build(radial, grid.matrix, within) else {
         return false;
     };
     fill_with_raster(
         pixmap,
-        shape,
+        (path, shape),
         &raster.image,
-        (raster.left, raster.top),
+        grid.onto_surface(raster.left, raster.top),
         fill_rule,
-        shape_transform,
         clip,
         blend,
         anti_alias,
@@ -410,11 +482,10 @@ pub(crate) fn fill_radial(
 )]
 fn fill_with_raster(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    shape: &tiny_skia::Path,
+    (path, shape): (&tiny_skia::Path, Placed),
     image: &pdf_render::Image,
     (left, top): (i32, i32),
     fill_rule: tiny_skia::FillRule,
-    shape_transform: tiny_skia::Transform,
     clip: crate::scan::Clip<'_>,
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
@@ -471,17 +542,9 @@ fn fill_with_raster(
         force_hq_pipeline: crate::HIGH_PRECISION_PIPELINE,
         ..tiny_skia::Paint::default()
     };
-    // The shape carries its own transform; the pattern's is in *device* space, which is what
-    // a paint is read in — see `shader` above, and trap 2.
-    let Some(device_shape) = shape.clone().transform(shape_transform) else {
-        return;
-    };
-    crate::scan::fill(
-        pixmap,
-        &device_shape,
-        &paint,
-        fill_rule,
-        tiny_skia::Transform::identity(),
-        clip,
-    );
+    // The shape carries its own transform; the pattern's is in the surface's *device* space,
+    // which is what a paint is read in — see `shader` above, and trap 2 — so it is moved by no
+    // matrix, and the shape is measured on the page's grid and written at the surface's corner
+    // (ADR 2148).
+    crate::scan::fill_positioned(pixmap, path, &paint, fill_rule, shape, clip);
 }

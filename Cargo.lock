@@ -3879,6 +3879,7 @@ dependencies = [
  "rayon",
  "render-cpu",
  "sha2",
+ "skrifa 0.45.1",
  "thiserror 2.0.21",
  "viewer-core",
 ]

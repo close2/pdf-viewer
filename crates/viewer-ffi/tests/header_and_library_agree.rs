@@ -134,7 +134,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        340,
+        345,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -819,6 +819,24 @@ fn the_window(expected: &mut BTreeMap<String, i64>) {
         ("PROCEED", LevelKind::Proceed),
     ] {
         expected.insert(format!("QUORRA_LEVEL_{name}"), level as i64);
+    }
+    // The reader's words with a value, `quorra_settings_reader`'s (ADR 2156).
+    for (name, word) in [
+        ("TRUST_ANCHORS", viewer_ffi::ReaderKind::TrustAnchors),
+        ("REFERENCE_FILES", viewer_ffi::ReaderKind::ReferenceFiles),
+        ("NAME", viewer_ffi::ReaderKind::Name),
+        ("TITLE", viewer_ffi::ReaderKind::Title),
+        ("ORGANISATION", viewer_ffi::ReaderKind::Organisation),
+        ("LANGUAGE", viewer_ffi::ReaderKind::Language),
+    ] {
+        expected.insert(format!("QUORRA_READER_{name}"), word as i64);
+    }
+    // Control and the wheel's travel, in the unit the caller's toolkit reports (ADR 2152).
+    for (name, unit) in [
+        ("LINES", viewer_ffi::WheelKind::Lines),
+        ("PIXELS", viewer_ffi::WheelKind::Pixels),
+    ] {
+        expected.insert(format!("QUORRA_WHEEL_{name}"), unit as i64);
     }
 }
 

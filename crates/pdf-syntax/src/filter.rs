@@ -2648,7 +2648,7 @@ fn finish(out: &[u8], damage: Option<Damage>, limits: Limits) -> Result<Decoded,
 /// the whole stream. §7.4.3's identical sentence *is* enforced, in [`ascii85`], and the
 /// difference between the two is that base-85 has no way to resynchronise: a skipped character
 /// shifts every group after it, so what would come back is not the producer's data. The ledger
-/// carries the departure as this clause's `partial`, and
+/// carries the departure as this clause's `departed` row (ADR 0036), and
 /// `ascii_hex_skips_a_character_the_clause_calls_an_error` is what pins it.
 ///
 /// **The one filter here that takes no [`Limits`], and the reason is the clause's arithmetic

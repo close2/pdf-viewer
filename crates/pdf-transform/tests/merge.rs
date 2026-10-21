@@ -565,6 +565,37 @@ fn a_field_name_two_sources_disagree_about_is_refused_by_name() {
     }
 }
 
+/// §12.7.4.1: "[a]n interactive PDF processor shall not limit the range of inheritance for field
+/// dictionaries".
+///
+/// The merge walks the hierarchy to a bound all the same, because a hostile file's `/Kids` can
+/// nest without end; what it owes is that a field past the bound is said, since that field is
+/// tested for no §12.7.4.2 collision and a signature there keeps its `/V` (ADR 2154). A form
+/// nested one link past the bound is named, and one that is not is not.
+#[test]
+fn a_field_hierarchy_past_the_merges_bound_is_named() {
+    let past = |report: &Report| {
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.detail.contains("§12.7.4.1"))
+    };
+    let (deep, _) = merge(&[(&nested_form_document(257), "1")], false)
+        .expect("a deep form is a form, and it merges");
+    assert!(
+        past(&deep),
+        "a field past the bound was not named: {:?}",
+        deep.warnings
+    );
+    let (shallow, _) =
+        merge(&[(&nested_form_document(256), "1")], false).expect("a form at the bound merges");
+    assert!(
+        !past(&shallow),
+        "a form the walk reached whole was reported as cut: {:?}",
+        shallow.warnings
+    );
+}
+
 /// Table 31: a page's `/Parent` is "the page tree node that is the immediate parent of this page
 /// object", so a page cannot be in the merged tree twice.
 #[test]
@@ -653,6 +684,46 @@ fn form_document(value: &str) -> Vec<u8> {
          4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
          5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (Name) /V {value} /Rect [10 10 190 40] /F 4 /P 3 0 R >>\nendobj\n"
     );
+    with_cross_reference(&body)
+}
+
+/// A one-page document whose form is a chain of `fields` fields, each the only kid of the one
+/// before it, the last a filled text field merged with its widget.
+///
+/// Built rather than found, on `form_document`'s precedent: the deepest chain the census finds on
+/// this disk is 32 links (ADR 1198), so no committed document reaches the merge's bound.
+fn nested_form_document(fields: usize) -> Vec<u8> {
+    const FIRST: usize = 5;
+    let last = FIRST.saturating_add(fields).saturating_sub(1);
+    let mut body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{FIRST} 0 R] /DA (/Helv 0 Tf 0 g) >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R /Annots [{last} 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n"
+    );
+    for id in FIRST..last {
+        let parent = if id == FIRST {
+            String::new()
+        } else {
+            format!(" /Parent {} 0 R", id.saturating_sub(1))
+        };
+        let _ = write!(
+            body,
+            "{id} 0 obj\n<< /T (f{id}) /Kids [{} 0 R]{parent} >>\nendobj\n",
+            id.saturating_add(1)
+        );
+    }
+    let _ = write!(
+        body,
+        "{last} 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Tx /T (leaf) /V (typed) /Parent {} 0 R /Rect [10 10 190 40] /F 4 /P 3 0 R >>\nendobj\n",
+        last.saturating_sub(1)
+    );
+    with_cross_reference(&body)
+}
+
+/// `body`, numbered from 1 in the order its objects are written, behind a header and in front of
+/// a cross-reference table and trailer that point at them.
+fn with_cross_reference(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {

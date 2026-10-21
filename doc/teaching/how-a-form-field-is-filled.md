@@ -277,7 +277,7 @@ sequenceDiagram
     participant H as host<br/>viewer-ui, viewer-gtk, viewer-qt
     participant E as Viewer::edit<br/>viewer-core/src/viewer/editing.rs
     participant P as restriction::decide<br/>pdf-model/src/restriction.rs, ADR 0212
-    participant O as Open::commit<br/>viewer-core/src/open.rs, ADR 1787
+    participant O as Open::commit<br/>viewer-core/src/open/edits.rs, ADR 1787
     participant V as ViewState::set_field<br/>pdf-model/src/view/fields.rs
 
     H->>E: Command::Edit(Edit::SetField)
@@ -416,7 +416,7 @@ committed (ADR 1604).
 
 ```mermaid
 flowchart TD
-    STALE["the page is stale<br/>viewer-core/src/open.rs::stale"]
+    STALE["the page is stale<br/>viewer-core/src/open/interpretation.rs::stale"]
     ANN["draw_annotations<br/>pdf-model/src/content/annotations.rs<br/>clause 12.5.5"]
     DEC["annotation::decide asks the view state<br/>pdf-model/src/annotation.rs, pdf-model/src/view/annotations.rs<br/>FieldValue::Edited"]
     REGEN["the stored stream is stale: splice /Tx BMC to EMC<br/>appearance.rs::regenerates, regenerate<br/>clause 12.7.2, 12.7.4.3"]

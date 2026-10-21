@@ -33,10 +33,10 @@ struct Arguments {
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
     /// The reader's levels over what a document asserts and asks, read from the words every
-    /// window takes ([`viewer_host::Settings::take`], ADR 2120): `CLAUDE.md`'s four levels per
-    /// restriction, all `off` unless a person said otherwise, and the acts a document asks of
-    /// this machine at `ask`. Its `scripts` is [`viewer_host::ReaderWords`]' and is taken from
-    /// there when the window opens.
+    /// window takes ([`viewer_host::policy::Words::take`], ADRs 2120, 2156): `CLAUDE.md`'s four
+    /// levels per restriction, all `off` unless a person said otherwise, and the acts a document
+    /// asks of this machine at `ask`. Its `scripts` is the level `--scripts` named, the one
+    /// [`viewer_host::ReaderWords`] holds as well.
     settings: viewer_host::Settings,
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader, in the words
     /// `quorra` takes and read by the same [`viewer_host::ReaderWords`] (ADRs 1580, 1581).
@@ -54,20 +54,20 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut documents: Vec<viewer_host::Named> = Vec::new();
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
-    let mut settings = viewer_host::Settings::default();
-    let mut reader = viewer_host::ReaderWords::default();
+    let mut said = viewer_host::policy::Words::default();
     let mut proxy_pages = viewer_host::stand_in::RETAINED_PAGES;
     let mut processor = false;
     let mut words = words.into_iter();
     while let Some(word) = words.next() {
-        if reader.take(std::ffi::OsStr::new(&word), &mut words)? {
-            // One of the reader's three policy words, with its value taken from the words after
-            // it — the reading every window shares (ADR 1581).
+        if said
+            .take(std::ffi::OsStr::new(&word), &mut words)?
+            .is_some()
+        {
+            // One of the reader's words, with its value taken from the words after it, or one of
+            // the words a window's settings are read from — the reading every window shares (ADRs
+            // 1581, 2120, 2156).
         } else if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
-        } else if settings.take(&word)?.is_some() {
-            // One of the words a window's settings are read from, read as every window reads
-            // them (ADR 2120).
         } else if word == viewer_host::stand_in::RETAINED_PAGES_WORD {
             proxy_pages = viewer_host::stand_in::retained_pages(words.next().as_deref())?;
         } else if word == "--cpu" {
@@ -99,6 +99,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             viewer_host::ReaderWords::USAGE
         )
     })?;
+    let (settings, reader) = said.into_parts();
     Ok(Arguments {
         document,
         also: documents.collect(),
@@ -126,10 +127,7 @@ fn main() -> glib::ExitCode {
         Trace::of(arguments.topics, began)
     };
     trace.say(Topic::Launch, format_args!("arguments read"));
-    let settings = viewer_host::Settings {
-        scripts: arguments.reader.scripts,
-        ..arguments.settings
-    };
+    let settings = arguments.settings;
     // **The document opens, and page one is interpreted, before GTK is asked for anything**
     // (ADR 1539): the display, the theme and the window take longer than the open does, and
     // neither needs the other until the first allocation joins them.

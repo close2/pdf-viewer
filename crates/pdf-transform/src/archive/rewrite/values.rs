@@ -33,6 +33,29 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Writes the entries a standard font that stated no descriptor gains once its face is embedded.
+    ///
+    /// `/FontDescriptor`, and the widths the page is laid out by where the file stated none; for a
+    /// face the dictionary must be a `TrueType` one to hold, its `/Subtype` and, where the file's
+    /// encoding is not of the kind ISO 19005-2 section 6.2.11.6 admits for one, the restated
+    /// encoding. Every value was prepared and proved against the source font before it got here
+    /// (`doc/adr/2146`).
+    pub(super) fn describe_font(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::SubstituteFontProgram) {
+            return false;
+        }
+        let Some(entries) = self
+            .substitutes
+            .and_then(|substitutes| substitutes.described.get(&id))
+        else {
+            return false;
+        };
+        for (key, value) in entries.iter() {
+            out.insert(key.clone(), value.clone());
+        }
+        true
+    }
+
     /// A graphics state's halftone entries ISO 19005 section 6.2.5 forbids, and a PDF/A output
     /// intent's missing profile (`doc/adr/2034`, `doc/adr/2035`).
     pub(super) fn halftone_and_intent_entries(

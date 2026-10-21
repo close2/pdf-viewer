@@ -1,7 +1,8 @@
 // The window's loop, as quorra.h states it for a toolkit (RFC 0010 sections 3.2a and 6, step N3a;
-// ADRs 2088, 2136, 2137): one call into quorra_window for each thing that happened to the window,
-// then what the window owes taken and acted on in order, then its timer armed at the interval it
-// asks for. Nothing calls back into this file; every record arrives after the call that made it.
+// ADRs 2088, 2136, 2137, 2152, 2153): one call into quorra_window for each thing that happened to
+// the window, then what the window owes taken and acted on in order, then its timer armed at the
+// interval it asks for. Nothing calls back into this file; every record arrives after the call
+// that made it.
 
 using System;
 using System.Collections.Generic;
@@ -35,6 +36,7 @@ public sealed partial class MainWindow : Window
     private const int SettleBound = 64;
 
     private readonly DispatcherQueueTimer timer;
+    private readonly PageControls controls;
     private readonly List<string> beside = new();
     private readonly HashSet<uint> named = new();
     private QuorraWindow? window;
@@ -42,12 +44,23 @@ public sealed partial class MainWindow : Window
     private bool sized;
     private bool pressed;
     private bool presentOwed;
+    // Where the pictures were when the controls were last placed: a control moves with the page,
+    // and reading the field tree again on a repaint that moved nothing is a walk for nothing.
+    private string? placedAt;
 
     /// <summary>A window on the documents <paramref name="arguments"/> name, under the words it states.</summary>
     internal MainWindow(IReadOnlyList<string> arguments)
     {
         InitializeComponent();
         Title = "quorra";
+        controls = new PageControls(
+            Area.ControlLayer,
+            new Commits(
+                (field, text) => Commit("a field typed into", open => open.SetFieldText(field.Field, text)),
+                field => Commit("a field finished with", open => open.CommitField(field.Field)),
+                field => Commit("a button clicked", open => open.ToggleField(field.Number, field.Generation, !field.On)),
+                (field, chosen) => Commit("an option chosen", open => open.SetFieldOptions(field.Field, chosen))),
+            () => Area.Focus(FocusState.Programmatic));
         timer = DispatcherQueue.CreateTimer();
         timer.IsRepeating = false;
         timer.Tick += (_, _) => Guard("the timer", () =>
@@ -195,6 +208,10 @@ public sealed partial class MainWindow : Window
             case Native.QUORRA_OWED_REPAINT:
                 Repaint(open);
                 break;
+            case Native.QUORRA_OWED_CONTROLS:
+                controls.Rebuild(open.Controls(), scale);
+                placedAt = null;
+                break;
             case Native.QUORRA_OWED_CLIPBOARD:
                 Copy(owed.Text);
                 break;
@@ -224,9 +241,9 @@ public sealed partial class MainWindow : Window
             // No dialogue was opened for the script's question, so there is none to close.
             case Native.QUORRA_OWED_SCRIPT_WITHDRAWN:
                 break;
-            // The panels, the controls over the page, the popups, the strip, the chrome, a
-            // placement and the system sound are the next steps' (RFC 0010 step N3a). Each is
-            // named in the log the first time it is owed rather than dropped.
+            // The panels, the popups, the strip, the chrome, a placement and the system sound are
+            // the next steps' (RFC 0010 step N3a). Each is named in the log the first time it is
+            // owed rather than dropped.
             default:
                 if (named.Add(owed.Kind))
                 {
@@ -242,12 +259,53 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        Area.Show(open.Pictures(), scale);
+        List<Picture> pictures = open.Pictures();
+        Area.Show(pictures, scale);
+        // The frames, then the marks over them (quorra.h), and the controls moved where the page did.
+        Area.ShowMarks(open.Marks(), scale);
+        string at = Geometry(pictures, scale);
+        if (controls.Count > 0 && at != placedAt && controls.Place(open.Controls(), scale))
+        {
+            placedAt = at;
+        }
         if (!presentOwed)
         {
             presentOwed = true;
             CompositionTarget.Rendered += OnRendered;
         }
+    }
+
+    // Where each picture is and how large it is shown, which a control over the page follows.
+    private static string Geometry(List<Picture> pictures, double scale)
+    {
+        var at = new System.Text.StringBuilder();
+        at.Append(scale);
+        foreach (Picture picture in pictures)
+        {
+            at.Append(' ').Append(picture.OriginX).Append(',').Append(picture.OriginY)
+                .Append(',').Append(picture.ShownWidth).Append(',').Append(picture.ShownHeight);
+        }
+        return at.ToString();
+    }
+
+    // What a person did to a control, carried to the window, and then what it owes: the controls
+    // show what the fields took, which a format, a keystroke script or /MaxLen can make differ
+    // from what was typed, and a calculation can change another field's.
+    private void Commit(string what, Action<QuorraWindow> commit)
+    {
+        if (window is not QuorraWindow open)
+        {
+            return;
+        }
+        Guard(what, () =>
+        {
+            commit(open);
+            Settle();
+            if (window is QuorraWindow still)
+            {
+                controls.Place(still.Controls(), scale);
+            }
+        });
     }
 
     // The frame XAML composes after the pictures changed is the one that shows them, so the
@@ -265,6 +323,11 @@ public sealed partial class MainWindow : Window
 
     private void OnPageKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // A key typed into a control over the page is the control's.
+        if (!Area.IsPage(e.OriginalSource))
+        {
+            return;
+        }
         bool shift = Held(VirtualKey.Shift);
         bool command = Held(VirtualKey.Control);
         if (window is not QuorraWindow open || Keys.Of(e.Key, shift) is not uint key)
@@ -310,7 +373,7 @@ public sealed partial class MainWindow : Window
 
     private void OnPagePointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (!e.GetCurrentPoint(Area).Properties.IsLeftButtonPressed)
+        if (!e.GetCurrentPoint(Area).Properties.IsLeftButtonPressed || !Area.IsPage(e.OriginalSource))
         {
             return;
         }
@@ -359,12 +422,23 @@ public sealed partial class MainWindow : Window
             return;
         }
         e.Handled = true;
-        if (Held(VirtualKey.Control))
+        PointerPoint point = e.GetCurrentPoint(Area);
+        PointerPointProperties wheel = point.Properties;
+        // Control and the wheel magnify about the pointer, as in the other three windows; a notch
+        // is one line, and the window carries the fraction a high-resolution wheel or a precision
+        // touchpad's pinch leaves (ADR 2152).
+        if (Held(VirtualKey.Control) && !wheel.IsHorizontalMouseWheel)
         {
-            Say("Ctrl and the wheel magnify in the other windows, and quorra_window has no entry point for it yet; + and - zoom");
+            float travel = (float)(wheel.MouseWheelDelta / Notch);
+            float x = (float)(point.Position.X * scale);
+            float y = (float)(point.Position.Y * scale);
+            Guard("Control and the wheel", () =>
+            {
+                open.ZoomWheel(travel, Native.QUORRA_WHEEL_LINES, x, y);
+                Settle();
+            });
             return;
         }
-        PointerPointProperties wheel = e.GetCurrentPoint(Area).Properties;
         float distance = (float)(wheel.MouseWheelDelta / Notch * ScrollStep * scale);
         Guard("the wheel", () =>
         {

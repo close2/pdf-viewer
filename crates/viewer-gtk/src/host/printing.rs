@@ -21,8 +21,13 @@ impl Host {
     /// asked yet. What they choose reaches the core as [`Printing::Paper`] from the operation's
     /// `begin-print`, before any page is drawn.
     pub(super) fn ask_to_print(&mut self) {
-        let sheet = sheet_of(&gtk4::PageSetup::new());
-        self.dispatch(Command::Print(Printing::Start(sheet)));
+        let printer = viewer_host::Printer::Dialogue(sheet_of(&gtk4::PageSetup::new()));
+        match viewer_host::print_key(printer) {
+            viewer_host::PrintKey::Ask(command) => self.dispatch(command),
+            // Answered for the preview alone: a dialogue's job ends the print it started, so its
+            // key ends none. Said rather than dropped were it ever answered here (ADR 2157).
+            viewer_host::PrintKey::End(said) => self.say(said),
+        }
     }
 
     /// Runs `GtkPrintOperation` once the core has granted the operation.

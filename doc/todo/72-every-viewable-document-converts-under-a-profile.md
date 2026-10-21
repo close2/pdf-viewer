@@ -205,4 +205,10 @@ groups, in the order a slot should take them:
 The other corpora — pdf.js's test documents and `doc/corpora`'s four collections, files real
 producers wrote — are swept at each part's lowest level by
 `the_shipped_profiles_list_what_real_producers_files_refuse_on`, which prints the same census and
-names as `FAILED` any document the verb errors or panics on. Its counts are `doc/history/1647`'s.
+names as `FAILED` any document the verb errors or panics on. Its counts are `doc/history/1655`'s.
+Its largest refusal, a standard font stating no descriptor, is built (ADR 2146), and so is the
+Table 124 pairing a shipped face of the other kind met (ADR 2147). What `fonts/font-programs-embedded`
+still refuses there is led by two things. A standard font written inside its resource dictionary,
+mostly `doc/corpora`'s Isartor-style test files. And a standard font this machine draws from a face
+of its own (ADR 0270), which needs a decision on whether a page drawn from the machine's face may be
+archived with the shipped one.

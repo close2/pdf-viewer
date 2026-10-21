@@ -724,19 +724,18 @@ impl App {
             // §12.5.6.6: whether the next drag draws a text box is a mode this host is in, and
             // `viewer-core` has no opinion about chrome by construction (rule 5). The command
             // goes out on the *release*, with both corners.
-            // §7.6.4.2's bit 3, asked as an operation, and then RFC 0004 §6's preview — which is
-            // what this window has and says so. The same key ends it, because a window that could
-            // enter print intent and not leave it would have taken §8.11.4.5's revert away from
-            // the person who asked for the operation (ADR 1180).
+            // §7.6.4.2's bit 3, and then RFC 0004 §6's preview — which is what this window has
+            // (ADRs 1180, 2157).
             viewer_host::WindowAct::Print => {
-                if self.printing {
-                    self.dispatch(Command::Print(viewer_core::Printing::Finish));
-                    self.printing = false;
-                    println!("note: the printed page is no longer what this window shows");
-                } else {
-                    self.dispatch(Command::Print(viewer_core::Printing::Start(
-                        viewer_host::printing::unknown_sheet(None),
-                    )));
+                match viewer_host::print_key(viewer_host::Printer::Preview {
+                    standing: self.printing,
+                }) {
+                    viewer_host::PrintKey::Ask(command) => self.dispatch(command),
+                    viewer_host::PrintKey::End(said) => {
+                        self.dispatch(Command::Print(viewer_core::Printing::Finish));
+                        self.printing = false;
+                        println!("note: {said}");
+                    }
                 }
             }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),

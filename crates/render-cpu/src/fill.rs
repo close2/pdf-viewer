@@ -46,13 +46,15 @@ impl CpuRasterizer {
         let Paint::Shading(shading) = paint else {
             return false;
         };
-        let at = convert::transform(to_device.of(transform));
+        // The shape's edge is measured on the page's grid and written at the surface's corner,
+        // as every other fill's is (ADR 2148).
+        let at = to_device.placed(transform);
         if shading.background.is_some() {
             shading::fill_with_background(
                 pixmap,
                 path,
                 shading,
-                to_device.of(Transform::IDENTITY),
+                to_device.placed(Transform::IDENTITY),
                 convert::fill_rule(fill_rule),
                 at,
                 clip,
@@ -105,7 +107,7 @@ impl CpuRasterizer {
                             ramp,
                             extend: *extend,
                         },
-                        to_device.of(shading.transform),
+                        to_device.placed(shading.transform),
                         convert::fill_rule(fill_rule),
                         at,
                         clip,
@@ -179,17 +181,21 @@ impl CpuRasterizer {
             (pixmap.width(), pixmap.height()),
             &mut scratch,
         )?;
-        let split = pdf_render::split_collapsed_fill(source, at);
+        // §10.7.4's marks and bands are decided on the page's grid, under the page's own matrix,
+        // and measured there with only their write moved by the surface's corner: so a window's
+        // or a strip's are the page's (ADR 2148).
+        let placed = to_device.placed(transform);
+        let split = pdf_render::split_collapsed_fill(source, placed.page);
         if let Some(split) = &split
             && !split.marks.is_empty()
             && let Some(marks) = convert::path(&split.marks)
         {
-            scan::fill(
+            scan::fill_stated(
                 pixmap,
-                &marks,
+                (&marks, &scan::Exact::Unknown),
                 &brush,
                 tiny_skia::FillRule::Winding,
-                convert::transform(at),
+                placed,
                 clip,
             );
         }
@@ -201,18 +207,18 @@ impl CpuRasterizer {
         };
         // §10.7.4 again, for a shape this rasteriser's coverage quantum would round to nothing.
         if carries_coverage_as_alpha(brush.anti_alias, brush.blend_mode)
-            && let Some(bands) = pdf_render::sub_pixel_bands(remaining, at, fill_rule)
+            && let Some(bands) = pdf_render::sub_pixel_bands(remaining, placed.page, fill_rule)
         {
             for band in &bands {
                 let shape = convert::path(&band.shape).ok_or(CpuRasterError::InvalidPath)?;
                 let mut faint = brush.clone();
                 faint.shader.apply_opacity(band.coverage);
-                scan::fill(
+                scan::fill_stated(
                     pixmap,
-                    &shape,
+                    (&shape, &scan::Exact::Unknown),
                     &faint,
                     tiny_skia::FillRule::Winding,
-                    convert::transform(at),
+                    placed,
                     clip,
                 );
             }
@@ -230,7 +236,6 @@ impl CpuRasterizer {
         // only while no device pixel receives two of them (ADR 0583).
         // Stated on the page's grid and moved by the surface's corner, so a strip's or a window's
         // closed form is the page's (ADR 2133).
-        let placed = to_device.placed(transform);
         let exact = rectangular_mark(remaining, placed.page).moved(placed.corner);
         if exact.is_some() {
             scan::fill_rectangles(
@@ -249,7 +254,7 @@ impl CpuRasterizer {
             (&path, &scan::Exact::Unknown),
             &brush,
             convert::fill_rule(fill_rule),
-            to_device.placed(transform),
+            placed,
             clip,
         );
         Ok(())

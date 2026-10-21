@@ -93,6 +93,21 @@ impl Viewer {
                 // §7.11.4.1 gives an embedded file more than one home, so a detach that left
                 // the tree is not a deletion where another home still names the stream; the
                 // objects stay in use, and the person who asked is told which home keeps them.
+                // §12.7.8.3.3's template pages are shown and not written: the update carries no
+                // page into the page tree, so the person who saves is told what the file lacks
+                // that the window shows (ADR 2154).
+                if written.unwritten_pages > 0 {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![format!(
+                            "{} page(s) the imported form data added are shown here and were not \
+                             written to the file, because this program's save writes no page into \
+                             the page tree (ISO 32000-2 §12.7.8.3.3)",
+                            written.unwritten_pages
+                        )],
+                    });
+                }
                 for (name, homes) in written.still_reached {
                     events.push(Event::Reported {
                         document: id,

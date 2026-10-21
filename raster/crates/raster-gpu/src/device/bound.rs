@@ -87,8 +87,8 @@ impl Device {
         viewport: &Viewport<'_>,
     ) -> Result<Bound<'a>, RenderError> {
         match into {
-            Target::Readback => Ok(Bound::Owned(self.gpu.create_texture(
-                &wgpu::TextureDescriptor {
+            Target::Readback | Target::ReadbackOnto(_) => Ok(Bound::Owned(
+                self.gpu.create_texture(&wgpu::TextureDescriptor {
                     label: Some("raster readback target"),
                     size: wgpu::Extent3d {
                         width: viewport.width,
@@ -101,8 +101,8 @@ impl Device {
                     format: WARM_FORMAT,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
-                },
-            ))),
+                }),
+            )),
             Target::Texture(texture) => {
                 Self::validate_texture(texture, viewport)?;
                 Ok(Bound::Borrowed(texture))

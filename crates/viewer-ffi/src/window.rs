@@ -27,15 +27,16 @@
 //! states; a key goes through `viewer_host::keys` as every window's does, and the acts the shared
 //! trait can carry out it carries out. What only a toolkit can do — the find bar, the panel, the
 //! file chooser — comes back as the `QUORRA_ACT_*` [`crate::ActKind`] names, as
-//! `quorra_key_press` hands it back. The pointer, the find bar's search and the strip of open
-//! documents are the window's too, and the panels' rows, the controls placed over the page and the
-//! marks over it are read and committed through it (`shown`, ADR 2104). The three requests a
-//! toolkit answers with a dialogue — ISO 19005's chooser, a script's question and a print let
-//! through — are records the caller answers, the window asking each as every window asks it (ADR
-//! 2121).
+//! `quorra_key_press` hands it back. The pointer, Control and the wheel (`wheel`, ADR 2152), the
+//! find bar's search and the strip of open documents are the window's too, and the panels' rows,
+//! the controls placed over the page and the marks over it are read and committed through it
+//! (`shown`, ADR 2104). The three requests a toolkit answers with a dialogue — ISO 19005's
+//! chooser, a script's question and a print let through — are records the caller answers, the
+//! window asking each as every window asks it (ADR 2121).
 
 mod owed;
 mod shown;
+mod wheel;
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -46,6 +47,7 @@ use viewer_host::native_window::{Asked, DOCUMENT, NativeWindow, Showing, WindowS
 use viewer_host::trace::{Topic, Trace};
 
 pub use owed::{OwedKind, Owing};
+pub use wheel::WheelKind;
 
 use crate::keyboard::ActKind;
 use crate::status::Status;
@@ -90,13 +92,19 @@ pub struct Window {
     /// The pages of the print §7.6.4.2's bit 3 let through, while it stands: until
     /// [`Self::print_finish`] or the key pressed again.
     printing: Option<usize>,
+    /// Each file in a directory the reader named that is not an anchor or not a target document,
+    /// sent by the opening thread and said at the next [`Self::take_owed`] (trap 5, ADR 2156).
+    refused: std::sync::mpsc::Receiver<String>,
+    /// What Control and the wheel have travelled and not yet spent on a step (ADR 2152).
+    zoom_wheel: viewer_host::ZoomWheel,
 }
 
 impl Window {
-    /// Reads `path`'s bytes from disk and starts opening the document on a thread of its own, at
-    /// the levels and the policies `settings` states — `viewer_host::Settings`' defaults where a
-    /// host stated none, as a window with no command line holds them (ADR 2120). The reader's
-    /// other words are unsaid: no anchor, no target document, nobody reading.
+    /// Reads `path`'s bytes from disk and starts opening the document on a thread of its own,
+    /// under what `words` states — the levels and policies, and the reader's other words: the
+    /// anchors, the target documents, who is reading, the conversion the archive key asks for.
+    /// `viewer_host::policy::Words`' defaults where a host stated none, as a window with no command
+    /// line holds them (ADRs 2120, 2156).
     ///
     /// **Nothing is drawn until the first [`Self::resize`]**, which joins the open: the viewport
     /// decides the resolution page one is drawn at, which is `viewer-qt`'s shape and the reason
@@ -108,8 +116,9 @@ impl Window {
     pub fn open(
         path: &Path,
         fragment: Option<String>,
-        settings: viewer_host::Settings,
+        words: viewer_host::policy::Words,
     ) -> Result<Self, Status> {
+        let (settings, reader) = words.into_parts();
         let bytes = pdf_syntax::FileBytes::on_disk(path).map_err(|_| Status::Unreadable)?;
         let widget_appearances = WidgetAppearances::Delegated;
         let commands = viewer_host::native_window::opening_commands(
@@ -122,19 +131,28 @@ impl Window {
         );
         let ahead = viewer_host::Ahead::page_sized();
         let drawing_ahead = ahead.clone();
-        // The scripts' level is sent as the reader's words send it, so the core's level and the
-        // window's are one (`Command::Scripts`, ADR 1581).
-        let reader = viewer_host::ReaderWords {
-            scripts: settings.scripts,
-            ..viewer_host::ReaderWords::default()
-        };
+        let archive = reader.archive.clone();
+        let (refusing, refused) = std::sync::mpsc::channel();
         let anticipated = viewer_host::Loading::start(move || {
             // No viewport: the core renders nothing into one with no extent, and it is moved back
             // whole, so it is still single-threaded (ADR 0182).
             let mut viewer = Viewer::new(0, 0, 1.0);
             let mut events = Vec::new();
-            for command in reader.commands().commands {
+            let supply = reader.commands();
+            for command in supply.commands {
                 events.extend(viewer.handle(command));
+            }
+            // Before the document, as the toolkit windows say them, so that the verdicts that
+            // follow are read knowing which files did not take; a window freed before it asks has
+            // nobody to say them to.
+            for refusal in supply
+                .refused
+                .into_iter()
+                .chain(viewer.reference_refusals().iter().map(ToString::to_string))
+            {
+                if refusing.send(refusal).is_err() {
+                    break;
+                }
             }
             for command in commands {
                 events.extend(viewer.handle(command));
@@ -153,7 +171,8 @@ impl Window {
                 widget_appearances,
                 settings,
             )
-            .opening(anticipated),
+            .opening(anticipated)
+            .archiving(archive),
             owing: Owing::default(),
             scale: 1.0,
             joined: false,
@@ -167,12 +186,17 @@ impl Window {
             choosing: None,
             script: None,
             printing: None,
+            zoom_wheel: viewer_host::ZoomWheel::default(),
+            refused,
         })
     }
 
     /// Everything owed since the last call, leaving nothing owed.
     #[must_use]
     pub fn take_owed(&mut self) -> Owing {
+        while let Ok(refusal) = self.refused.try_recv() {
+            self.say(&refusal);
+        }
         self.owing.take()
     }
 
@@ -335,6 +359,27 @@ impl Window {
     pub fn scroll(&mut self, dx: f32, dy: f32) {
         self.dispatch(Command::Scroll { dx, dy });
         self.settle();
+    }
+
+    /// Control and the wheel: whole zoom steps about `at`, the pointer in device pixels of the
+    /// viewport, which is the point of the page that stays still, as it is in the three toolkit
+    /// windows. Answers the steps taken, positive in.
+    ///
+    /// `travel` is the wheel turned away from the person in `unit`; `viewer_host::ZoomWheel`
+    /// spends it and carries the fraction a high-resolution wheel leaves, so a gesture is counted
+    /// as `viewer-gtk` and `viewer-qt` count it (ADRs 1118, 2152).
+    pub fn wheel_zoom(&mut self, travel: f32, unit: WheelKind, at: (f32, f32)) -> i32 {
+        let steps = unit.steps(&mut self.zoom_wheel, travel);
+        let zoom = if steps > 0 {
+            viewer_core::Zoom::In
+        } else {
+            viewer_core::Zoom::Out
+        };
+        for _ in 0..steps.unsigned_abs() {
+            self.dispatch(Command::Zoom { zoom, at: Some(at) });
+        }
+        self.settle();
+        steps
     }
 
     /// The pointer at `at`, in device pixels of the viewport, answering whether it is now over
@@ -722,19 +767,18 @@ impl Window {
                 ));
                 self.restate();
             }
-            // §7.6.4.2's bit 3 asked on the platform's default sheet, as `viewer-qt` and `quorra`
-            // ask it, and the grant comes back as a `PRINT` record; the same key ends a print that
-            // stands, so print intent is never left without a way out (ADRs 1180, 2121).
-            WindowAct::Print => {
-                if self.printing.take().is_some() {
+            // §7.6.4.2's bit 3, decided as the three windows decide it, and the grant comes back
+            // as a `PRINT` record (ADRs 1180, 2121, 2157).
+            WindowAct::Print => match viewer_host::print_key(viewer_host::Printer::Preview {
+                standing: self.printing.is_some(),
+            }) {
+                viewer_host::PrintKey::Ask(command) => self.dispatch(command),
+                viewer_host::PrintKey::End(said) => {
+                    self.printing = None;
                     self.dispatch(Command::Print(viewer_core::Printing::Finish));
-                    self.say("the printed page is no longer what this window shows");
-                } else {
-                    self.dispatch(Command::Print(viewer_core::Printing::Start(
-                        viewer_host::printing::unknown_sheet(None),
-                    )));
+                    self.say(said);
                 }
-            }
+            },
             WindowAct::Archive => self.ask_to_archive(),
             WindowAct::ChooseArchive => self.choose_the_archive_again(),
             WindowAct::AbortDrawing => self.stop_the_long_draw(),

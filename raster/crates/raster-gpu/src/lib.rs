@@ -91,7 +91,7 @@ pub use startup::{
     WarmUp, create_instance, create_instance_with, create_launch_instance,
     create_launch_instance_timed,
 };
-pub use target::Target;
+pub use target::{Backdrop, Target};
 pub use viewport::Viewport;
 
 /// The exact `wgpu` this crate was built against, re-exported so a tier-3 host can

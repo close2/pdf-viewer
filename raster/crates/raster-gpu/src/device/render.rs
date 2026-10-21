@@ -519,13 +519,15 @@ impl Device {
         let copy = match &bound {
             Bound::Owned(texture) => {
                 let started = Instant::now();
+                let onto = into.backdrop().map(|b| (b, &mut self.onto_pipeline));
                 let copy = readback::copy_out(
                     &self.gpu,
                     &self.queue,
                     texture,
                     viewport.width,
                     viewport.height,
-                    self.limits.max_target_size,
+                    self.limits,
+                    onto,
                 )?;
                 Some((copy, started.elapsed()))
             }
@@ -689,7 +691,7 @@ impl Device {
         source: EncodeSource,
     ) -> Result<Frame, RenderError> {
         match into {
-            Target::Readback => Ok(Frame {
+            Target::Readback | Target::ReadbackOnto(_) => Ok(Frame {
                 timings: Timings {
                     encode: encode_time,
                     upload: Duration::ZERO,

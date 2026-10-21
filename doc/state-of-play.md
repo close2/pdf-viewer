@@ -78,7 +78,7 @@ character its `/ToUnicode` states for it (ADR 1943).
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
 lattice — a row at a time, so that a page is cut into strips across any stroke it draws
-that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+that way, a curve that cannot fold included, every fill the row walk draws freeing its rows too and a mark's self-overlap judged over the whole mark rather than its strip (ADR 1837), a rectangle stated at a strip's edge row as the library's rectangle converter states it unclipped, so that a cut across one changes no byte (ADR 2084), an unfiltered image's pixel coloured by the sample its centre maps to on the page's own device grid, so a strip takes the sample the page does (ADR 2100), a rectangle's converter chosen by the page rather than by the strip, so the first strip of a page past 8191 rows states its rectangles as the page does (ADR 2116), a rectangle inside one device row written by its closed form, where the library's own branch for it comes out under its area (ADR 2117), a fill, a stroke's outline, a folding stroke's pieces, a rectangle's closed form and an image's square measured on the page's grid in every strip and band, only their write moved by the surface's corner (ADR 2133), and so are §10.7.4's marks and bands, a dot's disc, a long mitre's wedges, a clip's own mask and a cone's or a washed shading's raster (ADR 2148), the library's own converters keeping the surface's range (ADR 2149), and a tall mark is measured in runs of rows rather than handed back (ADR 1819); a single straight stroke whose ink lies within a 2 × 2 block of pixels is painted from its exact closed-form area in the frame where the pen is the unit disc, without entering the library at all (ADR 1829), §8.5.3.2's round dot as the same set at length zero, in every spelling and inside a longer path where no two dots share a pixel (ADRs 1857, 1875), composited at its area and rounded once when stored (ADR 1876), and measured on the page's own grid in every strip, so a cut through one is exact (ADR 1847); a page is cut into as many strips as the pool drawing it is wide (ADR 1859), the cuts decided on one thread from the list read on that pool, every number of it the serial reading's (ADR 1882), the bounds the list keeps borrowed rather than copied (ADR 1940) — leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
 whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
 as the stroker's outline (ADRs 1348, 1359) — lifts a shape too small to show to one level as a whole
 shape, which is what §10.7.4 asks the lift of, so the sliver beside a shape that does show keeps its
@@ -862,9 +862,9 @@ pass.
   window obeys (ADR 0604). `gtk4-rs` is Rust-safe with no C++
   bridge, and the crate keeps `#![forbid(unsafe_code)]` to prove it. **Tier 1 to the toolkit, because GTK4 admits no other**: a widget has no
   native surface and GSK hands out no device, so the page — drawn by default on a device of the
-  window's own and read back, by the drawing thread under `--cpu` or where the device refuses or is
-  predicted the slower lane (ADRs 2049, 2070, 2071), its launch held to bands on both lanes (ADR
-  2125) — becomes a `gdk::MemoryTexture` with no
+  window's own and read back onto its medium by the device's own pass (ADR 2150), by the drawing
+  thread under `--cpu` or where the device refuses or is predicted the slower lane (ADRs 2049, 2070,
+  2071), its launch held to bands on both lanes (ADR 2125) — becomes a `gdk::MemoryTexture` with no
   conversion at all. A form host draws the page *without* its widget
   appearances — §6.3.2.2's "unless otherwise instructed" as `Command::Delegate` — and at the
   *scale* it states. ADRs 0244, 0245.
@@ -916,16 +916,22 @@ pass.
   vocabulary already hands over, and a control's commit goes through the decision every window
   takes (ADR 2104). What a document asks of the machine is carried out once in
   `viewer_host::native_window` for the two toolkit windows and the C window, each keeping only its
-  dialogue (ADR 2105). The C window opens under the levels a host states on a `quorra_settings`
-  handle, by the command-line word every binary reads through `viewer_host::Settings::take` or by
-  number (ADR 2120), and the chooser, a script's dialogue and a print grant are records its caller
+  dialogue (ADR 2105). The C window opens under what a host states on a `quorra_settings`
+  handle — the levels, and the reader's anchors, target documents, audience and conversion — by
+  the command-line words every binary reads through `viewer_host::policy::Words::take` or by
+  number (ADRs 2120, 2156); the print key is `viewer_host::print_key`'s in every window (ADR 2157);
+  and the chooser, a script's dialogue and a print grant are records its caller
   answers (ADR 2121). **And .NET reaches the ABI through `hosts/windows/Quorra.Interop/`**: one
   C# declaration for each function, constant and struct `quorra.h` states, under the header's own
   names, held to the header by `tests/header_and_interop_agree.rs` and compiled by CI (ADRs 2054,
   2073; RFC 0010). **The WinUI 3 window over it is `hosts/windows/Quorra.App/`**: the page drawn on
-  the processor into `Image`s, the title and the status line, the keys, the pointer and the wheel,
-  each record it has no dialogue for yet declined in the header's own terms and said; built only by
-  CI's `window` job, on `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136, 2137).
+  the processor into `Image`s, the marks over it in Windows' highlight and accent colours, a
+  platform control over each widget whose appearance the window draws itself, committed as the
+  toolkit windows commit it, the title and the status line, the keys, the pointer, the wheel and
+  Control with the wheel (`quorra_window_zoom_wheel`, the fraction of a step carried by the
+  library), each record it has no dialogue for yet declined in the header's own terms and said;
+  built only by CI's `window` job, on `windows-latest`, with `viewer_ffi.dll` beside it (ADRs 2136,
+  2137, 2152, 2153).
   ADRs 0247, 0509.
 
 ### A password field's value on a save
@@ -992,7 +998,10 @@ wins, what a stream outside the file holds, what an unnamed optional content con
 called, what their own metadata field means (ADR 2082) — the operator states it and the report says whose
 authority it was (ADRs 1188, 1209, 1221, 1222). Every other repair is the one its clause states: a
 hexadecimal string's odd digit (ADR 1176), a page boundary by §14.11.2.1's defaults (ADR 1210),
-annotation flags and states (ADRs 1233, 1234), an extension schema described from what the packet
+annotation flags and states (ADRs 1233, 1234), a font the file never embedded given the face it is
+drawn from — one of the standard 14 stated by name alone with the descriptor that face's program
+states and the widths it was laid out by, a dictionary of the other kind from its face restated as
+the face's, each read back and held to the source glyph by glyph (ADRs 2146, 2147) — an extension schema described from what the packet
 states and an amendment identifier cut by span (ADRs 1245, 1246), a form's appearances constructed so
 that `/NeedAppearances` can go (ADR 1257), an embedded file no part admits taken out with every
 reference to it (ADR 1258), a JPEG 2000 image outside the baseline transcoded to `FlateDecode` in the

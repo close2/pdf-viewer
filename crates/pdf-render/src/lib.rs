@@ -77,7 +77,8 @@ pub use group_cost::{
 };
 pub use lattice::{Lattice, MAX_DISTORTION, TilingType, snap_lattice};
 pub use medium::{
-    Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,
+    Medium, SURROUND, crop_area, crop_pixels, crop_to_page, impose_on_medium, impose_within,
+    medium_bytes, page_area,
 };
 pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};

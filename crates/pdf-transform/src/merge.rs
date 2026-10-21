@@ -1846,6 +1846,7 @@ fn plan_unsigned(documents: &[Document]) -> Vec<BTreeSet<ObjectId>> {
         .iter()
         .map(|document| {
             fields_of(document)
+                .entries
                 .into_iter()
                 .filter(|field| field.signed)
                 .filter_map(|field| field.id)
@@ -1896,8 +1897,22 @@ struct FieldEntry {
 ///
 /// The clause says "[a]n interactive PDF processor shall not limit the range of inheritance for
 /// field dictionaries", which is a statement about *inheritance* rather than a licence to walk a
-/// cycle; the visited set is what stops one and this is the belt beside it.
-const MAX_FIELD_DEPTH: usize = 64;
+/// cycle; the visited set is what stops one and this is the belt beside it. The number is
+/// `pdf-model`'s `MAX_FIELD_ANCESTRY`, eight times the deepest chain on this disk (ADR 1198), and
+/// a hierarchy that reaches it is reported by [`claim_field_names`] rather than cut in silence,
+/// because the fields below the cut are neither tested for a collision nor have a signature's
+/// `/V` withheld (ADR 2154).
+const MAX_FIELD_DEPTH: usize = 256;
+
+/// What one walk of a form's field hierarchy found, and where it stopped.
+struct Fields {
+    /// Every field reached, with its fully qualified name.
+    entries: Vec<FieldEntry>,
+    /// The fully qualified names whose children lie past [`MAX_FIELD_DEPTH`] links.
+    cut: BTreeSet<Vec<u8>>,
+    /// The field objects already walked, which is what stops a cycle.
+    seen: BTreeSet<ObjectId>,
+}
 
 /// Every field of a document's interactive form, with its fully qualified name.
 ///
@@ -1907,32 +1922,27 @@ const MAX_FIELD_DEPTH: usize = 64;
 /// > be considered a field but simply a Widget annotation.
 ///
 /// so a `/Kids` entry with no `/T` contributes no name and is not descended into as a field.
-fn fields_of(document: &Document) -> Vec<FieldEntry> {
+fn fields_of(document: &Document) -> Fields {
+    let mut fields = Fields {
+        entries: Vec::new(),
+        cut: BTreeSet::new(),
+        seen: BTreeSet::new(),
+    };
     let Ok(catalog) = document.catalog() else {
-        return Vec::new();
+        return fields;
     };
     let form = document.get_key(&catalog, "AcroForm");
     let Some(form) = form.as_dict() else {
-        return Vec::new();
+        return fields;
     };
     let roots = document.get_key(form, "Fields");
     let Some(roots) = roots.as_array() else {
-        return Vec::new();
+        return fields;
     };
-    let mut out = Vec::new();
-    let mut seen = BTreeSet::new();
     for root in roots {
-        walk_field(
-            document,
-            root,
-            &[],
-            &Inherited::default(),
-            0,
-            &mut seen,
-            &mut out,
-        );
+        walk_field(document, root, &[], &Inherited::default(), 0, &mut fields);
     }
-    out
+    fields
 }
 
 /// The three inheritable entries §12.7.4.2's collision rule is about, as an ancestor stated them.
@@ -1965,15 +1975,11 @@ fn walk_field(
     prefix: &[u8],
     inherited: &Inherited,
     depth: usize,
-    seen: &mut BTreeSet<ObjectId>,
-    out: &mut Vec<FieldEntry>,
+    fields: &mut Fields,
 ) {
-    if depth >= MAX_FIELD_DEPTH {
-        return;
-    }
     let id = entry.as_reference();
     if let Some(id) = id
-        && !seen.insert(id)
+        && !fields.seen.insert(id)
     {
         return;
     }
@@ -1985,6 +1991,12 @@ fn walk_field(
         // A widget annotation, not a field: it contributes no name and no children of its own.
         return;
     };
+    // Tested once the entry is known to be a field, so that a terminal field at the bound whose
+    // widgets are its kids is not reported as cut.
+    if depth >= MAX_FIELD_DEPTH {
+        fields.cut.insert(prefix.to_vec());
+        return;
+    }
     let mut name = prefix.to_vec();
     if !name.is_empty() {
         name.push(b'.');
@@ -2006,7 +2018,7 @@ fn walk_field(
             None => inherited.default.clone(),
         },
     };
-    out.push(FieldEntry {
+    fields.entries.push(FieldEntry {
         name: name.clone(),
         id,
         kind: mine.kind.clone(),
@@ -2018,15 +2030,7 @@ fn walk_field(
     let kids = document.get_key(dict, "Kids");
     if let Some(kids) = kids.as_array() {
         for kid in kids {
-            walk_field(
-                document,
-                kid,
-                &name,
-                &mine,
-                depth.saturating_add(1),
-                seen,
-                out,
-            );
+            walk_field(document, kid, &name, &mine, depth.saturating_add(1), fields);
         }
     }
 }
@@ -2578,7 +2582,20 @@ fn claim_field_names(
     let Some(document) = documents.get(at) else {
         return;
     };
-    for field in fields_of(document) {
+    let fields = fields_of(document);
+    for name in &fields.cut {
+        warnings.push(Warning {
+            source,
+            page: None,
+            detail: format!(
+                "§12.7.4.1: the field hierarchy under {} runs past {MAX_FIELD_DEPTH} links, so the \
+                 fields below it were not tested for a §12.7.4.2 name collision and a signature \
+                 among them crosses with its /V",
+                printable(name)
+            ),
+        });
+    }
+    for field in fields.entries {
         if field.signed {
             warnings.push(Warning {
                 source,

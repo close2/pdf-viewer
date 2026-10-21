@@ -12,7 +12,7 @@ use pdf_render::{ClipId, DisplayList, Path, SoftMaskId, Transform};
 
 use crate::fill::rectangular_mark;
 use crate::soft_mask::MaskReach;
-use crate::surface::{Band, Surface, ToDevice};
+use crate::surface::{Band, Placed, Surface, ToDevice};
 use crate::{CpuRasterError, area, convert, scan};
 
 /// The rectangle a fill should be drawn as instead, where its mask leaves room for less.
@@ -86,10 +86,12 @@ struct Shape<'a> {
     /// one winding.
     rule: pdf_render::FillRule,
     fill_rule: tiny_skia::FillRule,
-    /// This shape's transform composed with the band's, filled in once the band is known.
-    at: Transform,
-    /// What [`rectangular_mark`] says this shape is under `at`, computed once: the answer decides
-    /// both whether the shape states anything at all and how it is scan-converted if it does.
+    /// This shape's transform composed with the band's, and beside it with the page's and the
+    /// band's corner on the page, filled in once the band is known (ADR 2148).
+    placed: Placed,
+    /// What [`rectangular_mark`] says this shape is on the page's grid, moved onto the band and
+    /// computed once: the answer decides both whether the shape states anything at all and how it
+    /// is scan-converted if it does.
     mark: scan::Exact,
 }
 
@@ -863,7 +865,11 @@ impl MaskCache {
                 transform: clip.transform,
                 rule: clip.fill_rule,
                 fill_rule: convert::fill_rule(clip.fill_rule),
-                at: Transform::IDENTITY,
+                placed: Placed {
+                    at: Transform::IDENTITY,
+                    page: Transform::IDENTITY,
+                    corner: (0, 0),
+                },
                 mark: scan::Exact::default(),
             });
         }
@@ -984,7 +990,7 @@ impl MaskCache {
             &root.path,
             root.fill_rule,
             self.anti_alias,
-            (convert::transform(root.at), &root.mark),
+            (scan::Place::of(root.placed), &root.mark),
         );
         if let (Some(marks), Some(scratch)) = (root.union_marks.as_ref(), scratch.as_mut()) {
             scan::mask_union(
@@ -992,7 +998,7 @@ impl MaskCache {
                 (scratch, &mut cells),
                 marks,
                 self.anti_alias,
-                convert::transform(root.at),
+                scan::Place::of(root.placed),
             );
         }
         let Some(scratch) = scratch.as_mut() else {
@@ -1010,7 +1016,7 @@ impl MaskCache {
                 &shape.path,
                 shape.fill_rule,
                 self.anti_alias,
-                (convert::transform(shape.at), &shape.mark),
+                (scan::Place::of(shape.placed), &shape.mark),
                 union,
             );
         }
@@ -1131,8 +1137,11 @@ fn state_regions(
 ) -> Result<Vec<Shape<'_>>, CpuRasterError> {
     let mut stated = Vec::with_capacity(shapes.len());
     for mut shape in shapes {
-        shape.at = to_band.of(shape.transform);
-        match pdf_render::clip_region(shape.source, shape.rule, shape.at) {
+        // The region is decided and measured on the page's grid, and only its write moves by the
+        // band's corner: so a clip in a window, a strip or a band of its own is the page's (ADR
+        // 2148).
+        shape.placed = to_band.placed(shape.transform);
+        match pdf_render::clip_region(shape.source, shape.rule, shape.placed.page) {
             Some(pdf_render::ClipRegion::One(region, rule)) => {
                 shape.path = convert::path(&region).ok_or(CpuRasterError::InvalidPath)?;
                 shape.fill_rule = convert::fill_rule(rule);
@@ -1152,7 +1161,7 @@ fn state_regions(
         shape.mark = if shape.substituted {
             scan::Exact::default()
         } else {
-            rectangular_mark(shape.source, shape.at)
+            rectangular_mark(shape.source, shape.placed.page).moved(shape.placed.corner)
         };
         if !scan::admits_every_pixel(&shape.mark, extent) {
             stated.push(shape);

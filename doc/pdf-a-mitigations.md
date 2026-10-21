@@ -1142,6 +1142,25 @@ a face nothing can substitute, `stop` is the only honest answer, because a wrong
 remedy. What the review adds is that the sentence covers **fewer** of these twenty requirements than
 it looks, and two of them have mitigations nobody had written down.
 
+#### `fonts/font-programs-embedded`
+ISO 19005-2 6.2.11.4.1, ISO 19005-4 6.2.10.4.1 · all six · `Stated`, **built** (`doc/questions/A47`,
+ADRs 1209, 2146, 2147)
+
+- **A font the file names and does not carry** gets one of the faces this program ships, embedded
+  and reported, with the face's own advances or the program restated to the file's widths
+  (`doc/pdf-a-conversion-limits.md` section 4.9).
+- **One of the standard 14 stated by name alone** (ISO 32000-2 Table 109's permission) gets the face
+  it is drawn from, unmodified. Beside it go a descriptor read off that program (Table 120) and the
+  widths the page is already laid out by, which Table 109 obliges once a descriptor is present. A
+  Liberation face goes under a `TrueType` dictionary, its encoding restated as names on
+  `WinAnsiEncoding` where section 6.2.11.6 asks. The font is read back and held to the source code
+  by code before anything is written (ADR 2146).
+- **A dictionary of the other kind from its face** (a `TrueType` Times New Roman given Foxit's CFF
+  serif) is restated as the face's kind, on the same proof (ADR 2147).
+- **Still refused, by name**: a composite font nobody named a program for; a font no shipped face
+  covers; a standard font written inside its resource dictionary, or one this machine draws from a
+  face of its own (ADR 0270); and a result the proof finds drawn differently.
+
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`
 ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · the first **built** as `preserve` (ADR

@@ -151,6 +151,7 @@ pub(super) fn embed(
         face: named,
         authority: FaceAuthority::Operator,
         route,
+        described: None,
     });
     Ok(())
 }

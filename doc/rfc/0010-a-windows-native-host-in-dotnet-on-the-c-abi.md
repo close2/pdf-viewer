@@ -3,8 +3,8 @@
 Status: **proposed**. Session 1606, from the owner's `doc/questions/A287` of 2026-10-19 and ADR 2048.
 One choice in it is the owner's, the UI framework (§3.3), and `doc/questions/Q501` asks it. The rest
 can start whichever way that is answered. **§6's N0, N1 and N2 are built (ADRs 2054, 2072, 2088,
-2104, 2105, 2120, 2121); the owner chose WinUI 3 (`doc/questions/A501`), and N3a's first step is
-written (ADRs 2136, 2137).**
+2104, 2105, 2120, 2121); the owner chose WinUI 3 (`doc/questions/A501`), and N3a's first two steps
+are written (ADRs 2136, 2137, 2152, 2153).**
 
 ## 1. Motivation
 
@@ -165,7 +165,7 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 | password, cannot-open, no-pages, `NOTICE` | password, cannot-open and no-pages through `quorra_window` (ADR 2088) | `NOTICE` |
 | the drawing queue, loading, page one drawn while read, stand-ins, the oversize window | **yes**, through `quorra_window` (ADR 2088): the window runs them and hands over the pictures | — |
 | the window's settings words (`Settings::take`, `Settings::set`) | **yes** (ADR 2120): the four binaries read them through one function, and `quorra_settings_*` with `QUORRA_POLICY_*` and `QUORRA_LEVEL_*` state them for `quorra_window_open_under` | — |
-| the reader's other words (`ReaderWords`) | `quorra_audience`, `quorra_trust_anchors` on the vocabulary layer; for a window, its `--scripts` level | the anchors, the target documents and the audience for `quorra_window` |
+| the reader's other words (`ReaderWords`) | **yes** (ADR 2156): `quorra_audience`, `quorra_trust_anchors` on the vocabulary layer; for a window, `quorra_settings_reader` with `QUORRA_READER_*`, `_accept_unknown_revocation`, `_archive` and `_take_next`, read as the four binaries read them through `viewer_host::policy::Words` | — |
 | the cards: archive chooser, ask dialogues, links | archiving, yes; through `quorra_window` the chooser, a script's dialogue and a print grant are records the caller answers (ADR 2121) | the sentences each card says |
 
 ## 6. The steps, priced
@@ -175,7 +175,7 @@ a startup, once, where a count moved. And whatever §3.2's layer exports is not 
 | **N0** | `hosts/windows/Quorra.Interop/`, hand-written `[LibraryImport]` declarations for the header's 240 entry points and its constants, outside the Cargo workspace. A Rust test in `crates/viewer-ffi/tests/` reads `quorra.h` and the C# file and asserts each entry point is declared once with the same parameter count and each constant has the same value, as `header_and_library_agree.rs` does for `abi.rs` | the test on this machine; `dotnet build` in a CI job | one round. **Built** in session 1609 (ADR 2054): one file per section of the header, and the test holds each parameter's and field's type under one rule as well as the names and values. `dotnet build` is still owed |
 | N1 | `CommitField`, `Clock` and `Respond` reach the ABI, with the key table and its count. **Built**: the eight commands (ADRs 2060, 2061), then the key table, its two counts and a submission's owed sentences (ADR 2072). `dotnet build` of N0's layer is CI's `interop` job (ADR 2073) | this machine; CI for the C# | one round |
 | N2 | `quorra_window` (§3.2, §3.2a) | this machine; driven by `a_c_program_drives_the_abi.rs`'s C caller | two rounds. **Both are built**: the loop, the keys, the pointer, the search, the strip, the prompt and the question, the pictures (ADR 2088); the panels' rows, the controls and their commits, the marks over the page, and the request handling one function for three hosts (ADRs 2104, 2105); the policy flags and the three dialogues (ADRs 2120, 2121) |
-| N3a | the WinUI 3 window on the processor lane: the page, the controls over it, the panels, the cards | `windows-latest` only | three to four rounds. **The first is written** (ADRs 2136, 2137): `hosts/windows/Quorra.App/`, unpackaged and self-contained, draws each of `quorra_window`'s pictures into an `Image`, shows the title and the status line, takes the keys, the pointer and the wheel, declines in the header's own terms each record it has no dialogue for and says so, and is built by CI's `window` job with `viewer_ffi.dll` beside it. Compiled by CI only; the marks over the page, the controls, the panels and the cards are next |
+| N3a | the WinUI 3 window on the processor lane: the page, the controls over it, the panels, the cards | `windows-latest` only | three to four rounds. **The first two are written** (ADRs 2136, 2137, 2152, 2153): `hosts/windows/Quorra.App/`, unpackaged and self-contained, draws each of `quorra_window`'s pictures into an `Image`, the marks over them in Windows' own colours and a platform control over each widget whose appearance it draws itself, committed as the toolkit windows commit them; shows the title and the status line, takes the keys, the pointer, the wheel and Control with the wheel (`quorra_window_zoom_wheel`), declines in the header's own terms each record it has no dialogue for and says so, and is built by CI's `window` job with `viewer_ffi.dll` beside it. Compiled by CI only; the panels, the popups and the cards are next |
 | N3b | ADR 2049's S0, then `quorra_device`, read back | this machine, then CI | one round after S0 |
 | N3c | `quorra_surface_attach` on a `SwapChainPanel` | `windows-latest`; to be seen on a Windows machine | two rounds and an ADR |
 | N4 | UI Automation peers from `Query::Accessibility`, printing, file pickers, packaging with the workers beside the executable | `windows-latest` | three rounds |

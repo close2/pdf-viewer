@@ -52,6 +52,10 @@ png.workspace = true
 # crosses the region's edge. `render-raster` already holds this library for the first of the two,
 # so what is taken here is a reading this tree has made once rather than a dependency (ADR 1236).
 kurbo.workspace = true
+# The descriptor a standard font stated by name alone is given (ADR 2146) is read off the shipped
+# face's own program — its bounding box, italic angle, stem and the extents its outlines reach —
+# through the one font reader this tree already holds under `pdf-font`, rather than a second.
+skrifa.workspace = true
 rayon.workspace = true
 # `doc/rfc/0007` section 4.4 asks a tool-invoking conversion to record "a digest of what it
 # returned — so that a re-run can be *checked* even though it cannot be *guaranteed*". The same

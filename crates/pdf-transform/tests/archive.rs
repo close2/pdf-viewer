@@ -13788,3 +13788,305 @@ fn a_group_blending_in_device_cmyk_beside_an_rgb_intent_stays_refused() {
         "{achieved:?}"
     );
 }
+
+/// A page showing `Hello` in one of §9.6.2.2's fourteen, stated by name alone as Table 109
+/// permits: no `/FontDescriptor`, no `/Widths`, and the encoding entry the caller writes.
+fn a_standard_font_by_name(base_font: &str, encoding: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello's) Tj ET".to_vec(),
+        )),
+        objects: vec![format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} {encoding} >>"
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The converted file, or a failure naming every refusal that stopped it.
+fn written(report: &Report, output: Option<Vec<u8>>) -> Vec<u8> {
+    output.unwrap_or_else(|| {
+        let refused: Vec<String> = conversion(report)
+            .decided
+            .iter()
+            .filter_map(|decided| match decided.decision {
+                Decision::Refused(because) => {
+                    Some(format!("{}: {}", decided.requirement, because.sentence()))
+                }
+                _ => None,
+            })
+            .collect();
+        panic!("the document did not convert: {refused:#?}")
+    })
+}
+
+/// The converted font dictionary, object 6, and its descriptor.
+fn described_font(bytes: &[u8]) -> (Document, pdf_syntax::object::Dictionary) {
+    let held = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let font = held
+        .get(ObjectId::new(6, 0))
+        .as_dict()
+        .cloned()
+        .expect("the font object");
+    (held, font)
+}
+
+/// A name-valued entry of a dictionary, as a string.
+fn name_entry(document: &Document, dict: &pdf_syntax::object::Dictionary, key: &str) -> String {
+    document
+        .get_key(dict, key)
+        .as_name()
+        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_standard_font_stated_by_name_alone_is_given_its_descriptor_and_the_face_it_is_drawn_from() {
+    // ISO 19005-2 section 6.2.11.4.1 takes no exemption for the standard 14 (its NOTE 5), and the
+    // font states no descriptor to embed a program into. Times-Roman's shipped face is a bare CFF
+    // program, which §9.9's Table 124 admits under the Type1 dictionary the file wrote.
+    let source = a_standard_font_by_name("Times-Roman", "/Encoding /WinAnsiEncoding");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let font = conversion(&report).substituted.first().expect("one font");
+    assert_eq!(
+        font.described,
+        Some(pdf_transform::archive::Described::Type1)
+    );
+    let (held, dict) = described_font(&output);
+    assert_eq!(name_entry(&held, &dict, "Subtype"), "Type1");
+    assert_eq!(name_entry(&held, &dict, "Encoding"), "WinAnsiEncoding");
+    let descriptor = held.get_key(&dict, "FontDescriptor");
+    let descriptor = descriptor.as_dict().expect("a descriptor");
+    assert_eq!(name_entry(&held, descriptor, "FontName"), "Times-Roman");
+    let program = held.get_key(descriptor, "FontFile3");
+    let program = program.as_stream().expect("the program");
+    assert_eq!(name_entry(&held, &program.dict, "Subtype"), "Type1C");
+    // §9.8.1's Table 120: every entry it requires of a descriptor for a non-Type 3 font that has
+    // Latin characters.
+    for key in [
+        "Flags",
+        "FontBBox",
+        "ItalicAngle",
+        "Ascent",
+        "Descent",
+        "CapHeight",
+        "StemV",
+    ] {
+        assert!(
+            !held.get_key(descriptor, key).is_null(),
+            "Table 120 requires /{key}"
+        );
+    }
+    // The widths the page was laid out by: Times-Roman's published `H` is 722.
+    let first = held
+        .get_key(&dict, "FirstChar")
+        .as_integer()
+        .expect("FirstChar");
+    let widths = held.get_key(&dict, "Widths");
+    let widths = widths.as_array().expect("Widths");
+    let h = usize::try_from(i64::from(b'H') - first).expect("H is in range");
+    assert_eq!(
+        widths
+            .get(h)
+            .and_then(pdf_syntax::object::Object::as_number),
+        Some(722.0)
+    );
+}
+
+#[test]
+fn helvetica_by_name_alone_becomes_the_truetype_font_its_face_is() {
+    // The four Helvetica faces are Liberation Sans, a glyf program, and Table 124 opens no key
+    // to one under a Type1 dictionary — so the dictionary is restated as §9.6.3's TrueType one,
+    // and an encoding ISO 19005-2 section 6.2.11.6 already admits is carried untouched.
+    let source = a_standard_font_by_name("Helvetica", "/Encoding /WinAnsiEncoding");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(
+        conversion(&report)
+            .substituted
+            .first()
+            .and_then(|font| font.described),
+        Some(pdf_transform::archive::Described::TrueType)
+    );
+    let (held, dict) = described_font(&output);
+    assert_eq!(name_entry(&held, &dict, "Subtype"), "TrueType");
+    assert_eq!(name_entry(&held, &dict, "Encoding"), "WinAnsiEncoding");
+    let descriptor = held.get_key(&dict, "FontDescriptor");
+    let descriptor = descriptor.as_dict().expect("a descriptor");
+    assert!(held.get_key(descriptor, "FontFile2").as_stream().is_some());
+}
+
+#[test]
+fn helvetica_on_the_standard_encoding_has_its_names_restated_on_win_ansi() {
+    // No /Encoding is StandardEncoding for a Type1 font (§9.6.5.1), which a non-symbolic TrueType
+    // font may not carry under ISO 19005-2 section 6.2.11.6. The restated dictionary gives every
+    // code the name it had: 0x27 is `quoteright` in StandardEncoding and `quotesingle` in
+    // WinAnsiEncoding, so it is one of the differences, and the page shows it.
+    let source = a_standard_font_by_name("Helvetica", "");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(
+        conversion(&report)
+            .substituted
+            .first()
+            .and_then(|font| font.described),
+        Some(pdf_transform::archive::Described::TrueTypeEncodingRestated)
+    );
+    let (held, dict) = described_font(&output);
+    let encoding = held.get_key(&dict, "Encoding");
+    let encoding = encoding.as_dict().expect("an encoding dictionary");
+    assert_eq!(
+        name_entry(&held, encoding, "BaseEncoding"),
+        "WinAnsiEncoding"
+    );
+    let differences = held.get_key(encoding, "Differences");
+    let differences = differences.as_array().expect("differences");
+    let at = differences
+        .iter()
+        .position(|item| item.as_integer() == Some(0x27))
+        .expect("0x27 is restated");
+    assert_eq!(
+        differences
+            .get(at + 1)
+            .and_then(pdf_syntax::object::Object::as_name)
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"quoteright".to_vec())
+    );
+}
+
+#[test]
+fn a_font_by_name_alone_that_is_not_one_of_the_fourteen_is_refused_by_name() {
+    // Table 109's permission is the standard 14's alone; `Arial` is a producer's name for a face
+    // the standard says nothing about, so there is no table that says what it is laid out by.
+    let source = a_standard_font_by_name("Arial", "/Encoding /WinAnsiEncoding");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+        panic!("the font requirement is refused");
+    };
+    assert!(
+        because
+            .sentence()
+            .contains("not a Type1 font naming one of the fourteen"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn zapf_dingbats_by_name_alone_keeps_the_glyphs_its_own_encoding_names() {
+    // ZapfDingbats has its own character set (Annex D.6) and §9.6.5.1 makes a symbolic font's
+    // built-in encoding its base. The page shows `4`, which that encoding names `a20`, the check
+    // mark a form's check box draws.
+    let source = a_standard_font_by_name("ZapfDingbats", "");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(
+        conversion(&report)
+            .substituted
+            .first()
+            .and_then(|font| font.described),
+        Some(pdf_transform::archive::Described::Type1EncodingRestated)
+    );
+    // The page's codes keep Annex D.6's names: `H` (0x48) is `a35` there.
+    let (held, dict) = described_font(&output);
+    let encoding = held.get_key(&dict, "Encoding");
+    let encoding = encoding.as_dict().expect("an encoding dictionary");
+    assert!(held.get_key(encoding, "BaseEncoding").is_null());
+    let differences = held.get_key(encoding, "Differences");
+    let differences = differences.as_array().expect("differences");
+    let at = differences
+        .iter()
+        .position(|item| item.as_integer() == Some(0x20))
+        .expect("the run starts at the space");
+    assert_eq!(
+        differences
+            .get(at + 1 + 0x48 - 0x20)
+            .and_then(pdf_syntax::object::Object::as_name)
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"a35".to_vec())
+    );
+}
+
+#[test]
+fn a_truetype_dictionary_given_a_cff_face_is_restated_as_the_type1_font_its_face_is() {
+    // A producer's `TrueType` dictionary naming Times New Roman, with a descriptor and no program:
+    // the face this program ships for it is Foxit's Times-metric serif, a bare CFF program, and
+    // §9.9's Table 124 admits that under no key of a TrueType dictionary. §9.6.3 lets the two
+    // dictionaries hold the same entries, so it is restated as Type1 (`doc/adr/2147`). The widths
+    // are Times-Roman's published H, e, l and o — what the face states, so route 1.
+    let mut widths = vec!["0"; 40];
+    for (code, width) in [(72, "722"), (101, "444"), (108, "278"), (111, "500")] {
+        widths[code - 72] = width;
+    }
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (Hello) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /TimesNewRomanPSMT /FirstChar 72 \
+                 /LastChar 111 /Widths [{}] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding >>",
+                widths.join(" ")
+            ),
+            "<< /Type /FontDescriptor /FontName /TimesNewRomanPSMT /Flags 34 \
+             /FontBBox [-568 -216 2046 693] /ItalicAngle 0 /Ascent 891 /Descent -216 \
+             /CapHeight 662 /StemV 80 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let output = written(&report, output);
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    assert_eq!(
+        conversion(&report)
+            .substituted
+            .first()
+            .and_then(|font| font.described),
+        Some(pdf_transform::archive::Described::RestatedAsType1)
+    );
+    let (held, dict) = described_font(&output);
+    assert_eq!(name_entry(&held, &dict, "Subtype"), "Type1");
+    assert_eq!(name_entry(&held, &dict, "Encoding"), "WinAnsiEncoding");
+    let descriptor = held.get_key(&dict, "FontDescriptor");
+    let descriptor = descriptor.as_dict().expect("the file's descriptor");
+    assert_eq!(
+        held.get_key(descriptor, "StemV").as_integer(),
+        Some(80),
+        "the producer's own descriptor received the face, untouched but for its key"
+    );
+    assert!(held.get_key(descriptor, "FontFile3").as_stream().is_some());
+    assert_eq!(stated_widths(&output), stated_widths(&source));
+}

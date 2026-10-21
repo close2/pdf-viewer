@@ -155,7 +155,7 @@ pub use kinds::{
     DataFormatKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
     FolderTextKind, InitialKind, LayoutKind, LevelKind, MarkupKind, MeasurePart, MethodKind,
     NavigatorKind, NoteKind, OrderKind, OversizeKind, PageModeKind, PageTargetKind, PixelFormat,
-    PointerKind, PolicyKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
+    PointerKind, PolicyKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, ReaderKind,
     RestrictKind, RestrictedKind, RowKind, ScopeKind, ScriptAnswerKind, ScriptQuestionKind,
     ScriptTextKind, ScriptsKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
@@ -168,4 +168,4 @@ pub use session::{
 pub use settings::Stated;
 pub use shapes::Quads;
 pub use status::Status;
-pub use window::{OwedKind, Owing, Window};
+pub use window::{OwedKind, Owing, WheelKind, Window};

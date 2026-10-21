@@ -18,7 +18,9 @@
 //!   `pdf-render` helpers, keeping the backends' answers identical by construction.
 //! - **Alpha and the medium.** raster renders onto transparency and hands back
 //!   straight alpha (`RENDER_LIBRARY.md` section 3); the medium is imposed here through
-//!   [`pdf_render::impose_on_medium`], the same function every backend uses.
+//!   [`pdf_render::impose_on_medium`], the same function every backend uses — or, where a
+//!   page is drawn whole onto one opaque colour, in the device's read-back pass by the same
+//!   integer arithmetic, so that the processor copies and converts nothing (ADR 2150).
 
 #![forbid(unsafe_code)]
 
@@ -408,14 +410,6 @@ impl Rasterizer for QuorraRasterizer {
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
         let began = std::time::Instant::now();
-        // The cost is a local the call fills as it goes, so that a refused frame still reports
-        // what it did before refusing — the same bargain [`present::FrameSlot::render`] keeps
-        // with its caller, and the reason `self.last` is assigned before the `?` rather than
-        // after it.
-        let mut cost = FrameCost::default();
-        let drawn = self.render(list, target, &mut cost);
-        self.last = cost;
-        let mut data = drawn?;
 
         // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
         // compositing shall be done in the default blending colour space of the page, and the
@@ -450,13 +444,31 @@ impl Rasterizer for QuorraRasterizer {
         // own process separation and the spot planes are multiplied into it after the curve or
         // the cube, as the CPU backend does over its own rasters (ADR 1329).
         let beside = list.separation().filter(|_| four_components.is_none());
-        if four_components.is_some()
+        // Where the page owes no pass over its components, the crop and the medium are the
+        // device's, in the read-back's own pass, and the bytes come back opaque (ADR 2150).
+        let converted = four_components.is_some()
             || one_component.is_some()
             || three_components.is_some()
-            || beside.is_some()
-            || self.medium.marks_anything()
-            || crop.is_some()
-        {
+            || beside.is_some();
+        let onto = if converted {
+            None
+        } else {
+            self.backdrop_on_the_device(target, crop)
+        };
+
+        // The cost is a local the call fills as it goes, so that a refused frame still reports
+        // what it did before refusing — the same bargain [`present::FrameSlot::render`] keeps
+        // with its caller, and the reason `self.last` is assigned before the `?` rather than
+        // after it.
+        let mut cost = FrameCost::default();
+        let drawn = match onto {
+            Some(backdrop) => self.render_whole(list, target, &mut cost, Some(backdrop)),
+            None => self.render(list, target, &mut cost),
+        };
+        self.last = cost;
+        let mut data = drawn?;
+
+        if onto.is_none() && (converted || self.medium.marks_anything() || crop.is_some()) {
             premultiply(&mut data);
             if let Some((space, black)) = four_components {
                 let mut ink_cost = FrameCost::default();
@@ -552,6 +564,45 @@ impl Rasterizer for QuorraRasterizer {
 }
 
 impl QuorraRasterizer {
+    /// The backdrop the device puts under a read-back page in place of the processor's three
+    /// passes over it — premultiply, §14.11.2.1's crop and §11.4.7's medium, demultiply — or
+    /// `None` where those passes stay here (ADR 2150).
+    ///
+    /// **The same bytes either way**, and that is the condition rather than a hope: the device's
+    /// pass is the integer arithmetic of the three, and `onto.wgsl` states why each step agrees.
+    /// It is offered only where that arithmetic has nothing after it to disagree with —
+    ///
+    /// - one colour under the whole target ([`Medium::is_uniform`]), which is
+    ///   [`pdf_render::impose_within`]'s own shortcut to [`pdf_render::impose_on_medium`], and
+    ///   an opaque one, whose result is opaque so that the demultiply after it is the identity;
+    /// - a target the device draws in one frame, since a tile's crop and medium would be
+    ///   stated against the tile rather than the target, and whose copy the device can bind
+    ///   ([`raster_gpu::Device::backdrop_fits`]).
+    ///
+    /// A transparent or translucent medium, a window's two colours and a page whose group
+    /// composites in its own components take the passes below on the processor, as they did.
+    fn backdrop_on_the_device(
+        &self,
+        target: TargetSpec,
+        crop: Option<pdf_render::Rect>,
+    ) -> Option<raster_gpu::Backdrop> {
+        let [red, green, blue, alpha] = pdf_render::medium_bytes(self.medium.page);
+        if !self.medium.is_uniform() || alpha != u8::MAX {
+            return None;
+        }
+        let limit = self.device.limits().max_target_size;
+        if target.width > limit
+            || target.height > limit
+            || !self.device.backdrop_fits(target.width, target.height)
+        {
+            return None;
+        }
+        Some(raster_gpu::Backdrop {
+            colour: [red, green, blue],
+            keep: crop.map(|area| pdf_render::crop_pixels(target.width, target.height, area)),
+        })
+    }
+
     /// ISO 32000-2 §10.8.3's spot planes, each one more whole render against the same device as
     /// the black plane is, read back premultiplied for steps b) to d) to multiply in
     /// (`pdf_render::separation`, ADRs 1317 and 1329) — the same pass the CPU backend runs over
@@ -593,13 +644,14 @@ impl QuorraRasterizer {
     ) -> Result<Vec<u8>, QuorraRasterError> {
         let limit = self.device.limits().max_target_size;
         if target.width <= limit && target.height <= limit {
-            return self.render_whole(list, target, cost);
+            return self.render_whole(list, target, cost, None);
         }
         tiles::render_in_tiles(self, list, target, cost)
     }
 
     /// One display list through the device in **one** frame, as straight-alpha RGBA8 with no
-    /// medium under it.
+    /// medium under it — or, given a `backdrop`, as the opaque bytes of the page on it
+    /// ([`Self::backdrop_on_the_device`]).
     ///
     /// Separate from [`Rasterizer::rasterize`] because §11.4.7's four-component page is two
     /// lists over one page and both take exactly this path — the same device, the same
@@ -621,6 +673,7 @@ impl QuorraRasterizer {
         list: &DisplayList,
         target: TargetSpec,
         cost: &mut FrameCost,
+        backdrop: Option<raster_gpu::Backdrop>,
     ) -> Result<Vec<u8>, QuorraRasterError> {
         // Before the device is touched at all. This path builds its scene directly rather
         // than through [`present::FrameSlot::render`], so the two ask separately — a bound
@@ -679,9 +732,11 @@ impl QuorraRasterizer {
                 target.height,
                 raster_scene::Affine::IDENTITY,
             );
-            Ok(self
-                .device
-                .render(&scene, &viewport, raster_gpu::Target::Readback)?)
+            let into = backdrop.map_or(
+                raster_gpu::Target::Readback,
+                raster_gpu::Target::ReadbackOnto,
+            );
+            Ok(self.device.render(&scene, &viewport, into)?)
         });
 
         cost.device = submitted.elapsed();

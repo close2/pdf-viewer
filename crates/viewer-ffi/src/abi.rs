@@ -71,7 +71,7 @@ use crate::session::{self, FrameInfo, Session};
 use crate::settings::Stated;
 use crate::shapes::Quads;
 use crate::status::Status;
-use crate::window::{OwedKind, Owing, Window};
+use crate::window::{OwedKind, Owing, WheelKind, Window};
 
 /// The revision of everything in this header that a caller compiles against.
 ///
@@ -8045,7 +8045,7 @@ pub unsafe extern "C" fn quorra_window_open(
     match Window::open(
         std::path::Path::new(&path),
         fragment,
-        viewer_host::Settings::default(),
+        viewer_host::policy::Words::default(),
     ) {
         Ok(opened) => {
             *window = Box::into_raw(Box::new(opened));
@@ -8055,8 +8055,9 @@ pub unsafe extern "C" fn quorra_window_open(
     }
 }
 
-/// [`quorra_window_open`], at the levels `settings` states rather than the defaults (ADR 2120).
-/// The window takes a copy: `settings` stays the caller's, to free or to open another window under.
+/// [`quorra_window_open`], under what `settings` states rather than the defaults — the levels and
+/// the reader's other words (ADRs 2120, 2156). The window takes a copy: `settings` stays the
+/// caller's, to free or to open another window under.
 ///
 /// # Safety
 ///
@@ -8078,7 +8079,7 @@ pub unsafe extern "C" fn quorra_window_open_under(
     let Some(path) = path else {
         return Status::NullArgument.code();
     };
-    match Window::open(std::path::Path::new(&path), fragment, settings.settings()) {
+    match Window::open(std::path::Path::new(&path), fragment, settings.words()) {
         Ok(opened) => {
             *window = Box::into_raw(Box::new(opened));
             Status::Ok.code()
@@ -8160,11 +8161,12 @@ pub unsafe extern "C" fn quorra_settings_restrict(
 }
 
 /// One word of a command line, read as `quorra`, `quorra-gtk`, `quorra-qt` and `quorra-confined`
-/// read theirs (`viewer_host::Settings::take`): `taken` is true where it was one of the settings
-/// words — `--restrictions=`, `--ignore-restrictions`, `--links=`, `--remote-documents=`,
-/// `--embedded-documents=`, `--submissions=`, `--separations=` — and is now in force, false where it
-/// is none of them. `QUORRA_WRONG_KIND` where it is one and names no level it takes, with the
-/// sentence from [`quorra_settings_refusal`].
+/// read theirs (`viewer_host::policy::Words::take`): `taken` is true where it was one of the
+/// settings words — `--restrictions=`, `--ignore-restrictions`, `--links=`, `--remote-documents=`,
+/// `--embedded-documents=`, `--submissions=`, `--separations=` — or `--accept-unknown-revocation`,
+/// and is now in force, false where it is none of them. `QUORRA_WRONG_KIND` where it is one and
+/// names no level it takes, or is one of the reader's words that wants the word after it, which
+/// [`quorra_settings_take_next`] reads; the sentence is [`quorra_settings_refusal`]'s.
 ///
 /// # Safety
 ///
@@ -8183,13 +8185,122 @@ pub unsafe extern "C" fn quorra_settings_take(
         Ok(None) => return Status::NullArgument.code(),
         Err(()) => return Status::NotUtf8.code(),
     };
-    match settings.take(&word) {
+    match settings.take(&word, None) {
         Ok(was) => {
             if let Some(taken) = taken.as_mut() {
-                *taken = was;
+                *taken = was > 0;
             }
             Status::Ok.code()
         }
+        Err(status) => status.code(),
+    }
+}
+
+/// One word of a command line and the word after it, read as the four windows read theirs, so
+/// that a host with a command line takes every word they take with the same refusals (ADR 2156).
+/// `*used` is how many of the two were taken: `0` where `word` is none of the words, `1` where it
+/// is one that takes no value, `2` where `next` was its value. `next` may be null, as at the end of
+/// a command line. `QUORRA_WRONG_KIND` where the word is refused — a value missing, a directory
+/// that is not one, a level its word does not take — with the sentence from
+/// [`quorra_settings_refusal`]; nothing changes.
+///
+/// # Safety
+///
+/// See the module documentation. `word` is NUL-terminated UTF-8, `next` null or the same; `used`
+/// is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_take_next(
+    settings: *mut Stated,
+    word: *const c_char,
+    next: *const c_char,
+    used: *mut usize,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let (Ok(word), Ok(next)) = (owned_text(word), owned_text(next)) else {
+        return Status::NotUtf8.code();
+    };
+    let Some(word) = word else {
+        return Status::NullArgument.code();
+    };
+    match settings.take(&word, next.as_deref()) {
+        Ok(taken) => {
+            if let Some(used) = used.as_mut() {
+                *used = taken;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of the reader's words that names a value, `QUORRA_READER_*`, with `value`: a directory for
+/// `TRUST_ANCHORS` and `REFERENCE_FILES`, read on the window's document thread when it opens; a
+/// name, title or organisation added to Table 100's lists; a language tag replacing the last
+/// (ADR 2156). `QUORRA_WRONG_KIND` for a number that names none, or where the value is refused as
+/// the word's would be, with the sentence from [`quorra_settings_refusal`]; nothing changes.
+///
+/// # Safety
+///
+/// See the module documentation. `value` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_reader(
+    settings: *mut Stated,
+    word: u32,
+    value: *const c_char,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let value = match owned_text(value) {
+        Ok(Some(value)) => value,
+        Ok(None) => return Status::NullArgument.code(),
+        Err(()) => return Status::NotUtf8.code(),
+    };
+    match settings.state(word, &value) {
+        Ok(()) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// Whether a signature whose certificates' revocation status nobody could establish is accepted,
+/// as `--accept-unknown-revocation` says it is (ADR 2156). A new handle does not accept it.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_accept_unknown_revocation(
+    settings: *mut Stated,
+    accept: bool,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    settings.accept_unknown_revocation(accept);
+    Status::Ok.code()
+}
+
+/// The conversion ISO 19005's archive key asks for, as `--archive` names one: indices into
+/// [`quorra_archive_target`]'s and [`quorra_archive_profile`]'s lists, either negative for none,
+/// which a new handle holds and under which the key puts up the chooser (ADRs 1954, 2156).
+/// `QUORRA_OUT_OF_RANGE` past either list; nothing changes.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_settings_archive(
+    settings: *mut Stated,
+    target: i32,
+    profile: i32,
+) -> c_int {
+    let Some(settings) = settings.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match settings.archive(target, profile) {
+        Ok(()) => Status::Ok.code(),
         Err(status) => status.code(),
     }
 }
@@ -8333,6 +8444,43 @@ pub unsafe extern "C" fn quorra_window_scroll(window: *mut Window, dx: f32, dy: 
         return Status::OutOfRange64.code();
     }
     window.scroll(dx, dy);
+    Status::Ok.code()
+}
+
+/// Control and the wheel: whole zoom steps about (`x`, `y`), the pointer in device pixels of the
+/// viewport, which stays where it is on the page. `travel` is the wheel turned away from the
+/// person in `unit`, a `QUORRA_WHEEL_*`; the fraction of a step a high-resolution wheel leaves is
+/// carried to the next call, as the toolkit windows carry it (ADRs 1118, 2152). `*steps`, where not
+/// null, is the steps taken, positive in.
+///
+/// `QUORRA_WRONG_KIND` for a unit this build does not define, and `QUORRA_NUMBER_OUT_OF_RANGE` for
+/// a travel or a point that is not finite; nothing changes for either.
+///
+/// # Safety
+///
+/// See the module documentation. `steps` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_zoom_wheel(
+    window: *mut Window,
+    travel: f32,
+    unit: u32,
+    x: f32,
+    y: f32,
+    steps: *mut i32,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    let Some(unit) = WheelKind::from_code(unit) else {
+        return Status::WrongKind.code();
+    };
+    if !travel.is_finite() || !x.is_finite() || !y.is_finite() {
+        return Status::OutOfRange64.code();
+    }
+    let taken = window.wheel_zoom(travel, unit, (x, y));
+    if let Some(steps) = steps.as_mut() {
+        *steps = taken;
+    }
     Status::Ok.code()
 }
 

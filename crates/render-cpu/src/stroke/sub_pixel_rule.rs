@@ -2,10 +2,11 @@
 //! §10.7.4 — by the exact construction where it applies (ADR 0226) and at one pixel with the width
 //! carried in the alpha where it does not (ADR 0268).
 
-use pdf_render::{Path, Transform};
+use pdf_render::Path;
 
 use crate::compose::carries_coverage_as_alpha;
 use crate::stroke::SolidOutline;
+use crate::surface::Placed;
 use crate::{convert, scan};
 
 /// Draws a stroke the raster cannot state the coverage of, ISO 32000-2 §10.7.4, and reports
@@ -66,10 +67,11 @@ pub(crate) fn draw_sub_pixel_rule(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     geometry: (&Path, &tiny_skia::Path),
     (style, cap): (&tiny_skia::Stroke, pdf_render::LineCap),
-    (at, outline): (Transform, &SolidOutline<'_>),
+    (placed, outline): (Placed, &SolidOutline<'_>),
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
+    let at = placed.at;
     let Some(one_pixel) = pdf_render::thinnest_line(at) else {
         return false;
     };
@@ -94,7 +96,7 @@ pub(crate) fn draw_sub_pixel_rule(
         && style.dash.is_none()
         && at.preserves_axes()
         && pdf_render::only_flat_subpaths(geometry.0)
-        && draw_rule_as_bands(pixmap, outline, at, brush, clip)
+        && draw_rule_as_bands(pixmap, outline, placed, brush, clip)
     {
         return true;
     }
@@ -107,7 +109,7 @@ pub(crate) fn draw_sub_pixel_rule(
     if !pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
         return false;
     }
-    draw_rule_at_one_pixel(pixmap, (geometry, cap), style, at, scale, brush, clip)
+    draw_rule_at_one_pixel(pixmap, (geometry, cap), style, placed, scale, brush, clip)
 }
 
 /// Whether a mark this wide is one ISO 32000-2 §10.7.4 may restate, at a quantum of `one_pixel`.
@@ -155,16 +157,19 @@ fn at_or_under_the_quantum(width: f32, one_pixel: f32) -> bool {
 fn draw_rule_as_bands(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     outline: &SolidOutline<'_>,
-    at: Transform,
+    placed: Placed,
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
     let Some(outline) = outline.get() else {
         return false;
     };
+    // The pixel lines are the page's, decided under its own matrix, and each band is measured on
+    // its grid and written at the surface's corner: so a window's or a strip's bands are the
+    // page's (ADR 2148).
     let Some(bands) = pdf_render::sub_pixel_bands(
         &convert::from_skia_path(outline),
-        at,
+        placed.page,
         pdf_render::FillRule::NonZero,
     ) else {
         return false;
@@ -181,12 +186,12 @@ fn draw_rule_as_bands(
     for (shape, coverage) in &shapes {
         let mut faint = brush.clone();
         faint.shader.apply_opacity(*coverage);
-        scan::fill(
+        scan::fill_stated(
             pixmap,
-            shape,
+            (shape, &scan::Exact::Unknown),
             &faint,
             tiny_skia::FillRule::Winding,
-            convert::transform(at),
+            placed,
             clip,
         );
     }
@@ -219,12 +224,12 @@ fn draw_rule_at_one_pixel(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (geometry, cap): ((&Path, &tiny_skia::Path), pdf_render::LineCap),
     style: &tiny_skia::Stroke,
-    at: Transform,
+    placed: Placed,
     scale: f32,
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
-    let Some(width) = pdf_render::band_substitute_width(geometry.0, at) else {
+    let Some(width) = pdf_render::band_substitute_width(geometry.0, placed.at) else {
         return false;
     };
     // A width above the substitute's is not this rule's business: `draw_sub_pixel_rule` has
@@ -278,12 +283,13 @@ fn draw_rule_at_one_pixel(
     faint
         .shader
         .apply_opacity(pdf_render::expressible_coverage(style.width / width));
-    scan::fill(
+    // The band and its caps on the page's grid, written at the surface's corner (ADR 2148).
+    scan::fill_stated(
         pixmap,
-        &outline,
+        (&outline, &scan::Exact::Unknown),
         &faint,
         tiny_skia::FillRule::Winding,
-        convert::transform(at),
+        placed,
         clip,
     );
     // A butt cap projects nothing, which is the overwhelmingly common case and the one that must
@@ -297,12 +303,12 @@ fn draw_rule_at_one_pixel(
     {
         let mut faint = brush.clone();
         faint.shader.apply_opacity(mark.coverage);
-        scan::fill(
+        scan::fill_stated(
             pixmap,
-            &converted,
+            (&converted, &scan::Exact::Unknown),
             &faint,
             tiny_skia::FillRule::Winding,
-            convert::transform(at),
+            placed,
             clip,
         );
     }

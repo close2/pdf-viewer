@@ -782,11 +782,58 @@ pub fn scroll_by(by: f32, scale: f32) -> Command {
     }
 }
 
+/// What a window says when the print key ends the print that stood.
+pub const PRINT_ENDED: &str = "the printed page is no longer what this window shows";
+
+/// What a window has to print on when [`WindowAct::Print`] is pressed: the toolkit's part of the
+/// print key's decision, stated rather than decided by the host (habit 139, ADR 2157).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Printer {
+    /// No printer, and RFC 0004 section 6's preview instead: the pages on the screen are what
+    /// would print until the same key ends it. `standing` is whether a print the core let through
+    /// stands now.
+    Preview {
+        /// Whether `Event::Printing` granted a print that has not ended.
+        standing: bool,
+    },
+    /// The toolkit's print dialogue, which opens on `sheet` — the platform's default page setup,
+    /// since the person has not been asked yet — and ends the print itself when its job is over.
+    Dialogue(viewer_core::Sheet),
+}
+
+/// What the print key comes to.
+#[derive(Debug)]
+pub enum PrintKey {
+    /// §7.6.4.2's bit 3 asked: the message to send. The grant is `Event::Printing`.
+    Ask(Command),
+    /// The print that stands ends: the window sends `Printing::Finish` and lets go of the job as
+    /// its toolkit holds it, then says the sentence.
+    End(&'static str),
+}
+
+/// The print key, decided once for every window (ADRs 1180, 2121, 2157).
+///
+/// A window with a dialogue asks on the dialogue's sheet. A window with only the preview asks on
+/// Table 193's unknown sheet ([`crate::printing::unknown_sheet`]), and the same key ends a print
+/// that stands: a window that could enter print intent and not leave it would have taken
+/// §8.11.4.5's revert away from the person who asked for the operation.
+#[must_use]
+pub fn print_key(printer: Printer) -> PrintKey {
+    use viewer_core::Printing;
+    match printer {
+        Printer::Dialogue(sheet) => PrintKey::Ask(Command::Print(Printing::Start(sheet))),
+        Printer::Preview { standing: true } => PrintKey::End(PRINT_ENDED),
+        Printer::Preview { standing: false } => PrintKey::Ask(Command::Print(Printing::Start(
+            crate::printing::unknown_sheet(None),
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Decided, Key, Keyboard, Meaning, Mode, Modifiers, SELECT_FIRST, Waiting, WindowAct, decide,
-        meaning,
+        Decided, Key, Keyboard, Meaning, Mode, Modifiers, PRINT_ENDED, PrintKey, Printer,
+        SELECT_FIRST, Waiting, WindowAct, decide, meaning, print_key,
     };
     use pdf_model::view::Markup;
     use viewer_core::{Command, Edit, PageTarget, Selection, Viewer};
@@ -1308,5 +1355,29 @@ mod tests {
                     if sent == kind
             ));
         }
+    }
+
+    /// The preview's key asks on the unknown sheet and ends what stands; the dialogue's asks on
+    /// its own sheet, whatever stands, since the dialogue ends its own job.
+    #[test]
+    fn the_print_key_asks_or_ends_by_what_the_window_prints_on() {
+        use viewer_core::{Printing, Sheet};
+        let unknown = crate::printing::unknown_sheet(None);
+        assert!(matches!(
+            print_key(Printer::Preview { standing: false }),
+            PrintKey::Ask(Command::Print(Printing::Start(sheet))) if sheet == unknown
+        ));
+        assert!(matches!(
+            print_key(Printer::Preview { standing: true }),
+            PrintKey::End(said) if said == PRINT_ENDED
+        ));
+        let letter = Sheet {
+            media: Some([0.0, 0.0, 612.0, 792.0]),
+            ..unknown
+        };
+        assert!(matches!(
+            print_key(Printer::Dialogue(letter)),
+            PrintKey::Ask(Command::Print(Printing::Start(sheet))) if sheet == letter
+        ));
     }
 }

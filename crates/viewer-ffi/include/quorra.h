@@ -1900,6 +1900,8 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *   on every key:      quorra_window_press(window, QUORRA_KEY_*, shift, command, &act, &by);
  *                      and do `act` where it is not QUORRA_ACT_NOTHING;
  *   on the pointer:    quorra_window_pointer(window, x, y, QUORRA_POINTER_*, &over_link);
+ *   on the wheel:      quorra_window_scroll(window, dx, dy), and with Control held
+ *                      quorra_window_zoom_wheel(window, travel, QUORRA_WHEEL_*, x, y, &steps);
  *   on the timer:      quorra_window_tick(window);
  *   after each of those: quorra_window_take_owed(window, &owed), act on each record,
  *                      quorra_owed_free(owed), and arm the timer at quorra_window_interval(window)
@@ -1963,9 +1965,12 @@ typedef struct quorra_owed quorra_owed;
  * restriction off, a link, a remote document, an embedded one and a submission at ASK, scripts at
  * REFUSE (off) and the separation simulation off.
  *
- * quorra_settings_take reads a command-line word as quorra, quorra-gtk, quorra-qt and
- * quorra-confined read theirs, so a host with a command line takes the same words with the same
- * refusals; quorra_settings_set and quorra_settings_restrict set the same levels by number.
+ * quorra_settings_take and quorra_settings_take_next read a command-line word as quorra,
+ * quorra-gtk, quorra-qt and quorra-confined read theirs, so a host with a command line takes the
+ * same words with the same refusals; quorra_settings_set and quorra_settings_restrict set the same
+ * levels by number, and quorra_settings_reader, _accept_unknown_revocation and _archive state the
+ * reader's other words — the anchors, the target documents, who is reading, the conversion the
+ * archive key asks for (ADR 2156). A new handle states none of them.
  */
 typedef struct quorra_settings quorra_settings;
 
@@ -1992,20 +1997,46 @@ int32_t quorra_settings_set(quorra_settings *settings, uint32_t policy, uint32_t
 /* A QUORRA_RESTRICTED_* operation at a QUORRA_RESTRICT_* level, as quorra_restrict_operation. */
 int32_t quorra_settings_restrict(quorra_settings *settings, uint32_t operation, uint32_t level);
 /* One command-line word: `*taken` is true where it was --restrictions=, --ignore-restrictions,
- * --links=, --remote-documents=, --embedded-documents=, --submissions= or --separations= and is
- * now in force, false where it is none of them. QUORRA_WRONG_KIND where it names no level its
- * word takes, with the sentence every window prints from quorra_settings_refusal. */
+ * --links=, --remote-documents=, --embedded-documents=, --submissions=, --separations= or
+ * --accept-unknown-revocation and is now in force, false where it is none of them.
+ * QUORRA_WRONG_KIND where it names no level its word takes, or wants the word after it, with the
+ * sentence every window prints from quorra_settings_refusal. */
 int32_t quorra_settings_take(quorra_settings *settings, const char *word, bool *taken);
-/* Why the last word was refused; QUORRA_NO_ANSWER where it was not. */
+/* One command-line word and the one after it (`next` null at the line's end): `*used` is how many
+ * of the two were taken — 0 where `word` is none of the words, 1 where it takes no value, 2 where
+ * `next` was its value, as --trust-anchors, --reference-files, --reader-name, --reader-title,
+ * --reader-organisation, --interface-language, --scripts and --archive take one.
+ * QUORRA_WRONG_KIND where it is refused, with quorra_settings_refusal's sentence. */
+int32_t quorra_settings_take_next(quorra_settings *settings, const char *word, const char *next,
+                                  size_t *used);
+/* Why the last word or value was refused; QUORRA_NO_ANSWER where it was not. */
 int32_t quorra_settings_refusal(const quorra_settings *settings, char *out, size_t cap,
                                 size_t *needed);
+
+/* The reader's words that name a value, for quorra_settings_reader. */
+#define QUORRA_READER_TRUST_ANCHORS   0u  /* a directory of PEM or DER certificates: §12.8.1 */
+#define QUORRA_READER_REFERENCE_FILES 1u  /* a directory of PDF files: §8.10.4's targets */
+#define QUORRA_READER_NAME            2u  /* one more of Table 100's Ind */
+#define QUORRA_READER_TITLE           3u  /* one more of Table 100's Ttl */
+#define QUORRA_READER_ORGANISATION    4u  /* one more of Table 100's Org */
+#define QUORRA_READER_LANGUAGE        5u  /* §8.11.4.4's Language, replacing the last stated */
+/* A QUORRA_READER_* with its value. QUORRA_WRONG_KIND for a number that names none, and for a
+ * directory that is not one, with quorra_settings_refusal's sentence; nothing changes. */
+int32_t quorra_settings_reader(quorra_settings *settings, uint32_t word, const char *value);
+/* Whether a revocation status nobody could establish is accepted (--accept-unknown-revocation). */
+int32_t quorra_settings_accept_unknown_revocation(quorra_settings *settings, bool accept);
+/* The conversion the archive key asks for (--archive), as indices into quorra_archive_target's
+ * and quorra_archive_profile's lists; either negative for none, which puts up the chooser.
+ * QUORRA_OUT_OF_RANGE past either list; nothing changes. */
+int32_t quorra_settings_archive(quorra_settings *settings, int32_t target, int32_t profile);
 
 /* Opens a window on the file at `path`; nothing is drawn until the first quorra_window_resize,
  * which joins the open. `fragment` (Annex O) may be null. QUORRA_UNREADABLE where the file cannot
  * be opened for reading. The window opens at the levels a window with no command line holds. */
 int32_t quorra_window_open(const char *path, const char *fragment, quorra_window **window);
-/* The same, at the levels `settings` states. The window takes a copy; `settings` stays the
- * caller's. */
+/* The same, under what `settings` states: the levels and the reader's other words. The window
+ * takes a copy; `settings` stays the caller's. A file in a named directory that is not an anchor
+ * or a target document is a SAID record, as the toolkit windows say it. */
 int32_t quorra_window_open_under(const char *path, const char *fragment,
                                  const quorra_settings *settings, quorra_window **window);
 void quorra_window_free(quorra_window *window);
@@ -2024,6 +2055,16 @@ int32_t quorra_window_press(quorra_window *window, uint32_t key, bool shift, boo
                             uint32_t *act, float *by);
 /* The wheel or a scroll bar, in device pixels. QUORRA_NUMBER_OUT_OF_RANGE where not finite. */
 int32_t quorra_window_scroll(quorra_window *window, float dx, float dy);
+/* Control and the wheel, which magnify in every window: whole zoom steps about (x, y), the
+ * pointer in device pixels of the viewport, which stays where it is on the page. `travel` is the
+ * wheel turned away from the person, in a QUORRA_WHEEL_* unit; the fraction of a step a
+ * high-resolution wheel leaves is carried to the next call. `*steps`, where not null, is the steps
+ * taken, positive in. QUORRA_WRONG_KIND for a unit this build does not define, and
+ * QUORRA_NUMBER_OUT_OF_RANGE where a number is not finite. */
+#define QUORRA_WHEEL_LINES  0u  /* lines, a mouse wheel's notch being one */
+#define QUORRA_WHEEL_PIXELS 1u  /* a touchpad's drag, in device pixels */
+int32_t quorra_window_zoom_wheel(quorra_window *window, float travel, uint32_t unit, float x,
+                                 float y, int32_t *steps);
 /* The pointer at (x, y) in device pixels of the viewport, as a QUORRA_POINTER_*. `*over_link`,
  * where not null, is whether it is now over §12.5.6.5's activation region — the cursor to show.
  * §12.9's measuring takes a press, where it is on. */

@@ -691,7 +691,9 @@ readback, measured rather than inferred.
 4. **Resolve.** `Surface` and `Texture` targets composite the finished page and are
    done — no readback, which per §6.1 deletes the largest single cost in the current
    backend's frame. `Readback` copies out, maps, and converts premultiplied to
-   straight alpha once at the boundary (§3).
+   straight alpha once at the boundary (§3); `ReadbackOnto` puts the caller's opaque
+   backdrop under the finished frame in the copy's own buffer first, so every pixel
+   leaves opaque and nothing is converted (the caller's ADR 2150).
 5. **Account.** `Timings` from the query results (and saying so when a wall clock had
    to stand in — a number whose provenance is ambiguous cannot gate anything),
    `Counters`, `Report`s, and a `Frame` whose every claim about itself is true.

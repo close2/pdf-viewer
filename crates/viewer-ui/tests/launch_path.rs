@@ -22,6 +22,7 @@
 //! | **cold open** | `FileBytes::on_disk`, `Viewer::new`, `Command::Restrict`, `Command::Open` — `quorra.rs`'s `open_document` exactly, on a file whose page cache has just been dropped | the process's own creation, the window, the device |
 //! | **warm open** | the same, second time, with the file in the page cache, in a child that kept its cores busy for thirty milliseconds first (ADR 1621) | the idle clock a core wakes at, which on a figure of a few tenths of a millisecond was half of what moved it |
 //! | **time to first page** | the document opening on one thread, and page one interpreted there (`Viewer::anticipate`, ADR 1531), while the graphics device comes up on this one, joined, given a viewport, and page one's pixels drawn on the device; the run prints a timeline from the process's spawn — each thread's milestones, one line each (ADR 1544) — and a hash of the frame | the outline and the page tree, read on a thread of their own after the join (ADR 1543) and joined after the clock stops;  winit's `EventLoop::new`, the window, the surface and the present |
+//! | **time to first page from a cold page cache** | the same child, each sample begun by dropping the document's pages and reading back that none are left (`fincore`), so the open on the document thread waits for the disk — principle 2's "measured with a cold page cache" (ADR 2158) | the binary, the driver, the loader's libraries and the machine's fonts, whose pages are shared with every neighbour and are not dropped; a drop the filesystem ignored (`tmpfs`), which declines the figure rather than judging a warm one |
 //! | **cold bring-up** | `QuorraRasterizer::new_headless` in a process that has done nothing else | everything else |
 //! | **the script stage** | after page one's frame, `Command::Presented` to a viewer that was handed a runner before it opened the document (`Command::Scripts`, a window at `on`): RFC 0008 section 6.5's open sequence, which starts `pdf-script-worker` at its first trigger — `OpenCost::line()`'s `script_open spawn_ms=<f> first_run_ms=<f>`, the worker's start through its greeting and the first run's exchange with the realm constructed inside it (ADR 1620) | time to first page, which every row's child measures with the same runner supplied and whose clock has stopped before the stage begins; a worker started before the frame is a failure of its own |
 //! | **page turn** | `Command::GoTo(Next)`, the interpretation it causes, and the frame drawn on the device | — |
@@ -1530,6 +1531,14 @@ struct Row {
     warm_open_ms: Pin,
     /// The band on process start to page one's pixels, the device on the critical path.
     first_page_ms: Pin,
+    /// The band on the same figure with the document's page cache dropped before the child
+    /// started: principle 2's "measured with a cold page cache", for time to first page (ADR
+    /// 2158).
+    ///
+    /// **Only the document is cold.** The test binary, the Vulkan loader, the driver and the
+    /// machine's fonts stay wherever the kernel keeps them, because evicting a shared object
+    /// would evict it from every neighbouring process too.
+    cold_first_page_ms: Pin,
     /// The band on one page turn.
     turn_ms: Pin,
     /// The band on starting the script worker at the open sequence's first trigger, through its
@@ -1670,6 +1679,8 @@ struct Partial {
     warm_open_ms: Option<Pin>,
     /// See [`Row::first_page_ms`]. `None` here is "the key was not stated at all".
     first_page_ms: Option<Pin>,
+    /// See [`Row::cold_first_page_ms`]. `None` here is "the key was not stated at all".
+    cold_first_page_ms: Option<Pin>,
     /// See [`Row::turn_ms`]. `None` here is "the key was not stated at all".
     turn_ms: Option<Pin>,
     /// See [`Row::script_spawn_ms`]. `None` here is "the key was not stated at all".
@@ -1698,6 +1709,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         cold_open_ms: Some(cold_open_ms),
         warm_open_ms: Some(warm_open_ms),
         first_page_ms: Some(first_page_ms),
+        cold_first_page_ms: Some(cold_first_page_ms),
         turn_ms: Some(turn_ms),
         script_spawn_ms: Some(script_spawn_ms),
         script_first_run_ms: Some(script_first_run_ms),
@@ -1711,8 +1723,9 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
     else {
         return Err(format!(
             "the row ending at line {at} is missing one of path, pages, cold_open_ms, \
-             warm_open_ms, first_page_ms, turn_ms, script_spawn_ms, script_first_run_ms, \
-             peak_anon_mib, open_peak_mib, read_kib, read_calls, open_kinstructions, why"
+             warm_open_ms, first_page_ms, cold_first_page_ms, turn_ms, script_spawn_ms, \
+             script_first_run_ms, peak_anon_mib, open_peak_mib, read_kib, read_calls, \
+             open_kinstructions, why"
         ));
     };
     into.push(Row {
@@ -1721,6 +1734,7 @@ fn finish(partial: Partial, at: usize, into: &mut Vec<Row>) -> Result<(), String
         cold_open_ms,
         warm_open_ms,
         first_page_ms,
+        cold_first_page_ms,
         turn_ms,
         script_spawn_ms,
         script_first_run_ms,
@@ -1781,6 +1795,7 @@ fn parse(text: &str) -> Result<Check, String> {
                 "cold_open_ms" => row.cold_open_ms = Some(band(value, at)?),
                 "warm_open_ms" => row.warm_open_ms = Some(band(value, at)?),
                 "first_page_ms" => row.first_page_ms = Some(band(value, at)?),
+                "cold_first_page_ms" => row.cold_first_page_ms = Some(band(value, at)?),
                 "turn_ms" => row.turn_ms = Some(band(value, at)?),
                 "script_spawn_ms" => row.script_spawn_ms = Some(band(value, at)?),
                 "script_first_run_ms" => row.script_first_run_ms = Some(band(value, at)?),
@@ -1816,9 +1831,9 @@ fn parse(text: &str) -> Result<Check, String> {
 type Fields = Vec<(String, String)>;
 
 /// The figures a device's placement in the carve-out is the guard of (ADR 1891): cold bring-up,
-/// and time to first page, of which the device is the longer thread. The script stage's two are
-/// read from first-page children too, and neither has the device in it.
-const CARVE_OUT_FIGURES: [&str; 2] = ["bring_up_ms", "first_page_ms"];
+/// and time to first page from either page cache, of which the device is the longer thread. The
+/// script stage's two are read from first-page children too, and neither has the device in it.
+const CARVE_OUT_FIGURES: [&str; 3] = ["bring_up_ms", "first_page_ms", "cold_first_page_ms"];
 
 /// The carve-out line beneath a figure a device is on the path of, judged or not (ADR 1891).
 ///
@@ -2478,6 +2493,31 @@ fn drop_the_page_cache(path: &Path) -> Result<(), String> {
     }
 }
 
+/// How many kibibytes of one file are in the page cache, or `None` where nothing here can say.
+///
+/// **What makes a dropped cache a measurement rather than an intention** (ADR 2158). A drop is
+/// advice, and on `tmpfs` — where the pages *are* the file — `dd oflag=nocache` succeeds and the
+/// file stays resident to the last byte, so a cold figure taken there is a warm one under the cold
+/// one's name, and nothing in its clock says so. `fincore` asks `mincore(2)` about a mapping of
+/// the file, which faults nothing in, so the question does not change its own answer. A machine
+/// without it is told once at the top of the run, and its cold figures are judged unasked, as
+/// they were before this existed.
+fn left_in_the_cache_kib(path: &Path) -> Option<f64> {
+    let output = Child::new("fincore")
+        .args(["--bytes", "--noheadings", "--output", "RES"])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let bytes: f64 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .ok()?;
+    Some(bytes / 1024.0)
+}
+
 /// Where the copies this gate drops the page cache of live.
 ///
 /// **A copy, and never the repository's own file.** Dropping a file's cache means opening it for
@@ -2793,6 +2833,13 @@ struct Judged {
     /// `None` for every figure but [`CARVE_OUT_FIGURES`], and for those where the adapter reports
     /// no placement; a figure with no reading is not held to it. See [`CarveOut`].
     carve_out: Option<CarveOut>,
+    /// How many kibibytes of the document were still in the page cache after its sample's drop.
+    ///
+    /// `None` for every figure that is not a cold one, and for a cold one where `fincore` is not
+    /// on the machine to ask; anything above zero declines the figure, because a cold figure
+    /// whose file stayed resident is a warm figure with the wrong name (ADR 2158). See
+    /// [`left_in_the_cache_kib`].
+    cache_left: Option<f64>,
 }
 
 /// Which of a figure's three conditions failed, in the order they are asked.
@@ -2818,6 +2865,8 @@ enum Declined {
     TheDiskLatency,
     /// The thread that produced it spent too much of its own time waiting for a processor.
     ItWaited,
+    /// The document was still in the page cache after the drop that was to make the figure cold.
+    TheCacheStayed,
     /// Nothing declined it — the figure was judged, and these are the readings beside it.
     Nothing,
 }
@@ -2871,6 +2920,10 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         Some(carve_out) => format!("{machine}, {}", carve_out.phrase()),
         None => machine,
     };
+    let machine = match figure.cache_left {
+        Some(kib) => format!("{machine}, {kib:.0} KiB of the document left in the page cache"),
+        None => machine,
+    };
     let said = match declined {
         Declined::TheRun => "the run is not judging at all",
         Declined::TheLoad => {
@@ -2896,6 +2949,10 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         Declined::ItWaited => {
             "the thread that produced it spent more than a tenth of its own time waiting for a \
              processor, so what it came back to was not this machine's caches either"
+        }
+        Declined::TheCacheStayed => {
+            "the document was still in the page cache after the drop, which a filesystem whose \
+             pages the kernel cannot drop (tmpfs) answers silently, so the figure is a warm one"
         }
         Declined::Nothing => return machine,
     };
@@ -2955,6 +3012,7 @@ fn band_it(
                     .contains(&key)
                     .then(|| CarveOut::of(fields))
                     .flatten(),
+                cache_left: field(fields, "cache_left_kib"),
             },
         ));
     }
@@ -3208,6 +3266,17 @@ fn the_launch_path_stays_inside_its_bands() {
              afternoon and nothing here is a claim about the program"
         );
     }
+    if clocks
+        && probe
+            .as_deref()
+            .is_some_and(|file| left_in_the_cache_kib(file).is_none())
+    {
+        println!(
+            "launch-path: NOT CHECKED — `fincore` does not answer here, so whether each cold \
+             sample's drop left the document out of the page cache is not asked, and a cold \
+             figure on a filesystem that keeps its pages would be judged as a cold one"
+        );
+    }
     for row in &check.documents {
         let path = root.join(&row.path);
         if !path.exists() {
@@ -3232,27 +3301,42 @@ fn the_launch_path_stays_inside_its_bands() {
         // calls and the memory too, but so does the warm arm's, and dropping a page cache nine
         // times over is most of what this gate costs — so a run that was not asked for clocks
         // reads those three from the warm arm instead.
+        // What every cold sample is prepared by, the open's and the first page's alike: the copy's
+        // pages dropped, whether they went asked, and the disk timed in the state the child will
+        // find it in.
+        let mut prepare_cold = || {
+            let Some(copy) = copy.as_deref() else {
+                return Err("there is no writable copy to drop the cache of".to_owned());
+            };
+            drop_the_page_cache(copy)?;
+            // Asked before the probes read anything, and of the copy alone: see
+            // [`left_in_the_cache_kib`].
+            let left = left_in_the_cache_kib(copy)
+                .map_or_else(|| "-".to_owned(), |kib| format!("{kib:.0}"));
+            let Some(probe) = probe.as_deref() else {
+                return Err("there is no io probe to time the disk with".to_owned());
+            };
+            let Some(latency) = latency_probe.as_deref() else {
+                return Err("there is no io latency probe to time the disk with".to_owned());
+            };
+            let io = cold_read_ms(probe)?;
+            // Latency after throughput, because the eight-mebibyte read leaves the disk in the
+            // state a document's open finds it in, which is what this sample is about.
+            let seek = cold_latency_ms(latency)?;
+            Ok(vec![
+                ("io_ms".to_owned(), format!("{io:.3}")),
+                ("io_latency_ms".to_owned(), format!("{seek:.3}")),
+                ("cache_left_kib".to_owned(), left),
+            ])
+        };
         let cold = if clocks {
-            quickest("open", "open_ms", Some(cold_source), samples, &mut || {
-                let Some(copy) = copy.as_deref() else {
-                    return Err("there is no writable copy to drop the cache of".to_owned());
-                };
-                drop_the_page_cache(copy)?;
-                let Some(probe) = probe.as_deref() else {
-                    return Err("there is no io probe to time the disk with".to_owned());
-                };
-                let Some(latency) = latency_probe.as_deref() else {
-                    return Err("there is no io latency probe to time the disk with".to_owned());
-                };
-                let io = cold_read_ms(probe)?;
-                // Latency after throughput, because the eight-mebibyte read leaves the disk in the
-                // state a document's open finds it in, which is what this sample is about.
-                let seek = cold_latency_ms(latency)?;
-                Ok(vec![
-                    ("io_ms".to_owned(), format!("{io:.3}")),
-                    ("io_latency_ms".to_owned(), format!("{seek:.3}")),
-                ])
-            })
+            quickest(
+                "open",
+                "open_ms",
+                Some(cold_source),
+                samples,
+                &mut prepare_cold,
+            )
         } else {
             quickest("open", "open_ms", Some(cold_source), samples, &mut || {
                 Ok(Vec::new())
@@ -3285,6 +3369,18 @@ fn the_launch_path_stays_inside_its_bands() {
             samples,
             &mut || Ok(Vec::new()),
         );
+        // **Time to first page from a cold page cache**, principle 2's own condition (ADR 2158):
+        // the same child as the warm figure's, each sample prepared as the cold open's is. Not
+        // taken where the cold open could not drop the cache, which that arm has already said.
+        let cold_first = (clocks && eviction.is_none()).then(|| {
+            quickest(
+                "first-page",
+                "first_page_ms",
+                Some(cold_source),
+                samples,
+                &mut prepare_cold,
+            )
+        });
         // The memory high-water's own child, one beside them, with its huge pages off: see
         // [`SMALL_PAGES`]. One, because the figure has no clock in it.
         let allocation = run_phase(&format!("first-page{SMALL_PAGES}"), Some(cold_source));
@@ -3448,6 +3544,18 @@ fn the_launch_path_stays_inside_its_bands() {
             Err(complaint) if complaint == "not asked for" => {}
             Err(complaint) => complaints.push(format!("{}: warm open: {complaint}", row.path)),
         }
+        // What the cold first page is compared with: the warm one's frame, which it must draw to
+        // the bit, and the instant its document thread finished, which says whether the disk's
+        // cost reached the critical path or stayed beside the device.
+        let warm_first = first.as_ref().ok().map(|(_, fields)| {
+            (
+                fields
+                    .iter()
+                    .find(|(name, _)| name == "frame_hash")
+                    .map(|(_, value)| value.clone()),
+                field(fields, "anticipated_ms"),
+            )
+        });
         match first {
             Ok((value, fields)) => {
                 let frame = fields
@@ -3484,6 +3592,64 @@ fn the_launch_path_stays_inside_its_bands() {
                 );
             }
             Err(complaint) => complaints.push(format!("{}: first page: {complaint}", row.path)),
+        }
+        match cold_first {
+            Some(Ok((value, fields))) => {
+                let frame = fields
+                    .iter()
+                    .find(|(name, _)| name == "frame_hash")
+                    .map(|(_, value)| value.clone());
+                let at = |key: &str| {
+                    field(&fields, key).map_or_else(|| "-".to_owned(), |ms| format!("{ms:.2}"))
+                };
+                let (warm_frame, warm_thread) = warm_first.clone().unwrap_or((None, None));
+                println!(
+                    "launch-path:   first page from a cold page cache {value:.1} ms{}: its \
+                     document thread opened at {} ms and had page one interpreted at {} ms \
+                     (warm: {}), the device up at {} ms",
+                    waiting(&fields, "first_page_runq_ms"),
+                    at("opened_ms"),
+                    at("anticipated_ms"),
+                    warm_thread.map_or_else(|| "-".to_owned(), |ms| format!("{ms:.2}")),
+                    at("device_ms"),
+                );
+                print_carve_out(&fields);
+                // The cache decides when the bytes arrive and never which bytes they are, so a
+                // different frame is the instrument measuring another page — on any machine.
+                if frame.is_none() || frame != warm_frame {
+                    complaints.push(format!(
+                        "{}: the first page from a cold page cache drew frame {} where the warm \
+                         one drew {}",
+                        row.path,
+                        frame.as_deref().unwrap_or("-"),
+                        warm_frame.as_deref().unwrap_or("-")
+                    ));
+                }
+                if let Some(complaint) = started_before_the_frame(&fields, &row.path) {
+                    complaints.push(complaint);
+                }
+                band_it(
+                    &mut judged,
+                    format!("{}: time to first page from a cold page cache", row.path),
+                    "cold_first_page_ms",
+                    value,
+                    row.cold_first_page_ms,
+                    false,
+                    Sample {
+                        fields: &fields,
+                        waited: Some(("first_page_wall_ms", "first_page_runq_ms")),
+                    },
+                );
+            }
+            Some(Err(complaint)) => complaints.push(format!(
+                "{}: first page from a cold page cache: {complaint}",
+                row.path
+            )),
+            None if clocks => println!(
+                "launch-path:   NOT MEASURED — the first page from a cold page cache: the cold \
+                 open above could not drop the document's cache"
+            ),
+            None => {}
         }
         match allocation {
             Ok(fields) if field(&fields, "small_pages") == Some(1.0) => {
@@ -3645,7 +3811,10 @@ fn the_launch_path_stays_inside_its_bands() {
         // The guard made of the device's own placement, for the two figures a device is on the
         // path of: see [`CarveOut::had_room`].
         let carve_out_had_room = figure.carve_out.is_none_or(CarveOut::had_room);
-        let machine_was_right = load_held
+        // Whether a cold figure was cold at all: see [`left_in_the_cache_kib`].
+        let cache_dropped = figure.cache_left.is_none_or(|kib| kib <= 0.0);
+        let machine_was_right = cache_dropped
+            && load_held
             && probe_held
             && first_held
             && disk_held
@@ -3673,7 +3842,11 @@ fn the_launch_path_stays_inside_its_bands() {
             } else if judging {
                 // The carve-out before the processor's guards: it is the cause of a slow device
                 // that none of them can sense, so a figure it declines is named for it.
-                if !carve_out_had_room {
+                // A figure whose file stayed resident is not the figure its name says, so that
+                // is said before anything about the machine that took it.
+                if !cache_dropped {
+                    Declined::TheCacheStayed
+                } else if !carve_out_had_room {
                     Declined::TheCarveOut
                 } else if !waited_little {
                     Declined::ItWaited
@@ -3850,4 +4023,39 @@ fn the_carve_out_is_read_from_fdinfo_and_declines_a_device_it_had_no_room_for() 
         .map(|(key, value)| (key.to_owned(), value))
         .collect();
     assert_eq!(CarveOut::of(&absent), None);
+}
+
+/// **The residency reading sees a drop that did nothing** (ADR 2158, trap 13): a file on `tmpfs`,
+/// read and then dropped as every cold sample is, is still resident, and the reading says so —
+/// the case that declines a cold figure. And a file just read reads as resident at all, so a
+/// reading of nought on the build directory's copies is the drop working rather than an
+/// instrument that always answers nought. A machine without `fincore` or `/dev/shm` says which.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_drop_that_left_the_file_resident_is_read_as_resident() {
+    let shm = Path::new("/dev/shm");
+    if !shm.is_dir() {
+        println!("no /dev/shm here, so the tmpfs half of the reading is not asked");
+        return;
+    }
+    let file = shm.join(format!("launch-path-residency-{}", std::process::id()));
+    if let Err(error) = std::fs::write(&file, vec![0x5A_u8; 64 << 10]) {
+        panic!("{} does not write: {error}", file.display());
+    }
+    let read = std::fs::read(&file).map(|bytes| bytes.len());
+    let dropped = drop_the_page_cache(&file);
+    let left = left_in_the_cache_kib(&file);
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(read.ok(), Some(64 << 10));
+    if let Err(complaint) = dropped {
+        panic!("the drop itself was refused: {complaint}");
+    }
+    match left {
+        Some(kib) => assert!(
+            kib >= 64.0,
+            "a tmpfs file read {kib} KiB resident after a drop where tmpfs keeps all 64, so the \
+             reading cannot see a drop that did nothing"
+        ),
+        None => println!("`fincore` does not answer here, so the reading is not asked"),
+    }
 }

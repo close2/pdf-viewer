@@ -573,3 +573,12 @@ without its ya, and a re-run found the word (ADRs 2120, 2121). The character was
 is read against the needle visible in the shot before it is believed, and re-run once before it is
 attributed to a change (habit 143's shape for photographs applies to typed text too).
 
+### 229. A window that delegates the widgets builds their controls in the same step
+
+Round 1650's WinUI window opened its documents with `WidgetAppearances::Delegated`, so the page left out
+every text, check-box, radio and choice widget on the understanding that the host would draw them, and
+step one logged the `CONTROLS` record and built nothing: every form field's value was drawn by nobody,
+and no gate said so because the C program checks the record, not the screen (round 1658, ADR 2153; trap
+5's shape). A host that asks the page to leave the widgets out owes the controls in the same change, or
+opens with the widgets drawn until it has them.
+

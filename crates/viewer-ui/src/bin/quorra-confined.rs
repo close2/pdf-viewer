@@ -230,35 +230,32 @@ fn arguments() -> Arguments {
     let mut topics = 0u8;
     let mut processor = false;
     let mut faces = false;
-    let mut reader = viewer_host::ReaderWords::default();
-    let mut settings = viewer_host::Settings::default();
+    let mut typed = viewer_host::policy::Words::default();
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
-        let taken = reader
+        // Read as every window reads them (ADRs 1581, 2120, 2156): the reader's words on this
+        // side, which has the filesystem, carried across the wire; a settings word this window
+        // has no level for refused by name rather than taken and not obeyed.
+        let taken = typed
             .take(std::ffi::OsStr::new(&argument), &mut arguments)
             .unwrap_or_else(|complaint| {
                 eprintln!("{complaint}");
                 std::process::exit(2);
             });
-        if taken {
-            // One of the reader's three policy words, with its value taken from the words after
-            // it — read on this side, which has the filesystem, and carried across the wire.
+        if let Some(viewer_host::policy::Taken::Setting(word)) = taken
+            && !CARRIED.contains(&word)
+        {
+            eprintln!("{argument}: {}", not_carried(word));
+            std::process::exit(2);
+        }
+        if taken.is_some() {
+            // Taken, and in force.
         } else if argument == "--trace" {
             topics = u8::MAX;
         } else if argument == "--cpu" {
             processor = true;
         } else if argument == viewer_host::MACHINE_FONTS {
             faces = true;
-        } else if let Some(word) = settings.take(&argument).unwrap_or_else(|complaint| {
-            eprintln!("{complaint}");
-            std::process::exit(2);
-        }) {
-            // Read as every window reads it (ADR 2120); a word this window has no level for is
-            // refused by name rather than taken and not obeyed.
-            if !CARRIED.contains(&word) {
-                eprintln!("{argument}: {}", not_carried(word));
-                std::process::exit(2);
-            }
         } else if let Some(list) = argument.strip_prefix("--trace=") {
             topics = match viewer_host::parse_topics(list) {
                 Ok(topics) => topics,
@@ -288,15 +285,17 @@ fn arguments() -> Arguments {
     };
     // RFC 0008 section 6.3's level is pinned here, and a person who asked for another is told so
     // rather than given a word this window would not obey (`doc/questions/A193`, ADR 1616).
-    if reader.scripts != viewer_host::Scripts::Off {
+    let asked = typed.reader().scripts;
+    if asked != viewer_host::Scripts::Off {
         eprintln!(
             "note: {} {}: {}",
             viewer_host::SCRIPTS,
-            reader.scripts.as_str(),
+            asked.as_str(),
             viewer_host::SCRIPTS_PINNED
         );
-        reader.scripts = viewer_host::Scripts::Off;
+        typed.scripts(viewer_host::Scripts::Off);
     }
+    let (settings, reader) = typed.into_parts();
     Arguments {
         path,
         topics,

@@ -11,7 +11,7 @@ mod sub_pixel_rule;
 use pdf_render::{Paint, Path, Stroke, Transform};
 
 use crate::compose::carries_coverage_as_alpha;
-use crate::surface::ToDevice;
+use crate::surface::{Placed, ToDevice};
 use crate::{CpuRasterError, CpuRasterizer, convert, scan, thin_segment};
 use folding::{curves_may_fold, folding_stroke_outline};
 use sub_pixel_rule::draw_sub_pixel_rule;
@@ -175,18 +175,19 @@ impl CpuRasterizer {
             )?;
             let outline = SolidOutline::of(&converted, &style, at);
             let outlined = (&converted, &outline);
+            let placed = to_device.placed(transform);
             if !draw_sub_pixel_rule(
                 pixmap,
                 (&geometry, &converted),
                 (&style, stroke.cap),
-                (at, &outline),
+                (placed, &outline),
                 &brush,
                 clip,
             ) && !draw_long_mitres(
                 pixmap,
                 (&geometry, &converted),
                 (stroke, &style),
-                at,
+                placed,
                 &brush,
                 clip,
             ) && !draw_stroked_outline(pixmap, outlined, &style, site, &brush, clip)
@@ -217,12 +218,14 @@ impl CpuRasterizer {
             )?;
             // The marks were stated by `pdf-render` above, so this is the area they gave up.
             brush.shader.apply_opacity(coverage);
-            scan::fill(
+            // Measured on the page's grid, so a window's or a strip's discs are the page's (ADR
+            // 2148).
+            scan::fill_stated(
                 pixmap,
-                &converted,
+                (&converted, &scan::Exact::Unknown),
                 &brush,
                 tiny_skia::FillRule::Winding,
-                convert::transform(at),
+                to_device.placed(transform),
                 clip,
             );
         }
@@ -488,10 +491,11 @@ fn draw_long_mitres(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     geometry: (&Path, &tiny_skia::Path),
     (stroke, style): (&Stroke, &tiny_skia::Stroke),
-    at: Transform,
+    placed: Placed,
     brush: &tiny_skia::Paint<'_>,
     clip: scan::Clip<'_>,
 ) -> bool {
+    let at = placed.at;
     // Asked first, and it answers a stroke whose stated limit cannot admit such a join without
     // walking the path — which is every stroke in the corpus bar eight. The width is the stroke's
     // in the path's own space, which is where §8.4.3.2 states it and where the stroker offsets;
@@ -530,12 +534,13 @@ fn draw_long_mitres(
     let Some(combined) = builder.finish() else {
         return false;
     };
-    scan::fill(
+    // On the page's grid, as the outline it replaces is (ADR 2148).
+    scan::fill_stated(
         pixmap,
-        &combined,
+        (&combined, &scan::Exact::Unknown),
         brush,
         tiny_skia::FillRule::Winding,
-        convert::transform(at),
+        placed,
         clip,
     );
     true

@@ -32,8 +32,9 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command, DisplayList, FillRule, Image, LineCap, Paint, Path, PathCommand,
-    Point, Raster, Rasterizer as _, SampleAlpha, Size, Stroke, TargetSpec, Transform,
+    BlendMode, Clip, ClipId, Color, Command, DisplayList, FillRule, Image, LineCap, Paint, Path,
+    PathCommand, Point, Ramp, Raster, Rasterizer as _, SampleAlpha, Shading, ShadingKind, Size,
+    Stroke, TargetSpec, Transform,
 };
 use render_cpu::{CpuRasterizer, Shown};
 
@@ -309,4 +310,266 @@ fn a_window_s_thin_dot_is_the_page_s() {
         moved.is_empty(),
         "the window's pixels the page does not have: {moved:?}"
     );
+}
+
+/// The magnification of the owner's witness at 1.25¹⁰ of the fit, which is neither a whole nor a
+/// dyadic number of pixels a unit, and the page's height off by a fraction, so that no vertex a
+/// test states lands on the 8.8 or the 16.16 grid by accident (trap 225).
+const SCALE: f32 = 4.687_865_3;
+
+/// The page's target at [`SCALE`], flipped as `TargetSpec::for_page` flips a page.
+fn magnified() -> TargetSpec {
+    TargetSpec {
+        width: WIDE,
+        height: TALL,
+        transform: Transform::new(SCALE, 0.0, 0.0, -SCALE, 0.0, TALL as f32 - 0.635_3),
+    }
+}
+
+/// The user-space point [`magnified`] carries onto the device point `(x, y)`.
+fn user(x: f32, y: f32) -> Point {
+    Point::new(x / SCALE, (TALL as f32 - 0.635_3 - y) / SCALE)
+}
+
+/// The two windows every test below draws: one near the corner of a window of the owner's
+/// witness, under the library's 8191-pixel range as the page is not, and one wider than the range
+/// whose corner is a large number of columns from the page's.
+const WINDOWS: [Shown; 2] = [
+    Shown {
+        left: 8_993,
+        top: 3,
+        width: 101,
+        height: 90,
+    },
+    Shown {
+        left: 4_688,
+        top: 1,
+        width: 4_500,
+        height: 94,
+    },
+];
+
+/// The `index`th of a scatter of device points across the first of [`WINDOWS`], each coordinate a
+/// fraction no power of two divides.
+fn scattered(index: u32) -> (f32, f32) {
+    let golden = |k: f32| (k * 0.618_034 + 1.0 / 3.0).fract();
+    let k = index as f32;
+    (
+        8_996.0 + 90.0 * golden(k),
+        6.0 + 80.0 * golden(k * 1.7 + 0.2),
+    )
+}
+
+/// `list` drawn whole under `target` by `rasterizer` and as each of [`WINDOWS`], each in one strip;
+/// a panic naming the window and its pixels wherever a window has pixels the page does not, and
+/// another where the page holds no mark at all, since a test of nothing passes.
+fn every_window_is_the_page(
+    list: &DisplayList,
+    target: TargetSpec,
+    rasterizer: fn() -> CpuRasterizer,
+) {
+    let page = rasterizer()
+        .with_strips(1)
+        .rasterize(list, target)
+        .expect("the page draws");
+    assert!(
+        page.data.chunks_exact(4).any(|pixel| pixel != [255; 4]),
+        "the page holds no mark"
+    );
+    for shown in WINDOWS {
+        let window = rasterizer()
+            .with_strips(1)
+            .rasterize_window(list, target, shown)
+            .expect("the window draws");
+        let moved = differing(&page, shown, &window);
+        assert!(
+            moved.is_empty(),
+            "the window {shown:?}'s {} pixels the page does not have: {:?}",
+            moved.len(),
+            &moved[..moved.len().min(12)]
+        );
+    }
+}
+
+/// The rasteriser every test below draws with but one.
+fn anti_aliased() -> CpuRasterizer {
+    CpuRasterizer::new()
+}
+
+/// A stroke of `path` at `width` user units under `cap`, solid black.
+fn stroked(path: Path, width: f32, cap: LineCap) -> Command {
+    Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke: Stroke {
+            width,
+            cap,
+            ..Stroke::default()
+        },
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    }
+}
+
+/// A triangle with a corner at the device point `(x, y)`.
+fn triangle_at(x: f32, y: f32) -> Path {
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(user(x, y)));
+    path.push(PathCommand::LineTo(user(x + 3.37, y + 1.21)));
+    path.push(PathCommand::LineTo(user(x + 0.91, y + 4.13)));
+    path.push(PathCommand::Close);
+    path
+}
+
+/// A fill whose path states subpaths with no area beside one that has some: §10.7.4's marks for
+/// the first are a pixel thick across and as long as the subpath along, and the window draws them
+/// where the page does only if their ends are measured on the page's grid — the marks are
+/// `pdf_render::split_collapsed_fill`'s, stated back through the inverse of the placement (ADR
+/// 2148).
+#[test]
+fn a_window_s_marks_for_subpaths_with_no_area_are_the_page_s() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..60 {
+        let (x, y) = scattered(index);
+        let mut path = triangle_at(x, y);
+        path.push(PathCommand::MoveTo(user(x + 0.31, y + 6.29)));
+        path.push(PathCommand::LineTo(user(x + 7.77, y + 6.29)));
+        path.push(PathCommand::MoveTo(user(x - 1.13, y + 0.47)));
+        path.push(PathCommand::LineTo(user(x - 1.13, y + 5.83)));
+        list.push(filled(path));
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// Bars and rules thinner than a device pixel, which §10.7.4's substitution draws as the whole
+/// pixel line they lie in at the coverage their area implies, and a turned rule under one level of
+/// a pixel, widened to one pixel at the alpha its width implies: the line and the band are the
+/// page's only if they are decided and measured on the page's grid (ADR 2148).
+#[test]
+fn a_window_s_marks_thinner_than_a_pixel_are_the_page_s() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..40 {
+        let (x, y) = scattered(index);
+        let mut bar = Path::new();
+        let (x1, y1) = (x + 5.71, y + 0.29);
+        bar.push(PathCommand::MoveTo(user(x, y)));
+        bar.push(PathCommand::LineTo(user(x1, y)));
+        bar.push(PathCommand::LineTo(user(x1, y1)));
+        bar.push(PathCommand::LineTo(user(x, y1)));
+        bar.push(PathCommand::Close);
+        list.push(filled(bar));
+        let mut rule = Path::new();
+        rule.push(PathCommand::MoveTo(user(x + 0.43, y + 2.17)));
+        rule.push(PathCommand::LineTo(user(x + 9.29, y + 2.17)));
+        list.push(stroked(rule, 0.21 / SCALE, LineCap::Butt));
+        let mut turned = Path::new();
+        turned.push(PathCommand::MoveTo(user(x + 0.77, y + 3.41)));
+        turned.push(PathCommand::LineTo(user(x + 6.13, y + 7.93)));
+        list.push(stroked(turned, 0.002 / SCALE, LineCap::Round));
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// Fills under clips that are not rectangles: §10.7.4 states the clip as "the set of pixels that
+/// would be included by a fill operation", so the window's mask is the page's only if the clip is
+/// measured on the page's grid and its band's corner moves only the write (ADR 2148).
+#[test]
+fn a_window_s_clip_is_measured_on_the_page_s_grid() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..30 {
+        let (x, y) = scattered(index);
+        let mut region = Path::new();
+        region.push(PathCommand::MoveTo(user(x, y)));
+        region.push(PathCommand::CurveTo(
+            user(x + 4.1, y - 2.3),
+            user(x + 7.9, y + 5.7),
+            user(x + 3.3, y + 8.9),
+        ));
+        region.push(PathCommand::LineTo(user(x - 2.7, y + 4.4)));
+        region.push(PathCommand::Close);
+        let clip: ClipId = list
+            .add_clip(Clip {
+                path: region,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("a clip");
+        let mut cover = Path::new();
+        cover.push(PathCommand::MoveTo(user(x - 4.0, y - 4.0)));
+        cover.push(PathCommand::LineTo(user(x + 12.0, y - 4.0)));
+        cover.push(PathCommand::LineTo(user(x + 12.0, y + 12.0)));
+        cover.push(PathCommand::LineTo(user(x - 4.0, y + 12.0)));
+        cover.push(PathCommand::Close);
+        let mut cover = filled(cover);
+        cover.set_clip(Some(clip));
+        list.push(cover);
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// A radial shading whose circles do not contain one another, which §8.7.4.5.4's "greatest value
+/// of s" decides per pixel and this backend draws as a raster through the shape, and an axial one
+/// washed with its `/Background`: the raster is evaluated at the page's pixel centres and the
+/// shape's edge measured on the page's grid (ADR 2148).
+#[test]
+fn a_window_s_shading_drawn_as_a_raster_is_the_page_s() {
+    let ramp = Ramp::sample(|t| Color::rgb(1.0 - t, 0.3, t));
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..12 {
+        let (x, y) = scattered(index);
+        let cone = ShadingKind::Radial {
+            start: user(x, y),
+            start_radius: 0.43,
+            end: user(x + 9.1, y + 2.3),
+            end_radius: 1.37,
+            ramp: ramp.clone(),
+            extend: (true, true),
+        };
+        let washed = ShadingKind::Axial {
+            start: user(x + 2.0, y + 3.0),
+            end: user(x + 5.0, y + 7.0),
+            ramp: ramp.clone(),
+            extend: (false, false),
+        };
+        for (kind, background) in [(cone, None), (washed, Some(Color::rgb(0.2, 0.7, 0.1)))] {
+            let mut shape = triangle_at(x - 2.3, y - 1.9);
+            shape.push(PathCommand::MoveTo(user(x + 1.1, y + 0.3)));
+            shape.push(PathCommand::LineTo(user(x + 12.9, y + 2.7)));
+            shape.push(PathCommand::LineTo(user(x + 4.4, y + 9.9)));
+            shape.push(PathCommand::Close);
+            list.push(Command::Fill {
+                path: Arc::new(shape),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Shading(Arc::new(Shading {
+                    background,
+                    kind: Arc::new(kind),
+                    transform: Transform::IDENTITY,
+                })),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
+}
+
+/// Round dots wider than a pixel, §8.5.3.2's "filled circle centred at the single point", which
+/// lie in more than two by two pixels and so are filled as discs rather than by the closed form:
+/// the mark the owner's witness held where its window parted from its page at 1.25⁸ (ADR 2148).
+#[test]
+fn a_window_s_dots_past_two_pixels_are_the_page_s() {
+    let mut list = DisplayList::new(Size::new(WIDE as f32 / SCALE, TALL as f32 / SCALE));
+    for index in 0..80 {
+        let (x, y) = scattered(index);
+        let mut dot = Path::new();
+        dot.push(PathCommand::MoveTo(user(x, y)));
+        dot.push(PathCommand::LineTo(user(x, y)));
+        list.push(stroked(dot, 1.44 / SCALE, LineCap::Round));
+    }
+    every_window_is_the_page(&list, magnified(), anti_aliased);
 }

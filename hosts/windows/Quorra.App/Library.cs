@@ -65,10 +65,21 @@ internal static unsafe class Library
     /// <c>needed</c> counts the terminating NUL, and nothing is written unless the whole string
     /// fits (quorra.h; <c>copy_out</c> in abi.rs), so the second call cannot truncate.
     /// </remarks>
-    internal static string ReadText(string entryPoint, TwoCall call)
+    internal static string ReadText(string entryPoint, TwoCall call) =>
+        ReadTextOrNone(entryPoint, call) ?? throw new QuorraException(entryPoint, Native.QUORRA_NO_ANSWER);
+
+    /// <summary>
+    /// <see cref="ReadText"/> for a string the library may have no answer for, as a field with no
+    /// text value at all: null where it answers QUORRA_NO_ANSWER, which differs from the empty string.
+    /// </summary>
+    internal static string? ReadTextOrNone(string entryPoint, TwoCall call)
     {
         nuint needed = 0;
         int sized = call(null, 0, &needed);
+        if (sized == Native.QUORRA_NO_ANSWER)
+        {
+            return null;
+        }
         if (sized != Native.QUORRA_BUFFER_TOO_SMALL)
         {
             throw new QuorraException(entryPoint, sized);

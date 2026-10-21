@@ -467,6 +467,14 @@ internal static partial class Native
     internal const uint QUORRA_LEVEL_ASK = 1;
     internal const uint QUORRA_LEVEL_WARN = 2;
     internal const uint QUORRA_LEVEL_PROCEED = 3;
+    internal const uint QUORRA_READER_TRUST_ANCHORS = 0;
+    internal const uint QUORRA_READER_REFERENCE_FILES = 1;
+    internal const uint QUORRA_READER_NAME = 2;
+    internal const uint QUORRA_READER_TITLE = 3;
+    internal const uint QUORRA_READER_ORGANISATION = 4;
+    internal const uint QUORRA_READER_LANGUAGE = 5;
+    internal const uint QUORRA_WHEEL_LINES = 0;
+    internal const uint QUORRA_WHEEL_PIXELS = 1;
     internal const uint QUORRA_TAB_CONTENTS = 0;
     internal const uint QUORRA_TAB_PAGES = 1;
     internal const uint QUORRA_TAB_LAYERS = 2;

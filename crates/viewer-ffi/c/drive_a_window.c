@@ -20,6 +20,7 @@
  * Exit status: 0 if every step succeeded, 1 otherwise, with the failing step named on stderr.
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -346,6 +347,42 @@ static int read_the_marks(quorra_window *window, const char *when)
     return ok;
 }
 
+/* Control and the wheel about the viewport's middle: three events of two fifths of a line each are
+ * one step in, the fraction carried between calls as the toolkit windows carry it, and a touchpad's
+ * sixty pixels the other way are one step out (ADR 2152). A unit this build does not define and a
+ * travel that is not a number are refused by status. */
+static int zoom_with_the_wheel(quorra_window *window, struct seen *seen)
+{
+    const float x = 400.0f;
+    const float y = 500.0f;
+    int32_t steps = 0;
+    int32_t inwards = 0;
+    for (int event = 0; event < 3; ++event) {
+        if (!check("quorra_window_zoom_wheel",
+                   quorra_window_zoom_wheel(window, 0.4f, QUORRA_WHEEL_LINES, x, y, &steps))
+            || !act_on_what_is_owed(window, seen)) {
+            return 0;
+        }
+        inwards += steps;
+    }
+    if (!run_the_timer(window, seen) || !copy_the_page(window)) {
+        return 0;
+    }
+    int32_t unknown = quorra_window_zoom_wheel(window, 1.0f, 7u, x, y, &steps);
+    int32_t nonsense = quorra_window_zoom_wheel(window, NAN, QUORRA_WHEEL_LINES, x, y, &steps);
+    int32_t outwards = 0;
+    if (!check("quorra_window_zoom_wheel",
+               quorra_window_zoom_wheel(window, -60.0f, QUORRA_WHEEL_PIXELS, x, y, &outwards))
+        || !act_on_what_is_owed(window, seen) || !run_the_timer(window, seen)
+        || !copy_the_page(window)) {
+        return 0;
+    }
+    printf("window wheel: 1.2 lines in three events, %d step(s); sixty pixels back, %d; unit 7: "
+           "%s; not a number: %s\n",
+           inwards, outwards, quorra_status_message(unknown), quorra_status_message(nonsense));
+    return 1;
+}
+
 /* The application note: opened, drawn, presented, turned with a key, two keys that are not the
  * window's to finish, a search, the pointer, and a second document beside it in the strip. */
 static int the_note(const char *path, const char *beside)
@@ -402,7 +439,7 @@ static int the_note(const char *path, const char *beside)
         return 0;
     }
     printf("window pointer at the corner: over a link %d\n", over ? 1 : 0);
-    if (!activate_a_row(window, 0, &seen)) {
+    if (!activate_a_row(window, 0, &seen) || !zoom_with_the_wheel(window, &seen)) {
         quorra_window_free(window);
         return 0;
     }
@@ -657,6 +694,93 @@ static int the_settings(const char *path)
     return seen.questions == 0 && refused[0] != 0;
 }
 
+/* The reader's other words, stated by word and by number (ADR 2156): a value taken with the word
+ * after it, a flag leaving the word after it, a word with no value refused in the command line's
+ * sentence; then `directory` — one file that is neither a certificate nor a PDF — as the anchors
+ * and the target documents, said by name as SAID records, and a conversion chosen, which the
+ * chooser's second key starts on. And the print key, which ends the print that stands (ADR 2157). */
+static int the_reader(const char *path, const char *directory)
+{
+    quorra_settings *settings = NULL;
+    size_t named = 0;
+    size_t flag = 0;
+    char refusal[256] = {0};
+    size_t needed = 0;
+    if (!check("quorra_settings_new", quorra_settings_new(&settings))
+        || !check("quorra_settings_take_next",
+                  quorra_settings_take_next(settings, "--reader-name", "Ada", &named))
+        || !check("quorra_settings_take_next",
+                  quorra_settings_take_next(settings, "--accept-unknown-revocation", "doc.pdf",
+                                            &flag))
+        || !check("quorra_settings_reader",
+                  quorra_settings_reader(settings, QUORRA_READER_ORGANISATION, "Acme"))
+        || !check("quorra_settings_accept_unknown_revocation",
+                  quorra_settings_accept_unknown_revocation(settings, false))
+        || !check("quorra_settings_reader",
+                  quorra_settings_reader(settings, QUORRA_READER_TRUST_ANCHORS, directory))
+        || !check("quorra_settings_reader",
+                  quorra_settings_reader(settings, QUORRA_READER_REFERENCE_FILES, directory))
+        || !check("quorra_settings_archive", quorra_settings_archive(settings, 1, 0))) {
+        quorra_settings_free(settings);
+        return 0;
+    }
+    int32_t bare = quorra_settings_take(settings, "--trust-anchors", NULL);
+    int32_t said = quorra_settings_refusal(settings, refusal, sizeof refusal, &needed);
+    int32_t nowhere =
+        quorra_settings_reader(settings, QUORRA_READER_REFERENCE_FILES, "/nonexistent/quorra");
+    int32_t unknown = quorra_settings_reader(settings, 6, "Ada");
+    int32_t past = quorra_settings_archive(settings, 99, 0);
+    printf("reader: --reader-name used %zu, --accept-unknown-revocation used %zu; "
+           "--trust-anchors alone: %s, \"%s\"; no such directory: %s; word 6: %s; target 99: %s\n",
+           named, flag, quorra_status_message(bare), said == QUORRA_OK ? refusal : "",
+           quorra_status_message(nowhere), quorra_status_message(unknown),
+           quorra_status_message(past));
+    quorra_window *window = NULL;
+    struct seen seen = {0};
+    int ok = named == 2 && flag == 1 && bare == QUORRA_WRONG_KIND && said == QUORRA_OK
+             && nowhere == QUORRA_WRONG_KIND && unknown == QUORRA_WRONG_KIND
+             && past == QUORRA_OUT_OF_RANGE
+             && check("quorra_window_open_under",
+                      quorra_window_open_under(path, NULL, settings, &window));
+    quorra_settings_free(settings);
+    if (!ok || !check("quorra_window_resize", quorra_window_resize(window, 800, 1000, 1.0f))
+        || !act_on_what_is_owed(window, &seen) || !run_the_timer(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    /* Control + Shift + A: the chooser again, on the conversion the handle stated. */
+    uint32_t act = QUORRA_ACT_NOTHING;
+    float by = 0.0f;
+    if (!check("quorra_window_press",
+               quorra_window_press(window, QUORRA_KEY_A, true, true, &act, &by))
+        || !act_on_what_is_owed(window, &seen) || seen.archives != 1
+        || !check("quorra_window_archive", quorra_window_archive(window, -1, -1))
+        || !act_on_what_is_owed(window, &seen)) {
+        fprintf(stderr, "the chooser again: %d record(s)\n", seen.archives);
+        quorra_window_free(window);
+        return 0;
+    }
+    printf("window under the reader's words: the chooser starts on %zu and %zu\n",
+           seen.archive_target, seen.archive_profile);
+    /* Control + P twice: the print let through, then ended by the same key, so the caller's
+     * own end finds nothing to end. */
+    if (!check("quorra_window_press",
+               quorra_window_press(window, QUORRA_KEY_P, false, true, &act, &by))
+        || !act_on_what_is_owed(window, &seen) || seen.prints != 1
+        || !check("quorra_window_press",
+                  quorra_window_press(window, QUORRA_KEY_P, false, true, &act, &by))
+        || !act_on_what_is_owed(window, &seen)) {
+        quorra_window_free(window);
+        return 0;
+    }
+    int32_t finished = quorra_window_print_finish(window);
+    printf("window print key again: \"%s\"; then finished: %s\n", seen.said,
+           quorra_status_message(finished));
+    quorra_window_free(window);
+    return seen.archive_target == 1 && seen.archive_profile == 0 && seen.prints == 1
+           && finished == QUORRA_NO_ANSWER;
+}
+
 /* One commit of the fixture's field, whose validation asks with app.alert. */
 static int commit_the_question(quorra_window *window, const char *value, struct seen *seen)
 {
@@ -719,8 +843,8 @@ static int the_script(const char *path)
 
 int main(int argc, char **argv)
 {
-    if (argc < 4) {
-        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf>\n", argv[0]);
+    if (argc < 5) {
+        fprintf(stderr, "usage: %s <file.pdf> <form.pdf> <script.pdf> <directory>\n", argv[0]);
         return 1;
     }
     if (!check("quorra_abi_check", quorra_abi_check(QUORRA_ABI_VERSION, QUORRA_EVENT_KIND_COUNT))) {
@@ -754,7 +878,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (!the_note(argv[1], argv[2]) || !the_form(argv[2]) || !the_requests(argv[1])
-        || !the_settings(argv[2]) || !the_script(argv[3])) {
+        || !the_settings(argv[2]) || !the_reader(argv[1], argv[4]) || !the_script(argv[3])) {
         return 1;
     }
     printf("ok\n");

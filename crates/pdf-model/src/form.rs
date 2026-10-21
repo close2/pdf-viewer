@@ -98,10 +98,11 @@ pub struct FormField {
     pub no_export: bool,
     /// The widgets of this field that lie on the page asked about, in `/Annots` order.
     ///
-    /// `/Annots` order is painting order, so a host stacking controls may follow it. §12.5.5 is
-    /// where ISO 32000-2 says so — an annotation's group "shall be composited with a backdrop
-    /// consisting of the page content along with any previously painted annotations" — and the
-    /// array is the only order the standard gives those annotations (ADR 0245).
+    /// `/Annots` order is the order this tree paints in, so a host stacking controls may follow
+    /// it. §12.5.5 paints each annotation over "the page content along with any previously painted
+    /// annotations" and states no order among them in words; the array is the only order a page
+    /// gives its annotations, which is why it is the reading taken (ADR 0245), and ADR 1123 is why
+    /// a converter does not treat it as the producer's z-order.
     pub widgets: Vec<Widget>,
 }
 

@@ -1,6 +1,6 @@
 # 74 — The god classes: what the census finds, in the order to split it
 
-Status: **open** — entries 1 to 10 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144); the rest is the order. Ranking rule: ADR 2005.
+Status: **open** — entries 1 to 11 are split (ADRs 2004, 2018, 2032, 2046, 2064, 2080, 2081, 2096, 2097, 2112, 2128, 2144, 2160); the rest is the order. Ranking rule: ADR 2005.
 Priority: the owner's, 2026-10-19: "Refactor god classes,..." and "Do not fix any bugs.", in a round
 asked to improve code quality for "the 'project which we can show students' part".
 Instrument: `python3 -I -B tools/god-census.py --top <n>`; `tools/state.sh gods` prints the top five
@@ -133,7 +133,22 @@ state), `fills`, `shadings` (ramps, function programs, sampled grids, meshes), `
 the root are state and types; `shadings.rs` is the largest module at about 530 lines and is the next
 cut if one is wanted.
 
-## 11. Files with no large block
+## 11. Built — `Open` (`crates/viewer-core/src/open.rs`, with `open/`), ADR 2160
+
+One document's state and the walk over it: one `impl Open` of 1 356 lines and 44 methods in a
+2 545-line file. `open.rs` is the root — the state (`Open`), the types the concerns share (`Spot`,
+`Chosen`, `OnScreen`, `Interpreted`, `Done`, `Committed`, `Read` and the rest), the three
+constructors (`new`, `read`, `around`), `first_read`, `interpret`, `Preparation` and `Prepared`, and
+the tests — and seven modules each hold an `impl Open` for one concern: `deferred` (the outline, the
+placed page tree and the document's report, read at first use), `interpretation` (what is stale, the
+page showing at a point, the selection's spans), `pages` (a page, its size, the count),
+`edits` (resolve, apply, log, replay, commit), `magnification` (zoom, step, scroll origin, with
+`raster_extent`, `content_box` and `fitted`), `fragments` (Annex O's parameters) and
+`destinations` (§12.3.2.1's views). About 1 150 lines of the root are the state's field
+documentation and the types, a different split; `fragments.rs` is the largest module at about 390
+lines and `apply_parameter` in it the next cut if one is wanted.
+
+## 12. Files with no large block
 
 `viewer-ffi/src/abi.rs` (7 147 lines: the exported surface, one group per object kind),
 `viewer-confined/src/protocol.rs` (7 820, about 2 890 of them tests, and the two longest functions
@@ -143,7 +158,7 @@ arm per annotation subtype), `pdf-signature/src/signature.rs`. Test files (`pdf-
 the census but not god classes: the remedy is a directory of test modules by clause, and it is a
 different round.
 
-## 12. Functions
+## 13. Functions
 
 `content/run.rs::run_from` (one match over the operator set; split by operator family into
 functions the match calls, keeping its `#[expect]` reasoning true), `linearize.rs::place` and

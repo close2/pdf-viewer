@@ -1723,3 +1723,11 @@ documents, HEAD against HEAD plus the change, by the hash of status, output and 
 a gate is cited for a change, read what it drives: a library gate for a library change, a binary walk for
 the program around it.
 
+### 230. A stale transform worker runs the old archive code without a word
+
+Since ADR 2140 the transform suite parses in `quorra-transform-worker`, and `cargo build --bin
+quorra-transform` rebuilds the broker alone: round 1655's first witness conversion ran the previous
+round's archive code inside the stale worker and printed the old refusal, with nothing saying the two
+binaries disagreed (ADR 2146). Trap 10's shape, now for the suite's own worker: build the package with
+`--bins`, and when a verb's answer looks like yesterday's, check the worker's build time before the code.
+

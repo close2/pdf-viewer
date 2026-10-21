@@ -762,3 +762,12 @@ converter's arithmetic rather than on the geometry; and a clip's band is a surfa
 own, so a change to origin arithmetic moves whole-page goldens through banded marks (18 here) — "a page
 in one strip is the page" proves nothing about them.
 
+### 231. A residual listed by route can sit in the route the list left out
+
+ADR 2133 §5 named five routes that still took the surface's matrix, and batch 102's brief sent round
+1656 to move them; the ninety-nine pixels the owner's witness still differed by at 1.25⁸ were none of the
+five — a zero-length stroke with a round cap, wider than the two pixels the thin-segment path paints, a
+sixth route the list had folded into "the stroker's" (ADR 2148). A list of routes is a hypothesis about
+where the pixels are; the measurement that decides it is trap 213's — isolate the smallest mark holding
+the worst pixel on the full-size target — and it comes before the list is built on, not after.
+

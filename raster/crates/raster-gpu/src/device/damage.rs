@@ -60,7 +60,7 @@ impl Device {
         let kind = match into {
             Target::Texture(_) => None,
             Target::Surface => Some("Surface"),
-            Target::Readback => Some("Readback"),
+            Target::Readback | Target::ReadbackOnto(_) => Some("Readback"),
         };
         if let Some(kind) = kind {
             reports.push(Report {

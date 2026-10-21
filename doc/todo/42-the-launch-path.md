@@ -424,11 +424,21 @@ for page one instead of polling for it. The instrument is `--trace=launch` in ei
 - **The 44 ms was llvmpipe's magnitude.** What is structural is that page one waits on a loop inside
   its first frame; what that frame costs is the driver's. On a real adapter it is smaller, and by how
   much is item 5's last paragraph's question in a second window.
-- **A native launch has never been measured cold.** Every number above is a warm page cache and a
-  warm loader, which is right for an A/B and wrong for `CLAUDE.md`'s cold-start gate. The warm gate
-  exists: each window's `tests/launch_path.rs` holds its window, bring-up, page one and first frame
-  on both lanes to `doc/checks/toolkit-launch.toml` (ADR 2125), and ADR 2124 reads what the device
-  lane costs there. The cold one does not exist for these two binaries at all.
+- **A native launch is measured with a warm page cache only.** Every number above is a warm page
+  cache and a warm loader, which is right for an A/B and short of `CLAUDE.md`'s "measured with a
+  cold page cache". The warm gate exists: each window's `tests/launch_path.rs` holds its window,
+  bring-up, page one and first frame on both lanes to `doc/checks/toolkit-launch.toml` (ADR 2125),
+  and ADR 2124 reads what the device lane costs there. `quorra`'s own gate takes the cold half:
+  `cold_open_ms` drops the document's pages before each open, and `cold_first_page_ms` does the
+  same before each first-page child, with `fincore` asked that the drop took effect and a drop
+  that did not — the copy on `tmpfs` — declining the figure rather than judging it (ADR 2158).
+  **The toolkit harness does not have that stage, and what it would take is priced in ADR 2158**:
+  a writable copy in place of the repository's document, a third interleaved set of launches on
+  both windows, and bands in `doc/checks/toolkit-launch.toml` — for a term that `quorra`'s gate
+  measures already, since the document is the same and its open is `viewer-core`'s `Command::Open`
+  in all three windows. What a cold *toolkit* launch would add is the toolkit's own shared objects read from
+  the disk, and those are the ones an unprivileged gate may not drop: a dropped `libgtk-4.so` is
+  dropped for every process on the machine.
 
 ## 7. Annex F's parameter dictionary, if the figure ever moves — **declined, priced, not closed**
 

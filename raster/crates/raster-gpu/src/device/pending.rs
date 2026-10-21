@@ -268,6 +268,9 @@ impl Device {
         // submitting the copy, then waiting for it, mapping it and converting it.
         let (payload, readback) = match copy {
             Some((copy, copy_host)) => {
+                if let Some(compiled) = copy.compiled {
+                    phases.push(("pipeline compile (first use)", compiled));
+                }
                 let started = Instant::now();
                 let raster = copy.collect(&self.gpu)?;
                 (

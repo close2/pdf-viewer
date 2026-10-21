@@ -176,8 +176,8 @@ pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
 pub use keys::{
-    Decided, Key, Keyboard, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, decide,
-    meaning, scroll_by,
+    Decided, Key, Keyboard, Meaning, Mode, Modifiers, PRINT_ENDED, PrintKey, Printer, Waiting,
+    WindowAct, ctrl_meaning, decide, meaning, print_key, scroll_by,
 };
 pub use loading::{Ahead, Loading};
 pub use measuring::Measuring;

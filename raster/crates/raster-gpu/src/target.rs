@@ -36,6 +36,18 @@ pub enum Target<'a> {
     ///
     /// [`Timings::readback`]: crate::frame::Timings::readback
     Readback,
+    /// Tier 1 with the caller's backdrop put under the frame on the device: the pixels
+    /// [`Readback`](Self::Readback) would hand back, composited over one opaque colour before
+    /// they are copied out (the caller's `doc/adr/2150`).
+    ///
+    /// **Still onto transparency**: the scene draws exactly as it does for `Readback`, and the
+    /// backdrop goes under the *finished* frame, which is where ISO 32000-2 §11.4.7 puts the
+    /// medium. What moves is only where that composite runs. Every pixel then comes back
+    /// opaque, so straight and premultiplied alpha are the same bytes and the host converts
+    /// nothing; [`Timings::readback`] is the copy, the map and the row copy alone.
+    ///
+    /// [`Timings::readback`]: crate::frame::Timings::readback
+    ReadbackOnto(Backdrop),
     /// Tier 2: draw into the surface the device was constructed with
     /// ([`Device::for_surface`]) and present. No readback.
     ///
@@ -49,4 +61,33 @@ pub enum Target<'a> {
     /// before anything is drawn. Its previous contents are replaced: the device clears
     /// it to transparent, because a page renders onto transparency, always.
     Texture(&'a wgpu::Texture),
+}
+
+impl Target<'_> {
+    /// The backdrop a [`Target::ReadbackOnto`] frame is put onto, and `None` for every other
+    /// target.
+    pub(crate) fn backdrop(&self) -> Option<&Backdrop> {
+        match self {
+            Self::ReadbackOnto(backdrop) => Some(backdrop),
+            Self::Readback | Self::Surface | Self::Texture(_) => None,
+        }
+    }
+}
+
+/// What [`Target::ReadbackOnto`] puts under a finished frame.
+///
+/// The arithmetic is the caller's, stated in `doc/adr/2150` and run by `onto.wgsl`: each
+/// premultiplied channel is first held to its own alpha — the bytes a straight-alpha readback
+/// premultiplied again would be, which `doc/adr/2150` checks over every pair — then a pixel
+/// outside [`Self::keep`] is cleared, and the colour goes under by premultiplied source-over in
+/// eight bits, `c + ⌊(b·(255 − α) + 127) / 255⌋`, which leaves every alpha at 255.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Backdrop {
+    /// The colour under the frame — red, green, blue — and opaque, which is what lets the
+    /// frame skip the conversion to straight alpha altogether.
+    pub colour: [u8; 3],
+    /// The pixels that keep what the frame drew, as `[left, top, right, bottom)` in whole
+    /// pixels of the target; every pixel outside shows the colour alone. `None` keeps every
+    /// pixel.
+    pub keep: Option<[u32; 4]>,
 }

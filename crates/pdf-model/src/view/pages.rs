@@ -28,15 +28,15 @@ impl ViewState {
     /// may is `/Rename`, because a template added by reference to a page this document already
     /// holds makes every one of its names a conflict with an existing field: `false` says "all
     /// fields with that name shall be updated", which is what an import already does, and `true`
-    /// asks for new fields under new names, which `CLAUDE.md` rule 1's immutable document has
-    /// nowhere to put. A `true` is therefore refused by name; applying it as though it were a
-    /// `false` would put the template's values on the fields the flag exists to leave alone.
+    /// asks for new fields under new names, on a page [`ViewState::save`] does not write
+    /// (ADR 2154). A `true` is therefore refused by name; applying it as though it were a `false`
+    /// would put the template's values on the fields the flag exists to leave alone.
     ///
-    /// Three refusals, each named rather than dropped. Table 253's `/F` names a template in
-    /// *another file*, which this reader has no filesystem to open — `GoToR`'s reason exactly. A
-    /// `/TRef` naming no page in either tree is a file asking for something the document does
-    /// not contain, which is the one case §12.7.7's own invariants cannot catch. And `/Rename`
-    /// is the third, above.
+    /// Two refusals, each named rather than dropped, and one question. A `/TRef` naming no page
+    /// in either tree is a file asking for something the document does not contain, which is the
+    /// one case §12.7.7's own invariants cannot catch, and `/Rename` is the second, above. Table
+    /// 253's `/F` names a template in *another file*, which is held and asked of a host rather
+    /// than refused (ADR 1239).
     pub(super) fn append_templates(
         &mut self,
         document: &Document,

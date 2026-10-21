@@ -66,6 +66,9 @@
 //! glyph look like* being unable to answer *which character is this code*.
 
 mod composite;
+mod described;
+
+pub use described::Described;
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -142,6 +145,9 @@ pub struct SubstitutedFont {
     pub authority: FaceAuthority,
     /// Which of section 4.9's two metric routes it took.
     pub route: MetricRoute,
+    /// What this conversion wrote around the program for a font that stated no descriptor, or
+    /// `None` where the file's own descriptor received it (`doc/adr/2146`).
+    pub described: Option<Described>,
 }
 
 /// Whose font program a substitution embedded.
@@ -278,6 +284,13 @@ pub(super) struct Substitutes {
     pub(super) identity_cid_to_gid: BTreeSet<ObjectId>,
     /// What was done, per font.
     pub(super) done: Vec<SubstitutedFont>,
+    /// The entries each font dictionary that stated no descriptor gains — `/FontDescriptor`, the
+    /// widths it is laid out by, and where its face asks for one a `TrueType` `/Subtype` and an
+    /// encoding §9.6.5.4 admits (`doc/adr/2146`).
+    pub(super) described: BTreeMap<ObjectId, Dictionary>,
+    /// The program stream each shipped face was written to, so that one document's fonts naming
+    /// the same face share one copy of it.
+    pub(super) programs: BTreeMap<&'static str, ObjectId>,
 }
 
 /// The font programs to replace, by the stream object each is.
@@ -542,9 +555,11 @@ fn disagrees(stated: f32, program: f32) -> bool {
 ///   glyphs of the font that defined it, so a substitute cannot be addressed by one at all;
 ///   section 2.1 is the reading. A program the operator *did* name goes into the descendant
 ///   `CIDFont`'s descriptor, which is [`composite`]'s and carries its own refusals.
-/// - **A font with no descriptor**, which is the standard 14 stated by name alone. Embedding
-///   needs one, and §9.8.1's Table 122 makes `/StemV` required of it — a measurement of a face,
-///   which this converter does not take on the document's behalf.
+/// - **A font with no descriptor** is the standard 14 stated by name alone, and [`described`]
+///   writes the descriptor, the widths and the program the viewer draws it with, or refuses by
+///   name where the result would not be the page this reader shows (`doc/adr/2146`). A
+///   descriptor written directly inside the font dictionary is no object to add a key to, and is
+///   refused by name.
 /// - **A dictionary whose subtype the face's format may not go in**, which §9.9's Table 124
 ///   decides rather than this converter.
 /// - **A code the face has no glyph for**, which is `doc/questions/A47`'s "refuse rather than
@@ -569,6 +584,16 @@ pub(super) fn embed_faces(
             composite::embed(document, used, spare, supplied, &mut substitutes)?;
             continue;
         }
+        let requested = base_font(document, &used.dict);
+        if document.get_key(&used.dict, "FontDescriptor").is_null() {
+            // The descriptor written here describes the face this program ships, so a program the
+            // operator named is not one it can stand beside.
+            if named_program(supplied, &requested).is_some() {
+                return Err(Because::NotBuiltYet(NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM));
+            }
+            described::describe(document, used, spare, &mut substitutes)?;
+            continue;
+        }
         // The *raw* entry rather than the resolved one: a program is embedded by writing a key
         // into the descriptor object, so a descriptor written directly inside the font
         // dictionary has no object for this walk to rewrite and is refused by name.
@@ -576,14 +601,13 @@ pub(super) fn embed_faces(
             .dict
             .get("FontDescriptor")
             .and_then(Object::as_reference)
-            .ok_or(Because::NotBuiltYet(NO_DESCRIPTOR_TO_EMBED_INTO))?;
+            .ok_or(Because::NotBuiltYet(DESCRIPTOR_NOT_AN_OBJECT))?;
         // **The operator's face first, and only where the operator named one.** ISO 19005-2
         // section 6.2.11.4.1 admits a program that may lawfully be embedded for unlimited
         // universal rendering, which ISO 32000-2 §9.9.1 makes a fact about a licence — so it is
         // the operator's to state and never this program's to find. `--font` is the statement,
         // and it is never a default: a font nobody named takes the shipped route exactly as
         // before (`doc/adr/1209`, `doc/questions/A47`).
-        let requested = base_font(document, &used.dict);
         let face = match named_program(supplied, &requested) {
             Some((named, program)) => Face::Supplied(
                 pdf_font::standard::supplied_face(
@@ -600,8 +624,7 @@ pub(super) fn embed_faces(
                     .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
             ),
         };
-        let row = key_for(&subtype, face.format(), face.program())
-            .ok_or_else(|| Because::NotBuiltYet(no_row(&subtype, face.format(), face.program())))?;
+        let (row, restated) = row_for(document, used, &subtype, &face)?;
         let font = LoadedFont::load(document, &used.dict, &used.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
         let (widths, route) = face_widths(&font, &face, used)?;
@@ -617,6 +640,9 @@ pub(super) fn embed_faces(
         // would move every line of the page, so the program is asked again through the same two
         // readers a caller holding nothing but bytes has.
         proves(&program, face.format(), &widths, &BTreeMap::new())?;
+        if let Some(restatement) = &restated {
+            described::restatement_proved(document, used, restatement, &program)?;
+        }
         let at = spare
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
@@ -636,12 +662,43 @@ pub(super) fn embed_faces(
             face: face.describe(),
             authority: face.authority(),
             route,
+            described: restated.as_ref().map(|restatement| restatement.described),
         });
+        if let Some(restatement) = restated {
+            substitutes
+                .described
+                .insert(restatement.font, restatement.entries);
+        }
     }
-    if substitutes.at.is_empty() {
+    if substitutes.at.is_empty() && substitutes.described.is_empty() {
         return Err(Because::NotBuiltYet(NO_FONT_TO_EMBED));
     }
     Ok(substitutes)
+}
+
+/// The Table 124 row a face goes under, and the restatement of the dictionary it needs, if any.
+///
+/// **A dictionary of the other kind from its face is restated as the face's kind**, where Table
+/// 124 admits the face under no key of the dictionary's own `/Subtype` and the face is one this
+/// program ships; the restatement is held to the page the viewer draws before anything is
+/// written (`doc/adr/2147`). An operator's face is not restated: the refusal names the pairing
+/// and the kind of face that resolves it.
+fn row_for(
+    document: &Document,
+    used: &SelectedFont,
+    subtype: &str,
+    face: &Face,
+) -> Result<(Table124, Option<described::Restatement>), Because> {
+    if let Some(row) = key_for(subtype, face.format(), face.program()) {
+        return Ok((row, None));
+    }
+    let unadmitted = || Because::NotBuiltYet(no_row(subtype, face.format(), face.program()));
+    let Face::Shipped(shipped) = face else {
+        return Err(unadmitted());
+    };
+    let restatement =
+        described::restated_kind(document, used, subtype, shipped)?.ok_or_else(unadmitted)?;
+    Ok((restatement.row, Some(restatement)))
 }
 
 /// The widths the face has to state for the codes this document shows, and which route that is.
@@ -1060,13 +1117,18 @@ const COMPOSITE_NOT_SUBSTITUTED: &str = "this document renders a composite font 
      CIDFont's writes the program into the descendant's own descriptor, against §9.7.4.3's /W \
      and /DW";
 
-/// Why a font with no descriptor is not given a substitute.
-const NO_DESCRIPTOR_TO_EMBED_INTO: &str = "this rendered font states no FontDescriptor, which is \
-     what §9.6.2.2 lets one of the standard 14 do, and a font program is embedded into a \
-     descriptor. Writing one means stating the entries §9.8.1's Table 122 makes required of it — \
-     /StemV above all, which is a measurement of a face's stems that nothing in this file states \
-     — so the descriptor would be this converter's description of a face rather than the \
-     document's. --font names a program and not a descriptor, so it does not reach this case";
+/// Why a font whose descriptor is written inside its own dictionary is not given a substitute.
+const DESCRIPTOR_NOT_AN_OBJECT: &str = "this rendered font writes its FontDescriptor directly \
+     inside the font dictionary rather than as an object of its own, and a program is embedded by \
+     adding a key to the descriptor object; ISO 32000-2 \u{a7}9.6.2.1's Table 109 makes the entry \
+     an indirect reference, so there is no object here for the key to go into";
+
+/// Why a program the operator named for a font that stated no descriptor is not embedded.
+const NO_DESCRIPTOR_FOR_A_SUPPLIED_PROGRAM: &str = "--font names a program for a font that states \
+     no FontDescriptor. The descriptor this conversion writes for one of the standard 14 is read \
+     off the face this program ships and holds the page to what this reader draws with it, so it \
+     describes that face and not the named one; without --font for this font the shipped face is \
+     embedded";
 
 /// Why no face covers a document's characters.
 const NO_SHIPPED_FACE_COVERS_IT: &str = "this document renders a font it does not embed, and no \

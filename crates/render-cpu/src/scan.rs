@@ -549,7 +549,7 @@ enum Library {
 
 impl Place {
     /// A surface that is its own grid, under `at`.
-    fn surface(at: tiny_skia::Transform) -> Self {
+    pub(crate) fn surface(at: tiny_skia::Transform) -> Self {
         Self {
             at,
             grid: at,
@@ -559,7 +559,7 @@ impl Place {
     }
 
     /// A mark placed by [`crate::surface::ToDevice::placed`].
-    fn of(placed: crate::surface::Placed) -> Self {
+    pub(crate) fn of(placed: crate::surface::Placed) -> Self {
         let at = crate::convert::transform(placed.at);
         Self {
             at,
@@ -921,7 +921,7 @@ fn intersected(
             row.fill(0);
         }
     }
-    mask_placed(
+    mask_fill(
         coverage,
         &mut cells,
         path,
@@ -1355,27 +1355,10 @@ pub(crate) fn admits_every_pixel(exact: &Exact, (width, height): (u32, u32)) -> 
     rect.left() <= 0.0 && rect.top() <= 0.0 && rect.right() >= right && rect.bottom() >= bottom
 }
 
+/// A mark's coverage written into `mask`, measured where `place` says: on the grid the surface
+/// lies on, and written at the surface's corner there — a band's, a strip's or a window's — so
+/// that a clip's region is the page's wherever it is drawn (ADRs 2133, 2148).
 pub(crate) fn mask_fill(
-    mask: &mut tiny_skia::Mask,
-    cells: &mut crate::area::Buffers,
-    path: &tiny_skia::Path,
-    fill_rule: tiny_skia::FillRule,
-    anti_alias: bool,
-    (at, exact): (tiny_skia::Transform, &Exact),
-) {
-    mask_placed(
-        mask,
-        cells,
-        path,
-        fill_rule,
-        anti_alias,
-        (Place::surface(at), exact),
-    );
-}
-
-/// [`mask_fill`] of a mark whose matrix maps onto a grid the surface lies on at a corner of its
-/// own — a strip's or a window's — measured on that grid (ADR 2133).
-fn mask_placed(
     mask: &mut tiny_skia::Mask,
     cells: &mut crate::area::Buffers,
     path: &tiny_skia::Path,
@@ -1742,7 +1725,7 @@ pub(crate) fn mask_union(
     (scratch, cells): (&mut tiny_skia::Mask, &mut crate::area::Buffers),
     marks: &tiny_skia::Path,
     anti_alias: bool,
-    at: tiny_skia::Transform,
+    place: Place,
 ) {
     scratch.clear();
     mask_fill(
@@ -1751,7 +1734,7 @@ pub(crate) fn mask_union(
         marks,
         tiny_skia::FillRule::Winding,
         anti_alias,
-        (at, &Exact::Unknown),
+        (place, &Exact::Unknown),
     );
     for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
         *kept = (*kept).saturating_add(added);
@@ -1764,17 +1747,17 @@ pub(crate) fn mask_intersect(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
-    (at, exact): (tiny_skia::Transform, &Exact),
+    (place, exact): (Place, &Exact),
     union: Option<(&tiny_skia::Path, &mut tiny_skia::Mask)>,
 ) {
     scratch.clear();
-    mask_fill(scratch, cells, path, fill_rule, anti_alias, (at, exact));
+    mask_fill(scratch, cells, path, fill_rule, anti_alias, (place, exact));
     // §10.7.4's region for this step is the union of two fills, composed before it is
     // intersected with the chain above it: "Subsequent painting operations shall affect a region
     // that is the intersection of the set of pixels defined by the clipping region with the set
     // of pixels for the region to be painted", and the clipping region is the whole union.
     if let Some((marks, second)) = union {
-        mask_union(scratch, (second, cells), marks, anti_alias, at);
+        mask_union(scratch, (second, cells), marks, anti_alias, place);
     }
     for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
         *kept = (*kept).min(added);
@@ -1832,7 +1815,10 @@ mod tests {
             &half_plane(*root),
             tiny_skia::FillRule::Winding,
             true,
-            (tiny_skia::Transform::identity(), &Exact::Unknown),
+            (
+                super::Place::surface(tiny_skia::Transform::identity()),
+                &Exact::Unknown,
+            ),
         );
         for edge in nested {
             super::mask_intersect(
@@ -1841,7 +1827,10 @@ mod tests {
                 &half_plane(*edge),
                 tiny_skia::FillRule::Winding,
                 true,
-                (tiny_skia::Transform::identity(), &Exact::Unknown),
+                (
+                    super::Place::surface(tiny_skia::Transform::identity()),
+                    &Exact::Unknown,
+                ),
                 None,
             );
         }
@@ -1865,7 +1854,10 @@ mod tests {
             &shape.0,
             tiny_skia::FillRule::Winding,
             true,
-            (tiny_skia::Transform::identity(), &shape.1),
+            (
+                super::Place::surface(tiny_skia::Transform::identity()),
+                &shape.1,
+            ),
         );
         mask.data().to_vec()
     }
@@ -1909,7 +1901,10 @@ mod tests {
                 &huge.0,
                 tiny_skia::FillRule::Winding,
                 anti_alias,
-                (tiny_skia::Transform::identity(), &huge.1),
+                (
+                    super::Place::surface(tiny_skia::Transform::identity()),
+                    &huge.1,
+                ),
             );
             assert!(
                 mask.data().iter().all(|&level| level == u8::MAX),
@@ -2002,7 +1997,7 @@ mod tests {
             tiny_skia::FillRule::Winding,
             true,
             (
-                tiny_skia::Transform::identity(),
+                super::Place::surface(tiny_skia::Transform::identity()),
                 &Exact::Shared(std::mem::take(&mut exact)),
             ),
         );
@@ -2125,7 +2120,10 @@ mod tests {
             &half_plane(x),
             tiny_skia::FillRule::Winding,
             true,
-            (tiny_skia::Transform::identity(), &Exact::Unknown),
+            (
+                super::Place::surface(tiny_skia::Transform::identity()),
+                &Exact::Unknown,
+            ),
         );
         mask
     }

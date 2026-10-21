@@ -1450,9 +1450,9 @@ fn font_dictionary(
 /// 122 defines the entry as "[t]he thickness measured horizontally, of the dominant vertical
 /// stems of glyphs in the font", and then: "A value of 0 indicates an unknown stem thickness."
 /// This program has not measured the face's stems, so nought is what is true of its knowledge;
-/// any other number would be an invention, which is exactly why
-/// `super::fonts::NO_DESCRIPTOR_TO_EMBED_INTO` refuses to write a descriptor for a *producer's*
-/// font.
+/// any other number would be an invention. A face whose program states its stem — a Compact Font
+/// Format Private DICT's `StdVW` — is described with that instead, which is what the descriptor
+/// written for a standard font that stated none does (`doc/adr/2146`).
 ///
 /// `/Flags` is 32, which §9.8.2's Table 123 makes bit position 6, *Nonsymbolic*: the face is set
 /// with `/WinAnsiEncoding`, whose characters are the standard Latin set that bit is about.

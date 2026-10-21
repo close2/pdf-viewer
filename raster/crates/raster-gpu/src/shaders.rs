@@ -54,6 +54,8 @@ pub(crate) const WINDING: &str = include_str!("shaders/winding.wgsl");
 /// The fixed half of a generated function paint's pipeline (ADR 0053); the program's
 /// own body is appended to it.
 pub(crate) const FUNCTION_LANE: &str = include_str!("shaders/function_lane.wgsl");
+/// A readback frame put onto the caller's opaque backdrop (`Target::ReadbackOnto`).
+pub(crate) const ONTO: &str = include_str!("shaders/onto.wgsl");
 
 /// Every WGSL source this crate holds, by the file it was included from.
 ///
@@ -74,6 +76,7 @@ pub(crate) const ALL: &[(&str, &str)] = &[
     ("present.wgsl", PRESENT),
     ("winding.wgsl", WINDING),
     ("function_lane.wgsl", FUNCTION_LANE),
+    ("onto.wgsl", ONTO),
     ("function_ops.wgsl", crate::function::OPERATORS),
 ];
 

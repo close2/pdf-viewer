@@ -71,6 +71,11 @@ impl ViewState {
     /// without the value would leave a widget drawing something §12.7.2 says its `/V` should
     /// decide. What a person typed lives in this log until the document is closed and nowhere else.
     ///
+    /// A §12.7.8.3.3 template page an import added, and [`Written::unwritten_pages`] counts them.
+    /// The import shows the page ([`ViewState::appended_pages`]) and this update writes no page
+    /// into the page tree, so the page is in the view and not in the file; the count is what keeps
+    /// that from being silent (ADR 2154).
+    ///
     /// # Errors
     ///
     /// [`pdf_syntax::write::UpdateError`], which names every document this refuses: one whose
@@ -204,6 +209,7 @@ impl ViewState {
             unappeared,
             unconstructed,
             still_reached,
+            unwritten_pages: self.appended.len(),
         })
     }
 
@@ -658,8 +664,9 @@ impl ViewState {
     /// rewritten with the reference appended — which is the half of §7.5.6's "changed, replaced,
     /// or deleted" that a new object needs, and the same half Table 224's widgets already use.
     ///
-    /// **Appended rather than inserted**, because the array's order is the drawing order the
-    /// same clause states, and a mark a person made last belongs on top of what was there.
+    /// **Appended rather than inserted**, because the array's order is the order this tree paints
+    /// in (§12.5.5 states that annotations are painted one over another and no order in words, ADR
+    /// 0245), and a mark a person made last belongs on top of what was there.
     ///
     /// Table 166's `/P` is added here rather than at [`ViewState::add_markup`]: it is "an
     /// indirect reference to the page object with which this annotation is associated", which is

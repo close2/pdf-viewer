@@ -1154,6 +1154,13 @@ pub struct Written {
     /// in use, and the person who asked is told which. Empty for every detach of a file with one
     /// home, which is every file in the corpus's trees.
     pub still_reached: Vec<(String, String)>,
+    /// How many §12.7.8.3.3 template pages an import added that this file was written without.
+    ///
+    /// Table 252's `/Pages` describes "new pages that shall be added to the target document", the
+    /// import adds them to the view ([`ViewState::appended_pages`]), and the update writes no page
+    /// into the page tree — so a save after such an import leaves them out, and this says how
+    /// many (ADR 2154). Zero for every save no template import came before.
+    pub unwritten_pages: usize,
 }
 
 /// What a field says now, and whether saying it was Table 231 bit 14's substitution.

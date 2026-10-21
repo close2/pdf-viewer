@@ -204,6 +204,26 @@
 # on busy for 30 ms first, as every round of the turn gate does (ADR 1577), because a figure of a
 # few tenths of a millisecond otherwise lives its whole run at the clock an idle core wakes at.
 # The cold open stays a child born idle, which is what a person meets.
+#
+# **`cold_first_page_ms` is time to first page with the document's page cache dropped first**
+# (ADR 2158), which is principle 2's own condition — "measured with a cold page cache" — for the
+# figure that `first_page_ms` takes warm. The child is the first-page child, unchanged; each of
+# its samples is prepared as a cold open's is: the copy's pages dropped with
+# `posix_fadvise(POSIX_FADV_DONTNEED)` (`dd oflag=nocache`, an unprivileged call on a file this
+# gate may write), `fincore` asked that none are left, and the disk's two probes timed. What it
+# measures: the document's bytes coming from the disk while the device comes up beside them, and
+# whether that reaches the critical path — the run prints the document thread's instant and the
+# device's. What it does **not** measure, and cannot without disturbing neighbours or root: the
+# test binary, the Vulkan loader, the driver and the machine's fonts, which stay wherever the
+# kernel keeps them, because a dropped shared object is dropped for every process on the
+# machine; the directory entry and the inode, which a drop of a file's pages leaves warm; and a
+# cache below the kernel's — the disk's own — which no call here can see or empty.
+# `/proc/sys/vm/drop_caches` would reach more of this and is root's, and is not used. **A drop
+# that took no effect** — the copy on `tmpfs`, whose pages are the file — **declines the figure**,
+# named, with the kibibytes still resident, rather than judging a warm figure as a cold one; a
+# machine without `fincore` is told so at the top of the run. And a cold first page that draws a
+# different frame from the warm one fails on any machine: the cache decides when the bytes arrive,
+# never which bytes.
 
 # What the bands are a claim about. The gate prints every figure on any machine and judges the
 # clock ones only where the calibration probe says this is that machine.
@@ -385,12 +405,18 @@ warm_open_ms = 0.26 .. 0.40
 # same three runs as `bring_up_ms` above, this file's clock rule over them. Here they read 24.76,
 # 26.57 and 26.67 ms.
 first_page_ms = 21.0 .. 32.1
-# Floor at batch eighty-one's merge figure, 3.394 ms × 0.85; the ceiling stays. The day's machine and
-# not the tree: the merge's A/B read HEAD's 57-page turn at 3.59 and 3.67 ms, under the floor the
-# band was derived with, and with ADR 1861's lexer change compiled out one clock hold reads 3.685
-# ms against HEAD's 3.683 (ADR 1870). The gate prints no stage of a turn; turn-path.toml's text row
-# moved in its encode and not its interpretation.
-turn_ms = 2.88 .. 5.6
+# **The cold first page takes this row's warm band, and ADR 2158 says why rather than the file's
+# rule over its own three runs.** One hold on 2026-10-21 read the two figures paired, three runs
+# each: every row's cold first page inside the warm figure's own run-to-run spread, because the
+# document thread finishes before the device on every row but this file's font-substitution one.
+# All three ran with the adapter's carve-out held by others, the state the gate declines both
+# figures in; the rule over them would be a band taken where it is never judged. A cold first
+# page outside the warm band is the disk reaching the critical path, which is the claim.
+cold_first_page_ms = 21.0 .. 32.1
+# Floor at batch one hundred and two's merge figure, 2.514 ms × 0.85: ADR 2150 put the read-back page's
+# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
+# the floor the band was derived with (HEAD read 4.085 ms in the same hold); the ceiling stays.
+turn_ms = 2.13 .. 5.6
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 17.38 to 18.14 MiB over twelve children, the machine's
@@ -420,12 +446,12 @@ warm_open_ms = 0.79 .. 1.18
 # allocations read 25.6 to 26.5 MiB. This page's `ICCBased` page group is converted on more than
 # one thread (`pdf_render::resolve_cube`).
 first_page_ms = 22.8 .. 37.8
-# Floor at batch eighty-one's merge figure, 3.748 ms × 0.85; the ceiling stays. The day's machine and
-# not the tree: the merge's A/B read HEAD's 57-page turn at 3.59 and 3.67 ms, under the floor the
-# band was derived with, and with ADR 1861's lexer change compiled out one clock hold reads 3.737
-# ms against HEAD's 3.839 (ADR 1870). The gate prints no stage of a turn; turn-path.toml's text row
-# moved in its encode and not its interpretation.
-turn_ms = 3.18 .. 6.6
+# The warm band, as the first row says (ADR 2158).
+cold_first_page_ms = 22.8 .. 37.8
+# Floor at batch one hundred and two's merge figure, 2.691 ms × 0.85: ADR 2150 put the read-back page's
+# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
+# the floor the band was derived with (HEAD read 4.476 ms in the same hold); the ceiling stays.
+turn_ms = 2.28 .. 6.6
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 20.65 to 21.60 MiB over twelve children, the machine's
@@ -456,18 +482,12 @@ warm_open_ms = 3.7 .. 5.6
 # Re-taken on a quiet machine (ADR 1585, see the first row): 26.28, 26.36 and 26.00 ms. The
 # allocations read 28.4 to 28.9 MiB.
 first_page_ms = 22.1 .. 31.7
-# **The floor was 4.5 and is 3.8, because session 925 took 0.77 ms out of this document's page
-# turn** and a floor derived from a slower program is a floor a faster one falls through. What
-# went: `Viewer::announce_page` built a `Pages` and then the whole `Pages::indices` map — every
-# node of §7.7.3's tree — once per turn, for the caption's section name; the document is
-# immutable, so `Open` keeps the map and constructs no tree at all. Measured as an A/B in one
-# binary (`examples/open_cost` prints both lines): `Pages::new` 0.245 ms gone, and the section
-# 0.555 ms → 0.031. The new floor is the old one less that saving, rounded down; the ceiling did
-# not move, because nothing about the slow end of a page turn changed. ADR 0890.
-#
-# The other two rows' floors are untouched: the same change is worth 0.06 ms on the 57-page
-# document and 0.03 on the five-page one, which is inside their own spread.
-turn_ms = 3.8 .. 7.2
+# The warm band, as the first row says (ADR 2158).
+cold_first_page_ms = 22.1 .. 31.7
+# Floor at batch one hundred and two's merge figure, 3.067 ms × 0.85: ADR 2150 put the read-back page's
+# medium on the device, and `quorra`'s page turn draws through the same call, so the turn fell below
+# the floor the band was derived with (HEAD read 4.659 ms in the same hold); the ceiling stays.
+turn_ms = 2.60 .. 7.2
 script_spawn_ms = none
 script_first_run_ms = none
 # In small pages (ADR 1902, see the header): 25.9 to 26.73 MiB over twelve children, the machine's
@@ -528,6 +548,8 @@ warm_open_ms = 0.23 .. 0.35
 # smallest, 45.91 less a tenth, rounded down to half a mebibyte; the ceiling stays, 3.4 MiB above
 # the largest reading of either mode.
 first_page_ms = 24.0 .. 36.2
+# The warm band, as the first row says (ADR 2158).
+cold_first_page_ms = 24.0 .. 36.2
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
@@ -560,6 +582,8 @@ warm_open_ms = none
 # Derived on a quiet machine with every other row's (ADR 1585, see the first row): 24.6, 25.8 and
 # 23.8 ms, as the run prints them, and this file's clock rule over them.
 first_page_ms = 20.2 .. 31.0
+# The warm band, as the first row says (ADR 2158).
+cold_first_page_ms = 20.2 .. 31.0
 turn_ms = none
 script_spawn_ms = none
 script_first_run_ms = none
@@ -593,6 +617,8 @@ pages = 1
 cold_open_ms = 0.14 .. 0.28
 warm_open_ms = 0.08 .. 0.14
 first_page_ms = 22.4 .. 33.0
+# The warm band, as the first row says (ADR 2158).
+cold_first_page_ms = 22.4 .. 33.0
 turn_ms = none
 # Each the quickest of nine first-page children of its own, three runs: the spawn read 0.684 to
 # 0.709 ms and the first run 0.449 to 0.475. Started after the frame's clock, so neither is inside

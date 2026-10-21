@@ -1296,7 +1296,10 @@ impl Rewrite {
                 "a font the file renders and does not embed gains one of the faces this program \
                  ships, embedded under the /FontFile key ISO 32000-2 \u{a7}9.9's Table 124 \
                  admits for its dictionary; the descriptor's CharSet and CIDSet go with it, \
-                 because each describes a font program this file never carried"
+                 because each describes a font program this file never carried. One of the \
+                 standard 14 stated by name alone is given the descriptor its face's program \
+                 describes and the widths it was laid out by, as a TrueType dictionary where the \
+                 face is one (doc/adr/2146)"
             }
             Self::RestateFontMetrics => {
                 "an embedded font program's stated advances are restated to the widths the font \
@@ -2920,6 +2923,10 @@ impl Rewriter<'_> {
             changed = true;
         }
         if self.identity_cid_to_gid(id, &mut out) {
+            count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        if self.describe_font(id, &mut out) {
             count(applied, Rewrite::SubstituteFontProgram);
             changed = true;
         }

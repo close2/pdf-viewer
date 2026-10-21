@@ -99,13 +99,19 @@ impl Drop for ResidentCharge {
         // Saturating, as the resource budget's refund is: a refund past what is held is
         // arithmetic already gone wrong, and wrapping would make every later charge refuse.
         let bytes = self.bytes;
-        // `fetch_update`'s closure always answers `Some`, so the update cannot be declined and
-        // there is no `Err` to handle.
-        let _ = self
-            .held
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
-                Some(held.saturating_sub(bytes))
-            });
+        // A compare-exchange loop rather than `fetch_update`: nightly deprecates that name for
+        // `try_update`, which stable does not have yet, and the fuzz job builds this crate under
+        // nightly with warnings as errors. The refund always applies, so the loop ends on the
+        // first exchange that is not raced.
+        let mut held = self.held.load(Ordering::Relaxed);
+        while let Err(now) = self.held.compare_exchange_weak(
+            held,
+            held.saturating_sub(bytes),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            held = now;
+        }
     }
 }
 

@@ -117,8 +117,8 @@ pub(crate) struct Arguments {
     /// supplies every other one it has. A link, a remote document, an embedded one and a
     /// submission stand at `ask` unless a person said otherwise, the level that hands nothing over
     /// without a press and still performs the act the clause describes (ADRs 1155, 1227, 1331,
-    /// 1527); §10.8.3's simulation is a preference and off (ADR 1228). Its `scripts` is
-    /// [`viewer_host::ReaderWords`]', which reads `--scripts` with the value after it.
+    /// 1527); §10.8.3's simulation is a preference and off (ADR 1228). Its `scripts` is the level
+    /// `--scripts` named, the one [`viewer_host::ReaderWords`] holds as well (ADR 2156).
     pub(crate) settings: viewer_host::Settings,
     /// §12.8.1's anchors, §8.10.4's target documents and §8.11.4.4's reader: the reader's three
     /// policy words, read by the [`viewer_host::ReaderWords`] every window shares (ADR 1581).
@@ -178,8 +178,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend = DEFAULT_BACKEND;
     let mut backend_asked_for = false;
     let mut opens_at = None;
-    let mut settings = viewer_host::Settings::default();
-    let mut reader = viewer_host::ReaderWords::default();
+    let mut said = viewer_host::policy::Words::default();
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
     let mut coverage = CoverageChoice::Auto;
@@ -237,26 +236,19 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             supersample = supersample_factor(arguments.next());
         } else if argument == "--coverage" {
             coverage = coverage_choice(arguments.next());
-        } else if match reader.take(&argument, &mut arguments) {
-            Ok(taken) => taken,
-            Err(complaint) => {
-                // Refused here rather than carried and refused later, for `--backend`'s reason: a
-                // word with nothing after it, or a directory that is not one, is a typing mistake.
-                eprintln!("{complaint}");
-                std::process::exit(2);
-            }
-        } {
-            // One of the reader's three policy words, with its value taken from the words after it.
-        } else if match settings.take(&argument.to_string_lossy()) {
+        } else if match said.take(&argument, &mut arguments) {
             Ok(taken) => taken.is_some(),
             Err(complaint) => {
-                // Refused here rather than carried and refused later, for `--backend`'s reason.
+                // Refused here rather than carried and refused later, for `--backend`'s reason: a
+                // word with nothing after it, a directory that is not one, or a level its word
+                // does not take is a typing mistake.
                 eprintln!("{complaint}");
                 std::process::exit(2);
             }
         } {
-            // One of the words a window's settings are read from, read as every window reads
-            // them (ADR 2120).
+            // One of the reader's words, with its value taken from the words after it, or one of
+            // the words a window's settings are read from, read as every window reads them (ADRs
+            // 1581, 2120, 2156).
         } else if argument == "--page" {
             // A page number as the title bar shows it, which is one-based. §12.3.2.1's
             // `/OpenAction` is the document's own answer to the same question and wins where
@@ -297,6 +289,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         );
     }
 
+    let (settings, reader) = said.into_parts();
     Arguments {
         path,
         also,

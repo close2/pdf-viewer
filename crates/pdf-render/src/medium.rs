@@ -325,6 +325,45 @@ pub fn crop_to_page(data: &mut [u8], width: u32, first_row: u32, area: Rect) {
     }
 }
 
+/// The pixels [`crop_to_page`] keeps of a `width` × `height` target, as `[left, top, right,
+/// bottom)` in whole pixels: its rule asked once a column and once a row rather than once a
+/// pixel, for a backend that clears the rest somewhere other than here (ADR 2150).
+///
+/// One rectangle, because the rule keeps one run of edges along each axis — `touches` is an
+/// edge below `hi` and past `lo − 1`, the meet of a set that only grows and one that only
+/// shrinks — so the pixels it keeps are the product of the two runs. An axis that keeps no
+/// edge keeps nothing, and the rectangle is then empty.
+#[must_use]
+pub fn crop_pixels(width: u32, height: u32, area: Rect) -> [u32; 4] {
+    let (left, right) = kept_run(width, area.min.x, area.max.x);
+    let (top, bottom) = kept_run(height, area.min.y, area.max.y);
+    [left, top, right, bottom]
+}
+
+/// The run of pixel indices below `extent` whose half-open pixel `touches` `[lo, hi)`, as
+/// `[first, end)`, or `(0, 0)` where none does.
+fn kept_run(extent: u32, lo: f32, hi: f32) -> (u32, u32) {
+    let mut run: Option<(u32, u32)> = None;
+    for index in 0..extent {
+        let Some(edge) = row_edge(0, index as usize) else {
+            break;
+        };
+        if touches(edge, lo, hi) {
+            let first = run.map_or(index, |(first, _)| first);
+            run = Some((first, index.saturating_add(1)));
+        }
+    }
+    run.unwrap_or((0, 0))
+}
+
+/// The premultiplied bytes [`impose_on_medium`] composites under a page for `medium`, so that a
+/// backend putting the medium under the page somewhere other than here puts the same four
+/// bytes there (ADR 2150).
+#[must_use]
+pub fn medium_bytes(medium: Color) -> [u8; 4] {
+    backdrop(medium, 1.0)
+}
+
 /// Whether the half-open pixel `[edge, edge + 1)` intersects the half-open span `[lo, hi)`.
 ///
 /// §10.7.4's rule in one line: "any pixel whose half-open square region intersects the shape, no
@@ -528,8 +567,8 @@ fn over(pixel: &mut [u8], backdrop: [u8; 4]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, overlap,
-        page_area,
+        Medium, SURROUND, crop_area, crop_pixels, crop_to_page, impose_on_medium, impose_within,
+        medium_bytes, overlap, page_area,
     };
     use crate::backend::TargetSpec;
     use crate::display_list::DisplayList;
@@ -759,5 +798,45 @@ mod tests {
         assert!((overlap(3.0, 0.0, 3.5) - 0.5).abs() < 1e-6);
         assert!(overlap(4.0, 0.0, 3.5).abs() < 1e-6);
         assert!((overlap(0.0, 0.25, 0.75) - 0.5).abs() < 1e-6);
+    }
+
+    /// The rectangle `crop_pixels` states is exactly the set `crop_to_page` keeps, on areas that
+    /// fall between pixels, past the target on each side, wholly outside it, and not a number.
+    #[test]
+    fn the_cropped_pixels_are_the_rectangle_crop_pixels_states() {
+        let (width, height) = (9_u32, 7_u32);
+        for area in [
+            box_of((1.5, 2.25), (6.0, 5.75)),
+            box_of((-3.0, -3.0), (20.0, 20.0)),
+            box_of((0.0, 0.0), (9.0, 7.0)),
+            box_of((10.0, 1.0), (12.0, 3.0)),
+            box_of((2.999, 0.001), (3.001, 6.999)),
+            box_of((f32::NAN, 1.0), (4.0, 3.0)),
+        ] {
+            let mut data = vec![255_u8; (width * height * 4) as usize];
+            crop_to_page(&mut data, width, 0, area);
+            let [left, top, right, bottom] = crop_pixels(width, height, area);
+            for (index, pixel) in (0_u32..).zip(data.chunks_exact(4)) {
+                let (x, y) = (index % width, index / width);
+                let inside = (left..right).contains(&x) && (top..bottom).contains(&y);
+                assert_eq!(pixel[3] == 255, inside, "{area:?} at ({x}, {y})");
+            }
+        }
+    }
+
+    /// An opaque white medium is four bytes of 255, as `impose_on_medium` puts it under a pixel
+    /// nothing marked.
+    #[test]
+    fn the_medium_s_bytes_are_what_an_unmarked_pixel_becomes() {
+        for colour in [
+            Color::WHITE,
+            Color::grey(0.25),
+            Color::rgba(0.2, 0.4, 0.6, 0.5),
+        ] {
+            let mut pixel = [0_u8; 4];
+            impose_on_medium(&mut pixel, colour);
+            assert_eq!(medium_bytes(colour), pixel, "{colour:?}");
+        }
+        assert_eq!(medium_bytes(Color::WHITE), [255; 4]);
     }
 }

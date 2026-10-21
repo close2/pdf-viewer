@@ -432,6 +432,19 @@ fn an_imported_template_adds_a_page_the_document_already_held() {
     let object = document.get(pdf_syntax::ObjectId::new(8, 0));
     let template = pages.detached(object.as_dict().expect("a page dictionary"));
     assert_eq!((template.width(), template.height()), (300.0, 150.0));
+
+    // The update writes no page into the page tree, so the page the import added is in the view
+    // and not in the file, and the save says so rather than dropping it in silence (ADR 2154).
+    let written = view
+        .save(&document)
+        .expect("the fixture can take an update");
+    assert_eq!(written.unwritten_pages, 1);
+    let reread = Document::open(written.bytes).expect("the written file opens");
+    assert_eq!(
+        pdf_model::Pages::new(&reread).len(),
+        1,
+        "the page tree is unchanged"
+    );
 }
 
 /// Two answers and they are not the same answer: a template in another file is a **question**,

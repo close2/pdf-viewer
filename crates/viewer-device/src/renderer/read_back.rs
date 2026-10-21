@@ -510,7 +510,9 @@ fn placed_of(request: &RenderRequest) -> Placed {
 /// these stages**, and the lane's one figure could not answer it: a launch's first page pays a
 /// cold device's first use, and every page pays the copy back off the device, neither of which a
 /// processor's draw has (ADR 2124). `elsewhere` is the device call's time outside the four stages
-/// raster names — the submit and the wait for the queue among it.
+/// raster names — the submit and the wait for the queue among it — and `outside both` is the
+/// page's time outside the scene and the device call, which held the processor's passes over the
+/// read-back page until the device put the medium under it in its own pass (ADR 2150).
 fn phases_of(page: usize, cost: &FrameCost) -> String {
     let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
     let elsewhere = cost.device.saturating_sub(
@@ -519,9 +521,13 @@ fn phases_of(page: usize, cost: &FrameCost) -> String {
             .saturating_add(cost.execute)
             .saturating_add(cost.readback),
     );
+    let outside = cost
+        .total
+        .saturating_sub(cost.scene.saturating_add(cost.device));
     format!(
         "page {}'s phases on the graphics device, ms: scene {:.1}, device {:.1} = encode {:.1} + \
-         transfer {:.1} + execute {:.1} + read back {:.1} + elsewhere {:.1}, of {:.1} in all",
+         transfer {:.1} + execute {:.1} + read back {:.1} + elsewhere {:.1}; outside both {:.1}, \
+         of {:.1} in all",
         page.saturating_add(1),
         ms(cost.scene),
         ms(cost.device),
@@ -530,6 +536,7 @@ fn phases_of(page: usize, cost: &FrameCost) -> String {
         ms(cost.execute),
         ms(cost.readback),
         ms(elsewhere),
+        ms(outside),
         ms(cost.total),
     )
 }
@@ -734,7 +741,9 @@ mod tests {
                 .traced
                 .iter()
                 .any(|line| line.starts_with("page 1's phases")
-                    && line.contains("read back 0.4 + elsewhere 0.6, of 2.0 in all")),
+                    && line.contains(
+                        "read back 0.4 + elsewhere 0.6; outside both 1.0, of 2.0 in all"
+                    )),
             "the page's stages are on the frames trace: {:?}",
             handed.traced
         );

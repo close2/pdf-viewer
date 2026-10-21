@@ -1115,7 +1115,8 @@ const SUBSTITUTION_REINTERPRETS: &str = "a face this program ships is now embedd
      program's choice rather than each reader's. That is a change, and it is the one an archival \
      format asks for: the file had no appearance of its own before, because a non-embedded font \
      is drawn from whatever the machine opening it happens to have. Nothing moves — the glyph \
-     widths the font dictionary states are untouched, so every line breaks and every word sits \
+     widths the font dictionary states are untouched, and where one of the standard 14 stated \
+     none the widths written are the ones it was already laid out by, so every line breaks and every word sits \
      where its producer put it — and the report names, per font, what was asked for, what was \
      embedded and whether the face's own advances were used or restated. Supply the real font \
      with --font, or ask for --no-substitute and the font is refused by name instead";
