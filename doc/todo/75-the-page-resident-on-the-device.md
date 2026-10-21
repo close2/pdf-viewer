@@ -53,10 +53,11 @@ in runs. Last in the idle turn, after the sharp pass and the whole page drawn sm
 puts its own encode in the page's place; under the lane the step will take; declined once a scene
 where it would keep nothing or would pass the residency budget.
 
-**Selection built, final clock gates pending** (ADR 2188): conservative 256-instance blocks omit
+**Selection built and measured** (ADR 2188): conservative 256-instance blocks omit
 3,218,004 and 3,624,276 of the witness's 4,398,932 resident lines at 3× and 3.6×, without reordering
 or re-uploading them. Three quiet cache-free pairs improve the content pass and retained whole frame;
 idle construction costs another 5.0–13.4 ms. Optional metadata refusal preserves whole-run drawing.
+Final turn, reference-window launch and both toolkit launch timing gates pass.
 
 **Record replay remains deferred** (ADR 2189). The census now establishes the population: 957 of
 968 first pages drew, 850 record-replayed, and 61 carried lines; eleven refusals remain uncensused.

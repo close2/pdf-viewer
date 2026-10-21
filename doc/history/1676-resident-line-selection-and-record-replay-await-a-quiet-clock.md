@@ -1,7 +1,7 @@
 # 1676 — Resident line selection stays; record replay is deferred
 
 Session 1676, slot 6 of batch one hundred and four; pixels round, 2026-10-21. ADRs 2188, 2189.
-Selection retained; final shipping launch/turn/toolkit gates remain pending.
+Selection accepted: final shipping launch, turn and toolkit gates passed.
 
 **Built.** Conservative bounds over 256 consecutive resident line instances select draw ranges
 without rewriting instances or changing painter order. Shared metadata is charged before allocation;
@@ -33,7 +33,8 @@ Before deferral, 876/868 scoped and 7519 workspace tests passed. Post-removal 86
 a Compute budget fixture depended on deferred reuse. Restoring the original CPU-only refusal fixture
 preserved its assertions; final scoped fmt/clippy and all three selection witnesses pass, exit 0.
 Both stateful witnesses cover CPU/Compute, including unaligned runs. The fused reference probe lives
-outside production sources without an allowlist waiver. Launch/turn/toolkit gates remain pending.
+outside production sources without an allowlist waiver. Turn/launch/toolkit exit 0 (186/361/293 s).
+Direct toolkit rerun: all 14 figures explicitly judged and in band, exit 0/26 s; full output preserved.
 
 **Proposed habit.** Test retained state against fresh rendering across operation sequences, and reject
 extra state when its measured benefit does not justify it. Correct pixels do not establish a speedup.

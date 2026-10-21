@@ -1,7 +1,7 @@
 # 2188 — Conservative line blocks select resident draw ranges
 
 Session 1676, slot 6 of batch 1671–1678. Context: ADRs 2022, 2056, 2134 and `doc/todo/75` item 3.
-Measured; launch/turn/toolkit acceptance remains pending. No clause or ledger row changes: the selected frame must be
+Accepted: quiet comparison, final correctness and canonical shipping timing gates passed. No clause or ledger row changes: the selected frame must be
 byte-identical to the existing frame on the same adapter.
 
 ## The current premise
@@ -68,8 +68,8 @@ while the batch is open; the history preserves the final verdict. The clock hold
 *after all twelve frame instruments exited 0*: invoking the launch gates through Cargo began
 an unexpected feature-graph rebuild. Launch/turn/toolkit gates therefore run from the already
 compiled matching test binaries in a separate clock hold. GTK/Qt bands failed and the turn gate
-refused timing judgment because of external GPU activity; that hold was stopped. Their quiet rerun
-remains a condition of acceptance, not inferred from the completed timing instruments.
+refused timing judgment because of external GPU activity; that hold was stopped. The canonical
+shipping rerun below subsequently passed; these earlier timing samples remain unaccepted.
 
 ## Quiet cache-free comparison
 
@@ -112,8 +112,8 @@ sub-millisecond content pass, a universal latency gain, or a tail-latency guaran
 Earlier complete prefixes remain robustness evidence, not substitutes for the final three-pair
 set: selection content passes improved there too, while replay had an unfavorable 52.1 versus
 31.6 ms whole-frame sample (ADR 2189). Logs for all three attempts remain separately under
-`scratchpad/r1676/cachefree-{ab,repeat,rested}`. Final shipping launch/turn/toolkit acceptance is
-still pending; this comparison alone does not waive those bands.
+`scratchpad/r1676/cachefree-{ab,repeat,rested}`. The final shipping launch/turn/toolkit gates below
+passed independently; this comparison alone does not waive those bands.
 
 ## Validation and limits
 
@@ -127,7 +127,7 @@ retention, and allocation charge consistency. The final scoped chain passed form
 Clippy and all 876 GPU/render-raster tests (five skipped), exit 0. Before replay was deferred, the cache-free scoped rerun passed 868 tests (five skipped), and the
 whole workspace passed 7,519 (53 skipped). All six combined pixel arms passed with no error increases; the only additional
 changes beyond the font fix were two pages attributed by revert controls to alpha demultiplication.
-These checks do not replace the pending launch/turn/toolkit timing gates.
+These checks do not replace the separately passed launch/turn/toolkit timing gates.
 
 The deliberate fused-arithmetic reference probe initially lived under `src`, and the unchanged
 `mul_add_hazard` source scan correctly rejected it. It now lives in
@@ -170,4 +170,26 @@ peak 3.76 GiB. Source inventory: 349 paths accounted for, zero omissions; manife
 `a627da3e325bac9ec265d52420e86de9059c5ca698bdf759bbc70733b4cec93e`. Evidence and worker/binary
 hashes are in `/home/AI/arms-1679-selection-final/`; its corpus/vendor links are inventoried external
 inputs, not immutable copies. These final-tree results supersede no rejected timing sample.
-Shipping launch/turn/toolkit acceptance remains pending and is not inferred from correctness.
+The canonical shipping timing gates subsequently passed on the same production source, checkpoint
+`2b6b0939`, using the batch runner's exclusive clock holds and nice 0:
+
+- `t2-turn_path`: exit 0, two tests passed, 186-second hold (94.37 seconds of tests).
+- `t2-launch_path`: exit 0, 361-second hold; six documents, 59 banded figures, zero outside,
+  zero absent/not-counted/unmeasured script stages. Thirteen figures were not judged under the
+  existing carve-out; none was unjudged for load.
+- `t2-toolkit_launch`: the combined GTK/Qt Cargo command exited 0, 293-second hold.
+
+Because the canonical summary alone does not prove that the toolkit figures were judged, the
+current shipping test executables were identified through their release `.d` source provenance
+and run directly, with matching shipping window binaries and sandbox/script workers, under a
+fresh exclusive nice-0 hold. No feature-graph rebuild occurred. Both explicitly reported `judged`:
+GTK load 4.01 before/after, Qt 3.26 before/after. All seven banded figures per window were present
+and within range, with nine fresh launches per lane (18 per window). External activity guards read
+0% GPU before each and 2.05%/2.25% afterward. The hold exited 0 after 26 seconds, peak 0.18 GiB.
+Full output, the seven figures and nine samples each, dep-info provenance, and binary/worker hashes
+are preserved at `/home/AI/toolkit-judged-1676/`. This closes the unjudged-success ambiguity rather
+than treating exit 0 alone as proof that load permitted judgment.
+
+The recorded gate log is `/home/AI/batch-gates-1671-final.log`. Selection is accepted on this
+combined evidence; replay reuse remains deferred. No earlier rejected sample is rehabilitated,
+and neither the observed gain nor the passed bands establish a universal latency guarantee.
