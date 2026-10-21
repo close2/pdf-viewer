@@ -265,7 +265,7 @@ the four holds for a widget.
 
 **The commit is a second command.** `Command::CommitField { field }` reaches
 `editing.rs::commit_typed`, then `Open::commit_field`, then
-`crates/pdf-model/src/view/scripts.rs::commit_field`, which runs the commit's scripts (stage 4) and
+`crates/pdf-model/src/view/scripts/commit.rs::commit_field`, which runs the commit's scripts (stage 4) and
 answers `Committed::Accepted`, `Committed::Refused` with a sentence the host shows, or
 `Committed::Nothing` where nobody was typing. A Tab reaches the same commit without the message: it
 is `Command::Focused`, which raises Table 197's `/Bl` on the widget it leaves, and the field is
@@ -317,7 +317,8 @@ triggers; Adobe's *JavaScript for Acrobat API Reference* ("Form event processing
 this tree follows it as evidence, not as the specification: each keystroke runs `/K` in its typing
 form, inside `set_field`, *before* any widget takes the value; the commit runs `/K` in its commit
 form, then `/V` (validate), then Table 224's `/CO` calculation order, then `/F` (format) wherever a
-runner formats (`crates/pdf-model/src/view/scripts.rs`, ADR 1579 and ADR 1603). A refusal leaves the
+runner formats (`crates/pdf-model/src/view/scripts/commit.rs` and
+`crates/pdf-model/src/view/scripts/calculation.rs`, ADR 1579 and ADR 1603). A refusal leaves the
 field as it was before the typing began, and the sentence reaches the person.
 
 **Two tiers, and only one of them is an engine** (RFC 0008, accepted by the owner).
@@ -342,7 +343,7 @@ script may reach is this document and this viewer and nothing beyond (ADR 1904).
 
 ```mermaid
 flowchart TD
-    TRIG["a trigger: /K per keystroke, /K commit, /V, /CO, /F<br/>pdf-model/src/view/scripts.rs<br/>clause 12.6.3, Table 199, Table 224, ADR 1603"]
+    TRIG["a trigger: /K per keystroke, /K commit, /V, /CO, /F<br/>pdf-model/src/view/scripts/commit.rs<br/>clause 12.6.3, Table 199, Table 224, ADR 1603"]
     SITE["what the script is<br/>pdf-model/src/aform/site.rs::of_widget"]
     T0["Tier 0: one AF call, run natively<br/>pdf-model/src/aform<br/>ADR 1579"]
     RUN["Tier 1: a ScriptRunner the host supplied<br/>viewer-host/src/policy.rs<br/>ADR 1591, ADR 1616"]
@@ -362,6 +363,8 @@ flowchart TD
 ```
 
 **Maintenance note.** Depends on: `crates/pdf-model/src/view/scripts.rs`,
+`crates/pdf-model/src/view/scripts/commit.rs`, `crates/pdf-model/src/view/scripts/events.rs`,
+`crates/pdf-model/src/view/scripts/calculation.rs`, `crates/pdf-model/src/view/scripts/keystroke.rs`,
 `crates/pdf-model/src/aform/site.rs`, `crates/pdf-model/src/aform/mod.rs`,
 `crates/pdf-script/src/lib.rs`, `crates/pdf-script/src/engine/mod.rs`,
 `crates/pdf-script-worker/src/client.rs`, `crates/pdf-script-worker/src/worker.rs`,

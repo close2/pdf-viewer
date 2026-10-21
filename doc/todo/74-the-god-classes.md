@@ -26,7 +26,9 @@ The second block, and the second type by methods once its files are summed. `vie
 root — the state, the types a host names, the constructor, the re-exports and the tests — and ten
 modules each hold an `impl ViewState` for one concern: `settings`, `optional_content`, `annotations`,
 `markup`, `attachments`, `fields`, `field_tree`, `writing`, `pages`, `actions`. The `view/script_*.rs`
-files and `scripts.rs` stay as they were. The entry named eight modules; the field-tree walk
+files remain separate concerns. ADR 2202 splits `scripts.rs`'s method block into
+`commit`, `events`, `edits`, `calculation`, `queries`, `keystroke` and `state` under
+`view/scripts/`; its root keeps the script types, limits and shared helpers. The entry named eight modules; the field-tree walk
 (`field_tree`) and the reading of an annotation (`annotations`) are the two it did not, and the
 fields did not have to be cut last: they call the others through `pub(super)` and no field was
 widened.
