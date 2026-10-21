@@ -32,9 +32,10 @@ reading in one line per row, and the note is where it is argued. The membership 
 - **§7.6.5.1, §7.6.5.2, §7.6.5.3** (`reported`) — the handler is refused by name; the build
   waits on `doc/questions/A66`'s trigger, which `doc/questions/A168` reads as unlit.
 - **§7.6.6** — Table 27, which is the handler's; moves on the same trigger.
-- **§11.7.5.3** — a solid RGB colour selected before a changed BG/UCR pair retains its old
-  converted colour. Recompute from original components at paint; test both operator orders
-  and q/Q. ADR 2187 preserves the pixel witness and separates the deliberate profile bypass.
+- **§11.7.5.3** — uncoloured tiling-pattern tints discard the current BG/UCR pair and retain
+  only a default-converted colour. Carry the tint source to painting; test selection/use order
+  and cache hits. ADR 2199 preserves the witness; ADR 2198 fixes ordinary solids and stencils.
+  The deliberate output-intent profile bypass remains separate.
 - **§12.2** — the WinUI host consumes neither chrome nor placement records yet. Connect
   Table 147's entries and test each on Windows; the deliberate menu/placement departures
   in the other hosts remain.

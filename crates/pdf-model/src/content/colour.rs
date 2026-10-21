@@ -8,7 +8,9 @@ use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::black_generation::BlackGeneration;
-use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
+use crate::colour::{
+    ColourSpace, Compositing, Conversion, ConversionContext, Reading, Separations,
+};
 use crate::icc::{A2b, Rendering};
 
 use super::overprint::ProcessTints;
@@ -129,11 +131,34 @@ impl Interpreter<'_> {
         )
     }
 
+    /// A solid source is converted in the context of its paint, including a stencil image.
+    /// Non-RGB colours retain their existing conversion; §11.7.5.3's BG/UCR rule names RGB.
+    pub(super) fn solid_colour(&mut self, state: &GraphicsState, fill: bool) -> Color {
+        let (rgb, converted) = if fill {
+            (state.fill_rgb, state.fill)
+        } else {
+            (state.stroke_rgb, state.stroke_colour)
+        };
+        let Some(values) = rgb else {
+            return converted;
+        };
+        let context = ConversionContext {
+            into: &self.compositing,
+            rendering: state.rendering(),
+            output_intent: profile_of(self.output_intent.as_ref()),
+            cmyk_group: profile_of(self.cmyk_group.as_ref()),
+            black_generation: state.black_generation.as_ref(),
+            separations: self.separations(),
+            spots: &self.spots_beside,
+        };
+        self.solid_colours.paint(context, values, fill)
+    }
+
     /// How an object painted under `state` converts its colours.
     ///
-    /// The two halves an image's samples, a shading's ramp and a mesh's vertices need and an
-    /// operator's colour does not: those three convert *later*, in `crate::image`,
-    /// `crate::shading` and `crate::mesh`, so the parameters in force have to travel with them.
+    /// Image samples, shading ramps and mesh vertices convert later in `crate::image`,
+    /// `crate::shading` and `crate::mesh`, so the parameters in force travel with them.
+    /// Solid RGB paint also retains this context when remembering a converted colour.
     /// §11.7.5.3 is the clause that says which parameters those are — "\[t]he rendering intent,
     /// black-generation, undercolour-removal and black point compensation parameters control
     /// certain colour conversions … they may need to be applied earlier than the actual
@@ -401,12 +426,15 @@ impl Interpreter<'_> {
         } else {
             self.colour(&space, initial, state)
         };
+        self.seed_solid_colour(state, fill, &space, initial, colour);
         if fill {
+            state.fill_rgb = rgb_source(&space, initial);
             state.fill_tints = cmyk_tints(&space, initial);
             state.fill_space = space;
             state.fill = colour;
             state.fill_pattern = None;
         } else {
+            state.stroke_rgb = rgb_source(&space, initial);
             state.stroke_tints = cmyk_tints(&space, initial);
             state.stroke_space = space;
             state.stroke_colour = colour;
@@ -490,12 +518,15 @@ impl Interpreter<'_> {
             }
         };
 
+        self.seed_solid_colour(state, fill, &read_in, &values, colour);
         let tints = cmyk_tints(&read_in, &values);
         if fill {
             state.fill = colour;
+            state.fill_rgb = rgb_source(&read_in, &values);
             state.fill_tints = tints;
         } else {
             state.stroke_colour = colour;
+            state.stroke_rgb = rgb_source(&read_in, &values);
             state.stroke_tints = tints;
         }
     }
@@ -523,28 +554,56 @@ impl Interpreter<'_> {
     }
 }
 
-/// Assigns a colour to the fill or stroke slot, along with the space that set it.
-///
-/// `g`, `rg` and `k` set a device space and a colour in one operator, so they replace
-/// whatever `cs` had selected — including a pattern.
-pub(super) fn assign_colour(
-    state: &mut GraphicsState,
-    fill: bool,
-    colour: Color,
-    space: ColourSpace,
-    values: &[f32],
-) {
-    let tints = cmyk_tints(&space, values);
-    if fill {
-        state.fill = colour;
-        state.fill_space = space;
-        state.fill_pattern = None;
-        state.fill_tints = tints;
-    } else {
-        state.stroke_colour = colour;
-        state.stroke_space = space;
-        state.stroke_pattern = None;
-        state.stroke_tints = tints;
+impl Interpreter<'_> {
+    /// Assigns a colour to the fill or stroke slot, along with the space that set it.
+    ///
+    /// `g`, `rg` and `k` set a device space and a colour in one operator, so they replace
+    /// whatever `cs` had selected — including a pattern.
+    pub(super) fn assign_colour(
+        &mut self,
+        state: &mut GraphicsState,
+        fill: bool,
+        colour: Color,
+        space: ColourSpace,
+        values: &[f32],
+    ) {
+        self.seed_solid_colour(state, fill, &space, values, colour);
+        let tints = cmyk_tints(&space, values);
+        if fill {
+            state.fill = colour;
+            state.fill_rgb = rgb_source(&space, values);
+            state.fill_space = space;
+            state.fill_pattern = None;
+            state.fill_tints = tints;
+        } else {
+            state.stroke_colour = colour;
+            state.stroke_rgb = rgb_source(&space, values);
+            state.stroke_space = space;
+            state.stroke_pattern = None;
+            state.stroke_tints = tints;
+        }
+    }
+
+    fn seed_solid_colour(
+        &mut self,
+        state: &GraphicsState,
+        fill: bool,
+        space: &ColourSpace,
+        values: &[f32],
+        colour: Color,
+    ) {
+        if let Some(values) = rgb_source(space, values) {
+            let held = SolidColour {
+                conversion: self.conversion(state),
+                components: values.map(f32::to_bits),
+                colour,
+            };
+            if fill {
+                self.solid_colours.fill = Some(held);
+            } else {
+                self.solid_colours.stroke = Some(held);
+            }
+        }
     }
 }
 
@@ -725,4 +784,61 @@ fn is_icc_based(document: &Document, id: ObjectId) -> bool {
         .and_then(<[Object]>::first)
         .and_then(Object::as_name)
         .is_some_and(|name| name.as_bytes() == b"ICCBased")
+}
+
+/// Only the resolved device space is governed by §11.7.5.3's black-generation bullet.
+fn rgb_source(space: &ColourSpace, values: &[f32]) -> Option<[f32; 3]> {
+    if matches!(space, ColourSpace::Rgb) {
+        values.try_into().ok()
+    } else {
+        None
+    }
+}
+
+/// Two bounded memos of pre-alpha paint, keyed by every existing conversion dependency.
+#[derive(Debug, Default)]
+pub(super) struct SolidColours {
+    fill: Option<SolidColour>,
+    stroke: Option<SolidColour>,
+}
+
+/// Keeping the conversion also keeps its identity-bearing profiles and functions alive.
+#[derive(Debug)]
+struct SolidColour {
+    conversion: Conversion,
+    components: [u32; 3],
+    colour: Color,
+}
+
+impl SolidColours {
+    fn paint(&mut self, context: ConversionContext<'_>, values: [f32; 3], fill: bool) -> Color {
+        let slot = if fill {
+            &mut self.fill
+        } else {
+            &mut self.stroke
+        };
+        let components = values.map(f32::to_bits);
+        if let Some(held) = slot
+            && held.components == components
+            && context.matches(&held.conversion)
+        {
+            return held.colour;
+        }
+        let conversion = context.to_owned();
+        let colour = conversion.paint(&ColourSpace::Rgb, &values);
+        *slot = Some(SolidColour {
+            conversion,
+            components,
+            colour,
+        });
+        colour
+    }
+}
+
+/// Profiles are the identity-bearing part of an output intent or CMYK group.
+fn profile_of(space: Option<&ColourSpace>) -> Option<&std::sync::Arc<crate::icc::Profile>> {
+    match space {
+        Some(ColourSpace::Icc { profile }) => Some(profile),
+        _ => None,
+    }
 }

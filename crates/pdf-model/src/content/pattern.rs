@@ -485,7 +485,11 @@ impl Interpreter<'_> {
             self.black_generation_painted |= self
                 .conversion(state)
                 .bypasses_black_generation(&state.fill_space);
-            return state.solid_fill();
+            let colour = self.solid_colour(state, true);
+            return Paint::Solid(pdf_render::Color {
+                a: colour.a * state.fill_alpha,
+                ..colour
+            });
         };
         let pattern = Rc::clone(pattern);
         self.shading_paint(&pattern, state.fill_alpha)
@@ -516,7 +520,11 @@ impl Interpreter<'_> {
             self.black_generation_painted |= self
                 .conversion(state)
                 .bypasses_black_generation(&state.stroke_space);
-            return state.solid_stroke();
+            let colour = self.solid_colour(state, false);
+            return Paint::Solid(pdf_render::Color {
+                a: colour.a * state.stroke_alpha,
+                ..colour
+            });
         };
         let pattern = Rc::clone(pattern);
         self.shading_paint(&pattern, state.stroke_alpha)

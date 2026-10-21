@@ -69,6 +69,11 @@ fn page_group_fixture(
         NESTED.len() + 1
     );
 
+    let cell = "0 0 100 100 re f";
+    let body = format!(
+        "{body}7 0 obj\n<< /Type /Pattern /PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 100 100] /XStep 100 /YStep 100 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        cell.len() + 1
+    );
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -90,6 +95,10 @@ fn page_group_fixture(
 }
 /// Prints the clause-derived colour beside the operator-order witnesses.
 fn main() {
+    if std::env::args().any(|argument| argument == "--cost") {
+        repeated_paint_cost();
+        return;
+    }
     for (name, mark) in [
         ("pair then solid", "/GB gs 0.2 0.4 0.6 rg 0 0 50 100 re f"),
         ("solid then pair", "0.2 0.4 0.6 rg /GB gs 0 0 50 100 re f"),
@@ -106,12 +115,98 @@ fn main() {
             "",
             &content,
         ));
+        save_picture(name, &drawn);
         println!(
             "{name}: {:?}, unsupported {:?}",
             pixel(&drawn, 25, 50),
             drawn.unsupported
         );
     }
+    // The tint path still stores a default-converted colour (ADR 2199); print, do not bless it.
+    let pattern = interpret(page_group_fixture(
+        "/Group << /S /Transparency /CS /DeviceCMYK >>",
+        "",
+        "/ColorSpace << /Pat [/Pattern /DeviceRGB] >> /Pattern << /P 7 0 R >>",
+        "/Pat cs 0.2 0.4 0.6 /P scn 0 0 50 100 re f",
+        "/GB gs 1 0 0 rg /Fm Do /GS gs 0 0 0 0 k 60 0 40 100 re f",
+    ));
+    save_picture("pattern tint", &pattern);
+    println!("pattern tint under pair: {:?}", pixel(&pattern, 25, 50));
     let expected = pdf_model::colour::device_cmyk_blending_space().convert(0.6, 0.4, 0.2, 0.6);
     println!("expected: {:?}", expected.map(|v| (v * 255.0 + 0.5) as u8));
+}
+
+/// Measures whole repeated-paint interpretations; document opening and rasterisation are outside the timer.
+fn repeated_paint_cost() {
+    for (name, group, pair, alternating) in [
+        ("rgb-default", "", "", false),
+        (
+            "cmyk-default",
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "",
+            false,
+        ),
+        (
+            "cmyk-stated",
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "/GB gs",
+            false,
+        ),
+        (
+            "cmyk-alternating",
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "",
+            true,
+        ),
+    ] {
+        let mut content = format!("{pair} 0.2 0.4 0.6 rg ");
+        for index in 0..5000 {
+            if alternating {
+                content.push_str(if index % 2 == 0 {
+                    "0.2 0.4 0.6 rg "
+                } else {
+                    "0.6 0.4 0.2 rg "
+                });
+            }
+            content.push_str("0 0 50 100 re f ");
+        }
+        content.push_str("/GS gs 0 0 0 0 k 60 0 40 100 re f");
+        let document = Document::open(page_group_fixture(group, "", "", "", &content))
+            .expect("the cost fixture is valid");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        // Warm the immutable profiles; the timed repetitions still build fresh interpreters.
+        std::hint::black_box(pdf_model::interpret(&document, &page));
+        let began = std::time::Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(pdf_model::interpret(&document, &page));
+        }
+        println!(
+            "{name}: 20 interpretations x 5000 fills: {:.3} ms",
+            began.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
+/// An optional visual artifact accompanies the arithmetic witness (trap 1).
+fn save_picture(name: &str, interpretation: &pdf_model::Interpretation) {
+    let Some(directory) = std::env::var_os("BLACK_GENERATION_PICTURES") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    std::fs::create_dir_all(&directory).expect("create picture directory");
+    let list = &interpretation.display_list;
+    let target = TargetSpec::for_page(list, 1.0, 1 << 20).expect("bounded picture");
+    let raster = render_cpu::CpuRasterizer::new()
+        .rasterize(list, target)
+        .expect("picture raster");
+    let file = std::fs::File::create(directory.join(format!("{}.png", name.replace(' ', "-"))))
+        .expect("picture output");
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), raster.width, raster.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .expect("PNG header")
+        .write_image_data(&raster.data)
+        .expect("PNG pixels");
 }

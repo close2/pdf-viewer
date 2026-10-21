@@ -50,7 +50,7 @@ mod to_rgb;
 pub use cie::cie_to_srgb;
 pub(crate) use cie::{D50, lab_to_xyz, xyz_d50_to_srgb, xyz_to_lab};
 pub use compositing::{Compositing, Plane};
-pub use conversion::{Conversion, InkScale};
+pub use conversion::{Conversion, ConversionContext, InkScale};
 pub use grey_route::{GreyIdentity, GreyRoute};
 pub(crate) use ink_search::solve_three;
 pub use press::{

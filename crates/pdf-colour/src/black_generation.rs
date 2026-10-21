@@ -257,6 +257,29 @@ mod tests {
             .expect("the fixture names it /G")
     }
 
+    #[test]
+    fn borrowed_conversion_keeps_function_identity_equal_to_the_owned_key() {
+        use crate::colour::Conversion;
+        let document = with("/BG 5 0 R /UCR 6 0 R");
+        let make = || BlackGeneration::read(&document, &state(&document), None).expect("pair");
+        let first = make();
+        let second = make();
+        let conversions = [
+            Conversion::device(),
+            Conversion::device().under_black_generation(Some(first.clone())),
+            Conversion::device().under_black_generation(Some(first)),
+            Conversion::device().under_black_generation(Some(second)),
+        ];
+        for (i, left) in conversions.iter().enumerate() {
+            for (j, right) in conversions.iter().enumerate() {
+                let same = i == j || matches!((i, j), (1, 2) | (2, 1));
+                assert_eq!(left.context().matches(right), same);
+                assert_eq!(left.context().matches(right), left == right);
+            }
+            assert_eq!(left.context().to_owned(), *left);
+        }
+    }
+
     /// ISO 32000-2 §10.4.2.4's conversion, with the functions this file states.
     ///
     /// Every expected value below is the clause's formula worked by hand on the stated

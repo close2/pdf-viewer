@@ -334,11 +334,11 @@ impl Interpreter<'_> {
         // §8.9.6.2 with §8.7.3.3: a stencil "does not specify colours; instead, it
         // designates places where the current colour is painted", and the current colour may
         // be a *pattern*, which is not a colour this or any other command can carry.
-        if matches!(
+        let stencil = matches!(
             self.document.get_key(&stream.dict, "ImageMask"),
             Object::Boolean(true)
-        ) && state.fill_pattern.is_some()
-        {
+        );
+        if stencil && state.fill_pattern.is_some() {
             self.stencil_through_a_pattern(stream, name, resources, state);
             return;
         }
@@ -357,11 +357,16 @@ impl Interpreter<'_> {
         // in its image dictionary" — so it is answered here, where the dictionary is.
         let soft_mask = !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null);
         let transfer = self.mark_transfer(state, Painted::Image { soft_mask });
+        let fill = if stencil {
+            self.solid_colour(state, true)
+        } else {
+            state.fill
+        };
         match self.image_rasters.parts(
             self.document,
             image,
             resources,
-            state.fill,
+            fill,
             &conversion,
             &mut self.image_masks,
         ) {
@@ -372,10 +377,7 @@ impl Interpreter<'_> {
                 contradiction,
             }) => {
                 self.black_generation_painted |= black_generation_bypassed;
-                if matches!(
-                    self.document.get_key(&stream.dict, "ImageMask"),
-                    Object::Boolean(true)
-                ) {
+                if stencil {
                     self.black_generation_painted |= self
                         .conversion(state)
                         .bypasses_black_generation(&state.fill_space);

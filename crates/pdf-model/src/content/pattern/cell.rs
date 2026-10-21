@@ -119,6 +119,9 @@ impl Interpreter<'_> {
         if let Some(tint) = tiling.tint {
             cell.fill = tint;
             cell.stroke_colour = tint;
+            // This tint is already converted; inherited RGB components are not its source.
+            cell.fill_rgb = None;
+            cell.stroke_rgb = None;
             // The colour poured through the stencil is the tint alone, whatever colour the
             // parent stream began with — a pattern colour among them.
             cell.fill_pattern = None;

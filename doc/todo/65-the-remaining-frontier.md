@@ -259,10 +259,10 @@ package, no cross-round architecture. Membership is re-derived from the ledger r
 row is in this bucket when its note names none of those three.
 
 
-- §11.7.5.3 — solid RGB colours selected before a changed BG/UCR pair reuse stale converted
-  colour. Carry the components or conversion dependency to paint and test both orders and q/Q
-  against ADR 2187's arithmetic pixel witness. The output-intent profile bypass remains a
-  separate deliberate departure; the image path now receives the current pair.
+- §11.7.5.3 — uncoloured tiling-pattern tints retain only a default-converted colour,
+  discarding the current BG/UCR pair. Carry the tint source to painting; test selection/use
+  order and cache hits against ADR 2199's witness. Ordinary solids and image stencils now
+  resolve RGB components at paint (ADR 2198). The profile bypass remains a separate departure.
 
 §7.4.9 has a buildable part: implement e-sRGB and e-sYCC from the held PIMA 7667 (A348),
 with extended-range and non-neutral fixtures. Its CIEJab part remains in the unheld-text bucket;

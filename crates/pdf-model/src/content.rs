@@ -187,6 +187,10 @@ struct GraphicsState {
     /// command list and the same mask commonly applies to every object on a page.
     soft_mask: Option<SoftMaskId>,
     fill: Color,
+    /// Source components survive selection: §11.7.5.3 uses the pair current at paint.
+    fill_rgb: Option<[f32; 3]>,
+    /// The stroking source, saved with the colour by `q`/`Q`.
+    stroke_rgb: Option<[f32; 3]>,
     /// The pattern set as the fill colour, if the fill space is `/Pattern`.
     fill_pattern: Option<PatternPaint>,
     /// As above, for stroking.
@@ -368,6 +372,8 @@ impl GraphicsState {
             fill_pattern: None,
             stroke_pattern: None,
             stroke_colour: Color::BLACK,
+            fill_rgb: None,
+            stroke_rgb: None,
             stroke: Stroke::default(),
             blend: BlendMode::Normal,
             fill_alpha: 1.0,
@@ -432,15 +438,9 @@ impl GraphicsState {
 
     /// Returns the fill colour with the constant alpha applied.
     ///
-    /// A *solid* colour only. A shading pattern replaces the colour entirely and PDF has no
-    /// notion of tinting one, but its colours are the mark's to resolve — see
-    /// [`Interpreter::fill_paint`], which is what every painting operator calls and which comes
-    /// back here for the colours a graphics state can answer on its own. A tiling pattern is not
-    /// a paint at all: it is drawn by replaying its content stream, so it leaves the colour
-    /// alone.
-    /// `transfer` is §11.7.5.2's answer for the mark being painted rather than this state's own
-    /// parameter, which is why it arrives as an argument: see [`Interpreter::transfer_for_mark`],
-    /// the one place that decides which of the two a mark gets.
+    /// The cached fill's opacity for marks-only predicates, with the constant alpha applied.
+    /// Painting resolves source components through `Interpreter::solid_colour` instead:
+    /// RGB conversion can change colour after selection, but its opacity remains one.
     fn solid_fill(&self) -> Paint {
         // §10.5's transfer function is not applied here and reaches no colour in this tree:
         // §11.7.5.3's NOTE says its values "are used only when all colour compositing has been
@@ -491,7 +491,7 @@ impl GraphicsState {
     /// alpha value of 1.0" and composites the group "using the originally specified alpha",
     /// so the constants are lifted off the parts and on to the group — and that has to happen
     /// before the parts are painted, because a paint carries the constant inside its colour
-    /// (`GraphicsState::solid_fill`, and `Shading::with_alpha` for a shading pattern). The
+    /// (`Interpreter::fill_paint`, and `Shading::with_alpha` for a shading pattern). The
     /// soft mask stays: the bullet's nouns are the alpha *constants*, and §11.7.4.4's second
     /// bullet spends them the same way (ADR 1170).
     fn with_opaque_constants(&self) -> Self {
@@ -502,7 +502,7 @@ impl GraphicsState {
         }
     }
 
-    /// Returns the stroke colour with the constant alpha applied, as [`GraphicsState::solid_fill`].
+    /// The cached stroke's opacity for marks-only predicates, as [`GraphicsState::solid_fill`].
     fn solid_stroke(&self) -> Paint {
         Paint::Solid(Color {
             a: self.stroke_colour.a * self.stroke_alpha,
@@ -1513,6 +1513,7 @@ impl<'a> Interpreter<'a> {
             icc_spaces: BTreeMap::new(),
             image_masks: crate::image::MaskCache::default(),
             image_rasters: crate::image::RasterCache::default(),
+            solid_colours: colour::SolidColours::default(),
             structure: Arc::new(crate::structure::ParentTree::for_page(document, &page.dict)),
             // §14.8.1's claim first, because it is one dictionary lookup and it is false for all
             // but a sixth of the corpus; the tree only for a document that made it.
@@ -1617,6 +1618,7 @@ impl<'a> Interpreter<'a> {
             icc_spaces: _,
             image_masks: _,
             image_rasters: _,
+            solid_colours: _,
             stream_structures: _,
             clip_extents: _,
             into_parent: _,
@@ -2797,6 +2799,8 @@ struct Interpreter<'a> {
     /// stream. `crate::image::RasterCache` states what the key claims and carries the
     /// measurement.
     image_rasters: crate::image::RasterCache,
+    /// Repeated solid paints share conversion work, but never the mark's current alpha.
+    solid_colours: colour::SolidColours,
     /// §14.7.5.4's structural parent tree for this page, empty for most documents.
     ///
     /// Read once when the page is interpreted, because the lookup it answers — a

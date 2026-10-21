@@ -10,7 +10,7 @@ use std::sync::Arc;
 use pdf_render::{FillRule, Path, PathCommand, Point, Transform};
 use pdf_syntax::{Dictionary, Name, Object};
 
-use super::colour::{Intent, assign_colour};
+use super::colour::Intent;
 use super::font::Font;
 use super::marked::Marked;
 use super::path::{begin_subpath, close_subpath};
@@ -784,7 +784,7 @@ impl Interpreter<'_> {
                     if let Some(grey) = number_at(operands, 0) {
                         let space = self.device_space("DeviceGray", resources);
                         let colour = self.colour(&space, &[grey], &state);
-                        assign_colour(
+                        self.assign_colour(
                             &mut state,
                             operator == Operator::FillGray,
                             colour,
@@ -797,7 +797,7 @@ impl Interpreter<'_> {
                     if let Some(values) = numbers_from::<3>(operands) {
                         let space = self.device_space("DeviceRGB", resources);
                         let colour = self.colour(&space, &values, &state);
-                        assign_colour(
+                        self.assign_colour(
                             &mut state,
                             operator == Operator::FillRgb,
                             colour,
@@ -810,7 +810,7 @@ impl Interpreter<'_> {
                     if let Some(values) = numbers_from::<4>(operands) {
                         let space = self.device_space("DeviceCMYK", resources);
                         let colour = self.colour(&space, &values, &state);
-                        assign_colour(
+                        self.assign_colour(
                             &mut state,
                             operator == Operator::FillCmyk,
                             colour,

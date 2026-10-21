@@ -105,22 +105,79 @@ type ConversionKey<'a> = (
     &'a DeviceSpots,
 );
 
-impl Conversion {
-    /// This value as the tuple every trait below is defined on.
-    fn key(&self) -> ConversionKey<'_> {
+/// A borrowed complete conversion context, for cache lookups without reference-count churn.
+/// Owning conversions retain the identities after a cache miss; both use the same key.
+#[derive(Debug, Clone, Copy)]
+pub struct ConversionContext<'a> {
+    /// The compositing target, including its press and native spots.
+    pub into: &'a Compositing,
+    /// Rendering intent and black point compensation.
+    pub rendering: Rendering,
+    /// The page's output profile.
+    pub output_intent: Option<&'a Arc<crate::icc::Profile>>,
+    /// The group's CMYK profile.
+    pub cmyk_group: Option<&'a Arc<crate::icc::Profile>>,
+    /// The current black-generation and undercolour-removal pair.
+    pub black_generation: Option<&'a Arc<BlackGeneration>>,
+    /// Separation simulation mode.
+    pub separations: Separations,
+    /// Spots carried beside the target.
+    pub spots: &'a DeviceSpots,
+}
+
+impl<'a> ConversionContext<'a> {
+    fn key(&self) -> ConversionKey<'a> {
         (
-            &self.into,
+            self.into,
             self.rendering,
             self.output_intent
                 .as_ref()
                 .map(|profile| profile.identity()),
             self.cmyk_group.as_ref().map(|profile| profile.identity()),
-            self.black_generation
-                .as_ref()
-                .map(BlackGeneration::identity),
+            self.black_generation.map(BlackGeneration::identity),
             self.separations,
-            &self.spots,
+            self.spots,
         )
+    }
+
+    /// Whether an owning conversion has every field of this context.
+    #[must_use]
+    pub fn matches(self, conversion: &Conversion) -> bool {
+        self.key() == conversion.key()
+    }
+
+    /// Retains this complete context, including identity-bearing references.
+    #[must_use]
+    pub fn to_owned(self) -> Conversion {
+        Conversion {
+            into: self.into.clone(),
+            rendering: self.rendering,
+            output_intent: self.output_intent.cloned(),
+            cmyk_group: self.cmyk_group.cloned(),
+            black_generation: self.black_generation.cloned(),
+            separations: self.separations,
+            spots: self.spots.clone(),
+        }
+    }
+}
+
+impl Conversion {
+    /// Borrows every field used by equality and cache lookup.
+    #[must_use]
+    pub fn context(&self) -> ConversionContext<'_> {
+        ConversionContext {
+            into: &self.into,
+            rendering: self.rendering,
+            output_intent: self.output_intent.as_ref(),
+            cmyk_group: self.cmyk_group.as_ref(),
+            black_generation: self.black_generation.as_ref(),
+            separations: self.separations,
+            spots: &self.spots,
+        }
+    }
+
+    fn key(&self) -> ConversionKey<'_> {
+        self.context().key()
     }
 
     /// A conversion into `into`, compensating or not as §8.6.5.9's parameters decide, on a
@@ -412,5 +469,78 @@ impl InkScale {
     #[must_use]
     pub fn mask_value(self, channel: f32) -> f32 {
         1.0 - (self.factor() * (1.0 - channel)).min(1.0)
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+    use crate::icc::{A2b, Profile};
+    use pdf_syntax::Name;
+
+    #[test]
+    fn borrowed_context_preserves_every_non_function_key_field() {
+        let rgb = Arc::new(
+            Profile::parse(include_bytes!("../../../../data/icc/sRGB2014.icc"))
+                .expect("RGB profile"),
+        );
+        let cmyk = Arc::new(
+            Profile::parse(include_bytes!(
+                "../../../../data/icc/GRACoL2006_Coated1v2.icc"
+            ))
+            .expect("CMYK profile"),
+        );
+        let base = Conversion::device();
+        let context = base.context();
+        let grey = Compositing::Grey;
+        let spots = DeviceSpots::new(vec![Name::new(b"Spot".as_slice())], vec![], None);
+        let variants = [
+            context,
+            ConversionContext {
+                into: &grey,
+                ..context
+            },
+            ConversionContext {
+                rendering: Rendering::without_black_point(),
+                ..context
+            },
+            ConversionContext {
+                rendering: Rendering::new(A2b::Perceptual, true),
+                ..context
+            },
+            ConversionContext {
+                output_intent: Some(&rgb),
+                ..context
+            },
+            ConversionContext {
+                output_intent: Some(&cmyk),
+                ..context
+            },
+            ConversionContext {
+                cmyk_group: Some(&rgb),
+                ..context
+            },
+            ConversionContext {
+                cmyk_group: Some(&cmyk),
+                ..context
+            },
+            ConversionContext {
+                separations: Separations::Simulated,
+                ..context
+            },
+            ConversionContext {
+                spots: &spots,
+                ..context
+            },
+        ];
+        for (i, left) in variants.iter().enumerate() {
+            let owned = (*left).to_owned();
+            assert_eq!(owned.context().to_owned(), owned);
+            for (j, right) in variants.iter().enumerate() {
+                let other = (*right).to_owned();
+                assert_eq!(left.matches(&other), i == j);
+                assert_eq!(left.matches(&other), owned == other);
+            }
+        }
     }
 }
